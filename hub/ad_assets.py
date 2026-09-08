@@ -61,6 +61,21 @@ company's creative into another company's library is billed and is not
 undoable from the gallery. A near name is listed as a *did you mean* and never
 acted on.
 
+**It reads Drive as the ad ops login, and never as whichever login answers
+first.** `drive_files.access()` walked the connected Google accounts and took
+the first one carrying the Drive scope -- which on this deployment is
+`smartadops@gmail.com`, and the creative folders are shared with
+`adops@smart1marketing.com`. Two connected logins do not see one Drive, so
+every folder came back `403` and the run reported **108 links, 108 failed**:
+authenticated, healthy at every screen, and reading somebody else's Drive.
+That is not a broken link and it is not an empty folder -- it is the wrong
+account, and the three read identically once a per-link failure is all that
+reaches the page. `drive_account()` names the login, `AD_ASSETS_DRIVE_ACCOUNT`
+overrides it, and an empty value restores the take-whatever-answers behaviour
+for a deployment with no such account. There is deliberately **no fallback**:
+a run that substituted a second login would report a page of broken creative
+links where the honest answer is one refusal naming the login to reconnect.
+
 **Knack is not written to by a migration.** Rewriting the External Creative
 Link fields to point at the library is the right end state and it is a write
 to the system of record, so it is proposed here and applied separately, from
@@ -157,6 +172,31 @@ def _read_store(path: str, legacy: str, default):
     return _read_legacy(legacy, default)
 
 MAX_FILE_MB = int(os.environ.get("AD_ASSETS_MAX_FILE_MB") or 200)
+
+# The Google login the campaign creative is actually shared with. Not the
+# first connected account that happens to carry the Drive scope: that is
+# `smartadops@gmail.com` here, it authenticates perfectly, and every one of
+# this client's 108 folders answered 403 to it.
+DEFAULT_DRIVE_ACCOUNT = "adops@smart1marketing.com"
+
+
+def drive_account() -> str:
+    """Whose Drive this reads, resolved at call time.
+
+    Read per call rather than frozen at import, the rule `_proposals_path()`
+    already works to: this is the value somebody corrects mid-incident once
+    the page has named it, and a constant fixed at import would answer with
+    the old one until a redeploy.
+
+    An **explicitly empty** `AD_ASSETS_DRIVE_ACCOUNT` means *any connected
+    account*, which is what this did before the account was named. Unset means
+    the default. Those are different answers and the distinction is the way
+    out for a deployment that has no ad ops login: emptying the variable is a
+    decision somebody makes, where an unset variable is one nobody has thought
+    about yet.
+    """
+    raw = os.environ.get("AD_ASSETS_DRIVE_ACCOUNT")
+    return (DEFAULT_DRIVE_ACCOUNT if raw is None else str(raw)).strip()
 
 
 # ---------------------------------------------------------------------------
@@ -547,7 +587,7 @@ def library_index(client: str, *, names: list | None = None) -> dict:
 # ---------------------------------------------------------------------------
 
 def migrate(client: str, *, apply: bool = False, actor: str = "",
-            live_only: bool = False, limit: int = 500) -> dict:
+            live_only: bool = False, limit: int = 500, account: str = "") -> dict:
     """Copy one client's Drive creative into their library.
 
     `apply=False` is the honest dry run: it authenticates, walks every folder
@@ -579,10 +619,13 @@ def migrate(client: str, *, apply: bool = False, actor: str = "",
                 "names": variants["names"],
                 "copied": [], "skipped": [], "failed": [], "note": note}
 
-    auth = drive_files.access()
+    wanted = str(account or "").strip() or drive_account()
+    auth = drive_files.access(wanted)
     if not auth["ok"]:
         return {"ok": False, "client": client, "reason": auth["reason"],
                 "error": auth["detail"], "links": len(links),
+                "account_wanted": wanted,
+                "connected": auth.get("connected") or [],
                 "note": "Nothing was read from Drive, so this is not a report "
                         "that there is nothing there."}
     token = auth["token"]
@@ -631,14 +674,63 @@ def migrate(client: str, *, apply: bool = False, actor: str = "",
                                "reason": result.get("reason", "error")})
 
     out = {"ok": True, "client": client, "apply": apply, "account": auth["email"],
+           "account_wanted": wanted,
+           "connected": auth.get("connected") or [],
            "names": variants["names"],
            "links": len(links), "copied": copied, "skipped": skipped,
            "failed": failed,
            "counts": {"copied": len(copied), "skipped": len(skipped),
                       "failed": len(failed)}}
+    out["verdict"] = _verdict(out)
     if apply:
         _record_run(out, actor)
     return out
+
+
+def _verdict(result: dict) -> dict:
+    """One sentence about a run where nothing came across, or {}.
+
+    A run that authenticates and then fails on **every** link is not a list of
+    broken links, and reading it as one is what a page of per-row `refused`
+    invites -- 108 rows saying the same word, each of which looks like a
+    folder somebody moved. Measured on this deployment: 108 of 108, under a
+    login the folders were never shared with, with the page reporting Drive
+    access as healthy directly above it.
+
+    Only where it is unanimous, and only where nothing was copied. A run that
+    copied ninety files and failed on ten has ten broken links, which is
+    exactly what the failed table is for, and a headline over it would be the
+    warning that fires on every run.
+    """
+    failed = result.get("failed") or []
+    if not failed or result.get("copied") or result.get("skipped"):
+        return {}
+    reasons = {str(f.get("reason") or "error") for f in failed}
+    if len(reasons) != 1:
+        return {}
+    reason = reasons.pop()
+    if reason not in ("refused", "missing"):
+        return {}
+    account = result.get("account") or ""
+    detail = (f"All {len(failed)} Drive link(s) were refused by Google, "
+              if reason == "refused" else
+              f"None of the {len(failed)} Drive link(s) could be found, ")
+    detail += (f"reading as {account}. That is one login failing on every "
+               f"folder rather than {len(failed)} broken links: either the "
+               f"creative is shared with a different Google login, or these "
+               f"folders have moved.")
+    # The other connected logins, named rather than left to be guessed at --
+    # the answer `access()` gives one layer up, and the page draws a picker
+    # from the same list. Deliberately *not* "we read as the wrong one": with
+    # no fallback there is no such run, and a branch that cannot fire reads
+    # as a mechanism and is not one.
+    others = [e for e in (result.get("connected") or [])
+              if e.lower() != account.lower()]
+    if others:
+        detail += (f" {len(others)} other Google login(s) are connected to "
+                   f"the Hub: {', '.join(others[:4])}.")
+    return {"kind": reason, "count": len(failed), "account": account,
+            "others": others, "detail": detail}
 
 
 def _folder_for(client: str, link: dict, item: dict) -> str:
@@ -731,6 +823,10 @@ def _record_run(result: dict, actor: str) -> None:
         "client": result.get("client", ""), "actor": actor or "system",
         "counts": result.get("counts", {}),
         "account": result.get("account", ""),
+        # Which login was asked for, beside the one that answered. A run that
+        # copied nothing is read months later, and "which Drive was this?" is
+        # the first question about it.
+        "account_wanted": result.get("account_wanted", ""),
     }
 
     def add(runs):
@@ -874,9 +970,11 @@ def sweep(limit_clients: int = 25, actor: str = "scheduler") -> dict:
     backfill, and the folder full of new creative from last Thursday is
     exactly the one nobody remembers.
     """
-    auth = drive_files.access()
+    auth = drive_files.access(drive_account())
     if not auth["ok"]:
         return {"ok": False, "reason": auth["reason"], "error": auth["detail"],
+                "account_wanted": drive_account(),
+                "connected": auth.get("connected") or [],
                 "clients": 0}
     names = candidates().get("clients", [])[:max(1, int(limit_clients or 25))]
     results, copied = [], 0
@@ -1001,8 +1099,17 @@ def api_lookup():
 
 @bp.route("/api/ad-assets/access")
 def api_access():
-    got = drive_files.access()
+    """Whether Drive can be read, as the login this tool is meant to use.
+
+    `?account=` overrides it for one check, so somebody looking at a refusal
+    can try the login the folders are actually shared with without editing an
+    environment variable first.
+    """
+    wanted = request.args.get("account", "").strip() or drive_account()
+    got = drive_files.access(wanted)
     got.pop("token", None)
+    got["wanted"] = wanted
+    got["default_account"] = drive_account()
     return jsonify(got)
 
 
@@ -1012,6 +1119,7 @@ def api_migrate():
     return jsonify(migrate(str(body.get("client") or ""),
                            apply=bool(body.get("apply")),
                            live_only=bool(body.get("live_only")),
+                           account=str(body.get("account") or ""),
                            actor=_actor()))
 
 
