@@ -264,16 +264,17 @@ check("and the :06 is named", ":06" in text, True)
 # 4. None of it reaches the client
 # ---------------------------------------------------------------------------
 section("A client sees none of the layer that explains our tool to staff")
-with_job = staff.post(MOUNT + f"/api/projects/{pid}/render",
-                      json={"format": "16:9", "force_despite_qc_failures": True})
-job = with_job.get_json()["render_jobs"][0]
+# This test checks review-page visibility, so seed a finished render directly.
+# Rendering an empty storyboard through a QC override is intentionally refused.
 from modules.commercial_builder.db import db                            # noqa: E402
 from modules.commercial_builder.models import RenderJob                 # noqa: E402
 from wsgi import hub_app                                                # noqa: E402
 with hub_app.app_context():
-    row = RenderJob.query.get(job["id"])
-    row.output_url = "https://example.test/spot.mp4"
+    row = RenderJob(project_id=pid, format="16:9", status="succeeded",
+                    output_url="https://example.test/spot.mp4")
+    db.session.add(row)
     db.session.commit()
+
 token = staff.post(MOUNT + f"/api/projects/{pid}/reviews",
                    json={}).get_json()["review"]["token"]
 page = anon.get(f"{MOUNT}/review/{token}").get_data(as_text=True)

@@ -58,12 +58,17 @@ def _client():
 def _chat_json(system, user, max_tokens=1500):
     """Call the Chat Completions API and parse a JSON object response."""
     client = _client()
+    selected_model = profile_model("commercial.text")
+    # Reasoning models reject temperature and the legacy max_tokens field.
+    # Preserve the shared model profile; changing providers is not necessary.
+    options = {"max_tokens": max_tokens, "temperature": 0.8}
+    if re.match(r"^(?:gpt-[56](?:[.-]|$)|o[134](?:[-.]|$))", selected_model):
+        options = {"max_completion_tokens": max(4096, max_tokens * 4), "reasoning_effort": "low"}
     resp = client.chat.completions.create(
-        model=profile_model("commercial.text"),
+        model=selected_model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         response_format={"type": "json_object"},
-        max_tokens=max_tokens,
-        temperature=0.8,
+        **options,
     )
     try:  # record spend so /diagnostics doesn't under-report
         from hub import ai as _hub_ai

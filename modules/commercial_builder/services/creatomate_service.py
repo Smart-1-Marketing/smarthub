@@ -115,6 +115,8 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
         if el_type in ("video", "image") and scene.get("asset_url"):
             element["source"] = scene["asset_url"]
             element["fit"] = "cover"
+        if el_type == "video":
+            element["volume"] = "100%" if scene.get("asset_type") == "spokesperson" else "0%"
         if scene.get("is_cta"):
             element["overlay"] = {
                 "type": "composition",
@@ -152,7 +154,18 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
         })
 
     audio_elements = []
-    if voice_track_url:
+    if music.get("voice_mode") == "scenes" or (not voice_track_url and any(
+            ((s.get("asset_meta") or {}).get("voiceover") or {}).get("audio_url") for s in scenes)):
+        from .media_state import has_presenter
+        for scene in scenes:
+            voice = (scene.get("asset_meta") or {}).get("voiceover") or {}
+            if voice.get("audio_url") and not has_presenter(scene):
+                audio_elements.append({
+                    "id": f"voice_{scene['id']}", "track": TRACK_VOICE, "time": scene["start"],
+                    "duration": scene["end"] - scene["start"], "type": "audio",
+                    "source": voice["audio_url"], "volume": "100%",
+                })
+    elif voice_track_url:
         audio_elements.append({
             "id": "voice", "track": TRACK_VOICE, "time": 0, "type": "audio",
             "source": voice_track_url, "volume": "100%",
@@ -246,6 +259,7 @@ def _presenter_element(scene):
         "type": "video",
         "source": url,
         "fit": "contain",
+        "volume": "100%",
     }
     if meta.get("chroma_key"):
         element["chroma_key"] = {
@@ -309,7 +323,7 @@ def _cta_overlay_elements(cta, project_dict, scene, platform):
     font_weight = "800" if platform in ("ctv", "both") else "700"
 
     elements = [
-        {"type": "text", "text": project_dict.get("title") or client.get("name", ""), "y": "18%",
+        {"type": "text", "text": cta.get("business_name") or client.get("name", ""), "y": "18%",
          "font_size": font_size, "font_weight": font_weight},
         {"type": "text", "text": cta.get("offer", ""), "y": "40%",
          "font_size": font_size, "font_weight": font_weight},

@@ -447,3 +447,12 @@ a.cb-step.done:hover{background:#d5f0e0;}
 /* The attached effect, named on the card itself. An attached asset a rep
    cannot see without reopening the picker is one they attach twice. */
 .sfx-note:not(:empty){color:var(--cb-text-muted);font-size:12px;}
+/* Presenter selection is separate from paid generation and keyboard usable. */
+.cb-presenter-picker { margin-top: 10px; padding: 16px; }
+.cb-presenter-picker label { display: block; margin: 12px 0; }
+.cb-presenter-picker select { display: block; width: 100%; max-width: 100%; margin-top: 6px; }
+.cb-presenter-choice { font: inherit; color: inherit; text-align: left; }
+.cb-presenter-choice img { display: block; width: 100%; height: 140px; object-fit: contain; margin-bottom: 8px; }
+.cb-presenter-choice:focus-visible { outline: 3px solid #2776e8; outline-offset: 3px; }
+.cb-presenter-choice:disabled { opacity: .55; cursor: not-allowed; }
+.cb-presenter-picker audio { max-width: 100%; }

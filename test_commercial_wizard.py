@@ -900,6 +900,27 @@ check("CommercialProject still has no .name",
       hasattr(CommercialProject_cls, "name"), False)
 check("nor .length", hasattr(CommercialProject_cls, "length"), False)
 
+def supply_render_media(project_id):
+    """Approval-flow fixtures need real media URLs; QC overrides cannot create media."""
+    from modules.commercial_builder.models import Scene
+    with hub_app.app_context():
+        project = cb_db.session.get(CommercialProject_cls, project_id)
+        scenes = project.scenes.all()
+        if not scenes:
+            scene = Scene(project_id=project_id, order_index=0, start=0,
+                          end=project.length_seconds, narration="Visit us today.")
+            cb_db.session.add(scene)
+            scenes = [scene]
+        for scene in scenes:
+            scene.asset_type = "stock"
+            scene.asset_url = "https://cdn.example/fixture-stock.mp4"
+            scene.asset_meta = {}
+        cb_db.session.flush()
+        project.music = {"voice_track_url": "https://cdn.example/fixture-narration.mp3"}
+        cb_db.session.commit()
+
+
+supply_render_media(pid)
 rendered = post_json(MOUNT + f"/api/projects/{pid}/render",
                      {"format": "16:9", "force_despite_qc_failures": True})
 check("a render is accepted", rendered.status_code, 200)
@@ -981,6 +1002,7 @@ section("Once one cut is approved, the rest go together")
 three = post_json(MOUNT + "/api/projects", {
     "client_id": client_id, "lengths": [30], "formats": ["16:9", "9:16", "1:1"],
     "commercial_type": "stock_vo", "platform": "social"}).get_json()["projects"][0]["id"]
+supply_render_media(three)
 first = post_json(MOUNT + f"/api/projects/{three}/render",
                   {"format": "16:9", "force_despite_qc_failures": True}).get_json()
 first_job = first["render_jobs"][0]["id"]

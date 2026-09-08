@@ -111,6 +111,12 @@ def submit_render(project_id):
     scenes = [s.to_dict() for s in project.scenes.order_by(Scene.order_index).all()]
     qc = qc_service.run_qc(project.to_dict(include_scenes=False), client.to_dict(), scenes)
     project.qc_results = qc
+    hard_failures = [key for key in ("scene_assets", "media_integrity")
+                     if not qc.get(key, {}).get("passed", False)]
+    if hard_failures:
+        db.session.commit()
+        return jsonify({"ok": False, "error": "Fix missing, unfinished or out-of-date media before rendering.",
+                        "hard_failures": hard_failures, "qc_results": qc}), 409
     if not qc["_all_passed"] and not force:
         db.session.commit()
         return jsonify({"ok": False, "error": "QC checks failed. Fix the flagged items or "

@@ -8,6 +8,7 @@
      never appeared on the panel it was written for. The Blueprint step draws
      the same list; both are complete, and test_commercial_qc.py asserts it. */
   const QC_LABELS = {
+    media_integrity: "Media and narration",
     timing: "Timing", scene_assets: "Footage", voice_fits: "Narration length",
     cta: "CTA", brand: "Brand", resolution: "Resolution", aspect_ratio: "Aspect ratio",
     text_safe_area: "Text safe area", spelling: "Spelling", qr_code: "QR code",
