@@ -23,6 +23,7 @@ addresses, and the monthly quota counter that warns at 900.
 """
 from __future__ import annotations
 
+import os
 import re
 
 import secrets
@@ -32,11 +33,20 @@ from datetime import datetime, timedelta, timezone
 
 DEFAULT_CAP = 50
 DEFAULT_FRESH_DAYS = 30
-
-# Plans live in memory and expire — a stale plan built against yesterday's
-# registry must not be runnable today.
-_PLANS: dict[str, dict] = {}
 _PLAN_TTL = 30 * 60
+
+# Plans used to live in a plain module-level dict, which is the trap this
+# codebase keeps finding: the Hub runs two gunicorn workers, and a POST that
+# builds a plan on one of them is invisible to the other. "Build plan" and
+# "run plan" are two separate requests a load balancer is free to split
+# across workers, and it did — every bulk run failed with "That plan has
+# expired" seconds after a fresh build, on a worker that had simply never
+# heard of the plan id. Plans are on the shared data disk now, through
+# hub/jsonstore.py, so either worker can read what either wrote.
+#
+# A plan is never mirrored to the database (``durable=False``): it is a
+# disposable read of the client registry at one moment, cheap to rebuild by
+# pressing "plan" again, and not something worth a backup-restore path.
 
 
 @dataclass
@@ -58,6 +68,52 @@ class Candidate:
 
 def _now():
     return datetime.now(timezone.utc)
+
+
+def _plans_path() -> str:
+    from hub import jsonstore
+    return os.path.join(jsonstore.data_dir("scans"), "bulk_plans.json")
+
+
+def _save_plan(plan_id: str, entry: dict) -> None:
+    """Store one plan, pruning anything past its TTL in the same write.
+
+    Read, edit, write as one step under ``update_json`` — two workers each
+    saving a plan a moment apart must not have the second overwrite the first
+    with a snapshot that never saw it.
+    """
+    from hub import jsonstore
+    now = time.time()
+
+    def _store(data):
+        data = dict(data or {})
+        data[plan_id] = entry
+        for k, v in list(data.items()):
+            if now - (v.get("at") or 0) > _PLAN_TTL:
+                data.pop(k, None)
+        return data
+
+    jsonstore.update_json(_plans_path(), _store, default={}, durable=False)
+
+
+def _load_plan(plan_id: str) -> dict | None:
+    from hub import jsonstore
+    data = jsonstore.read_json(_plans_path(), default={})
+    return (data or {}).get(plan_id)
+
+
+def _discard_plan(plan_id: str) -> None:
+    """Remove one plan — single use, whichever worker consumes it."""
+    from hub import jsonstore
+
+    def _drop(data):
+        data = dict(data or {})
+        if plan_id not in data:
+            return None                # nothing changed, nothing to write
+        data.pop(plan_id, None)
+        return data
+
+    jsonstore.update_json(_plans_path(), _drop, default={}, durable=False)
 
 
 def _clients():
@@ -214,17 +270,10 @@ def plan(*, cap: int = DEFAULT_CAP, fresh_days: int = DEFAULT_FRESH_DAYS,
         "candidates": [c.as_dict() for c in cands],
         "quota": _quota_note(len(will_scan)),
     }
-    _PLANS[plan_id] = {"at": time.time(), "targets": [c.domain for c in will_scan],
-                       "urls": {c.domain: c.url for c in will_scan},
-                       "names": {c.domain: c.name for c in will_scan}}
-    _prune()
+    _save_plan(plan_id, {"at": time.time(), "targets": [c.domain for c in will_scan],
+                         "urls": {c.domain: c.url for c in will_scan},
+                         "names": {c.domain: c.name for c in will_scan}})
     return payload
-
-
-def _prune():
-    now = time.time()
-    for k in [k for k, v in _PLANS.items() if now - v["at"] > _PLAN_TTL]:
-        _PLANS.pop(k, None)
 
 
 def _quota_note(cost: int) -> dict:
@@ -264,12 +313,12 @@ def run(plan_id: str, *, requested_by: str = "", allow_over_quota: bool = False)
                                    _try_immediate_fetch)
     from modules.scans import insites_client
 
-    entry = _PLANS.get(plan_id)
+    entry = _load_plan(plan_id)
     if not entry:
         return {"error": "That plan has expired. Build a new one so the list "
                          "reflects the current registry."}, 410
     if time.time() - entry["at"] > _PLAN_TTL:
-        _PLANS.pop(plan_id, None)
+        _discard_plan(plan_id)
         return {"error": "That plan has expired. Build a new one."}, 410
 
     targets = entry["targets"]
@@ -280,7 +329,7 @@ def run(plan_id: str, *, requested_by: str = "", allow_over_quota: bool = False)
     if q.get("state") == "over" and not allow_over_quota:
         return {"error": q["message"], "quota": q}, 409
 
-    _PLANS.pop(plan_id, None)          # single use — a plan cannot be re-run
+    _discard_plan(plan_id)              # single use — a plan cannot be re-run
 
     from hub import audit
     log = audit.for_module("scans")
