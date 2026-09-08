@@ -109,10 +109,12 @@ export function validateCampaign(
     // Which hero orientations does this template actually ask for?
     const needed = new Set<string>();
     for (const layout of Object.values(template.sizes)) {
-      if (layout?.hero) needed.add(layout.hero.orientation);
+      if (layout?.hero && !c.hideHero && !c.backgroundImage) needed.add(layout.hero.orientation);
     }
     for (const o of needed) {
-      const src = (c.hero as Record<string, string | undefined>)?.[o];
+      // Match the compositor's fallback when a template omits orientation.
+      const src = (c.hero as Record<string, string | undefined>)?.[o]
+        ?? c.hero?.landscape ?? c.hero?.square ?? c.hero?.vertical;
       if (!src) {
         warn(
           `${at}.hero.${o}`,

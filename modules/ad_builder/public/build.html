@@ -52,6 +52,11 @@
     border-bottom: 1px solid var(--line); white-space: nowrap; overflow-x: auto;
   }
   .bar .btn, .bar select { flex: none; }
+  .bar { height:auto; min-height:56px; flex-wrap:wrap; overflow:visible; padding:8px 16px; gap:8px; }
+  #campaignPick { max-width:min(360px, 80vw); }
+  #saveHint { font-size:12px; white-space:normal; }
+  #qa { position:sticky; top:0; z-index:2; background:var(--panel); max-height:200px; overflow:auto; }
+  .workflow-step { text-decoration:none; border:0; font:inherit; cursor:pointer; }
   .lockup { font-weight: 600; font-size: 15px; letter-spacing: -.01em; }
   /* The workbench is stage five of the same journey that begins in intake.
      Keeping this rail visible gives the editor a destination and makes the
@@ -660,13 +665,9 @@
 
 <div class="workflow" aria-label="Display ad workflow">
   <span class="workflow-title">Display ad workflow</span>
-  <span class="workflow-step done">1. Start</span><span class="workflow-arrow">›</span>
-  <span class="workflow-step done">2. Brief</span><span class="workflow-arrow">›</span>
-  <span class="workflow-step done">3. Brand &amp; assets</span><span class="workflow-arrow">›</span>
-  <span class="workflow-step done">4. Targeting</span><span class="workflow-arrow">›</span>
-  <span class="workflow-step done">5. Message</span><span class="workflow-arrow">›</span>
-  <span class="workflow-step active" id="designStage">6. Design</span><span class="workflow-arrow">›</span>
-  <span class="workflow-step" id="deliverStage">7. Render &amp; deliver</span>
+  <a class="workflow-step" href="/projects">Projects</a><span class="workflow-arrow">›</span>
+  <button type="button" class="workflow-step active" id="designStage">Design &amp; check</button><span class="workflow-arrow">›</span>
+  <button type="button" class="workflow-step" id="deliverStage">Render &amp; deliver</button>
 </div>
 
 <div class="nextstep" id="nextStep" hidden>
@@ -988,8 +989,8 @@
       var key = f[0];
       var v = effective(key);
       var input = f[2] === 'textarea'
-        ? '<textarea data-copy="' + key + '">' + esc(v) + '</textarea>'
-        : '<input type="text" data-copy="' + key + '" value="' + esc(v) + '">';
+        ? '<textarea id="copy-' + key + '" data-copy="' + key + '">' + esc(v) + '</textarea>'
+        : '<input id="copy-' + key + '" type="text" data-copy="' + key + '" value="' + esc(v) + '">';
       // A field label nobody can act on is a field nobody fills in well —
       // but four lines of example copy between every field is the column you
       // then have to scroll past for ever. Same words, behind a dot.
@@ -1006,7 +1007,7 @@
             : 'No size in this layout family draws it \u2014 try another layout.') +
           '</div>';
       }
-      return '<div class="field"><label>' + f[1] + hint + '</label>' + absent + input +
+      return '<div class="field"><label for="copy-' + key + '">' + f[1] + hint + '</label>' + absent + input +
         scopeControl(key) + '</div>';
     }).join('');
 
@@ -1047,7 +1048,8 @@
         '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="famNote"></div></div>' +
       '<div class="group"><h3>Background</h3>' +
         '<div class="bgmodes">' +
-          '<button type="button" class="bgmode' + (concept().backgroundImage ? '' : ' on') + '" data-bgmode="none">Solid brand color</button>' +
+          '<button type="button" class="bgmode' + (!concept().backgroundImage && concept().hideHero ? ' on' : '') + '" data-bgmode="none">No image</button>' +
+          '<button type="button" class="bgmode' + (!concept().backgroundImage && !concept().hideHero ? ' on' : '') + '" data-bgmode="hero">Use original image</button>' +
           '<button type="button" class="bgmode" data-bgmode="gallery">From their image gallery</button>' +
           '<button type="button" class="bgmode" data-bgmode="upload">Upload a picture</button>' +
         '</div>' +
@@ -1062,7 +1064,8 @@
         '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="bgNote">' +
           (concept().backgroundImage
             ? 'A photo background is applied to this concept.'
-            : 'This concept uses the flat brand color.') +
+            : concept().hideHero ? 'No image is shown. The layout uses its solid colors.'
+              : 'The layout uses its original hero image where it has an image slot.') +
         '</div>' +
         backgroundAdjust() +
         '</div>' +
@@ -1079,8 +1082,8 @@
         help('Only families the renderer has installed will render. An unknown ' +
              'name falls back to the default face and is flagged in the checks ' +
              'on the right, rather than failing.') + '</h3>' +
-        '<div class="field"><label>Headline face</label><input type="text" data-font="headline" value="' + esc(b.fonts.headline) + '"></div>' +
-        '<div class="field"><label>Body face</label><input type="text" data-font="body" value="' + esc(b.fonts.body) + '"></div>' +
+        '<div class="field"><label for="headline-font">Headline face</label><input id="headline-font" type="text" data-font="headline" value="' + esc(b.fonts.headline) + '"></div>' +
+        '<div class="field"><label for="body-font">Body face</label><input id="body-font" type="text" data-font="body" value="' + esc(b.fonts.body) + '"></div>' +
         '<div id="siteType"></div>' +
       '</div>' +
       // This heading used to read "Text boxes for 300x250" and it was not
@@ -1271,9 +1274,17 @@
   }
 
   function isApproved(size) {
-    return (state.approvals || []).some(function (a) {
-      return a.conceptId === state.conceptId && a.platform === state.platform &&
-             a.size === (size || state.size);
+    var sz = size || state.size;
+    return platformsForSize(sz).every(function (platform) {
+      return (state.approvals || []).some(function (a) {
+        return a.conceptId === state.conceptId && a.platform === platform && a.size === sz;
+      });
+    });
+  }
+
+  function platformsForSize(size) {
+    return (state.platforms || ['google']).filter(function (p) {
+      return !state.platformSizes || (state.platformSizes[p] || []).indexOf(size) >= 0;
     });
   }
 
@@ -1314,11 +1325,40 @@
                     'approved. Render the set once and it will have one.', true);
       return;
     }
-    post('/api/project/' + encodeURIComponent(pid) + '/approve-size', {
-      conceptId: state.conceptId, platform: state.platform,
-      size: size, approved: approved,
-    })
-      .then(function (d) {
+    if (approved && (size !== state.size || !state.previewReady)) {
+      showNextSteps('Open this size and wait for a successful preview before approving it.', true);
+      return;
+    }
+    if (state.approving) return;
+    function submit(acceptWarnings) {
+      return post('/api/project/' + encodeURIComponent(pid) + '/approve-size', {
+        conceptId: state.conceptId, platform: platformsForSize(size)[0],
+        size: size, approved: approved, revision: state.doc.revision, acceptWarnings: acceptWarnings,
+      }).then(function (d) {
+        if (d && d.requiresWarningAcceptance) {
+          return ask('Approve with these warnings?', d.warnings.join('\n'),
+            [['Keep editing', false], ['Accept warnings and approve', true]])
+            .then(function (accept) { return accept ? submit(true) : null; });
+        }
+        if (d && d.error) throw new Error(d.error + (d.findings ? ' ' + d.findings.map(function (f) { return f.detail; }).join(' ') : ''));
+        return d;
+      });
+    }
+    var start = state.dirty && approved
+      ? ask('Save and approve this size?', 'Approval checks the saved artwork for every platform delivering this size.',
+          [['Save and check', true], ['Keep editing', false]])
+        .then(function (yes) { if (!yes) return false; return saveCampaign().then(function () { return true; }); })
+      : Promise.resolve(true);
+    start.then(function (yes) {
+      if (!yes) return null;
+      state.approving = true;
+      $('controls').inert = true;
+      $('campaignPick').disabled = true;
+      $('conceptPick').disabled = true;
+      showNextSteps(approved ? 'Rendering and checking the saved artwork…' : 'Removing approval…');
+      return submit(false);
+    }).then(function (d) {
+        if (!d) return;
         if (!d || !d.approvals) {
           // A refused write must not be read as "no approvals": that would
           // silently unlock every size somebody had signed off.
@@ -1329,9 +1369,16 @@
         // The server's list, not a local guess: two people can be in here.
         state.approvals = d.approvals;
         drawControls(); drawRail();
+        preview();
+        showNextSteps(approved ? 'This size is approved for every platform that delivers it. Its saved artwork is locked.' : 'Approval removed. This size can be edited.');
       })
-      .catch(function () {
-        showNextSteps('That approval did not save. Nothing has changed.', true);
+      .catch(function (err) {
+        showNextSteps(err.message || 'That approval did not save. Nothing has changed.', true);
+      }).finally(function () {
+        state.approving = false;
+        $('controls').inert = false;
+        $('campaignPick').disabled = false;
+        $('conceptPick').disabled = false;
       });
   }
 
@@ -2395,8 +2442,9 @@
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-bgmode]'),
       function (el) { el.classList.toggle('on', el === btn); });
 
-    if (mode === 'none') {
+    if (mode === 'none' || mode === 'hero') {
       var c0 = concept();
+      c0.hideHero = mode === 'none';
       delete c0.backgroundImage;
       delete c0.backgroundOverlay;
       delete c0.backgroundOverlayColor;
@@ -2404,7 +2452,9 @@
       state.dirty = true;
       drawControls();
       var n0 = $('bgNote');
-      if (n0) n0.textContent = 'This concept uses the flat brand color.';
+      if (n0) n0.textContent = mode === 'none'
+        ? 'No image is shown. The layout uses its solid colors.'
+        : 'The layout uses its original hero image where it has an image slot.';
       preview();
       return;
     }
@@ -2881,8 +2931,8 @@
           if (out.landing && out.landing.url) bits.push('Read from ' + out.landing.url + '.');
           if (r.source === 'fallback') {
             bits.push('Assembled from the campaign\u2019s own answers \u2014 ' +
-                      'the writing model is not configured, so this is not a draft ' +
-                      'from the page.');
+                      'the writing model did not produce this draft. Review it manually or try drafting again. ' +
+                      (r.warnings || []).join(' '));
           }
           note.textContent = bits.join(' ');
         })
@@ -3247,14 +3297,27 @@
   /* -------------------------------------------------------------- preview */
   var timer = null;
   function schedule() {
+    invalidatePreview();
+    refreshStage();
     clearTimeout(timer);
     timer = setTimeout(function () { preview(); refreshCarry(); }, 320);
+  }
+
+  function invalidatePreview() {
+    ++inflight;
+    state.previewReady = false;
+    $('preview').removeAttribute('src');
+    $('preview').alt = 'Preview updating — approval is unavailable until checks finish';
+    $('dims').textContent = 'Updating preview…';
   }
 
   var inflight = 0;
   function preview() {
     var c = concept(); if (!c) return;
-    var mine = ++inflight;
+    refreshStage();
+    state.platform = platformsForSize(state.size)[0] || state.platform;
+    invalidatePreview();
+    var mine = inflight;
     $('canvas').classList.add('busy');
     fetch('/api/preview', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -3267,8 +3330,10 @@
       .then(function (res) {
         if (mine !== inflight) return;               // a newer edit already won
         $('canvas').classList.remove('busy');
-        if (!res.ok) { drawQa([{ check: 'preview', status: 'fail', detail: res.b.error }]); return; }
+        if (!res.ok) { $('dims').textContent = 'Preview unavailable'; drawQa([{ check: 'preview', status: 'fail', detail: res.b.error }]); return; }
         $('preview').src = res.b.image;
+        $('preview').alt = 'Preview for ' + state.size;
+        state.previewReady = res.b.status !== 'fail';
         $('dims').textContent = res.b.width + ' x ' + res.b.height;
         state.sizeStatus[state.size] = { status: res.b.status };
         state.resolvedStyle = res.b.style || null;
@@ -3277,14 +3342,19 @@
         drawQa(res.b.qa);
         markRail();
       })
-      .catch(function () { $('canvas').classList.remove('busy'); });
+      .catch(function () {
+        if (mine !== inflight) return;
+        $('canvas').classList.remove('busy');
+        $('dims').textContent = 'Preview unavailable — try again';
+        drawQa([{ check: 'preview', status: 'fail', detail: 'The preview could not load. Your edits are still on screen. Change a field or select this size again to retry.' }]);
+      });
   }
 
   /* ----------------------------------------------------------- size rail */
   function drawRail() {
     var sizes = railSizes();
     var left = unapprovedSizes().length;
-    $('rail').innerHTML =
+    $('rail').innerHTML = '<div class="qa" id="qa" role="status" aria-live="polite"></div>' +
       '<div style="padding:14px 16px 4px">' +
         '<h3 style="margin:0 0 4px;font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2)">' +
         'Sizes' +
@@ -3306,11 +3376,10 @@
           '<button type="button" class="ok' + (ok ? ' on' : '') + '" data-approve="' + esc(sz) + '"' +
             ' title="' + (ok ? 'Approved — click to unapprove and edit again'
                              : 'Approve this size and lock it') + '"' +
-            ' aria-pressed="' + (ok ? 'true' : 'false') + '">' +
+            ' aria-label="' + (ok ? 'Unapprove ' : 'Approve ') + esc(sz) + '" aria-pressed="' + (ok ? 'true' : 'false') + '">' +
             (ok ? '\u2713' : '\u25CB') + '</button>' +
           '</div>';
       }).join('') +
-      '<div class="qa" id="qa"></div>' +
       (state.doc.notes && state.doc.notes.length
         ? '<details class="notes"><summary>From intake' +
           '<span class="notecount">' + state.doc.notes.length + '</span></summary>' +
@@ -3339,7 +3408,7 @@
      ordinary way to lose an hour here was to work through four sizes and
      close the tab. */
   function goToSize(size) {
-    if (size === state.size) return;
+    if (size === state.size) { preview(); return; }
     if (!state.dirty) return showSize(size);
     ask(
       'Save your changes first?',
@@ -3362,6 +3431,7 @@
   }
 
   function showSize(size) {
+    if (state.approving) return;
     state.size = size;
     drawControls(); drawRail(); preview(); refreshCarry();
     refreshOverrideNote();
@@ -3435,6 +3505,10 @@
 
   function drawQa(list) {
     var el = $('qa'); if (!el) return;
+    list = (list || []).slice();
+    (state.doc.notes || []).filter(function (note) {
+      return /copy|model|openai/i.test(note) && /fell back|form answers|no .*key|fail|not configured|error/i.test(note);
+    }).forEach(function (note) { list.push({ check: 'Copy needs review', status: 'warn', detail: note + ' Review the copy manually or use “Draft the copy from their website” to retry.' }); });
     if (!list || !list.length) { el.innerHTML = '<h3>Checks</h3><div class="clean">All checks pass.</div>'; return; }
     el.innerHTML = '<h3>Checks</h3><ul>' + list.map(function (f, i) {
       var fixBtn = f.fix && f.fix.action === 'shorten'
@@ -3507,7 +3581,8 @@
            is not saving it, so `saved` starts false however finished the
            build is. */
         state.rendered = !!doc.reportUrl;
-        state.saved = false;
+        state.saved = true;
+        state.dirty = false;
         /* The page this campaign points at, and the analysis of it if one has
            been taken. Both live on the project record and neither used to
            reach this screen, so every "write this for me" and "draw me a
@@ -3599,19 +3674,23 @@
             : 'Saved, and every size is approved. Nothing is delivered to the ' +
               'client yet \u2014 here is what is left.');
       })
-      .catch(function () {
+      .catch(function (err) {
         btn.disabled = false;
-        showNextSteps('That did not save. Your edits are still on screen; try again.', true);
+        showNextSteps(err.message || 'That did not save. Your edits are still on screen; try again.', true);
       });
   });
 
   function saveCampaign() {
+    var requestId = state.requestId;
+    var sent = JSON.stringify(state.doc);
     return fetch('/api/campaign/' + encodeURIComponent(state.requestId), {
       method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(state.doc)
-    }).then(function (r) {
-      if (!r.ok) throw new Error('save failed');
-      state.dirty = false;
+      body: sent
+    }).then(function (r) { return r.json().then(function (body) {
+      if (!r.ok) throw new Error(body.error || 'The campaign could not be saved.');
+      if (requestId !== state.requestId) return body;
+      state.dirty = JSON.stringify(state.doc) !== sent;
+      state.doc.revision = body.revision;
       /* Here rather than in the Save button's handler, because every other
          path that saves -- switching size with unsaved edits, duplicating a
          set, starting a render -- leaves the server holding exactly what is
@@ -3619,8 +3698,8 @@
          people learn to resent. */
       state.saved = true;
       refreshStage();
-      return r;
-    });
+      return body;
+    }); });
   }
 
   function projectIdForCurrent() {
@@ -3876,7 +3955,11 @@
   });
 
   $('renderAll').addEventListener('click', function () {
-    askRenderAction().then(function (act) {
+    Promise.resolve().then(function () { return state.dirty ? saveCampaign() : null; })
+    .then(function () {
+      if (state.dirty) throw new Error('New edits arrived while saving. Save them before rendering.');
+      return askRenderAction();
+    }).then(function (act) {
       if (!act) return;
       if (act === 'zip') return packageZip();
       if (act === 'file') return fileOnlyStep();
@@ -3884,7 +3967,7 @@
         if (sizes === false) return;
         startRender(sizes, act === 'render-file');
       });
-    });
+    }).catch(function (err) { showNextSteps(err.message || 'Rendering could not start.', true); });
   });
 
   /* Which sizes, when there is more than one.
@@ -4262,17 +4345,20 @@
   function refreshStage() {
     var pid = projectIdOf();
 
-    $('renderAll').style.display = state.saved ? '' : 'none';
+    $('renderAll').style.display = '';
+    $('renderAll').disabled = !state.doc;
+    $('renderAll').textContent = state.dirty ? 'Save and render…' : 'Render…';
     // Same gate as Render: it reads the saved build, not what is on screen.
     var presetBtn = $('savePreset');
-    if (presetBtn) presetBtn.style.display = state.saved ? '' : 'none';
+    if (presetBtn) { presetBtn.style.display = ''; presetBtn.disabled = !state.saved || state.dirty; presetBtn.title = state.dirty ? 'Save your changes before creating a preset.' : 'Reuse this saved design.'; }
     // Motion is built from the saved static design, so it appears at the same
     // moment Render does and for the same reason.
     var animBtn = $('animate');
-    if (animBtn) animBtn.style.display = state.saved ? '' : 'none';
+    if (animBtn) { animBtn.style.display = ''; animBtn.disabled = !state.saved || state.dirty; animBtn.title = state.dirty ? 'Save your changes before adding animation.' : 'Add animation to this saved design.'; }
     $('save').classList.toggle('primary', !state.saved);
     $('renderAll').classList.toggle('primary', state.saved);
-    $('saveHint').style.display = state.saved ? 'none' : '';
+    $('saveHint').style.display = '';
+    $('saveHint').textContent = state.dirty ? 'Unsaved changes' : 'Saved version loaded';
 
     var designStage = $('designStage');
     var deliverStage = $('deliverStage');
@@ -4362,12 +4448,15 @@
      the same list for whoever else has this campaign open. */
   function loadApprovals() {
     var pid = projectIdOf();
+    var requestId = state.requestId;
     if (!pid) { state.approvals = []; return; }
     fetch('/api/project/' + encodeURIComponent(pid))
       .then(function (r) { return r.json(); })
       .then(function (proj) {
+        if (state.requestId !== requestId) return;
         state.approvals = proj.approvals || [];
         drawControls(); drawRail();
+        preview();
       })
       .catch(function () { /* an unreadable record is no approvals, not a lock */ });
   }
@@ -4474,13 +4563,11 @@
     }
     $('campaignPick').innerHTML = list.map(function (c) {
       var flag = c.status === 'proof-sent' ? '⚠ NEEDS REVISION — ' : c.status === 'approved' ? '✓ ' : '';
-      return '<option value="' + esc(c.requestId) + '">' + flag + esc(c.client) + ' — ' + esc(c.campaignName) + '</option>';
+      return '<option value="' + esc(c.requestId) + '">' + flag + esc(c.projectName || (c.client + ' — ' + c.campaignName)) + ' · ' + esc(c.status || 'draft') + ' · ' + esc((c.updated || '').slice(0, 10)) + ' · ' + esc(c.requestId.slice(-6)) + '</option>';
     }).join('');
     var pre = new URLSearchParams(location.search).get('request');
     loadCampaign(pre && list.some(function (c) { return c.requestId === pre; }) ? pre : list[0].requestId);
   });
-})();
-
   /* ======================================================== the animator ====
 
      Motion, added after the static design exists.
@@ -5090,6 +5177,9 @@
     leaveIfSafe('the animation panel', openAnimator);
   });
 
+  $('designStage').addEventListener('click', function () { $('controls').scrollTop = 0; });
+  $('deliverStage').addEventListener('click', function () { $('renderAll').click(); });
+
   /* ---- health dot: quiet poll of diagnostics, click through when off ---- */
   (function () {
     var el = document.getElementById('health');
@@ -5108,6 +5198,7 @@
     check();
     setInterval(check, 5 * 60 * 1000);
   })();
+})();
 </script>
 </body>
 </html>

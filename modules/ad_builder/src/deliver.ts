@@ -41,6 +41,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as zlib from 'node:zlib';
+import { createHash } from 'node:crypto';
+import { artworkFingerprint, readCampaign } from './campaign-state';
+import { placeholderFindings } from './asset-quality';
+import type { SizeKey } from './types';
 import type { Manifest, ManifestEntry } from './manifest';
 import type { AnimationRecord, Project } from './projects';
 import { slug } from './cloudinary';
@@ -282,6 +286,32 @@ export async function deliverProject(
     const override = overrides.find(
       (o) => o.conceptId === concept && o.size === e.size && o.platform === e.platform,
     );
+    // Old manifests predate placeholder QA. Recheck the source rather than
+    // trusting an old green status to make draft imagery deliverable.
+    const savedFile = path.join(opts.outDir, 'campaigns', `${project.requestId}.json`);
+    if (!override && fs.existsSync(savedFile)) {
+      const saved = readCampaign(savedFile);
+      const creative = saved.campaign.concepts.find(c => c.conceptId === concept);
+      if (creative && placeholderFindings(saved.campaign.brand, creative, e.size as SizeKey).length) {
+        skipped.push({ size: `${e.platform}/${e.size}`, reason: 'Placeholder artwork must be replaced and rendered again before delivery.' });
+        continue;
+      }
+    }
+    const signed = (project.approvals ?? []).filter(a => a.conceptId === concept && a.size === e.size && (e.platforms ?? [e.platform]).includes(a.platform));
+    if (signed.length) {
+      const campaignFile = path.join(opts.outDir, 'campaigns', `${project.requestId}.json`);
+      const assetRoot = fs.existsSync(path.join(__dirname, '..', 'public')) ? path.resolve(__dirname, '..') : path.resolve(__dirname, '..', '..');
+      try {
+        const current = readCampaign(campaignFile);
+        const fileHash = createHash('sha256').update(fs.readFileSync(override?.file ?? e.localFile)).digest('hex');
+        if (signed.some(a => !a.inputHash || !a.fileHash || a.inputHash !== artworkFingerprint(current, a, assetRoot) || a.fileHash !== fileHash)) {
+          throw new Error('The rendered file differs from the reviewed artwork. Unapprove, review and approve this size again.');
+        }
+      } catch (error: any) {
+        skipped.push({ size: `${e.platform}/${e.size}`, reason: error.message || 'Approved artwork could not be verified.' });
+        continue;
+      }
+    }
     if (override && fs.existsSync(override.file)) {
       shipped.push({ entry: e, overridden: true, finalFile: override.file });
       continue;

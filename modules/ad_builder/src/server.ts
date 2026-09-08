@@ -16,10 +16,11 @@ import { withBase } from './basepath.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
-import type { Campaign, SizeKey } from './types';
+import type { Campaign, SizeKey, QaFinding } from './types';
 import { validateCampaign } from './validate';
 import { enqueue, getJob, listJobs, startWorkerLoop, recoverJobs, startWatchdog } from './jobs';
-import { renderPreview, renderAnimatedPreview } from './render';
+import { renderPreview, renderAnimatedPreview, renderOne } from './render';
+import { CampaignConflict, campaignRevision, artworkFingerprint, readCampaign, saveCampaignDocument } from './campaign-state';
 import { buildCampaign, type Submission } from './intake';
 import { loadPlatforms, loadTemplates, acceptPlatforms, renderableSizes } from './registry';
 import { carriedInto, needsReview, styleForSize } from './carry';
@@ -59,7 +60,8 @@ import { renderOverview, renderOverviewPdf } from './overview';
 import { ALLOWED_FORMATS, assetUrlIsSafe, folderFor, generatedImagePath, signUpload, type AssetKind } from './assets';
 import { CloudinaryService, slug } from './cloudinary';
 
-const ROOT = path.resolve(__dirname, '..', '..');
+const ROOT = fs.existsSync(path.join(__dirname, '..', 'public'))
+  ? path.resolve(__dirname, '..') : path.resolve(__dirname, '..', '..');
 const OUT = process.env.OUTPUT_DIR ?? path.join(ROOT, 'out');
 const PUBLIC = path.join(ROOT, 'public');
 const PORT = Number(process.env.PORT ?? 3000);
@@ -1006,6 +1008,8 @@ const server = http.createServer(async (req, res) => {
       }
 
       project.overrides = project.overrides ?? [];
+      const locked = () => projects.get(project.projectId)?.approvals?.some(a => a.conceptId === conceptId && a.size === size);
+      if (locked()) throw new CampaignConflict('Unapprove this size before replacing or removing its artwork.');
 
       if (body.remove) {
         const before = project.overrides.length;
@@ -1048,6 +1052,8 @@ const server = http.createServer(async (req, res) => {
       }
 
       const dir = path.join(OUT, 'overrides', project.requestId);
+      if (locked()) throw new CampaignConflict('This size was approved while the replacement was being checked. Unapprove it first.');
+      Object.assign(project, projects.get(project.projectId));
       fs.mkdirSync(dir, { recursive: true });
       const file = path.join(dir, `${conceptId}_${platform}_${size}.${fmt}`);
       fs.writeFileSync(file, data);
@@ -1155,16 +1161,83 @@ const server = http.createServer(async (req, res) => {
       if (!project) return json(res, 404, { error: 'No such project' });
       const body = JSON.parse(await readBody(req, 20_000)) as {
         conceptId?: string; platform?: string; size?: string; approved?: boolean;
+        revision?: string; acceptWarnings?: boolean;
       };
       const { conceptId, platform, size } = body;
       if (!conceptId || !platform || !size) {
         return json(res, 400, { error: 'conceptId, platform and size are required' });
       }
-      const approvals = projects.setApproval(
-        project, { conceptId, platform, size }, body.approved !== false,
-        (req.headers['x-s1-user'] as string) || undefined,
-      );
-      return json(res, 200, { approvals });
+      const campFile = path.join(OUT, 'campaigns', `${project.requestId}.json`);
+      const doc = readCampaign(campFile);
+      const selected = doc.campaign.concepts.find(c => c.conceptId === conceptId);
+      if (!selected) return json(res, 422, { error: 'No such concept in this campaign.' });
+      // The editor signs off a size across every platform that delivers it.
+      const platforms = (doc.platforms ?? ['google']).filter(p => getPlatform(p).sizes[size as SizeKey]);
+      if (!platforms.includes(platform) || !getTemplate(selected.layoutFamily).sizes[size as SizeKey]) {
+        return json(res, 422, { error: 'This placement is not part of the saved campaign.' });
+      }
+      if (body.approved === false) {
+        project.approvals = (project.approvals ?? []).filter(a => a.conceptId !== conceptId || a.size !== size);
+        projects.save(project);
+        return json(res, 200, { approvals: project.approvals });
+      }
+      const revision = campaignRevision(doc);
+      if (body.revision !== revision) throw new CampaignConflict('Save the latest campaign before approving this size.');
+      const records = [];
+      const warnings: string[] = [];
+      const approvalDir = path.join(OUT, 'approvals', project.requestId, revision, crypto.randomUUID());
+      for (const p of platforms) {
+        const key = { conceptId, platform: p, size };
+        const inputHash = artworkFingerprint(doc, key, ROOT);
+        const override = project.overrides?.find(o => o.conceptId === conceptId && o.platform === p && o.size === size);
+        let rendered: { file: string; qa: QaFinding[] };
+        if (override) {
+          const bytes = fs.readFileSync(override.file);
+          const metadata = await sharp(bytes).metadata();
+          const rule = getPlatform(p).sizes[size as SizeKey]!;
+          const [w, h] = size.split('x').map(Number);
+          if (!['png', 'jpeg'].includes(metadata.format ?? '') || bytes.length > rule.maxFileBytes ||
+              metadata.width !== w * rule.deliverScale || metadata.height !== h * rule.deliverScale) {
+            return json(res, 422, { error: `The replacement for ${size} on ${p} has invalid format, dimensions or file weight.` });
+          }
+          fs.mkdirSync(approvalDir, { recursive: true });
+          const artifact = path.join(approvalDir, `${p}-${size}.${metadata.format === 'jpeg' ? 'jpg' : 'png'}`);
+          fs.writeFileSync(artifact, bytes);
+          rendered = { file: artifact, qa: [{ check: 'manual-artwork-review', status: 'warn',
+            detail: 'This is a manually edited file. Review its copy, imagery, contrast and branding. Automatic checks cover only format, dimensions and file weight.' }] };
+        } else {
+          rendered = await renderOne({ brand: doc.campaign.brand, concept: selected,
+            platform: p, size: size as SizeKey, assetRoot: ROOT, outDir: approvalDir });
+        }
+        const failures = rendered.qa.filter(f => f.status === 'fail');
+        if (failures.length) return json(res, 422, { error: `Fix ${size} on ${p} before approving.`, findings: failures });
+        const acceptedWarnings = rendered.qa.filter(f => f.status === 'warn').map(f => `${p}: ${f.detail}`);
+        acceptedWarnings.push(...(doc.notes ?? []).filter((note: string) => /copy|model|openai/i.test(note) && /fell back|form answers|no .*key|fail|not configured|error/i.test(note)));
+        warnings.push(...acceptedWarnings);
+        records.push({ ...key, at: new Date().toISOString(), by: (req.headers['x-s1-user'] as string) || undefined,
+          inputHash, campaignRevision: revision, artifact: rendered.file,
+          fileHash: crypto.createHash('sha256').update(fs.readFileSync(rendered.file)).digest('hex'), acceptedWarnings });
+      }
+      if (warnings.length && !body.acceptWarnings) return json(res, 422, {
+        error: 'Review these warnings before approving.', requiresWarningAcceptance: true, warnings,
+      });
+      const latest = readCampaign(campFile);
+      if (campaignRevision(latest) !== revision || records.some(a => artworkFingerprint(latest, a, ROOT) !== a.inputHash)) {
+        throw new CampaignConflict('The artwork changed while it was being checked. Review the latest preview and approve again.');
+      }
+      const fresh = projects.get(project.projectId)!;
+      const signs = (p: Project) => JSON.stringify((p.approvals ?? []).filter(a => a.conceptId === conceptId && a.size === size));
+      if (signs(fresh) !== signs(project)) throw new CampaignConflict('Approval changed in another session during review. Reload the current approval state.');
+      for (const record of records) {
+        const before = project.overrides?.find(o => o.conceptId === conceptId && o.platform === record.platform && o.size === size);
+        const after = fresh.overrides?.find(o => o.conceptId === conceptId && o.platform === record.platform && o.size === size);
+        if (before?.file !== after?.file || (after && crypto.createHash('sha256').update(fs.readFileSync(after.file)).digest('hex') !== record.fileHash)) {
+          throw new CampaignConflict('The replacement file changed during review. Open the latest file and approve again.');
+        }
+      }
+      fresh.approvals = [...(fresh.approvals ?? []).filter(a => a.conceptId !== conceptId || a.size !== size), ...records];
+      projects.save(fresh);
+      return json(res, 200, { approvals: fresh.approvals });
     }
 
     // In-place rebuild. The heart of "revisions happen in the same window":
@@ -1203,6 +1276,7 @@ const server = http.createServer(async (req, res) => {
 
       const doc = JSON.parse(fs.readFileSync(campFile, 'utf8'));
       const campaign = doc.campaign;
+      const originalRevision = campaignRevision(doc);
 
       // --- apply logo edit ---
       if (body.logo) {
@@ -1346,7 +1420,8 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      fs.writeFileSync(campFile, JSON.stringify(doc, null, 2));
+      saveCampaignDocument(campFile, doc, originalRevision, projects.get(project.projectId), ROOT);
+      Object.assign(project, projects.get(project.projectId));
 
       const platforms: string[] = (doc.platforms as string[])
         ?? (campaign.platforms as string[])
@@ -1653,6 +1728,7 @@ const server = http.createServer(async (req, res) => {
       };
       const fam = ['T01', 'T02', 'T03'].includes(body.layoutFamily ?? '') ? body.layoutFamily! : 'T01';
       const doc = JSON.parse(fs.readFileSync(campFile, 'utf8'));
+      const originalRevision = campaignRevision(doc);
       for (const c of doc.campaign.concepts) c.layoutFamily = fam;
       if (body.colors) {
         if (body.colors.accent) doc.campaign.brand.colors.accent = body.colors.accent;
@@ -1670,8 +1746,8 @@ const server = http.createServer(async (req, res) => {
           }
         }
       }
-      fs.writeFileSync(campFile, JSON.stringify(doc, null, 2));
       const project = projects.byRequest(requestId);
+      saveCampaignDocument(campFile, doc, originalRevision, project, ROOT);
       const platforms: string[] = doc.platforms ?? ['google'];
       const job = enqueue({ campaign: doc.campaign, platforms, upload: false, outDir: OUT, assetRoot: ROOT });
       if (project) { project.autoJobId = job.id; project.status = 'in-build'; projects.save(project); }
@@ -2148,6 +2224,7 @@ const server = http.createServer(async (req, res) => {
             requestId,
             client: d.campaign?.brand?.name ?? 'Unknown',
             campaignName: d.campaign?.campaignName ?? '',
+            projectName: proj?.projectName,
             concepts: (d.campaign?.concepts ?? []).length,
             notes: (d.notes ?? []).length,
             status: proj?.status ?? 'draft',
@@ -2176,6 +2253,7 @@ const server = http.createServer(async (req, res) => {
         const lastBatch = proj?.batches[proj.batches.length - 1];
         return json(res, 200, {
           ...doc,
+          revision: campaignRevision(doc),
           status: proj?.status,
           reportUrl: lastBatch?.reportUrl,
           // What was read off the client's own page, and the page it was read
@@ -2191,9 +2269,9 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'PUT') {
         const body = JSON.parse(await readBody(req, 500_000));
         if (!body?.campaign?.brand) return json(res, 400, { error: 'Body must include a campaign' });
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(file, JSON.stringify(body, null, 2));
-        return json(res, 200, { saved: true, requestId: campMatch[1] });
+        if (!fs.existsSync(file)) return json(res, 404, { error: 'No such campaign' });
+        const revision = saveCampaignDocument(file, body, body.revision, projects.byRequest(campMatch[1]), ROOT);
+        return json(res, 200, { saved: true, requestId: campMatch[1], revision });
       }
     }
 
@@ -2478,6 +2556,7 @@ const server = http.createServer(async (req, res) => {
       const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
       const campaign: Campaign | undefined = doc.campaign;
       if (!campaign?.brand) return json(res, 409, { error: 'That saved build has no campaign in it.' });
+      const originalRevision = campaignRevision(doc);
 
       const body = JSON.parse(await readBody(req, 500_000)) as {
         conceptId?: string;
@@ -2493,7 +2572,7 @@ const server = http.createServer(async (req, res) => {
         const c = campaign.concepts.find((x) => x.conceptId === body.conceptId);
         if (!c) return json(res, 404, { error: `No concept ${body.conceptId} on that build` });
         c.animation = body.animation;
-        fs.writeFileSync(file, JSON.stringify(doc, null, 2));
+        saveCampaignDocument(file, doc, originalRevision, projects.byRequest(requestId), ROOT);
       }
 
       const wanted = campaign.concepts.filter(
@@ -2830,6 +2909,10 @@ const server = http.createServer(async (req, res) => {
       if (!body?.campaign) return json(res, 400, { error: 'Body must include a `campaign` object' });
 
       const platforms = body.platforms ?? ['google'];
+      const savedFile = path.join(OUT, 'campaigns', `${body.campaign.requestId}.json`);
+      if (fs.existsSync(savedFile) && campaignRevision(readCampaign(savedFile)) !== campaignRevision({ campaign: body.campaign, platforms })) {
+        throw new CampaignConflict('The render does not match the saved campaign. Save or reload the latest version before rendering.');
+      }
       // Validate in-request so a bad brand font is a 400, not a job that fails
       // silently in a worker ten seconds later.
       const findings = validateCampaign(body.campaign, { assetRoot: ROOT, platforms });
@@ -2878,7 +2961,7 @@ const server = http.createServer(async (req, res) => {
     return json(res, 404, { error: `No route for ${route}` });
   } catch (err: any) {
     console.error(`[error] ${route}`, err);
-    return json(res, 500, { error: err?.message ?? 'Internal error' });
+    return json(res, err instanceof CampaignConflict ? 409 : 500, { error: err?.message ?? 'Internal error' });
   }
 });
 

@@ -1,7 +1,7 @@
 {
   "id": "T01",
-  "name": "Split image",
-  "description": "Copy on one side, hero on the other. The safest default for lead generation, home services, automotive, healthcare and professional services. Reading order: brand, benefit, outcome, action.",
+  "name": "Image and copy",
+  "description": "Separate image and copy areas, adapted to each size: the rectangle places the image above the copy, while wider formats use a horizontal arrangement. Suits lead generation, home services, automotive, healthcare and professional services. Reading order: brand, benefit, outcome, action.",
   "sizes": {
     "300x250": {
       "canvas": {

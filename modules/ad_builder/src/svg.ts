@@ -18,6 +18,7 @@ export interface ComposeInput {
   brand: Brand;
   copy: CopySet;
   hero: HeroSet;
+  hideHero?: boolean;
   scale: number;
   /** false renders background only — used to sample contrast under text. */
   includeText?: boolean;
@@ -485,7 +486,7 @@ export async function compose(input: ComposeInput): Promise<ComposeOutput> {
   }
 
   /* ---------------------------------------------------------------- hero */
-  if (layout.hero && !input.backgroundImage) {
+  if (layout.hero && !input.backgroundImage && !input.hideHero) {
     const hb = layout.hero;
     const src = hero[hb.orientation] ?? hero.landscape ?? hero.square ?? hero.vertical;
     const img = src ? await dataUri(abs(src)) : null;

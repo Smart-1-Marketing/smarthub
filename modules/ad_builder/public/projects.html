@@ -188,7 +188,7 @@
       return '<tr data-request="' + esc(p.requestId) + '">' +
         '<td><div class="name">' + esc(p.projectName) + '</div><div class="client">' + esc(p.client) + ' — ' + esc(p.campaignName) + '</div></td>' +
         '<td><span class="pill ' + esc(p.status) + '">' + esc(STATUS_LABEL[p.status] || p.status) + '</span></td>' +
-        '<td class="ads">' + adCount + (adCount === 1 ? ' ad' : ' ads') + '</td>' +
+        '<td class="ads" title="All rendered files across this project’s build history, including rerenders">' + adCount + (adCount === 1 ? ' render' : ' renders') + '</td>' +
         '<td class="files">' + filesCell + '</td>' +
         '<td class="date">' + fmtDate(p.createdAt) + '</td>' +
         '<td class="date">' + fmtDate(p.updatedAt) + '</td>' +
@@ -196,7 +196,7 @@
     }).join('');
 
     $('results').innerHTML =
-      '<table><thead><tr><th>Project</th><th>Status</th><th>Creative</th><th>Files</th><th>Created</th><th>Updated</th></tr></thead>' +
+      '<table><thead><tr><th>Project</th><th>Status</th><th>Render history</th><th>Delivered files</th><th>Created</th><th>Updated</th></tr></thead>' +
       '<tbody>' + rows + '</tbody></table>';
 
     Array.prototype.forEach.call($('results').querySelectorAll('tr[data-request]'), function (tr) {
