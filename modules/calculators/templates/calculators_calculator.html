@@ -16,7 +16,12 @@ body{margin:0;font-family:Inter,-apple-system,Segoe UI,Arial,sans-serif;backgrou
 .s1-wrap{max-width:980px;margin:0 auto;padding:{{ '0' if embedded else '28px 18px' }}}
 .s1-card{background:var(--white);border:1px solid var(--line);border-radius:18px;box-shadow:0 12px 35px rgba(15,39,71,.08);overflow:hidden}
 .s1-head{padding:28px;background:linear-gradient(135deg,var(--navy),#183f73);color:#fff}
-.s1-head h1{margin:0 0 8px;font-size:clamp(24px,4vw,36px);line-height:1.08}
+/* This page is chrome-free in every configuration it is actually served in,
+   so theme.css's global `h1, h2 { color: var(--s1-navy) }` never reaches it
+   today -- but it is the same header as calculators_internal.html, which
+   is not chrome-free, and that rule painted its title navy-on-navy. Set
+   explicitly rather than left to rely on staying chrome-free forever. */
+.s1-head h1{margin:0 0 8px;font-size:clamp(24px,4vw,36px);line-height:1.08;color:#fff}
 .s1-head p{margin:0;opacity:.92;max-width:760px}
 .s1-body{padding:24px}
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}

@@ -30,7 +30,9 @@
   background: var(--navy); color: #fff; padding: 18px 24px;
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
 }
-.tkt-bar h1 { font-size: 19px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+/* theme.css's global `h1, h2 { color: var(--s1-navy) }` otherwise wins over
+   this bar's inherited white, painting the title navy-on-navy. */
+.tkt-bar h1 { font-size: 19px; margin: 0; font-weight: 650; letter-spacing: -0.01em; color: #fff; }
 .tkt-bar .sub { color: #9fb6c9; font-size: 13px; margin-left: 4px; }
 .tkt-bar .spacer { flex: 1 1 auto; }
 .tkt-wrap { max-width: 1220px; margin: 0 auto; padding: 22px 24px 64px; }
