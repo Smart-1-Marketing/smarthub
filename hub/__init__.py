@@ -6218,35 +6218,47 @@ def create_hub_app() -> Flask:
         # `export_state()` is the honest signal and is already shared with the
         # dashboard and hub/housekeeping.py: the month the export was
         # generated *for*, against the calendar.
+        #
+        # A missing fallback file only matters when Knack itself cannot be
+        # reached — `_product_source()` says which happened, the same
+        # live-or-fallback read Client 360 already goes through, so a
+        # deployment where Knack answers live is never reported broken over
+        # an unused, optional backup file.
         state = knack_data.export_state()
         age = knack_data.data_age_hours()
-        if age is None:
+        _prows, _psrc, _pminutes = knack_data._product_source()  # noqa: SLF001
+        if _psrc == "knack":
+            _wsrc = knack_data.websites_source()
+            add("Smart 1 Team data", "ok",
+                f"Live from Knack, {_pminutes} min old · {len(_prows)} product "
+                f"rows · {len(knack_data.websites())} sites "
+                f"({'live from Knack' if _wsrc == 'knack' else 'private fallback'}).")
+        elif age is None:
+            from . import knack_api
             add("Smart 1 Team data", "error",
-                "No private products fallback is configured or readable.")
+                ("Knack is not configured (KNACK_APP_ID/KNACK_API_KEY not set), "
+                 if not knack_api.configured() else
+                 "Knack is configured but could not be reached, ")
+                + "and no private products fallback is configured or "
+                  "readable — there is no source for client products at all.")
         elif state["stale"]:
             add("Smart 1 Team data", "warn",
-                f"The private fallback products export is for {state['label']}, and "
-                f"it is now {state['current_label']}. It is only read when "
-                "Knack cannot be reached, but that is when it matters.")
+                f"Knack could not be reached. The private fallback products "
+                f"export is for {state['label']}, and it is now "
+                f"{state['current_label']}.")
         elif not state["period"]:
             # Neither stale nor current: it carries no month at all, so
             # nothing can say how old it is. Named rather than passed off as
             # fresh — the whole failure this row had.
             add("Smart 1 Team data", "warn",
-                "The private fallback products export carries no month, so how old "
-                "it is cannot be measured. It is the fallback for when Knack "
-                "cannot be reached.")
+                "Knack could not be reached, and the private fallback "
+                "products export carries no month, so how old it is cannot "
+                "be measured.")
         else:
-            # The site count says which source answered. Products and websites
-            # each prefer the live Knack object and fall back to the private
-            # export, and a count with no source on it reads as live whichever
-            # it was — which is the whole reason the export went unnoticed.
-            _wsrc = knack_data.websites_source()
-            add("Smart 1 Team data", "ok",
-                f"Export is current ({state['label']}) · "
-                f"{len(knack_data.products())} product rows · "
-                f"{len(knack_data.websites())} sites "
-                f"({'live from Knack' if _wsrc == 'knack' else 'private fallback'}).")
+            add("Smart 1 Team data", "warn",
+                f"Knack could not be reached — showing the private fallback "
+                f"export instead ({state['label']}) · {len(_prows)} product "
+                f"rows · {len(knack_data.websites())} sites.")
 
         # --- GHL ---
         token, company = _cfg.ghl_token, _cfg.ghl_company_id
