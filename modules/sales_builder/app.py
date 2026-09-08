@@ -4863,7 +4863,7 @@ def api_share_create(qid):
                                  project=q.quote_number or f"proposal-{q.id}",
                                  actor=_signed_in_as())
         except Exception:                               # noqa: BLE001
-            pass
+            pass  # best-effort -- masking must never be what stops a send
         return jsonify({"ok": True, "share": _share_state(db, q)})
     finally:
         db.close()

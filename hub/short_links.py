@@ -219,7 +219,7 @@ def _error_detail(resp) -> str:
         if msg:
             return str(msg)
     except ValueError:
-        pass
+        pass  # a non-JSON body carries nothing to quote; the status code still does
     return f"Short.io answered {resp.status_code}."
 
 
@@ -344,7 +344,7 @@ def mask(url: str, *, client: str, project: str, when: datetime | None = None,
                   project=project, domain=domain, path=record["path"],
                   short_url=short_url)
     except Exception:                                   # noqa: BLE001
-        pass
+        pass  # best-effort -- a broken activity log must not undo a link that was made
 
     return {"ok": True, "reused": False, **record}
 
