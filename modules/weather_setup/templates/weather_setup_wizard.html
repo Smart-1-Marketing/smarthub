@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ campaign.client }} — Weather Trigger Setup</title>
+<style>
+  :root{color-scheme:light}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f4f6f9;
+       color:#1a2b3c;margin:0;padding:0 0 60px}
+  header{background:#0f2540;color:#fff;padding:22px 24px}
+  header h1{font-size:19px;margin:0}
+  header .reading{font-size:13px;color:#a9c2dd;margin-top:4px}
+  main{max-width:760px;margin:0 auto;padding:24px}
+  .steps{display:flex;gap:6px;margin-bottom:22px}
+  .steps div{flex:1;height:4px;border-radius:2px;background:#dbe2ea}
+  .steps div.done,.steps div.active{background:#2563eb}
+  .panel{background:#fff;border-radius:12px;padding:24px;box-shadow:0 1px 8px rgba(0,0,0,.06)}
+  .panel h2{margin:0 0 6px;font-size:19px}
+  .panel .lede{color:#5a6b7c;margin:0 0 20px;font-size:14px}
+  .cap-note{font-size:12px;color:#8a97a3;margin-bottom:14px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:560px){.grid{grid-template-columns:1fr}}
+  .trig-card{border:1px solid #e1e6eb;border-radius:10px;padding:14px;cursor:pointer;
+             transition:border-color .15s}
+  .trig-card.picked{border-color:#2563eb;background:#f0f5ff}
+  .trig-card.disabled{opacity:.45;cursor:not-allowed}
+  .trig-card h3{margin:0 0 4px;font-size:15px}
+  .trig-card p{margin:0 0 8px;font-size:12.5px;color:#5a6b7c;line-height:1.4}
+  .trig-card code{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;
+                  background:#eef1f4;padding:2px 6px;border-radius:4px;color:#33424f}
+  .trig-card .approx{font-size:11px;color:#a06a12;margin-top:6px}
+  .angle-block{border:1px solid #e1e6eb;border-radius:10px;padding:16px;margin-bottom:14px}
+  .angle-block h3{margin:0 0 10px;font-size:14px}
+  .draft{border:1px solid #e1e6eb;border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer}
+  .draft.selected{border-color:#2563eb;background:#f0f5ff}
+  .draft .headline{font-weight:600;font-size:14px}
+  .draft .primary{font-size:13px;color:#33424f;margin-top:4px}
+  .draft .tag{display:inline-block;font-size:10.5px;color:#5a6b7c;
+              border:1px solid #d6dde5;border-radius:10px;padding:1px 8px;margin-top:6px}
+  .draft .warn{display:block;font-size:11px;color:#a03a12;margin-top:6px}
+  textarea{width:100%;border:1px solid #d6dde5;border-radius:6px;padding:8px;
+           font-size:13px;font-family:inherit;margin-top:8px;min-height:52px}
+  .imgtabs{display:flex;gap:8px;margin-bottom:12px}
+  .imgtabs button{background:#eef1f4;border:none;border-radius:6px;padding:6px 12px;
+                  font-size:12.5px;cursor:pointer}
+  .imgtabs button.on{background:#2563eb;color:#fff}
+  .imgrow{display:flex;gap:8px}
+  .imgrow input{flex:1;padding:8px 10px;border:1px solid #d6dde5;border-radius:6px}
+  .imggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+  .imggrid .tile{position:relative;border-radius:8px;overflow:hidden;cursor:pointer;
+                 border:2px solid transparent;aspect-ratio:4/3;background:#eef1f4}
+  .imggrid .tile img{width:100%;height:100%;object-fit:cover;display:block}
+  .imggrid .tile.selected{border-color:#2563eb}
+  .imggrid .tile .credit{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.55);
+                         color:#fff;font-size:9.5px;padding:2px 5px}
+  .review-row{display:flex;justify-content:space-between;border-bottom:1px solid #eef1f4;
+             padding:10px 0}
+  .review-row .name{font-weight:600;font-size:13.5px}
+  .review-row .cond{font-size:12px;color:#5a6b7c}
+  .btnrow{display:flex;justify-content:space-between;margin-top:22px}
+  button.primary{background:#2563eb;color:#fff;border:none;border-radius:7px;
+                 padding:10px 20px;font-size:14px;cursor:pointer}
+  button.primary:disabled{opacity:.5;cursor:default}
+  button.ghost{background:none;border:1px solid #d6dde5;color:#33424f;
+              border-radius:7px;padding:10px 20px;font-size:14px;cursor:pointer}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12px;font-weight:600;color:#5a6b7c;margin-bottom:4px}
+  .field input{width:100%;padding:9px 10px;border:1px solid #d6dde5;border-radius:6px;font-size:14px}
+  .banner{padding:12px 14px;border-radius:8px;font-size:13px;margin-bottom:16px;display:none}
+  .banner.show{display:block}
+  .banner.err{background:#fdeceb;color:#9c2b25}
+  .banner.ok{background:#eafaf0;color:#0a6b3c}
+  .wo{font-size:28px;font-weight:700;color:#0f2540;margin:10px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>{{ campaign.client }}</h1>
+  <div class="reading">
+    {% if campaign.location_name %}Current reading: {{ campaign.location_name }}
+      {% if campaign.zip_code %}({{ campaign.zip_code }}){% endif %}
+    {% elif campaign.zip_code %}ZIP {{ campaign.zip_code }}
+    {% else %}Weather Trigger Setup{% endif %}
+  </div>
+</header>
+<main>
+  <div class="steps">
+    <div id="step-dot-0"></div><div id="step-dot-1"></div>
+    <div id="step-dot-2"></div><div id="step-dot-3"></div><div id="step-dot-4"></div>
+  </div>
+  <div class="panel">
+    <div id="banner" class="banner"></div>
+    <div id="step-root"></div>
+  </div>
+</main>
+
+<script type="application/json" id="wx-boot">{{ boot | tojson }}</script>
+<script>
+(function () {
+  "use strict";
+  var BOOT = JSON.parse(document.getElementById("wx-boot").textContent);
+  var TOKEN = BOOT.token;
+  var MAX_TRIGGERS = BOOT.max_triggers;
+  var CATALOG = BOOT.catalog;
+  var campaign = BOOT.campaign;
+  var stepIndex = 0;
+  var picked = (campaign.picks || []).map(function (p) { return p.trigger_id; });
+  var activeTrigger = null;
+
+  var root = document.getElementById("step-root");
+  var banner = document.getElementById("banner");
+
+  function api(path, opts) {
+    opts = opts || {};
+    opts.headers = opts.headers || {};
+    if (opts.body && typeof opts.body !== "string" && !(opts.body instanceof FormData)) {
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(opts.body);
+    }
+    return fetch("/wx/" + TOKEN + path, opts).then(function (r) {
+      return r.json().then(function (data) { return {status: r.status, data: data}; });
+    });
+  }
+
+  function showBanner(ok, message) {
+    banner.className = "banner show " + (ok ? "ok" : "err");
+    banner.textContent = message;
+  }
+  function hideBanner() { banner.className = "banner"; }
+
+  function refresh() {
+    api("/api/state").then(function (res) {
+      if (res.data.ok) {
+        campaign = res.data.campaign;
+        picked = (campaign.picks || []).map(function (p) { return p.trigger_id; });
+        render();
+      }
+    });
+  }
+
+  function trigOf(id) {
+    for (var i = 0; i < CATALOG.length; i++) if (CATALOG[i].id === id) return CATALOG[i];
+    return null;
+  }
+  function pickOf(id) {
+    for (var i = 0; i < (campaign.picks || []).length; i++)
+      if (campaign.picks[i].trigger_id === id) return campaign.picks[i];
+    return null;
+  }
+
+  function setDots() {
+    for (var i = 0; i < 5; i++) {
+      var d = document.getElementById("step-dot-" + i);
+      d.className = i < stepIndex ? "done" : (i === stepIndex ? "active" : "");
+    }
+  }
+
+  function renderStart() {
+    root.innerHTML =
+      "<h2>Let's set up your weather-triggered ads</h2>" +
+      "<p class=\"lede\">In a few steps you'll pick up to " + MAX_TRIGGERS +
+      " weather conditions worth advertising on, approve the wording and a" +
+      " picture for each, and we'll take it from there.</p>" +
+      "<div class=\"btnrow\"><span></span>" +
+      "<button class=\"primary\" id=\"wx-begin\">Let's go</button></div>";
+    document.getElementById("wx-begin").addEventListener("click", function () {
+      stepIndex = 1; render();
+    });
+  }
+
+  function renderPickTriggers() {
+    var cards = CATALOG.map(function (t) {
+      var isPicked = picked.indexOf(t.id) !== -1;
+      var disabled = !isPicked && picked.length >= MAX_TRIGGERS;
+      var cls = "trig-card" + (isPicked ? " picked" : "") + (disabled ? " disabled" : "");
+      var approx = t.approximated ? "<div class=\"approx\">" + escapeHtml(t.approximated) + "</div>" : "";
+      return "<div class=\"" + cls + "\" data-id=\"" + t.id + "\">" +
+        "<h3>" + escapeHtml(t.name) + "</h3>" +
+        "<p>" + escapeHtml(t.reason) + "</p>" +
+        "<code>" + escapeHtml(t.condition_label) + "</code>" + approx + "</div>";
+    }).join("");
+    root.innerHTML =
+      "<h2>Choose your triggers</h2>" +
+      "<p class=\"lede\">Pick up to " + MAX_TRIGGERS + ". Once chosen, a trigger " +
+      "runs all year — this list is just ordered for what's coming up.</p>" +
+      "<div class=\"cap-note\" id=\"cap-note\"></div>" +
+      "<div class=\"grid\">" + cards + "</div>" +
+      "<div class=\"btnrow\"><button class=\"ghost\" id=\"wx-back\">Back</button>" +
+      "<button class=\"primary\" id=\"wx-next\">Continue</button></div>";
+    updateCapNote();
+    Array.prototype.forEach.call(root.querySelectorAll(".trig-card"), function (card) {
+      card.addEventListener("click", function () {
+        var id = card.getAttribute("data-id");
+        var idx = picked.indexOf(id);
+        if (idx !== -1) { picked.splice(idx, 1); }
+        else if (picked.length < MAX_TRIGGERS) { picked.push(id); }
+        else { showBanner(false, "You can run up to " + MAX_TRIGGERS + " triggers at once. Drop one to add another."); return; }
+        hideBanner();
+        renderPickTriggers();
+      });
+    });
+    document.getElementById("wx-back").addEventListener("click", function () { stepIndex = 0; render(); });
+    document.getElementById("wx-next").addEventListener("click", function () {
+      if (!picked.length) { showBanner(false, "Choose at least one trigger."); return; }
+      api("/api/picks", {method: "POST", body: {trigger_ids: picked}}).then(function (res) {
+        if (!res.data.ok) { showBanner(false, res.data.error || "Could not save."); return; }
+        campaign = res.data.campaign; hideBanner(); stepIndex = 2; render();
+      });
+    });
+  }
+
+  function updateCapNote() {
+    var el = document.getElementById("cap-note");
+    if (el) el.textContent = picked.length + " of " + MAX_TRIGGERS + " chosen.";
+  }
+
+  function renderWording() {
+    if (!picked.length) { stepIndex = 1; render(); return; }
+    var html = "<h2>Approve the wording</h2><p class=\"lede\">Three angles per " +
+      "trigger. Pick the one that sounds like you.</p><div id=\"wx-angles\"></div>" +
+      "<div class=\"btnrow\"><button class=\"ghost\" id=\"wx-back\">Back</button>" +
+      "<button class=\"primary\" id=\"wx-next\" disabled>Continue</button></div>";
+    root.innerHTML = html;
+    document.getElementById("wx-back").addEventListener("click", function () { stepIndex = 1; render(); });
+    var nextBtn = document.getElementById("wx-next");
+    nextBtn.addEventListener("click", function () { stepIndex = 3; render(); });
+    var anglesEl = document.getElementById("wx-angles");
+    var loaded = 0;
+
+    picked.forEach(function (id) {
+      var trig = trigOf(id);
+      var block = document.createElement("div");
+      block.className = "angle-block";
+      block.innerHTML = "<h3>" + escapeHtml(trig ? trig.name : id) + "</h3><div class=\"drafts\">Loading…</div>";
+      anglesEl.appendChild(block);
+      var draftsEl = block.querySelector(".drafts");
+
+      var pick = pickOf(id);
+      var have = pick && pick.ad_json && pick.ad_json.length ? Promise.resolve({ok: true, drafts: pick.ad_json}) :
+        api("/api/copy/" + id, {method: "POST"}).then(function (res) { return res.data; });
+
+      have.then(function (data) {
+        loaded++;
+        if (!data.ok) { draftsEl.textContent = data.error || "Could not load wording."; return; }
+        pick = pickOf(id) || {};
+        renderDrafts(draftsEl, id, data.drafts, pick.selected_variant);
+        checkComplete();
+      });
+    });
+
+    function checkComplete() {
+      var all = picked.every(function (id) {
+        var p = pickOf(id);
+        return p && p.selected_variant !== null && p.selected_variant !== undefined;
+      });
+      nextBtn.disabled = !all;
+    }
+
+    function renderDrafts(el, triggerId, drafts, selected) {
+      el.innerHTML = "";
+      drafts.forEach(function (d, i) {
+        var div = document.createElement("div");
+        div.className = "draft" + (selected === i ? " selected" : "");
+        var warn = d.needs_review ? "<span class=\"warn\">" + escapeHtml(d.note || "Confirm the offer before launch.") + "</span>" : "";
+        div.innerHTML = "<div class=\"headline\">" + escapeHtml(d.headline) + "</div>" +
+          "<div class=\"primary\">" + escapeHtml(d.primary_text) + "</div>" +
+          "<span class=\"tag\">" + escapeHtml(d.angle) + "</span>" + warn;
+        div.addEventListener("click", function () {
+          api("/api/variant", {method: "POST", body: {trigger_id: triggerId, variant_index: i}}).then(function (res) {
+            if (!res.data.ok) { showBanner(false, res.data.error || "Could not save."); return; }
+            campaign = res.data.campaign; hideBanner();
+            renderDrafts(el, triggerId, drafts, i);
+            checkComplete();
+          });
+        });
+        el.appendChild(div);
+      });
+    }
+  }
+
+  function renderImages() {
+    if (!picked.length) { stepIndex = 1; render(); return; }
+    root.innerHTML = "<h2>Choose a picture</h2><p class=\"lede\">One picture per " +
+      "trigger, from stock, your own gallery, an upload, or one we create from " +
+      "your wording.</p><div id=\"wx-imgblocks\"></div>" +
+      "<div class=\"btnrow\"><button class=\"ghost\" id=\"wx-back\">Back</button>" +
+      "<button class=\"primary\" id=\"wx-next\" disabled>Continue</button></div>";
+    document.getElementById("wx-back").addEventListener("click", function () { stepIndex = 2; render(); });
+    var nextBtn = document.getElementById("wx-next");
+    nextBtn.addEventListener("click", function () { stepIndex = 4; render(); });
+    var wrap = document.getElementById("wx-imgblocks");
+
+    function checkComplete() {
+      nextBtn.disabled = !picked.every(function (id) { var p = pickOf(id); return p && p.asset; });
+    }
+
+    picked.forEach(function (id) {
+      var trig = trigOf(id);
+      var block = document.createElement("div");
+      block.className = "angle-block";
+      var pick = pickOf(id) || {};
+      var current = pick.asset ? "<div style=\"font-size:12px;color:#0a6b3c;margin-bottom:8px\">Image chosen ✓</div>" : "";
+      block.innerHTML = "<h3>" + escapeHtml(trig ? trig.name : id) + "</h3>" + current +
+        "<div class=\"imgtabs\">" +
+        "<button data-tab=\"stock\" class=\"on\">Stock</button>" +
+        "<button data-tab=\"gallery\">Your gallery</button>" +
+        "<button data-tab=\"upload\">Upload</button>" +
+        "<button data-tab=\"generate\">Create one</button></div>" +
+        "<div class=\"imgbody\"></div>";
+      wrap.appendChild(block);
+      setupImageBlock(block, id);
+    });
+    checkComplete();
+
+    function setupImageBlock(block, triggerId) {
+      var tabs = block.querySelectorAll(".imgtabs button");
+      var body = block.querySelector(".imgbody");
+      function select(tab) {
+        Array.prototype.forEach.call(tabs, function (b) {
+          b.className = b.getAttribute("data-tab") === tab ? "on" : "";
+        });
+        renderTab(body, tab, triggerId, function () { checkComplete(); });
+      }
+      Array.prototype.forEach.call(tabs, function (b) {
+        b.addEventListener("click", function () { select(b.getAttribute("data-tab")); });
+      });
+      select("stock");
+    }
+
+    function renderTab(body, tab, triggerId, onSelected) {
+      if (tab === "stock") {
+        body.innerHTML = "<div class=\"imgrow\"><input placeholder=\"Search photos…\" class=\"q\">" +
+          "<button class=\"ghost search\">Search</button></div><div class=\"imggrid\"></div>";
+        var input = body.querySelector(".q");
+        var grid = body.querySelector(".imggrid");
+        function run() {
+          grid.innerHTML = "Searching…";
+          api("/api/images/search?q=" + encodeURIComponent(input.value)).then(function (res) {
+            renderTiles(grid, (res.data.results || []), triggerId, onSelected);
+          });
+        }
+        body.querySelector(".search").addEventListener("click", run);
+        input.addEventListener("keydown", function (e) { if (e.key === "Enter") run(); });
+      } else if (tab === "gallery") {
+        body.innerHTML = "<div class=\"imggrid\">Loading…</div>";
+        var grid2 = body.querySelector(".imggrid");
+        api("/api/images/gallery").then(function (res) {
+          renderTiles(grid2, (res.data.results || []), triggerId, onSelected);
+        });
+      } else if (tab === "upload") {
+        body.innerHTML = "<input type=\"file\" accept=\"image/*\" class=\"filepick\">";
+        body.querySelector(".filepick").addEventListener("change", function (e) {
+          var file = e.target.files[0];
+          if (!file) return;
+          var fd = new FormData();
+          fd.append("trigger_id", triggerId);
+          fd.append("file", file);
+          fetch("/wx/" + TOKEN + "/api/images/upload", {method: "POST", body: fd})
+            .then(function (r) { return r.json(); }).then(function (data) {
+              if (!data.ok) { showBanner(false, data.error || "Upload failed."); return; }
+              finalizePicked(data.asset, triggerId, onSelected);
+            });
+        });
+      } else if (tab === "generate") {
+        body.innerHTML = "<div class=\"imgrow\"><input placeholder=\"Describe the picture…\" class=\"q\">" +
+          "<button class=\"ghost make\">Create</button></div><div class=\"imggrid\"></div>";
+        body.querySelector(".make").addEventListener("click", function () {
+          var grid3 = body.querySelector(".imggrid");
+          grid3.innerHTML = "Generating…";
+          api("/api/images/generate", {method: "POST", body: {prompt: body.querySelector(".q").value}}).then(function (res) {
+            if (!res.data.ok) { grid3.innerHTML = ""; showBanner(false, res.data.error || "Could not generate an image."); return; }
+            renderTiles(grid3, res.data.results || [], triggerId, onSelected);
+          });
+        });
+      }
+    }
+
+    function renderTiles(grid, results, triggerId, onSelected) {
+      grid.innerHTML = "";
+      results.forEach(function (r) {
+        var tile = document.createElement("div");
+        tile.className = "tile";
+        var credit = r.credit_required || (r.provider && r.provider !== "library" &&
+          r.provider !== "gallery" && r.provider !== "generated") ?
+          "<span class=\"credit\">" + escapeHtml(r.provider) + "</span>" : "";
+        tile.innerHTML = "<img src=\"" + escapeAttr(r.thumbnail || r.preview_url || "") + "\">" + credit;
+        tile.addEventListener("click", function () {
+          if (r.already_ours) {
+            finalizePicked({source: r.provider === "gallery" ? "gallery" : "generated",
+              provider: r.provider, provider_id: r.id, url: r.full_url || r.preview_url,
+              public_id: r.public_id || ""}, triggerId, onSelected, true);
+          } else {
+            api("/api/images/select", {method: "POST", body: {
+              trigger_id: triggerId, id: r.id, provider: r.provider,
+              url: r.full_url || r.preview_url, width: r.width, height: r.height,
+              source_url: r.source_url || ""
+            }}).then(function (res) {
+              if (!res.data.ok) { showBanner(false, res.data.error || "Could not save."); return; }
+              campaign = res.data.campaign; hideBanner();
+              Array.prototype.forEach.call(grid.querySelectorAll(".tile"), function (t) { t.className = "tile"; });
+              tile.className = "tile selected";
+              onSelected();
+            });
+          }
+        });
+        grid.appendChild(tile);
+      });
+    }
+
+    function finalizePicked(assetLike, triggerId, onSelected, alreadyOurs) {
+      var body = alreadyOurs ? {
+        trigger_id: triggerId, id: assetLike.provider_id, provider: assetLike.provider,
+        url: assetLike.url, public_id: assetLike.public_id
+      } : {trigger_id: triggerId, id: "", provider: "upload", url: "", public_id: assetLike.cloudinary_public_id};
+      if (!alreadyOurs) {
+        // The upload already stored the file; just attach the finished asset.
+        api("/api/images/select", {method: "POST", body: {
+          trigger_id: triggerId, id: "", provider: "upload",
+          public_id: assetLike.cloudinary_public_id
+        }}).then(function (res) {
+          if (!res.data.ok) { showBanner(false, res.data.error || "Could not save."); return; }
+          campaign = res.data.campaign; hideBanner(); onSelected();
+          showBanner(true, "Image saved.");
+        });
+        return;
+      }
+      api("/api/images/select", {method: "POST", body: body}).then(function (res) {
+        if (!res.data.ok) { showBanner(false, res.data.error || "Could not save."); return; }
+        campaign = res.data.campaign; hideBanner(); onSelected();
+      });
+    }
+  }
+
+  function renderReview() {
+    if (campaign.status === "approved") { renderApproved(); return; }
+    var rows = picked.map(function (id) {
+      var trig = trigOf(id);
+      var p = pickOf(id) || {};
+      var draft = (p.ad_json || [])[p.selected_variant] || {};
+      return "<div class=\"review-row\"><div><div class=\"name\">" + escapeHtml(trig ? trig.name : id) +
+        "</div><div class=\"cond\">" + escapeHtml(draft.headline || "") + "</div></div>" +
+        "<div class=\"cond\">" + (p.asset ? "Image ✓" : "No image") + "</div></div>";
+    }).join("");
+    root.innerHTML = "<h2>Review and approve</h2>" +
+      "<p class=\"lede\">Here's everything we'll run. Approving creates a work order.</p>" +
+      rows +
+      "<div class=\"field\"><label>Your name</label><input id=\"rv-name\"></div>" +
+      "<div class=\"field\"><label>Email (optional)</label><input id=\"rv-email\"></div>" +
+      "<div class=\"field\"><label>Phone (optional)</label><input id=\"rv-phone\"></div>" +
+      "<div class=\"btnrow\"><button class=\"ghost\" id=\"wx-back\">Back</button>" +
+      "<button class=\"primary\" id=\"wx-approve\">Approve</button></div>";
+    document.getElementById("wx-back").addEventListener("click", function () { stepIndex = 3; render(); });
+    document.getElementById("wx-approve").addEventListener("click", function () {
+      var name = document.getElementById("rv-name").value.trim();
+      if (!name) { showBanner(false, "Enter your name to approve."); return; }
+      api("/api/approve", {method: "POST", body: {
+        name: name,
+        email: document.getElementById("rv-email").value.trim(),
+        phone: document.getElementById("rv-phone").value.trim()
+      }}).then(function (res) {
+        if (!res.data.ok) { showBanner(false, res.data.error || "Could not approve."); return; }
+        campaign = res.data.campaign; hideBanner(); render();
+      });
+    });
+  }
+
+  function renderApproved() {
+    root.innerHTML = "<h2>You're all set</h2>" +
+      "<p class=\"lede\">Approved by " + escapeHtml(campaign.approved_by_name || "") +
+      ". Here's your work order:</p>" +
+      "<div class=\"wo\">" + escapeHtml(campaign.work_order || "") + "</div>" +
+      "<p class=\"lede\">Smart 1 Marketing will have this live shortly. Keep this " +
+      "link — reopening it lets you request a change later.</p>";
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return {"&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"}[c];
+    });
+  }
+  function escapeAttr(s) { return escapeHtml(s); }
+
+  function render() {
+    setDots();
+    if (campaign.status === "approved" && stepIndex < 4) stepIndex = 4;
+    if (stepIndex === 0) renderStart();
+    else if (stepIndex === 1) renderPickTriggers();
+    else if (stepIndex === 2) renderWording();
+    else if (stepIndex === 3) renderImages();
+    else renderReview();
+  }
+
+  if (campaign.status === "approved") { stepIndex = 4; }
+  else if (picked.length) { stepIndex = 2; }
+  render();
+})();
+</script>
+</body>
+</html>

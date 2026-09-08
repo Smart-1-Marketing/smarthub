@@ -1754,6 +1754,17 @@ jobs:
       - name: SmartForecast lifecycle, storage and embed tests
         run: python3 test_smartforecast.py
 
+      # Weather Trigger Setup's own vocabulary: the cap enforced server-side,
+      # the month ordering, and evaluate_trigger() answering "not measured"
+      # rather than a guessed verdict when a snapshot cannot answer a rule.
+      - name: Weather trigger vocabulary and evaluation
+        run: python3 test_weather_triggers.py
+
+      # The campaign store, the copy guardrails, work order numbering, and
+      # the two blueprints -- one gated, one the client's own unguessable link.
+      - name: Weather Trigger Setup campaigns, copy and the public wizard
+        run: python3 test_weather_setup.py
+
       # The two radio commercial builders. Neither had a test, and the
       # customer-facing half of Fan Radio was behind the staff login: the
       # module has said since it was written that /r/, /api/public/ and

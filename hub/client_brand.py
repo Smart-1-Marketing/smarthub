@@ -136,6 +136,10 @@ WORK_KINDS = {
     # or a Coverr/Pexels/Pixabay clip. Creative picked for a client is work,
     # the same reasoning `stock_photos` above is already here for.
     "video_backgrounds":    ("Video saved", "Video Search"),
+    # A client approving weather-triggered ad copy and a work order being
+    # cut against their account is a deliverable filed against them, the
+    # same reasoning `io_builder` and `landing_maker` above are here for.
+    "weather_trigger_setup": ("Weather triggers approved", "Weather Trigger Setup"),
 }
 
 # The other side of the same question, written down rather than left as an

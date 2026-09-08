@@ -95,7 +95,8 @@
     "client-owners": "Assign Clients", "my-clients": "My Clients",
     // Named rather than left to the slug: title-casing gives "Qa Tasks".
     "qa-tasks": "QA Tasks",
-    "users": "Users"
+    "users": "Users",
+    "weather-setup": "Weather Trigger Setup"
   };
 
   // A mount that holds several tools: its second segment names the tool, so
