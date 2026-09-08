@@ -124,6 +124,7 @@ def api(client, method, path, **kw):
 
 
 state = {"client": "Riverstone Dental", "months": 6, "budget": 8000,
+         "creativePlan": {"display": {"answer": "has"}},
          "kpis": ["Cost per lead"],
          "objectives": ["Lead Generation"],
          "items": [{"category": "DISPLAY", "product": "Category", "rate": "CPM",

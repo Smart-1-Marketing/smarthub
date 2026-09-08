@@ -73,16 +73,13 @@ QUESTIONS = [
 # then have no way to act on.
 SUGGESTION_RULES = [
     {
-        "key": "retargeting", "when": (NO, UNKNOWN),
+        "key": "retargeting", "when": (NO,),
         "title": "Retarget the people who already visited",
-        "detail": "Someone who has already been to the site is the cheapest "
-                  "conversion available and the easiest audience to reach again. "
-                  "Website retargeting runs at $4.75 CPM on the card and needs "
-                  "only a pixel on the site.",
+        "detail": "Retargeting can re-engage previous visitors. Confirm audience size, consent and tracking readiness before launch. Delivery is priced in the media plan.",
         "products": ["Website Retargeting"],
     },
     {
-        "key": "aiOptimized", "when": (NO, UNKNOWN),
+        "key": "aiOptimized", "when": (NO,),
         "title": "Get the site readable by AI search",
         "detail": "Search is turning into an answer engine — AI Overviews, "
                   "ChatGPT and Siri increasingly answer instead of linking. "
@@ -100,7 +97,7 @@ SUGGESTION_RULES = [
         "products": ["Smart 1 Site / 2-5 pages", "WordPress Website"],
     },
     {
-        "key": "seo", "when": (NO, UNKNOWN),
+        "key": "seo", "when": (NO,),
         "title": "Claim the organic and map results",
         "detail": "Paid media stops the day the budget stops. Local listings "
                   "and organic visibility compound, and they feed the same "
@@ -127,7 +124,7 @@ SUGGESTION_RULES = [
 
 SUGGESTION_RULES += [
     {
-        "key": "callTracking", "when": (NO, UNKNOWN),
+        "key": "callTracking", "when": (NO,),
         "title": "Count the calls the media produces",
         "detail": "A local campaign's best leads arrive as phone calls, and an "
                   "untracked call is a conversion the report cannot show. "
@@ -136,7 +133,7 @@ SUGGESTION_RULES += [
         "products": ["Call Tracking", "Smart 1 Suite"],
     },
     {
-        "key": "reputation", "when": (NO, UNKNOWN),
+        "key": "reputation", "when": (NO,),
         "title": "Get the reviews working for the ads",
         "detail": "Star rating is the first thing a click sees and it feeds "
                   "the same local signals AI search reads. Media pointed at a "
@@ -178,7 +175,7 @@ SUGGESTION_RULES += [
 # nothing, which is where this module started.
 SUGGESTION_RULES += [
     {
-        "key": "socialPosting", "when": (NO, UNKNOWN),
+        "key": "socialPosting", "when": (NO,),
         "title": "Give the paid social somewhere to land",
         "detail": "An ad clicks through to a profile that has not posted since "
                   "last year, and the click is where the interest stops. A page "
@@ -187,7 +184,7 @@ SUGGESTION_RULES += [
         "products": ["Social Media Management", "Smart 1 Suite"],
     },
     {
-        "key": "socialScheduling", "when": (NO, UNKNOWN),
+        "key": "socialScheduling", "when": (NO,),
         "title": "Schedule the month instead of remembering it",
         "detail": "Posting by hand is what stops first when the business gets "
                   "busy, which is exactly when the campaign is working. A "
@@ -203,7 +200,7 @@ SUGGESTION_RULES += [
 # with a phone number and business hours.
 SUGGESTION_RULES += [
     {
-        "key": "appointments", "when": (NO, UNKNOWN),
+        "key": "appointments", "when": (NO,),
         "title": "Let customers book without calling",
         "detail": "A good share of the people ready to buy are looking after "
                   "hours, and a booking link turns that intent into an "
@@ -501,7 +498,7 @@ def gaps_named(state) -> list[dict]:
     mkt = _answers(state)
     return [{"key": q["key"], "label": q["label"].rstrip("?"),
              "answer": mkt.get(q["key"])}
-            for q in QUESTIONS if mkt.get(q["key"]) in (NO, UNKNOWN)]
+            for q in QUESTIONS if mkt.get(q["key"]) == NO]
 
 
 def suite_coverage(state, tier_name: str = "") -> dict:
@@ -528,7 +525,7 @@ def suite_coverage(state, tier_name: str = "") -> dict:
         row = {k: feature[k] for k in ("key", "feature", "detail", "tier")}
         row["group"] = feature.get("group") or feature["key"]
         row["answer"] = answer or ""
-        if answer not in (NO, UNKNOWN):
+        if answer != NO:
             not_measured.append(row)
             continue
         try:

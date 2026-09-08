@@ -1222,8 +1222,8 @@ builder.ensure_sections(fresh_state)
 seeded = fresh_state["sections"]
 check("a new proposal follows the full structure",
       [s["id"] for s in seeded] == [s["id"] for s in spec.OUTLINE])
-check("the Suite is positioned in the technology section",
-      "central nervous system" in
+check("the technology section limits commitments to the agreed scope",
+      "unselected features and managed services are not included" in
       next(s for s in seeded if s["id"] == "technology")["body"])
 check("no seeded copy breaks a directive",
       all(spec.violations(s["body"]) == [] for s in seeded))
@@ -1324,7 +1324,7 @@ lacking = {"mkt": {"chat": cm.NO, "texting": cm.NO, "reputation": cm.UNKNOWN,
 cover = cm.suite_coverage(lacking, "Smart 1")
 check("what this tier closes is named",
       {r["key"] for r in cover["covered"]} ==
-      {"texting", "reputation", "socialScheduling"},
+      {"texting", "socialScheduling"},
       [r["key"] for r in cover["covered"]])
 check("something they already do is not claimed",
       "callTracking" not in {r["key"] for r in cover["covered"]})
@@ -1337,7 +1337,7 @@ check("and it is covered once the tier is raised",
       "chat" in {r["key"] for r in cm.suite_coverage(lacking, "Smarter")["covered"]})
 # An unanswered question is not a gap the Suite gets credit for closing.
 check("an unanswered question is not measured, not a gap",
-      {r["key"] for r in cover["not_measured"]} == {"email", "appointments"},
+      {r["key"] for r in cover["not_measured"]} == {"email", "appointments", "reputation"},
       [r["key"] for r in cover["not_measured"]])
 # Two questions can want the same part of the Suite. Claimed twice they read
 # as two things the licence buys -- "Social planner" directly above "Social
@@ -1372,13 +1372,12 @@ check("an unhappy website raises the website first",
 check("every suggestion names a product that could deliver it",
       all(s["products"] for s in cm.suggestions(gaps_everywhere)))
 
-# "Unknown" is a gap we have not confirmed, and worth raising — but an
-# unhappy website is a stated fact, so Unknown there is not a complaint.
+# Unknown discovery remains unconfirmed; it must not become a claim of a missing capability.
 unknowns = {"mkt": {"retargeting": cm.UNKNOWN, "aiOptimized": cm.UNKNOWN,
                     "websiteHappy": cm.UNKNOWN}}
 unknown_titles = [s["title"] for s in cm.suggestions(unknowns)]
-check("unknown retargeting is still raised",
-      any("Retarget" in t for t in unknown_titles), unknown_titles)
+check("unknown retargeting is not diagnosed as a missing capability",
+      not any("Retarget" in t for t in unknown_titles), unknown_titles)
 check("but an unknown opinion of their website is not",
       not any("page the media points at" in t for t in unknown_titles), unknown_titles)
 

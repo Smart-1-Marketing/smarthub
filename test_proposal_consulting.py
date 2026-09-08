@@ -447,9 +447,9 @@ section("The retainer (#316's Consulting & Strategy) reaches the IO too")
 # above already reached the IO (that is what the rest of this file asserts);
 # the retainer did not until retainerLineForIO() gave it the same path.
 
-check("ioDataPayload() builds the retainer line and pushes it onto items",
-      "const retainer=retainerLineForIO(st)" in wiz
-      and "items.push(retainer)" in wiz)
+check("the shared conversion helper builds and appends the retainer line",
+      "const row=retainerLineForIO(st)" in wiz
+      and "items.push(row);return;" in wiz)
 check("the internal PDF gets its own section for it",
       "i.retainer?" in wiz and '"Retainer: "+i.description' in wiz)
 check("without the media-plan boilerplate that does not apply to it",

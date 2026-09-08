@@ -254,10 +254,11 @@ prompt = bd.prompt_for(["example.com"], client="Riverstone Dental",
 for rule in ("third person", "500 to 750 characters", "do NOT include URLs",
              "Do not invent unsupported claims"):
     check(f"the prompt still states: {rule!r}", rule in prompt)
-check("a multi-area client is described across all of its areas",
-      "3 distinct target areas" in prompt, prompt[:0])
+check("all campaign areas are retained without claiming unverified service coverage",
+      "The campaign targets 3 areas" in prompt
+      and "Only describe these as existing service areas when the website evidence confirms them" in prompt)
 check("a single-area client gets no multi-area instruction",
-      "distinct target areas" not in bd.prompt_for(["example.com"], areas=areas[:1]))
+      "The campaign targets" not in bd.prompt_for(["example.com"], areas=areas[:1]))
 check("a link would be flagged before it reaches Google",
       any("website address" in w for w in bd.check("Visit us at example.com today.")))
 check("so would a phone number",
@@ -325,7 +326,7 @@ def api(method, path, **kw):
 quote_state = {
     "client": "Riverstone Dental", "url": "riverstonedental.com",
     "industry": "legal", "objectives": ["Lead Generation"], "months": 6,
-    "budget": 8000, "items": [], "selectedPackage": {"name": "Recommended",
+    "budget": 8000, "items": [{"product": "Pay Per Click", "category": "SEARCH ENGINE MARKETING / PAY PER CLICK", "dollars": 8000}], "selectedPackage": {"name": "Recommended",
                                                      "monthly": 8000, "total": 48000},
     "targetAreas": FIXTURES[:3],
 }

@@ -209,6 +209,10 @@ def stub_ai(prompt, max_output_tokens=6000, search=False, purpose="io_builder"):
         if purpose == "media_mix" else "46032, 46033, 46074"
 
 
+from hub import business_description as desc_source
+_real_desc_source = desc_source.source_context
+# These cases isolate model transport; evidence validation has dedicated tests.
+desc_source.source_context = lambda urls: 'Verified fixture business: local services.'
 _real_ai = io._openai_response
 io._openai_response = stub_ai
 try:
@@ -242,6 +246,7 @@ try:
           ["business_description", "media_mix", "zip_radius"])
 finally:
     io._openai_response = _real_ai
+    desc_source.source_context = _real_desc_source
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +258,7 @@ def cut_short(prompt, max_output_tokens=6000, search=False, purpose="io_builder"
 
 
 io._openai_response = cut_short
+desc_source.source_context = lambda urls: 'Verified fixture business: local services.'
 try:
     for path, body in (("/api/zipcodes-in-radius", {"origin": "Carmel, IN", "radius": "10"}),
                        ("/api/generate-business-description", {"urls": ["https://a.example"]}),
@@ -263,6 +269,7 @@ try:
               "stopped before it answered" in json.dumps(r.get_json()))
 finally:
     io._openai_response = _real_ai
+    desc_source.source_context = _real_desc_source
 
 
 # ---------------------------------------------------------------------------

@@ -868,6 +868,12 @@ jobs:
             echo "test_proposal_spec.py not on this branch — nothing to run."
           fi
 
+      - name: Proposal and IO integrity regressions
+        run: |
+          node test_proposal_integrity.js
+          python test_proposal_integrity.py
+          python test_proposal_handoff.py
+
       - name: The consulting line the rate card does not name
         run: |
           if [ -f test_proposal_consulting.py ]; then

@@ -303,14 +303,18 @@ def generate_business_description():
     from hub import business_description as _desc
     from hub import target_areas as _ta
     areas = _ta.normalize(data.get('targetAreas')) or _ta.from_legacy(data)
-    prompt = _desc.prompt_for(urls, client=client, industry=industry,
+    try:
+        evidence = _desc.source_context(urls)
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 422
+    prompt = _desc.prompt_for(urls, evidence=evidence, client=client, industry=industry,
                               areas=areas, brandfetch=brand,
                               geo=str(data.get('geo') or '').strip())
     try:
         description = _openai_response(prompt, max_output_tokens=5000,
                                        purpose='business_description')
-        if not description:
-            return jsonify({'error': 'OpenAI returned no description'}), 502
+        if not description or description.strip() == 'INSUFFICIENT_EVIDENCE':
+            return jsonify({'error': 'Insufficient evidence to write a factual business description.'}), 422
         return jsonify({'description': description,
                         'warnings': _desc.check(description)})
     except Exception as exc:

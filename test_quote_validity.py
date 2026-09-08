@@ -179,6 +179,7 @@ BROWSER = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
            "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
 
 state = {"client": "Riverstone Dental", "months": 6, "budget": 8000,
+         "creativePlan": {"display": {"answer": "has"}},
          "salesContact": "Dana Reyes", "salesEmail": "dana@smart1marketing.com",
          "kpis": ["Cost per lead"], "objectives": ["Lead Generation"],
          "items": [{"category": "DISPLAY", "product": "Category", "rate": "CPM",

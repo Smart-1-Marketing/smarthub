@@ -213,6 +213,8 @@ def normalize_area(raw) -> dict:
     area["other"] = _clean(raw.get("other") or raw.get("geoOther"))
     area["zips"] = ", ".join(zip_list(raw.get("zips") or raw.get("geoZipcodes")))
     area["notes"] = _clean(raw.get("notes"))[:500]
+    area["zipSource"] = _clean(raw.get("zipSource"))[:500]
+    area["zipVerified"] = raw.get("zipVerified") is True
     # Re-parsed on every normalise rather than trusted from the record: a
     # stored rule written before a spelling was recognised would go on being
     # unapplied for ever, and re-reading the sentence is what lets a fix here

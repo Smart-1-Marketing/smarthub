@@ -111,6 +111,7 @@ check("a book that is out with clients and quiet says so as a third thing",
 
 def quote(name, budget=4000):
     state = {"client": name, "months": 6, "budget": budget,
+             "creativePlan": {"display": {"answer": "has"}},
              "objectives": ["Lead Generation"],
              "items": [{"category": "DISPLAY", "product": "Category",
                         "rate": "CPM", "rateValue": 4.25, "dollars": budget}]}
