@@ -562,6 +562,10 @@ shaped = vl._shape({
     "context": {"custom": {vl.CTX_DESC: "Drone over a suburb.",
                            vl.CTX_INDEXED_AT: "2026-08-24T10:00:00Z"}},
 })
+check_not_in("full footage keeps its original framing", "c_fill", vl._shape({
+    "public_id": "portrait", "width": 1080, "height": 1920})["full_url"])
+check_not_in("full footage is not trimmed", "du_", vl._shape({
+    "public_id": "portrait", "width": 1080, "height": 1920})["full_url"])
 for key in ("id", "provider", "tier", "thumbnail", "preview_url", "full_url",
             "width", "height", "duration", "author", "source_url"):
     check_true(f"the universal asset shape carries {key}", key in shaped)

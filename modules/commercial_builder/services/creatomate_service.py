@@ -367,7 +367,10 @@ def submit_render(source):
         # Recorded at SUBMIT rather than on success: the request is what was
         # spent, and a render that fails an hour later has still cost it.
         _meter(detail=str(render.get("id") or "")[:60])
-        return {"id": render.get("id"), "status": render.get("status"), "url": render.get("url")}
+        state = render.get("status") or "queued"
+        return {"id": render.get("id"),
+                "status": "queued" if state in ("planned", "waiting", "transcribing") else state,
+                "url": render.get("url"), "error": render.get("error_message") or render.get("error")}
     except Exception as e:
         _meter(ok=False, detail=str(e)[:80])
         return {"id": None, "status": "failed", "error": str(e)}
@@ -389,6 +392,12 @@ def check_render(render_id):
         r = requests.get(f"{BASE_URL}/renders/{render_id}", headers=_headers(), timeout=8)
         r.raise_for_status()
         data = r.json()
-        return {"id": data.get("id"), "status": data.get("status"), "url": data.get("url")}
+        if data.get("status") not in ("planned", "waiting", "transcribing", "queued", "rendering", "succeeded", "failed"):
+            raise ValueError("The renderer returned no recognized status.")
+        provider_status = data["status"]
+        return {"id": data.get("id"),
+                "status": "queued" if provider_status in ("planned", "waiting", "transcribing") else provider_status,
+                "url": data.get("url"), "error": data.get("error_message") or data.get("error")}
     except Exception as e:
-        return {"id": render_id, "status": "failed", "error": str(e)}
+        # A failed status read says nothing about whether the paid render failed.
+        return {"id": render_id, "retryable": True, "error": str(e)}

@@ -32,7 +32,13 @@
   async function runQc() {
     const list = document.getElementById("qc-list");
     list.innerHTML = '<span class="cb-spinner"></span>';
-    const { qc_results } = await CB.api(`/api/projects/${projectId}/qc`, { method: "POST" });
+    let qc_results;
+    try {
+      ({ qc_results } = await CB.api(`/api/projects/${projectId}/qc`, { method: "POST" }));
+    } catch (error) {
+      list.textContent = error.message || "Checks could not run. Try again.";
+      return;
+    }
     list.innerHTML = "";
     let blocking = 0;
     Object.entries(qc_results).forEach(([key, result]) => {
@@ -378,7 +384,11 @@
       let data;
       try {
         data = await CB.api(`/api/projects/${projectId}/render-jobs/${jobId}/status`);
-      } catch (e) { polling.delete(jobId); return; }
+      } catch (e) {
+        // Keep the paid job recoverable after a temporary connection failure.
+        setTimeout(tick, 10000);
+        return;
+      }
       const job = data.render_job;
       if (job.status === "queued" || job.status === "rendering") {
         setTimeout(tick, 4000);

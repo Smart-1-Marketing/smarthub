@@ -2402,3 +2402,8 @@ jobs:
       # visible without presenting a scraped asset as client-approved.
       - name: Brand elements found by the InSites scan
         run: python3 test_scan_brand.py
+
+      - name: Video search and render recovery
+        run: |
+          python3 test_video_render.py
+          node test_video_search_ui.js

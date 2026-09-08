@@ -1046,8 +1046,8 @@ def search(query: str = "", *, tags: list[str] | None = None,
     out.update(ok=True, results=items[:limit], total=len(items))
     if not items:
         out["note"] = ("Nothing indexed matches that yet. " + scope_note()
-                       + " Indexing covers clips uploaded after "
-                       + f"{out['cutoff'] or 'it starts'}.")
+                       + (" Indexing includes the existing library backlog." if INDEX_BACKLOG else
+                          f" Indexing covers clips uploaded after {out['cutoff'] or 'it starts'}."))
     return out
 
 
@@ -1093,7 +1093,7 @@ def _shape(resource: dict) -> dict:
         "folder": resource.get("asset_folder") or "",
         "thumbnail": poster_url(pid, second=1, width=480),
         "preview_url": background_url(pid, width=1280, height=720, duration=6),
-        "full_url": background_url(pid, width=1920, height=1080, duration=None),
+        "full_url": background_url(pid, width=0, height=0, duration=None),
         "background_url": background_url(pid),
         "poster_url": poster_url(pid, width=1920),
         "width": width, "height": height,
