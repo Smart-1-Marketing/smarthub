@@ -99,8 +99,13 @@ async function loadModules(){
   if(t) bits.push('Showing only <b>'+esc(t)+'</b> — <a href="#" onclick="return clearType()">every action</a>.');
   if(!d) bits.push('The module list could not be read, so this offers only what the address bar named — every module still filters by URL.');
   else if(d.window_measured===false) bits.push('The activity log could not be scanned, so this lists only the modules that have registered a logger in this worker.');
+  /* The `&& d` here is load-bearing and the one inside the sentence was not.
+     With no list at all, `names` is empty and every module looks absent from
+     it — so without this guard the page would claim nothing had been recorded
+     under a module in a window it never managed to read. `d.window` is then
+     safe to read directly. */
   if(m && names.indexOf(m)<0 && d)
-    bits.push('Nothing under “'+esc(m)+'” in the last '+((d&&d.window)||0)+' entries, so it is not on the list above — the filter is still applied.');
+    bits.push('Nothing under “'+esc(m)+'” in the last '+(d.window||0)+' entries, so it is not on the list above — the filter is still applied.');
   note.innerHTML=bits.join(' ');
   note.hidden=!bits.length;
 }

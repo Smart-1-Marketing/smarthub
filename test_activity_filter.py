@@ -199,6 +199,22 @@ check("a module in the URL the list does not carry is still selected",
       "not in the recent log" in _PAGE)
 check("the type filter says what it is showing and offers a way out",
       "clearType" in _PAGE and "every action" in _PAGE)
+
+# With no list at all, `names` is empty and every module looks absent from it,
+# so the "nothing under X in the last N entries" note has to be gated on the
+# list having been read -- otherwise the page reports a window it never
+# managed to read. A review bot flagged the redundant `d &&` *inside* that
+# sentence, which was right; this pins the guard that is not redundant, so
+# the next simplification does not take it too.
+# Anchored to the push it guards, not to the first `if(` of that shape: the
+# branch that ADDS the option to the dropdown is written the same way and
+# comes first, so a looser search matches that one and reports on the wrong
+# line -- which is what the first version of this check did.
+_NOTE_BRANCH = re.search(
+    r"if\((.*?)\)\s*\n\s*bits\.push\('Nothing under", _PAGE)
+check("the 'not in the recent log' note is gated on the list having been read",
+      bool(_NOTE_BRANCH) and "&& d" in _NOTE_BRANCH.group(1),
+      _NOTE_BRANCH.group(1) if _NOTE_BRANCH else "branch not found")
 check("an empty result names the filter that produced it",
       "No activity recorded" in _PAGE and "' under “'" in _PAGE
       and "' for “'" in _PAGE,
