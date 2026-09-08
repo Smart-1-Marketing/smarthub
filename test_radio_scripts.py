@@ -71,7 +71,7 @@ def section(title):
 # ---------------------------------------------------------------------------
 section("The word budget is a hard gate")
 
-from modules.radio_scripts import engine, engine_spec as spec  # noqa: E402
+from modules.radio_scripts import engine  # noqa: E402
 
 
 class FakeResponse:
@@ -263,7 +263,6 @@ section("The tool is wired the way a tool has to be")
 from werkzeug.test import Client  # noqa: E402
 
 import wsgi  # noqa: E402
-from hub import audit as hub_audit  # noqa: E402
 from hub import auth  # noqa: E402
 from hub import client_brand  # noqa: E402
 from hub import help as hub_help  # noqa: E402
