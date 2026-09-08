@@ -91,6 +91,7 @@ def project_page(pid: str):
     return render_template("project.html", version=_version(),
                            project=project, roles=R.ROLES,
                            bundles=S.BUNDLES,
+                           brand=store.brand_for(project),
                            min_font=qc.MIN_FONT_PX,
                            min_font_source=qc.MIN_FONT_SOURCE)
 
@@ -200,7 +201,29 @@ def api_project(pid: str):
     project = store.get(pid)
     if not project:
         return jsonify({"error": "No project of that id."}), 404
-    return jsonify({"project": project, "role_map": store.role_map(project)})
+    return jsonify({"project": project, "role_map": store.role_map(project),
+                    "brand": store.brand_for(project)})
+
+
+@app.route("/api/brand")
+def api_brand():
+    """A named client's rep-confirmed brand pick, for the new-project form.
+
+    Read-only and unbilled — this never reaches Brandfetch, only the pick a
+    rep already confirmed on Client 360 (`hub/brand_template.py`). A client
+    with nothing confirmed answers `picked: False` rather than an error, which
+    is the ordinary case for a client nobody has curated yet.
+    """
+    client = str(request.args.get("client") or "").strip()
+    if not client:
+        return jsonify({"client": "", "picked": False, "logo_url": "",
+                        "colors": {}})
+    try:
+        from hub import brand_template
+        return jsonify(brand_template.get(client))
+    except Exception:                                   # noqa: BLE001
+        return jsonify({"client": client, "picked": False, "logo_url": "",
+                        "colors": {}})
 
 
 @app.route("/api/projects/<pid>", methods=["DELETE"])

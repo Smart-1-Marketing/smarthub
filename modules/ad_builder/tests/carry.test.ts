@@ -138,6 +138,29 @@ test('a carry that will not fit is flagged, and one that fits is not', () => {
   assert.equal(needsReview(roomy), false);
 });
 
+test('type strains at the floor and not at the ceiling', () => {
+  const t = T();
+  // Under MIN_TYPE the departure has collapsed the type: the ad on screen is
+  // not the one that was asked for, which is worth an eye.
+  const tiny: StyleOverrides = { authoredFor: '1200x1200', headline: { size: 2 } };
+  assert.ok(carriedInto(tiny, t, '320x50' as any).strained.includes('headline'));
+
+  // Over MAX_TYPE it is a global sanity cap trimming an already-huge number on
+  // a big canvas, not that canvas refusing anything. Measured: flagging it put
+  // a review mark on the cleanest ad in an eleven-size set, every other check
+  // on it passing -- the crying wolf that gets a check switched off.
+  const big: StyleOverrides = { authoredFor: '300x250', headline: { size: 20 } };
+  for (const size of ['1200x1200', '1200x1500']) {
+    const r = carriedInto(big, t, size as any);
+    assert.deepEqual(r.strained, [], `${size} should not be flagged for a clamped ceiling`);
+    assert.equal(needsReview(r), false);
+  }
+  // ...and the ceiling really is what would have been exceeded, so this is a
+  // narrowing of the flag rather than a case that never arose.
+  const ceiling = (box(t, '1200x1200', 'headline').size as [number, number])[1];
+  assert.ok(Math.round(ceiling * (20 / 18)) > 96, 'the clamp is what this exercises');
+});
+
 test('the flag names the roles, so a reviewer knows where to look', () => {
   const r = carriedInto(tuned(), T(), '728x90' as any);
   assert.ok(r.moved.includes('headline') && r.moved.includes('logo'));

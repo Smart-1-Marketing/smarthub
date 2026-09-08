@@ -137,6 +137,15 @@ jobs:
         # instead of spending the last of it.
         run: python test_ads_optimization_scheduler.py
 
+      - name: The Google Ads sweep on the dashboard
+        # The sweep ran twice a day and told nobody. This is the alerting half:
+        # five signals kept apart, every kind of nothing saying which kind it
+        # is, and every count opening the rows it counted — including that the
+        # page it opens reads the account parameter and the filter the card
+        # builds, which is where a link that resolves and shows the wrong
+        # client's scan comes from.
+        run: python test_ads_dashboard_card.py
+
       - name: Auto-applied Google Ads changes
         # Nobody presses anything at the moment one of these happens, so what
         # this asserts is mostly the refusals: off by default, high severity
@@ -894,6 +903,31 @@ jobs:
             echo "test_proposal_targeting.py not on this branch — nothing to run."
           fi
 
+      # hub/openai_responses.py is the one OpenAI Responses reader for the IO
+      # Builder, the Proposal Builder and Magic Resize's layout proposal --
+      # this drives its own branching (the hosted-tool refusal, a truncated
+      # answer, and the "completed but empty" gap this pass closed) directly,
+      # rather than only through whichever caller happens to stub it.
+      - name: The shared OpenAI Responses reader — every way it fails, named
+        run: |
+          if [ -f test_openai_responses.py ]; then
+            python test_openai_responses.py
+          else
+            echo "test_openai_responses.py not on this branch — nothing to run."
+          fi
+
+      # test_io_builder.py drives IO Builder's four AI buttons through a
+      # stubbed model; nothing had done the same for the Proposal Builder's
+      # three, and reading /api/ai/rewrite closely for this pass is what
+      # found the empty-answer-reads-as-success gap above.
+      - name: Proposal Builder AI buttons — refusal, cut-short, and an empty answer
+        run: |
+          if [ -f test_proposal_ai.py ]; then
+            python test_proposal_ai.py
+          else
+            echo "test_proposal_ai.py not on this branch — nothing to run."
+          fi
+
       - name: Social content planner tests
         # Guarded like the steps above so this workflow stays mergeable on a
         # branch that predates the file. Safe to run after the others despite
@@ -1108,6 +1142,21 @@ jobs:
             python test_client360_layout.py
           else
             echo "test_client360_layout.py not on this branch — nothing to run."
+          fi
+
+      - name: Client 360 Tracked links reads Knack too
+        # A tagged click-thru typed onto an insertion order is a tracked link
+        # as much as one built in the UTM Builder; reading only the builder
+        # made a client whose links all arrived that way read as a client with
+        # none. Holds the four object_135 fields, what counts as tagged, the
+        # dedupe, and a Knack failure that is named rather than drawn empty.
+        # Guarded like the steps above so this workflow stays mergeable on a
+        # branch that predates the file.
+        run: |
+          if [ -f test_client360_utm_knack.py ]; then
+            python test_client360_utm_knack.py
+          else
+            echo "test_client360_utm_knack.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder dashboard layout tests
@@ -1861,6 +1910,16 @@ jobs:
       # directions: copy must reach a hand-tuned frame and layout must not.
       - name: One design, the whole size set
         run: python3 test_magic_resize.py
+
+      # The BrandTemplate decision the build plan left open: a rep's
+      # confirmed pick of which logo and which color are the brand, read by
+      # brand_kit() so every existing caller that takes position zero -- the
+      # Suite push, client_context.py, Magic Resize's project reference --
+      # gets the confirmed answer with no caller-side change. Also holds the
+      # refusal: a pick has to be one of the tiles brand_kit() is offering
+      # right now, never an invented URL or hex.
+      - name: A rep's brand pick, not every tool's guess
+        run: python3 test_brand_template.py
 
       # The primitives four screens of one product share. It also walks the
       # rendered HTML to assert the page wrapper still contains the page: one

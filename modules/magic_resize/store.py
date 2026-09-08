@@ -17,6 +17,24 @@ answers in that shape for anything that wants it, but it is *derived*. Two
 records of one fact is how an object comes to be a logo in one of them and a
 headline in the other, with nothing on any screen saying which is right.
 
+**A project does not carry its own copy of the client's brand — `brand_profile_ref`
+is a record of what was pulled in, never a pointer to it.** The build plan
+asked for a `brand_profile_ref` FK, held as a placeholder "pending the
+BrandTemplate decision". That decision turned out not to need a new table at
+all: there is nothing to point at that the project's own `client` field does
+not already say. `brand_for()` resolves `hub.brand_template.get()` from that
+name on every read, the way `hub/suite_accounts.location_for()` resolves a
+client's Suite sub-account — derived rather than stored, so a pick a rep
+confirms after the project was created is seen the next time the project is
+opened, and a client renamed later re-joins instead of leaving a stale
+reference behind. `brand_profile_ref` itself is a different, smaller fact:
+`apply_brand()` (below) sets it to the domain a design's Logo/Background
+objects were actually pulled from, so a project that has had a brand pulled
+in says which one — an audit trail, not a foreign key, and empty until
+`apply_brand()` first succeeds. The two rarely disagree, because
+`client_brand.brand_kit()` promotes a rep's confirmed pick to position zero,
+which is what `apply_brand()`'s own domain lookup reads.
+
 ## What a source edit propagates to
 
 This is the whole of §6 and both halves are load-bearing in opposite
@@ -148,9 +166,9 @@ def create(*, name: str, client: str = "", source: dict,
         "created": _now(),
         "created_by": created_by or "",
         "bundle": bundle,
-        # Placeholder for the BrandTemplate decision that is still open (§9,
-        # step 6). Carried as a reference and read by nothing yet, so it
-        # cannot quietly become a working integration nobody signed off.
+        # Not the BrandTemplate FK the build plan asked for -- see the module
+        # docstring. Set by `apply_brand()` once a brand has actually been
+        # pulled into this design; empty until then.
         "brand_profile_ref": "",
         "source": _clean_source(source),
         "frames": {},
@@ -175,19 +193,38 @@ def role_map(project: dict) -> dict[str, str]:
             if o.get("id")}
 
 
+def brand_for(project: dict) -> dict:
+    """The client's rep-confirmed brand pick, for a project with no logo yet.
+
+    A shell with `picked: False` for a one-off project (no client) or on any
+    failure — this must never cost the project page for a reason that has
+    nothing to do with the design itself.
+    """
+    client = str(project.get("client") or "").strip()
+    if not client:
+        return {"client": "", "logo_url": "", "logo_theme": "", "colors": {},
+                "picked": False, "updated_at": "", "updated_by": ""}
+    try:
+        from hub import brand_template
+        return brand_template.get(client)
+    except Exception:                                   # noqa: BLE001
+        return {"client": client, "logo_url": "", "logo_theme": "", "colors": {},
+                "picked": False, "updated_at": "", "updated_by": ""}
+
+
 # --------------------------------------------------------------------------
 # A client's brand, pulled into the source design
 # --------------------------------------------------------------------------
 #
-# The BrandTemplate decision `brand_profile_ref` was left inert for is
-# still open — this is not it. That decision is which *editing surface* a
-# brand template lives in, and needs the shared Fabric editor this module
-# does not have yet. What is answered here is smaller: the same colors and
-# logo `hub/client_brand.py` already resolves for every other client-facing
-# tool, applied to the two roles a resize actually has room to vary —
-# `roles.LOGO` and `roles.BACKGROUND` — and nowhere else, because a headline
-# or a disclaimer recolored out from under whoever wrote it is not a brand
-# pull-in, it is an unannounced edit.
+# Which entry in a client's kit is *the* brand is answered now, in
+# `client_brand.brand_kit()` (`hub/brand_template.py`'s rep-confirmed pick,
+# promoted to position zero) — this file reads whichever kit that call
+# returns and never re-decides it. What is answered here is smaller: the
+# same colors and logo `hub/client_brand.py` already resolves for every
+# other client-facing tool, applied to the two roles a resize actually has
+# room to vary — `roles.LOGO` and `roles.BACKGROUND` — and nowhere else,
+# because a headline or a disclaimer recolored out from under whoever wrote
+# it is not a brand pull-in, it is an unannounced edit.
 
 def brand_preview(project: dict, domain: str) -> dict:
     """What a client's brand kit holds, without changing the design.

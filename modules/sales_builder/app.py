@@ -3581,6 +3581,12 @@ def ai_rewrite():
         rewritten = _openai_response(prompt, 2500)
     except Exception as exc:                            # noqa: BLE001
         return jsonify({"ok": False, "error": "AI rewrite failed", "detail": str(exc)}), 502
+    # hub/openai_responses.ask() refuses an empty answer itself now -- this is
+    # the second guard on the same invariant, at the point that actually
+    # matters: an empty rewrite handed back as {"ok": true, "text": ""} is a
+    # client-facing proposal section silently blanked and reported a success.
+    if not rewritten.strip():
+        return jsonify({"ok": False, "error": "The AI returned no rewritten text."}), 502
     rewritten = hub_spec.clean_ai_text(rewritten)
     problems = hub_spec.violations(rewritten)
     if problems:
