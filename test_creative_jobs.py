@@ -90,7 +90,6 @@ section("Booting the composed app -- every table it needs exists")
 
 import wsgi                                                          # noqa: E402
 from hub.extensions import db                                        # noqa: E402
-from hub.creative_jobs import CreativeJob                            # noqa: E402
 from hub import auth                                                 # noqa: E402
 
 with wsgi.hub_app.app_context():
@@ -200,7 +199,7 @@ with wsgi.hub_app.app_context():
 section("A crashed leader's stale running row is reclaimed, not stranded")
 
 with wsgi.hub_app.app_context():
-    stuck = creative_jobs.enqueue_for_lead(dict(STADIUM_ROW, id="lead-stadium-3"))
+    creative_jobs.enqueue_for_lead(dict(STADIUM_ROW, id="lead-stadium-3"))
     claimed = creative_jobs.claim_next()
     check("the stuck job is claimed (running)", claimed.state, creative_jobs.RUNNING)
     # Backdate updated_at past the staleness window, simulating a worker that
