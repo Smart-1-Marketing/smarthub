@@ -184,6 +184,40 @@ class Scene(db.Model):
         }
 
 
+def _invalidate_changed_speech(session, _context, _instances):
+    """Cover every editing route, including script regeneration and expansion."""
+    from sqlalchemy import inspect
+    projects = set()
+    for scene in set(session.dirty) | set(session.new) | set(session.deleted):
+        if not isinstance(scene, Scene):
+            continue
+        state = inspect(scene)
+        changed = {name for name in ("narration", "start", "end", "order_index", "is_cta")
+                   if state.attrs[name].history.has_changes()}
+        if scene in session.new or scene in session.deleted or changed:
+            if scene.project_id:
+                projects.add(scene.project_id)
+        if scene not in session.new and scene not in session.deleted and "narration" in changed:
+            meta = dict(scene.asset_meta or {})
+            if meta.get("heygen_job") or meta.get("spokesperson_url"):
+                meta["presenter_stale"] = True
+            if meta.get("voiceover"):
+                meta["voiceover"] = {**meta["voiceover"], "stale": True}
+            scene.asset_meta = meta
+    for project_id in projects:
+        project = session.get(CommercialProject, project_id)
+        if project and project not in session.deleted:
+            music = dict(project.music or {})
+            if music.get("voice_track_url") or music.get("voice_mode") == "scenes":
+                music["voice_track_stale"] = True
+                project.music = music
+
+
+from sqlalchemy import event as _event
+from sqlalchemy.orm import Session as _Session
+_event.listen(_Session, "before_flush", _invalidate_changed_speech)
+
+
 class RenderJob(db.Model):
     __tablename__ = "cb_render_jobs"
 

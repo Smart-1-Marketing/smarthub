@@ -70,6 +70,36 @@ def _headers():
     return {"X-Api-Key": _api_key(), "Content-Type": "application/json"}
 
 
+def list_voices(token=None, voice_type="public"):
+    """HeyGen voice IDs must never be inferred from the ElevenLabs catalog."""
+    if not is_live():
+        return {"voices": [{"voice_id": "mock_heygen_voice", "name": "Demo presenter voice"}],
+                "_mock": True, "next_token": None}
+    params = {"limit": 100, "type": voice_type}
+    if token:
+        params["token"] = token
+    try:
+        response = requests.get(f"{BASE_URL}/v3/voices", headers=_headers(), params=params, timeout=8)
+        response.raise_for_status()
+        data = response.json()
+        return {"voices": data.get("data") or [], "next_token": data.get("next_token")}
+    except requests.RequestException:
+        return {"voices": [], "error": "HeyGen voices could not be loaded. Try again."}
+
+
+def voice_available(voice_id):
+    if not is_live():
+        return True
+    try:
+        response = requests.get(f"{BASE_URL}/v3/voices/{requests.utils.quote(voice_id, safe='')}",
+                                headers=_headers(), timeout=8)
+        response.raise_for_status()
+        voice = response.json().get("data") or {}
+        return bool(voice.get("voice_id")) and voice.get("status") not in ("processing", "failed", "pending")
+    except requests.RequestException:
+        return False
+
+
 def list_presenters(client_avatar_id=None):
     """The three-tier picker from spec section 8: Client Avatar, Saved Smart 1
     Talent, HeyGen Stock Presenter.
@@ -199,7 +229,12 @@ def generate_spokesperson_clip(avatar_id, script_text, voice_id=None,
         # total, but the row stays — a wall of them is what a spent allowance
         # looks like from this side.
         _meter(ok=False, detail=str(e)[:80])
-        return dict(base, job_id=None, status="failed", error=str(e))
+        # A timeout may arrive AFTER HeyGen accepted the paid request. Do not
+        # invite an automatic second submission when acceptance is unknown.
+        uncertain = isinstance(e, (requests.Timeout, requests.ConnectionError))
+        return dict(base, job_id=None, status="unknown" if uncertain else "failed",
+                    error=("HeyGen did not confirm whether this request was accepted. Check the HeyGen library before generating again."
+                           if uncertain else str(e)))
 
 
 def _meter(*, ok=True, detail=""):
@@ -232,6 +267,7 @@ def check_status(job_id):
                   "video_url": data.get("video_url") if status == "completed" else None,
                   "duration": data.get("duration")}
         if status == "failed":
+            result["provider_terminal"] = True
             error = data.get("error")
             result["error"] = (error.get("message") if isinstance(error, dict) else error) \
                 or "HeyGen reported the generation failed."
@@ -242,4 +278,5 @@ def check_status(job_id):
             result["error"] = "HeyGen reported the clip complete but returned no video URL."
         return result
     except Exception as e:  # noqa: BLE001
-        return {"job_id": job_id, "status": "failed", "video_url": None, "error": str(e)}
+        return {"job_id": job_id, "status": "processing", "video_url": None,
+                "retryable": True, "error": "Unable to read HeyGen status. Retrying the existing job."}

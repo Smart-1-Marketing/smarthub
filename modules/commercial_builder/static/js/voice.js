@@ -297,7 +297,8 @@
   document.getElementById("pron-add").addEventListener("click", () => addPronRow());
 
   document.getElementById("voice-preview-btn").addEventListener("click", async () => {
-    if (!selectedVoiceId) return CB.toast("Cast a voice first.", true);
+    const button = document.getElementById("voice-preview-btn");
+    button.disabled = true;
     const status = document.getElementById("voice-status");
     status.textContent = "Generating…";
     try {
@@ -316,7 +317,9 @@
       status.textContent = `Estimated ${voiceover.duration_estimate}s of narration. `
         + (voiceover.store_note || "");
     } catch (e) {
-      status.textContent = "";
+      status.textContent = e.message || "Narration could not be saved. Please retry.";
+    } finally {
+      button.disabled = false;
     }
   });
 

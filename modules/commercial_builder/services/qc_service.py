@@ -4,7 +4,7 @@ the storyboard/review UI can render a simple pass/warn list."""
 
 from hub import script_contents
 
-from . import openai_service, abcd_service
+from . import openai_service, abcd_service, media_state
 from .. import compliance_spec, library_spec
 from ..config import (VO_WORD_TARGETS, QR_CODE_RULES, OUTPUT_FORMATS, SOCIAL_RULES,
                       MUSIC_LEVEL_REFERENCE, MUSIC_LENGTH_TOLERANCE_S, ducked_db,
@@ -74,6 +74,7 @@ _VOX_TYPE = "vox_explainer"
 # Declared with the reason rather than left as a `continue`, so a check added
 # to this module later is a decision about this list rather than an accident.
 NOT_FOR_VOX = {
+    "media_integrity": "a Vox explainer has no scene narration or presenter media.",
     "timing": "a Vox explainer has no scenes to time — its beats are timed on "
               "the Beats step.",
     "scene_assets": "there are no scenes to hold footage; the collage is drawn "
@@ -125,6 +126,7 @@ def run_qc(project_dict, client_dict, scenes):
 
     checks["timing"] = _check_timing(project_dict, scenes)
     checks["scene_assets"] = _check_scene_assets(scenes)
+    checks["media_integrity"] = media_state.integrity(project_dict, scenes)
     checks["voice_fits"] = _check_voice_fits(project_dict)
     checks["cta"] = _check_cta(project_dict, client_dict, scenes)
     checks["brand"] = _check_brand(client_dict)

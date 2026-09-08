@@ -2,13 +2,14 @@
 voiceover generation, and per-client pronunciation dictionaries."""
 
 import os
+import hashlib
 import tempfile
 
 from flask import Blueprint, jsonify, request
 
 from ..db import db
 from ..models import Client, CommercialProject, Scene
-from ..services import cloudinary_service, elevenlabs_service
+from ..services import cloudinary_service, elevenlabs_service, media_state
 
 # The casting question, shared with the Radio Promo builder. Guarded because
 # this module runs standalone, where there is no hub to read it from.
@@ -142,20 +143,42 @@ def generate_scene_voiceover(project_id, scene_id):
     voice_id = data.get("voice_id") or client.preferred_voiceover_id
     if not voice_id:
         return jsonify({"ok": False, "error": "Choose a voice first (or set the client's preferred voiceover)."}), 400
+    if media_state.has_presenter(scene.to_dict()):
+        return jsonify({"ok": False, "error": "This scene uses HeyGen speech. Cast its voice in the presenter picker."}), 409
+    result = _generate_scene_audio(scene, client, voice_id, data)
+    return jsonify({"ok": not bool(result.get("error")), "voiceover": result,
+                    "error": result.get("error"), "live": elevenlabs_service.is_live()}), (502 if result.get("error") else 200)
 
-    result = elevenlabs_service.generate_voiceover(
-        text=scene.narration or "",
-        voice_id=voice_id,
-        stability=float(data.get("stability", 0.5)),
-        style=float(data.get("style", 0.5)),
-        speed=float(data.get("speed", 1.0)),
-        pronunciation_dict=client.pronunciation_dict,
-    )
-    meta = scene.asset_meta or {}
-    meta["voiceover"] = {"voice_id": voice_id, **result}
-    scene.asset_meta = meta
-    db.session.commit()
-    return jsonify({"ok": True, "voiceover": result, "live": elevenlabs_service.is_live()})
+
+def _generate_scene_audio(scene, client, voice_id, data):
+    """Persist bytes as audio, never as a JSON field or HTTP response."""
+    signature = media_state.speech_signature(scene.to_dict())
+    settings = {key: float(data.get(key, default)) for key, default in
+                (("stability", 0.5), ("style", 0.5), ("speed", 1.0))}
+    take_key = media_state.fingerprint([signature, voice_id, settings, client.pronunciation_dict])
+    prior = (scene.asset_meta or {}).get("voiceover") or {}
+    if prior.get("take_key") == take_key and prior.get("audio_url") and not prior.get("stale"):
+        return {**prior, "stored": True, "store_note": "Using the saved narration."}
+    result = elevenlabs_service.generate_voiceover(text=scene.narration or "", voice_id=voice_id,
+        pronunciation_dict=client.pronunciation_dict, **settings)
+    audio = result.pop("audio_bytes", None)
+    result.update(voice_id=voice_id, provider="elevenlabs", speech_signature=signature, take_key=take_key)
+    if audio:
+        uploaded = cloudinary_service.upload_asset(audio, client.slug, "voice",
+            public_id=f"scene-{scene.id}-voice-{hashlib.sha256(audio).hexdigest()[:16]}",
+            resource_type="video", filename="narration.mp3")
+        if uploaded.get("secure_url") and not uploaded.get("_mock"):
+            result.update(audio_url=uploaded["secure_url"], stored=True, store_note="Narration saved.")
+        else:
+            result["error"] = uploaded.get("error") or "Narration was generated but could not be saved. Check media storage."
+    elif not result.get("error"):
+        result.update(stored=False, store_note="Mock mode — no narration was produced.")
+    if not result.get("error"):
+        db.session.refresh(scene)
+        result["stale"] = signature != media_state.speech_signature(scene.to_dict())
+        scene.asset_meta = {**(scene.asset_meta or {}), "voiceover": result}
+        db.session.commit()
+    return result
 
 
 @bp.post("/projects/<int:project_id>/voiceover/full")
@@ -166,12 +189,35 @@ def generate_full_voiceover(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     client = Client.query.get_or_404(project.client_id)
     data = request.get_json(force=True) or {}
+    scenes = project.scenes.order_by(Scene.order_index).all()
+    snapshot = [s.to_dict() for s in scenes]
+    signature = media_state.timeline_signature(snapshot)
+    presenter_mode = any(media_state.has_presenter(s) for s in snapshot)
     voice_id = data.get("voice_id") or client.preferred_voiceover_id
-    if not voice_id:
+    narration_scenes = [s for s in scenes if (s.narration or "").strip() and
+                        not media_state.has_presenter(s.to_dict())]
+    if not voice_id and (not presenter_mode or narration_scenes):
         return jsonify({"ok": False, "error": "Choose a voice first."}), 400
 
-    full_text = " ".join(s.narration or "" for s in project.scenes.order_by(Scene.order_index).all()
-                          if not s.is_cta)
+    if presenter_mode:
+        takes = [_generate_scene_audio(s, client, voice_id, data) for s in narration_scenes]
+        errors = [t["error"] for t in takes if t.get("error")]
+        if errors:
+            return jsonify({"ok": False, "error": " ".join(errors)}), 502
+        db.session.refresh(project)
+        music = dict(project.music or {})
+        music.pop("voice_track_url", None)
+        music.update(voice_mode="scenes", voice_signature=signature, voice_track_stale=False)
+        project.music = music
+        db.session.commit()
+        stored = all(t.get("stored") for t in takes)
+        return jsonify({"ok": True, "voiceover": {"stored": stored,
+            "duration_estimate": sum(t.get("duration_estimate") or 0 for t in takes),
+            "store_note": ("HeyGen speaks the presenter scenes. Other narration is saved on its own scene."
+                           if stored else "Mock mode — narration has not been produced.")},
+            "live": elevenlabs_service.is_live()})
+
+    full_text = " ".join(s.narration or "" for s in scenes)
     result = elevenlabs_service.generate_voiceover(
         text=full_text, voice_id=voice_id,
         stability=float(data.get("stability", 0.5)), style=float(data.get("style", 0.5)),
@@ -187,7 +233,10 @@ def generate_full_voiceover(project_id):
     # timeline, and nothing in this module had ever written that key — so
     # every commercial this tool rendered was silent, with no error at either
     # end. The bytes go to the client's library and the URL onto the project.
-    stored = _store_voice_track(project, client, result)
+    result["voice_id"] = voice_id
+    had_audio = bool(result.get("audio_bytes"))
+    stored = _store_voice_track(project, client, result, signature=signature)
+    result.pop("audio_bytes", None)
     result.update(stored)
     # The take that is kept. It goes into the client's own Cloudinary tree and
     # onto the spot's timeline, which makes it work produced for them rather
@@ -200,12 +249,14 @@ def generate_full_voiceover(project_id):
                     else ", but it could not be stored.")),
          project=project.id)
 
-    return jsonify({"ok": True, "voiceover": result,
+    failed = bool(result.get("error") or (had_audio and not stored.get("stored")))
+    return jsonify({"ok": not failed, "voiceover": result,
+                    "error": (result.get("error") or stored.get("store_note")) if failed else None,
                     "voice_track_url": (project.music or {}).get("voice_track_url") or "",
-                    "live": elevenlabs_service.is_live()})
+                    "live": elevenlabs_service.is_live()}), (502 if failed else 200)
 
 
-def _store_voice_track(project, client, result):
+def _store_voice_track(project, client, result, signature=None):
     """Put the generated MP3 somewhere the renderer can reach it.
 
     Returns what happened, in words, rather than a bare boolean: "no key set",
@@ -230,7 +281,7 @@ def _store_voice_track(project, client, result):
             tmp_path = fh.name
         upload = cloudinary_service.upload_asset(
             tmp_path, client.slug, "voice",
-            public_id=f"project-{project.id}-voice", resource_type="video")
+            public_id=f"project-{project.id}-voice-{hashlib.sha256(audio).hexdigest()[:16]}", resource_type="video")
     except Exception as exc:  # noqa: BLE001
         return {"stored": False, "store_note": f"The voice track could not be stored: {exc}"}
     finally:
@@ -241,7 +292,7 @@ def _store_voice_track(project, client, result):
                 pass
 
     url = upload.get("secure_url")
-    if not url:
+    if not url or upload.get("_mock"):
         return {"stored": False,
                 "store_note": ("The voice track was generated but could not be stored, so "
                                "the render would have no narration. "
@@ -251,6 +302,9 @@ def _store_voice_track(project, client, result):
     # and the music panel writes those back.
     music = dict(project.music or {})
     music["voice_track_url"] = url
+    music["voice_mode"] = "continuous"
+    music["voice_signature"] = signature or media_state.timeline_signature([s.to_dict() for s in project.scenes.all()])
+    music["voice_track_stale"] = False
     music["voice_id"] = (result.get("voice_id")
                          or music.get("voice_id") or "")
     project.music = music

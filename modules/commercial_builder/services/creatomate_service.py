@@ -115,6 +115,8 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
         if el_type in ("video", "image") and scene.get("asset_url"):
             element["source"] = scene["asset_url"]
             element["fit"] = "cover"
+        if el_type == "video":
+            element["volume"] = "100%" if scene.get("asset_type") == "spokesperson" else "0%"
         if scene.get("is_cta"):
             element["overlay"] = {
                 "type": "composition",
@@ -152,7 +154,18 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
         })
 
     audio_elements = []
-    if voice_track_url:
+    if music.get("voice_mode") == "scenes" or (not voice_track_url and any(
+            ((s.get("asset_meta") or {}).get("voiceover") or {}).get("audio_url") for s in scenes)):
+        from .media_state import has_presenter
+        for scene in scenes:
+            voice = (scene.get("asset_meta") or {}).get("voiceover") or {}
+            if voice.get("audio_url") and not has_presenter(scene):
+                audio_elements.append({
+                    "id": f"voice_{scene['id']}", "track": TRACK_VOICE, "time": scene["start"],
+                    "duration": scene["end"] - scene["start"], "type": "audio",
+                    "source": voice["audio_url"], "volume": "100%",
+                })
+    elif voice_track_url:
         audio_elements.append({
             "id": "voice", "track": TRACK_VOICE, "time": 0, "type": "audio",
             "source": voice_track_url, "volume": "100%",
@@ -246,6 +259,7 @@ def _presenter_element(scene):
         "type": "video",
         "source": url,
         "fit": "contain",
+        "volume": "100%",
     }
     if meta.get("chroma_key"):
         element["chroma_key"] = {
@@ -309,7 +323,7 @@ def _cta_overlay_elements(cta, project_dict, scene, platform):
     font_weight = "800" if platform in ("ctv", "both") else "700"
 
     elements = [
-        {"type": "text", "text": project_dict.get("title") or client.get("name", ""), "y": "18%",
+        {"type": "text", "text": cta.get("business_name") or client.get("name", ""), "y": "18%",
          "font_size": font_size, "font_weight": font_weight},
         {"type": "text", "text": cta.get("offer", ""), "y": "40%",
          "font_size": font_size, "font_weight": font_weight},
@@ -367,7 +381,10 @@ def submit_render(source):
         # Recorded at SUBMIT rather than on success: the request is what was
         # spent, and a render that fails an hour later has still cost it.
         _meter(detail=str(render.get("id") or "")[:60])
-        return {"id": render.get("id"), "status": render.get("status"), "url": render.get("url")}
+        state = render.get("status") or "queued"
+        return {"id": render.get("id"),
+                "status": "queued" if state in ("planned", "waiting", "transcribing") else state,
+                "url": render.get("url"), "error": render.get("error_message") or render.get("error")}
     except Exception as e:
         _meter(ok=False, detail=str(e)[:80])
         return {"id": None, "status": "failed", "error": str(e)}
@@ -389,6 +406,12 @@ def check_render(render_id):
         r = requests.get(f"{BASE_URL}/renders/{render_id}", headers=_headers(), timeout=8)
         r.raise_for_status()
         data = r.json()
-        return {"id": data.get("id"), "status": data.get("status"), "url": data.get("url")}
+        if data.get("status") not in ("planned", "waiting", "transcribing", "queued", "rendering", "succeeded", "failed"):
+            raise ValueError("The renderer returned no recognized status.")
+        provider_status = data["status"]
+        return {"id": data.get("id"),
+                "status": "queued" if provider_status in ("planned", "waiting", "transcribing") else provider_status,
+                "url": data.get("url"), "error": data.get("error_message") or data.get("error")}
     except Exception as e:
-        return {"id": render_id, "status": "failed", "error": str(e)}
+        # A failed status read says nothing about whether the paid render failed.
+        return {"id": render_id, "retryable": True, "error": str(e)}

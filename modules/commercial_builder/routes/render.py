@@ -64,10 +64,14 @@ def submit_render(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     client = Client.query.get_or_404(project.client_id)
     data = request.get_json(force=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "Send an object with the sizes to render."}), 400
     requested = data.get("formats")
     if requested is None:
         one = data.get("format")
         requested = [one] if one else (project.formats or ["16:9"])[:1]
+    if not isinstance(requested, list) or any(not isinstance(f, str) for f in requested):
+        return jsonify({"ok": False, "error": "Formats must be a list of size names."}), 400
     # Deduped, order kept: a size ticked twice is one render, and a set would
     # reorder the batch so the panel draws them in an order nobody chose.
     seen = set()
@@ -107,6 +111,12 @@ def submit_render(project_id):
     scenes = [s.to_dict() for s in project.scenes.order_by(Scene.order_index).all()]
     qc = qc_service.run_qc(project.to_dict(include_scenes=False), client.to_dict(), scenes)
     project.qc_results = qc
+    hard_failures = [key for key in ("scene_assets", "media_integrity")
+                     if not qc.get(key, {}).get("passed", False)]
+    if hard_failures:
+        db.session.commit()
+        return jsonify({"ok": False, "error": "Fix missing, unfinished or out-of-date media before rendering.",
+                        "hard_failures": hard_failures, "qc_results": qc}), 409
     if not qc["_all_passed"] and not force:
         db.session.commit()
         return jsonify({"ok": False, "error": "QC checks failed. Fix the flagged items or "
@@ -299,7 +309,8 @@ def check_render_job(project_id, job_id):
             job.error = state.get("error")
         else:
             status = creatomate_service.check_render(job.provider_render_id)
-            job.status = status.get("status", job.status)
+            if not status.get("retryable"):
+                job.status = status.get("status") or job.status
             job.output_url = status.get("url") or job.output_url
             job.error = status.get("error")
         db.session.commit()

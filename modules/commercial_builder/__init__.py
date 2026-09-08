@@ -116,6 +116,8 @@ def register_commercial_builder(app):
     if STANDALONE:
         db.init_app(app)
     app.register_blueprint(create_blueprint())
+    from .recovery import install as install_recovery
+    install_recovery(app)
     if STANDALONE:
         with app.app_context():
             try:

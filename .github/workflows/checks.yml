@@ -384,6 +384,9 @@ jobs:
       - name: Commercial Builder HeyGen tests
         run: python test_commercial_heygen.py
 
+      - name: Commercial Builder media reliability tests
+        run: python test_commercial_reliability.py
+
       - name: Commercial Builder provider key tests
         run: |
           if [ -f test_commercial_providers.py ]; then
