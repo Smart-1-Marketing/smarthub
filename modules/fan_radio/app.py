@@ -955,6 +955,11 @@ def api_mix_config():
     })
 
 
+@app.route("/api/music-library")
+def api_music_library():
+    return jsonify({"ok": True, "tracks": store.music_library()})
+
+
 # --------------------------------------------------------------------- beds
 @app.route("/api/projects/<pid>/spots/<sid>/bed/compose", methods=["POST"])
 def api_bed_compose(pid, sid):
@@ -1013,6 +1018,14 @@ def api_bed_compose(pid, sid):
                    "requested_seconds": out.get("requested_seconds"),
                    "minimum_seconds": minimum_seconds,
                    "bytes": out.get("bytes"), "at": store.now()}
+    save_name = str(data.get("save_name") or "").strip()[:80]
+    if save_name:
+        track = store.save_music_track(save_name, out["audio_bytes"], "mp3", {
+            "kind": "composed", "prompt": prompt, "mood": mood,
+            "seconds": out.get("seconds"), "measured": out.get("seconds") is not None,
+            "minimum_seconds": minimum_seconds,
+        })
+        spot["bed"]["library_track_id"] = track["id"]
     _drop_mix(spot, "The bed changed, so the mix made from the old one went "
                     "with it. Render it again.")
     store.save(project)
@@ -1065,6 +1078,13 @@ def api_bed_upload(pid, sid):
                    "mimetype": mimetype, "audio_url": asset["url"],
                    "audio_where": asset["where"], "bytes": len(data),
                    "minimum_seconds": minimum_seconds, "at": store.now(), **length}
+    save_name = str(request.form.get("save_name") or "").strip()[:80]
+    if save_name:
+        track = store.save_music_track(save_name, data, ext, {
+            "kind": "upload", "filename": filename, "mimetype": mimetype,
+            "minimum_seconds": minimum_seconds, **length,
+        })
+        spot["bed"]["library_track_id"] = track["id"]
     _drop_mix(spot, "The bed changed, so the mix made from the old one went "
                     "with it. Render it again.")
     store.save(project)
@@ -1074,6 +1094,48 @@ def api_bed_upload(pid, sid):
     if asset.get("warning"):
         payload["warning"] = asset["warning"]
     return jsonify(payload)
+
+
+@app.route("/api/projects/<pid>/spots/<sid>/bed/apply-to-project", methods=["POST"])
+def api_apply_bed_to_project(pid, sid):
+    """Reuse this bed wherever its verified length can cover the commercial."""
+    try:
+        project, source = _spot_or_fail(pid, sid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    bed = source.get("bed") or {}
+    if not bed.get("audio_url") or not bed.get("seconds"):
+        return fail("Create or upload a verified bed first.")
+    applied = []
+    for spot in project.get("spots") or []:
+        if spot.get("id") == sid or _bed_minimum_seconds(spot) > float(bed["seconds"]):
+            continue
+        spot["bed"] = {**bed, "reused_from": sid, "at": store.now()}
+        _drop_mix(spot, "The shared bed changed, so the old mix went with it. Render it again.")
+        applied.append(spot.get("id"))
+    store.save(project)
+    return jsonify({"ok": True, "project": project, "applied": applied,
+                    "skipped": len(project.get("spots") or []) - len(applied) - 1})
+
+
+@app.route("/api/projects/<pid>/music-library/<track_id>/apply", methods=["POST"])
+def api_apply_library_track(pid, track_id):
+    project = store.load(pid)
+    track = store.music_track(track_id)
+    if not project:
+        return fail("No project with that id.", 404)
+    if not track or not track.get("audio_url") or not track.get("seconds"):
+        return fail("That saved track is no longer available.", 404)
+    applied = []
+    for spot in project.get("spots") or []:
+        if _bed_minimum_seconds(spot) > float(track["seconds"]):
+            continue
+        spot["bed"] = {**track, "library_track_id": track_id,
+                       "kind": "library", "at": store.now()}
+        _drop_mix(spot, "The library bed changed, so the old mix went with it. Render it again.")
+        applied.append(spot.get("id"))
+    store.save(project)
+    return jsonify({"ok": True, "project": project, "applied": applied})
 
 
 @app.route("/api/projects/<pid>/spots/<sid>/bed/clear", methods=["POST"])

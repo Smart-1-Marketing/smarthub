@@ -253,6 +253,7 @@
       rather than reported by this page. A spot with no bed is a straight read,
       which is an ordinary radio spot and passes the checks as one.</p>
     <div id="mixcfg"></div>
+    <div id="trackLibrary"></div>
     <div id="music"></div>
   </div>
 
@@ -527,7 +528,8 @@
     // The mix config is one cheap read and decides what the Music step can
     // even offer, so it is fetched once a project exists rather than on every
     // draw. A failure costs the panel and never the page.
-    loadMixConfig().then(function(){ drawMixConfig(); return loadQc(); })
+    loadMixConfig().then(function(){ drawMixConfig(); return loadMusicLibrary(); })
+      .then(function(){ return loadQc(); })
       .then(drawMusic)
       .catch(function(){ drawMusic(); });
   }
@@ -852,10 +854,40 @@
      Commercial Builder's one music table — so a radio spot and a video spot
      duck their beds by the same amount, and the level this panel shows is the
      level that renders. */
-  var MIXCFG = null, QCC = {}, RENDERED = {};
+  var MIXCFG = null, QCC = {}, RENDERED = {}, MUSIC_LIBRARY = [];
 
   function loadMixConfig(){
     return api("/api/mix/config").then(function(j){ MIXCFG = j; return j; });
+  }
+  function loadMusicLibrary(){
+    return api("/api/music-library").then(function(j){ MUSIC_LIBRARY = j.tracks || []; drawMusicLibrary(); });
+  }
+  function drawMusicLibrary(){
+    if(!MUSIC_LIBRARY.length){
+      $("trackLibrary").innerHTML = '<div class="hint">Saved music tracks will appear here for reuse across commercials and future projects.</div>';
+      return;
+    }
+    $("trackLibrary").innerHTML = '<div class="row" style="margin:10px 0 14px">'
+      + '<label class="f" style="margin:0">Saved music library</label>'
+      + '<select id="savedTrack" style="max-width:420px"><option value="">Choose a saved track…</option>'
+      + MUSIC_LIBRARY.map(function(t){ return '<option value="' + esc(t.id) + '">' + esc(t.name)
+        + ' · ' + esc(t.seconds) + 's</option>'; }).join("") + '</select>'
+      + '<button class="btn sec sm" id="useSavedTrack">Use across eligible commercials</button></div>';
+    $("useSavedTrack").onclick = function(){
+      var id = $("savedTrack").value;
+      if(!id) return;
+      api("/api/projects/"+P.id+"/music-library/"+id+"/apply", {method:"POST", body:{}})
+        .then(function(j){ P = j.project; drawMusic(); say("wizardMsg", "Applied the saved track to "
+          + j.applied.length + " eligible commercial(s).", "ok"); })
+        .catch(function(e){ say("wizardMsg", e.message, "err"); });
+    };
+  }
+
+  function askToReuse(sid){
+    if(!confirm("Track created. Use it throughout every eligible commercial in this project?")) return Promise.resolve();
+    return api("/api/projects/"+P.id+"/spots/"+sid+"/bed/apply-to-project", {method:"POST", body:{}})
+      .then(function(j){ P = j.project; return loadQc().then(function(){ drawMusic();
+        say("wizardMsg", "Applied this track to " + j.applied.length + " other eligible commercial(s).", "ok"); }); });
   }
   function loadQc(){
     return api("/api/projects/"+P.id+"/qc").then(function(j){
@@ -1081,6 +1113,8 @@
         + esc(s.id) + '" style="display:none"></label>'
         + (bed.audio_url ? '<button class="btn danger sm" data-a="bedclear" '
             + 'data-s="' + esc(s.id) + '">No bed</button>' : "")
+        + (bed.audio_url ? '<button class="btn sec sm" data-a="reuse" '
+            + 'data-s="' + esc(s.id) + '">Use throughout eligible commercials</button>' : "")
         + '<span class="msg" data-m="bed-' + esc(s.id) + '"></span></div>'
         + '<div class="hint">Every bed must be at least ' + esc((s.seconds + 3) + "")
         + ' seconds for this ' + esc(s.seconds + "") + ' second commercial.</div>'
@@ -1179,10 +1213,15 @@
           ? "/api/projects/"+P.id+"/spots/"+sid+"/bed/upload"
           : "/api/projects/"+P.id+"/spots/"+sid+"/voice-upload";
         var fd = new FormData(); fd.append("file", file);
+        if(which === "bed"){
+          var saved = prompt("When this track is uploaded, save it to your music library? Give it a name, or leave blank to skip.") || "";
+          if(saved) fd.append("save_name", saved);
+        }
         say("[data-m='" + which + "-" + sid + "']", "Uploading…", "wait");
         postForm(path, fd).then(function(j){
           putSpot(j.spot); delete RENDERED[sid];
-          return loadQc().then(function(){ drawMusic(); drawSpots(); });
+          return loadMusicLibrary().then(function(){ return loadQc(); }).then(function(){ drawMusic(); drawSpots();
+            return which === "bed" ? askToReuse(sid) : null; });
         }).catch(function(e){
           say("[data-m='" + which + "-" + sid + "']", e.message, "err"); });
         input.value = "";
@@ -1195,18 +1234,21 @@
                                     ? "bed-" : "mix-") + sid + "']";
         if(a === "compose"){
           var box = $("music").querySelector('[data-prompt="' + sid + '"]');
+          var saveName = prompt("When this track is created, save it to your music library? Give it a name, or leave blank to skip.") || "";
           b.disabled = true;
           say(msgSel, "Composing the bed…", "ai");
           api("/api/projects/"+P.id+"/spots/"+sid+"/bed/compose",
-              {method:"POST", body:{prompt: box ? box.value.trim() : ""}})
+              {method:"POST", body:{prompt: box ? box.value.trim() : "", save_name: saveName}})
             .then(function(j){ putSpot(j.spot); delete RENDERED[sid];
-              return loadQc().then(function(){ drawMusic(); }); })
+              return loadMusicLibrary().then(function(){ return loadQc(); }).then(function(){ drawMusic(); return askToReuse(sid); }); })
             .catch(function(e){ b.disabled = false; say(msgSel, e.message, "err"); });
         } else if(a === "bedclear"){
           api("/api/projects/"+P.id+"/spots/"+sid+"/bed/clear", {method:"POST", body:{}})
             .then(function(j){ putSpot(j.spot); delete RENDERED[sid];
               return loadQc().then(function(){ drawMusic(); }); })
             .catch(function(e){ say(msgSel, e.message, "err"); });
+        } else if(a === "reuse"){
+          askToReuse(sid).catch(function(e){ say(msgSel, e.message, "err"); });
         } else if(a === "render"){
           makeMix(sid);
         } else if(a === "file"){

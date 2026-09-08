@@ -57,6 +57,10 @@ def _index_path() -> str:
     return os.path.join(data_dir(), "index.json")
 
 
+def _music_library_path() -> str:
+    return os.path.join(data_dir(), "music_library.json")
+
+
 # Reads and writes go through hub.jsonstore, which keeps the atomic .tmp +
 # rename this module already had and adds a mirror into the database. The
 # Render disk these files live on is not part of the database backup and does
@@ -176,6 +180,47 @@ def _reindex(project: dict) -> None:
 def index() -> list[dict]:
     rows = _read(_index_path(), [])
     return rows if isinstance(rows, list) else []
+
+
+# ------------------------------------------------------------ music library
+def music_library() -> list[dict]:
+    """Saved, immutable music tracks available to future Fan Radio projects."""
+    rows = _read(_music_library_path(), [])
+    return rows if isinstance(rows, list) else []
+
+
+def save_music_track(name: str, data: bytes, ext: str, details: dict) -> dict:
+    """Store an independent copy: replacing a spot bed must not alter a save."""
+    track_id = secrets.token_urlsafe(9)
+    clean_name = str(name or "").strip()[:80] or "Untitled track"
+    ext = ext if ext in AUDIO_EXTS else "mp3"
+    public_id = f"{folder()}/music-library/{slugify(clean_name)}-{track_id}"
+    if cloudinary_ready():
+        try:
+            from hub import storage
+            asset = storage.put("fan_radio", f"{public_id}.{ext}", data,
+                                public_id=public_id, overwrite=False,
+                                context={"role": "music_library"})
+            stored = {"audio_url": asset.url, "audio_where": "cloudinary",
+                      "public_id": asset.public_id}
+        except Exception:
+            stored = _write_local({}, data, ext=ext,
+                                  name=f"library-{track_id}.{ext}")
+    else:
+        stored = _write_local({}, data, ext=ext, name=f"library-{track_id}.{ext}")
+    track = {"id": track_id, "name": clean_name, "created": now(),
+             "bytes": len(data), **details, **stored}
+    rows = [r for r in music_library() if r.get("id") != track_id]
+    rows.insert(0, track)
+    _write(_music_library_path(), rows[:1000])
+    return track
+
+
+def music_track(track_id: str) -> dict | None:
+    for track in music_library():
+        if track.get("id") == track_id:
+            return track
+    return None
 
 
 def find_by_token(token: str) -> dict | None:
