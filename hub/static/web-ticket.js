@@ -277,5 +277,55 @@ window.WebTicket = (function () {
     });
   }
 
-  return { open: open, manage: manage };
+  // Dashboard entry: choose the client before opening the shared ticket form.
+  function pick(opts) {
+    opts = opts || {};
+    var m = KF().modal('wtPickModal', 'New Web Ticket',
+      '<label for="wtPickQ">Client name or domain</label>' +
+      '<input id="wtPickQ" autocomplete="off" style="' + INPUT + '">' +
+      '<div id="wtPickList" role="status" style="margin-top:12px;max-height:46vh;overflow-y:auto"></div>', 520, false);
+    var q = m.querySelector('#wtPickQ');
+    var list = m.querySelector('#wtPickList');
+    var timer, seq = 0;
+    function search() {
+      var mine = ++seq;
+      list.textContent = 'Loading clients…';
+      fetch('/api/clients/search?q=' + encodeURIComponent(q.value.trim()) + '&limit=12')
+        .then(function (r) {
+          if (!r.ok) throw new Error('Client search failed');
+          return r.json();
+        }).then(function (d) {
+          if (mine !== seq || !m.isConnected) return;
+          if (d.error) throw new Error('Client search failed');
+          var rows = d.clients || [];
+          list.innerHTML = rows.length ? rows.map(function (r, i) {
+            return '<button type="button" data-i="' + i + '" style="' + INPUT +
+              ';text-align:left;cursor:pointer;margin-bottom:6px;background:transparent">' +
+              '<b>' + esc(r.name) + '</b> <span class="muted">' + esc(r.domain || '') + '</span></button>';
+          }).join('') : 'No clients found. Try another name or domain.';
+          list.querySelectorAll('button').forEach(function (button) {
+            button.onclick = function () {
+              var client = rows[Number(button.dataset.i)];
+              clearTimeout(timer);
+              ++seq;
+              m.remove();
+              open({client: client.name, domain: client.domain || '', user: opts.user,
+                onsaved: opts.onsaved});
+            };
+          });
+        }).catch(function () {
+          if (mine === seq && m.isConnected) list.textContent = 'Client list unavailable. Try searching again.';
+        });
+    }
+    q.oninput = function () {
+      clearTimeout(timer);
+      ++seq;
+      list.textContent = 'Loading clients…';
+      timer = setTimeout(search, 180);
+    };
+    q.focus();
+    search();
+  }
+
+  return { open: open, manage: manage, pick: pick };
 })();

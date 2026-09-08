@@ -161,6 +161,20 @@ def static_qa_nudge_js():
                                mimetype="application/javascript", max_age=3600)
 
 
+@bp.route("/hub-job-notify.js")
+def static_job_notify_js():
+    """"It's done, come back" — for a render started in one tool and
+    finished while somebody was working in another.
+
+    Root-level for the same reason as the scripts around it, and — unlike
+    hub-cheers.js and hub-qa-nudge.js just above — genuinely loaded from all
+    three places (base.html, HubBar, hub/__init__.py's own injector): its
+    whole point is following somebody across tools, and a mounted module is
+    exactly where they went."""
+    return send_from_directory(_STATIC, "hub-job-notify.js",
+                               mimetype="application/javascript", max_age=3600)
+
+
 @bp.route("/hub-thinking.js")
 def static_thinking_js():
     """The one mark that says something is running.

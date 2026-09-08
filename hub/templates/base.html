@@ -239,5 +239,14 @@ function s1hubFeedback(){
   <script defer src="/hub-thinking.js"></script>
   <script defer src="/hub-autofill.js"></script>
   <script defer src="/hub-accordion.js"></script>
+  {# A render started in one tool has to reach somebody who has since
+     wandered off to another one, so — unlike the two interruptions above —
+     this one rides with the chrome: wsgi.py's HubBar injects it into every
+     dispatcher-mounted module too, and hub/__init__.py's own injector
+     carries it into the blueprint-registered ones. Loaded here as well so
+     the Hub's own pages (this template) get it without going through
+     either injector. It marks each job shown in localStorage, so being
+     loaded from more than one place cannot double-notify. #}
+  <script defer src="/hub-job-notify.js"></script>
 </body>
 </html>

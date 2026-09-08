@@ -1,12 +1,16 @@
 """Every OAuth redirect URI this Hub will actually send, and where to register it.
 
-Six OAuth flows run here and each hands a provider a callback URL that has to
-have been registered, verbatim, in that provider's console first. Nothing in
-the Hub listed them: `/diagnostics` said which *variables* resolved, the
-Google Access admin page printed its own one, and the other five were
-knowable only by reading the source. So the day a second hostname started
-answering for this service, the first anybody knew was a customer meeting
-`redirect_uri_mismatch` on a Google consent screen.
+Seven OAuth flows run here and each hands a provider a callback URL that has
+to have been registered, verbatim, in that provider's console first. Nothing
+in the Hub listed them: `/diagnostics` said which *variables* resolved, the
+Google Access admin page printed its own one, and the rest were knowable only
+by reading the source. So the day a second hostname started answering for
+this service, the first anybody knew was a customer meeting
+`redirect_uri_mismatch` on a Google consent screen — and the day a new flow
+was added (the Ads Grader, met by a stranger rather than a customer), the
+first anybody knew was the identical error on a different screen, because a
+callback this panel does not know about is a callback nobody thought to
+register before it shipped.
 
 ## The failure this exists to stop
 
@@ -30,7 +34,7 @@ browser and there is **one string to register per hostname**:
 whatever anybody browses, and moving the Hub to a new domain changes them
 *only* when the variable is edited:
 
-* Google Access and Smart 1 Suite, `PUBLIC_BASE_URL`
+* Google Access, Smart 1 Suite and the Ads Grader, `PUBLIC_BASE_URL`
 * Smart 1 Ads, `GOOGLE_ADS_REDIRECT_URI`, which is a whole URL rather than a
   path and so does not follow `PUBLIC_BASE_URL` either
 

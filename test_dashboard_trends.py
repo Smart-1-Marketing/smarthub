@@ -148,6 +148,51 @@ def main():
     check("while the Hub knows what month it is", s5["period"], "Nov 2026")
 
     print()
+    print("the main dashboard reads live records and calculates calendar movement")
+    from hub import knack_products
+    from unittest.mock import patch
+    live_rows = [
+        {"client": "New September", "status": "Live", "monthly": 250,
+         "start": "2026-09-01", "end": "2026-09-30"},
+        {"client": "Returning", "status": "Complete", "monthly": 100,
+         "start": "2026-08-01", "end": "2026-08-31"},
+        {"client": "Returning", "status": "Live", "monthly": 150,
+         "start": "2026-09-01", "end": "2026-09-30"},
+        {"client": "Lost", "status": "Complete", "monthly": 80,
+         "start": "2026-08-01", "end": "2026-08-31"},
+        {"client": "Superseded", "status": "Revised", "monthly": 900,
+         "start": "2026-09-01", "end": "2026-09-30"},
+    ]
+    at("202609")
+    with patch.object(knack_products, "rows", return_value={
+            "rows": live_rows, "source": "knack", "age_minutes": 2}):
+        current = knack_data.summary()
+    check("live budget uses API records, not the August export",
+          current["live_budget_monthly"], 400)
+    check("new September customer is counted without export flags",
+          current["new_customers"], 1)
+    check("increased budget uses both months' dated IOs",
+          current["increased_customers"], 1)
+    check("completed August IO contributes to lost customers",
+          current["lost_customers"], 1)
+    check("movement month is September", current["this_period"], "Sep 2026")
+    check("comparison month is August", current["last_period"], "Aug 2026")
+    check("old fallback does not label live data stale", current["export_stale"], False)
+    check("API age reaches dashboard", current["products_age_minutes"], 2)
+    with patch.object(knack_products, "rows", return_value={
+            "rows": live_rows, "source": "knack (stale)", "age_minutes": 300,
+            "note": "Knack could not be reached."}):
+        stale = knack_data.summary()
+    check("failed refresh keeps last successful API data",
+          stale["live_budget_monthly"], 400)
+    check("failed refresh is visible", stale["products_note"], "Knack could not be reached.")
+    check("January compares against December across years",
+          knack_data.month_over_month([
+              {"client": "Year boundary", "monthly": 50,
+               "start": "2026-12-01", "end": "2027-01-31"}
+          ], "202701"), {"new": 0, "lost": 0, "increased": 0, "decreased": 0})
+
+    print()
     if FAILURES:
         print(f"{len(FAILURES)} FAILED")
         for f in FAILURES:

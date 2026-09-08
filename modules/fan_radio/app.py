@@ -30,10 +30,19 @@ import re
 from pathlib import Path
 
 import requests
-from flask import (Flask, jsonify, render_template, request, send_file)
+from flask import (Flask, Response, jsonify, render_template, request,
+                   send_file)
 
 from . import ai, catalog, phrases, speech, store, voices
-from hub import radio_share
+from hub import radio_share, voice_casting
+
+try:
+    from hub import radio_spec
+except Exception:                                     # noqa: BLE001
+    # Standalone, or the shared rules failed to import. Every reader of it
+    # below asks `_need_spec()` and says so rather than drawing a level or a
+    # check over numbers it made up.
+    radio_spec = None
 
 try:
     from hub import audit as hub_audit
@@ -154,10 +163,31 @@ def decorate(project: dict, spot: dict) -> dict:
                                 banned_terms(project),
                                 spot.get("daypart") or "",
                                 spot.get("outcome") or "neutral")
+    was_spoken = spot.get("spoken")
     spoken = speech.normalize_for_speech(spot.get("script") or "",
                                          project.get("pronunciation"))
     spot["spoken"] = spoken["spoken"]
     spot["speech_changes"] = spoken["changes"]
+
+    # What the voice is handed has changed, so anything recorded from the
+    # previous wording is audio of words nobody approved. Decided here rather
+    # than at the four routes that can change a script — an edit, a rewrite, a
+    # tighten and a pronunciation save — because a rule three of four call
+    # sites remember is not a rule, and this is the one function all four
+    # already pass through.
+    #
+    # The read is **marked, never deleted**: it cost money, it is still the
+    # right voice, and a player that vanishes reads as a fault. The mix is
+    # dropped, because a mix is a statement about two particular tracks and it
+    # plays perfectly well while being of the wrong script — which is exactly
+    # what makes it worth removing rather than flagging.
+    if was_spoken is not None and was_spoken != spot["spoken"]:
+        if spot.get("audio_url"):
+            spot["audio_stale"] = True
+        _drop_mix(spot, "The script changed, so the mix of the previous "
+                        "wording went with it. Re-record and render again.")
+    elif spot.get("audio_url") and was_spoken == spot["spoken"]:
+        spot.pop("audio_stale", None)
     return spot
 
 
@@ -173,6 +203,7 @@ def public_view(project: dict) -> dict:
         if spot.get("hidden"):
             continue
         dp = catalog.daypart(spot.get("daypart") or "")
+        mix = spot.get("mix") or {}
         spots.append({
             "id": spot.get("id"),
             "daypart": spot.get("daypart"),
@@ -182,8 +213,16 @@ def public_view(project: dict) -> dict:
             "length_label": catalog.budget(spot.get("seconds") or 30)["label"],
             "outcome": spot.get("outcome") or "neutral",
             "script": spot.get("script"),
-            "audio_url": spot.get("audio_url") or "",
-            "audio_seconds": spot.get("audio_seconds") or 0,
+            # The finished mix is what a client should hear. A spot not yet
+            # mixed falls back to its raw read, so there is still something to
+            # review while a bed is being composed; a spot with neither is left
+            # out above, because offering an empty player is worse than not
+            # listing it.
+            "audio_url": (mix.get("audio_url") or spot.get("audio_url") or ""),
+            "audio_seconds": (mix.get("seconds") if mix.get("audio_url")
+                              else spot.get("audio_seconds")) or 0,
+            "audio_is_mix": bool(mix.get("audio_url")),
+            "has_bed": bool((spot.get("bed") or {}).get("audio_url")),
             "voice_name": (project.get("voice") or {}).get("name") or "",
             "status": spot.get("status") or "pending",
             "comments": [f for f in (project.get("feedback") or [])
@@ -236,7 +275,19 @@ def api_catalog():
     return jsonify({
         "ok": True,
         "dayparts": catalog.DAYPARTS,
-        "lengths": [{"seconds": s, **catalog.LENGTHS[s]} for s in catalog.LENGTH_IDS],
+        "lengths": [{"seconds": s, **catalog.LENGTHS[s]}
+                    for s in catalog.LENGTH_IDS],
+        # Which of the four are ticked when the picker is first drawn. Read
+        # from the catalog rather than decided in the browser, or the tool
+        # would bill for a :10 and a :60 on every job that wanted the pair.
+        "default_lengths": catalog.DEFAULT_LENGTH_IDS,
+        # The casting question, with the words each answer actually matches on
+        # and, for energy, the `style` value it sends on the render. Printed on
+        # the picker rather than summarised: "Announcer" is not a mood, it is a
+        # search for announcer/commercial/broadcast/promo in what ElevenLabs
+        # publishes about a voice, and a screen that says so lets somebody pick
+        # differently before listening to three wrong ones.
+        "voice_characteristics": voice_casting.characteristics_detail(),
         "tones": catalog.TONES,
         "outcomes": catalog.OUTCOMES,
         "safe_phrases": phrases.SAFE_PHRASES,
@@ -560,6 +611,120 @@ def api_cast(pid):
     return jsonify({"ok": True, "profile": profile, "voices": matches})
 
 
+@app.route("/api/voices/match", methods=["POST"])
+def api_voice_match():
+    """Re-rank against characteristics somebody edited by hand.
+
+    `/cast` asks a model what the read should sound like; this is the same
+    ranking asked again once a rep has disagreed with it. Two controls, one
+    scoring pass — the alternative is a shortlist a rep cannot argue with,
+    which is what this tool had.
+    """
+    if not voices.ready():
+        return fail("ElevenLabs isn't configured. Add ELEVENLABS_API_KEY to "
+                    "record; scripts still work without it.", 503)
+    body = request.get_json(silent=True) or {}
+    want = body.get("want") if isinstance(body.get("want"), dict) else {}
+    try:
+        matched = voices.match_voices(want, int(body.get("count") or 4))
+    except voices.VoiceError as exc:
+        return fail(str(exc), 503)
+    return jsonify({"ok": True, "voices": matched,
+                    "quality": voices.match_quality(matched),
+                    "asked": voice_casting.asked_count(want)})
+
+
+@app.route("/api/voices/by-id", methods=["POST"])
+def api_voice_by_id():
+    """One voice named rather than ranked.
+
+    The way past the shortlist: a client who has already chosen a voice, or one
+    cloned on the account and carrying no labels for the ranking to score, is
+    reachable by ID. Cloning itself is deliberately not here — see the note on
+    `/api/voices/account` below.
+    """
+    if not voices.ready():
+        return fail("ElevenLabs isn't configured.", 503)
+    body = request.get_json(silent=True) or {}
+    try:
+        return jsonify({"ok": True, "voice": voices.get_voice(body.get("voice_id"))})
+    except voices.VoiceError as exc:
+        return fail(str(exc), 502)
+
+
+@app.route("/api/voices/account")
+def api_voice_account():
+    """What is left of the month's ElevenLabs characters.
+
+    A button rather than a page load: one authenticated call that generates
+    nothing and bills nothing. It matters more here than it used to, because
+    the length menu now runs to a :60 — about twice a :30 of the allowance,
+    every time it is re-recorded.
+
+    **Voice cloning is deliberately not offered in this tool.** The Radio Ad
+    Creator has it, it creates a voice on the shared ElevenLabs account out of
+    somebody's recordings, and that is a consent question rather than a button
+    — one place to answer it is the right number. A voice cloned there shows up
+    in this account's pool, so `/api/voices/by-id` reaches it here.
+    """
+    try:
+        return jsonify({"ok": True, **voices.account_check()})
+    except voices.VoiceError as exc:
+        return fail(str(exc), 502)
+
+
+@app.route("/api/speech/preview", methods=["POST"])
+def api_speech_preview():
+    """What the voice is actually handed, before a render is paid for.
+
+    `speech.normalize_for_speech()` rewrites the copy a rep typed into the copy
+    ElevenLabs reads, and until now nothing showed the difference — so a
+    pronunciation that was not taking looked identical to one that was, and the
+    only way to find out was to spend a render.
+    """
+    body = request.get_json(silent=True) or {}
+    out = speech.normalize_for_speech(str(body.get("script") or ""),
+                                      body.get("pronunciation") or [])
+    return jsonify({"ok": True, **out})
+
+
+@app.route("/api/projects/<pid>/pronunciations", methods=["POST"])
+def api_pronunciations(pid):
+    """How this client's name is said.
+
+    The field has been on every project row since this tool was written and no
+    route ever set it: `decorate()` reads it on every spot and it could only
+    ever be empty — a declared-and-never-wired integration point, on the one
+    thing a client notices immediately when it is wrong.
+
+    Every spot is re-decorated on save rather than only the ones written after
+    the change, or a pronunciation added halfway through a job would apply to
+    half the spots and nothing on screen would say which.
+    """
+    project = store.load(pid)
+    if not project:
+        return fail("No project with that id.", 404)
+    body = request.get_json(silent=True) or {}
+    # `{"from", "to"}`, which is the shape `speech.normalize_for_speech()` has
+    # always read. Storing `{"word", "say"}` here would have been the same
+    # failure one level on: a field written, kept, and silently ignored by the
+    # only thing that reads it.
+    rows = []
+    for row in (body.get("pronunciation") or [])[:60]:
+        if not isinstance(row, dict):
+            continue
+        frm = str(row.get("from") or "").strip()[:60]
+        to = str(row.get("to") or "").strip()[:80]
+        if frm and to:
+            rows.append({"from": frm, "to": to})
+    project["pronunciation"] = rows
+    for spot in project.get("spots") or []:
+        decorate(project, spot)
+    store.save(project)
+    return jsonify({"ok": True, "project": project,
+                    "pronunciation": rows})
+
+
 @app.route("/api/projects/<pid>/voice", methods=["POST"])
 def api_set_voice(pid):
     project = store.load(pid)
@@ -613,6 +778,11 @@ def api_record(pid, sid):
                  "audio_measured": out["measured"],
                  "audio_voice": voice.get("name") or voice["voice_id"],
                  "recorded_at": store.now()})
+    # A new read retires the mix made from the old one: a mix is a statement
+    # about two particular tracks, and one left standing over a re-recorded
+    # voice is a file nobody can account for — which plays perfectly well.
+    _drop_mix(spot, "This spot was re-recorded, so the mix made from the "
+                    "previous read went with it. Render it again.")
     over = round(out["seconds"] - float(spot["seconds"]), 2)
     spot["runtime_note"] = (
         f"{out['seconds']}s — {abs(over)}s over a {spot['seconds']}s slot."
@@ -624,6 +794,494 @@ def api_record(pid, sid):
     payload = {"ok": True, "spot": spot, "spoken": spoken}
     if stored.get("warning"):
         payload["warning"] = stored["warning"]
+    return jsonify(payload)
+
+
+# =====================================================================
+# Background music, the mix, and the checks on it
+# =====================================================================
+# Everything in this section is `hub/radio_spec.py`'s, read rather than
+# restated. That module's own opening line says why it exists: it carries the
+# bed vocabulary, the mix levels, the length arithmetic, the QC checks and the
+# one honest way to measure a finished file "so `modules/fan_radio` can read
+# the same rules later without a second copy of them being written first."
+# This is that later.
+#
+# Two constraints decide the shape, and both are inherited rather than
+# rediscovered. There is no ffmpeg, ffprobe, pydub or numpy in this runtime, so
+# a bed is **composed at the spot's own length** by ElevenLabs and nothing is
+# ever trimmed to fit; and the mix is rendered **in the browser** through the
+# Web Audio API, which hands back a WAV whose header states its own length — so
+# the duration filed against a spot is measured here, from the bytes we stored,
+# rather than reported by the page that made them.
+#
+# The unit is the **spot**, not a slot. Radio Promo keys its beds and mixes on
+# a length because a project there writes one script per length; a Fan Radio
+# project writes several spots that may share a length and differ by daypart
+# and outcome, so a bed keyed on ":30" would be the same music under the
+# pre-game and the post-game read. They live on the spot's own row.
+_BED_CAP_MB = 25
+_MIX_CAP_MB = 40
+_AUDIO_ROLES = ("vo", "bed", "mix")
+_PROXY_CAP_BYTES = 40 * 1024 * 1024
+_PROXY_TIMEOUT = (5, 30)
+_UPLOAD_KINDS = {"audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav",
+                 "audio/wave", "audio/mp4", "audio/aac", "audio/ogg",
+                 "audio/webm", "video/webm"}
+
+
+def _need_spec():
+    """`hub/radio_spec`, or a reason. Never raises."""
+    if radio_spec is None:
+        return None, ("The shared radio rules could not be loaded, so no bed "
+                      "level, length or check can be quoted here.")
+    return radio_spec, ""
+
+
+def _spot_or_fail(pid: str, sid: str):
+    project = store.load(pid)
+    if not project:
+        raise LookupError("No project with that id.")
+    spot = store.get_spot(project, sid)
+    if not spot:
+        raise LookupError("No spot with that id.")
+    return project, spot
+
+
+def _drop_mix(spot: dict, why: str) -> None:
+    """Retire the mix, because what went into it has changed.
+
+    A mix is a statement about two particular tracks. Left standing over a
+    replaced bed, a re-recorded read or an edited script it is a file nobody
+    can account for — and it plays perfectly well, which is what makes it worth
+    dropping rather than flagging. The reason is kept so the panel can say the
+    mix went and why, rather than a player quietly disappearing.
+    """
+    if spot.pop("mix", None):
+        spot["mix_note"] = why
+    else:
+        spot.pop("mix_note", None)
+
+
+def _read_upload(field: str = "file", *, kinds=None, cap_mb: int = 25):
+    """One uploaded audio file, or a sentence saying why not.
+
+    The refusals are named individually because they send somebody to
+    different places: a file too large is re-exported, a file of the wrong
+    type is converted, and an empty one is a failed export upstream.
+    """
+    upload = request.files.get(field)
+    if not upload or not upload.filename:
+        raise ValueError("Choose a file to upload.")
+    data = upload.read()
+    if not data:
+        raise ValueError(f"{upload.filename} came through empty.")
+    if len(data) > cap_mb * 1024 * 1024:
+        raise ValueError(f"{upload.filename} is larger than the {cap_mb} MB limit.")
+    allowed = _UPLOAD_KINDS if kinds is None else kinds
+    if upload.mimetype and upload.mimetype not in allowed:
+        raise ValueError(f"{upload.filename} is not a supported audio format.")
+    return upload.filename, data, (upload.mimetype or "audio/mpeg")
+
+
+def _measured(data: bytes, filename: str) -> dict:
+    """How long this file is, and whether we actually know.
+
+    A WAV says so in its header and is measured. Anything else is **not
+    measured** — an MP3 somebody uploaded is at a bitrate nobody here chose, so
+    the byte-count arithmetic that prices a bed we asked for does not apply to
+    it, and a number the browser reported about a file is not a measurement of
+    the file we stored.
+    """
+    spec, _ = _need_spec()
+    seconds = spec.wav_seconds(data) if spec else None
+    if seconds is not None:
+        return {"seconds": seconds, "measured": True}
+    return {"seconds": None, "measured": False,
+            "measure_note": (f"{filename} is not a WAV, and there is no audio "
+                             "decoder in this runtime, so its length is not "
+                             "measured. The mix is what gets measured.")}
+
+
+def _ext_of(filename: str, fallback: str = "mp3") -> str:
+    ext = str(filename or "").rsplit(".", 1)[-1].lower()
+    return ext if ext in store.AUDIO_EXTS else fallback
+
+
+# ------------------------------------------------------------------- config
+@app.route("/api/mix/config")
+def api_mix_config():
+    """Everything the Music and Mix steps need, decided server-side.
+
+    The browser renders the mix but chooses none of it: the dB pair, the fades
+    and the sample rate come from here, so the level a panel shows is the level
+    that renders. A second copy of those numbers in JavaScript is how the
+    screen and the file come to disagree about how loud something is.
+    """
+    spec, error = _need_spec()
+    if not spec:
+        return jsonify({"ok": True, "available": False, "error": error,
+                        "moods": [], "levels": [], "mix": {}})
+    state = spec.available()
+    levels = spec.bed_levels()
+    return jsonify({
+        "ok": True,
+        "available": state["levels"],
+        "can_compose": state["compose"] and spec.generation_enabled(),
+        "compose_note": ("" if spec.generation_enabled() else
+                         "Composing is switched off on this deployment "
+                         "(MUSIC_GENERATION_ENABLED), so the mood tiles fill "
+                         "the prompt box but nothing is composed. Upload a bed "
+                         "instead."),
+        "error": state["error"] or levels.get("error", ""),
+        "moods": spec.bed_moods(),
+        "levels": levels["levels"],
+        "level_reference": levels["reference"],
+        "limits": spec.bed_limits(),
+        "mix": spec.mix_defaults(levels["reference"]),
+    })
+
+
+# --------------------------------------------------------------------- beds
+@app.route("/api/projects/<pid>/spots/<sid>/bed/compose", methods=["POST"])
+def api_bed_compose(pid, sid):
+    """Compose one real bed, at this spot's own length.
+
+    Billed per generation, so it is a button and never a page load — and the
+    content-keyed cache, the metering and the refusal that keeps its row are
+    all the shared audio service's rather than repeated here.
+    """
+    try:
+        project, spot = _spot_or_fail(pid, sid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    spec, error = _need_spec()
+    if not spec:
+        return fail(error, 503)
+    if not spec.generation_enabled():
+        return fail("Composing is switched off on this deployment. Upload a bed "
+                    "instead, or set MUSIC_GENERATION_ENABLED.", 503)
+
+    data = request.get_json(silent=True) or {}
+    prompt = str(data.get("prompt") or "").strip()
+    mood = str(data.get("mood") or "").strip()
+    if not prompt and mood:
+        # A mood tile fills the box with the words it will actually send. A
+        # mood the shared table does not carry contributes nothing rather than
+        # its own name — "Whimsical" as the whole brief is worse than an empty
+        # box.
+        for entry in spec.bed_moods():
+            if mood.lower() in (entry["id"], entry["label"].lower()):
+                prompt = entry["prompt"]
+                break
+    if not prompt:
+        return fail("Describe the bed, or pick a mood to fill the box in.")
+    if rate_limited("bed", 20, 600):
+        return fail("Too many beds composed in a row — give it a minute.", 429)
+
+    out = spec.compose_bed(prompt, spot.get("seconds") or 30)
+    if out.get("error"):
+        return fail(out["error"], 502)
+    if out.get("_mock") or not out.get("audio_bytes"):
+        # Mock mode produces no audio and says so. Recording it as a bed would
+        # file a spot that is silent under the voice, which is exactly what the
+        # bed_source check blocks — so it is refused here rather than written
+        # and then blocked later.
+        return fail(out.get("note") or "No audio came back, so there is no bed "
+                    "to save.", 502)
+
+    asset = store.store_asset(project, spot, "bed", out["audio_bytes"], "mp3")
+    spot["bed"] = {"kind": "composed", "prompt": prompt, "mood": mood,
+                   "audio_url": asset["url"], "audio_where": asset["where"],
+                   "seconds": out.get("seconds"),
+                   "measured": out.get("seconds") is not None,
+                   "requested_seconds": out.get("requested_seconds"),
+                   "bytes": out.get("bytes"), "at": store.now()}
+    _drop_mix(spot, "The bed changed, so the mix made from the old one went "
+                    "with it. Render it again.")
+    store.save(project)
+    _log("bed_composed", project=pid, spot=sid,
+         client=project.get("client") or "")
+    payload = {"ok": True, "spot": spot}
+    if asset.get("warning"):
+        payload["warning"] = asset["warning"]
+    return jsonify(payload)
+
+
+@app.route("/api/projects/<pid>/spots/<sid>/bed/upload", methods=["POST"])
+def api_bed_upload(pid, sid):
+    """A bed somebody already has. The other half of the same choice.
+
+    A client who arrives with a licensed track should not be made to compose
+    one, and neither self-serve platform this was specced against forces
+    generated music.
+    """
+    try:
+        project, spot = _spot_or_fail(pid, sid)
+        filename, data, mimetype = _read_upload(cap_mb=_BED_CAP_MB)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    except ValueError as exc:
+        return fail(str(exc))
+
+    ext = _ext_of(filename)
+    asset = store.store_asset(project, spot, "bed", data, ext)
+    length = _measured(data, filename)
+    spot["bed"] = {"kind": "upload", "prompt": "", "filename": filename,
+                   "mimetype": mimetype, "audio_url": asset["url"],
+                   "audio_where": asset["where"], "bytes": len(data),
+                   "at": store.now(), **length}
+    _drop_mix(spot, "The bed changed, so the mix made from the old one went "
+                    "with it. Render it again.")
+    store.save(project)
+    _log("bed_uploaded", project=pid, spot=sid,
+         client=project.get("client") or "")
+    payload = {"ok": True, "spot": spot}
+    if asset.get("warning"):
+        payload["warning"] = asset["warning"]
+    return jsonify(payload)
+
+
+@app.route("/api/projects/<pid>/spots/<sid>/bed/clear", methods=["POST"])
+def api_bed_clear(pid, sid):
+    """No bed: a straight voice read.
+
+    A real answer rather than an unfinished one — a sponsor mention and a
+    news-style read both ship without music — so it is a deliberate press, and
+    the bed check passes it rather than treating a missing bed as a gap.
+    """
+    try:
+        project, spot = _spot_or_fail(pid, sid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    spot.pop("bed", None)
+    _drop_mix(spot, "The bed was cleared, so the mix made with it went too.")
+    store.save(project)
+    return jsonify({"ok": True, "spot": spot})
+
+
+# ---------------------------------------------------------------- own voice
+@app.route("/api/projects/<pid>/spots/<sid>/voice-upload", methods=["POST"])
+def api_voice_upload(pid, sid):
+    """A finished read somebody already recorded.
+
+    Neither platform this was specced against forces a synthetic voice, and a
+    client who has their own talent has one recording they want used. It lands
+    on the same fields a rendered read lands on, so the mix, the checks and the
+    customer page cannot tell the two apart — except that its length is
+    honestly **not measured** where a rendered one is.
+    """
+    try:
+        project, spot = _spot_or_fail(pid, sid)
+        filename, data, mimetype = _read_upload(cap_mb=_BED_CAP_MB)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    except ValueError as exc:
+        return fail(str(exc))
+
+    ext = _ext_of(filename)
+    asset = store.store_asset(project, spot, "vo", data, ext)
+    length = _measured(data, filename)
+    spot.update({"audio_url": asset["url"], "audio_where": asset["where"],
+                 "audio_seconds": length["seconds"],
+                 "audio_measured": length["measured"],
+                 "audio_provider": "upload",
+                 "audio_voice": filename,
+                 "recorded_at": store.now()})
+    spot["runtime_note"] = (
+        length.get("measure_note")
+        or f"{length['seconds']}s, measured from the file you uploaded.")
+    _drop_mix(spot, "The read changed, so the mix made from the old one went "
+                    "with it. Render it again.")
+    decorate(project, spot)
+    store.save(project)
+    _log("voice_uploaded", project=pid, spot=sid,
+         client=project.get("client") or "")
+    payload = {"ok": True, "spot": spot, "measured": length["measured"]}
+    if asset.get("warning"):
+        payload["warning"] = asset["warning"]
+    return jsonify(payload)
+
+
+# ------------------------------------------------------------- audio, served
+# The mix is rendered in the browser, which means the browser has to *fetch*
+# the voice and the bed and decode them. Those live wherever the store put them
+# — Cloudinary when it is configured, the persistent disk when it is not — and
+# a cross-origin fetch that a CDN declines to allow fails in the one way this
+# Hub keeps having to undo: silently, as a button that does nothing.
+#
+# So both are read back through here, same-origin by construction, and the
+# allowlist is the spot's own row: a `ref` names a role and the URL comes from
+# what this service already recorded against it. Nothing takes a URL from the
+# caller.
+@app.route("/api/projects/<pid>/spots/<sid>/audio")
+def api_spot_audio(pid, sid):
+    """One of this spot's own audio assets, same-origin.
+
+    Never a redirect to the CDN: a redirect lands the browser back on the
+    origin whose CORS answer is the thing being worked around.
+    """
+    try:
+        project, spot = _spot_or_fail(pid, sid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    role = (request.args.get("ref") or "").strip()
+    if role not in _AUDIO_ROLES:
+        return fail("Unknown audio reference.", 404)
+    asset = spot if role == "vo" else (spot.get(role) or {})
+    url = str(asset.get("audio_url") or "")
+    if not url:
+        return fail("There is no audio recorded for that yet.", 404)
+
+    # Stored on the disk: the name is one this service wrote, and it is served
+    # from the same directory /audio/<name> already serves.
+    if url.startswith("audio/"):
+        path = store.local_audio_path(url[len("audio/"):])
+        if not path:
+            return fail("That audio is not stored anywhere this can read.", 404)
+        return send_file(path, conditional=True)
+
+    if not url.lower().startswith("https://"):
+        # Everything Cloudinary hands back is https. Anything else is not a URL
+        # this service wrote, whatever it is doing on the row.
+        return fail("That audio is not stored anywhere this can read.", 502)
+    try:
+        upstream = requests.get(url, timeout=_PROXY_TIMEOUT, stream=True)
+        upstream.raise_for_status()
+        payload = upstream.raw.read(_PROXY_CAP_BYTES + 1, decode_content=True)
+    except Exception as exc:                              # noqa: BLE001
+        return fail(f"That audio could not be read back: {exc}", 502)
+    if len(payload) > _PROXY_CAP_BYTES:
+        return fail("That audio is too large to read back through the Hub.", 502)
+    return Response(payload, mimetype=upstream.headers.get(
+        "Content-Type", "application/octet-stream"))
+
+
+# ----------------------------------------------------------------------- QC
+def _qc_for(project: dict, spot: dict) -> dict:
+    """One spot's checks, built from what is actually on it."""
+    spec, error = _need_spec()
+    if not spec:
+        return {"available": False, "error": error, "checks": [],
+                "status": "not_measured", "blocking": [], "warnings": []}
+    # `duration_by_seconds()` rather than `catalog.budget()`, which falls back
+    # to the :30 for a length it does not know. `grade()` answers *not
+    # measured* for the same input, so reading the two differently here would
+    # put a confident word budget beside a verdict that declined to give one.
+    budget = radio_spec.duration_by_seconds(spot.get("seconds")) or {}
+    grade = spot.get("grade") or catalog.grade(spot.get("script") or "",
+                                               spot.get("seconds") or 0)
+    mix = spot.get("mix") or {}
+    bed = spot.get("bed")
+    report = spec.qc(
+        script=spot.get("script") or "",
+        words=grade.get("words"),
+        words_low=budget.get("low"), words_high=budget.get("high"),
+        target_seconds=spot.get("seconds"),
+        mixed_seconds=mix.get("seconds") if mix.get("measured") else None,
+        bed=bed, vo_only=bed is None)
+    report["available"] = True
+    report["error"] = ""
+    report["spot"] = spot.get("id")
+    return report
+
+
+@app.route("/api/projects/<pid>/qc")
+def api_qc(pid):
+    """Every spot's checks, or one. Reports; refuses nothing."""
+    project = store.load(pid)
+    if not project:
+        return fail("No project with that id.", 404)
+    only = (request.args.get("spot") or "").strip()
+    spots = [s for s in (project.get("spots") or [])
+             if not only or s.get("id") == only]
+    return jsonify({"ok": True,
+                    "reports": {s["id"]: _qc_for(project, s) for s in spots}})
+
+
+# ------------------------------------------------------------------ the mix
+@app.route("/api/projects/<pid>/spots/<sid>/mix", methods=["POST"])
+def api_mix(pid, sid):
+    """File the mix the browser rendered.
+
+    What arrives is a WAV, and that is what makes this honest: the length is
+    read off its own header here, so the number filed against the spot was
+    measured from the bytes we stored rather than reported by the page that
+    made them.
+
+    The checks run before anything is stored. A blocking finding answers **409
+    with the report** rather than filing quietly — and an override is
+    available, recorded against a name with a reason required, because a check
+    that refuses the correct thing is a check somebody switches off, and
+    switching this one off costs the call-to-action check with it.
+    """
+    try:
+        project, spot = _spot_or_fail(pid, sid)
+        filename, data, _mime = _read_upload(
+            kinds={"audio/wav", "audio/x-wav", "audio/wave",
+                   "application/octet-stream"}, cap_mb=_MIX_CAP_MB)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    except ValueError as exc:
+        return fail(str(exc))
+
+    spec, error = _need_spec()
+    if not spec:
+        return fail(error, 503)
+    seconds = spec.wav_seconds(data)
+    if seconds is None:
+        return fail("That file is not a WAV this can read, so its length "
+                    "cannot be measured. The mix step renders a WAV — re-run "
+                    "it.")
+    if not spot.get("audio_url"):
+        return fail("Record or upload the read for this spot before mixing it.")
+
+    # The trademark scan runs here too, and it is not a duplicate of the one on
+    # the record route: a script can be hand-edited after a read was recorded,
+    # and this is the file a client is actually sent.
+    check = phrases.scan(spot.get("script") or "", banned_terms(project),
+                         spot.get("daypart") or "",
+                         spot.get("outcome") or "neutral")
+    if not check["clean"]:
+        hits = ", ".join(h["term"] for h in check["blocked"])
+        return fail(f"This script still says: {hits}. That's a trademark — it "
+                    "cannot be filed, with or without a reason.", 422)
+
+    level = (request.form.get("level") or "").strip()
+    pair = spec.ducked_db(level)
+    probe = dict(spot, mix={"seconds": seconds, "measured": True})
+    report = _qc_for(project, probe)
+    override = str(request.form.get("override") or "").strip().lower() in (
+        "1", "true", "yes")
+    reason = str(request.form.get("override_reason") or "").strip()
+    if report["blocking"] and not override:
+        return jsonify({"ok": False, "blocked": True, "qc": report,
+                        "error": "This mix has findings that stop it being "
+                                 "filed. Fix them, or file it with a reason."}), 409
+    if report["blocking"] and override and not reason:
+        return fail("Say why this is being filed with findings outstanding. "
+                    "An override nobody can explain later is not a record.")
+
+    asset = store.store_asset(project, spot, "mix", data, "wav")
+    spot["mix"] = {"audio_url": asset["url"], "audio_where": asset["where"],
+                   "seconds": seconds, "measured": True, "bytes": len(data),
+                   "filename": filename, "format": spec.MIX_FORMAT,
+                   "level": level or spec.bed_levels().get("reference", ""),
+                   "bed_db": pair["bed"], "ducked_db": pair["ducked"],
+                   "level_known": pair["known"],
+                   "bed": (spot.get("bed") or {}).get("kind") or "",
+                   "qc_status": report["status"], "qc": report,
+                   "override": bool(report["blocking"] and override),
+                   "override_reason": reason if report["blocking"] and override else "",
+                   "override_by": actor_name() if report["blocking"] and override else "",
+                   "at": store.now()}
+    spot.pop("mix_note", None)
+    store.save(project)
+    _log("spot_mixed", project=pid, spot=sid, qc=report["status"],
+         override=spot["mix"]["override"], client=project.get("client") or "")
+    payload = {"ok": True, "spot": spot, "mix": spot["mix"], "qc": report}
+    if asset.get("warning"):
+        payload["warning"] = asset["warning"]
     return jsonify(payload)
 
 
@@ -730,14 +1388,29 @@ def api_public_feedback(token):
     return jsonify({"ok": True, **public_view(project)})
 
 
+# The MIME type follows the extension. Every file here was an MP3 until the
+# mix existed, so this was hardcoded to audio/mpeg -- which a browser handed a
+# WAV under that type may decline to play, silently, on the customer's own
+# page. `local_audio_path()` is what decides which extensions exist at all.
+_AUDIO_MIME = {"mp3": "audio/mpeg", "wav": "audio/wav", "m4a": "audio/mp4",
+               "ogg": "audio/ogg", "webm": "audio/webm"}
+
+
 @app.route("/audio/<name>")
 def audio(name):
     """Local-disk fallback for renders when Cloudinary isn't configured.
-    Public because the customer page needs it; the filename is random."""
+    Public because the customer page needs it. A rendered read carries a
+    random suffix; a bed and a mix are named for the spot and the role, which
+    is deterministic on purpose -- re-composing or re-mixing has to replace
+    what is already there, or the bytes a client is sent and the duration
+    filed against them disagree. The spot id in front of it is still a random
+    token, so neither is enumerable."""
     path = store.local_audio_path(name)
     if not path:
         return fail("Not found.", 404)
-    return send_file(path, mimetype="audio/mpeg", conditional=True)
+    ext = name.rsplit(".", 1)[-1].lower()
+    return send_file(path, mimetype=_AUDIO_MIME.get(ext, "audio/mpeg"),
+                     conditional=True)
 
 
 if __name__ == "__main__":                            # standalone dev run

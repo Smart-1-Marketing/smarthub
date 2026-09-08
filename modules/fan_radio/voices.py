@@ -1,24 +1,41 @@
 """Fan Radio — casting and rendering, via ElevenLabs.
 
-Shares Radio Promo's approach so the two tools cast from the same pool and
-report duration the same way:
+The question *what should this read sound like* is `hub/voice_casting.py`, and
+this module asks it there rather than answering it again. It used to carry its
+own copy of the characteristics, the accent aliases, the energy and delivery
+word lists and the scoring — five tables that had already drifted from the
+shared ones: no `transatlantic` accent, no `neutral` voice type, a shorter
+energy vocabulary, and a scoring pass that awarded points in different amounts.
+So the same client, cast in the two radio tools against the same ElevenLabs
+account, got two different shortlists with two different reasons printed under
+them, and nothing anywhere said which to believe.
 
-* voices are matched against a wanted profile (gender / age / accent /
-  energy / delivery) with a transparent score, so the reason a voice was
-  suggested is visible rather than magic;
-* renders go through ``/with-timestamps``, whose character alignment gives
-  the *measured* duration to the millisecond — no ffmpeg in the Hub's
-  runtime. If that endpoint isn't available the plain one is used and the
-  duration is labelled ``estimated`` rather than passed off as measured.
+What stays here is what is genuinely this module's:
+
+* the transport — the key, the cache, the refusals ElevenLabs' own answers earn;
+* the render, which goes through ``/with-timestamps`` so the character
+  alignment gives the *measured* duration to the millisecond. There is no
+  ffmpeg in the Hub's runtime, so where that endpoint is unavailable the plain
+  one is used and the duration is labelled ``estimated`` rather than passed off
+  as measured.
+
+The MP3 estimate behind that fallback is `hub/radio_spec.mp3_seconds` now, and
+it is worth saying why: the copy that lived here advanced four bytes per
+candidate sync word rather than by the frame's own length, so it counted sync
+patterns *inside* frame data as frames and reported durations several times the
+real one — on the number a rep reads to decide whether a read fits its slot.
 """
 from __future__ import annotations
 
-import base64
 import os
 import re
 import time
+from urllib.parse import quote
 
 import requests
+from hub.audio_response import timestamp_audio, plain_audio
+
+from hub import radio_spec, voice_casting
 
 BASE = os.environ.get("ELEVENLABS_BASE_URL",
                       "https://api.elevenlabs.io/v1").rstrip("/")
@@ -26,27 +43,20 @@ MODEL = os.environ.get("ELEVENLABS_MODEL", "eleven_multilingual_v2")
 
 _cache: dict = {"at": 0.0, "voices": []}
 
-ACCENT_ALIASES = {
-    "american": ["american", "us", "usa", "transatlantic"],
-    "british": ["british", "english", "uk", "received"],
-    "australian": ["australian", "aussie"],
-    "any": [],
-}
-ENERGY_WORDS = {
-    "laid_back": ["calm", "relaxed", "soothing", "soft", "gentle"],
-    "conversational": ["conversational", "casual", "natural", "friendly", "warm"],
-    "energetic": ["energetic", "upbeat", "excited", "confident", "expressive"],
-    "explosive": ["intense", "powerful", "dramatic", "strong", "energetic"],
-}
-DELIVERY_WORDS = {
-    "announcer": ["announcer", "commercial", "advertisement", "broadcast", "promo"],
-    "narrator": ["narration", "narrator", "audiobook", "documentary"],
-    "best_friend": ["conversational", "casual", "friendly", "social media"],
-    "spokesperson": ["commercial", "advertisement", "professional", "corporate"],
-    "character": ["characters", "animation", "video games", "character"],
-}
-STYLE_BY_ENERGY = {"laid_back": 0.15, "conversational": 0.3,
-                   "energetic": 0.55, "explosive": 0.75}
+# Re-exported under the names this module's callers already use. There is one
+# copy of each and it is the shared one — the arrangement
+# `modules/radio_promo/voices.py` uses over the same module.
+CHARACTERISTICS = voice_casting.CHARACTERISTICS
+ACCENT_ALIASES = voice_casting.ACCENT_ALIASES
+ENERGY_WORDS = voice_casting.ENERGY_WORDS
+DELIVERY_WORDS = voice_casting.DELIVERY_WORDS
+STYLE_BY_ENERGY = voice_casting.STYLE_BY_ENERGY
+DEFAULT_WANT = voice_casting.DEFAULT_WANT
+
+# The labelled fallback, from the one reading of it. Never a measurement in the
+# sense `with-timestamps` is: exact for a constant-bitrate file, an estimate
+# for a variable one, and every caller reports it as "estimated".
+mp3_seconds = radio_spec.mp3_seconds
 
 
 class VoiceError(RuntimeError):
@@ -87,100 +97,84 @@ def _headers(extra: dict | None = None) -> dict:
     return head
 
 
-def _blob(voice: dict) -> str:
-    labels = voice.get("labels") or {}
-    return " ".join([str(voice.get("name") or ""),
-                     str(voice.get("description") or ""),
-                     " ".join(f"{k} {v}" for k, v in labels.items())]).lower()
-
-
 def list_voices(force: bool = False) -> list[dict]:
+    """The account's voices, in the shape `hub/voice_casting` scores.
+
+    Normalised here rather than handed over raw: that module reads `name`,
+    `description` and `labels`, and ElevenLabs publishes the description in
+    either of two places depending on how a voice was made.
+    """
     if not force and _cache["voices"] and time.time() - _cache["at"] < 300:
         return _cache["voices"]
     try:
         res = requests.get(f"{BASE}/voices", headers=_headers(), timeout=30)
     except requests.RequestException as exc:
-        raise VoiceError(f"Couldn't reach ElevenLabs ({exc.__class__.__name__}).")
-    if res.status_code != 200:
-        raise VoiceError(f"ElevenLabs returned {res.status_code} listing voices.")
-    voices = (res.json() or {}).get("voices") or []
+        raise VoiceError(f"Couldn't reach ElevenLabs ({exc.__class__.__name__}).") from exc
+    if res.status_code >= 400:
+        raise VoiceError(f"ElevenLabs refused the request (HTTP {res.status_code}).")
+    voices = []
+    for v in (res.json() or {}).get("voices") or []:
+        labels = v.get("labels") or {}
+        voices.append({"voice_id": v.get("voice_id"), "name": v.get("name"),
+                       "category": v.get("category"),
+                       "preview_url": v.get("preview_url"),
+                       "description": v.get("description")
+                       or labels.get("description") or "",
+                       "labels": labels})
     _cache.update({"at": time.time(), "voices": voices})
     return voices
 
 
 def match_voices(want: dict, count: int = 3) -> list[dict]:
-    """Score the pool against a wanted profile. Reasons are returned."""
-    want = want or {}
-    out = []
-    for v in list_voices():
-        labels = v.get("labels") or {}
-        blob = _blob(v)
-        score, reasons = 0, []
+    """The best `count` voices for the picked characteristics.
 
-        gender = str(labels.get("gender") or "").lower()
-        if want.get("gender") in ("male", "female"):
-            if gender == want["gender"]:
-                score += 4
-                reasons.append(want["gender"])
-            elif gender:
-                score -= 2
-
-        age = str(labels.get("age") or "").lower().replace(" ", "_")
-        if want.get("age") and age:
-            if want["age"] in age:
-                score += 2
-                reasons.append(age.replace("_", " "))
-
-        accent = str(labels.get("accent") or "").lower()
-        aliases = ACCENT_ALIASES.get(str(want.get("accent") or "any"), [])
-        if aliases and any(a in accent for a in aliases):
-            score += 2
-            reasons.append(accent or want["accent"])
-
-        for word in ENERGY_WORDS.get(str(want.get("energy") or ""), []):
-            if word in blob:
-                score += 1
-                reasons.append(word)
-                break
-        for word in DELIVERY_WORDS.get(str(want.get("delivery") or ""), []):
-            if word in blob:
-                score += 2
-                reasons.append(word)
-                break
-        if "advertisement" in blob or "commercial" in blob:
-            score += 1
-
-        out.append({
-            "voice_id": v.get("voice_id"), "name": v.get("name"),
-            "preview_url": v.get("preview_url"),
-            "gender": gender, "age": age, "accent": accent,
-            "descriptor": str(labels.get("descriptive")
-                              or labels.get("description") or ""),
-            "use_case": str(labels.get("use_case") or ""),
-            "custom": (v.get("category") or "") == "cloned",
-            "match_reasons": sorted(set(reasons))[:4], "score": score,
-        })
-    out.sort(key=lambda r: (-r["score"], r["name"] or ""))
-    return out[:max(1, count)]
+    The ranking is the shared one; what stays here is the refusal. That module
+    ranks whatever list it is handed and never reaches the network, so "the
+    account has no voices" is this module's answer to give — it is the half
+    that knows the key was accepted and the list came back empty.
+    """
+    matched = voice_casting.match(list_voices(), want, count)
+    if not matched:
+        raise VoiceError("No voices came back from ElevenLabs. Check the API key "
+                         "and that the account has voices in its library.")
+    return matched
 
 
-def _mp3_seconds(data: bytes) -> float:
-    """Rough duration from MP3 frame headers — the labelled fallback."""
-    bitrates = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256,
-                320, 0]
-    i, total, frames = 0, 0, 0
-    while i < len(data) - 4 and frames < 20000:
-        if data[i] == 0xFF and (data[i + 1] & 0xE0) == 0xE0:
-            br = bitrates[(data[i + 2] >> 4) & 0x0F]
-            if br:
-                total += br
-                frames += 1
-                i += 4
-                continue
-        i += 1
-    if not frames:
-        return 0.0
-    return round(frames * 1152 / 44100.0, 2)
+def match_quality(matched: list[dict]) -> str:
+    """Why the ranking looks the way it does, in words a screen can print.
+
+    An account of cloned voices carries no labels, so a shortlist with no
+    reasons on it is the account's own order rather than a ranking — and
+    saying so is what stops somebody reading a flat list as a bad answer to a
+    good question.
+    """
+    try:
+        total = len(list_voices())
+    except VoiceError:
+        total = 0
+    return voice_casting.match_quality(matched, total)
+
+
+def get_voice(voice_id: str) -> dict:
+    """One voice by its ElevenLabs ID.
+
+    The way past the ranking: a client who has already chosen a voice, or one
+    cloned on the account and carrying no labels to be matched on, is named
+    rather than hunted for in a shortlist that cannot score it.
+    """
+    voice_id = str(voice_id or "").strip()
+    if not voice_id:
+        raise VoiceError("Paste an ElevenLabs voice ID.")
+    try:
+        res = requests.get(f"{BASE}/voices/{quote(voice_id)}",
+                           headers=_headers(), timeout=30)
+    except requests.RequestException as exc:
+        raise VoiceError(f"Couldn't reach ElevenLabs ({exc.__class__.__name__}).") from exc
+    if res.status_code == 404:
+        raise VoiceError(f"No ElevenLabs voice with the ID {voice_id}.")
+    if res.status_code >= 400:
+        raise VoiceError(f"ElevenLabs refused the request (HTTP {res.status_code}).")
+    return voice_casting.shape(res.json(), custom=True)
 
 
 def _note_characters(script: str, voice_id: str) -> None:
@@ -204,39 +198,31 @@ def render_audio(voice_id: str, script: str,
     body = {
         "text": script,
         "model_id": MODEL,
+        # `style` is the one characteristic that does more than rank: it is
+        # sent on the render, so a read cast as explosive and rendered at the
+        # default style is cast for nothing. From the shared table.
         "voice_settings": {"stability": 0.45, "similarity_boost": 0.75,
-                           "style": STYLE_BY_ENERGY.get(energy, 0.4),
+                           "style": voice_casting.style_for(energy),
                            "use_speaker_boost": True},
     }
     try:
         res = requests.post(
-            f"{BASE}/text-to-speech/{voice_id}/with-timestamps",
+            f"{BASE}/text-to-speech/{quote(voice_id)}/with-timestamps",
             headers=_headers({"Content-Type": "application/json"}),
             json=body, timeout=120)
     except requests.RequestException as exc:
         raise VoiceError(f"Couldn't reach ElevenLabs ({exc.__class__.__name__}).")
 
     if res.status_code == 200:
-        # Recorded on acceptance, not on a successful parse: the fall-through
-        # below re-renders, and both requests spend characters.
+        # Count accepted synthesis even when its response is malformed.
         _note_characters(script, voice_id)
-        try:
-            payload = res.json()
-            audio = base64.b64decode(payload["audio_base64"])
-            align = (payload.get("normalized_alignment")
-                     or payload.get("alignment") or {})
-            ends = align.get("character_end_times_seconds") or []
-            if ends:
-                return {"audio": audio, "seconds": round(float(ends[-1]), 2),
-                        "measured": True}
-            return {"audio": audio, "seconds": _mp3_seconds(audio),
-                    "measured": False}
-        except (KeyError, ValueError):
-            pass
+        return timestamp_audio(res, mp3_seconds, VoiceError)
+    if res.status_code not in (404, 405, 501):
+        raise VoiceError(f"ElevenLabs returned {res.status_code} rendering audio.")
 
     # Plain endpoint, estimated duration, and said so.
     try:
-        res = requests.post(f"{BASE}/text-to-speech/{voice_id}",
+        res = requests.post(f"{BASE}/text-to-speech/{quote(voice_id)}",
                             headers=_headers({"Content-Type": "application/json"}),
                             json=body, timeout=120)
     except requests.RequestException as exc:
@@ -244,8 +230,28 @@ def render_audio(voice_id: str, script: str,
     if res.status_code != 200:
         raise VoiceError(f"ElevenLabs returned {res.status_code} rendering audio.")
     _note_characters(script, voice_id)
-    audio = res.content
-    return {"audio": audio, "seconds": _mp3_seconds(audio), "measured": False}
+    return plain_audio(res, mp3_seconds, VoiceError)
+
+
+def account_check() -> dict:
+    """What is left of the month's characters.
+
+    Worth a button rather than a page load: it is one authenticated call, it
+    generates nothing and it bills nothing, and a :60 is about twice a :30 of
+    the allowance every time it is re-recorded.
+    """
+    try:
+        res = requests.get(f"{BASE}/user/subscription", headers=_headers(),
+                           timeout=30)
+    except requests.RequestException as exc:
+        raise VoiceError(f"Couldn't reach ElevenLabs ({exc.__class__.__name__}).") from exc
+    if res.status_code >= 400:
+        raise VoiceError(f"ElevenLabs refused the request (HTTP {res.status_code}).")
+    d = res.json() or {}
+    used = d.get("character_count") or 0
+    limit = d.get("character_limit") or 0
+    return {"tier": d.get("tier"), "characters_used": used,
+            "character_limit": limit, "remaining": limit - used}
 
 
 def slug(text: str) -> str:

@@ -1,0 +1,307 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>vox-explainer</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: #0b1220; }
+  canvas { display: block; }
+</style>
+<script src="p5.min.js"></script>
+</head>
+<body>
+<script>
+/**
+ * vox-explainer — a 60–90s editorial collage built from a beat list.
+ * `modules/commercial_builder/vox_spec.py` already validated and
+ * rebalanced the beats before this ever runs, so every beat this template
+ * receives carries a headline, a `seconds` allotment that sums to the
+ * scoped window, and one of four treatments (statement/collage/data/quote).
+ *
+ * What this template does NOT do: fetch a photograph for a beat's
+ * `image_query`. The wire contract this service accepts carries only the
+ * search *hint* a beat was written with, never a resolved image URL — no
+ * stock-photo integration lives in this Node service, only in the Python
+ * Hub (Pexels/Pixabay/AI image generation). So the "collage" treatment
+ * renders a soft abstract panel rather than a real photograph, and prints
+ * the query as a small caption — honest about the gap rather than a
+ * placeholder that reads as a finished frame. Wiring a resolved image URL
+ * onto each beat is a real next step and a separate, deliberate change to
+ * `vox_spec._BEAT_KEYS` and `hyperframes.vox_params()`, not a silent
+ * workaround here.
+ *
+ * Same frame-driven contract as paint.html: `window.__setFrame(t)` with t
+ * in [0, 1] over the *whole* clip, never real time.
+ */
+
+let W = 1920, H = 1080;
+let P = null;
+let starts = [];   // cumulative start-seconds per beat
+let total = 1;
+
+const DEFAULT_PALETTE = ["#f5c542", "#2b6cb0", "#2f855a", "#c53030", "#805ad5"];
+
+function paletteColor(i) {
+  const colors = (P && P.brandColors && P.brandColors.length) ? P.brandColors : DEFAULT_PALETTE;
+  return colors[i % colors.length];
+}
+
+function setup() {
+  const c = createCanvas(W, H);
+  c.parent(document.body);
+  noLoop();
+  pixelDensity(1);
+}
+
+window.__init = async function (params) {
+  P = params || {};
+  W = (params && params.width) || 1920;
+  H = (params && params.height) || 1080;
+  resizeCanvas(W, H);
+
+  const beats = P.beats || [];
+  starts = [];
+  let acc = 0;
+  for (const b of beats) { starts.push(acc); acc += Number(b.seconds) || 0; }
+  total = Math.max(acc, 1);
+};
+
+function beatIndexAt(elapsed) {
+  const beats = P.beats || [];
+  for (let i = beats.length - 1; i >= 0; i--) {
+    if (elapsed >= starts[i]) return i;
+  }
+  return 0;
+}
+
+function draw() {
+  background("#0b1220");
+  if (!P || !(P.beats || []).length) return;
+
+  const elapsed = currentT * total;
+  const i = beatIndexAt(elapsed);
+  const beat = P.beats[i];
+  const beatStart = starts[i];
+  const beatDur = Math.max(0.01, Number(beat.seconds) || 1);
+  const localT = constrain((elapsed - beatStart) / beatDur, 0, 1);
+
+  // A short crossfade at each beat boundary rather than a hard cut, so a
+  // captured frame near a transition is never a raw jump-cut.
+  const fadeSec = Math.min(0.4, beatDur * 0.15);
+  // Named fadeAlpha, never alpha — that is p5's own color-channel
+  // accessor, and shadowing it here is the same footgun `drawData()`'s
+  // "popScale" comment describes, even though nothing in this scope calls
+  // alpha() as a function today.
+  let fadeAlpha = 1;
+  if (localT * beatDur < fadeSec) fadeAlpha = (localT * beatDur) / fadeSec;
+  else if ((1 - localT) * beatDur < fadeSec) fadeAlpha = ((1 - localT) * beatDur) / fadeSec;
+
+  drawBeat(beat, i, localT);
+
+  if (fadeAlpha < 1) {
+    // Fade to the background color rather than to black — a black flash
+    // between two bright cards reads as an error frame.
+    noStroke();
+    fill(11, 18, 32, (1 - fadeAlpha) * 255);
+    rect(0, 0, W, H);
+  }
+
+  drawTitleStrip();
+}
+
+function drawBeat(beat, index, localT) {
+  const treatment = beat.treatment || "collage";
+  if (treatment === "statement") drawStatement(beat, index, localT);
+  else if (treatment === "data") drawData(beat, index, localT);
+  else if (treatment === "quote") drawQuote(beat, index, localT);
+  else drawCollage(beat, index, localT);
+}
+
+function drawStatement(beat, index, localT) {
+  background(paletteColor(index));
+  drawWrappedHeadline(beat.headline, W * 0.5, H * 0.44, W * 0.78, headlineSize(beat.headline), "#0b1220");
+  if (beat.support) drawSupport(beat.support, "#0b1220");
+}
+
+function drawCollage(beat, index, localT) {
+  background("#101a2c");
+  // Soft overlapping blobs stand in for the cut-out imagery a real photo
+  // would give this treatment — see the file-level note on why.
+  noStroke();
+  const seed = hashSeed(beat.headline + index);
+  const rng = mulberry32(seed);
+  for (let i = 0; i < 5; i++) {
+    const c = color(paletteColor(index + i));
+    c.setAlpha(70);
+    fill(c);
+    const bx = rng() * W;
+    const by = rng() * H;
+    const r = W * (0.18 + rng() * 0.16);
+    const drift = Math.sin(localT * Math.PI * 2 + i) * W * 0.01;
+    circle(bx + drift, by, r);
+  }
+  drawWrappedHeadline(beat.headline, W * 0.08, H * 0.5, W * 0.6, headlineSize(beat.headline), "#f5f5f2", LEFT);
+  if (beat.support) drawSupport(beat.support, "#e8e6df", LEFT, W * 0.08);
+  if (beat.image_query) {
+    textFont("Georgia, serif");
+    textSize(Math.max(14, H * 0.02));
+    textAlign(LEFT, BOTTOM);
+    fill(255, 255, 255, 130);
+    text("— " + beat.image_query, W * 0.08, H * 0.94);
+  }
+}
+
+function drawData(beat, index, localT) {
+  background("#0b1220");
+  // Named popScale, never pop — that is p5's own state-restore function,
+  // and a local const of the same name would shadow it for the rest of
+  // this scope, so the pop() call below would stop being a function call
+  // (the same class of bug `drawHandwriting()`'s "copyText" comment notes).
+  const popScale = 1 + 0.06 * Math.sin(localT * Math.PI); // a gentle
+  // emphasis pulse rather than a static card, since the whole point of
+  // this treatment is one figure that lands.
+  push();
+  translate(W / 2, H * 0.46);
+  scale(popScale);
+  textFont("Georgia, serif");
+  textSize(Math.min(W, H) * 0.22);
+  textAlign(CENTER, CENTER);
+  fill(paletteColor(index));
+  text(firstToken(beat.headline), 0, 0);
+  pop();
+
+  // The rest of the headline reads directly under the number it completes;
+  // the support line is supplementary and belongs after it, not between —
+  // drawSupport's own y (H*0.62) sits above this block, so it is pushed
+  // down here rather than left at its default.
+  const restSize = headlineSize(beat.headline) * 0.7;
+  textFont("Georgia, serif");
+  textSize(restSize);
+  textAlign(CENTER, TOP);
+  fill("#f5f5f2");
+  drawWrapped(restOfHeadline(beat.headline), W / 2, H * 0.6, W * 0.7, restSize * 1.15);
+  if (beat.support) drawSupport(beat.support, "#c9c9c0", CENTER, W / 2, H * 0.76);
+}
+
+function drawQuote(beat, index, localT) {
+  background("#181022");
+  textFont("Georgia, serif");
+  textStyle(ITALIC);
+  const size = headlineSize(beat.headline) * 0.9;
+  textSize(size);
+  textAlign(CENTER, TOP);
+  fill("#f5f5f2");
+  drawWrapped("“" + beat.headline + "”", W / 2, H * 0.44, W * 0.72, size * 1.15);
+  textStyle(NORMAL);
+  if (beat.source) {
+    textSize(Math.max(16, H * 0.026));
+    textAlign(CENTER, CENTER);
+    fill(paletteColor(index));
+    text("— " + beat.source, W / 2, H * 0.7);
+  }
+}
+
+// Wraps `str` to maxW using the *currently active* font/size (set by the
+// caller first), then draws it centered vertically around cy. TOP alignment
+// is fixed here rather than left to p5's own CENTER anchor: a multi-line
+// block's vertical centering needs a known per-line height to compute from,
+// and p5's box-wrapped text(str, x, y, w, h) does not expose one — an
+// earlier version of this file relied on it and a headline ran off the
+// right edge of the frame rather than wrapping, which is what this
+// function exists to make impossible.
+function drawWrapped(str, x, cy, maxW, lineHeight) {
+  const lines = wrapLines(str, maxW);
+  const startY = cy - (lines.length * lineHeight) / 2;
+  for (let i = 0; i < lines.length; i++) {
+    text(lines[i], x, startY + i * lineHeight);
+  }
+}
+
+// Greedy word-wrap against the canvas's own current font/size — must run
+// after textFont()/textSize() are set, since textWidth() reads them.
+function wrapLines(str, maxWidth) {
+  const words = (str || "").split(" ").filter((w) => w.length > 0);
+  const lines = [];
+  let current = "";
+  for (const w of words) {
+    const test = current ? current + " " + w : w;
+    if (current && textWidth(test) > maxWidth) {
+      lines.push(current);
+      current = w;
+    } else {
+      current = test;
+    }
+  }
+  if (current || lines.length === 0) lines.push(current);
+  return lines;
+}
+
+// x is always the position for whichever alignment the caller passed —
+// the caller's job, not a second leftX parameter to keep in step with it.
+// An earlier version split those and one caller (drawCollage) forgot to
+// pass the second one, silently drawing its headline at x=undefined.
+function drawWrappedHeadline(headline, x, y, maxW, size, col, align) {
+  textFont("Georgia, serif");
+  textSize(size);
+  const horizAlign = align || CENTER;
+  textAlign(horizAlign, TOP);
+  fill(col);
+  drawWrapped(headline || "", x, y, maxW, size * 1.15);
+}
+
+function drawSupport(support, col, align, x, cy) {
+  const size = Math.max(16, H * 0.028);
+  textFont("Georgia, serif");
+  textSize(size);
+  const horizAlign = align || CENTER;
+  textAlign(horizAlign, TOP);
+  fill(col);
+  const maxW = horizAlign === LEFT ? W * 0.6 : W * 0.7;
+  drawWrapped(support, x === undefined ? W / 2 : x, cy === undefined ? H * 0.62 : cy, maxW, size * 1.3);
+}
+
+function drawTitleStrip() {
+  if (!P.title) return;
+  textFont("Georgia, serif");
+  textSize(Math.max(14, H * 0.018));
+  textAlign(LEFT, TOP);
+  fill(255, 255, 255, 150);
+  text(P.title.toUpperCase(), W * 0.04, H * 0.04);
+}
+
+function headlineSize(headline) {
+  const base = Math.min(W, H) * 0.075;
+  if ((headline || "").length > 60) return base * 0.75;
+  return base;
+}
+function firstToken(headline) {
+  const m = (headline || "").match(/^\S+/);
+  return m ? m[0] : "";
+}
+function restOfHeadline(headline) {
+  return (headline || "").replace(/^\S+\s*/, "");
+}
+
+function hashSeed(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+let currentT = 0;
+window.__setFrame = function (t) {
+  currentT = t;
+  redraw();
+};
+window.__ready = true;
+</script>
+</body>
+</html>

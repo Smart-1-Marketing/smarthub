@@ -1,8 +1,14 @@
 # Google Access — Smart 1 Hub module
 
 Send a client one link. They sign in with Google once, and our agency account ends up
-on their Analytics, Tag Manager, Business Profile and Search Console — the same result
+on their Analytics, Tag Manager and Search Console — the same result
 as adding us by hand, without the three-week email thread.
+
+**Google Business Profile is paused.** It is unavailable in new requests and client
+consent, including old invite links and pending OAuth callbacks. Existing records
+remain visible to staff and can be marked skipped. `GOOGLE_ACCESS_GBP_ENABLED`
+is ignored during this pause. Resuming requires restoring the service registry entry
+and reviewing the Google approval requirements.
 
 **Google Ads is paused.** See *Google Ads, and why it is out* below.
 
@@ -23,7 +29,7 @@ with Ads.
 |---|---|---|
 | Google Analytics | Yes | We're added as Administrator on every GA4 property the signer can see |
 | Google Tag Manager | Yes | We're added as Administrator on every GTM account the signer can see |
-| Business Profile | Once allowlisted | API exists but needs Google's approval; manual instructions until then |
+| Business Profile | Paused | Not offered; existing records remain available to staff |
 | Search Console | No | Google publishes no user-management API. Manual step, tracked in the Hub |
 
 The client-facing page says all of this in plain English rather than implying five
@@ -60,8 +66,7 @@ ever being offered it again.
 
 In the Google Cloud console, on the project that will own this:
 
-1. Enable **Google Analytics Admin API**, **Tag Manager API**, and (if allowlisted)
-   **My Business Account Management API**.
+1. Enable **Google Analytics Admin API** and **Tag Manager API**.
 2. OAuth consent screen → **External**, publish it, add the privacy policy and terms URLs.
 3. Credentials → **OAuth client ID** → Web application. Add the authorized redirect URI:
 
@@ -75,7 +80,6 @@ Every scope this module uses is **sensitive tier**:
 
     analytics.manage.users
     tagmanager.manage.users
-    business.manage
 
 That means Google review: verified domain ownership, a published privacy policy, and a
 screen recording of the consent flow. Historically this has run to weeks. Until it
@@ -84,10 +88,8 @@ which is fine for internal testing but not for clients.
 
 ### 3. Business Profile allowlist
 
-Separate application again. Leave `GOOGLE_ACCESS_GBP_ENABLED` off until approved — with
-it off the client gets clear manual instructions instead of a 403 that looks like their
-fault. Confirm the current requirements in Google's docs before applying; that programme
-has changed before.
+Business Profile is paused regardless of allowlist approval. The current flow does
+not request its OAuth scope or offer manual invitation instructions.
 
 ## Environment
 
@@ -110,7 +112,7 @@ GOOGLE_ACCESS_SUPPORT_EMAIL=hello@smart1marketing.com
 GOOGLE_ACCESS_SUPPORT_PHONE=(555) 010-0100
 
 # Optional
-GOOGLE_ACCESS_GBP_ENABLED=false
+# GOOGLE_ACCESS_GBP_ENABLED is ignored while Business Profile is paused.
 GOOGLE_ACCESS_INVITE_TTL_DAYS=14
 GOOGLE_ACCESS_RATE_LIMIT=60
 ```
@@ -185,6 +187,12 @@ for it to work. The column stays for the legacy rows that carry a value.
 temporary data directory. Covers the paused Ads flow (including that a request created
 before the pause still renders and can still be closed), the existing/new gate, the
 exact-match rule, the lead write, and that no Hub client ID is stored.
+
+`python test_google_access_flow.py` — isolated Flask routes and temporary SQLite,
+with Google responses mocked and unexpected HTTP calls blocked. Covers the Business
+Profile pause, legacy records and OAuth states, GA4/GTM grants, Search Console manual
+steps, callback replay rejection, and token cleanup. Live Google consent requires
+a separate authorized browser sign-in.
 
 ## Known gaps
 

@@ -457,9 +457,15 @@ check("a withdrawn spot is withheld",
 check("and an unwritten one is not shown as an empty script",
       "spDraft" in str(view["spots"]), False)
 
+# `audio_is_mix` and `has_bed` are here because the client page now plays the
+# finished mix where there is one and the raw read where there is not, and a
+# player that switches between the two without saying so reads as the file
+# having changed under them. Both are facts about our own production, not about
+# the client, and neither carries a URL, a level or an override reason -- the
+# mix's own dict is deliberately not forwarded.
 allowed = {"id", "daypart", "daypart_label", "daypart_when", "seconds",
            "length_label", "outcome", "script", "audio_url", "audio_seconds",
-           "voice_name", "status", "comments"}
+           "audio_is_mix", "has_bed", "voice_name", "status", "comments"}
 check("a spot carries exactly the fields it is meant to",
       set(view["spots"][0].keys()), allowed)
 check("the page itself carries exactly its own",
@@ -732,7 +738,7 @@ check("and never reads as good", promo_speech.grade_duration(0, 30)["status"],
 check("Fan Radio grades a long script long",
       fan_catalog.grade(" ".join(["word"] * 95), 30)["state"], "long")
 check("and says how many words over",
-      fan_catalog.grade(" ".join(["word"] * 95), 30)["delta"], 20)
+      fan_catalog.grade(" ".join(["word"] * 95), 30)["delta"], 10)
 check("a script inside the budget is on the clock",
       fan_catalog.grade(" ".join(["word"] * 70), 30)["state"], "ok")
 check("and a thin one is reported as room, not as a fault",
@@ -754,14 +760,21 @@ section("The word budgets the two tools quote are the same clock")
 # =====================================================================
 # A script written in one and moved to the other must not need re-timing.
 
-# Radio Promo sells the pair and the two units either side of it -- the :10
-# sponsorship tag and the :60. That is a superset of what Fan Radio sells
-# rather than a disagreement, and the assertion is deliberately not that the
-# two menus match: Fan Radio sells football dayparts, where a :60 is not a
-# unit anybody buys, so requiring one catalogue to mirror the other would be
-# requiring that neither may ever sell a length the other does not. What has
-# to hold is that every length Fan Radio sells is one Radio Promo can also
-# write, so a spot moved between them lands on a slot that exists at both ends.
+# They are the same table now. This section used to assert the weaker thing --
+# that the two menus overlapped rather than contradicted -- because each tool
+# carried its own copy and Fan Radio's had drifted: a :15 was 30-38 words there
+# against 35-42 here, and a :30 was 65-75 against 65-85. So a script that read
+# as ON THE CLOCK in one tool read as short or long in the other, both screens
+# internally consistent, with Fan Radio's README promising they agreed. An
+# overlap check passes on exactly that state, which is why it is gone: what is
+# asserted now is that neither tool has a length table of its own to drift.
+#
+# The old comment here reasoned that Fan Radio need not sell a :60 because
+# "a :60 is not a unit anybody buys" on a football daypart. That was a
+# judgement about the buy rather than about the tool, and it is no longer the
+# tool's to make: the menu offers all four and the DEFAULT is still the pair,
+# which is where that reasoning actually belongs -- ticking four lengths across
+# three dayparts is twelve billed writes on a job that wants six.
 check("Radio Promo sells the pair and the two units either side",
       [d["key"] for d in DURATIONS], ["ten", "fifteen", "thirty", "sixty"])
 check("a project asks for the pair unless it says otherwise",
@@ -769,24 +782,33 @@ check("a project asks for the pair unless it says otherwise",
 check("and the longer and shorter units are asked for rather than assumed",
       list(slots_of({"slots": ["ten", "fifteen", "thirty", "sixty"]})),
       ["ten", "fifteen", "thirty", "sixty"])
-check("Fan Radio sells the two lengths a daypart buys", fan_catalog.LENGTH_IDS,
-      [15, 30])
-check("and every length Fan Radio sells, Radio Promo also sells",
-      [s for s in fan_catalog.LENGTH_IDS
-       if s in [d["seconds"] for d in DURATIONS]], fan_catalog.LENGTH_IDS)
+check("Fan Radio sells every length Radio Promo does", fan_catalog.LENGTH_IDS,
+      [d["seconds"] for d in DURATIONS])
+check("and still writes the pair unless a daypart is told otherwise",
+      fan_catalog.DEFAULT_LENGTH_IDS, [15, 30])
+check("so six spots is what a default job costs",
+      len(fan_catalog.default_slots()), 6)
 
-# They are budgets, not limits, and the numbers are deliberately close
-# rather than identical — Radio Promo's are the studio's, measured at a
-# natural read pace. What must not happen is one calling a script long that
-# the other calls short. Only the lengths both sell can be compared; the :10
-# and the :60 have no Fan Radio budget to contradict.
-for seconds, key in ((15, "fifteen"), (30, "thirty")):
+# Not "overlap": identical, and identical because there is one table rather
+# than two that happen to agree today. Compared field by field, so a copy
+# re-introduced with the same numbers would still fail the assertion below it.
+for seconds, key in ((10, "ten"), (15, "fifteen"), (30, "thirty"), (60, "sixty")):
     promo_slot = duration_by_key(key)
     fan_slot = fan_catalog.budget(seconds)
-    overlap = (max(promo_slot["low"], fan_slot["min"])
-               <= min(promo_slot["high"], fan_slot["max"]))
-    check(f"the two :{seconds} budgets overlap rather than contradicting",
-          overlap, True)
+    check(f"the :{seconds} budget is one number, not two that agree",
+          (fan_slot["min"], fan_slot["max"], fan_slot["label"]),
+          (promo_slot["low"], promo_slot["high"], promo_slot["label"]))
+
+# The table itself, so neither module can quietly grow a copy back. A second
+# table with today's numbers in it passes every check above and fails this one.
+import hub.radio_spec as _spec                                  # noqa: E402
+check("and it is the shared table both of them read",
+      (DURATIONS is _spec.DURATIONS,
+       fan_catalog.LENGTH_IDS == [d["seconds"] for d in _spec.DURATIONS]),
+      (True, True))
+check("the verdict on whether a script fits is one function too",
+      fan_catalog.grade(" ".join(["word"] * 95), 30),
+      _spec.grade_words(" ".join(["word"] * 95), 30))
 
 
 # =====================================================================

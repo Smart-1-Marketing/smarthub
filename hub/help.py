@@ -1918,6 +1918,36 @@ REGISTRY: list[Help] = [
        "cannot know Saturday's score, so copy that quietly assumes one "
        "is flagged, with “if it went well” / “if it "
        "didn't” alternates for the station to swap in."),
+    _h("fan_radio.build.voice", "Casting, and how the name is said",
+       "The five characteristics are ranked against what ElevenLabs "
+       "publishes about each voice in the account, and each row prints the "
+       "words it actually matches on — “Announcer” is a search for "
+       "announcer, commercial, broadcast and promo, not a mood. An account "
+       "of cloned voices carries no labels at all, so a flat list is the "
+       "account's own order rather than a bad answer, and the panel says "
+       "which happened. “How to say it” is applied to every spot on the "
+       "project, and “show me what the voice reads” prints the copy "
+       "ElevenLabs is actually handed — a pronunciation that is not taking "
+       "looks identical to one that is until you see that line, and the "
+       "other way to find out is to spend a render. ElevenLabs bills the "
+       "character, so a :60 costs about twice a :30 every time it is "
+       "re-recorded."),
+    _h("fan_radio.build.music", "The bed, the duck, and what gets measured",
+       "A bed is composed at the spot's own length, so nothing is trimmed "
+       "to fit, and it is billed per generation — which is why it is a "
+       "button rather than something this page does on its own. Upload a "
+       "licensed track instead if the client has one; a spot with no bed is "
+       "a straight read and passes the checks as one. The mix is rendered "
+       "in your browser, because there is no audio encoder in the Hub's "
+       "runtime, and it comes back as a WAV whose own header states its "
+       "length — so what is filed against the spot is measured from the "
+       "bytes we stored rather than reported by this page. The dB pair, the "
+       "fades and the duck timings come from the same table the Commercial "
+       "Builder ducks video beds by, so the level shown here is the level "
+       "that renders. A bed shorter than the spot is reported, never "
+       "looped: a loop puts an audible seam in the middle of a client's "
+       "commercial. Findings stop a mix being filed; filing one anyway "
+       "needs a reason and is recorded against your name."),
     _h("fan_radio.build.share", "One link, and the client answers on it",
        "One share link per project — random token, no login — "
        "where the client plays every spot, approves, or comments "
@@ -1928,16 +1958,10 @@ REGISTRY: list[Help] = [
        "chrome, because what they open is theirs to read."),
 
     # ---------------- IO Builder ----------------
-    _h("io_builder.start.sources", "Load what exists, and mind the drafts",
-       "A delivered proposal, a client's record, an uploaded document "
-       "or a fresh start — whatever is loaded is shown and "
-       "confirmed in the interview, because a proposal quotes a price "
-       "and an insertion order bills it. Unfinished IOs are listed here "
-       "too, a colleague's included and marked whose: an interruption "
-       "on one machine resumes on another, and a half-built order "
-       "hidden away is how the same IO gets built twice. Discarding a "
-       "draft is its own deliberate press, with the name in the "
-       "confirmation."),
+    _h("io_builder.start.sources", "Start with existing campaign details",
+       "Load a client record, proposal, or previous IO. Review imported "
+       "details before using them. Saved drafts show their owner and can "
+       "be resumed across devices. Choose Start from scratch for a new campaign."),
     _h("io_builder.chat.progress", "Your place is kept, on the server",
        "The interview asks one thing at a time and the order on the "
        "right builds as you answer. Everything autosaves to the server "

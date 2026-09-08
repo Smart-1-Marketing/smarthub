@@ -19,6 +19,27 @@
 (function () {
   "use strict";
   var HELP = {}, TOURS = {}, ready = false;
+  var activeBubble = null, bubbleId = 0;
+
+  function closeBubble() {
+    if (!activeBubble) return;
+    activeBubble.pop.hidden = true;
+    activeBubble.btn.setAttribute("aria-expanded", "false");
+    activeBubble.wrap.appendChild(activeBubble.pop);
+    activeBubble = null;
+  }
+
+  function positionBubble() {
+    if (!activeBubble) return;
+    var pop = activeBubble.pop, anchor = activeBubble.btn.getBoundingClientRect();
+    var margin = 12, gap = 8, r = pop.getBoundingClientRect();
+    var left = Math.max(margin, Math.min(anchor.left, window.innerWidth - r.width - margin));
+    var top = anchor.bottom + gap;
+    if (top + r.height > window.innerHeight - margin) top = anchor.top - r.height - gap;
+    top = Math.max(margin, Math.min(top, window.innerHeight - r.height - margin));
+    pop.style.left = left + "px";
+    pop.style.top = top + "px";
+  }
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
@@ -38,27 +59,40 @@
 
     var pop = document.createElement("span");
     pop.className = "s1-help-pop";
+    pop.id = "s1-help-pop-" + (++bubbleId);
+    btn.setAttribute("aria-controls", pop.id);
+    btn.setAttribute("aria-describedby", pop.id);
     pop.setAttribute("role", "tooltip");
     pop.hidden = true;
     pop.innerHTML =
       '<strong>' + esc(item.title) + "</strong><span>" + esc(item.body) + "</span>" +
       (item.link ? '<a href="' + esc(item.link) + '">' + esc(item.linkText || "Learn more") + "</a>" : "");
 
-    function close() { pop.hidden = true; btn.setAttribute("aria-expanded", "false"); }
+    function close() { closeBubble(); }
     function open() {
-      document.querySelectorAll(".s1-help-pop").forEach(function (p) { p.hidden = true; });
+      closeBubble();
+      // Mount outside scroll containers so overflow cannot clip the help.
+      document.body.appendChild(pop);
       pop.hidden = false;
       btn.setAttribute("aria-expanded", "true");
-      // Flip to the left if it would run off the right edge.
-      var r = pop.getBoundingClientRect();
-      pop.classList.toggle("s1-flip", r.right > window.innerWidth - 8);
+      activeBubble = { btn: btn, pop: pop, wrap: wrap };
+      positionBubble();
     }
 
     btn.addEventListener("click", function (e) {
       e.preventDefault(); e.stopPropagation();
       pop.hidden ? open() : close();
     });
-    btn.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
+    btn.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") close();
+      if (e.key === "Tab" && !e.shiftKey && !pop.hidden && pop.querySelector("a")) {
+        e.preventDefault(); pop.querySelector("a").focus();
+      }
+    });
+    pop.addEventListener("click", function (e) { e.stopPropagation(); });
+    pop.addEventListener("keydown", function (e) {
+      if (e.key === "Tab") { e.preventDefault(); btn.focus(); close(); }
+    });
 
     var wrap = document.createElement("span");
     wrap.className = "s1-help";
@@ -67,12 +101,19 @@
     el.replaceWith(wrap);
   }
 
-  document.addEventListener("click", function () {
-    document.querySelectorAll(".s1-help-pop").forEach(function (p) { p.hidden = true; });
-  });
+  document.addEventListener("click", closeBubble);
   document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") document.querySelectorAll(".s1-help-pop").forEach(function (p) { p.hidden = true; });
+    if (e.key === "Escape" && activeBubble) {
+      activeBubble.btn.focus(); closeBubble();
+    }
   });
+  document.addEventListener("focusin", function (e) {
+    if (activeBubble && e.target !== activeBubble.btn && !activeBubble.pop.contains(e.target)) closeBubble();
+  });
+  document.addEventListener("scroll", function (e) {
+    if (activeBubble && !activeBubble.pop.contains(e.target)) closeBubble();
+  }, true);
+  window.addEventListener("resize", positionBubble);
 
   function mountBubbles(root) {
     (root || document).querySelectorAll("[data-help]").forEach(function (el) {

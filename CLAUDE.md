@@ -2978,6 +2978,119 @@ slot — matched on **balanced parens**, because the regex the first draft used
 stopped early on the multi-line calls and passed "every one of them" against
 three of five, which is the sweep that quietly stops sweeping.
 
+**And Fan Radio had none of that second half, while its own README said it
+did.** That module opens by saying it is "built to the same shape as Radio
+Promo: same tone list, same word budgets, same pronunciation pass, same
+ElevenLabs casting and measured runtime, so a script can move between the two
+tools without re-timing." Four of those five were a **local copy**, and three
+had drifted — silently, because each screen was internally consistent and the
+only way to notice was to open both tools on one client.
+
+**The word budgets were the sentence's own subject and were not the same.** A
+:15 was 30–38 words in Fan Radio against 35–42 in the Radio Ad Creator, and a
+:30 was 65–75 against 65–85. So a script that read *on the clock* in one tool
+read as short or long in the other, on the number a rep writes to. And the two
+lengths either side of the pair — the :10 sponsorship tag and the :60, the one
+radio length with room for a story rather than an offer — were **unbuildable
+here at all**, which is the finding `test_radio_parity.py` already records
+about the Radio Ad Creator, one tool later. `hub/radio_spec.DURATIONS` is the
+one table now and `modules/radio_promo/catalog.py` re-exports it under its old
+names, the arrangement `voices.py` already used over `hub/voice_casting.py`:
+one table, and no call site had to change.
+
+**The pair is still the default, and that is where the old reasoning actually
+belonged.** `test_radio_builders.py` used to argue that Fan Radio need not sell
+a :60 because "a :60 is not a unit anybody buys" on a football daypart — a
+judgement about the buy, made by the tool, in the one place it could not be
+argued with. The menu offers all four and `DEFAULT_LENGTH_IDS` is the pair,
+because ticking four lengths across three dayparts is **twelve billed model
+calls on a job that wants six**.
+
+**The casting question was five tables deep and missing two of its own
+answers.** `modules/fan_radio/voices.py` carried its own `CHARACTERISTICS`,
+`ACCENT_ALIASES`, `ENERGY_WORDS`, `DELIVERY_WORDS` and scoring pass — with no
+`neutral` voice type and no `transatlantic` accent, so the model could
+recommend, and a rep could pick, two answers the matcher had never heard of.
+Same client, same ElevenLabs account, two shortlists with two sets of reasons
+under them and nothing saying which to believe. It reads `hub/voice_casting.py`
+now, and the AI prompt's own vocabulary is **derived from that table** rather
+than typed beside it, which is how it drifted in the first place.
+
+**And the duration estimate behind every render was wrong.** Fan Radio's
+`_mp3_seconds` advanced **four bytes** per candidate sync word rather than by
+the frame's own length, so it counted sync patterns *inside* frame data as
+frames and reported a multiple of the real duration — on the number a rep reads
+to decide whether a read fits its slot. `hub/radio_spec.mp3_seconds` is the one
+reading, and `test_radio_ads.py` drives it against a fixture whose frame body
+deliberately contains a byte pair that looks like a sync word: padded with
+zeros instead, the broken reader and the correct one agree, which is a fixture
+hiding the defect it was written for. That one passed a first version of the
+check.
+
+**`pronunciation` was on every project row since the day it was written and no
+route ever set it.** `decorate()` reads it on every spot and it could only ever
+be empty, so every render went out with whatever ElevenLabs made of the
+business name. The declared-and-never-wired failure this file counts six of, on
+the one thing a client notices immediately when it is wrong. It is saved and
+**applied to every spot** rather than only the ones written afterwards — a
+pronunciation added halfway through a job would otherwise apply to half of them
+with nothing on screen saying which — and it is stored `{"from", "to"}`, which
+is the shape `speech.normalize_for_speech()` has always read: `{"word", "say"}`
+would have been the identical failure one level on. *Show me what the voice
+reads* prints the copy ElevenLabs is actually handed, because until that line
+existed a pronunciation that was not taking looked identical to one that was
+and the other way to find out was to spend a render.
+
+**The music half is `hub/radio_spec.py`'s, which is what that module was
+written for.** Its opening paragraph says so in as many words — the bed
+vocabulary, the mix levels, the length arithmetic, the QC checks and the one
+honest way to measure a finished file live there "so `modules/fan_radio` can
+read the same rules later without a second copy of them being written first."
+So a bed is composed by ElevenLabs at the spot's own length, the mix is
+rendered in the browser and measured off its own WAV header on the way in, the
+dB pair comes from the Commercial Builder's one music table, and a blocking
+finding answers **409 with the report** rather than filing quietly.
+
+**The unit is the spot, not the length, and that is the one thing that could
+not be copied.** The Radio Ad Creator keys its beds and mixes on a slot because
+a project there writes one script per length. A Fan Radio project writes
+several spots that share a length and differ by daypart and outcome, so a bed
+keyed on ":30" would be the same music under the pre-game and the post-game
+read. They live on the spot's own row.
+
+**A mix must not outlive what went into it**, and the rule is in `decorate()`
+rather than at the four routes that can change a script — an edit, a rewrite, a
+tighten and a pronunciation save — because a rule three of four call sites
+remember is not a rule, and that is the one function all four already pass
+through. The **read is marked stale and never deleted**: it cost money, it is
+still the right voice, and a player that vanishes reads as a fault. The **mix
+is dropped**, because it plays perfectly well while being of the wrong script,
+which is exactly what makes it worth removing rather than flagging.
+
+**The trademark scan runs before a mix is filed as well as before a render is
+paid for, and it is the one finding an override cannot clear.** A script can be
+hand-edited after a read was recorded, and the mix is the file a client is
+actually sent. An override is a judgement about a length; shipping somebody's
+mark is not a judgement anybody here gets to make.
+
+**And the customer hears the mix.** `public_view()` prefers it over the raw
+read, falls back to the read while a bed is being composed, and says **which of
+the two is playing** — a player that switches between them silently reads as
+the file having changed under the client. Two fields were added to that
+allowlist and nothing else: no URL, no level, no override reason.
+
+**Two things are deliberately not carried across, each with its reason.**
+**Voice cloning** stays in the Radio Ad Creator: it creates a voice on the
+shared ElevenLabs account out of somebody's recordings, which is a consent
+question rather than a button, and one place to answer it is the right number —
+a voice cloned there reaches this tool through `/api/voices/by-id`, which is
+also how a cloned voice is reachable at all, since it carries no labels for the
+ranking to score. And **the script QC panel** (`modules/radio_promo/qc.py`)
+stays there too: Fan Radio's copy screen already runs a scan of its own — the
+trademark verdict, the result-neutral rule, the football language detected —
+and a second named panel beside it would be two readings of *is this script
+ready* on one screen, which is the trap this file counts a dozen of.
+
 **The tile is the Radio Ad Creator; everything underneath it is still
 `radio_promo`.** The mount, the help keys, the log name and the Cloudinary
 folder do not move — renaming the mount breaks every link in a rep's history,
@@ -6163,6 +6276,169 @@ hub-app blueprints, so they share the hub's Jinja environment and a bare
 `hf_paint.html` and `hf_vox.html`, the trap `/api/integrity` has a
 high-severity check for. Both carry `hub/blueprint_guard.install()`, because a
 blueprint is not behind `AuthGuard`.
+
+## hf-render-service exists now, as a second process in this same container
+
+The previous section's whole premise was that Puppeteer, headless Chrome and
+FFmpeg "do not belong in this Flask image" and would run as their own Render
+service. That premise held for exactly as long as nobody had built the
+service — Paint Animation and Vox Explainer worked in the browser and
+produced nothing, because `HF_RENDER_SERVICE_URL` pointed at nothing. It is
+built now, at `modules/hf_render_service/`, and it runs the way
+`modules/ad_builder` already does: a second background process in the Hub's
+own container, supervised by `docker-start.sh`, on loopback, never a second
+Render service. That is a deliberate departure from the previous plan rather
+than an oversight — standing up and paying for a whole second service is a
+bigger ask than the CPU headroom this deployment now has, and the escape
+hatch is unchanged: `modules/hf_render_service/render.yaml` documents the
+split for the day a render makes the Hub itself feel slow, and nothing
+about the module's own code has to change, only where
+`HF_RENDER_SERVICE_URL` points.
+
+**The wire contract is unchanged, on purpose.** `hub/hyperframes.py` was
+already written and tested against `POST {base}/render/{template}`,
+`GET {base}/render/{jobId}/status`, `GET {base}/health` — the service
+implements exactly that, so nothing on the Hub side moved.
+
+**Real headless Chrome, frame by frame, never real time.** `src/capture.ts`
+drives `window.__setFrame(t)` for every frame it wants and screenshots the
+canvas in between; nothing in the template reads the wall clock. That is
+what makes the same params produce byte-identical output on a slow container
+and a fast one, and it is also what caught two real bugs no amount of
+reading the template would have: `drawHandwriting()` originally wrote
+`const text = P.text`, which shadows p5's own `text()` drawing function for
+the rest of that scope, so the call three lines later stopped being a
+function call and every handwriting render failed with `"text is not a
+function"`. `drawData()`'s `const pop` did the
+identical thing to p5's `pop()`. Both were caught only because
+`tests/render.test.ts` actually renders a clip and waits for it to finish
+rather than mocking the capture step — a mocked version of that test would
+have passed both times.
+
+**p5's own box-wrapped `text(str, x, y, w, h)` does not behave the way it
+looks like it should**, and the second real bug was worse than a crash: the
+"statement" beat's headline ran off the right edge of a 1920px frame instead
+of wrapping, silently, no error, first found by rendering a real frame and
+looking at it. `drawWrapped()` in both templates now does the wrapping by
+hand — greedy word-wrap against `textWidth()`, one line drawn at a time with
+`textAlign(_, TOP)` and a computed `startY` — because that is the only way
+this file has found to know exactly where a line landed, which the paint-drop
+tip cue in `paint.html` and the beat-to-beat layout in `vox.html` both depend
+on.
+
+**`render_templates/`, not `templates/`.** `hub/integrity.py`'s
+`check_orphan_templates()` walks every `modules/*/templates` directory
+looking for Jinja pages nothing renders — and `paint.html`/`vox.html` are not
+Jinja; Puppeteer navigates to them with `page.goto('file://...')`, which
+nothing that check understands can see. A directory literally named
+`templates` read as two orphans the first time this ran, and — worse — only
+*one* of the two, because `vox.html`'s own comment happened to mention
+"paint.html" in passing, which is exactly the "prose is not a call site"
+trap this file already names a dozen times, satisfying the checker for the
+file it never actually reaches. Renamed rather than exempted, the way
+`modules/ad_builder` avoids the identical collision by nesting its own layout
+JSON under `src/templates`.
+
+**No stock photography for a Vox beat, and that is stated rather than
+faked.** A beat carries `image_query` — a search hint a model wrote, never a
+resolved URL — because this Node service has no Pexels/Pixabay/AI-image
+integration of its own; those all live in the Python Hub. The "collage"
+treatment draws a soft abstract panel and prints the query as a caption
+rather than pretending it has a photograph. Wiring a resolved image URL onto
+each beat is real, deliberate future work — a change to
+`vox_spec._BEAT_KEYS` and `hyperframes.vox_params()` — not a silent
+workaround here.
+
+**p5.min.js is vendored, never fetched from a CDN, and it self-heals in
+dev/test.** `scripts/copy-assets.mjs` copies it from `node_modules/p5` into
+`dist/render_templates/` at build time, same as `modules/ad_builder`'s own
+asset-copy step. `npm test` and `npm run dev` both run `tsx` directly against
+`src/*.ts` with no build step in between, landing on the *source*
+`render_templates/` directory instead — which has no `p5.min.js` in it until
+something puts one there. `src/capture.ts`'s `ensureP5Vendored()` does that
+lazily, on first render, from the same `node_modules/p5` — without it, every
+render in dev and every render in CI fails with `"resizeCanvas is not
+defined"`, which is not a hypothetical: it is exactly what happened the
+first time `npm test` ran against a clean checkout.
+
+**Bounded concurrency, because a render pins a CPU core for the duration of
+the capture.** `HF_RENDER_CONCURRENCY` (default 1) queues renders rather than
+running them all at once — on a 2-CPU container, unbounded concurrency here
+is unbounded competition with the Hub's own gunicorn workers, the risk the
+in-container placement decision above accepted in exchange for not paying
+for a second service. The queue, the in-memory job table
+(`src/jobs.ts`) and the output-file sweep (`sweepOutput()`, 48 hours) all
+mirror rules `modules/hyperframes_tools/jobs.py` and
+`modules/ad_builder/src/retention.ts` already state for the identical reason
+one layer over.
+
+### "It's done, come back" — wherever "back" turns out to be
+
+A render here is minutes of headless Chrome, exactly like HeyGen and Runway,
+and nobody sits on the page that started it waiting — they go back to
+whatever else they were doing. Until now the only way to learn a render had
+finished was to remember to check. `hub/job_notify.py` is a small pointer
+registry a tool opts into *alongside* its own job store — it does not
+replace `modules/hyperframes_tools/jobs.py`, which stays the detailed record
+of params, files and filing; the pointer holds only who is waiting, what to
+call it, and where to send them. `hub-job-notify.js` polls
+`/api/background-jobs/mine` from wherever the person actually is and tells
+them once, a corner card modeled on `hub-qa-nudge.js`.
+
+**Unlike `hub-cheers.js` and `hub-qa-nudge.js`, this one deliberately rides
+with the chrome.** Those two stay out of the scripts `wsgi.py`'s `HubBar` and
+`hub/__init__.py`'s own injector carry into mounted modules and
+blueprint-registered ones — "one place that can raise an interruption is
+enough to be sure it is raised once." That reasoning does not apply here: the
+whole point of this feature is telling somebody their render finished on
+whatever tool they wandered off to, and a mounted module is exactly
+"wherever they wandered off to." It is loaded from all three places
+(`base.html`, `HubBar`, the third injector) and cannot double-notify for
+being loaded from more than one, because each job is marked shown in
+`localStorage` by its own id, not once per page.
+
+**A pointer only ever advances when something asks it to, and the person
+who started the render is not necessarily still on that page to ask.**
+HyperFrames' own `_poll()` already writes the finished URL onto its row on
+any request — "closing the tab does not lose a render." `hub-job-notify.js`
+gets that write-through for free by fetching each running pointer's own
+`poll_url` (the tool's own status route, reused rather than re-implemented)
+from wherever it happens to be polling, same-origin only. A tool that
+registers a pointer with no `poll_url` simply does not self-advance from
+elsewhere — it sits at its last known status until somebody visits its own
+page, which is a degrade rather than a requirement.
+
+**The sweep runs from `update()` as well as `register()`, not only the
+one `modules/hyperframes_tools/jobs.py` already had.** That store sweeps
+only inside `create()`, which means a burst of jobs marked done purely
+through `update()` calls — no further registrations to trigger a fresh
+sweep — never gets capped until somebody's next, unrelated render starts.
+`hub/job_notify.py`'s `update()` sweeps too, the moment a pointer reaches a
+finished state, which is exactly when the cap should apply rather than
+whenever it next happens to be convenient.
+
+**And declaring `hf_render_service` in `NO_ACTIVITY` broke the check that
+holds that table honest, because the check is Python-only and the module is
+not.** `check_silent_modules()`'s `seen` dict — the thing the stale-exemption
+half of that check reads to decide "does this module still exist" — is built
+entirely from `_sources()`, which globs `*.py`. A module directory with zero
+Python files in it, which `modules/hf_render_service` genuinely is, never
+produces a single entry in `seen`, so the moment it was declared the check
+read `hf_render_service not in live` and reported the brand-new declaration
+itself as a stale exemption naming a module that "does not exist any more" —
+one line after adding it. Not a fluke of this module: `modules/ad_builder`
+survived this only because its Hub-side half in `hub/` gives it Python files
+to be seen by, which is a coincidence of that module's shape rather than
+something this check actually asked for. `live` now also walks
+`modules/*` on disk directly and counts any real directory as live whether or
+not anything in it is Python — the same fix in spirit as `hub/blog_spec.py`'s
+`_KIT_UNREAD` and `services/abcd_service.py`'s `HOUSE_LEGIBILITY`: a check
+built for one shape must say so about the module in the other shape, rather
+than silently reading it as absent. `test_activity_logging.py`'s own
+hardcoded `["calculators"]` expectation was the other half of the same
+staleness — a genuine second entry made it wrong the moment it was correct,
+which is the ordinary cost of a test asserting a literal list rather than a
+property.
 
 ## Opportunistic migration — read this before editing any module
 
@@ -13014,7 +13290,10 @@ python3 test_radio_ads.py          # the Radio Ad Creator's second half: a bed
                                    #   not-measured never folded into pass, an
                                    #   override that needs a reason and a name,
                                    #   and a variation that carries the scripts
-                                   #   without the audio
+                                   #   without the audio -- and Fan Radio's
+                                   #   half of the same list, asserted as one
+                                   #   table read twice rather than two that
+                                   #   agree today
 python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
                                    #   and the :60 that were unbuildable, the
                                    #   cost note said at pick time rather than
@@ -13052,6 +13331,12 @@ python3 test_hyperframes.py        # the sidecar renderer and its two skills:
                                    #   a per-beat cap that holds inside the
                                    #   window, and a Vox explainer refused
                                    #   where nobody sells the slot
+python3 test_job_notify.py         # the cross-Hub "it's done, come back" pointer:
+                                   #   per-owner isolation, the sweep never
+                                   #   touching a running job, the route
+                                   #   behind the login, and submitting and
+                                   #   polling a real HyperFrames render
+                                   #   actually writing and moving one
 python3 test_commercial_wizard.py  # the seven steps, the batch an approval opens,
                                    #   the client join, the spec check,
                                    #   the QR destination and who owns the scan; the :06,

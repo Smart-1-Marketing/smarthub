@@ -26,13 +26,16 @@ import re
 
 import requests
 
+from hub import radio_spec, voice_casting
+
 from . import catalog, phrases
 
 API_URL = "https://api.openai.com/v1/chat/completions"
 
 
 def model() -> str:
-    return os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+    from hub.ai_models import model as profile_model
+    return profile_model("fan_radio.text")
 
 
 def ready() -> bool:
@@ -152,9 +155,29 @@ def _spot_user(brief: dict, dp: dict, seconds: int, tone: dict,
                outcome: str, safe_bank: list[str], banned: list[str],
                steer: str = "") -> str:
     b = catalog.budget(seconds)
+    # The floor is the shared table's `min_seconds` -- the same number the
+    # length menu prints -- rather than one re-derived here, and a length with
+    # no floor says nothing rather than inventing one. A :10 and a :15 are tags
+    # and are naturally tight; a :30 or a :60 is bought by the second, so a
+    # read that lands well under it is dead air somebody paid for.
+    floor = b.get("min_seconds")
+    length_line = (f"LENGTH: {b['label']} ({b['name']}) — write {b['min']} to "
+                   f"{b['max']} words. This is the whole job; a script outside "
+                   f"that range is unusable.")
+    if floor:
+        length_line += (f" At a natural read pace it must also run at least "
+                        f"{floor:g} seconds.")
     lines = [
-        f"LENGTH: {b['label']} — write {b['min']} to {b['max']} words. This "
-        f"is the whole job; a script outside that range is unusable.",
+        length_line,
+        f"WHAT THIS LENGTH IS FOR: {b['note']}",
+        # The beats are `hub/radio_spec.STRUCTURE_TEMPLATES`, the same rail the
+        # Radio Ad Creator draws above its copy. Stated here rather than left
+        # in this file's prose, so a :10 is asked for as one beat and a :60 as
+        # four rather than every length being asked for as a :30.
+        "SHAPE, IN ORDER: " + " | ".join(
+            f"{beat['label']} ({beat['start_pct']}-{beat['end_pct']}%): "
+            f"{beat['guidance']}"
+            for beat in radio_spec.structure_for(b["key"])),
         f"DAYPART: {dp['label']} — airs {dp['when']}.",
         f"WHAT THIS SPOT IS DOING: {dp['job']}",
         f"ANGLE: {dp['angle']}",
@@ -254,12 +277,15 @@ def tighten(script: str, seconds: int, cut: int, tone_id: str,
 
 def voice_profile(brief: dict, tone_id: str) -> dict:
     """What kind of voice this read wants — fed to the ElevenLabs matcher."""
-    system = ("You cast voice-over. Return JSON {\"recommendation\": "
-              "{\"gender\": \"male|female|any\", \"age\": \"young|middle_aged|old\", "
-              "\"accent\": \"american|british|australian|any\", "
-              "\"energy\": \"laid_back|conversational|energetic|explosive\", "
-              "\"delivery\": \"announcer|narrator|best_friend|spokesperson|character\"}, "
-              "\"why\": \"one line\", \"searchTerms\": [\"...\"]}")
+    # The vocabulary is derived from hub/voice_casting.CHARACTERISTICS rather
+    # than typed here. Typed, it had already drifted: no "neutral" voice type
+    # and no "transatlantic" accent, so the model could not recommend two of
+    # the answers the picker offers and the matcher scores.
+    fields = ", ".join(
+        '"%s": "%s"' % (row["id"], "|".join(o["id"] for o in row["options"]))
+        for row in voice_casting.CHARACTERISTICS)
+    system = ("You cast voice-over. Return JSON {\"recommendation\": {" + fields
+              + "}, \"why\": \"one line\", \"searchTerms\": [\"...\"]}")
     user = (f"Business: {brief.get('summary', '')}\n"
             f"Audience: {brief.get('audience', '')}\n"
             f"Tone: {catalog.tone(tone_id)['label']} — "
@@ -290,9 +316,21 @@ def _template(brief: dict, dp: dict, seconds: int, outcome: str) -> str:
         "gameday": "It's gameday — and we're open.",
         "postgame": "However it ended, the week starts over tomorrow.",
     }
-    body = {15: "{open} {name}. {cta} {must}",
+    # One body per length the menu offers. Without a :10 and a :60 of its own
+    # this fell through to the :30's, which is three times a :10's budget and a
+    # third of a :60's -- a labelled placeholder that is plainly the wrong
+    # length reads as the tool being broken rather than as a starting point.
+    body = {10: "{name}. {cta}",
+            15: "{open} {name}. {cta} {must}",
             30: ("{open} {name}. {cta} No fuss, no waiting, and you'll be "
-                 "back before the coin toss. {must}")}
+                 "back before the coin toss. {must}"),
+            60: ("{open} {name}. Around here that means the same people, the "
+                 "same standards, week in and week out — the kind of place you "
+                 "call once and keep the number for. No pressure, no upsell, "
+                 "no waiting around for somebody to call you back. {cta} "
+                 "You'll be squared away and back to the couch before the "
+                 "coin toss, and next weekend it's one less thing on the "
+                 "list. {must}")}
     text = body.get(int(seconds), body[30]).format(
         open=opens.get(dp["id"], opens["gameday"]),
         name=name, cta=cta, must=must)

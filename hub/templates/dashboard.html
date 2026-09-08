@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — Smart 1 Hub{% endblock %}
 {% block content %}
-<div class="page-head"><h2>Dashboard</h2><p>Live rollup across all modules</p></div>
+<div class="page-head"><h2>Dashboard</h2><p id="dashboard-source" role="status">Loading current data…</p></div>
 
 <style>
 /* The three cards below the numbers sit in one column, so a card added there
@@ -10,16 +10,15 @@
 
 /* Partner resources. These five are what a partner actually gets sent to, so
    they are one row of real buttons rather than links buried in a menu. */
-.partner-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+.partner-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));
   gap:12px;margin:0 0 22px}
-.partner-btn{display:flex;flex-direction:column;gap:5px;padding:15px 16px 14px;
+.partner-btn{display:flex;align-items:center;gap:8px;padding:11px 14px;
   border-radius:var(--radius);text-decoration:none;color:#fff;
   box-shadow:0 1px 3px rgba(15,23,42,.10);
   transition:transform .12s ease,box-shadow .12s ease}
 .partner-btn:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(15,23,42,.18)}
-.partner-btn .pb-ico{font-size:21px;line-height:1}
-.partner-btn .pb-name{font-weight:800;font-size:14.5px;letter-spacing:.01em}
-.partner-btn .pb-sub{font-size:11.5px;font-weight:500;opacity:.88;line-height:1.35}
+.partner-btn .pb-ico{flex:none;font-size:18px;line-height:1}
+.partner-btn .pb-name{font-weight:800;font-size:14.5px;letter-spacing:.01em;white-space:nowrap}
 .pb-rate{background:linear-gradient(135deg,#12335c,#1d5b96)}
 .pb-spec{background:linear-gradient(135deg,#0a6178,#0f92b0)}
 .pb-kit{background:linear-gradient(135deg,#166148,#1f9169)}
@@ -32,11 +31,12 @@
 /* Request buttons. Same shape as the partner row so the dashboard reads as one
    set of actions, warm instead of cool so "raise a request" is visibly a
    different kind of thing from "go and read a page". */
-.req-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+.req-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));
   gap:12px;margin:0 0 22px}
 .rb-copy{background:linear-gradient(135deg,#8a2f3f,#c04a5e)}
 .rb-change{background:linear-gradient(135deg,#9a4a10,#d1761c)}
 .rb-support{background:linear-gradient(135deg,#1f4f66,#2f7fa3)}
+.rb-web{background:linear-gradient(135deg,#5c3286,#8a4fc4)}
 .req-row .partner-btn{cursor:pointer}
 
 /* The assigned-client scorecard has one more figure than the other queue
@@ -98,25 +98,28 @@
     {% if t.available %}
   <a class="partner-btn {{ t.css }}" href="{{ t.href }}">
     <span class="pb-ico">{{ t.icon|safe }}</span><span class="pb-name">{{ t.title }}</span>
-    <span class="pb-sub">{{ t.blurb }}</span></a>
+  </a>
     {% else %}
   <span class="partner-btn {{ t.css }} pb-soon" title="This page is not in the Hub yet">
     <span class="pb-ico">{{ t.icon|safe }}</span><span class="pb-name">{{ t.title }}</span>
-    <span class="pb-sub">Page coming</span></span>
+  </span>
     {% endif %}
   {% endfor %}
 </div>
 
 <div class="req-row">
+  <a class="partner-btn rb-web" id="rq-web" href="/tools/tickets/">
+    <span class="pb-ico">&#127915;</span><span class="pb-name">Web Ticket</span>
+  </a>
   <a class="partner-btn rb-copy" id="rq-adcopy">
     <span class="pb-ico">&#9997;</span><span class="pb-name">Ad Copy Request</span>
-    <span class="pb-sub">Look up a client — the campaign, IO and partner fill themselves in</span></a>
+  </a>
   <a class="partner-btn rb-change" id="rq-change">
     <span class="pb-ico">&#128260;</span><span class="pb-name">Campaign Change</span>
-    <span class="pb-sub">Budget, targeting, dates or creative</span></a>
+  </a>
   <a class="partner-btn rb-support" id="rq-support">
     <span class="pb-ico">&#128736;</span><span class="pb-name">Campaign Support</span>
-    <span class="pb-sub">A question or an issue on a live campaign</span></a>
+  </a>
 </div>
 
 <div class="kpi-row" id="kpis">
@@ -268,11 +271,18 @@
 
 {% block scripts %}
 <script src="/knack-form.js"></script>
+<script src="/web-ticket.js"></script>
 <script src="/ad-copy.js"></script>
 <script src="/campaign-request.js"></script>
 <script>
 const $=id=>document.getElementById(id);
 const user_name={{ (user or '')|tojson }};
+const webTicket=$('rq-web');
+if(webTicket) webTicket.onclick=function(event){
+  if(!window.WebTicket || !window.KnackForm) return;
+  event.preventDefault();
+  window.WebTicket.pick({user:user_name});
+};
 
 /* The same forms Client 360 opens, from a dashboard that has no client on
    screen — so each one asks who it is for first.
@@ -317,23 +327,30 @@ const fmt=n=>Number(n||0).toLocaleString();
    The monthly readings are still taken (see hub/knack_data._snapshot), so a
    comparison measured the same way at both ends can be added once there are
    two of them to compare. */
-fetch('/api/summary').then(r=>r.json()).then(s=>{
-  if(s.error){$('k-clients').textContent='—';return}
+fetch('/api/summary', {cache:'no-store'}).then(r=>r.json()).then(s=>{
+  if(s.error){$('k-clients').textContent='—';$('dashboard-source').textContent='Dashboard data could not be loaded.';return}
+  const liveSource=s.products_source==='knack'||s.products_source==='knack (stale)';
+  const age=s.products_age_minutes;
+  $('dashboard-source').textContent=(s.period||'')+' · '+(liveSource
+    ? ('Products from Knack'+(age==null?'':' · updated '+age+' min ago'))
+    : 'Products from saved export')+(s.products_note?' · '+s.products_note:'');
+  $('k-live-sub').textContent=liveSource?'Current Knack records':('Saved export · '+(s.this_period||'date unknown'));
+  $('k-hm-sub').textContent='active sites · saved website export';
+  $('k-total-sub').textContent='live budget + saved website H&M';
   $('k-clients').textContent=fmt(s.clients_live);
   $('k-clients-sub').textContent=fmt(s.clients_total)+' total in Smart 1 Team';
   $('k-live').textContent=fmt(s.live_products);
   $('k-budget').textContent='$'+fmt(s.live_budget_monthly);
   $('k-webs').textContent=fmt(s.websites_active);
-  $('k-webs-sub').textContent=fmt(s.websites_total)+' total';
+  $('k-webs-sub').textContent=fmt(s.websites_total)+' total · saved export';
   $('k-hm').textContent='$'+fmt(s.hm_monthly);
 
   // ---- second row: billing rollup + month-over-month movement ----
-  // These four come from the Knack export's own lastM/thisM flags, so they
-  // describe the export's month. When that is not this month they are history,
-  // and the card says which month rather than implying it is current.
+  // Live monthly movement uses IO terms for both months; saved exports
+  // retain their original month flags and labels.
   const vs=s.export_stale
     ? ('in the '+(s.this_period||'export')+' export')
-    : (s.last_period?('vs '+s.last_period):'vs last month');
+    : (s.this_period+' vs '+s.last_period+(liveSource?' · IO dates':''));
   $('k-total').textContent='$'+fmt(s.estimated_total_monthly);
   $('k-new').textContent=fmt(s.new_customers);
   $('k-new-sub').innerHTML=esc(vs)+(s.lost_customers?' · <span class="down" style="color:var(--danger);font-weight:600">'+fmt(s.lost_customers)+' lost</span>':'');
@@ -357,7 +374,11 @@ fetch('/api/summary').then(r=>r.json()).then(s=>{
     $('k-seo').textContent=fmt(s.seo_clients);
     $('k-seo-sub').textContent='$'+fmt(s.seo_billing_monthly)+'/mo SEO billing';
   }
-}).catch(()=>{$('k-clients').textContent='—'});
+  if(!s.products_available){
+    ['k-clients','k-live','k-budget','k-total','k-new','k-up','k-down'].forEach(id=>{$(id).textContent='—'});
+    $('dashboard-source').textContent='Product data unavailable · '+(s.products_note||'No live records or saved export.');
+  }
+}).catch(()=>{$('k-clients').textContent='—';$('dashboard-source').textContent='Dashboard data could not be loaded.'});
 
 /* Birthdays and work anniversaries, from the roster the Users panel already
    holds. What is still to come this month, today included — a day that has

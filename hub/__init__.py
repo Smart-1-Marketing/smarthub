@@ -6159,6 +6159,47 @@ def create_hub_app() -> Flask:
                 data.get("not_recorded") or {})
         return jsonify(data)
 
+    def _job_owner() -> str:
+        """Who to look up pointers for — never a display name.
+
+        The same identity `modules/hyperframes_tools/app.py`'s own `_owner()`
+        resolves to, or a render registered under one spelling would be read
+        back under another and never notify anybody. A shared-password
+        session has no account row at all and gets its own bucket rather
+        than somebody else's — `hub/celebrations.mine()` paid for the display-
+        name version of this mistake already.
+        """
+        try:
+            from .users_routes import current_account
+            account = current_account()
+            if account and getattr(account, "email", ""):
+                return str(account.email).strip().lower()
+        except Exception:                                    # noqa: BLE001
+            pass
+        return "shared-login"
+
+    @app.route("/api/background-jobs/mine")
+    def api_background_jobs_mine():
+        """This person's background renders — running or recently finished.
+
+        Read by `hub-job-notify.js` from wherever they happen to be, not
+        only from the tool that started the job: a render is minutes long,
+        exactly like HeyGen and Runway, and nobody sits on one page waiting.
+        Which pointers are worth telling somebody about — and marking one as
+        already shown — is a client-side decision (`hub-job-notify.js`'s own
+        localStorage marker, the `hub-cheers.js`/`hub-qa-nudge.js` shape),
+        so this route just answers what is true right now.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import job_notify
+        try:
+            jobs = job_notify.mine(_job_owner())
+        except Exception as exc:  # noqa: BLE001 — never break the page
+            return jsonify({"jobs": [], "measured": False, "error": str(exc)})
+        return jsonify({"jobs": jobs, "measured": True})
+
     @app.route("/api/c360")
     def api_c360():
         gate = _require_api()
@@ -6811,7 +6852,15 @@ def create_hub_app() -> Flask:
                     b'<script defer src="/hub-crumbs.js"></script>'
                          b'<script defer src="/hub-thinking.js"></script>'
                          b'<script defer src="/hub-autofill.js"></script>'
-                         b'<script defer src="/hub-accordion.js"></script>')
+                         b'<script defer src="/hub-accordion.js"></script>'
+                         # wsgi.py's HubBar carries the reasoning for why
+                         # this one, unlike hub-cheers.js/hub-qa-nudge.js,
+                         # rides with the chrome rather than staying in
+                         # base.html alone: a render started in one
+                         # blueprint (paint-animation) has to be able to
+                         # tell somebody who wandered into another
+                         # (Commercial Builder) that it finished.
+                         b'<script defer src="/hub-job-notify.js"></script>')
             # The third code path. hub/templates/base.html links these for the
             # Hub's own pages and wsgi.py's HubBar injects them into the twenty
             # dispatcher-mounted modules -- and a blueprint registered on the
@@ -6955,6 +7004,9 @@ def create_hub_app() -> Flask:
             pass
 
     # ---------------- User accounts ----------------
+    from .ai_model_routes import bp as ai_model_review_bp
+    app.register_blueprint(ai_model_review_bp)
+
     # Registered after init_db (models bind to the shared instance) and before
     # the help layer, so /diagnostics/users exists by the time the sidebar
     # renders. Seeds the founding super admins on first boot.

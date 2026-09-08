@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
-# Start the Hub and the Display Ad Builder in one container.
+# Start the Hub, the Display Ad Builder and hf-render-service in one
+# container.
 #
 # The Hub is the service Render health-checks and the only thing bound to the
 # public port. The ad builder listens on loopback only, and Flask proxies
 # /tools/display-ads/* to it — so it is reachable through the Hub login and not
-# otherwise reachable at all.
+# otherwise reachable at all. hf-render-service listens on loopback too, and is
+# not proxied at all: hub/hyperframes.py talks to it server-to-server, over
+# HF_RENDER_SERVICE_URL, exactly the way it would talk to a hosted API — there
+# is no browser-facing route on it to proxy.
 #
-# Why a script rather than two CMDs: a container has one PID 1, and if that is
-# gunicorn then a crashed renderer leaves the Hub up and quietly broken —
-# every ad request 502s and nothing says why. Here the renderer is supervised:
-# if it dies it is restarted, and if it cannot stay up the log says so on every
-# attempt rather than once at boot.
+# Why a script rather than three CMDs: a container has one PID 1, and if that
+# is gunicorn then a crashed renderer leaves the Hub up and quietly broken —
+# every ad request 502s and every paint animation reports "not configured" and
+# nothing says why. Here both renderers are supervised: if either dies it is
+# restarted, and if it cannot stay up the log says so on every attempt rather
+# than once at boot.
 set -uo pipefail
 
 ADBUILDER_PORT="${ADBUILDER_PORT:-8791}"
 AD_DIR=/app/modules/ad_builder
+
+HF_RENDER_PORT="${HF_RENDER_PORT:-8792}"
+HF_RENDER_DIR=/app/modules/hf_render_service
 
 # The two processes named the same secret differently, and nothing bridged
 # them: the Hub reads ADBUILDER_ADMIN_TOKEN (hub/ad_builder_proxy.py) and
@@ -97,6 +105,36 @@ if [ -n "${OUTPUT_DIR:-}" ]; then
   echo "[adbuilder] output dir: ${OUTPUT_DIR}"
 fi
 
+# hf-render-service's own finished files, on the same test hub/extensions.py
+# and the ad builder above already use: the mounted disk when there is one,
+# a repo-local fallback otherwise.
+if [ -z "${HF_OUTPUT_DIR:-}" ] && [ -d /var/data ]; then
+  export HF_OUTPUT_DIR=/var/data/hf-render-out
+fi
+if [ -n "${HF_OUTPUT_DIR:-}" ]; then
+  mkdir -p "$HF_OUTPUT_DIR" || echo "[hf-render] could not create HF_OUTPUT_DIR ${HF_OUTPUT_DIR}"
+  echo "[hf-render] output dir: ${HF_OUTPUT_DIR}"
+fi
+
+# "Set HF_RENDER_SERVICE_URL and they appear on their own" is
+# hub/hyperframes.why_unavailable()'s own promise, and this is what makes it
+# true with nothing to configure on an ordinary deploy: pointed at the
+# process this script is about to start, on loopback, the moment the build
+# for it actually exists. An explicitly-set value always wins — a deployment
+# that has genuinely split this out to its own Render service (see
+# modules/hf_render_service/render.yaml) sets HF_RENDER_SERVICE_URL itself,
+# and must not have it silently overwritten with the in-container address.
+#
+# Deliberately conditioned on the build existing, not merely on the port:
+# setting this unconditionally would turn "the render service failed to
+# build" into "paint animations time out against a socket nobody is
+# listening on" instead of the honest, tested "not configured" state
+# hub/hyperframes.is_configured() already answers gracefully.
+if [ -z "${HF_RENDER_SERVICE_URL:-}" ] && [ -f "$HF_RENDER_DIR/dist/src/server.js" ]; then
+  export HF_RENDER_SERVICE_URL="http://127.0.0.1:${HF_RENDER_PORT}"
+  echo "[hf-render] HF_RENDER_SERVICE_URL defaulted to ${HF_RENDER_SERVICE_URL}"
+fi
+
 # SmartForecast keeps its append-only event history on the persistent disk.
 # The JSON backup is also mirrored into the managed database, so a replacement
 # disk can rebuild this SQLite database during application boot.
@@ -134,6 +172,30 @@ else
   # Not fatal. Every other tool in the Hub still works, and the proxy returns a
   # plain explanation rather than a 502 nobody can interpret.
   echo "[adbuilder] dist/src/server.js is missing — the build did not run. The rest of the Hub will start normally."
+fi
+
+start_hf_render() {
+  # Loopback only, same reasoning as the ad builder above — and here there is
+  # not even a proxy in front of it to enforce a login, so a leak to 0.0.0.0
+  # would be an unauthenticated video renderer on the open internet.
+  cd "$HF_RENDER_DIR" || return 1
+  PORT="$HF_RENDER_PORT" HOST=127.0.0.1 node dist/src/server.js
+}
+
+if [ -f "$HF_RENDER_DIR/dist/src/server.js" ]; then
+  (
+    attempt=0
+    while true; do
+      attempt=$((attempt + 1))
+      echo "[hf-render] starting on 127.0.0.1:${HF_RENDER_PORT} (attempt ${attempt})"
+      start_hf_render
+      code=$?
+      echo "[hf-render] exited with ${code} — paint animations and Vox explainers are unavailable until it restarts"
+      sleep 5
+    done
+  ) &
+else
+  echo "[hf-render] dist/src/server.js is missing — the build did not run. The rest of the Hub will start normally."
 fi
 
 # --threads only takes effect under the gthread worker class -- gunicorn's
