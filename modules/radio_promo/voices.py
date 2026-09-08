@@ -124,12 +124,23 @@ def match_voices(want: dict, count: int = 3) -> list[dict]:
 
 
 def get_voice(voice_id: str) -> dict:
-    res = requests.get(f"{BASE}/voices/{quote(voice_id)}", headers=_headers(), timeout=30)
+    try:
+        res = requests.get(f"{BASE}/voices/{quote(voice_id, safe='')}", headers=_headers(), timeout=30)
+    except requests.RequestException as exc:
+        raise VoiceError("Could not reach ElevenLabs. Try refreshing the voice status.") from exc
     if res.status_code == 404:
         raise VoiceError(f"No ElevenLabs voice with the ID {voice_id}.")
     if res.status_code >= 400:
         raise VoiceError(f"ElevenLabs refused the request (HTTP {res.status_code}).")
-    return _shape(res.json(), custom=True)
+    try:
+        raw = res.json()
+    except ValueError as exc:
+        raise VoiceError("ElevenLabs returned an unreadable voice response.") from exc
+    if not isinstance(raw, dict) or raw.get("voice_id") != voice_id:
+        raise VoiceError("ElevenLabs did not confirm the requested voice ID.")
+    verification = raw.get("voice_verification") or {}
+    needs_verification = not (verification.get("is_verified") is True or verification.get("requires_verification") is False)
+    return {**_shape(raw, custom=True), "requires_verification": needs_verification}
 
 
 def clone_voice(name: str, samples: list[tuple[str, bytes, str]],
@@ -158,10 +169,17 @@ def clone_voice(name: str, samples: list[tuple[str, bytes, str]],
         raise VoiceError(f"ElevenLabs could not create that clone (HTTP {res.status_code})"
                          + (f": {detail}" if detail else "."))
     created = res.json()
+    if not isinstance(created, dict):
+        raise VoiceError("ElevenLabs did not return a voice ID for the clone.")
     voice_id = created.get("voice_id")
     if not voice_id:
         raise VoiceError("ElevenLabs did not return a voice ID for the clone.")
-    return get_voice(voice_id)
+    _cache.update(at=0.0, voices=[])
+    # The create response is authoritative. A failed metadata lookup must never
+    # turn an accepted clone into a request to create another paid clone.
+    return {"voice_id": voice_id, "name": name, "description": description,
+            "requires_verification": created.get("requires_verification", True),
+            "custom": True, "preview_url": ""}
 
 
 # ------------------------------------------------------------------- render
@@ -189,6 +207,11 @@ def _note_characters(script: str, voice_id: str) -> None:
 def render_audio(voice_id: str, script: str, energy: str = "conversational") -> dict:
     """Render to MP3. Returns ``{"audio": bytes, "seconds": float|None,
     "measured": bool}``."""
+    from hub.customer_voices import ensure_usable, LibraryError
+    try:
+        ensure_usable(voice_id)
+    except LibraryError as exc:
+        raise VoiceError(str(exc)) from exc
     style = STYLE_BY_ENERGY.get(energy, 0.3)
     payload = {"text": script, "model_id": MODEL,
                "voice_settings": {"stability": 0.45, "similarity_boost": 0.8,

@@ -98,6 +98,7 @@
     </section>
   </main>
 
+  {{ s1_wait_assets() if s1_wait_assets is defined else '' }}
   <script>
   (() => {
     const $ = (id) => document.getElementById(id);
@@ -108,7 +109,7 @@
     const submitBtn = $('submit-btn');
     const submitStatus = $('submit-status');
     let selectedBlob = null, selectedName = '', selectedType = 'recorded', durationSeconds = 0;
-    let recorder = null, chunks = [], stream = null, audioContext = null, analyser = null, meterRAF = 0;
+    let recorder = null, chunks = [], stream = null, audioContext = null, audioAnalyzer = null, meterRAF = 0;
     let timerStart = 0, timerCarry = 0, timerInterval = 0;
     let scrollRAF = 0, lastScroll = 0, scrolling = false;
 
@@ -149,9 +150,9 @@
       try{
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const source = audioContext.createMediaStreamSource(stream);
-        analyser = audioContext.createAnalyser(); analyser.fftSize=256; source.connect(analyser);
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        const draw = () => { analyser.getByteFrequencyData(data); const avg=data.reduce((a,b)=>a+b,0)/data.length; $('meter-fill').style.width=Math.min(100,avg*1.7)+'%'; meterRAF=requestAnimationFrame(draw); };
+        audioAnalyzer = audioContext.createAnalyser(); audioAnalyzer.fftSize=256; source.connect(audioAnalyzer);
+        const data = new Uint8Array(audioAnalyzer.frequencyBinCount);
+        const draw = () => { audioAnalyzer.getByteFrequencyData(data); const avg=data.reduce((a,b)=>a+b,0)/data.length; $('meter-fill').style.width=Math.min(100,avg*1.7)+'%'; meterRAF=requestAnimationFrame(draw); };
         draw();
       }catch(_e){}
     }
@@ -212,13 +213,17 @@
       const name=$('submitter-name').value.trim();
       if(!name){ submitStatus.textContent='Please enter your name.'; submitStatus.classList.add('error'); $('submitter-name').focus(); return; }
       if(!$('consent').checked){ submitStatus.textContent='Please confirm the voice-use permission.'; submitStatus.classList.add('error'); $('consent').focus(); return; }
-      submitBtn.disabled=true; submitStatus.textContent='Sending your voice sample…'; submitStatus.classList.remove('error');
+      const finishWait = window.S1Wait
+        ? S1Wait.busy(submitBtn, {kind:'wait', label:'Sending your voice sample…'})
+        : (() => { submitBtn.disabled=true; return () => { submitBtn.disabled=false; }; })();
+      submitStatus.textContent='Sending your voice sample…'; submitStatus.classList.remove('error');
       const fd=new FormData(); fd.append('audio',selectedBlob,selectedName); fd.append('source_type',selectedType); fd.append('submitter_name',name); fd.append('submitter_email',$('submitter-email').value.trim()); fd.append('duration_seconds',String(durationSeconds||0)); fd.append('consent','true');
       try{
         const res=await fetch(app.dataset.submitUrl,{method:'POST',body:fd}); const data=await res.json().catch(()=>({}));
         if(!res.ok || !data.ok) throw new Error(data.error || 'We could not send the recording.');
         $('capture-card').hidden=true; $('submit-card').innerHTML='<div class="success"><div class="success-icon">✓</div><h2>Voice sample received</h2><p>Thank you. Your recording has been securely sent to Smart 1 Marketing.</p></div>';
-      }catch(e){ submitBtn.disabled=false; submitStatus.textContent=e.message || 'We could not send the recording.'; submitStatus.classList.add('error'); }
+      }catch(e){ submitStatus.textContent=e.message || 'We could not send the recording.'; submitStatus.classList.add('error'); }
+      finally { finishWait(); }
     });
 
     window.addEventListener('beforeunload',()=>{ stopStream(); if(audioPreview.src) URL.revokeObjectURL(audioPreview.src); });

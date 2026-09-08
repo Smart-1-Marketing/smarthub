@@ -122,6 +122,10 @@
         const length = row.duration_seconds ? ` · ${Math.round(row.duration_seconds)} sec` : '';
         detail.textContent = `${who} · ${method}${length}${row.original_filename ? ` · ${row.original_filename}` : ''}`;
         item.appendChild(detail);
+        const saveVoice = document.createElement('a');
+        saveVoice.className = 'cb-btn cb-btn-sm'; saveVoice.textContent = 'Create reusable customer voice';
+        saveVoice.href = '/tools/customer-voices/?capture_id=' + encodeURIComponent(row.id);
+        saveVoice.target = '_blank'; saveVoice.rel = 'noopener'; item.appendChild(saveVoice);
 
         if (row.audio_url) {
           const audio = document.createElement('audio');
