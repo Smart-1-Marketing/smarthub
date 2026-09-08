@@ -78,6 +78,16 @@ class HelpCenterTests(unittest.TestCase):
         self.assertEqual(writes[-1]['answer'], 'Use the radio library.')
         self.assertIn('Documentation:', chat.call_args.args[0][0]['content'])
 
+    def test_generated_urls_are_removed_before_logging_and_response(self):
+        writes = []
+        generated = 'Open [the radio tool](https://example.com/tools/radio-promo/). More: https://invented.example/help'
+        with patch('hub.jsonstore.write_json', side_effect=lambda p,d: writes.append(dict(d)) or True), patch('hub.ai.chat', return_value=generated):
+            result = self.client.post('/api/help-center/ask', json={'question':'How do I use radio promo?'}).get_json()
+        self.assertNotIn('https://', result['answer'])
+        self.assertIn('the radio tool', result['answer'])
+        self.assertEqual(writes[-1]['answer'], result['answer'])
+        self.assertEqual(result['sources'][0]['link'], '/tools/radio-promo/')
+
     def test_ai_unavailable_is_honest(self):
         with patch('hub.jsonstore.write_json', return_value=True), patch('hub.ai.chat', side_effect=ai.AIUnavailable('secret provider error')):
             r = self.client.post('/api/help-center/ask', json={'question':'How do I use radio?'}).get_json()
