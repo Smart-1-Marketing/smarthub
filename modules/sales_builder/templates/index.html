@@ -4918,6 +4918,26 @@ function lineForIO(i,months,withRate){
  if(isConsultingLine(i)&&(i.description||"").trim()){
   row.consulting=true;row.description=(i.description||"").trim();}
  return row;}
+/* The Consulting & Strategy retainer (state.consulting) is not a plan line --
+   it never sits in S.items, so lineForIO() never sees it and it reached the
+   Investment Summary and nothing else. Trafficking and billing had no way to
+   know it existed. Shaped as a plan item and run through lineForIO() itself
+   (never a second campaignBudget/termMonths calc here) so it reaches the IO
+   the same way every other recurring line does, and is named distinctly from
+   the Strategy Engagement -- CFG.consulting.product, not this string -- so
+   the two cannot be confused on an insertion order that carries both. */
+function retainerLineForIO(st){
+ const c=st.consulting||{};
+ if(!c.include)return null;
+ const monthly=c.monthly!=null?(+c.monthly||0):(+c.listed||0);
+ const hours=+c.hours||0;
+ const row=lineForIO({product:"Consulting & Strategy Retainer",
+   category:"RECURRING PLATFORM WORK", dollars:monthly,
+   basis:"monthly", termMonths:st.months||1}, st.months||1, false);
+ row.retainer=true;
+ row.description="Monthly Suite coaching and campaign strategy"
+   +(hours>0?` (~${hours}${hours===1?" hr":" hrs"}/mo).`:".");
+ return row;}
 
 /* ============================================================
    CONVERT-TO-IO WIZARD
@@ -5031,6 +5051,8 @@ function S_CONV_ITEMS(){return ((CONV.quote||{}).data||{}).items||[];}
 function ioDataPayload(){
  const st=CONV.quote.data||{},a=CONV.answers,q=CONV.quote;
  const items=(st.items||[]).map(i=>lineForIO(i,st.months||1,true));
+ const retainer=retainerLineForIO(st);
+ if(retainer)items.push(retainer);
  const monthly=items.reduce((s,i)=>s+(i.budget||0),0);
  const total=items.reduce((s,i)=>s+(i.campaignBudget||0),0);
  const customerRequirements=[
@@ -5044,7 +5066,16 @@ function ioDataPayload(){
     per product, so the description lands beside the line it describes rather
     than needing a section of its own in the IO -- and without it that document
     carries a product name every consulting line shares and a budget. */
- const internalRequirements=items.map(i=>({title:i.product+" — "+i.category,items:[
+ const internalRequirements=items.map(i=>i.retainer?
+  /* The retainer is recurring Suite coaching, not a media placement -- it
+     has no geography, audience or creative to report, and reusing the boxes
+     below would tell trafficking to target and produce creative for a line
+     that is neither. A section naming only what is actually true of it. */
+  {title:i.product+" — "+i.category,items:[
+   "Retainer: "+i.description,
+   "Monthly budget: "+money(i.budget)+" for "+i.termMonths+" month"+(i.termMonths===1?"":"s")
+     +" · campaign total: "+money(i.campaignBudget)]}
+  :{title:i.product+" — "+i.category,items:[
   ...(i.consulting&&i.description?["Engagement: "+i.description]:[]),
   (i.basis==="one_time"
     ? "One-time cost: "+money(i.campaignBudget)
@@ -5054,7 +5085,7 @@ function ioDataPayload(){
   "Audience: "+((st.audiences||[]).join(", ")||"per proposal"),
   "Landing page: "+(a.landingUrl||st.landingUrl||"TBD"),
   "KPIs: "+((st.kpis||[]).join(", ")||""),
-  "Creative: "+(st.creativeSummary||"display/social only")]}));
+  "Creative: "+(st.creativeSummary||"display/social only")]});
  const trackingPlan={primaryConversion:a.primaryConversion,secondaryConversions:[],ga4:a.ga4,gtm:"",callTracking:a.callTracking,thankYouPage:"",offlineImport:"",verifier:a.verifier};
  return{
   ioType:"Converted Proposal",client:st.client,url:st.url,
@@ -5100,8 +5131,8 @@ function ioDataPayload(){
    whole. `state.specialInstructions` is what that side appends to. */
 function consultingInstructions(rows){
  const c=CFG.consulting||{};
- return (rows||[]).filter(r=>r&&r.consulting&&r.description)
-  .map(r=>`${c.product||r.product}: ${r.description}`).join("\n");}
+ return (rows||[]).filter(r=>r&&r.description&&(r.consulting||r.retainer))
+  .map(r=>`${r.retainer?r.product:(c.product||r.product)}: ${r.description}`).join("\n");}
 async function runConvert(){
  CONV.step=2;drawConvert();
  const log=m=>{const el=document.getElementById('convLog');if(el)el.innerHTML+=m+"<br>";};
