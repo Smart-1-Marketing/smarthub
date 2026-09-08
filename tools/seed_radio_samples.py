@@ -59,7 +59,12 @@ PROMOTION = ("Fall alignment and tire check, $59 through the end of "
 
 
 # --------------------------------------------------------------- fan radio
-# Budgets from modules/fan_radio/catalog.py: :15 is 30-38 words, :30 is 65-75.
+# Budgets from hub/radio_spec.DURATIONS, which both radio builders now read:
+# :15 is 35-42 words, :30 is 65-85. Fan Radio's own two-entry copy of that
+# table said 30-38 and 65-75, and the game-day :15 below was written to it --
+# 32 words, which the shared budget calls three short. The sample is lengthened
+# rather than the check loosened: what a seeded sample is for is showing what
+# an on-the-clock spot reads like.
 FAN_SPOTS = [
     ("pregame", 15, "neutral",
      "Big weekend ahead. Before the tailgate, before the drive, get the "
@@ -75,8 +80,9 @@ FAN_SPOTS = [
      "Auto, on Northgate Road."),
     ("gameday", 15, "neutral",
      "It is game day and we are open. Northgate Tire and Auto, alignment and "
-     "tire check, fifty-nine dollars, right now. In and out before kickoff. "
-     "Northgate Tire and Auto, on Northgate Road."),
+     "tire check, fifty-nine dollars, right now. In and out before kickoff, "
+     "and back on the couch before the coin toss. Northgate Tire and Auto, "
+     "on Northgate Road."),
     ("gameday", 30, "neutral",
      "Game day. You are up early, the grill is already going, and there is a "
      "shimmy in the front end you have been ignoring since August. Northgate "

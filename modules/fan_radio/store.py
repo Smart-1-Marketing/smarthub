@@ -310,16 +310,66 @@ def store_audio(project: dict, spot: dict, audio: bytes) -> dict:
     return _write_local(spot, audio)
 
 
-def _write_local(spot: dict, audio: bytes) -> dict:
-    name = f"{spot.get('id')}-{secrets.token_urlsafe(4)}.mp3"
+def _write_local(spot: dict, audio: bytes, ext: str = "mp3",
+                 name: str = "") -> dict:
+    name = name or f"{spot.get('id')}-{secrets.token_urlsafe(4)}.{ext}"
     path = os.path.join(data_dir(), "audio", name)
     with open(path, "wb") as fh:
         fh.write(audio)
     return {"url": f"audio/{name}", "where": "disk", "file": name}
 
 
+# The extensions this module actually writes. A bed is an MP3 (that is what
+# ElevenLabs composes) or whatever somebody uploaded; a mix is always a WAV,
+# because that is the one format whose length can be read back off its own
+# header with no decoder. `.mp3` alone was the whole allowlist before the mix
+# existed, so a filed mix would have 404'd from the customer's own page --
+# silently, as an <audio> element that plays nothing.
+AUDIO_EXTS = ("mp3", "wav", "m4a", "ogg", "webm")
+
+
+def store_asset(project: dict, spot: dict, role: str, data: bytes,
+                ext: str = "mp3") -> dict:
+    """One of a spot's own audio assets — its bed, or its finished mix.
+
+    Deliberately **deterministic and overwriting**, where `store_audio()` below
+    is random and not. A bed and a mix name a role on one spot, so re-composing
+    or re-mixing lands on the asset the last attempt wrote: with overwrite off,
+    Cloudinary keeps the old bytes while the store records the new measured
+    length, and the file a client is sent and the duration filed against it
+    disagree. That is a failure this Hub has already had to undo once, on the
+    module next door.
+    """
+    scope = "spec" if (project.get("scope") != "client") else slugify(
+        project.get("client") or project.get("company"))
+    public_id = (f"{folder()}/{scope}/{slugify(project.get('company'))}"
+                 f"-{spot.get('id')}-{role}")
+    local_name = f"{spot.get('id')}-{role}.{ext}"
+
+    if cloudinary_ready():
+        try:
+            from hub import storage
+            asset = storage.put(
+                "fan_radio", f"{public_id}.{ext}",
+                data if isinstance(data, bytes) else data.read(),
+                public_id=public_id, overwrite=True,
+                context={"project": project.get("id") or "", "role": role})
+            return {"url": asset.url, "where": "cloudinary",
+                    "public_id": asset.public_id}
+        except Exception as exc:                      # noqa: BLE001
+            # Fall through to disk. A bed that cost a generation, or a mix
+            # somebody has just listened to, is never thrown away because the
+            # upload failed.
+            local = _write_local(spot, data, ext=ext, name=local_name)
+            local["warning"] = (f"Cloudinary upload failed ({type(exc).__name__}); "
+                                "kept on disk.")
+            return local
+    return _write_local(spot, data, ext=ext, name=local_name)
+
+
 def local_audio_path(name: str) -> str | None:
-    if not re.fullmatch(r"[A-Za-z0-9_-]+\.mp3", str(name or "")):
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+\.(?:%s)" % "|".join(AUDIO_EXTS),
+                        str(name or "")) or ".." in str(name or ""):
         return None
     path = os.path.join(data_dir(), "audio", name)
     return path if os.path.isfile(path) else None

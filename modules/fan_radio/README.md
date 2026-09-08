@@ -1,13 +1,22 @@
 # Fan Radio
 
-Football-themed :15 and :30 radio spots in three dayparts — **Pre-Game Prep,
-Game Day, Post-Game** — plus a customer-facing page where the client listens,
-approves, or asks for changes.
+Football-themed radio spots in three dayparts — **Pre-Game Prep, Game Day,
+Post-Game** — at every length the Radio Ad Creator sells, with a music bed
+under them and a customer-facing page where the client listens, approves, or
+asks for changes.
 
-Mounted at `/tools/fan-radio`. Built to the same shape as Radio Promo: same
-tone list, same word budgets, same pronunciation pass, same ElevenLabs
-casting and measured runtime, so a script can move between the two tools
-without re-timing.
+Mounted at `/tools/fan-radio`. It carries the same tools as the Radio Ad
+Creator because it **reads the same modules**, rather than being built to
+resemble them: `hub/radio_spec.py` for the lengths, the budgets, the bed
+vocabulary, the mix levels and the checks; `hub/voice_casting.py` for the
+casting question and the scoring; `hub/radio_share.py` for the client link.
+
+That is a fix rather than a tidy-up. Every one of those used to be a local
+copy here, and three of them had drifted — the versions of this file above
+said "same word budgets" and "same casting" while a :15 was 30–38 words here
+against 35–42 there, and the casting question was missing two of the five
+answers the shared picker offers. Each screen was internally consistent, so
+the only way to notice was to open both.
 
 ---
 
@@ -60,6 +69,33 @@ Turn the link off, or issue a new one — the old link dies immediately.
 
 ---
 
+## What it has that a script generator does not
+
+* **Every length.** :10 sponsorship tag, :15, :30, :60 — the shared table's
+  own menu, with the read floor on the two lengths that are bought by the
+  second and the cost warning only on the :60, which is about twice a :30 in
+  ElevenLabs characters every time it is re-recorded. The **:15/:30 pair is
+  still the default**: ticking four lengths across three dayparts is twelve
+  billed writes on a job that usually wants six.
+* **Casting you can argue with.** The five characteristics are ranked against
+  what ElevenLabs publishes about each voice, each row printing the words it
+  matches on. The model's recommendation lands *in* the pickers, so the next
+  press is a rep disagreeing with it rather than starting again. A voice can
+  be named by ID instead — a cloned voice carries no labels for the ranking to
+  score. Cloning itself lives in the Radio Ad Creator: it makes a voice out of
+  somebody's recordings, which is a consent question, and one place to answer
+  it is the right number.
+* **How the name is said.** Pronunciations apply to every spot on the project,
+  and *show me what the voice reads* prints the copy ElevenLabs is actually
+  handed. Without that line a pronunciation that is not taking looks identical
+  to one that is, and the other way to find out is to spend a render.
+* **A bed, and a real one.** Composed by ElevenLabs at the spot's own length —
+  so nothing is trimmed to fit — or a licensed track uploaded. A spot with no
+  bed is a straight read and passes the checks as one.
+* **Somebody's own read.** A client with their own talent uploads the
+  recording; it lands on the same fields a rendered read does, except that its
+  length is honestly *not measured* where a rendered one is.
+
 ## Flow
 
 1. **Who it's for** — client (type-ahead over the Hub registry) or spec spot.
@@ -71,20 +107,61 @@ Turn the link off, or issue a new one — the old link dies immediately.
 4. **The spots** — word count against the budget, trademark verdict, football
    language detected. Save edit / Rewrite / Tighten / Record / Delete, with
    full version history.
-5. **The voice** — a casting profile from the brief, matched against the
-   ElevenLabs pool with the reasons shown. Renders report **measured**
-   runtime from `/with-timestamps`, or say "estimated" when they can't.
-6. **Send it to the client** — headline, intro, optional CTA button, link on.
+5. **The voice** — pronunciations, the five casting characteristics, a
+   shortlist with its reasons, a voice by ID, and what is left of the month's
+   characters. Renders report **measured** runtime from `/with-timestamps`, or
+   say "estimated" when they can't.
+6. **Background music & the mix** — compose or upload a bed per spot, pick the
+   level, render the mix in the browser, read the checks, file it.
+7. **Send it to the client** — headline, intro, optional CTA button, link on.
+   The client hears the **finished mix** where there is one and the raw read
+   where there is not, and the page says which.
 
 ## Word budgets
 
-| Length | Words | Why |
-|---|---|---|
-| `:15` | 30–38 | Same clock as Radio Promo and the Commercial Builder |
-| `:30` | 65–75 | Same |
+`hub/radio_spec.DURATIONS`, read rather than restated — the same table the
+Radio Ad Creator writes to, so a script genuinely does move between the two
+without re-timing.
+
+| Length | Words | Read floor | What it is for |
+|---|---|---|---|
+| `:10` | 22–28 | — | Sponsorship tag against a live read |
+| `:15` | 35–42 | — | One message, one call to action |
+| `:30` | 65–85 | 25s | The workhorse |
+| `:60` | 140–170 | 54s | Room for a story rather than an offer |
 
 Over-budget scripts are **flagged with the overage and re-tightened, never
-truncated** — trimming clips a word off the end of the phone number.
+truncated** — trimming clips a word off the end of the phone number. The floor
+is on the two lengths bought by the second, because a read that lands well
+under one of those is dead air somebody paid for; a floor on a tag would refuse
+correct copy.
+
+## The mix, and what "measured" means
+
+There is no ffmpeg, ffprobe, pydub or numpy in the Hub's runtime. So the bed is
+**composed to length** rather than trimmed, and the mix is rendered **in the
+browser** through the Web Audio API, which ducks the bed under the read and
+hands back a WAV. A WAV states its own sample rate, channel count and data
+length in its header — so the duration filed against a spot is arithmetic on
+the bytes we stored, measured by us, rather than a number the page reported.
+
+An uploaded MP3 is the opposite case and says so: it is at a bitrate nobody
+here chose, so its length is **not measured** — never a number, never zero.
+
+The dB pair, the fades, the duck timings and the sample rate all come from
+`/api/mix/config`, which reads the Commercial Builder's one music table. A
+radio spot and a video spot duck their beds by the same amount, and the level
+this panel shows is the level that renders.
+
+A bed shorter than the spot is **reported, never looped** — a loop puts an
+audible seam in the middle of a client's commercial. A read that overruns is
+**never trimmed** — the mix renders at the longer of the two and comes back
+measured and over, which is what the length check is for.
+
+Findings **stop a mix being filed**; filing one anyway needs a reason and is
+recorded against a name. Nothing here refuses a *render*: a check that refuses
+the correct thing is a check somebody switches off, and switching this one off
+would cost the call-to-action check with it.
 
 ## Config
 
@@ -113,13 +190,19 @@ Suite's PDF links 403.
 
 | File | Lines | What |
 |---|---|---|
-| `app.py` | ~600 | Routes: builder API, public approval page, audio |
-| `phrases.py` | ~230 | The trademark guard and the safe phrase bank |
-| `catalog.py` | ~170 | Dayparts, lengths, budgets, tones, outcomes |
-| `ai.py` | ~290 | Brief reading, spot writing, tighten, casting profile |
-| `voices.py` | ~230 | ElevenLabs matching and rendering |
+| `app.py` | ~1410 | Routes: builder API, beds, the mix, the checks, the public approval page |
+| `phrases.py` | ~240 | The trademark guard and the safe phrase bank |
+| `catalog.py` | ~180 | Dayparts, tones, outcomes; the lengths read from hub/radio_spec |
+| `ai.py` | ~340 | Brief reading, spot writing, tighten, casting profile |
+| `voices.py` | ~270 | ElevenLabs transport and render; casting is hub/voice_casting |
 | `speech.py` | ~120 | Written copy → spoken copy |
-| `store.py` | ~280 | Projects, versions, share tokens, feedback, audio |
-| `templates/index.html` | ~560 | The builder |
-| `templates/share.html` | ~330 | What the client sees |
-| `templates/library.html` | ~110 | Every project, who approved what |
+| `store.py` | ~380 | Projects, versions, share tokens, feedback, audio assets |
+| `templates/index.html` | ~1240 | The builder |
+| `templates/share.html` | ~340 | What the client sees |
+| `templates/library.html` | ~90 | Every project, who approved what |
+
+What is **not** here is as much of the point: the lengths and their
+budgets, the bed vocabulary, the mix levels, the length arithmetic and the
+checks are `hub/radio_spec.py`; the casting question and its scoring are
+`hub/voice_casting.py`; the client link is `hub/radio_share.py`. Each was a
+local copy here once, and the next fix to any of them now lands once.
