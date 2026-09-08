@@ -36,7 +36,7 @@
     {% for a in alerts %}
       <a class="alertrow" href="{{url_for('project_detail',pid=a.project_id)}}">
         <span>{{a.name}}<small>#{{a.project_id}}</small></span>
-        <strong>{{a.alert_kind}}</strong>
+        <strong>{{a.alert_kind}}{% if a.status in ('TRIAL','EXPIRED') and a.created %} <small class="alertdate">started {{a.created}}</small>{% endif %}</strong>
       </a>
     {% else %}<p>No current alerts.</p>{% endfor %}
   </section>
@@ -51,7 +51,7 @@
     {% endfor %}
     {% if partners_more %}
       <details>
-        <summary>See more ({{partners_more|length}} partner{{'s' if partners_more|length != 1 else ''}} with 1 site)</summary>
+        <summary>See more ({{partners_more|length}} partner{{'s' if partners_more|length != 1 else ''}} with 4 or fewer sites)</summary>
         {% for p in partners_more %}
           <div class="pair">
             <a href="{{url_for('dashboard', partner=p.name)}}">{{p.name}}</a>
@@ -87,7 +87,7 @@
 
 <div class="tablewrap" data-demo="unmatched">
 <table class="s1d-t">
-  <thead><tr><th>Account</th><th>Status</th><th>Plan</th><th>Domain</th><th>Next Billing</th><th>Client Price</th><th>Partner</th></tr></thead>
+  <thead><tr><th>Account</th><th>Status</th><th>Plan</th><th>Domain</th><th>Next Billing</th><th>Client Price</th><th>Partner</th><th>Created</th></tr></thead>
   <tbody>
   {% for r in rows %}
     <tr>
@@ -118,8 +118,9 @@
       <td>{{r.next_billing_date or '—'}}</td>
       <td>{{money(r.client_price if r.client_price is not none else r.monthly_price)}}</td>
       <td><a href="{{url_for('dashboard', partner=r.partner_display)}}">{{r.partner_display}}</a></td>
+      <td>{{r.created or '—'}}</td>
     </tr>
-  {% else %}<tr><td colspan="7">No projects match the current filters.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="8">No projects match the current filters.</td></tr>{% endfor %}
   </tbody>
 </table>
 </div>
@@ -135,6 +136,7 @@
 {% if last %}<p class="syncnote">Last sync: {{last.status}} · {{last.completed_at or last.started_at}} · {{last.details or ''}}</p>{% endif %}
 
 <style>
+.alertdate{display:block;font-weight:400;font-size:11px;opacity:.75}
 .domcell .orphan-link{display:block;font-size:11px;color:#1769AA;margin-top:3px;text-decoration:none}
 .domcell .orphan-link:hover{text-decoration:underline}
 .orphan-box{margin-top:6px;padding:8px;border:1px solid #e2e8f0;border-radius:8px;background:#fbfcfe;min-width:240px}

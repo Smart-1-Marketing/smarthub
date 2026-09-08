@@ -404,8 +404,8 @@ def dashboard():
         ),
         key=lambda x: (-x["active"], -x["total"], x["name"].lower()),
     )
-    partners_main = [p for p in active_partners if p["total"] >= 2]
-    partners_more = [p for p in active_partners if p["total"] < 2]
+    partners_main = [p for p in active_partners if p["total"] > 4]
+    partners_more = [p for p in active_partners if p["total"] <= 4]
     # Everything with zero active clients rolls up into one "Non-Active" group.
     non_active_total = sum(v["total"] for v in partner_stats.values() if v["active"] == 0)
 
