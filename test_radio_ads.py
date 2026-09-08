@@ -814,9 +814,19 @@ check("and the pair is still what a default job costs",
 # The :60 warning is the only one, and it is drawn where the length is picked.
 check("only the :60 warns about what it costs",
       [s for s in fr_catalog.LENGTH_IDS if fr_catalog.length_warning(s)], [60])
+_cat = fr.get("/api/catalog").get_json()
 _page = fr.get("/").get_data(as_text=True)
 check("the picker draws all four lengths from the server's own table",
       all(d["label"] in _page for d in radio_spec.DURATIONS), True)
+# What each length is FOR is on the page rather than in a title attribute. A
+# rep choosing between a :10 and a :60 should not have to hover to find out
+# that one cannot carry a phone number and the other has room for a story --
+# the quiet control this repo keeps having to undo.
+check("and says what each one is for, from the table rather than the markup",
+      ("L.name" in _page and "L.note" in _page and 'id="lenkey"' in _page), True)
+check("the names and notes are the shared table's",
+      [d["name"] for d in _cat["lengths"]],
+      [d["name"] for d in radio_spec.DURATIONS])
 
 # --- voices -------------------------------------------------------------
 # The five characteristics, the accent aliases and the scoring were a local
@@ -830,7 +840,6 @@ check("and so is the style value sent on the render",
 _vsrc = (ROOT / "modules" / "fan_radio" / "voices.py").read_text()
 check("with no scoring pass left here to drift",
       ("def match_voices" in _vsrc and "score += " in _vsrc), False)
-_cat = fr.get("/api/catalog").get_json()
 check("the picker is served the words each answer matches on",
       sorted(r["id"] for r in _cat["voice_characteristics"]),
       sorted(_casting.CHARACTERISTIC_IDS))

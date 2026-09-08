@@ -165,6 +165,7 @@
   <div class="card" id="writecard" style="display:none">
     <h2><span class="n">3</span> Write the spots {{ help_dot('fan_radio.build.spots') if help_dot is defined else '' }}</h2>
     <div id="slots" class="grid3"></div>
+    <div class="bank" id="lenkey" style="margin-top:12px"></div>
     <div id="lenwarn" style="margin-top:10px"></div>
     <div style="margin-top:13px">
       <label class="f" for="steer">Steer this batch <span class="opt">— optional</span></label>
@@ -393,6 +394,17 @@
     $("slots").querySelectorAll(".pick").forEach(function(p){
       p.onclick = function(){ p.classList.toggle("on"); };
     });
+    // What each length is FOR, said once rather than once per chip. It was in
+    // a title attribute first, which is the quiet control this codebase keeps
+    // having to undo — a rep choosing between a :10 and a :60 should not have
+    // to hover to find out that one cannot carry a phone number and the other
+    // has room for a story.
+    $("lenkey").innerHTML = CAT.lengths.map(function(L){
+      return '<b>' + esc(L.label) + '</b> ' + esc(L.name) + ' — ' + esc(L.note)
+           + (L.min_seconds
+              ? ' Must run at least ' + L.min_seconds + ' seconds.' : '');
+    }).join("<br>");
+
     // Only the :60 warns. A note on every length is a note nobody reads, and
     // then the one that mattered goes past unread too — so this is drawn from
     // the shared table's own `warning`, which only that length carries.
