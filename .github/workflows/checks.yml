@@ -366,6 +366,17 @@ jobs:
             echo "test_commercial_wizard.py not on this branch — nothing to run."
           fi
 
+      - name: Commercial Builder scene-asset routes (Runway, upload, client assets)
+        # The six routes on routes/assets.py that generate-ai and generate-paint's
+        # own test files never covered: choose-ai-option, upload, use-client-asset,
+        # asset-source-priority, and the Runway pair generate-video / .../status.
+        run: |
+          if [ -f test_commercial_assets.py ]; then
+            python test_commercial_assets.py
+          else
+            echo "test_commercial_assets.py not on this branch — nothing to run."
+          fi
+
       - name: Client 360 social & links tests
         # The card renders only links that exist and offers the rest from a
         # catalogue that ships from the server, so the menu and the keys the
@@ -376,6 +387,17 @@ jobs:
             python test_client360_social.py
           else
             echo "test_client360_social.py not on this branch — nothing to run."
+          fi
+
+      - name: SEO client page social & links tests
+        # The same catalog, read by the second screen that shows it -- a link
+        # saved on Client 360 used to be invisible here, behind a hard-coded
+        # nine-key grid reading the same store. Guarded like the step above.
+        run: |
+          if [ -f test_seo_client_social.py ]; then
+            python test_seo_client_social.py
+          else
+            echo "test_seo_client_social.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder dashboard layout tests
@@ -1288,6 +1310,20 @@ jobs:
             python test_video_tools.py
           else
             echo "test_video_tools.py not on this branch — nothing to run."
+          fi
+
+      - name: Radio Scripts tests
+        # The standalone script-writing tool: the word-budget gate, the
+        # forced-empty legal line, coverage and copy checks, and the guarded
+        # blueprint. No network -- OpenAI is stubbed at the same transport
+        # seam hub/openai_responses.py was built with. Guarded like the
+        # steps above so the workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_radio_scripts.py ]; then
+            python test_radio_scripts.py
+          else
+            echo "test_radio_scripts.py not on this branch — nothing to run."
           fi
 
       - name: Web ticket field tests

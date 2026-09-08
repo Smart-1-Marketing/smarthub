@@ -59,13 +59,25 @@ measured refused rather than billed for a page of "not reviewed"; the
 calendar draft is a brainstorm that creates no slots, because the month
 builder is what makes posts.
 
-## Still to wire (in this order)
+**Proposal briefing and the Snap** — `SPEND_AND_DEMO` is the Proposal
+Builder's `/api/spend-demo`, a *Market briefing (internal)* panel on the
+**Budget step** rather than the Executive Summary the roadmap first named:
+that step's own question ("what's the working budget?") is the question the
+briefing answers, and the summary here is a document section rather than a
+step. It is the one harvested prompt whose whole job is the model's general
+knowledge, so it is labeled a briefing rather than dressed as a reading,
+stored beside the quote as internal notes (`S.marketBriefing`), and reaches
+neither the proposal nor the IO — anything a rep carries into a section
+passes through `clean_ai_text()` like any other edit. The prompt's own
+"Hmm, I am not sure." hallucination brake is kept. `SNAP_CONCEPT` is the
+Landing Page Maker's `/api/landing/snap-concept`: the Snap positioning
+language lives in that prompt and nowhere else in writing, the draft is an
+idea to talk through, and it builds and saves nothing — the Build button is
+what makes a page.
 
-1. **Proposal last** — `SPEND_AND_DEMO` on the Executive Summary step (not
-   the Cover — the cover is visual and carries no copy). Touches the document
-   clients sign, so it goes after everything else has been read by a person.
-   `SNAP_CONCEPT` → Landing Page Maker rides along here.
-2. **Audience Finder** — spec'd separately ("One Audience, Four Readers"):
+## Still to wire
+
+1. **Audience Finder** — spec'd separately ("One Audience, Four Readers"):
    `hub/audience_spec.py`, the rep-confirmation gate, the IO and proposal
    reads, the client page. Its registry entry is already in
    `hub/pickaxe_registry.py` so both live-call tools share one file.

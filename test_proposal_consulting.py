@@ -399,6 +399,157 @@ check("the plan step warns about a line left undescribed",
 check("and the control says which of the two consulting products this is not",
       "retainer quoted on the Investment step" in wiz)
 
+# ---------------------------------------------------------------------------
+section("Delivery is refused server-side, not just warned about in the browser")
+# ---------------------------------------------------------------------------
+# consulting_unresolved() answered the question and had no caller: the only
+# thing standing between a vague engagement and a client was a non-blocking
+# JS warnbox on the plan step, which a rep can dismiss, three steps before
+# Send, or which a direct request bypasses entirely.
+
+client = sb.app.test_client()
+
+vague_quote = client.post("/api/quotes", json={
+    "data": {"client": "Vague Co", "months": 6,
+             "items": [line(description="")]}}).get_json()["quote"]
+resp = client.post(f"/api/quotes/{vague_quote['id']}/deliver", json={})
+check("a proposal with an undescribed engagement is refused",
+      resp.status_code, 409)
+body = resp.get_json()
+check("carrying the same shape consulting_unresolved() already returns",
+      len(body.get("consulting_unresolved") or []), 1)
+check("naming the line and the question, not just a generic refusal",
+      "question" in (body["consulting_unresolved"] or [{}])[0],
+      body.get("consulting_unresolved"))
+
+described_quote = client.post("/api/quotes", json={
+    "data": {"client": "Described Co", "months": 6,
+             "items": [line()]}}).get_json()["quote"]
+resp2 = client.post(f"/api/quotes/{described_quote['id']}/deliver", json={})
+check("the same delivery succeeds once the line is described",
+      resp2.status_code, 200)
+check("and nothing about the refusal rides along on a clean delivery",
+      "consulting_unresolved" not in (resp2.get_json() or {}))
+
+no_consulting_quote = client.post("/api/quotes", json={
+    "data": {"client": "No Strategy Co", "months": 6, "items": []}}).get_json()["quote"]
+check("a plan with no consulting line at all is never asked",
+      client.post(f"/api/quotes/{no_consulting_quote['id']}/deliver",
+                 json={}).status_code, 200)
+
+# ---------------------------------------------------------------------------
+section("The retainer (#316's Consulting & Strategy) reaches the IO too")
+# ---------------------------------------------------------------------------
+# state["consulting"] never sits in S.items -- it is a retainer beside the
+# Suite licence in the Investment Summary, priced from hours, and lineForIO()
+# never sees it because it is not a plan line. So it reached the client's
+# document and nothing else. This is the other half of #328: the engagement
+# above already reached the IO (that is what the rest of this file asserts);
+# the retainer did not until retainerLineForIO() gave it the same path.
+
+check("ioDataPayload() builds the retainer line and pushes it onto items",
+      "const retainer=retainerLineForIO(st)" in wiz
+      and "items.push(retainer)" in wiz)
+check("the internal PDF gets its own section for it",
+      "i.retainer?" in wiz and '"Retainer: "+i.description' in wiz)
+check("without the media-plan boilerplate that does not apply to it",
+      # The retainer branch of the internalRequirements map must not fall
+      # through to the Geography/Audience/Creative lines a real media or
+      # engagement line carries -- reusing them would tell trafficking to
+      # target and produce creative for a line that is neither.
+      re.search(r"i\.retainer\?[\s\S]*?\]\}\s*\n\s*:\{title", wiz) is not None
+      and "Geography: " not in re.search(
+          r"i\.retainer\?([\s\S]*?)\]\}\s*\n\s*:\{title", wiz).group(1))
+check("special instructions carry a retainer's own description too",
+      "r.description&&(r.consulting||r.retainer)" in wiz)
+
+retainer_body = "\n".join([_lift("lineCampaign"), _lift("lineForIO"),
+                           _lift("retainerLineForIO")])
+js3 = """
+const CFG = {consulting: %s};
+function isConsultingLine(i){
+ return !!(CFG.consulting&&(i||{}).product===CFG.consulting.product);}
+%s
+const included = retainerLineForIO(
+  {consulting:{include:true,monthly:1050,listed:1050,hours:7},months:6});
+const excluded = retainerLineForIO({consulting:{include:false},months:6});
+const noHours = retainerLineForIO(
+  {consulting:{include:true,monthly:400,listed:400,hours:0},months:3});
+console.log(JSON.stringify({included, excluded, noHours}));
+""" % (json.dumps(sb.consulting_spec()), retainer_body)
+
+try:
+    out3 = subprocess.run(["node", "-e", js3], capture_output=True, text=True,
+                          timeout=30)
+    got3 = json.loads(out3.stdout.strip() or "{}")
+except Exception as exc:                                    # noqa: BLE001
+    got3 = {}
+    print("  (node unavailable: %s)" % exc)
+
+if got3:
+    inc = got3.get("included") or {}
+    check("a retainer that is off contributes nothing",
+          got3.get("excluded") is None, got3.get("excluded"))
+    check("an included retainer carries the monthly figure and the term",
+          inc.get("budget") == 1050 and inc.get("basis") == "monthly"
+          and inc.get("termMonths") == 6, inc)
+    check("and the campaign total is the monthly figure across the term, "
+          "the shared lineCampaign() arithmetic rather than a second one",
+          inc.get("campaignBudget") == 1050 * 6, inc.get("campaignBudget"))
+    check("flagged as a retainer, not the Strategy Engagement catch-all",
+          inc.get("retainer") is True and inc.get("product") != C["product"]
+          and inc.get("product") != DISPLAY, inc)
+    check("the hours ride into the description, the figure it was built from",
+          "~7 hrs/mo" in (inc.get("description") or ""), inc.get("description"))
+    no_hrs = got3.get("noHours") or {}
+    check("no hours estimate reads as a plain sentence, not '~0 hrs/mo'",
+          "hrs/mo" not in (no_hrs.get("description") or "")
+          and (no_hrs.get("description") or "").endswith("strategy."),
+          no_hrs.get("description"))
+    check("its own campaign total for a shorter, cheaper flight",
+          no_hrs.get("campaignBudget") == 400 * 3, no_hrs.get("campaignBudget"))
+else:
+    check("node was available to drive the retainer's IO line", False,
+          "install node, or this half is unverified")
+
+js4 = """
+const CFG = {consulting: %s};
+%s
+const rows = [
+  {product: CFG.consulting.product, consulting: true, description: %s},
+  {product: "Consulting & Strategy Retainer", retainer: true,
+   description: "Monthly Suite coaching and campaign strategy (~7 hrs/mo)."},
+  {product: "Category"},
+];
+console.log(JSON.stringify(consultingInstructions(rows)));
+""" % (json.dumps(sb.consulting_spec()), _lift("consultingInstructions"),
+       json.dumps(DESC))
+
+try:
+    out4 = subprocess.run(["node", "-e", js4], capture_output=True, text=True,
+                          timeout=30)
+    got4 = json.loads(out4.stdout.strip() or "null")
+except Exception as exc:                                    # noqa: BLE001
+    got4 = None
+    print("  (node unavailable: %s)" % exc)
+
+if got4 is not None:
+    lines_out = got4.split("\n")
+    check("both the engagement and the retainer land in special instructions",
+          len(lines_out) == 2, got4)
+    check("the engagement line is prefixed with the served catch-all string",
+          lines_out[0] == "%s: %s" % (C["product"], DESC),
+          lines_out[0] if lines_out else "")
+    check("the retainer line is prefixed with its own product, not the "
+          "engagement's -- the two must read as different charges",
+          lines_out[1:2] == [
+              "Consulting & Strategy Retainer: Monthly Suite coaching and "
+              "campaign strategy (~7 hrs/mo)."],
+          lines_out[1] if len(lines_out) > 1 else "")
+else:
+    check("node was available to drive special instructions with a retainer",
+          False, "install node, or this half is unverified")
+
 print("\n" + "=" * 62)
 print("%d passed, %d failed" % (PASS, FAIL))
 shutil.rmtree(_TMP, ignore_errors=True)

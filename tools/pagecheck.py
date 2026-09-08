@@ -160,6 +160,11 @@ HUB_PAGES = [
     # Its sibling, and the one staff screen in the section with no help layer
     # on it at all: a sortable table whose every number is drawn from a fetch.
     "/seo/webmaster",
+    # Radio Scripts: another hub blueprint under /tools, so no mount
+    # enumeration reaches it. Its results panel is drawn from JavaScript into
+    # chrome the hub app injects afterwards, the same shape as the two
+    # HyperFrames tools above.
+    "/tools/radio-scripts/",
     # Weather Trigger Setup's staff screen: a hub blueprint under /tools, so no
     # mount enumeration reaches it, and its recent-leads table is drawn from
     # Jinja over a live read of hub/leads.py rather than a fetch -- the shape

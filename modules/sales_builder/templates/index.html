@@ -669,7 +669,7 @@ function toggle(a,v){const i=a.indexOf(v);if(i>=0)a.splice(i,1);else a.push(v);}
 let _toastT=null;
 function toast(m){const t=document.getElementById('toastEl');t.textContent=m;t.style.display='block';clearTimeout(_toastT);_toastT=setTimeout(()=>t.style.display='none',5200);}
 function ago(iso){if(!iso)return"";const d=(Date.now()-new Date(iso).getTime())/864e5;if(d<1)return"Today";if(d<2)return"Yesterday";if(d<7)return Math.floor(d)+"d ago";return new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric'});}
-async function api(path,opts){const r=await fetch(path,Object.assign({headers:{"Content-Type":"application/json"}},opts));const d=await r.json().catch(()=>({}));if(!r.ok&&d&&d.error)throw new Error(d.error+(d.detail?": "+d.detail:""));if(!r.ok)throw new Error("HTTP "+r.status);return d;}
+async function api(path,opts){const r=await fetch(path,Object.assign({headers:{"Content-Type":"application/json"}},opts));const d=await r.json().catch(()=>({}));if(!r.ok&&d&&d.error){const e=new Error(d.error+(d.detail?": "+d.detail:""));e.body=d;throw e;}if(!r.ok){const e=new Error("HTTP "+r.status);e.body=d;throw e;}return d;}
 /* How many steps the wizard has. The list is drawn in an earlier script
    block than STEPS, so it cannot read STEPS.length -- test_drafts.py holds
    the two in step rather than memory, the arrangement test_thinking.py uses
@@ -3766,7 +3766,8 @@ const STEPS=[
      ? '<div class="cards c3" style="margin-top:14px">'+[[1750,"$1k–2.5k","Entry / very local"],[3500,"$2.5k–5k","Testing a market"],[8000,"$5k–10k","Steady local growth"],[15000,"$10k–20k","Aggressive share gain"],[28000,"$20k–40k","Multi-market push"],[50000,"$40k+","Regional dominance"]].map(b=>card("💰",b[1],b[2],S.budget===b[0],`setBudget(${b[0]})`)).join('')+'</div>'
      : `<div class="fld" style="margin-top:14px"><label>Exact monthly budget ($)</label><input type="number" value="${S.budget}" oninput="setBudget(+this.value)" placeholder="e.g. 6500" style="max-width:260px"></div>`)+
    `<div class="fld"><label>Campaign length (months)</label><input type="number" min="1" value="${S.months}" oninput="S.months=Math.max(1,+this.value);S.configured=false;saveSoon()" style="max-width:200px"></div>`
-   +budgetDriftNote(),
+   +budgetDriftNote()
+   +spendDemoPanel(),
    valid:()=>S.budget>0}),
 
  ()=>{ if(S.items.length===0)recommendItems(); return{eyebrow:"The Media Mix",title:"Products & pricing",help:"sales_builder.mix.rates",sub:"From your goals, using real catalog products & rates. Edit the monthly $ per product, add or remove products — guardrails recheck as you go.",
@@ -3929,6 +3930,29 @@ function creativeCard(r){
  if((r.medium==="audio"||r.medium==="video")&&(r.answer==="client"||r.answer==="comp")){
   html+=`<div style="margin-top:12px" id="spotBox-${r.medium}">${spotDraftHtml(r.medium)}</div>`;}
  return html+`</div>`;}
+/* The Spend & Demo briefing on the Budget step: what a business like this
+   typically spends and who lives in the target areas, from the model's
+   general knowledge — labeled as exactly that, stored beside the quote as
+   internal notes (S.marketBriefing), and on neither the proposal nor the IO.
+   A billed call, so a button and never part of drawing the step. */
+function spendDemoPanel(){
+ const d=S.marketBriefing;
+ let h='<div class="bpanel" id="briefBox"><div class="ttl">🧭 Market briefing (internal)</div>';
+ if(d&&d.text){
+  h+=`<div style="white-space:pre-wrap;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:#F7F9FC;font-size:13px;max-height:280px;overflow:auto;margin-top:8px">${esc(d.text)}</div>
+   <div class="note" style="margin-top:6px">${esc(d.note||'')}</div>`;}
+ h+=`<div style="margin-top:8px"><button class="btn btn-line" onclick="draftBriefing()">${d&&d.text?"Re-brief":"✨ Brief me: typical spend, and who lives there (AI)"}</button>
+  <span class="note" id="briefMsg"></span></div></div>`;
+ return h;}
+async function draftBriefing(){
+ const msg=document.getElementById('briefMsg');
+ if(msg)msg.innerHTML='<span class="spin" data-s1-think="ai"></span> Writing the briefing…';
+ try{
+  const d=await api('/sales/builder/api/spend-demo',{method:'POST',
+    body:JSON.stringify({data:S})});
+  S.marketBriefing=d.briefing;saveSoon();renderStep();
+ }catch(e){
+  if(msg)msg.innerHTML='Nothing was written — '+esc(e.message);}}
 function spotDraftHtml(medium){
  const d=(S.draftSpots||{})[medium];
  const what=medium==="audio"?"a :30 radio spot":"a set of TV scripts";
@@ -4862,7 +4886,14 @@ async function deliverProposal(contact){
   else if(su.needs_contact)toast("Saved and filed — Smart 1 Suite needs the contact's details.");
   else toast("Saved and filed. "+(su.reason||""));
   refreshLists();
- }catch(e){out.innerHTML='<div class="warnbox">Delivery failed: '+esc(e.message)+'</div>';}
+ }catch(e){
+  const unresolved=(e.body||{}).consulting_unresolved;
+  out.innerHTML=(unresolved&&unresolved.length)
+   ?'<div class="warnbox"><b>✎ '+esc(e.message)+'</b><br>'
+    +unresolved.map(u=>"&bull; "+esc(u.label)+" — "+esc(u.question)).join("<br>")
+    +'<br><button class="btn btn-line" style="margin-top:8px" '
+    +'onclick="gotoStep(9)">Go to Media Mix</button></div>'
+   :'<div class="warnbox">Delivery failed: '+esc(e.message)+'</div>';}
  finally{const bb=document.getElementById('deliverBtn');if(bb){bb.disabled=false;bb.textContent='📤 Send to client & file in Smart 1 Suite';}}}
 function contactAskHtml(sug){
  return `<div class="bpanel" style="margin-top:10px"><div class="ttl">Who is the contact at ${esc(S.client||'this client')}?</div>
@@ -4910,6 +4941,26 @@ function lineForIO(i,months,withRate){
     with the product name and nothing else. */
  if(isConsultingLine(i)&&(i.description||"").trim()){
   row.consulting=true;row.description=(i.description||"").trim();}
+ return row;}
+/* The Consulting & Strategy retainer (state.consulting) is not a plan line --
+   it never sits in S.items, so lineForIO() never sees it and it reached the
+   Investment Summary and nothing else. Trafficking and billing had no way to
+   know it existed. Shaped as a plan item and run through lineForIO() itself
+   (never a second campaignBudget/termMonths calc here) so it reaches the IO
+   the same way every other recurring line does, and is named distinctly from
+   the Strategy Engagement -- CFG.consulting.product, not this string -- so
+   the two cannot be confused on an insertion order that carries both. */
+function retainerLineForIO(st){
+ const c=st.consulting||{};
+ if(!c.include)return null;
+ const monthly=c.monthly!=null?(+c.monthly||0):(+c.listed||0);
+ const hours=+c.hours||0;
+ const row=lineForIO({product:"Consulting & Strategy Retainer",
+   category:"RECURRING PLATFORM WORK", dollars:monthly,
+   basis:"monthly", termMonths:st.months||1}, st.months||1, false);
+ row.retainer=true;
+ row.description="Monthly Suite coaching and campaign strategy"
+   +(hours>0?` (~${hours}${hours===1?" hr":" hrs"}/mo).`:".");
  return row;}
 
 /* ============================================================
@@ -5024,6 +5075,8 @@ function S_CONV_ITEMS(){return ((CONV.quote||{}).data||{}).items||[];}
 function ioDataPayload(){
  const st=CONV.quote.data||{},a=CONV.answers,q=CONV.quote;
  const items=(st.items||[]).map(i=>lineForIO(i,st.months||1,true));
+ const retainer=retainerLineForIO(st);
+ if(retainer)items.push(retainer);
  const monthly=items.reduce((s,i)=>s+(i.budget||0),0);
  const total=items.reduce((s,i)=>s+(i.campaignBudget||0),0);
  const customerRequirements=[
@@ -5037,7 +5090,16 @@ function ioDataPayload(){
     per product, so the description lands beside the line it describes rather
     than needing a section of its own in the IO -- and without it that document
     carries a product name every consulting line shares and a budget. */
- const internalRequirements=items.map(i=>({title:i.product+" — "+i.category,items:[
+ const internalRequirements=items.map(i=>i.retainer?
+  /* The retainer is recurring Suite coaching, not a media placement -- it
+     has no geography, audience or creative to report, and reusing the boxes
+     below would tell trafficking to target and produce creative for a line
+     that is neither. A section naming only what is actually true of it. */
+  {title:i.product+" — "+i.category,items:[
+   "Retainer: "+i.description,
+   "Monthly budget: "+money(i.budget)+" for "+i.termMonths+" month"+(i.termMonths===1?"":"s")
+     +" · campaign total: "+money(i.campaignBudget)]}
+  :{title:i.product+" — "+i.category,items:[
   ...(i.consulting&&i.description?["Engagement: "+i.description]:[]),
   (i.basis==="one_time"
     ? "One-time cost: "+money(i.campaignBudget)
@@ -5047,7 +5109,7 @@ function ioDataPayload(){
   "Audience: "+((st.audiences||[]).join(", ")||"per proposal"),
   "Landing page: "+(a.landingUrl||st.landingUrl||"TBD"),
   "KPIs: "+((st.kpis||[]).join(", ")||""),
-  "Creative: "+(st.creativeSummary||"display/social only")]}));
+  "Creative: "+(st.creativeSummary||"display/social only")]});
  const trackingPlan={primaryConversion:a.primaryConversion,secondaryConversions:[],ga4:a.ga4,gtm:"",callTracking:a.callTracking,thankYouPage:"",offlineImport:"",verifier:a.verifier};
  return{
   ioType:"Converted Proposal",client:st.client,url:st.url,
@@ -5093,8 +5155,8 @@ function ioDataPayload(){
    whole. `state.specialInstructions` is what that side appends to. */
 function consultingInstructions(rows){
  const c=CFG.consulting||{};
- return (rows||[]).filter(r=>r&&r.consulting&&r.description)
-  .map(r=>`${c.product||r.product}: ${r.description}`).join("\n");}
+ return (rows||[]).filter(r=>r&&r.description&&(r.consulting||r.retainer))
+  .map(r=>`${r.retainer?r.product:(c.product||r.product)}: ${r.description}`).join("\n");}
 async function runConvert(){
  CONV.step=2;drawConvert();
  const log=m=>{const el=document.getElementById('convLog');if(el)el.innerHTML+=m+"<br>";};

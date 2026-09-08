@@ -306,6 +306,26 @@ def create_hub_app() -> Flask:
         from . import diagnostics
         return jsonify(diagnostics.run_all())
 
+    @app.route("/api/throttle")
+    def api_throttle():
+        """What the login throttle is currently holding.
+
+        `hub.auth.throttle_status()`'s own docstring says this is "for the
+        diagnostics page" and had no caller at all — the escalating-lockout
+        and credential-stuffing detection CLAUDE.md documents at length had
+        no visibility anywhere in the app, so telling a rate-limit lockout
+        from a stuffing attack meant grepping the raw activity log for
+        `stuffing_blocked` events by hand.
+
+        Counts only, never an address: the dict is hashed already, and this
+        route exists precisely so a page can show it.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import auth
+        return jsonify(auth.throttle_status())
+
     @app.route("/api/quotas")
     def api_quotas():
         """Monthly usage against allowances, and every provider cost estimate.
@@ -2826,6 +2846,56 @@ def create_hub_app() -> Flask:
         # /api/seo/detail had to be fixed for.
         return jsonify(result), 400 if result.get("measured") is None else 502
 
+    @app.route("/api/landing/snap-concept", methods=["POST"])
+    def api_landing_snap_concept():
+        """Draft a Smart 1 Snap concept — the harvested Pickaxe, as an idea.
+
+        The Snap positioning language lives in that prompt and nowhere else
+        in writing (hub/prompts_harvested.SNAP_CONCEPT). This drafts the
+        concept a rep talks through — five pages of content, how it gets
+        marketed — and builds nothing: the maker's own Build button is what
+        makes a page. Website and industry are filled from the client's
+        record where the form left them blank, never invented. A POST behind
+        a button, because the call is billed.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"ok": False,
+                            "error": "Name the business first."}), 400
+        website = (body.get("website") or "").strip()
+        industry = (body.get("industry") or "").strip()
+        if not website or not industry:
+            try:
+                from .client_context import tool_context
+                ctx = tool_context(client, website, gallery=False)
+                website = website or ctx.get("url") or ctx.get("domain") or ""
+                industry = industry or ctx.get("industry") or ""
+            except Exception:                          # noqa: BLE001
+                pass
+        from . import ai as hub_ai
+        from .prompts_harvested import SNAP_CONCEPT
+        prompt = SNAP_CONCEPT["prompt"].format(
+            client=client,
+            website=website or "not provided",
+            industry=industry or "not recorded",
+            location=(body.get("location") or "").strip() or "not recorded",
+            extra=(body.get("extra") or "").strip() or "none",
+            snap_type=(body.get("snap_type") or "").strip() or "general")
+        try:
+            text = hub_ai.chat(
+                [{"role": "user", "content": prompt}],
+                module="landing_maker", purpose=SNAP_CONCEPT["purpose"],
+                temperature=SNAP_CONCEPT["temperature"], max_tokens=1800)
+        except hub_ai.AIUnavailable as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 502
+        return jsonify({"ok": True, "concept": text.strip(),
+                        "note": "An idea to talk through — nothing was "
+                                "built or saved. The Build button is what "
+                                "makes a page."})
     @app.route("/api/landing/<page_id>/revise", methods=["POST"])
     def api_landing_revise(page_id):
         """Rewrite a built page against an instruction, keeping the old one."""
@@ -6148,35 +6218,47 @@ def create_hub_app() -> Flask:
         # `export_state()` is the honest signal and is already shared with the
         # dashboard and hub/housekeeping.py: the month the export was
         # generated *for*, against the calendar.
+        #
+        # A missing fallback file only matters when Knack itself cannot be
+        # reached — `_product_source()` says which happened, the same
+        # live-or-fallback read Client 360 already goes through, so a
+        # deployment where Knack answers live is never reported broken over
+        # an unused, optional backup file.
         state = knack_data.export_state()
         age = knack_data.data_age_hours()
-        if age is None:
+        _prows, _psrc, _pminutes = knack_data._product_source()  # noqa: SLF001
+        if _psrc == "knack":
+            _wsrc = knack_data.websites_source()
+            add("Smart 1 Team data", "ok",
+                f"Live from Knack, {_pminutes} min old · {len(_prows)} product "
+                f"rows · {len(knack_data.websites())} sites "
+                f"({'live from Knack' if _wsrc == 'knack' else 'private fallback'}).")
+        elif age is None:
+            from . import knack_api
             add("Smart 1 Team data", "error",
-                "No private products fallback is configured or readable.")
+                ("Knack is not configured (KNACK_APP_ID/KNACK_API_KEY not set), "
+                 if not knack_api.configured() else
+                 "Knack is configured but could not be reached, ")
+                + "and no private products fallback is configured or "
+                  "readable — there is no source for client products at all.")
         elif state["stale"]:
             add("Smart 1 Team data", "warn",
-                f"The private fallback products export is for {state['label']}, and "
-                f"it is now {state['current_label']}. It is only read when "
-                "Knack cannot be reached, but that is when it matters.")
+                f"Knack could not be reached. The private fallback products "
+                f"export is for {state['label']}, and it is now "
+                f"{state['current_label']}.")
         elif not state["period"]:
             # Neither stale nor current: it carries no month at all, so
             # nothing can say how old it is. Named rather than passed off as
             # fresh — the whole failure this row had.
             add("Smart 1 Team data", "warn",
-                "The private fallback products export carries no month, so how old "
-                "it is cannot be measured. It is the fallback for when Knack "
-                "cannot be reached.")
+                "Knack could not be reached, and the private fallback "
+                "products export carries no month, so how old it is cannot "
+                "be measured.")
         else:
-            # The site count says which source answered. Products and websites
-            # each prefer the live Knack object and fall back to the private
-            # export, and a count with no source on it reads as live whichever
-            # it was — which is the whole reason the export went unnoticed.
-            _wsrc = knack_data.websites_source()
-            add("Smart 1 Team data", "ok",
-                f"Export is current ({state['label']}) · "
-                f"{len(knack_data.products())} product rows · "
-                f"{len(knack_data.websites())} sites "
-                f"({'live from Knack' if _wsrc == 'knack' else 'private fallback'}).")
+            add("Smart 1 Team data", "warn",
+                f"Knack could not be reached — showing the private fallback "
+                f"export instead ({state['label']}) · {len(_prows)} product "
+                f"rows · {len(knack_data.websites())} sites.")
 
         # --- GHL ---
         token, company = _cfg.ghl_token, _cfg.ghl_company_id
@@ -6753,6 +6835,19 @@ def create_hub_app() -> Flask:
     except Exception as _vt_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _vt_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- Radio Scripts ----------------
+    # Also a blueprint: /tools/radio-scripts is not a prefix wsgi.py mounts,
+    # so it belongs to the hub app and needs its own guard rather than
+    # AuthGuard's.
+    try:
+        from modules.radio_scripts import register_radio_scripts
+        register_radio_scripts(app)
+    except Exception as _rs_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _rs_exc)
         except Exception:  # noqa: BLE001
             pass
 

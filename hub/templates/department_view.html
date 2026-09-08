@@ -3,13 +3,19 @@
 {% block body_attrs %} class="s1d-page"{% endblock %}
 {% block content %}
 {#
-  One template for two routes: /views (your own department, is_mine always
+  One template for two routes: /views (your own departments, is_mine always
   true) and /views/<id> (browsing anybody's — the same "open" reading
   hub/client_owner.py gives the owner assignments, since nothing here is more
   or less reachable for having been left off a view). The blocks it draws are
   never trusted HTML: a tile's href was validated on the way in by
   hub/department_views.py, and every label and note here is plain text, left
   to Jinja's own autoescaping like everything else in this Hub.
+
+  my_departments is everything the signed-in person is on, and the picker
+  below is the only place they act on it — a link to /views/<id>, which
+  already reads either way. Nothing here writes an assignment: that stays the
+  admin editor's alone, so choosing among your own views can never be
+  mistaken for putting yourself on a new one.
 #}
 <div class="s1d-head">
   <div>
@@ -31,6 +37,16 @@
   </div>
   {% endif %}
 </div>
+
+{% if my_departments and my_departments|length > 1 %}
+<div class="s1d-subnav" role="tablist" aria-label="Your department views">
+  {% for d in my_departments %}
+  <a href="/views/{{ d.id }}"
+     class="{{ 'on' if department and d.id == department.id else '' }}"
+     role="tab" aria-selected="{{ 'true' if department and d.id == department.id else 'false' }}">{{ d.name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
 
 {% if department %}
   {% set notes = department.blocks | selectattr('type', 'equalto', 'note') | list %}

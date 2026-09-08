@@ -59,6 +59,19 @@
     <div id="diag-checks" class="diag-rows"><p class="diag-loading">Running checks…</p></div>
   </section>
 
+  <!-- ---------------- sign-in throttle ---------------- -->
+  <section class="diag-card">
+    <h2>Sign-in security &mdash; the throttle</h2>
+    <p class="diag-help">
+      Escalating lockouts and credential-stuffing detection have run since the
+      brute-force fix went in, and until now the only way to see either was
+      grepping the raw activity log for a <code>stuffing_blocked</code> row.
+      Counts only &mdash; no address is ever named here, since this page is
+      screenshotted into chats.
+    </p>
+    <div id="diag-throttle" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
+  </section>
+
   <!-- ---------------- quotas ---------------- -->
   <section class="diag-card">
     <h2>Usage this month</h2>
@@ -623,6 +636,37 @@ function renderHousekeeping(d){
   el.innerHTML = checked + rows;
 }
 
+function renderThrottle(d){
+  var el=document.getElementById("diag-throttle"); if(!el) return;
+  function row(state, pill, name, detail){
+    return '<div class="diag-row"><span class="diag-pill p-'+state+'">'+esc(String(pill))+
+      '</span><span class="diag-name">'+esc(name)+'</span>'+
+      '<span class="diag-detail">'+detail+'</span></div>';
+  }
+  el.innerHTML =
+    row(d.locked_out?"error":"ok", d.locked_out, "Locked out right now",
+        d.locked_out
+          ? "addresses that have hit "+esc(d.max_attempts)+" wrong guesses "+
+            "inside "+esc(Math.round(d.window_seconds/60))+" minutes, or "+
+            "guessed against several different addresses — never named here"
+          : "nobody is currently rate-limited") +
+    row(d.stuffing_suspects?"error":"ok", d.stuffing_suspects,
+        "Credential-stuffing suspects",
+        d.stuffing_suspects
+          ? "one guess each against several different staff addresses from "+
+            "the same address, which counting attempts alone cannot see"
+          : "none of the currently-tracked addresses show that pattern") +
+    row("off", d.tracked_ips, "Addresses being watched",
+        "escalates "+esc((d.ladder_seconds||[]).map(function(s){
+          return s<60?s+"s":Math.round(s/60)+"m";}).join(" &rarr; "))+
+        " on repeat lockouts, and clears on a success"+
+        (d.shared_across_workers===false
+          ? '<br><span class="diag-note">Per-process — this deployment runs '+
+            "two gunicorn workers, so an address hammering both in turn "+
+            "gets roughly twice the allowance this panel shows.</span>"
+          : ""));
+}
+
 function renderIntegrity(d){
   document.getElementById("diag-integrity").innerHTML = d.groups.map(function(g){
     var state = g.count===0 ? "ok" : (g.severity==="high"?"error":g.severity==="medium"?"warn":"off");
@@ -1044,6 +1088,10 @@ function loadAll(force){
     .then(function(r){return r.json();}).then(renderHousekeeping)
     .catch(function(){document.getElementById("diag-housekeeping").innerHTML=
       '<p class="diag-loading">Could not read the housekeeping list.</p>';});
+  fetch("/api/throttle",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderThrottle)
+    .catch(function(){document.getElementById("diag-throttle").innerHTML=
+      '<p class="diag-loading">Could not read the throttle.</p>';});
   fetch("/api/help-audit",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(renderHelpAudit)
     .catch(function(){document.getElementById("diag-help-audit").innerHTML=
