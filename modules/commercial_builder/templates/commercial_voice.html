@@ -55,6 +55,8 @@
   </details>
 </div>
 
+{% include "_voice_capture_panel.html" %}
+
 <div class="cb-card">
   <h3>How it's read
     {{ help_dot('commercial_builder.voice.settings') if help_dot is defined else '' }}
@@ -156,4 +158,7 @@
 </div>
 
 {% endblock %}
-{% block extra_scripts %}<script src="{{ url_for('commercial_builder.static', filename='js/voice.js') }}"></script>{% endblock %}
+{% block extra_scripts %}
+<script src="{{ url_for('commercial_builder.static', filename='js/voice.js') }}"></script>
+<script src="{{ url_for('commercial_builder.static', filename='js/client_voice_capture.js') }}"></script>
+{% endblock %}
