@@ -3,7 +3,7 @@
 The Hub already owns one QuickBooks OAuth connection in ``hub.quickbooks``.
 Check Reconciliation must use that same token store rather than opening a
 second Intuit connection: Intuit rotates refresh tokens, so two independent
-stores can invalidate one another.  This package installs a one-shot loader
+stores can invalidate one another. This package installs a one-shot loader
 wrapper that wires the check module to the Hub connector immediately after the
 module is imported.
 """
@@ -50,7 +50,7 @@ def _install(module) -> None:
         )
         if response.status_code == 401 and retry:
             # Force the existing connector to refresh its shared token, then
-            # retry exactly once.  The newly rotated refresh token is persisted
+            # retry exactly once. The newly rotated refresh token is persisted
             # by hub.quickbooks, so Client 360 and this tool stay in agreement.
             stored = qb._load_tokens() or {}
             if stored:
@@ -72,6 +72,24 @@ def _install(module) -> None:
     module._oauth_record = shared_record
     module._qbo = shared_qbo
     module._redirect_uri = lambda: qb.redirect_uri(module.request)
+
+    # Hub's shared theme also defines a generic `.spinner` animation. The
+    # reconciliation page used the same class name for a tiny inline
+    # "Reading…" label, so HubBar's injected stylesheet turned it into a huge
+    # circular loader that stretched the upload card. Rename that one local
+    # element after the module is loaded and give it deliberately scoped,
+    # text-only busy-state styling.
+    page = getattr(module, "_PAGE", "")
+    if page:
+        page = page.replace(
+            ".spinner{display:none}.busy .spinner{display:inline}",
+            ".checkrec-loading{display:none;margin-left:8px;color:var(--muted);font-size:13px;vertical-align:middle}.busy .checkrec-loading{display:inline}",
+        )
+        page = page.replace(
+            '<span class="spinner">Reading…</span>',
+            '<span class="checkrec-loading" role="status" aria-live="polite">Reading…</span>',
+        )
+        module._PAGE = page
 
 
 class _BridgeLoader(importlib.abc.Loader):
