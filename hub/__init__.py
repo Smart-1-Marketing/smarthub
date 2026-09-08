@@ -7269,6 +7269,20 @@ def create_hub_app() -> Flask:
     except Exception:  # noqa: BLE001
         pass
 
+    # Seed Creative Studio's first 12 templates, now that cs_templates exists.
+    # Idempotent (skips any id already present) and guarded like every other
+    # boot step: a seed that cannot run leaves the gallery emptier than it
+    # should be, not the Hub down.
+    try:
+        from modules.creative_studio.seed_templates import seed as _seed_cs_templates
+        with app.app_context():
+            _seed_cs_templates()
+    except Exception as _cs_seed_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_seed_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # Refill the persistent disk from the database if this is a *new* disk.
     # JSON files on /var/data are outside the database backup and do not
     # survive the disk being recreated, so hub/jsonstore.py mirrors the ones

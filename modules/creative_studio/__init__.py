@@ -29,3 +29,5 @@ def register_creative_studio(app):
     if STANDALONE:
         with app.app_context():
             db.create_all()
+            from .seed_templates import seed
+            seed()

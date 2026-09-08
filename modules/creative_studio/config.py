@@ -113,3 +113,15 @@ JOB_TIMEOUT_MINUTES = {
 # one wasted render.
 JOB_MAX_ATTEMPTS = {"render": 1}
 DEFAULT_MAX_ATTEMPTS = 3
+
+# Display labels for the industries the seed templates use. Python's
+# str.title() mangles an acronym ("hvac".title() == "Hvac"), so the ones
+# that are not ordinary words are spelled out here rather than derived --
+# read by both the seed fixtures and the gallery's industry filter, so the
+# two cannot drift into naming one industry two different ways.
+INDUSTRY_LABELS = {"general": "General", "hvac": "HVAC", "restaurant": "Restaurant",
+                   "home_services": "Home Services"}
+
+
+def industry_label(industry: str) -> str:
+    return INDUSTRY_LABELS.get(industry, (industry or "").replace("_", " ").title())

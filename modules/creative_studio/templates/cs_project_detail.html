@@ -13,10 +13,36 @@
     <table>
       <tr><td style="width:180px;color:var(--muted,#64748B)">Duration</td><td>{{ project.duration ~ 's' if project.duration else 'Not set' }}</td></tr>
       <tr><td style="color:var(--muted,#64748B)">Aspect ratio</td><td>{{ project.aspect_ratio or 'Not set' }}</td></tr>
-      <tr><td style="color:var(--muted,#64748B)">Template</td><td>{{ project.template_id or 'None chosen yet — the gallery ships in WO-CS2.' }}</td></tr>
+      <tr><td style="color:var(--muted,#64748B)">Template</td><td>
+        {% if template %}<a href="/creative-studio/templates/{{ template.id }}">{{ template.name }}</a>
+          <span class="pill info">v{{ project.template_version }}</span>
+        {% else %}None chosen{% endif %}</td></tr>
       <tr><td style="color:var(--muted,#64748B)">Created by</td><td>{{ project.created_by or '—' }} on {{ project.created_at[:10] if project.created_at else '' }}</td></tr>
     </table>
   </div>
+
+  {% if template %}
+  <div class="card">
+    <h3 style="margin-top:0">Variables {{ help_dot('creative_studio.project_detail') if help_dot is defined else '' }}</h3>
+    {% if unresolved %}
+    <p class="pill warn">{{ unresolved|length }} required variable{{ 's' if unresolved|length != 1 else '' }}
+       not yet resolved: {{ unresolved|join(', ') }}</p>
+    {% endif %}
+    <table>
+      <thead><tr><th>Variable</th><th>Value</th><th>Source</th><th>Required</th></tr></thead>
+      <tbody>
+        {% for name, r in resolved.items() %}
+        <tr>
+          <td><code>{{ '{{' }}{{ name }}{{ '}}' }}</code></td>
+          <td>{{ r.value or '—' }}</td>
+          <td><span class="pill {{ 'ok' if r.source != 'unresolved' else 'err' }}">{{ r.source }}</span></td>
+          <td>{{ 'Yes' if r.required else 'No' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
 
   <div class="card">
     <h3 style="margin-top:0">Versions</h3>

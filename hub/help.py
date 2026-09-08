@@ -2207,6 +2207,17 @@ REGISTRY: list[Help] = [
        "this client's assets\" queues a backfill job rather than "
        "reaching Cloudinary on the page load -- the scan can take a moment, "
        "so check back after it queues."),
+    _h("creative_studio.templates", "A template is data, not a code change",
+       "Every filter here reads the templates that are actually published "
+       "-- an industry or a duration nobody has shipped yet simply will not "
+       "appear. Opening a template shows every scene and how each variable "
+       "resolves for the client you picked, before anything is created."),
+    _h("creative_studio.templates_admin", "Draft, then publish",
+       "A template stays draft -- previewable, editable, invisible in the "
+       "public gallery -- until Publish. Publishing bumps its version; any "
+       "project already built from an earlier version keeps saying so, "
+       "because a template edited after a dozen projects exist must not "
+       "silently change what those dozen say they were built from."),
 ]
 
 _BY_KEY = {h.key: h for h in REGISTRY}

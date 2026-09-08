@@ -66,11 +66,15 @@ class CsProject(db.Model):
     name = db.Column(db.String(300), nullable=False)
     creative_type = db.Column(db.String(60), nullable=False, index=True)
 
-    # Free text today; becomes a foreign key into cs_templates once WO-CS2
-    # ships the template database. Kept as a string column now so a project
-    # created in this change is not silently orphaned by that migration --
-    # the id simply starts resolving to a real row.
+    # cs_templates.id -- a string slug rather than a numeric FK, so a
+    # template can be named in code and in a fixture without a lookup. Not
+    # declared as a real ForeignKey: a project must survive its template
+    # being archived (or, on a fresh install, not yet seeded), and a strict
+    # FK would refuse either.
     template_id = db.Column(db.String(80), default="")
+    # Pinned at creation from the template's own `version` -- WO-CS2's rule
+    # that a project is built from the template as it stood, not as it now
+    # reads after somebody edits it in Template Admin.
     template_version = db.Column(db.Integer)
 
     duration = db.Column(db.Integer)          # seconds
@@ -79,6 +83,12 @@ class CsProject(db.Model):
     status = db.Column(db.String(30), default="Draft", index=True)
 
     brief_json = db.Column(db.Text)
+    # A rep's per-project variable overrides -- "manual" in the resolver's
+    # priority order (manual -> brief -> Brand Kit -> template default ->
+    # unresolved), keyed by variable name. Despite the column name this is
+    # never a cached final answer: resolution is computed live on every read,
+    # because the Brand Kit and the brief can both change after a project is
+    # created and a stale snapshot would silently stop reflecting either.
     resolved_vars_json = db.Column(db.Text)
 
     # Set once this project's video is actually built through the Commercial
@@ -107,7 +117,7 @@ class CsProject(db.Model):
             "template_version": self.template_version,
             "duration": self.duration, "aspect_ratio": self.aspect_ratio or "",
             "status": self.status, "brief": self.brief,
-            "resolved_vars": self.resolved_vars,
+            "variable_overrides": self.resolved_vars,
             "cb_project_id": self.cb_project_id,
             "created_by": self.created_by or "",
             "created_at": self.created_at.isoformat() if self.created_at else "",
@@ -146,6 +156,140 @@ class CsProjectVersion(db.Model):
             "created_at": self.created_at.isoformat() if self.created_at else "",
             "notes": self.notes or "",
         }
+
+
+class CsTemplate(db.Model):
+    """A template is a JSON document the gallery, the editor and (from
+    WO-CS5) the renderer all read -- CLAUDE.md's "templates as data" section.
+    The row here is that document's header; its scenes and variables are
+    the two tables below, kept apart so an admin can add or reorder a scene
+    without rewriting a blob that also holds the variable list.
+
+    `id` is a string slug (`"hvac-30-general"`) rather than a numeric id on
+    purpose: it is what `cs_projects.template_id` stores, what the seed
+    fixtures name themselves, and what an admin reads back off the URL --
+    a numeric id would need a second, meaningless label wherever a human
+    reads one.
+    """
+
+    __tablename__ = "cs_templates"
+
+    id = db.Column(db.String(80), primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, default="")
+    thumbnail_url = db.Column(db.String(1000), default="")
+
+    # A broad grouping (commercial/social/brand/...) -- distinct from
+    # `industry`, which narrows within it (hvac/restaurant/...). Gallery
+    # filters read the DISTINCT values of both rather than a fixed list, so
+    # adding an industry is a fixture, never a template edit -- CLAUDE.md's
+    # rule for every filter in this Hub.
+    category = db.Column(db.String(60), default="", index=True)
+    industry = db.Column(db.String(60), default="general", index=True)
+    duration = db.Column(db.Integer, default=30)
+    aspect_ratio = db.Column(db.String(20), default="16:9", index=True)
+    creative_type = db.Column(db.String(60), default="", index=True)
+
+    tags_json = db.Column(db.Text)
+
+    # draft -> published -> archived. A project may be created from a draft
+    # (Template Admin's own preview does this constantly) but the public
+    # gallery shows published only -- draft creative in front of a rep
+    # picking a template for a client reads as this Hub's own work being
+    # unfinished.
+    status = db.Column(db.String(20), default="draft", index=True)
+
+    # Bumped on every publish, never on a draft save -- a project pins the
+    # version it was built from (`cs_projects.template_version`), so a
+    # template edited after a dozen projects already exist must not silently
+    # change what those dozen say they were built from.
+    version = db.Column(db.Integer, default=1)
+
+    created_by = db.Column(db.String(120), default="")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    tags = JSONField("tags_json")
+
+    scenes = db.relationship("CsTemplateScene", backref="template",
+                             lazy="dynamic", cascade="all, delete-orphan",
+                             order_by="CsTemplateScene.position")
+    variables = db.relationship("CsTemplateVariable", backref="template",
+                                lazy="dynamic", cascade="all, delete-orphan",
+                                order_by="CsTemplateVariable.name")
+
+    def as_dict(self, *, with_children: bool = True) -> dict:
+        out = {
+            "id": self.id, "name": self.name, "description": self.description or "",
+            "thumbnail_url": self.thumbnail_url or "",
+            "category": self.category or "", "industry": self.industry or "general",
+            "duration": self.duration, "aspect_ratio": self.aspect_ratio or "",
+            "creative_type": self.creative_type or "", "tags": self.tags or [],
+            "status": self.status, "version": self.version,
+            "created_by": self.created_by or "",
+            "created_at": self.created_at.isoformat() if self.created_at else "",
+            "updated_at": self.updated_at.isoformat() if self.updated_at else "",
+        }
+        if with_children:
+            out["scenes"] = [s.as_dict() for s in self.scenes]
+            out["variables"] = [v.as_dict() for v in self.variables]
+        return out
+
+
+class CsTemplateScene(db.Model):
+    """One scene in a template's sequence -- a duration, a layout key (one
+    of `modules.creative_studio.layouts.LAYOUTS`) and the layer content that
+    layout accepts, e.g. `{"headline": "{{headline}}", "background":
+    "slot:video"}`. `creatomate_fragment_json` is reserved and unused until
+    WO-CS5 builds real Creatomate source from these rows -- writing the
+    column now means a template edited today does not need a schema change
+    the day rendering lands."""
+
+    __tablename__ = "cs_template_scenes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    template_id = db.Column(db.String(80), db.ForeignKey("cs_templates.id"),
+                            nullable=False, index=True)
+    position = db.Column(db.Integer, nullable=False, default=1)
+    default_duration = db.Column(db.Float, default=5.0)
+    layout_key = db.Column(db.String(40), nullable=False)
+    layers_json = db.Column(db.Text)
+    creatomate_fragment_json = db.Column(db.Text)
+
+    layers = JSONField("layers_json")
+    creatomate_fragment = JSONField("creatomate_fragment_json")
+
+    def as_dict(self) -> dict:
+        return {"id": self.id, "template_id": self.template_id,
+                "position": self.position, "default_duration": self.default_duration,
+                "layout_key": self.layout_key, "layers": self.layers}
+
+
+class CsTemplateVariable(db.Model):
+    """One variable a template's scenes reference as `{{name}}`.
+
+    `source` is the variable's *declared* origin -- brand, brief, weather or
+    manual -- read by the (future) brief-builder screen to decide which
+    questions to ask; it does not restrict what `resolver.resolve()` tries,
+    because a value from anywhere is still a value. `default` and `required`
+    are what makes an unresolved required variable a visible finding on a
+    project rather than a silently blank scene.
+    """
+
+    __tablename__ = "cs_template_variables"
+
+    id = db.Column(db.Integer, primary_key=True)
+    template_id = db.Column(db.String(80), db.ForeignKey("cs_templates.id"),
+                            nullable=False, index=True)
+    name = db.Column(db.String(80), nullable=False)
+    source = db.Column(db.String(20), default="brief")   # brand|brief|weather|manual
+    default = db.Column(db.String(500), default="")
+    required = db.Column(db.Boolean, default=False)
+
+    def as_dict(self) -> dict:
+        return {"id": self.id, "template_id": self.template_id, "name": self.name,
+                "source": self.source or "brief", "default": self.default or "",
+                "required": bool(self.required)}
 
 
 class CsMediaAsset(db.Model):

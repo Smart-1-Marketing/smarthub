@@ -7,11 +7,14 @@ same login -- real content lands in WO-CS2 through WO-CS6.
 """
 from __future__ import annotations
 
+import re
+
 from flask import Blueprint, jsonify, render_template, request
 
-from . import brand_ext, config, jobs
+from . import brand_ext, config, jobs, layouts, resolver
 from .db import db
-from .models import CreativeJob, CsMediaAsset, CsProject, CsProjectVersion
+from .models import (CreativeJob, CsMediaAsset, CsProject, CsProjectVersion,
+                     CsTemplate, CsTemplateScene, CsTemplateVariable)
 
 bp = Blueprint("creative_studio", __name__, url_prefix="/creative-studio",
               template_folder="templates")
@@ -102,6 +105,20 @@ def api_create_project():                                  # noqa: ANN202
 
     if not name:
         return jsonify({"ok": False, "error": "Name the project."}), 400
+
+    # A template, if one was picked, is the source of truth for what this
+    # project defaults to -- CLAUDE.md's "projects pin the version they were
+    # created from" rule. template_version is set here and never moves,
+    # even if the template is edited and republished afterward.
+    template_id = str(data.get("template_id") or "")
+    tmpl = None
+    if template_id:
+        tmpl = CsTemplate.query.get(template_id)
+        if tmpl is None:
+            return jsonify({"ok": False, "error": "That is not a template "
+                            "this Hub has."}), 400
+        ctype = ctype or tmpl.creative_type
+
     if not config.creative_type(ctype):
         return jsonify({"ok": False, "error": "Unknown creative type."}), 400
 
@@ -120,11 +137,12 @@ def api_create_project():                                  # noqa: ANN202
                             "asset, or pick one from the list."}), 400
         client = hit.get("name") or client
 
-    project = CsProject(client_name=client, name=name[:300], creative_type=ctype,
-                        template_id=str(data.get("template_id") or ""),
-                        duration=data.get("duration"),
-                        aspect_ratio=str(data.get("aspect_ratio") or "16:9"),
-                        status="Draft", created_by=_actor())
+    project = CsProject(
+        client_name=client, name=name[:300], creative_type=ctype,
+        template_id=template_id, template_version=(tmpl.version if tmpl else None),
+        duration=data.get("duration") or (tmpl.duration if tmpl else None),
+        aspect_ratio=str(data.get("aspect_ratio") or (tmpl.aspect_ratio if tmpl else "16:9")),
+        status="Draft", created_by=_actor())
     project.brief = data.get("brief") or {}
     db.session.add(project)
     db.session.commit()
@@ -132,7 +150,8 @@ def api_create_project():                                  # noqa: ANN202
     try:
         from hub import audit
         audit.log("creative_studio", "project_created", actor=_actor(),
-                  client=client or None, project=name, creative_type=ctype)
+                  client=client or None, project=name, creative_type=ctype,
+                  template=template_id or None)
     except Exception:                                     # noqa: BLE001
         pass
 
@@ -143,10 +162,27 @@ def api_create_project():                                  # noqa: ANN202
 def project_detail(project_id):                            # noqa: ANN202
     project = CsProject.query.get_or_404(project_id)
     versions = project.versions.order_by(CsProjectVersion.version.desc()).all()
+
+    resolved, unresolved = {}, []
+    tmpl = CsTemplate.query.get(project.template_id) if project.template_id else None
+    if tmpl is not None:
+        domain = ""
+        if project.client_name:
+            try:
+                from hub.clients_registry import find_client
+                hit = find_client(project.client_name)
+                domain = (hit or {}).get("domain", "")
+            except Exception:                             # noqa: BLE001
+                domain = ""
+        resolved = resolver.resolve(tmpl, project, client=project.client_name, domain=domain)
+        unresolved = resolver.unresolved_required(resolved)
+
     return render_template("cs_project_detail.html", title=project.name,
                            project=project.as_dict(),
                            versions=[v.as_dict() for v in versions],
-                           statuses=config.PROJECT_STATUSES)
+                           statuses=config.PROJECT_STATUSES,
+                           template=tmpl.as_dict(with_children=False) if tmpl else None,
+                           resolved=resolved, unresolved=unresolved)
 
 
 # --------------------------------------------------------------- brand kit
@@ -317,13 +353,345 @@ def api_job_status(job_id):                                  # noqa: ANN202
 
 @bp.get("/templates")
 def templates_page():                                        # noqa: ANN202
-    return render_template("cs_coming_soon.html", title="Templates",
-                           heading="Templates",
-                           body="The template gallery ships in WO-CS2. It "
-                                "will read from cs_templates the same way "
-                                "this dashboard's creative-type cards read "
-                                "from a config list -- adding a template "
-                                "will be a data row, not a code change.")
+    rows = CsTemplate.query.filter_by(status="published").order_by(
+        CsTemplate.category, CsTemplate.industry, CsTemplate.duration).all()
+
+    ctype = (request.args.get("type") or "").strip()
+    industry = (request.args.get("industry") or "").strip()
+    duration = (request.args.get("duration") or "").strip()
+    aspect = (request.args.get("aspect") or "").strip()
+    client = (request.args.get("client") or "").strip()
+
+    filtered = rows
+    if ctype:
+        filtered = [t for t in filtered if t.creative_type == ctype]
+    if industry:
+        filtered = [t for t in filtered if t.industry == industry]
+    if duration:
+        try:
+            filtered = [t for t in filtered if t.duration == int(duration)]
+        except ValueError:
+            pass
+    if aspect:
+        filtered = [t for t in filtered if t.aspect_ratio == aspect]
+
+    # Filter option values come from what is actually published, never a
+    # constant list -- CLAUDE.md's rule for every gallery filter in this Hub:
+    # adding a template with a new industry must not need a second edit here.
+    all_types = sorted({t.creative_type for t in rows if t.creative_type})
+    all_industries = sorted({t.industry for t in rows if t.industry})
+    all_durations = sorted({t.duration for t in rows if t.duration})
+    all_aspects = sorted({t.aspect_ratio for t in rows if t.aspect_ratio})
+
+    return render_template(
+        "cs_templates_gallery.html", title="Templates",
+        templates=[t.as_dict(with_children=False) for t in filtered],
+        all_types=all_types, all_industries=all_industries,
+        all_durations=all_durations, all_aspects=all_aspects,
+        selected={"type": ctype, "industry": industry, "duration": duration,
+                 "aspect": aspect}, client=client,
+        creative_type_labels={t["key"]: t["label"] for t in config.CREATIVE_TYPES},
+        industry_labels=config.INDUSTRY_LABELS)
+
+
+@bp.get("/templates/<path:template_id>")
+def template_preview(template_id):                            # noqa: ANN202
+    tmpl = CsTemplate.query.get_or_404(template_id)
+    client = (request.args.get("client") or "").strip()
+    domain = ""
+    if client:
+        try:
+            from hub.clients_registry import find_client
+            hit = find_client(client)
+            domain = (hit or {}).get("domain", "")
+        except Exception:                                    # noqa: BLE001
+            domain = ""
+    resolved = resolver.resolve(tmpl, None, client=client, domain=domain)
+    return render_template(
+        "cs_template_preview.html", title=tmpl.name, template=tmpl.as_dict(),
+        layouts=layouts.LAYOUTS, resolved=resolved, client=client,
+        creative_types=config.CREATIVE_TYPES,
+        industry_labels=config.INDUSTRY_LABELS)
+
+
+@bp.get("/templates/admin")
+def templates_admin():                                        # noqa: ANN202
+    if not _is_admin():
+        return _admin_refused()
+    rows = CsTemplate.query.order_by(CsTemplate.updated_at.desc()).all()
+    return render_template("cs_templates_admin.html", title="Template Admin",
+                           templates=[t.as_dict(with_children=False) for t in rows])
+
+
+@bp.get("/templates/admin/<path:template_id>")
+def template_edit(template_id):                               # noqa: ANN202
+    if not _is_admin():
+        return _admin_refused()
+    if template_id == "new":
+        tmpl_dict = {"id": "", "name": "", "description": "", "category": "",
+                    "industry": "general", "duration": 30, "aspect_ratio": "16:9",
+                    "creative_type": "", "tags": [], "status": "draft",
+                    "version": 0, "scenes": [], "variables": []}
+    else:
+        tmpl = CsTemplate.query.get_or_404(template_id)
+        tmpl_dict = tmpl.as_dict()
+    return render_template("cs_template_edit.html", title="Edit template",
+                           template=tmpl_dict, layouts=layouts.LAYOUTS,
+                           layer_keys=layouts.LAYER_KEYS,
+                           animations=layouts.ANIMATIONS,
+                           transitions=layouts.TRANSITIONS,
+                           aspect_ratios=layouts.ASPECT_RATIOS,
+                           creative_types=config.CREATIVE_TYPES)
+
+
+def _is_admin() -> bool:
+    """Template creation is admin-only in Phase 1 (build spec §14).
+
+    Mirrors the reading hub/access.py documents for the Utilities gate,
+    without reusing its private closure (`viewer_is_admin` is nested inside
+    `create_hub_app()` and not importable): an account's own role decides,
+    and a shared-password session counts as Admin because it is the
+    emergency door -- the same reasoning, restated here rather than copied
+    from a function this module cannot reach.
+    """
+    try:
+        from hub.users_routes import current_account
+        account = current_account()
+    except Exception:                                        # noqa: BLE001
+        return True   # standalone / users module unavailable: nothing to gate
+    if account is None:
+        return True   # PANEL_PASSWORD session -- the emergency door
+    return bool(account.is_admin)
+
+
+def _admin_refused():
+    if request.path.startswith("/creative-studio/api/") or \
+            "application/json" in (request.headers.get("Accept") or ""):
+        return jsonify({"ok": False, "error": "Template Admin is for admin "
+                        "accounts."}), 403
+    return render_template("cs_coming_soon.html", title="Template Admin",
+                           heading="Template Admin",
+                           body="Template Admin is for admin accounts. Ask "
+                                "an admin to create or edit a template."), 403
+
+
+@bp.get("/api/templates/layouts")
+def api_layouts():                                             # noqa: ANN202
+    return jsonify({"ok": True, "layouts": layouts.LAYOUTS,
+                    "layer_keys": layouts.LAYER_KEYS,
+                    "animations": layouts.ANIMATIONS,
+                    "transitions": layouts.TRANSITIONS,
+                    "aspect_ratios": layouts.ASPECT_RATIOS})
+
+
+@bp.post("/api/templates")
+def api_create_template():                                     # noqa: ANN202
+    if not _is_admin():
+        return _admin_refused()
+    data = request.get_json(silent=True) or {}
+    tid = (data.get("id") or "").strip()
+    name = (data.get("name") or "").strip()
+    if not tid or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,78}", tid):
+        return jsonify({"ok": False, "error": "Give the template a slug id "
+                        "(lowercase letters, digits and hyphens)."}), 400
+    if not name:
+        return jsonify({"ok": False, "error": "Name the template."}), 400
+    if CsTemplate.query.get(tid) is not None:
+        return jsonify({"ok": False, "error": f"'{tid}' already exists."}), 400
+    if data.get("creative_type") and not config.creative_type(data["creative_type"]):
+        return jsonify({"ok": False, "error": "Unknown creative type."}), 400
+
+    tmpl = CsTemplate(id=tid, name=name[:200],
+                      description=(data.get("description") or "")[:2000],
+                      category=(data.get("category") or "")[:60],
+                      industry=(data.get("industry") or "general")[:60],
+                      duration=int(data.get("duration") or 30),
+                      aspect_ratio=(data.get("aspect_ratio") or "16:9"),
+                      creative_type=(data.get("creative_type") or ""),
+                      status="draft", version=1, created_by=_actor())
+    tmpl.tags = data.get("tags") or []
+    db.session.add(tmpl)
+    db.session.commit()
+    return jsonify({"ok": True, "template": tmpl.as_dict()})
+
+
+@bp.post("/api/templates/<path:template_id>")
+def api_update_template(template_id):                          # noqa: ANN202
+    if not _is_admin():
+        return _admin_refused()
+    tmpl = CsTemplate.query.get_or_404(template_id)
+    data = request.get_json(silent=True) or {}
+    for field in ("name", "description", "category", "industry", "aspect_ratio",
+                 "creative_type"):
+        if field in data:
+            setattr(tmpl, field, str(data[field] or "")[:2000])
+    if "duration" in data:
+        try:
+            tmpl.duration = int(data["duration"])
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Duration must be a "
+                            "number of seconds."}), 400
+    if "tags" in data:
+        tmpl.tags = data.get("tags") or []
+    if data.get("creative_type") and not config.creative_type(data["creative_type"]):
+        return jsonify({"ok": False, "error": "Unknown creative type."}), 400
+    db.session.commit()
+    return jsonify({"ok": True, "template": tmpl.as_dict()})
+
+
+@bp.post("/api/templates/<path:template_id>/duplicate")
+def api_duplicate_template(template_id):                       # noqa: ANN202
+    if not _is_admin():
+        return _admin_refused()
+    src = CsTemplate.query.get_or_404(template_id)
+    data = request.get_json(silent=True) or {}
+    new_id = (data.get("id") or "").strip()
+    if not new_id or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,78}", new_id):
+        return jsonify({"ok": False, "error": "Give the copy a slug id "
+                        "(lowercase letters, digits and hyphens)."}), 400
+    if CsTemplate.query.get(new_id) is not None:
+        return jsonify({"ok": False, "error": f"'{new_id}' already exists."}), 400
+
+    copy = CsTemplate(id=new_id, name=f"{src.name} (copy)",
+                      description=src.description, category=src.category,
+                      industry=src.industry, duration=src.duration,
+                      aspect_ratio=src.aspect_ratio, creative_type=src.creative_type,
+                      status="draft", version=1, created_by=_actor())
+    copy.tags = src.tags
+    db.session.add(copy)
+    for scene in src.scenes:
+        row = CsTemplateScene(template_id=new_id, position=scene.position,
+                              default_duration=scene.default_duration,
+                              layout_key=scene.layout_key)
+        row.layers = scene.layers
+        db.session.add(row)
+    for var in src.variables:
+        db.session.add(CsTemplateVariable(template_id=new_id, name=var.name,
+                                          source=var.source, default=var.default,
+                                          required=var.required))
+    db.session.commit()
+    return jsonify({"ok": True, "template": copy.as_dict()})
+
+
+@bp.post("/api/templates/<path:template_id>/publish")
+def api_publish_template(template_id):                         # noqa: ANN202
+    if not _is_admin():
+        return _admin_refused()
+    tmpl = CsTemplate.query.get_or_404(template_id)
+    if not tmpl.scenes.count():
+        return jsonify({"ok": False, "error": "A template with no scenes "
+                        "cannot be published."}), 400
+    tmpl.status = "published"
+    tmpl.version = (tmpl.version or 0) + 1
+    db.session.commit()
+    try:
+        from hub import audit
+        audit.log("creative_studio", "template_published", actor=_actor(),
+                  template=tmpl.id, version=tmpl.version)
+    except Exception:                                          # noqa: BLE001
+        pass
+    return jsonify({"ok": True, "template": tmpl.as_dict()})
+
+
+@bp.post("/api/templates/<path:template_id>/disable")
+def api_disable_template(template_id):                         # noqa: ANN202
+    if not _is_admin():
+        return _admin_refused()
+    tmpl = CsTemplate.query.get_or_404(template_id)
+    tmpl.status = "archived"
+    db.session.commit()
+    return jsonify({"ok": True, "template": tmpl.as_dict()})
+
+
+@bp.post("/api/templates/<path:template_id>/scenes")
+def api_add_scene(template_id):                                # noqa: ANN202
+    if not _is_admin():
+        return _admin_refused()
+    tmpl = CsTemplate.query.get_or_404(template_id)
+    data = request.get_json(silent=True) or {}
+    layout_key = data.get("layout_key") or ""
+    if not layouts.layout(layout_key):
+        return jsonify({"ok": False, "error": f"'{layout_key}' is not a "
+                        "layout this Hub has."}), 400
+    layer_data = data.get("layers") or {}
+    bad = layouts.validate_layers(layout_key, layer_data)
+    if bad:
+        return jsonify({"ok": False, "error": f"{layouts.layout(layout_key)['label']} "
+                        f"does not accept: {', '.join(bad)}."}), 400
+    position = (data.get("position") or (tmpl.scenes.count() + 1))
+    row = CsTemplateScene(template_id=tmpl.id, position=int(position),
+                          default_duration=float(data.get("default_duration") or 5),
+                          layout_key=layout_key)
+    row.layers = layer_data
+    db.session.add(row)
+    db.session.commit()
+    return jsonify({"ok": True, "scene": row.as_dict()})
+
+
+@bp.post("/api/templates/<path:template_id>/scenes/<int:scene_id>")
+def api_update_scene(template_id, scene_id):                   # noqa: ANN202
+    if not _is_admin():
+        return _admin_refused()
+    scene = CsTemplateScene.query.filter_by(id=scene_id, template_id=template_id).first_or_404()
+    data = request.get_json(silent=True) or {}
+    layout_key = data.get("layout_key", scene.layout_key)
+    if not layouts.layout(layout_key):
+        return jsonify({"ok": False, "error": f"'{layout_key}' is not a "
+                        "layout this Hub has."}), 400
+    layer_data = data.get("layers", scene.layers)
+    bad = layouts.validate_layers(layout_key, layer_data)
+    if bad:
+        return jsonify({"ok": False, "error": f"{layouts.layout(layout_key)['label']} "
+                        f"does not accept: {', '.join(bad)}."}), 400
+    scene.layout_key = layout_key
+    scene.layers = layer_data
+    if "position" in data:
+        scene.position = int(data["position"])
+    if "default_duration" in data:
+        scene.default_duration = float(data["default_duration"])
+    db.session.commit()
+    return jsonify({"ok": True, "scene": scene.as_dict()})
+
+
+@bp.post("/api/templates/<path:template_id>/scenes/<int:scene_id>/delete")
+def api_delete_scene(template_id, scene_id):                   # noqa: ANN202
+    if not _is_admin():
+        return _admin_refused()
+    scene = CsTemplateScene.query.filter_by(id=scene_id, template_id=template_id).first_or_404()
+    db.session.delete(scene)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@bp.post("/api/templates/<path:template_id>/variables")
+def api_add_variable(template_id):                              # noqa: ANN202
+    if not _is_admin():
+        return _admin_refused()
+    tmpl = CsTemplate.query.get_or_404(template_id)
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name or not re.fullmatch(r"[a-z][a-z0-9_]*", name):
+        return jsonify({"ok": False, "error": "Give the variable a name "
+                        "(lowercase letters, digits and underscores)."}), 400
+    source = data.get("source") or "brief"
+    if source not in ("brand", "brief", "weather", "manual"):
+        return jsonify({"ok": False, "error": "Unknown variable source."}), 400
+    row = CsTemplateVariable(template_id=tmpl.id, name=name, source=source,
+                             default=(data.get("default") or "")[:500],
+                             required=bool(data.get("required")))
+    db.session.add(row)
+    db.session.commit()
+    return jsonify({"ok": True, "variable": row.as_dict()})
+
+
+@bp.post("/api/templates/<path:template_id>/variables/<int:variable_id>/delete")
+def api_delete_variable(template_id, variable_id):              # noqa: ANN202
+    if not _is_admin():
+        return _admin_refused()
+    var = CsTemplateVariable.query.filter_by(id=variable_id, template_id=template_id).first_or_404()
+    db.session.delete(var)
+    db.session.commit()
+    return jsonify({"ok": True})
 
 
 @bp.get("/ai-tools")
