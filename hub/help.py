@@ -467,6 +467,22 @@ REGISTRY: list[Help] = [
        "then the product number where Knack carried one. The Drive folder is "
        "never written to — no move, no rename, no trash — so the media team "
        "keeps working exactly where they are working today."),
+    _h("hub.ad_assets.client", "Pick the client, do not type them",
+       "This box used to ask for the client name exactly as Smart 1 Team has "
+       "it, and a name one character out matched nothing \u2014 answered as a "
+       "client with no Drive creative, which is a confident wrong answer "
+       "about a client with a year of it in Drive. It searches the real "
+       "client book now, and picking somebody looks their product records up "
+       "the other way round: how many product lines and insertion orders "
+       "Smart 1 Team holds for them, how many Drive links sit on those, and "
+       "how much is already in their library \u2014 all before a byte is read "
+       "from Drive. Both of Knack\u2019s name fields are read, so a product "
+       "line filed under the organization rather than the client is found. "
+       "Nothing is matched loosely: \u201cRiverside HVAC\u201d will not "
+       "collect \u201cRiverside HVAC Supply\u201d, because copying one "
+       "company\u2019s creative into another company\u2019s library is "
+       "billed and cannot be undone from the gallery. A near name is offered "
+       "as a \u201cdid you mean\u201d and never filled in for you."),
     _h("hub.ad_assets.access", "Why it may say Drive is refused",
        "The Hub's connected Google logins were consented before Drive was "
        "asked for, and Google never widens a token that already exists: the "

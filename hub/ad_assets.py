@@ -45,6 +45,22 @@ the filename ("final.jpg" is every client's whole Drive), and not the
 Cloudinary public id (which is derived, so it changes when the folder shape
 does). A second run over the same client is a no-op that says so.
 
+**A client is selected, never typed from memory.** The box on this page
+asked for the client name *exactly as Smart 1 Team has it*, and a name one
+character out matched nothing and was answered with "no Google Drive creative
+links on this client" -- a clean nothing about a client with a year of
+creative in Drive, which is the confident wrong answer this whole module
+exists downstream of. It is a searchable list of the real client book now, and
+selecting one runs `lookup()`: the reverse lookup against the product records,
+saying what Knack actually holds -- the IOs, the product lines, the Drive links
+and how much is already filed -- before a byte is read. Matching is on the
+client field **and** the organisation field, which is the rule
+`knack_products.for_client()` already applies, and it is exact or nothing:
+"Riverside HVAC" must not collect "Riverside HVAC Supply", because copying one
+company's creative into another company's library is billed and is not
+undoable from the gallery. A near name is listed as a *did you mean* and never
+acted on.
+
 **Knack is not written to by a migration.** Rewriting the External Creative
 Link fields to point at the library is the right end state and it is a write
 to the system of record, so it is proposed here and applied separately, from
@@ -151,18 +167,119 @@ def _norm(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
 
 
-def candidates(client: str = "", *, live_only: bool = False) -> dict:
+def _is_theirs(row: dict, want: set) -> bool:
+    """Does this product row belong to the client `want` describes?
+
+    Client *or* organisation, the rule `knack_products.for_client()` already
+    applies: Knack holds both and a product is filed under whichever the
+    salesperson used, so reading one field answered "this client has no
+    creative" about a client whose whole book is under the other.
+
+    One reading, because `candidates()` and `lookup()` both ask it and two
+    copies of a match rule is how the count on the page and the files the run
+    copies come to disagree about which rows are the client's.
+    """
+    if not want:
+        return True
+    return bool({_norm(row.get("client")), _norm(row.get("organization"))} & want)
+
+
+def _variants(client: str) -> dict:
+    """Every spelling that means one client, resolved once.
+
+    The box on this page used to ask for the name *exactly as Smart 1 Team
+    has it*, which is the whole difficulty wearing a placeholder. The name a
+    rep knows is the one on Client 360; Knack files a product under either
+    its client field or its organisation field, and a line written up by a
+    different salesperson carries a third spelling again. A name one
+    character out matched nothing and was answered with "no Google Drive
+    creative links on this client" -- a clean nothing, which is the answer
+    this module exists not to give.
+
+    Three rules, each a way that goes quietly wrong.
+
+    **Exact or nothing.** The registry lookup is `client_key.resolve()` with
+    no fuzzy pass, so "Riverside HVAC" cannot collect "Riverside HVAC
+    Supply": copying one company's creative into another company's library
+    is the worst outcome available here, it is billed, and it is not
+    undoable from the gallery. A near name is *named* by `lookup()` and
+    never acted on.
+
+    **The name given is always kept.** A client the registry has never heard
+    of -- one written up on their first insertion order -- still has product
+    records in Knack, and a lookup that consulted only the registry would
+    refuse exactly the client whose creative has never been filed anywhere.
+
+    **The registry's spelling is what it files under**, so two spellings of
+    one company cannot become two galleries. What makes that safe rather
+    than a re-copy is that `filed_keys()` reads *every* variant's gallery: a
+    client filed last month under the product record's own wording is
+    already filed as far as this run is concerned.
+    """
+    given = str(client or "").strip()
+    if not given:
+        return {"given": "", "file_as": "", "names": [], "norms": set(),
+                "resolved": {}, "registry_error": ""}
+
+    resolved, registry_error = {}, ""
+    try:
+        from hub import client_key
+        resolved = client_key.resolve(given)
+    except Exception as exc:                            # noqa: BLE001
+        # "We could not read the client book" is not "nobody is called that".
+        # The run still goes ahead under the name it was given -- refusing
+        # over a registry outage would take the tool down for a lookup it
+        # only uses to improve a spelling.
+        registry_error = f"{type(exc).__name__}: {exc}"[:200]
+        logger.warning("ad_assets: the client registry could not be read: %s", exc)
+
+    canonical = (str(resolved.get("client") or "").strip()
+                 if resolved.get("known") else "")
+    norms = {n for n in (_norm(given), _norm(canonical)) if n}
+
+    names, seen = [], set()
+    for name in (canonical, given):     # the registry's spelling leads
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            names.append(name)
+    # Knack's own spellings. These add no new normalised form -- a value is
+    # only collected where it already matches one -- so this widens what is
+    # *read* and never what is *matched*, which is the whole of the exact-or-
+    # nothing rule above.
+    try:
+        for row in knack_products.rows().get("rows") or []:
+            for field in ("client", "organization"):
+                value = str(row.get(field) or "").strip()
+                if value and _norm(value) in norms and value.lower() not in seen:
+                    seen.add(value.lower())
+                    names.append(value)
+    except Exception:                                   # noqa: BLE001
+        pass
+
+    return {"given": given, "file_as": names[0] if names else given,
+            "names": names, "norms": norms, "resolved": resolved,
+            "registry_error": registry_error}
+
+
+def candidates(client: str = "", *, live_only: bool = False,
+               norms: set | None = None) -> dict:
     """Every product line carrying a Drive creative link.
 
     One entry per (product record, link): a product with a proof and two
     revisions is three rows here, because each is a folder somebody has to be
     able to open and each migrates or fails on its own.
+
+    `norms` is the resolved spelling set from `_variants()`. Passed, it is
+    what decides the match; a caller that hands over only a name gets that
+    name's own normalised form, which is what this did before there was a
+    picker in front of it.
     """
     got = knack_products.rows()
-    want = _norm(client)
+    want = set(norms) if norms is not None else ({_norm(client)} if client else set())
+    want.discard("")
     out, skipped_not_drive = [], 0
     for row in got.get("rows") or []:
-        if want and _norm(row.get("client")) != want:
+        if not _is_theirs(row, want):
             continue
         if live_only and str(row.get("status") or "").lower() != "live":
             continue
@@ -173,7 +290,7 @@ def candidates(client: str = "", *, live_only: bool = False) -> dict:
                 skipped_not_drive += 1
                 continue
             out.append({
-                "client": row.get("client") or "",
+                "client": row.get("client") or row.get("organization") or "",
                 "io": str(row.get("io") or ""),
                 "product": row.get("product") or "",
                 "product_num": str(row.get("product_num") or ""),
@@ -187,15 +304,144 @@ def candidates(client: str = "", *, live_only: bool = False) -> dict:
             "non_drive_links": skipped_not_drive}
 
 
+def lookup(client: str) -> dict:
+    """What Smart 1 Team holds for one client, before a byte is copied.
+
+    The reverse lookup the picker runs on selection: name a client and this
+    answers with the product records filed under them, the IOs those sit on,
+    the Drive links on them and how much of it is already in the library --
+    all of it off the cached product rows, with no Drive call and no write.
+
+    Four answers, kept apart because they send somebody to four different
+    places, and all four used to render as the same empty run:
+
+    * **Links to pull in.** The ordinary case.
+    * **Products, and no Drive link on any of them.** Their creative is
+      somewhere else, or the links are click-thrus rather than artwork --
+      `non_drive_links` says which.
+    * **A client we know, with no product records under that name.** A house
+      client, or one whose campaign has not been written up yet.
+    * **Nothing filed under this name at all**, with the near names *listed*
+      rather than one of them chosen. `resolve()` is asked for its fuzzy pass
+      only here, only to say "did you mean", and what it returns is printed
+      and never acted on -- the rule `hub/client_urls.py` and the Google
+      orphan list both work to.
+
+    And a fifth state that is not one of the four: **the product records
+    could not be read at all**. `knack_products.rows()` never raises -- it
+    falls back to a stale cache, then to the private export, then to nothing
+    -- and that last answer is indistinguishable from a client with no
+    campaigns. `measured` is False there and the note says so, because "we
+    could not look" rendered as "nothing is filed under this name" is the
+    confident wrong answer this whole module exists downstream of.
+    """
+    variants = _variants(client)
+    if not variants["given"]:
+        return {"ok": False, "error": "Which client?"}
+
+    got = knack_products.rows()
+    want = variants["norms"]
+    records, ios, spellings, live = set(), set(), [], 0
+    for row in got.get("rows") or []:
+        if not _is_theirs(row, want):
+            continue
+        records.add(str(row.get("record_id") or row.get("id") or ""))
+        if str(row.get("io") or ""):
+            ios.add(str(row.get("io")))
+        if str(row.get("status") or "").lower() == "live":
+            live += 1
+        for field in ("client", "organization"):
+            value = str(row.get(field) or "").strip()
+            if value and value not in spellings:
+                spellings.append(value)
+
+    found = candidates(variants["file_as"], norms=want)
+    links = found["links"]
+
+    filed = 0
+    try:
+        filed = len(filed_keys(variants["file_as"], names=variants["names"]))
+    except Exception:                                   # noqa: BLE001
+        filed = 0
+
+    resolved = variants["resolved"] or {}
+    measured = str(got.get("source") or "none") != "none"
+    out = {
+        "ok": True,
+        "measured": measured,
+        "query": variants["given"],
+        "client": variants["file_as"],
+        "names": variants["names"],
+        "spellings": spellings,
+        "known": bool(resolved.get("known")),
+        "matched_on": resolved.get("matched_on", ""),
+        "confidence": resolved.get("confidence", ""),
+        "why": resolved.get("why", ""),
+        "registry_error": variants["registry_error"],
+        "products": len(records),
+        "live_products": live,
+        "ios": sorted(ios),
+        "links": links,
+        "link_count": len(links),
+        "non_drive_links": found["non_drive_links"],
+        "already_filed": filed,
+        "source": got.get("source"),
+        "age_minutes": got.get("age_minutes"),
+        "near": [],
+    }
+
+    name = variants["file_as"]
+    if not measured:
+        out["note"] = (
+            "The product records in Smart 1 Team could not be read"
+            + (f" \u2014 {got.get('note')}" if got.get("note") else "")
+            + ". Nothing was looked up, so this is not a report that "
+              f"{name} has no creative.")
+        return out
+    if links:
+        out["note"] = (f"{len(links)} Google Drive link(s) on {len(records)} "
+                       f"product line(s) for {name}.")
+    elif records:
+        out["note"] = (f"Smart 1 Team has {len(records)} product line(s) for "
+                       f"{name}, and none of them carries a Google Drive "
+                       f"creative link.")
+    else:
+        if out["known"]:
+            out["note"] = (f"The client book knows {name}, and Smart 1 Team "
+                           f"has no product records filed under that name.")
+        else:
+            out["note"] = ("Nothing in Smart 1 Team is filed under "
+                           f"\u201c{variants['given']}\u201d.")
+            try:
+                from hub import client_key
+                near = client_key.resolve(variants["given"], allow_fuzzy=True)
+                out["near"] = ([near["client"]] if near.get("known")
+                               else list(near.get("candidates") or []))[:8]
+            except Exception:                           # noqa: BLE001
+                pass
+    if len(variants["names"]) > 1:
+        out["note"] += (" Looked under: "
+                        + ", ".join(variants["names"][:4]) + ".")
+    return out
+
+
 # ---------------------------------------------------------------------------
 # What is already filed
 # ---------------------------------------------------------------------------
 
-def filed_keys(client: str) -> dict:
+def filed_keys(client: str, *, names: list | None = None) -> dict:
     """`gdrive:<id>` -> the stored URL, for everything already in the library.
 
     Read once per run rather than per file: a client with 300 assets would
     otherwise be 300 queries to answer a question one query answers.
+
+    **Every spelling, not only the one this run files under.** The picker
+    resolves a selected client to the registry's name, and a client whose
+    creative was filed by an earlier run under the product record's own
+    wording sits in a gallery with a different slug. Read one of the two and
+    the dedupe key finds nothing, so the second run copies the whole folder
+    again -- which is not a duplicate row, it is a duplicate upload, billed,
+    into a second gallery nobody opens.
     """
     try:
         from modules.image_picker.filing import gallery_for_name
@@ -204,30 +450,43 @@ def filed_keys(client: str) -> dict:
     except Exception as exc:                            # noqa: BLE001
         logger.warning("ad_assets: the client library is not importable: %s", exc)
         return {}
+    wanted = [n for n in (names or [client]) if str(n or "").strip()]
+    out: dict[str, str] = {}
     try:
         db = session()
         try:
-            gallery = gallery_for_name(db, client)
-            if gallery is None:
-                return {}
-            rows = db.execute(
-                select(SavedImage).where(SavedImage.client_id == gallery.id)
-            ).scalars().all()
+            seen_galleries = set()
+            for name in wanted:
+                gallery = gallery_for_name(db, name)
+                if gallery is None or gallery.id in seen_galleries:
+                    continue
+                seen_galleries.add(gallery.id)
+                rows = db.execute(
+                    select(SavedImage).where(SavedImage.client_id == gallery.id)
+                ).scalars().all()
+                for row in rows:
+                    key = row.collection_key or ""
+                    if key.startswith("gdrive:"):
+                        out.setdefault(key, row.cloudinary_url or "")
         finally:
             db.close()
     except Exception as exc:                            # noqa: BLE001
         logger.warning("ad_assets: could not read %s's library: %s", client, exc)
         return {}
-    return {row.collection_key: (row.cloudinary_url or "")
-            for row in rows if (row.collection_key or "").startswith("gdrive:")}
+    return out
 
 
-def library_index(client: str) -> dict:
+def library_index(client: str, *, names: list | None = None) -> dict:
     """Original Drive URL -> the library copy, for one client.
 
     What Client 360 reads to show the copy instead of the Drive link. Keyed on
     the URL Knack holds rather than on the file id, because that is the string
     the record carries and the string the page has in hand.
+
+    Every spelling of the client, for `filed_keys()`'s reason read from the
+    other end: Client 360 asks under the name *it* holds, a run files under
+    the registry's, and a card that could not find the copy shows the Drive
+    link with nothing saying a copy exists.
     """
     try:
         from modules.image_picker.filing import gallery_for_name
@@ -235,24 +494,36 @@ def library_index(client: str) -> dict:
         from sqlalchemy import select
     except Exception:                                   # noqa: BLE001
         return {}
+    wanted = names
+    if wanted is None:
+        try:
+            wanted = _variants(client)["names"]
+        except Exception:                               # noqa: BLE001
+            wanted = [client]
+    wanted = [n for n in (wanted or [client]) if str(n or "").strip()]
+
+    found: list[tuple] = []
     try:
         db = session()
         try:
-            gallery = gallery_for_name(db, client)
-            if gallery is None:
-                return {}
-            rows = db.execute(
-                select(SavedImage).where(SavedImage.client_id == gallery.id,
-                                         SavedImage.tool == TOOL)
-            ).scalars().all()
-            gallery_id = gallery.id
+            seen_galleries = set()
+            for name in wanted:
+                gallery = gallery_for_name(db, name)
+                if gallery is None or gallery.id in seen_galleries:
+                    continue
+                seen_galleries.add(gallery.id)
+                rows = db.execute(
+                    select(SavedImage).where(SavedImage.client_id == gallery.id,
+                                             SavedImage.tool == TOOL)
+                ).scalars().all()
+                found.extend((gallery.id, row) for row in rows)
         finally:
             db.close()
     except Exception:                                   # noqa: BLE001
         return {}
 
     index: dict[str, dict] = {}
-    for row in rows:
+    for gallery_id, row in found:
         origin = str(row.source_url or "")
         if not origin:
             continue
@@ -282,18 +553,31 @@ def migrate(client: str, *, apply: bool = False, actor: str = "",
     `apply=False` is the honest dry run: it authenticates, walks every folder
     and lists exactly what would be copied and what would be skipped, without
     downloading a byte or writing a row.
-    """
-    client = str(client or "").strip()
-    if not client:
-        return {"ok": False, "error": "Which client?"}
 
-    found = candidates(client, live_only=live_only)
+    The name is resolved through `_variants()` first, so what the picker
+    selects and what Knack calls the same company do not have to be the same
+    string, and so a rep who typed a spelling nobody files under is not
+    answered with an empty run.
+    """
+    variants = _variants(client)
+    if not variants["given"]:
+        return {"ok": False, "error": "Which client?"}
+    # Filed under the registry's spelling where it knows one, so two spellings
+    # of one company cannot become two galleries. `filed_keys()` reads every
+    # variant, so a client already filed under the Knack wording is not copied
+    # a second time by the change of name.
+    client = variants["file_as"]
+
+    found = candidates(client, live_only=live_only, norms=variants["norms"])
     links = found["links"][:max(1, int(limit or 500))]
     if not links:
+        note = (f"No Google Drive creative links on {client}'s product "
+                f"records in Smart 1 Team.")
+        if len(variants["names"]) > 1:
+            note += " Looked under: " + ", ".join(variants["names"][:4]) + "."
         return {"ok": True, "client": client, "apply": apply, "links": 0,
-                "copied": [], "skipped": [], "failed": [],
-                "note": f"No Google Drive creative links on {client}'s product "
-                        f"records in Smart 1 Team."}
+                "names": variants["names"],
+                "copied": [], "skipped": [], "failed": [], "note": note}
 
     auth = drive_files.access()
     if not auth["ok"]:
@@ -303,7 +587,7 @@ def migrate(client: str, *, apply: bool = False, actor: str = "",
                         "that there is nothing there."}
     token = auth["token"]
 
-    already = filed_keys(client) if apply else {}
+    already = filed_keys(client, names=variants["names"]) if apply else {}
     copied, skipped, failed = [], [], []
 
     for link in links:
@@ -347,6 +631,7 @@ def migrate(client: str, *, apply: bool = False, actor: str = "",
                                "reason": result.get("reason", "error")})
 
     out = {"ok": True, "client": client, "apply": apply, "account": auth["email"],
+           "names": variants["names"],
            "links": len(links), "copied": copied, "skipped": skipped,
            "failed": failed,
            "counts": {"copied": len(copied), "skipped": len(skipped),
@@ -639,8 +924,79 @@ def page():
 
 @bp.route("/api/ad-assets/candidates")
 def api_candidates():
-    return jsonify(candidates(request.args.get("client", ""),
-                              live_only=request.args.get("live") == "1"))
+    client = request.args.get("client", "")
+    norms = _variants(client)["norms"] if client else None
+    return jsonify(candidates(client, live_only=request.args.get("live") == "1",
+                              norms=norms))
+
+
+@bp.route("/api/ad-assets/clients")
+def api_clients():
+    """The picker: the Hub's own client book, marked with what Knack holds.
+
+    A searchable list of real clients rather than a text box, for the reason
+    `hub/client_key.py` gives at length -- a name typed one character out
+    matches nothing and reads as a client with no creative. Each row carries
+    the number of Drive links on that client's product records, so somebody
+    can tell "nothing to pull in" from "I have not selected them yet" before
+    pressing anything.
+
+    Clients with no Drive creative are **marked, never filtered out**: a
+    client missing from the box reads as a broken search, and zero is a real
+    answer that this page is the right place to give.
+
+    `(clients, error)`, because "nobody is called that" and "we could not
+    read the book" are different answers and only the first means stop
+    looking -- `connected_accounts_result()`'s rule, one tool along.
+    """
+    from hub.webargs import clamp_int
+    query = request.args.get("q", "")
+    limit = clamp_int(request.args.get("limit"), 12, 1, 50)
+    try:
+        from hub import clients_registry
+        rows = clients_registry.search_clients(query, limit=limit) or []
+    except Exception as exc:                            # noqa: BLE001
+        logger.warning("ad_assets: client search failed: %s", exc)
+        return jsonify({"ok": False, "clients": [],
+                        "error": "The client book could not be read, so this "
+                                 "is not a list of everybody we have."})
+
+    have: dict[str, int] = {}
+    knack_error = ""
+    try:
+        found = candidates()
+        # A product source that answered with nothing at all is not a book
+        # with no Drive creative in it. Counted as measured, every row would
+        # read "no Drive links" and the picker would be quietly telling
+        # somebody there is nothing to pull in for anybody.
+        if str(found.get("source") or "none") == "none":
+            knack_error = "The product records could not be read."
+        for link in found["links"]:
+            key = _norm(link["client"])
+            if key:
+                have[key] = have.get(key, 0) + 1
+    except Exception as exc:                            # noqa: BLE001
+        knack_error = f"{type(exc).__name__}: {exc}"[:200]
+
+    out = []
+    for row in rows:
+        name = row.get("name") or ""
+        out.append({
+            "name": name,
+            "domain": row.get("domain") or "",
+            "products": row.get("product_count", 0),
+            # None rather than 0 where the product rows could not be read: a
+            # nought there is a claim about the client, and this one would be
+            # a claim about our own connection.
+            "drive_links": (None if knack_error else have.get(_norm(name), 0)),
+        })
+    return jsonify({"ok": True, "clients": out, "query": query,
+                    "knack_error": knack_error})
+
+
+@bp.route("/api/ad-assets/lookup")
+def api_lookup():
+    return jsonify(lookup(request.args.get("client", "")))
 
 
 @bp.route("/api/ad-assets/access")
