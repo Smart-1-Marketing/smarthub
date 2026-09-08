@@ -45,6 +45,10 @@ def _h(*a, **kw) -> Help:
 
 
 REGISTRY: list[Help] = [
+    _h("customer_voices.library.recordings", "Save a customer's voice",
+       "Upload clear recordings of one speaker with their permission, or save an existing voice from the connected ElevenLabs account. The Hub stores the voice details for reuse across audio tools; recordings are sent to ElevenLabs for cloning."),
+    _h("customer_voices.library.status", "When a voice is ready",
+       "Only ready voices appear in the shared customer voice picker. Complete any requested verification in ElevenLabs and refresh the status here. If a submission could not be confirmed, check ElevenLabs before starting another clone; save its existing voice ID if it completed."),
 
     # ---------------- Three bubbles that explained nothing ----------------
     # Each of these keys was placed on a tool's own title and had no entry

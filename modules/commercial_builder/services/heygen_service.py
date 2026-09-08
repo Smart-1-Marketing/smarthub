@@ -175,7 +175,7 @@ def background_for(over_footage):
 
 
 def generate_spokesperson_clip(avatar_id, script_text, voice_id=None,
-                               format_id="16:9", over_footage=False):
+                               format_id="16:9", over_footage=False, audio_url=None):
     """
     Kicks off a HeyGen generation for one scene's narration.
 
@@ -204,8 +204,9 @@ def generate_spokesperson_clip(avatar_id, script_text, voice_id=None,
     payload = {
         "video_inputs": [{
             "character": {"type": "avatar", "avatar_id": avatar_id, "avatar_style": "normal"},
-            "voice": {"type": "text", "input_text": script_text,
-                      **({"voice_id": voice_id} if voice_id else {})},
+            "voice": ({"type": "audio", "audio_url": audio_url} if audio_url else
+                      {"type": "text", "input_text": script_text,
+                       **({"voice_id": voice_id} if voice_id else {})}),
             "background": background,
         }],
         "dimension": {"width": width, "height": height},

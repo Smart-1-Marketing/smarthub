@@ -98,9 +98,17 @@ def generate_spokesperson_clip(project_id, scene_id):
     voice_id = data.get("voice_id")
     if not avatar_id:
         return jsonify({"ok": False, "error": "avatar_id is required."}), 400
-    if heygen_service.is_live() and (not voice_id or data.get("voice_provider") != "heygen"):
+    customer_voice = data.get("voice_provider") == "customer"
+    if customer_voice:
+        from hub.customer_voices import records
+        if not any(r.get("voice_id") == voice_id and r.get("status") == "ready" for r in records()):
+            return jsonify(ok=False, error="Choose a ready voice from Customer Voices."), 400
+        from modules.radio_promo import voices as customer_tts
+        if not customer_tts.ready() or not cloudinary_service.is_live() or not heygen_service.is_live():
+            return jsonify(ok=False, error="Customer presenter voices require ElevenLabs, media storage, and HeyGen to be connected."), 400
+    if heygen_service.is_live() and (not voice_id or data.get("voice_provider") not in ("heygen", "customer")):
         return jsonify({"ok": False, "error": "Choose a HeyGen voice in the presenter picker."}), 400
-    if voice_id and (not isinstance(voice_id, str) or not heygen_service.voice_available(voice_id)):
+    if not customer_voice and voice_id and (not isinstance(voice_id, str) or not heygen_service.voice_available(voice_id)):
         return jsonify({"ok": False, "error": "That HeyGen voice is unavailable. Reload the voice list and choose again."}), 400
     # Checked here as well as in the service: this one is the caller's mistake
     # and deserves a 400, where a provider failure below deserves a 502. The
@@ -118,11 +126,22 @@ def generate_spokesperson_clip(project_id, scene_id):
         over_footage = bool(scene.asset_url) and scene.asset_type != "spokesperson"
     over_footage = bool(over_footage)
 
-    identity = media_state.fingerprint({"avatar": avatar_id, "voice": voice_id,
+    customer_client = None
+    customer_spoken = None
+    if customer_voice:
+        from ..services.elevenlabs_service import apply_pronunciation_dict
+        customer_client = Client.query.get(project.client_id)
+        customer_spoken = apply_pronunciation_dict(scene.narration, customer_client.pronunciation_dict if customer_client else {})
+    # Keep existing HeyGen request keys stable. Customer reads also include the
+    # actual spoken text so a pronunciation correction creates a fresh take.
+    voice_identity = {"voice_provider": "customer", "spoken": customer_spoken} if customer_voice else {}
+    identity = media_state.fingerprint({"avatar": avatar_id, "voice": voice_id, **voice_identity,
         "speech": media_state.speech_signature(scene.to_dict()), "format": _primary_format(project),
         "over_footage": over_footage})
     previous = dict(scene.asset_meta or {})
     prior_job = previous.get("heygen_job") or {}
+    if previous.get("customer_voice_failure") and customer_voice and not data.get("regenerate"):
+        return jsonify(ok=False, error="The previous customer voice request could not be confirmed. Review its error, then check Generate a new take to explicitly retry synthesis."), 409
     if prior_job.get("status") in ("submitting", "processing", "pending", "unknown"):
         return jsonify({"ok": False, "error": "A presenter request already exists. Check its status before creating another take.",
                         "job": prior_job}), 409
@@ -131,13 +150,51 @@ def generate_spokesperson_clip(project_id, scene_id):
                         "live": heygen_service.is_live()})
     reservation = {"status": "submitting", "token": uuid.uuid4().hex, "submitted_at": time.time(),
                    "request_key": identity, "speech_signature": media_state.speech_signature(scene.to_dict()),
-                   "format_id": _primary_format(project), "voice_id": voice_id, "voice_provider": "heygen"}
+                   "format_id": _primary_format(project), "voice_id": voice_id, "voice_provider": "customer" if customer_voice else "heygen"}
     if not _claim(scene, {**previous, "heygen_job": reservation}, scene.asset_meta_json):
         return jsonify({"ok": False, "error": "This scene changed. Reload before generating."}), 409
 
+    audio_url = None
+    if customer_voice:
+        client = customer_client
+        spoken = customer_spoken
+        audio_key = media_state.fingerprint({"voice": voice_id, "text": spoken})
+        cached_audio = previous.get("customer_voice_audio") or {}
+        audio_url = cached_audio.get("url") if cached_audio.get("key") == audio_key else None
+        try:
+            if not audio_url:
+                audio = customer_tts.render_audio(voice_id, spoken)
+                stored = cloudinary_service.upload_asset(audio["audio"], client.slug if client else "unassigned",
+                    "audio", public_id=f"presenter-voice-{reservation['token']}", filename="presenter.mp3")
+                audio_url = stored.get("secure_url")
+                if not audio_url or stored.get("_mock"):
+                    raise customer_tts.VoiceError("Could not save the customer voice track.")
+            db.session.refresh(scene)
+            if _job_of(scene).get("token") != reservation["token"]:
+                return jsonify(ok=False, error="This scene changed during speech generation. Reload it before continuing."), 409
+            meta = dict(scene.asset_meta or {})
+            meta["customer_voice_audio"] = {"key": audio_key, "url": audio_url}
+            meta.pop("customer_voice_failure", None)
+            scene.asset_meta = meta
+            db.session.commit()
+        except customer_tts.VoiceError as exc:
+            # HeyGen has not been called. Keep any playable prior clip and require
+            # an explicit new take before repeating a potentially billed TTS call.
+            db.session.refresh(scene)
+            if _job_of(scene).get("token") == reservation["token"]:
+                meta = dict(scene.asset_meta or {})
+                if prior_job:
+                    meta["heygen_job"] = prior_job
+                else:
+                    meta.pop("heygen_job", None)
+                meta["customer_voice_failure"] = str(exc)
+                scene.asset_meta = meta
+                db.session.commit()
+            return jsonify(ok=False, error=str(exc) + " No presenter was submitted. Reopen the picker and check Generate a new take to explicitly retry."), 502
+    kwargs = {"audio_url": audio_url} if audio_url else {}
     job = heygen_service.generate_spokesperson_clip(
-        avatar_id, scene.narration or "", voice_id,
-        format_id=_primary_format(project), over_footage=over_footage)
+        avatar_id, scene.narration or "", None if customer_voice else voice_id,
+        format_id=_primary_format(project), over_footage=over_footage, **kwargs)
     db.session.refresh(scene)
     if _job_of(scene).get("token") != reservation["token"]:
         return jsonify({"ok": False, "error": "This scene changed while HeyGen was accepting the request.", "job": job}), 409
