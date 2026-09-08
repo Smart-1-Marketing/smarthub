@@ -26,7 +26,8 @@ HOUSEKEEPING_ROUTES = {
 # runs standalone.
 try:
     from hub import audit as _hub_audit
-    _cb_log = _hub_audit.for_module("commercial_builder")
+    from hub import current_user
+    _cb_log = _hub_audit.for_module("commercial_builder", actor_fn=current_user)
 except Exception:  # noqa: BLE001
     def _cb_log(*_a, **_k):
         return None

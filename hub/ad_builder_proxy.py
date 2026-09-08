@@ -291,6 +291,17 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
                 "into its own service."), 504
 
         _record(request.method, path, upstream.status_code, who)
+        # Small render-acceptance JSON only; media responses remain streamed.
+        if (signed_in and request.method == 'POST' and upstream.status_code == 202
+                and 'application/json' in upstream.headers.get('Content-Type', '')):
+            try:
+                accepted = upstream.json()
+                job_id = accepted.get('jobId')
+                if isinstance(job_id, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,100}', job_id):
+                    from hub import audit
+                    audit.log('display_ads', 'ads_job_tracked', actor=current_user(), job=job_id)
+            except (ValueError, requests.RequestException):
+                logger.warning('Could not read display render acceptance for notifications')
 
         out = Response(
             stream_with_context(upstream.iter_content(chunk_size=64 * 1024)),

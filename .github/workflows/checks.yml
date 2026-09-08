@@ -1836,7 +1836,9 @@ jobs:
       # is a refusal to answer rather than a clean bill. This file was in
       # CLAUDE.md's list and in no CI step, so it was a check nobody ran.
       - name: Every bubble has help behind it, and coverage is measured
-        run: python3 test_help_layer.py
+        run: |
+          python3 test_help_layer.py
+          python3 test_help_center.py
 
       # The layer above the month plan: multi-location intake, the client's
       # four signed pages, the idea weighting and the Suite push. Every one of

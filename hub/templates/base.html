@@ -48,7 +48,8 @@
         <div id="gsres" class="gs-res" role="listbox" hidden></div>
       </form>
       <div class="spacer"></div>
-      <div class="chip"><div class="avatar">{{ (user or 'U')[0]|upper }}</div><span>{{ user }}</span></div>
+      {% set name_parts = (user or 'User').split() %}
+      <div class="chip" title="Signed in as {{ user }}"><div class="avatar">{{ name_parts[0][0]|upper }}{% if name_parts|length > 1 %}{{ name_parts[-1][0]|upper }}{% endif %}</div><span>{{ user }}</span></div>
     </div>
     <div class="page">
       {{ demo_banner()|safe if demo_banner is defined else '' }}
