@@ -504,18 +504,27 @@ def _website_movement(period, websites_active) -> tuple:
     return websites_active - prev, _period_label(prev_key)
 
 
-def month_over_month(prods: list[dict]) -> dict:
-    """Per-client budget totals for this month vs last month, from the
-    lastM/thisM active flags Knack exports on every IO row."""
+def month_over_month(prods: list[dict], period: str = "") -> dict:
+    """Compare dated IO terms for a calendar period, or fallback export flags.
+
+    Both months use ran_in_month; these are monthly movement counts, not
+    comparisons against the headline's live-status union.
+    """
     this_by, last_by = {}, {}
+    if period:
+        import calendar
+        start = _dt.date(int(period[:4]), int(period[4:]), 1)
+        end = start.replace(day=calendar.monthrange(start.year, start.month)[1])
+        prev_end = start - _dt.timedelta(days=1)
+        prev_start = prev_end.replace(day=1)
     for r in prods:
         client = str(r.get("client", "")).strip()
         if not client:
             continue
         m = _num(r.get("monthly"))
-        if r.get("thisM"):
+        if (ran_in_month(r, start, end) if period else r.get("thisM")):
             this_by[client] = this_by.get(client, 0.0) + m
-        if r.get("lastM"):
+        if (ran_in_month(r, prev_start, prev_end) if period else r.get("lastM")):
             last_by[client] = last_by.get(client, 0.0) + m
     new = sum(1 for c in this_by if c not in last_by)
     lost = sum(1 for c in last_by if c not in this_by)
@@ -563,14 +572,14 @@ def export_state() -> dict:
 
 def summary() -> dict:
     raw = _load("products.json")
-    prods = products()
-    # The EXPORT, deliberately, not the live registry. Every figure below is
-    # measured against the export's own period and its thisM / lastM flags,
-    # and `_active()` reads an `active` field only the export carries. A live
-    # list folded in here would compare two things measured differently at the
-    # two ends and report 0 active websites and $0 of H&M billing on the
-    # dashboard — arithmetic no reader could reproduce, which is the failure
-    # the whole trends section of this file exists to undo.
+    from . import knack_products
+    product_data = knack_products.rows()
+    source = product_data.get("source", "none")
+    live_source = source in ("knack", "knack (stale)")
+    prods = product_data.get("rows", []) if live_source else products()
+    # Website active flags are only available in the private export. Keep
+    # that source explicit on the website and billing cards; product cards
+    # independently use the current Knack feed.
     webs = export_websites()
 
     live = [r for r in prods if _is_live(r)]
@@ -587,14 +596,16 @@ def summary() -> dict:
     active_sites = [w for w in webs if _active(w)]
     hm_monthly = sum(_num(w.get("hmMonthly")) for w in active_sites)
 
-    # Two different months, and conflating them is what broke the trends.
-    # `period` is now — what the snapshot history is keyed on. `export_period`
-    # is the month products.json was generated for, which is what its lastM /
-    # thisM flags describe and all the new/lost/up/down counts are measured in.
+    # Live movement follows the calendar. Only fallback rows use the export's
+    # frozen month flags, and retain that export's date in the response.
     export = export_state()
     period = export["current"]
     export_period = export["period"]
     export_prev = str(raw.get("lastMonth") or "") if isinstance(raw, dict) else ""
+    if live_source:
+        export_period = period
+        start = _dt.date(int(period[:4]), int(period[4:]), 1)
+        export_prev = (start - _dt.timedelta(days=1)).strftime("%Y%m")
     # Recorded even though nothing renders a comparison today: a reading of
     # this month is the only thing that can ever produce one measured the same
     # way at both ends, and it cannot be taken retrospectively.
@@ -609,7 +620,7 @@ def summary() -> dict:
         })
     except Exception:  # noqa: BLE001 — never break the dashboard on history I/O
         pass
-    mom = month_over_month(prods)
+    mom = month_over_month(prods, period if live_source else "")
     try:
         movement, movement_from = _website_movement(period, len(active_sites))
     except Exception:  # noqa: BLE001 — never break the dashboard on history I/O
@@ -632,11 +643,14 @@ def summary() -> dict:
         "website_movement_from": movement_from,
         "this_period": _period_label(export_period),
         "last_period": _period_label(export_prev),
-        # The month-over-month counts above come from the export's own flags,
-        # so they describe the export's month — not necessarily this one. When
-        # the export is behind the calendar they are history, and the card has
-        # to say so rather than presenting last quarter's movement as today's.
-        "export_stale": export["stale"],
+        # A stale API cache keeps its age and failure note. Export movement
+        # retains its own period instead of relabeling old flags as current.
+        "export_stale": not live_source and export["stale"],
+        "products_source": source,
+        "products_age_minutes": product_data.get("age_minutes"),
+        "products_note": product_data.get("note", ""),
+        "products_available": bool(prods),
+        "websites_note": "Website counts and H&M billing use the saved website export.",
         "period": _period_label(period),
         "data_age_hours": data_age_hours(),
     }
