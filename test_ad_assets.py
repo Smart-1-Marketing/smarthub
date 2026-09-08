@@ -181,6 +181,94 @@ check("every client with Drive creative is offered",
       set(ad_assets.candidates()["clients"]), {"Riverside HVAC", "Other Co"})
 
 
+
+# ---------------------------------------------------------------------------
+# 3b. Selecting a client, and looking Smart 1 Team up the other way round
+# ---------------------------------------------------------------------------
+#
+# The box used to ask for the name "exactly as Smart 1 Team has it". One
+# character out matched nothing and the page answered "no Google Drive
+# creative links on this client" -- a clean nothing about a client with a
+# year of creative in Drive, which is the answer this module exists not to
+# give. What replaced it is a picker over the real client book and a lookup
+# that runs the join the other way: name a client, and say what Knack holds
+# for them before a byte is read from Drive.
+print("\nThe reverse lookup")
+
+# A line filed under the *organisation* rather than the client. Knack holds
+# both and a product is filed under whichever the salesperson used, so the
+# old one-field read answered "this client has no creative" about a client
+# whose whole book is under the other.
+_ROWS["rows"].append(
+    {"client": "", "organization": "Riverside HVAC", "io": "10455",
+     "product": "CTV", "product_num": "8830", "record_id": "r5",
+     "status": "Live",
+     "creative_urls": ["https://drive.google.com/drive/folders/1DDDDDDDDDDD"]})
+# A client with product lines and no Drive link on any of them. Not the same
+# answer as a client Smart 1 Team has never heard of, and both used to render
+# as one empty run.
+_ROWS["rows"].append(
+    {"client": "Paper Only Co", "io": "500", "product": "Display",
+     "product_num": "9", "record_id": "r6", "status": "Live",
+     "creative_urls": ["https://paperonly.example.com/creative"]})
+
+_v = ad_assets._variants("Riverside HVAC")
+check("the name given is always one of the spellings looked under",
+      "Riverside HVAC" in _v["names"], True)
+check("and Knack's own spellings are read beside it, adding no new match",
+      _v["norms"], {"riversidehvac"})
+
+# Exact or nothing. Copying one company's creative into another company's
+# library is billed and is not undoable from the gallery.
+check("a prefix of the name matches nothing",
+      ad_assets._variants("Riverside")["norms"], {"riverside"})
+check("so a prefix finds no product rows",
+      ad_assets.lookup("Riverside")["products"], 0)
+
+_l = ad_assets.lookup("Riverside HVAC")
+check("the lookup finds the product lines filed under the client",
+      _l["ok"], True)
+check("and the one filed under the organization instead",
+      sorted(_l["ios"]), ["10432", "10440", "10455"])
+check("the Drive links are counted before anything is read from Drive",
+      _l["link_count"], 2)
+check("a link that is a landing page is not counted as creative",
+      _l["non_drive_links"] >= 1, True)
+check("and it says which product source answered, with its age",
+      (_l["source"], _l["age_minutes"]), ("knack", 3))
+
+_lp = ad_assets.lookup("Paper Only Co")
+check("product lines with no Drive link is its own answer",
+      (_lp["products"], _lp["link_count"]), (1, 0))
+check("and says so rather than reading as a client nobody has heard of",
+      "none of them carries a Google Drive" in _lp["note"], True)
+
+_lx = ad_assets.lookup("Nobody Whatsoever Ltd")
+check("a name nothing is filed under is a different answer again",
+      (_lx["products"], _lx["link_count"]), (0, 0))
+check("and nothing is chosen on the client's behalf",
+      _lx["client"], "Nobody Whatsoever Ltd")
+check("a lookup with no client refuses rather than answering about everybody",
+      ad_assets.lookup("")["ok"], False)
+
+# `knack_products.rows()` never raises -- it falls back to a stale cache,
+# then to the private export, then to nothing -- and that last answer is
+# indistinguishable from a client with no campaigns. Rendered as "nothing is
+# filed under this name" it is the confident wrong answer this module exists
+# downstream of.
+_saved_rows = _ROWS
+ad_assets.knack_products = types.SimpleNamespace(
+    rows=lambda *a, **k: {"rows": [], "source": "none", "age_minutes": None,
+                          "note": "No live connection and no private fallback."})
+_lu = ad_assets.lookup("Riverside HVAC")
+check("a product source that could not be read is not measured",
+      _lu["measured"], False)
+check("and says so rather than reporting a client with no creative",
+      "could not be read" in _lu["note"]
+      and "no creative" in _lu["note"], True)
+ad_assets.knack_products = types.SimpleNamespace(rows=lambda *a, **k: _saved_rows)
+
+
 # ---------------------------------------------------------------------------
 # 4. Refused is not empty
 # ---------------------------------------------------------------------------
@@ -234,8 +322,23 @@ check("and files each one under its own Drive subfolder",
 
 # Already-filed rows are matched on the Drive file id, which is the one
 # identifier that survives a folder rename, three URL shapes and a re-upload.
-ad_assets.filed_keys = lambda client: {"gdrive:f1": "https://res.cloudinary.com/x/f1.jpg"}
+_asked_names = {}
+
+
+def _stub_filed_keys(client, *, names=None):
+    # The spellings the dedupe read was asked for. The picker files under the
+    # client book's name and an earlier run filed under the product record's
+    # own wording: read one gallery of the two and the second run copies the
+    # whole folder again, which is a billed re-upload into a gallery nobody
+    # opens rather than a duplicate row.
+    _asked_names["names"] = list(names or [])
+    return {"gdrive:f1": "https://res.cloudinary.com/x/f1.jpg"}
+
+
+ad_assets.filed_keys = _stub_filed_keys
 _again = ad_assets.migrate("Riverside HVAC", apply=True)
+check("the dedupe read is asked for every spelling of the client",
+      "Riverside HVAC" in _asked_names.get("names", []), True)
 _skipped = [s for s in _again["skipped"] if s.get("reason") == "already_filed"]
 check("a second run copies nothing twice", len(_skipped), 1)
 check("and says so rather than silently doing nothing",

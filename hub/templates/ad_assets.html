@@ -46,6 +46,22 @@
   .pill.bad{background:#fdeeec;border-color:#f0c9c4;color:#992d20}
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
   .empty{color:var(--muted);padding:14px 2px}
+  .pick{position:relative;display:inline-block}
+  .pick-list{position:absolute;z-index:20;top:calc(100% + 4px);left:0;
+             min-width:340px;max-height:300px;overflow:auto;background:var(--card);
+             border:1px solid var(--line);border-radius:9px;
+             box-shadow:0 8px 24px rgba(10,34,64,.12)}
+  .pick-list[hidden]{display:none}
+  .pick-row{display:flex;justify-content:space-between;gap:12px;align-items:baseline;
+            padding:8px 11px;cursor:pointer;border-bottom:1px solid var(--line)}
+  .pick-row:last-child{border-bottom:0}
+  .pick-row:hover,.pick-row.on{background:#eef4ff}
+  .pick-row b{font-weight:600}
+  .facts{display:flex;flex-wrap:wrap;gap:18px;margin:2px 0 0}
+  .facts div{min-width:104px}
+  .facts .n{font-size:20px;font-weight:600;display:block;line-height:1.2}
+  .facts .k{font-size:12px;color:var(--muted);text-transform:uppercase;
+            letter-spacing:.03em}
 </style>
 </head>
 <body>
@@ -63,12 +79,20 @@
 
   <div class="card">
     <div class="bar">
-      <input type="text" id="client" placeholder="Client name, exactly as Smart 1 Team has it">
-      <button class="btn" id="btnPlan">Dry run {{ help_dot('hub.ad_assets.dryrun') if help_dot is defined else '' }}</button>
+      <span class="pick">
+        <input type="text" id="client" autocomplete="off" role="combobox"
+               aria-expanded="false" aria-autocomplete="list" aria-controls="picks"
+               placeholder="Search for a client&hellip;">
+        <div class="pick-list" id="picks" role="listbox" hidden></div>
+      </span>
+      {{ help_dot('hub.ad_assets.client') if help_dot is defined else '' }}
+      <button class="btn" id="btnPlan" disabled>Dry run {{ help_dot('hub.ad_assets.dryrun') if help_dot is defined else '' }}</button>
       <button class="btn primary" id="btnRun" disabled>Copy into the library</button>
       <span class="muted" id="status"></span>
     </div>
-    <div id="result"><div class="empty">Name a client and run it dry first.</div></div>
+    <div id="lookup"><div class="empty">Pick a client. Nothing is read from
+      Drive until you run it.</div></div>
+    <div id="result"></div>
   </div>
 
   <div class="card">
@@ -147,19 +171,159 @@ function render(res){
   $("btnRun").disabled = res.apply || !(res.copied || []).length;
 }
 
+/* ---------------------------------------------------------------------
+   The picker, and the reverse lookup behind it.
+
+   This box used to ask for the client name "exactly as Smart 1 Team has
+   it", which is the whole difficulty wearing a placeholder: one character
+   out matched nothing and the page said the client had no Drive creative.
+   It searches the real client book now, and selecting one asks the server
+   what Knack actually holds for them before anything is read from Drive.
+
+   Two rules on it. Nothing is chosen for you -- a near name is offered as
+   a "did you mean" and never filled in, because pulling one company's
+   creative into another company's library is billed and is not undoable
+   from the gallery. And the run buttons stay off until the lookup has
+   found a link to pull: a button that can only report nothing is one
+   people learn to press twice.
+   --------------------------------------------------------------------- */
+let pickRows = [], pickAt = -1, pickTimer = null, canRun = false;
+
+function hidePicks(){
+  $("picks").hidden = true;
+  $("client").setAttribute("aria-expanded", "false");
+  pickAt = -1;
+}
+
+function drawPicks(rows, note){
+  pickRows = rows;
+  const box = $("picks");
+  if (!rows.length) {
+    box.innerHTML = `<div class="pick-row"><span class="muted">`
+      + esc(note || "No client of that name in the client book.") + `</span></div>`;
+  } else {
+    box.innerHTML = rows.map((r, i) => {
+      const n = r.drive_links;
+      const tag = n === null || n === undefined ? "not measured"
+                : (n ? n + " Drive link" + (n === 1 ? "" : "s") : "no Drive links");
+      return `<div class="pick-row" role="option" data-i="${i}">`
+        + `<span><b>${esc(r.name)}</b>`
+        + (r.domain ? `<div class="muted mono">${esc(r.domain)}</div>` : "")
+        + `</span><span class="muted">${esc(tag)}</span></div>`;
+    }).join("");
+  }
+  box.hidden = false;
+  $("client").setAttribute("aria-expanded", "true");
+  box.querySelectorAll(".pick-row[data-i]").forEach(el => {
+    el.onmousedown = ev => { ev.preventDefault(); choose(pickRows[+el.dataset.i].name); };
+  });
+}
+
+async function searchClients(){
+  const q = $("client").value.trim();
+  try {
+    const res = await api("/api/ad-assets/clients?limit=12&q=" + encodeURIComponent(q));
+    if (!res.ok) { drawPicks([], res.error); return; }
+    drawPicks(res.clients || []);
+  } catch (e) { drawPicks([], "The client book did not come back."); }
+}
+
+function choose(name){
+  $("client").value = name;
+  hidePicks();
+  lookupClient();
+}
+
+function factsPanel(res){
+  const n = v => `<div><span class="n">${esc(String(v))}</span>`;
+  return `<div class="facts">`
+    + n(res.products) + `<span class="k">product lines</span></div>`
+    + n(res.ios.length) + `<span class="k">insertion orders</span></div>`
+    + n(res.link_count) + `<span class="k">Drive links</span></div>`
+    + n(res.already_filed) + `<span class="k">already filed</span></div>`
+    + `</div>`;
+}
+
+async function lookupClient(){
+  const client = $("client").value.trim();
+  /* A result panel left standing under a different client's name is the
+     confident wrong answer this page exists downstream of. */
+  $("result").innerHTML = "";
+  canRun = false;
+  $("btnPlan").disabled = $("btnRun").disabled = true;
+  if (!client) {
+    $("lookup").innerHTML = `<div class="empty">Pick a client. Nothing is read `
+      + `from Drive until you run it.</div>`;
+    return;
+  }
+  $("lookup").innerHTML = `<div class="empty">Reading Smart 1 Team…</div>`;
+  let res;
+  try { res = await api("/api/ad-assets/lookup?client=" + encodeURIComponent(client)); }
+  catch (e) {
+    $("lookup").innerHTML = `<div class="note bad">Smart 1 Team did not answer, `
+      + `so this is not a report that there is nothing there.</div>`;
+    return;
+  }
+  if (!res.ok) {
+    $("lookup").innerHTML = `<div class="note bad">${esc(res.error || "That did not run.")}</div>`;
+    return;
+  }
+  canRun = res.link_count > 0;
+  /* Absent data must read as "not measured", never as a tidy nought: four
+     zeros over a product source that refused is the confident wrong answer
+     this page exists downstream of. */
+  const cls = res.measured === false ? "bad"
+            : (canRun ? "good" : (res.products ? "warn" : ""));
+  let h = `<div class="note ${cls}"><b>${esc(res.client)}</b>`
+    + (res.client.toLowerCase() !== res.query.toLowerCase()
+        ? ` <span class="muted">— filed under the client book&rsquo;s spelling; `
+          + `you asked for “${esc(res.query)}”</span>` : "")
+    + `<div>${esc(res.note || "")}</div>`
+    + (res.registry_error
+        ? `<div class="muted">The client book could not be read, so the name `
+          + `was taken as typed.</div>` : "")
+    + `</div>`;
+  if (res.measured !== false) h += factsPanel(res);
+  if (res.measured !== false && res.ios.length)
+    h += `<p class="muted" style="margin:12px 0 0">IOs: `
+       + esc(res.ios.slice(0, 12).join(", "))
+       + (res.ios.length > 12 ? ` +${res.ios.length - 12} more` : "") + `</p>`;
+  if (res.near && res.near.length)
+    h += `<p class="muted" style="margin:10px 0 0">Did you mean: `
+       + res.near.map(n => `<a href="#" class="near">${esc(n)}</a>`).join(", ")
+       + `?</p>`;
+  /* The age travels with the rows and is printed: a cached figure with no
+     date on it is read as today's. */
+  const age = (res.age_minutes === null || res.age_minutes === undefined)
+    ? "" : `, ${esc(String(res.age_minutes))} minute(s) old`;
+  h += `<p class="muted" style="margin:10px 0 0">Product records read from `
+     + esc(res.source || "an unnamed source") + age + `.</p>`;
+  $("lookup").innerHTML = h;
+  $("lookup").querySelectorAll("a.near").forEach(a => {
+    a.onclick = ev => { ev.preventDefault(); choose(a.textContent); };
+  });
+  $("btnPlan").disabled = !canRun;
+}
+
 async function run(apply){
   const client = $("client").value.trim();
   if (!client) { $("status").textContent = "Which client?"; return; }
   $("status").textContent = apply ? "Copying…" : "Reading Drive…";
   $("btnPlan").disabled = $("btnRun").disabled = true;
+  const wait = (window.S1Think && window.S1Think.attach)
+    ? window.S1Think.attach($("result"), {kind: "scan",
+        stages: ["Reading the Drive folders…",
+                 apply ? "Copying into the library…" : "Listing what would copy…"]})
+    : null;
   try {
     render(await api("/api/ad-assets/migrate", {method:"POST",
       body: JSON.stringify({client: client, apply: apply})}));
   } catch (e) {
     $("result").innerHTML = `<div class="note bad">That request did not come back.</div>`;
   }
+  if (wait && wait.done) { try { wait.done(); } catch (e) {} }
   $("status").textContent = "";
-  $("btnPlan").disabled = false;
+  $("btnPlan").disabled = !canRun;
 }
 
 async function loadProposals(){
@@ -202,6 +366,31 @@ $("btnPlan").onclick = () => run(false);
 $("btnRun").onclick = () => run(true);
 $("btnProposals").onclick = loadProposals;
 $("btnApply").onclick = applyProposals;
+
+const clientBox = $("client");
+clientBox.addEventListener("input", () => {
+  clearTimeout(pickTimer);
+  pickTimer = setTimeout(searchClients, 180);
+});
+clientBox.addEventListener("focus", searchClients);
+clientBox.addEventListener("blur", () => setTimeout(hidePicks, 120));
+clientBox.addEventListener("keydown", ev => {
+  const open = !$("picks").hidden && pickRows.length;
+  if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+    if (!open) return;
+    ev.preventDefault();
+    pickAt = (pickAt + (ev.key === "ArrowDown" ? 1 : pickRows.length - 1)) % pickRows.length;
+    $("picks").querySelectorAll(".pick-row").forEach((el, i) =>
+      el.classList.toggle("on", i === pickAt));
+  } else if (ev.key === "Enter") {
+    ev.preventDefault();
+    if (open && pickAt >= 0) choose(pickRows[pickAt].name);
+    else { hidePicks(); lookupClient(); }
+  } else if (ev.key === "Escape") {
+    hidePicks();
+  }
+});
+
 loadAccess();
 </script>
 </body>
