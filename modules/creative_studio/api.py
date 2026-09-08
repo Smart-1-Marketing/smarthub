@@ -7,8 +7,6 @@ same login -- real content lands in WO-CS2 through WO-CS6.
 """
 from __future__ import annotations
 
-from datetime import datetime
-
 from flask import Blueprint, jsonify, render_template, request
 
 from . import brand_ext, config, jobs

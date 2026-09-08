@@ -286,7 +286,7 @@ check("  ...and reads back", brand_ext.get("Acme Plumbing")["cta_style"], "Frien
 # ---------------------------------------------------------------------------
 section("work here is attributable")
 
-from hub import client_brand, audit  # noqa: E402
+from hub import client_brand  # noqa: E402
 
 check("creative_studio is declared in WORK_KINDS",
       "creative_studio" in client_brand.WORK_KINDS, True)
