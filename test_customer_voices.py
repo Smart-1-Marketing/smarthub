@@ -155,11 +155,56 @@ class CustomerVoiceTests(unittest.TestCase):
 
     def test_clone_keeps_accepted_id_and_verification_without_followup_http(self):
         self.clone.stop()
-        with patch.object(voices, "_headers", return_value={}), patch.object(voices.requests, "post", return_value=Mock(status_code=200, json=lambda:{"voice_id":"created", "requires_verification":True})), patch.object(voices.requests, "get") as get:
+        with patch.object(voices, "ready", return_value=True), patch.object(voices, "_headers", return_value={}), patch.object(voices.requests, "post", return_value=Mock(status_code=200, json=lambda:{"voice_id":"created", "requires_verification":True})), patch.object(voices.requests, "get") as get:
             result = voices.clone_voice("Jane", [("sample.wav", b"sample", "audio/wav")])
             self.assertEqual(result["voice_id"], "created")
             self.assertTrue(result["requires_verification"])
             get.assert_not_called()
+
+    def test_rejected_clone_shows_cause_and_can_retry_same_submission(self):
+        self.provider.side_effect = voices.VoiceRequestRejected("Voices write permission is required.")
+        key = str(uuid.uuid4())
+        response = self.submit(key)
+        self.assertIn("write permission", response.json["error"])
+        self.assertNotIn("uncertain", response.json["error"])
+        self.assertEqual(cv.records()[0]["status"], "failed")
+        self.provider.side_effect = None
+        self.assertEqual(self.submit(key).status_code, 201)
+        self.assertEqual(self.provider.call_count, 2)
+
+    def test_failed_import_can_be_retried_and_does_not_block_recovered_voice(self):
+        with patch.object(voices, "get_voice", side_effect=voices.VoiceError("No access")):
+            self.assertEqual(self.submit(voice_id="existing").status_code, 502)
+        with patch.object(voices, "get_voice", return_value={"voice_id":"existing", "requires_verification":False}):
+            self.assertEqual(self.submit(voice_id="existing").status_code, 201)
+        self.assertEqual(len(cv.records()), 1)
+        cv.ensure_usable("existing")
+        self.provider.assert_not_called()
+
+    def test_clone_rejection_is_distinct_from_unknown_result(self):
+        self.clone.stop()
+        response = Mock(status_code=403, json=lambda:{"detail":{"status":"missing_permissions", "message":"secret raw body"}})
+        with patch.object(voices, "ready", return_value=True), patch.object(voices, "_headers", return_value={}), patch.object(voices.requests, "post", return_value=response):
+            with self.assertRaises(voices.VoiceRequestRejected) as error:
+                voices.clone_voice("Jane", [("voice.wav", b"sample", "audio/wav")])
+            self.assertIn("Voices write", str(error.exception))
+            self.assertNotIn("secret", str(error.exception))
+            response.status_code = 503
+            with self.assertRaises(voices.VoiceError) as error:
+                voices.clone_voice("Jane", [("voice.wav", b"sample", "audio/wav")])
+            self.assertNotIsInstance(error.exception, voices.VoiceRequestRejected)
+            response.status_code = 200; response.json.side_effect = ValueError("bad JSON")
+            with self.assertRaises(voices.VoiceError) as error:
+                voices.clone_voice("Jane", [("voice.wav", b"sample", "audio/wav")])
+            self.assertNotIsInstance(error.exception, voices.VoiceRequestRejected)
+
+    def test_missing_connection_never_sends_clone_or_creates_uncertain_result(self):
+        self.clone.stop()
+        with patch.object(voices, "ready", return_value=False), patch.object(voices.requests, "post") as post:
+            response = self.submit()
+            self.assertIn("not connected", response.json["error"])
+            self.assertEqual(cv.records()[0]["status"], "failed")
+            post.assert_not_called()
 
 
 if __name__ == "__main__":

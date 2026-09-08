@@ -2,7 +2,7 @@
 (() => {
   const form = document.getElementById('cv-form');
   const get = id => document.getElementById(id);
-  const states = {ready:'Ready to use', verification_required:'Verification required', creating:'Awaiting confirmation', needs_review:'Check ElevenLabs'};
+  const states = {ready:'Ready to use', verification_required:'Verification required', creating:'Awaiting confirmation', needs_review:'Confirmation needed', failed:'Not saved — retry after correction'};
   let requestId = crypto.randomUUID();
   async function api(url, options) {
     const res = await fetch(url, options); let data;
@@ -26,6 +26,16 @@
           const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Refresh voice status';
           button.onclick = async () => { button.disabled = true; try { await api(`/api/customer-voices/${encodeURIComponent(v.id)}/refresh`, {method:'POST'}); await load(); } catch(e) { status.textContent = e.message; button.disabled = false; } };
           row.append(button);
+        }
+        if (v.status === 'needs_review' || v.status === 'failed') {
+          const recover = document.createElement('button'); recover.type = 'button'; recover.textContent = 'Use existing ElevenLabs voice ID';
+          recover.onclick = () => {
+            requestId = crypto.randomUUID(); form.reset(); get('cv-mode').value = 'existing'; get('cv-mode').onchange();
+            get('cv-name').value = v.name || ''; get('cv-client').value = v.client || ''; get('cv-id').value = v.voice_id || '';
+            get('cv-submit').disabled = false; get('cv-message').textContent = 'Paste the voice ID from ElevenLabs to save the existing voice without creating another clone.';
+            get('cv-id').focus();
+          };
+          row.append(recover);
         }
         list.append(row);
       });
