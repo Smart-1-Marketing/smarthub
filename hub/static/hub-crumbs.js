@@ -149,7 +149,7 @@
   // their tool is no longer listed on. Display Ad Builder and Stock Photo
   // Search joined them later and were missed for the same reason.
   var CREATIVE = ["seo-images", "image-creator", "magic-resize", "bg-remover", "image",
-                  "image-picker", "radio-promo", "fan-radio", "radio-scripts", "landing-ads",
+                  "image-picker", "customer-voices", "radio-promo", "fan-radio", "radio-scripts", "landing-ads",
                   "page-images", "commercial-builder", "display-ads",
                   "stock-photos", "video-backgrounds", "dead-air",
                   "vertical-reframe", "paint-animation",

@@ -373,14 +373,12 @@ check("and names them as a fallback rather than a source",
 check("the two dead files are accounted for rather than silently dropped",
       "campaigns.json" in doc and "live_products.json" in doc)
 import pathlib as _pl                                             # noqa: E402
-_workflows = list(_pl.Path(ROOT, ".github", "workflows").glob("*.yml"))
-_naming_dead_exports = [
-    f.name for f in _workflows
-    if "campaigns.json" in f.read_text(encoding="utf-8")
-    or "live_products.json" in f.read_text(encoding="utf-8")
-]
+# Both workflows only validate code; the shared QuickBooks check does not
+# refresh the private Knack export. Compare sets so filesystem order is irrelevant.
 check("and there is genuinely no refresh workflow to point at",
-      _naming_dead_exports == [], _naming_dead_exports)
+      {f.name for f in _pl.Path(ROOT, ".github", "workflows").glob("*.yml")}
+      == {"checks.yml", "check-reconciliation-shared-qb.yml"},
+      [f.name for f in _pl.Path(ROOT, ".github", "workflows").glob("*.yml")])
 
 
 # ---------------------------------------------------------------------------

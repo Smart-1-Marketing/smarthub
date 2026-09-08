@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Record your voice — {{ client.name }}</title>
+  <style>
+    :root{color-scheme:light;--ink:#172033;--muted:#677287;--line:#dce2ea;--soft:#f5f7fa;--brand:#2563eb;--brand2:#1d4ed8;--ok:#147d4c;--danger:#b42318;--shadow:0 18px 50px rgba(22,32,51,.12)}
+    *{box-sizing:border-box} body{margin:0;background:#eef2f7;color:var(--ink);font:16px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    button,input{font:inherit} button{cursor:pointer}.shell{max-width:1040px;margin:0 auto;padding:28px 18px 60px}.brand{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}.brand-mark{font-weight:800;letter-spacing:-.02em;font-size:20px}.brand-mark span{color:var(--brand)}.secure{font-size:13px;color:var(--muted)}
+    .hero,.card{background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow)}.hero{padding:28px;margin-bottom:18px}.hero h1{font-size:clamp(28px,5vw,44px);line-height:1.08;letter-spacing:-.035em;margin:0 0 10px}.hero p{margin:0;color:var(--muted);max-width:760px}.client{display:inline-flex;margin-bottom:12px;padding:6px 10px;border-radius:999px;background:#eef4ff;color:#244da7;font-size:13px;font-weight:700}
+    .card{padding:22px;margin-top:16px}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0 0 18px}.step{border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:13px;color:var(--muted)}.step strong{color:var(--ink);display:block}.step.active{border-color:#9bb8ff;background:#f4f7ff}
+    .tips{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.tip{background:var(--soft);padding:13px;border-radius:12px;font-size:14px}.tip b{display:block;margin-bottom:3px}
+    .tabs{display:flex;gap:8px;padding:5px;background:var(--soft);border-radius:13px;width:max-content;max-width:100%;margin:4px 0 18px}.tab{border:0;background:transparent;border-radius:9px;padding:9px 16px;color:var(--muted);font-weight:700}.tab.active{background:#fff;color:var(--ink);box-shadow:0 2px 8px rgba(20,30,50,.08)}
+    .mode[hidden]{display:none!important}.prompter-wrap{position:relative;border-radius:18px;overflow:hidden;background:#0c1220;border:1px solid #1e2a42}.prompter{height:340px;overflow:auto;padding:130px 8% 150px;color:#fff;font-size:30px;line-height:1.55;scroll-behavior:auto}.prompter p{white-space:pre-line;margin:0}.focus-line{pointer-events:none;position:absolute;left:4%;right:4%;top:50%;height:1px;background:rgba(108,151,255,.5);box-shadow:0 0 30px rgba(79,125,255,.25)}
+    .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}.btn{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:10px;padding:10px 14px;font-weight:700}.btn:hover{background:#f8fafc}.btn.primary{border-color:var(--brand);background:var(--brand);color:#fff}.btn.primary:hover{background:var(--brand2)}.btn.danger{color:var(--danger)}.btn:disabled{opacity:.45;cursor:not-allowed}.spacer{flex:1}.timer{font-variant-numeric:tabular-nums;font-weight:800}.meter{height:8px;background:#e8edf4;border-radius:99px;overflow:hidden;min-width:130px;flex:1;max-width:240px}.meter>i{display:block;height:100%;width:0;background:#2b78e4;transition:width .08s linear}
+    .upload-zone{border:2px dashed #bdc8d7;border-radius:16px;text-align:center;padding:36px 18px;background:#fafbfd}.upload-zone.drag{border-color:var(--brand);background:#f3f7ff}.upload-zone input{max-width:100%}.hint{font-size:13px;color:var(--muted)}.preview{margin-top:14px;padding:14px;background:var(--soft);border-radius:12px}.preview audio{width:100%}
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px}.field label{display:block;font-size:13px;font-weight:750;margin-bottom:6px}.field input{width:100%;border:1px solid var(--line);border-radius:10px;padding:11px 12px;background:#fff}.consent{display:flex;gap:10px;align-items:flex-start;margin:16px 0;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--soft)}.consent input{margin-top:4px}.consent span{font-size:13px;color:#49566c}.submit-row{display:flex;gap:12px;align-items:center}.status{font-size:14px;color:var(--muted)}.status.error{color:var(--danger)}.success{text-align:center;padding:38px 16px}.success-icon{width:64px;height:64px;border-radius:50%;background:#e8f8ef;color:var(--ok);display:grid;place-items:center;font-size:34px;margin:0 auto 16px}.success h2{margin:0 0 8px}.success p{color:var(--muted);margin:0}
+    @media(max-width:700px){.shell{padding:16px 12px 40px}.hero,.card{border-radius:15px;padding:17px}.steps,.tips,.form-grid{grid-template-columns:1fr}.prompter{height:300px;padding:115px 7% 130px;font-size:24px}.tabs{width:100%}.tab{flex:1;padding-inline:8px}.secure{display:none}.meter{order:6;flex-basis:100%;max-width:none}.submit-row{align-items:stretch;flex-direction:column}.submit-row .btn{width:100%}}
+  </style>
+</head>
+<body>
+  <main class="shell" id="app" data-submit-url="{{ url_for('commercial_builder.cb_voice_capture.submit_client_voice_capture', token=capture.token) }}">
+    <div class="brand"><div class="brand-mark">Smart <span>1</span> Marketing</div><div class="secure">Secure client voice submission</div></div>
+
+    <section class="hero">
+      <div class="client">{{ client.name }}</div>
+      <h1>Record your voice for your commercial.</h1>
+      <p>Use the guided teleprompter to record right here, or upload a clean recording you already have. Your file goes securely to the Smart 1 Marketing team.</p>
+    </section>
+
+    <section class="card" id="capture-card">
+      <div class="steps">
+        <div class="step active"><strong>1. Choose</strong>Record here or upload</div>
+        <div class="step"><strong>2. Review</strong>Listen before sending</div>
+        <div class="step"><strong>3. Submit</strong>Send securely to Smart 1</div>
+      </div>
+
+      <div class="tips">
+        <div class="tip"><b>Find a quiet room</b>Turn off music, TVs, fans, and other background noise.</div>
+        <div class="tip"><b>Stay 6–10 inches away</b>Keep a comfortable, consistent distance from your microphone.</div>
+        <div class="tip"><b>Speak naturally</b>Use the friendly, confident voice you would use with a customer.</div>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Voice submission method" style="margin-top:20px;">
+        <button class="tab active" type="button" data-mode="record">Record with teleprompter</button>
+        <button class="tab" type="button" data-mode="upload">Upload an audio file</button>
+      </div>
+
+      <div class="mode" id="record-mode">
+        <div class="prompter-wrap">
+          <div class="prompter" id="prompter"><p>{{ capture.script_text }}</p></div>
+          <div class="focus-line"></div>
+        </div>
+        <div class="toolbar">
+          <button class="btn" type="button" id="font-down" aria-label="Smaller teleprompter text">A−</button>
+          <button class="btn" type="button" id="font-up" aria-label="Larger teleprompter text">A+</button>
+          <button class="btn" type="button" id="scroll-toggle">▶ Start teleprompter</button>
+          <button class="btn" type="button" id="scroll-reset">Reset text</button>
+          <label class="hint" for="scroll-speed">Speed</label>
+          <input id="scroll-speed" type="range" min="1" max="10" value="4" aria-label="Teleprompter speed">
+        </div>
+        <div class="toolbar" style="padding-top:8px;border-top:1px solid var(--line);margin-top:14px;">
+          <button class="btn primary" type="button" id="record-start">● Start recording</button>
+          <button class="btn" type="button" id="record-pause" disabled>Pause</button>
+          <button class="btn" type="button" id="record-stop" disabled>Stop</button>
+          <span class="timer" id="timer">00:00</span>
+          <span class="spacer"></span>
+          <span class="hint">Mic level</span><span class="meter"><i id="meter-fill"></i></span>
+        </div>
+        <p class="hint" id="mic-note">Your browser will ask for microphone permission when you start.</p>
+      </div>
+
+      <div class="mode" id="upload-mode" hidden>
+        <div class="upload-zone" id="drop-zone">
+          <h3 style="margin-top:0;">Upload your recording</h3>
+          <p class="hint">MP3, WAV, M4A, AAC, OGG, WEBM or MP4 — up to 50 MB.</p>
+          <input type="file" id="file-input" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.webm,.mp4">
+        </div>
+      </div>
+
+      <div class="preview" id="preview" hidden>
+        <strong id="preview-title">Review your recording</strong>
+        <audio id="audio-preview" controls></audio>
+        <div class="toolbar"><button type="button" class="btn danger" id="clear-audio">Remove and start over</button><span class="hint" id="file-note"></span></div>
+      </div>
+    </section>
+
+    <section class="card" id="submit-card">
+      <h2 style="margin-top:0;">Send to Smart 1 Marketing</h2>
+      <div class="form-grid">
+        <div class="field"><label for="submitter-name">Your name *</label><input id="submitter-name" autocomplete="name" required></div>
+        <div class="field"><label for="submitter-email">Email (optional)</label><input id="submitter-email" type="email" autocomplete="email"></div>
+      </div>
+      <label class="consent"><input id="consent" type="checkbox"><span>I confirm this is my voice, or I have explicit permission from the person whose voice is being submitted, and I authorize Smart 1 Marketing to use this recording to create and use an AI-generated version of this voice for authorized advertising and marketing.</span></label>
+      <div class="submit-row"><button type="button" class="btn primary" id="submit-btn" disabled>Submit voice sample</button><span class="status" id="submit-status">Record or upload audio to continue.</span></div>
+    </section>
+  </main>
+
+  {{ s1_wait_assets() if s1_wait_assets is defined else '' }}
+  <script>
+  (() => {
+    const $ = (id) => document.getElementById(id);
+    const app = $('app');
+    const tabs = [...document.querySelectorAll('.tab')];
+    const prompter = $('prompter');
+    const audioPreview = $('audio-preview');
+    const submitBtn = $('submit-btn');
+    const submitStatus = $('submit-status');
+    let selectedBlob = null, selectedName = '', selectedType = 'recorded', durationSeconds = 0;
+    let recorder = null, chunks = [], stream = null, audioContext = null, audioAnalyzer = null, meterRAF = 0;
+    let timerStart = 0, timerCarry = 0, timerInterval = 0;
+    let scrollRAF = 0, lastScroll = 0, scrolling = false;
+
+    function setMode(mode){
+      tabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+      $('record-mode').hidden = mode !== 'record';
+      $('upload-mode').hidden = mode !== 'upload';
+    }
+    tabs.forEach(t => t.addEventListener('click', () => setMode(t.dataset.mode)));
+
+    function scrollFrame(ts){
+      if(!scrolling) return;
+      if(!lastScroll) lastScroll = ts;
+      const elapsed = ts - lastScroll;
+      const speed = Number($('scroll-speed').value || 4);
+      prompter.scrollTop += elapsed * (0.012 + speed * 0.014);
+      lastScroll = ts;
+      if(prompter.scrollTop + prompter.clientHeight >= prompter.scrollHeight - 2){ stopScroll(); return; }
+      scrollRAF = requestAnimationFrame(scrollFrame);
+    }
+    function startScroll(){ scrolling = true; lastScroll = 0; $('scroll-toggle').textContent = '❚❚ Pause teleprompter'; scrollRAF = requestAnimationFrame(scrollFrame); }
+    function stopScroll(){ scrolling = false; cancelAnimationFrame(scrollRAF); $('scroll-toggle').textContent = '▶ Start teleprompter'; }
+    $('scroll-toggle').addEventListener('click', () => scrolling ? stopScroll() : startScroll());
+    $('scroll-reset').addEventListener('click', () => { stopScroll(); prompter.scrollTop = 0; });
+    $('font-up').addEventListener('click', () => { const n=parseFloat(getComputedStyle(prompter).fontSize); prompter.style.fontSize=Math.min(44,n+2)+'px'; });
+    $('font-down').addEventListener('click', () => { const n=parseFloat(getComputedStyle(prompter).fontSize); prompter.style.fontSize=Math.max(18,n-2)+'px'; });
+
+    function formatTime(sec){ const s=Math.max(0,Math.floor(sec)); return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'); }
+    function beginTimer(){ timerStart = Date.now(); clearInterval(timerInterval); timerInterval=setInterval(() => $('timer').textContent=formatTime(timerCarry+(Date.now()-timerStart)/1000),250); }
+    function pauseTimer(){ if(timerStart){ timerCarry += (Date.now()-timerStart)/1000; timerStart=0; } clearInterval(timerInterval); $('timer').textContent=formatTime(timerCarry); }
+    function resetTimer(){ clearInterval(timerInterval); timerStart=0; timerCarry=0; $('timer').textContent='00:00'; }
+
+    function bestMime(){
+      if(!window.MediaRecorder) return '';
+      return ['audio/webm;codecs=opus','audio/mp4','audio/webm','audio/ogg;codecs=opus'].find(x => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(x)) || '';
+    }
+    function startMeter(){
+      try{
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(stream);
+        audioAnalyzer = audioContext.createAnalyser(); audioAnalyzer.fftSize=256; source.connect(audioAnalyzer);
+        const data = new Uint8Array(audioAnalyzer.frequencyBinCount);
+        const draw = () => { audioAnalyzer.getByteFrequencyData(data); const avg=data.reduce((a,b)=>a+b,0)/data.length; $('meter-fill').style.width=Math.min(100,avg*1.7)+'%'; meterRAF=requestAnimationFrame(draw); };
+        draw();
+      }catch(_e){}
+    }
+    function stopStream(){
+      cancelAnimationFrame(meterRAF); $('meter-fill').style.width='0%';
+      if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+      if(audioContext){ audioContext.close().catch(()=>{}); audioContext=null; }
+    }
+    async function startRecording(){
+      if(!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder){ $('mic-note').textContent='This browser cannot record audio here. Please use the Upload tab instead.'; setMode('upload'); return; }
+      try{
+        stream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+        chunks=[]; const mime=bestMime(); recorder = mime ? new MediaRecorder(stream,{mimeType:mime}) : new MediaRecorder(stream);
+        recorder.ondataavailable = e => { if(e.data?.size) chunks.push(e.data); };
+        recorder.onstop = () => {
+          const type=recorder.mimeType || mime || 'audio/webm'; selectedBlob=new Blob(chunks,{type}); selectedName=type.includes('mp4')?'client-voice.m4a':type.includes('ogg')?'client-voice.ogg':'client-voice.webm'; selectedType='recorded'; durationSeconds=timerCarry;
+          showPreview(selectedBlob,selectedName); stopStream();
+        };
+        recorder.start(500); resetTimer(); beginTimer(); startMeter();
+        $('record-start').disabled=true; $('record-pause').disabled=false; $('record-stop').disabled=false; $('mic-note').textContent='Recording now. Speak naturally and watch your mic level.';
+      }catch(e){ $('mic-note').textContent='Microphone access was not available. Allow microphone permission or use the Upload tab.'; stopStream(); }
+    }
+    $('record-start').addEventListener('click', startRecording);
+    $('record-pause').addEventListener('click', () => {
+      if(!recorder) return;
+      if(recorder.state==='recording'){ recorder.pause(); pauseTimer(); $('record-pause').textContent='Resume'; }
+      else if(recorder.state==='paused'){ recorder.resume(); beginTimer(); $('record-pause').textContent='Pause'; }
+    });
+    $('record-stop').addEventListener('click', () => {
+      if(recorder && recorder.state!=='inactive'){ pauseTimer(); recorder.stop(); }
+      $('record-start').disabled=false; $('record-pause').disabled=true; $('record-stop').disabled=true; $('record-pause').textContent='Pause'; stopScroll();
+    });
+
+    function showPreview(blob,name){
+      if(audioPreview.src) URL.revokeObjectURL(audioPreview.src);
+      audioPreview.src=URL.createObjectURL(blob); $('preview').hidden=false; $('file-note').textContent=name;
+      submitBtn.disabled=false; submitStatus.textContent='Listen to the sample, then submit when you are happy with it.'; submitStatus.classList.remove('error');
+    }
+    function clearAudio(){
+      selectedBlob=null; selectedName=''; durationSeconds=0; $('preview').hidden=true; audioPreview.removeAttribute('src'); audioPreview.load(); $('file-input').value=''; resetTimer(); submitBtn.disabled=true; submitStatus.textContent='Record or upload audio to continue.';
+    }
+    $('clear-audio').addEventListener('click', clearAudio);
+
+    function chooseFile(file){
+      if(!file) return;
+      if(file.size>50*1024*1024){ submitStatus.textContent='That file is larger than 50 MB.'; submitStatus.classList.add('error'); return; }
+      selectedBlob=file; selectedName=file.name || 'client-voice.mp3'; selectedType='uploaded'; durationSeconds=0; showPreview(file,selectedName);
+      const probe=document.createElement('audio'); probe.preload='metadata'; probe.src=URL.createObjectURL(file); probe.onloadedmetadata=()=>{ if(Number.isFinite(probe.duration)) durationSeconds=probe.duration; URL.revokeObjectURL(probe.src); };
+    }
+    $('file-input').addEventListener('change', e => chooseFile(e.target.files?.[0]));
+    const drop=$('drop-zone');
+    ['dragenter','dragover'].forEach(evt=>drop.addEventListener(evt,e=>{e.preventDefault();drop.classList.add('drag')}));
+    ['dragleave','drop'].forEach(evt=>drop.addEventListener(evt,e=>{e.preventDefault();drop.classList.remove('drag')}));
+    drop.addEventListener('drop',e=>chooseFile(e.dataTransfer?.files?.[0]));
+
+    submitBtn.addEventListener('click', async () => {
+      if(!selectedBlob) return;
+      const name=$('submitter-name').value.trim();
+      if(!name){ submitStatus.textContent='Please enter your name.'; submitStatus.classList.add('error'); $('submitter-name').focus(); return; }
+      if(!$('consent').checked){ submitStatus.textContent='Please confirm the voice-use permission.'; submitStatus.classList.add('error'); $('consent').focus(); return; }
+      const finishWait = window.S1Wait
+        ? S1Wait.busy(submitBtn, {kind:'wait', label:'Sending your voice sample…'})
+        : (() => { submitBtn.disabled=true; return () => { submitBtn.disabled=false; }; })();
+      submitStatus.textContent='Sending your voice sample…'; submitStatus.classList.remove('error');
+      const fd=new FormData(); fd.append('audio',selectedBlob,selectedName); fd.append('source_type',selectedType); fd.append('submitter_name',name); fd.append('submitter_email',$('submitter-email').value.trim()); fd.append('duration_seconds',String(durationSeconds||0)); fd.append('consent','true');
+      try{
+        const res=await fetch(app.dataset.submitUrl,{method:'POST',body:fd}); const data=await res.json().catch(()=>({}));
+        if(!res.ok || !data.ok) throw new Error(data.error || 'We could not send the recording.');
+        $('capture-card').hidden=true; $('submit-card').innerHTML='<div class="success"><div class="success-icon">✓</div><h2>Voice sample received</h2><p>Thank you. Your recording has been securely sent to Smart 1 Marketing.</p></div>';
+      }catch(e){ submitStatus.textContent=e.message || 'We could not send the recording.'; submitStatus.classList.add('error'); }
+      finally { finishWait(); }
+    });
+
+    window.addEventListener('beforeunload',()=>{ stopStream(); if(audioPreview.src) URL.revokeObjectURL(audioPreview.src); });
+  })();
+  </script>
+</body>
+</html>

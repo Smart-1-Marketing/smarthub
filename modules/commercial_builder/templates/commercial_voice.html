@@ -36,6 +36,7 @@
      commercial / broadcast / promo in the words ElevenLabs publishes against
      each voice, and a screen that says so lets somebody pick differently when
      none of those words fit their client. #}
+  <div id="customer-voice-picker" style="margin:16px 0"></div>
   <div id="voice-wants"></div>
 
   <div class="cb-flex-between" style="margin:6px 0 12px;">
@@ -53,6 +54,8 @@
     </div>
   </details>
 </div>
+
+{% include "_voice_capture_panel.html" %}
 
 <div class="cb-card">
   <h3>How it's read
@@ -155,4 +158,7 @@
 </div>
 
 {% endblock %}
-{% block extra_scripts %}<script src="{{ url_for('commercial_builder.static', filename='js/voice.js') }}"></script>{% endblock %}
+{% block extra_scripts %}
+<script src="{{ url_for('commercial_builder.static', filename='js/voice.js') }}"></script>
+<script src="{{ url_for('commercial_builder.static', filename='js/client_voice_capture.js') }}"></script>
+{% endblock %}
