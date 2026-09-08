@@ -476,6 +476,8 @@ def api_remove():
             "dimensions": dims,
             "pre_resize": pre_info,
             "billed": billed,
+            "cached": bool(cached),
+            "preview": rb_size == "preview",
         })
 
     if not results:

@@ -246,7 +246,7 @@ function render(){
     <div class="res">
       <div class="ph"><img src="${r.image}" alt=""></div>
       <div class="b">
-        <div class="nm">${esc(r.name)}${r.billed?'':' <span class="cached">cached</span>'}</div>
+        <div class="nm">${esc(r.name)}${r.cached?' <span class="cached">cached</span>':r.preview?' <span class="cached">free preview</span>':''}</div>
         <div class="meta">${esc(r.original_name)}</div>
         <div class="meta">${kb(r.original_bytes)} → ${kb(r.bytes)}${
           r.dimensions ? ' · '+r.dimensions[0]+'×'+r.dimensions[1] : ''}</div>

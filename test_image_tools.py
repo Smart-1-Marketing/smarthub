@@ -122,6 +122,8 @@ class BackgroundCreditTests(unittest.TestCase):
                 self.assertEqual(body["credits_used"], credits)
                 self.assertEqual(body["preview_calls"], previews)
                 self.assertEqual(body["results"][0]["billed"], bool(credits))
+                self.assertEqual(body["results"][0]["cached"], cached)
+                self.assertEqual(body["results"][0]["preview"], quality == "preview")
                 self.assertEqual(record.call_count, credits)
                 self.assertEqual(post.call_count, 0 if cached else 1)
 
