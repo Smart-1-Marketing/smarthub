@@ -11,3 +11,7 @@
 [data-radio-library] [hidden]{display:none!important}
 [data-radio-library] [data-more]{margin-top:12px}
 @media(max-width:650px){.radio-library-results{grid-template-columns:1fr}}
+
+[data-radio-library] summary{cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:16px}
+[data-radio-library] summary span{font-size:13px;color:#165ba8;text-decoration:underline}
+[data-radio-library] details[open] summary{padding-bottom:14px;border-bottom:1px solid #e2e8f0;margin-bottom:14px}

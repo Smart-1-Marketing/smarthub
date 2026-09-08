@@ -683,6 +683,14 @@ check("and lists the attached one under client",
 
 
 # =====================================================================
+section("Fan Radio navigation follows real work, not disabled controls")
+import subprocess
+navigation_check = subprocess.run(["node", str(ROOT / "test_radio_navigation.js")], cwd=ROOT,
+                                  capture_output=True, text=True)
+check("saved projects navigate and request failures release the lock", navigation_check.returncode, 0)
+if navigation_check.returncode:
+    print(navigation_check.stdout, navigation_check.stderr)
+
 section("Saved radio libraries paginate and search all stored work")
 from unittest.mock import patch
 with patch.object(fan_store, "index", return_value=[

@@ -380,6 +380,7 @@ async function start(){
     };
     const created = await api('/api/projects', {method:'POST', body:JSON.stringify(payload)});
     P = created.project;
+    window.dispatchEvent(new CustomEvent('radio-project-opened', {detail:{id:P.id}}));
     location.hash = 'p=' + P.id;
     const briefed = await api('/api/projects/'+P.id+'/analyse', {method:'POST'});
     P = briefed.project;
@@ -1121,6 +1122,7 @@ loadMixConfig();
   try{
     const d = await api('/api/projects/'+m[1]);
     P = d.project;
+    window.dispatchEvent(new CustomEvent('radio-project-opened', {detail:{id:P.id}}));
     setMode(P.spec?'spec':'client');
     ['company','project_name','team_member','home_url','landing_url','promotion','disclaimer','phone'].forEach(k=>{ if($(k)) $(k).value = P[k]||''; });
     if($('include_phone')) { $('include_phone').value=P.include_phone?'yes':'no'; togglePhone(); }
