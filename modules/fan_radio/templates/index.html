@@ -82,6 +82,8 @@
   .wizard-actions{display:flex;justify-content:space-between;gap:12px;margin:18px 0}
   @media(max-width:600px){.steps button{flex:1}.wrap{padding:20px 14px}}
 </style>
+<link rel="stylesheet" href="/assets/radio-library.css">
+<script src="/assets/radio-library.js" defer></script>
 </head>
 <body data-module="fan_radio">
 <div class="wrap s1d-page">
@@ -93,6 +95,7 @@
     link where they listen, approve, or tell you what to change.
     <a class="link" href="/tools/fan-radio/library">Open the library →</a></p>
 
+  <section data-radio-library="fan" aria-label="Saved radio projects"></section>
   <nav class="steps" id="steps" aria-label="Builder progress"></nav><p class="hint" id="wizardMsg" role="status"></p>
 
   <!-- 1 ------------------------------------------------------------- -->
@@ -335,6 +338,7 @@
     return fetch(BASE + path, opts).then(function(r){
       return r.json().then(function(j){
         if(!r.ok || j.ok === false) throw new Error(j.error || "That didn't work.");
+        if ((opts.method || 'GET').toUpperCase() !== 'GET') window.dispatchEvent(new Event('radio-library-changed'));
         return j; });
     });
   }
@@ -1022,6 +1026,7 @@
               var err = new Error(data.error || ("Request failed ("+res.status+")"));
               err.payload = data; throw err;
             }
+            window.dispatchEvent(new Event('radio-library-changed'));
             return data; });
       });
   }
