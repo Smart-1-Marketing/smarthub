@@ -98,7 +98,7 @@ def _capture_url(token):
 
 def _public_request(token):
     row = VoiceCaptureRequest.query.filter_by(token=token).first()
-    if row is None or not row.is_available():
+    if row is None or not row.still_open():
         abort(404)
     return row
 
@@ -123,7 +123,7 @@ def _request_values(data):
 
 def _as_item(row):
     item = row.to_dict()
-    item["url"] = _capture_url(row.token) if row.is_available() else ""
+    item["url"] = _capture_url(row.token) if row.still_open() else ""
     return item
 
 
