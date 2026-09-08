@@ -44,7 +44,6 @@ def section(title):
     print(f"\n{title}\n{'-' * len(title)}")
 
 
-from hub import weather_triggers as wt                     # noqa: E402
 from modules.weather_setup import copy as wx_copy           # noqa: E402
 from modules.weather_setup import store as wx_store         # noqa: E402
 from modules.weather_setup import images as wx_images       # noqa: E402
@@ -265,9 +264,14 @@ check("the detail sentence is kept", pick["condition_detail"], "high 28F")
 check("a toggle from unset to active logs an event",
      any(e["kind"] == "trigger_toggled" for e in row2["events"]), True)
 
-check("a missing campaign is a no-op, not a crash",
-     wx_store.update_trigger_state("gone", "cold-snap", active=True, measured=True,
-                                   detail="", trigger_state={}) is None, True)
+_crashed = False
+try:
+    wx_store.update_trigger_state("gone", "cold-snap", active=True, measured=True,
+                                  detail="", trigger_state={})
+except Exception:                                            # noqa: BLE001
+    _crashed = True
+check("a missing campaign never raises", _crashed, False)
+check("and nothing was created for it", wx_store.get("gone"), None)
 
 check("approved_campaigns only lists approved/changed campaigns with a zip",
      fresh["token"] in [c["token"] for c in wx_store.approved_campaigns()], False)

@@ -107,7 +107,6 @@
   var campaign = BOOT.campaign;
   var stepIndex = 0;
   var picked = (campaign.picks || []).map(function (p) { return p.trigger_id; });
-  var activeTrigger = null;
 
   var root = document.getElementById("step-root");
   var banner = document.getElementById("banner");
@@ -129,16 +128,6 @@
     banner.textContent = message;
   }
   function hideBanner() { banner.className = "banner"; }
-
-  function refresh() {
-    api("/api/state").then(function (res) {
-      if (res.data.ok) {
-        campaign = res.data.campaign;
-        picked = (campaign.picks || []).map(function (p) { return p.trigger_id; });
-        render();
-      }
-    });
-  }
 
   function trigOf(id) {
     for (var i = 0; i < CATALOG.length; i++) if (CATALOG[i].id === id) return CATALOG[i];

@@ -158,9 +158,9 @@ def update_trigger_state(token: str, trigger_id: str, *, active: bool | None,
     try:
         jsonstore.update_json(_path(token), _mutate)
     except _MutationFailed:
-        pass
+        pass  # the campaign or the pick is gone; nothing left to record against
     except Exception:                                      # noqa: BLE001
-        pass
+        pass  # a scheduler write must never take the sweep down with it
 
 
 def create(*, client: str, vertical: str = "restaurant", lead_id: str = "",
