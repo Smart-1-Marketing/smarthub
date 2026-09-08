@@ -286,7 +286,7 @@ class HubBar:
         _bar = render_sidebar(self.active, is_admin=_viewer_is_admin(environ),
                               collapsed_default=collapses_by_default(_full))
         _scripts = (b'<script defer src="/hub-help.js"></script>'
-                    b'<script defer data-hub-inbox src="/assets/hub-inbox.js"></script>'
+                    b'<script defer data-hub-inbox src="/assets/hub-inbox.js?v=account-menu-1"></script>'
                     b'<script defer src="/hub-demo.js"></script>'
                     b'<script defer src="/hub-crumbs.js"></script>'
                     b'<script defer src="/hub-thinking.js"></script>'

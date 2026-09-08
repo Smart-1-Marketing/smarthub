@@ -279,7 +279,7 @@
   function init() {
     if (!document.querySelector('script[data-hub-inbox]')) {
       var inboxScript = document.createElement('script');
-      inboxScript.src = '/assets/hub-inbox.js';
+      inboxScript.src = '/assets/hub-inbox.js?v=account-menu-1';
       inboxScript.dataset.hubInbox = '1';
       document.head.appendChild(inboxScript);
     }

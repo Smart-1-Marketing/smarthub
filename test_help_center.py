@@ -117,7 +117,7 @@ class HelpCenterTests(unittest.TestCase):
         from pathlib import Path
         root = Path(__file__).parent
         for file in ['hub/templates/base.html', 'hub/__init__.py', 'wsgi.py']:
-            self.assertIn('data-hub-inbox src="/assets/hub-inbox.js"', (root / file).read_text(encoding='utf-8'))
+            self.assertIn('data-hub-inbox src="/assets/hub-inbox.js?v=account-menu-1"', (root / file).read_text(encoding='utf-8'))
 
 
 if __name__ == '__main__':
