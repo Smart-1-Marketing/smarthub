@@ -104,7 +104,14 @@ def ask(prompt, *, module, purpose="", max_output_tokens=6000, search=False,
         payload["tools"] = [{"type": "web_search"}]
 
     r = send(payload, api_key)
-    if r.status_code == 400 and search:
+    try:
+        error = r.json().get("error") or {} if r.status_code == 400 else {}
+    except (ValueError, AttributeError):
+        error = {}
+    unsupported_search = ((str(error.get("param", "")).startswith("tools")
+                           or "web_search" in str(error.get("message", "")))
+                          and "support" in str(error.get("message", "")).lower())
+    if r.status_code == 400 and search and unsupported_search:
         # The model would not take the tool. The question is still answerable.
         # Only on a 400: that is "this request is not something I can accept",
         # which is the tool refusal. A 401 is a key, a 429 is a rate limit and
@@ -128,6 +135,8 @@ def ask(prompt, *, module, purpose="", max_output_tokens=6000, search=False,
         pass
 
     text = text_of(data)
+    if text and data.get("status") == "incomplete":
+        raise RuntimeError("The model stopped before it finished. The incomplete answer was not used.")
     if not text:
         # Empty is never a real answer, whatever the reported status: a
         # caller reading it as one is how a rewrite comes back blank and

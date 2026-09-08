@@ -23,6 +23,7 @@ import re
 from ..config import (VO_WORD_TARGETS, get_structure, DEFAULT_QR_AUDIO_CUE,
                       DEFAULT_SHOT_GRAMMAR, SHOT_SIZES, SHOT_ANGLES, SHOT_MOVES)
 from . import abcd_service
+from hub.ai_models import model as profile_model
 
 _MODEL = os.environ.get("OPENAI_TEXT_MODEL", "gpt-4o-mini")
 _IMAGE_MODEL = os.environ.get("OPENAI_IMAGE_MODEL", "gpt-image-1")
@@ -58,7 +59,7 @@ def _chat_json(system, user, max_tokens=1500):
     """Call the Chat Completions API and parse a JSON object response."""
     client = _client()
     resp = client.chat.completions.create(
-        model=_MODEL,
+        model=profile_model("commercial.text"),
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         response_format={"type": "json_object"},
         max_tokens=max_tokens,
@@ -749,7 +750,7 @@ def generate_ai_stills(visual_description, client_profile, option_count=2):
     options = []
     for index in range(option_count):
         try:
-            resp = client.images.generate(model=_IMAGE_MODEL, prompt=prompt,
+            resp = client.images.generate(model=profile_model("commercial.image"), prompt=prompt,
                                           size="1536x1024", n=1)
             # `hub/ai.note_sdk_usage()` records the text calls by reading
             # `.usage`, which an images response does not carry — so this path
@@ -782,7 +783,7 @@ def _meter_image(ok=True):
     """One generated still, counted. Never raises."""
     try:
         from hub import quotas as _q
-        _q.record_image(module="commercial_builder", model=_IMAGE_MODEL, ok=ok)
+        _q.record_image(module="commercial_builder", model=profile_model("commercial.image"), ok=ok)
     except Exception:                                    # noqa: BLE001
         pass
 
