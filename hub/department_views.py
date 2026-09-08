@@ -27,13 +27,14 @@ empty is not an error state, it is "nobody has curated this one yet."
 Two JSON files under `jsonstore.data_dir("department_views")`, mirrored the
 way every durable JSON store in this Hub is (`hub/jsonstore.py`): departments
 (each carrying its own ordered block list) in one file, and the
-email -> department-id assignment map in the other — the `hub/client_owner.py`
-split, because the two are different kinds of statement and keeping them in
-one file would make "which department is Todd in" and "what does Sales' view
-contain" two questions answered from the same accidental blob. Nothing here
-is a SQLAlchemy model: `create_all()` never adds a column to an existing
-table, and there is no existing table this belongs on, so a small hand-rolled
-overlay costs less than a migration for a feature this size.
+email -> department-id-list assignment map in the other — the
+`hub/client_owner.py` split, because the two are different kinds of statement
+and keeping them in one file would make "which departments is Todd on" and
+"what does Sales' view contain" two questions answered from the same
+accidental blob. Nothing here is a SQLAlchemy model: `create_all()` never adds
+a column to an existing table, and there is no existing table this belongs
+on, so a small hand-rolled overlay costs less than a migration for a feature
+this size.
 
 ## The rules, each a way this goes quietly wrong otherwise
 
@@ -43,6 +44,19 @@ this roster share a first name, so a display name identifies nobody and an
 email identifies exactly one account. The id is a slug derived from the name
 at creation and kept even if the name is edited later, the way a URL segment
 in this Hub always outlives the label typed over it.
+
+**A person can be on more than one department's view, because a real desk
+often is.** Somebody who covers both Sales and SEO does not have to be filed
+under one and quietly lose the other. Assignment is a list, and My View picks
+one to display and offers the rest as a switch — never a merge of the two
+department's blocks into one screen, which would make it impossible for
+either department's curator to know what somebody is actually seeing.
+
+**Choosing which of your own assigned views to look at is not assigning
+yourself one.** The picker on My View only ever offers departments an admin
+already put you on; putting somebody on a department at all is exclusively
+the admin editor's write path (`hub/access.py`'s `UTILITY_PREFIXES` gates it),
+and nothing reachable from My View can call it.
 
 **A block is validated on the way in, never trusted on the way out.** A tile's
 `href` is refused unless it starts with `/`, `http://` or `https://` — a
@@ -134,8 +148,22 @@ def _save_departments(rows: list[dict]) -> bool:
 
 
 def _load_assignments() -> dict:
+    """email -> list of department ids.
+
+    A row written before a person could be on more than one department held
+    a bare string; read as a one-item list rather than migrated, the
+    `audit.LOG_NAMES` rule about a spelling already on disk. Nothing here
+    writes the old shape back."""
     data = jsonstore.read_json(_assign_path(), default={})
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, list[str]] = {}
+    for email, value in data.items():
+        if isinstance(value, list):
+            out[email] = [v for v in value if isinstance(v, str) and v]
+        elif isinstance(value, str) and value:
+            out[email] = [value]
+    return out
 
 
 def _save_assignments(data: dict) -> bool:
@@ -239,9 +267,16 @@ def delete_department(dept_id: str, actor_email: str = "") -> int:
         _save_departments(keep)
 
         assignments = _load_assignments()
-        affected = [email for email, d in assignments.items() if d == dept_id]
-        for email in affected:
-            assignments.pop(email, None)
+        affected = []
+        for email, dept_ids in list(assignments.items()):
+            if dept_id not in dept_ids:
+                continue
+            affected.append(email)
+            remaining = [d for d in dept_ids if d != dept_id]
+            if remaining:
+                assignments[email] = remaining
+            else:
+                assignments.pop(email, None)
         if affected:
             _save_assignments(assignments)
     _log("department_deleted", actor=actor_email, detail=name,
@@ -316,37 +351,66 @@ def save_blocks(dept_id: str, blocks: list, actor_email: str = "") -> tuple[list
 # Assignments
 # ---------------------------------------------------------------------------
 
-def assignment_for(email: str) -> str | None:
+MAX_DEPARTMENTS_PER_PERSON = 20
+
+
+def assignments_for(email: str) -> list[str]:
+    """Every department id this email is on, in no particular order — a
+    caller wanting them in display order goes through `list_departments()`
+    filtered to this set, which is what My View's picker does."""
     email = (email or "").strip().lower()
     if not email:
-        return None
-    return _load_assignments().get(email)
+        return []
+    return list(_load_assignments().get(email, []))
 
 
 def assignment_counts() -> dict[str, int]:
     counts: dict[str, int] = {}
-    for dept_id in _load_assignments().values():
-        counts[dept_id] = counts.get(dept_id, 0) + 1
+    for dept_ids in _load_assignments().values():
+        for dept_id in dept_ids:
+            counts[dept_id] = counts.get(dept_id, 0) + 1
     return counts
 
 
-def set_assignment(email: str, dept_id: str | None, actor_email: str = "") -> None:
+def set_assignment(email: str, dept_id: str, on: bool, actor_email: str = "") -> list[str]:
+    """Put a person on a department's view, or take them off it — one
+    department at a time, so the admin editor's checkboxes each make one
+    call rather than resending a whole roster row. Returns the person's
+    resulting list of department ids.
+
+    This is the only write path onto an assignment; nothing reachable from
+    My View calls it, which is what keeps "choose which of your own views to
+    look at" from becoming "assign yourself to a department"."""
     email = (email or "").strip().lower()
     if not email:
         raise DepartmentViewError("Nobody was named to assign.")
-    dept_id = (dept_id or "").strip() or None
-    if dept_id and get_department(dept_id) is None:
+    dept_id = (dept_id or "").strip()
+    if not dept_id:
+        raise DepartmentViewError("No department was named.")
+    if get_department(dept_id) is None:
         raise DepartmentViewError("That department no longer exists.")
 
     with _LOCK:
         assignments = _load_assignments()
-        if dept_id is None:
-            assignments.pop(email, None)
+        current = list(assignments.get(email, []))
+        if on:
+            if dept_id not in current:
+                if len(current) >= MAX_DEPARTMENTS_PER_PERSON:
+                    raise DepartmentViewError(
+                        f"{email} is already on {MAX_DEPARTMENTS_PER_PERSON} "
+                        "department views — take them off one before adding "
+                        "another.")
+                current.append(dept_id)
         else:
-            assignments[email] = dept_id
+            current = [d for d in current if d != dept_id]
+        if current:
+            assignments[email] = current
+        else:
+            assignments.pop(email, None)
         _save_assignments(assignments)
     _log("assignment_changed", actor=actor_email, detail=email,
-         department=dept_id or "(none)")
+         department=dept_id, on=on)
+    return current
 
 
 # ---------------------------------------------------------------------------
@@ -374,7 +438,7 @@ def roster() -> tuple[list[dict], str]:
             "email": email,
             "name": account.name or account.email,
             "role": account.role,
-            "department_id": assignments.get(email),
+            "department_ids": list(assignments.get(email, [])),
         })
     return rows, ""
 

@@ -9,10 +9,12 @@ the other is the one combination that quietly reads yesterday's rows.
 
 What is worth asserting here: block validation refuses what would otherwise
 be stored and shown to a whole department (a `javascript:` href, a blank
-label, more than the cap); deleting a department actually un-assigns the
-people on it rather than leaving a dangling id; a roster read that cannot
-reach the account table says so rather than drawing an empty company; and the
-wiring -- the editor is behind Utilities, reading your own view is not, and
+label, more than the cap); a person can be on more than one department and
+`assignment_counts()` counts them toward every one; deleting a department
+un-assigns only that department, not any others a person is also on; a
+roster read that cannot reach the account table says so rather than drawing
+an empty company; and the wiring -- the editor is behind Utilities, reading
+your own view is not, assigning is reachable only through the admin API, and
 the blueprint is actually guarded rather than answering 200 to a stranger.
 """
 import os
@@ -136,35 +138,77 @@ with app.app_context():
                dropped2 >= 10)
 
     print("\n-- assignment --")
-    dv.set_assignment(rep.email, sales["id"], actor_email=todd.email)
-    check("the rep is on Sales", dv.assignment_for(rep.email), sales["id"])
+    dv.set_assignment(rep.email, sales["id"], on=True, actor_email=todd.email)
+    check("the rep is on Sales", dv.assignments_for(rep.email), [sales["id"]])
     counts = dv.assignment_counts()
     check("the count reflects it", counts.get(sales["id"]), 1)
 
     try:
-        dv.set_assignment(rep.email, "does-not-exist")
+        dv.set_assignment(rep.email, "does-not-exist", on=True)
         check_true("assigning to an unknown department is refused", False)
     except dv.DepartmentViewError:
         check_true("assigning to an unknown department is refused", True)
 
-    print("\n-- deleting a department un-assigns its people --")
+    print("\n-- a person can be on more than one department --")
+    dv.set_assignment(rep.email, creative["id"], on=True, actor_email=todd.email)
+    both = set(dv.assignments_for(rep.email))
+    check("the rep is on both departments now", both, {sales["id"], creative["id"]})
+    counts2 = dv.assignment_counts()
+    check("Sales still counts the rep", counts2.get(sales["id"]), 1)
+    check("Creative counts the rep too", counts2.get(creative["id"]), 1)
+
+    dv.set_assignment(rep.email, creative["id"], on=False, actor_email=todd.email)
+    check("taking them off Creative leaves Sales alone",
+          dv.assignments_for(rep.email), [sales["id"]])
+
+    # put them back on both for the delete-cascade check below
+    dv.set_assignment(rep.email, creative["id"], on=True, actor_email=todd.email)
+
+    print("\n-- deleting a department un-assigns only that department --")
     unassigned = dv.delete_department(sales["id"], actor_email=todd.email)
-    check("one person was un-assigned", unassigned, 1)
+    check("one person was affected", unassigned, 1)
     check("the department is gone", dv.get_department(sales["id"]), None)
-    check("the rep is no longer assigned anywhere",
-          dv.assignment_for(rep.email), None)
+    check("the rep is still on Creative",
+          dv.assignments_for(rep.email), [creative["id"]])
 
     print("\n-- the roster reads real accounts --")
     rows, error = dv.roster()
     check("no error reading the roster", error, "")
-    emails = {r["email"] for r in rows}
-    check_true("todd is on it", todd.email in emails)
-    check_true("the rep is on it", rep.email in emails)
+    by_email = {r["email"]: r for r in rows}
+    check_true("todd is on it", todd.email in by_email)
+    check_true("the rep is on it", rep.email in by_email)
+    check("the roster reports the rep's departments as a list",
+          by_email[rep.email]["department_ids"], [creative["id"]])
 
     print("\n-- the catalog reuses QA Tasks' own picker --")
     groups = dv.catalog()
     check_true("it returns at least one group", len(groups) > 0)
 
+    print("\n-- My View's own picker logic --")
+    from hub import department_views_routes as dvr
+
+    ops = dv.create_department("Operations", actor_email=todd.email)
+    dv.set_assignment(rep.email, ops["id"], on=True, actor_email=todd.email)
+    real_who = dvr._who
+    dvr._who = lambda: (rep.email, "A Rep", False)
+    try:
+        mine = dvr._my_departments()
+        check("the rep's picker lists both their departments in name order",
+              [d["id"] for d in mine], sorted([creative["id"], ops["id"]],
+              key=lambda i: dv.get_department(i)["name"].lower()))
+        picked_default = dvr._selected(mine, "")
+        check_true("with nothing requested, the first is picked",
+                   picked_default["id"] == mine[0]["id"])
+        picked_real = dvr._selected(mine, creative["id"])
+        check("a real request for one of your own is honored",
+              picked_real["id"], creative["id"])
+        picked_bad = dvr._selected(mine, "not-mine-or-real")
+        check_true("an unknown or unowned request falls back to the first",
+                   picked_bad["id"] == mine[0]["id"])
+    finally:
+        dvr._who = real_who
+
+    dv.delete_department(ops["id"], actor_email=todd.email)
     dv.delete_department(creative["id"], actor_email=todd.email)
 
 # ---------------------------------------------------------------------------
@@ -191,8 +235,30 @@ check("the editor renders once signed in",
 body = signed.get("/api/department-views/mine").get_json()
 check_true("the mine API answers ok", body.get("ok"))
 check("nobody is assigned to this fresh session", body.get("department"), None)
+check("...nor any departments at all", body.get("departments"), [])
+check("browsing an unknown department is a 404",
+      signed.get("/views/does-not-exist").status_code, 404)
+
+print("\n-- assigning is reachable only through the admin API --")
+with app.app_context():
+    hr = dv.create_department("Human Resources", actor_email="todd@smart1marketing.com")
+
+resp = signed.post("/api/department-views/admin/assignments", json={
+    "email": "rep@smart1marketing.com", "department_id": hr["id"], "on": True})
+check_true("the on=True write succeeds", resp.get_json().get("ok"))
+roster_body = signed.get("/api/department-views/admin/roster").get_json()
+rep_row = next(p for p in roster_body["people"] if p["email"] == "rep@smart1marketing.com")
+check("the roster reflects it", rep_row["department_ids"], [hr["id"]])
+
+resp = signed.post("/api/department-views/admin/assignments", json={
+    "email": "rep@smart1marketing.com", "department_id": hr["id"], "on": False})
+check_true("the on=False write succeeds", resp.get_json().get("ok"))
+roster_body2 = signed.get("/api/department-views/admin/roster").get_json()
+rep_row2 = next(p for p in roster_body2["people"] if p["email"] == "rep@smart1marketing.com")
+check("and taking it off is reflected too", rep_row2["department_ids"], [])
 
 with app.app_context():
+    dv.delete_department(hr["id"], actor_email="todd@smart1marketing.com")
     unread = dv.list_departments()
     check("no departments are left dangling from the test run", unread, [])
 
