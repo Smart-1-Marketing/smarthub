@@ -487,14 +487,23 @@ REGISTRY: list[Help] = [
        "company\u2019s creative into another company\u2019s library is "
        "billed and cannot be undone from the gallery. A near name is offered "
        "as a \u201cdid you mean\u201d and never filled in for you."),
-    _h("hub.ad_assets.access", "Why it may say Drive is refused",
-       "The Hub's connected Google logins were consented before Drive was "
-       "asked for, and Google never widens a token that already exists: the "
-       "grant is whatever the person agreed to on the day they connected. So "
-       "an account that has not been reconnected since cannot read Drive at "
-       "all, and this page says so rather than reporting an empty folder. "
-       "Reconnecting the login on Google Finder re-consents it, which is one "
-       "click."),
+    _h("hub.ad_assets.access", "Which Google login this reads, and why it matters",
+       "Campaign creative is shared with the ad ops Google login, and two "
+       "connected logins do not see one Drive \u2014 a folder shared with one "
+       "of them answers \u201cnot found\u201d to the other. This tool used to "
+       "read as whichever connected account answered first, which on this "
+       "Hub is a different account entirely: it signed in perfectly, said so "
+       "in green, and then every single folder was refused, which reads as a "
+       "page of broken creative links rather than as the wrong login. It "
+       "names the account now and does not quietly fall back to another one. "
+       "Where more than one Google account is connected you can switch which "
+       "one it reads as, and the copy then uses the same one the check "
+       "passed with. The other reason Drive can be refused is older: the "
+       "Hub's Google logins were consented before Drive was asked for, and "
+       "Google never widens a token that already exists \u2014 so an account "
+       "that has not been reconnected since cannot read Drive at all. "
+       "Reconnecting that login on Google Finder re-consents it, which is "
+       "one click."),
     _h("hub.ad_assets.dryrun", "Look before it copies",
        "The dry run authenticates, walks every folder and lists exactly what "
        "would be copied and what would be skipped, without downloading a byte "

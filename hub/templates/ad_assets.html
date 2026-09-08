@@ -121,19 +121,58 @@ async function api(url, opts) {
 
 /* Drive access first, and said out loud. A page that quietly lists nothing
    because the login was consented before Drive was asked for is the exact
-   failure this tool exists downstream of. */
+   failure this tool exists downstream of.
+
+   And *which* login, because that is the half that was missing: the tool
+   read as whichever connected account answered first, said so in green, and
+   then failed on every folder — which reads as broken creative links rather
+   than as the wrong Drive. `account` is the override, kept for the run so
+   the check and the copy cannot use different logins. */
+let account = "", accountOk = false;
+
 async function loadAccess(){
-  const a = await api("/api/ad-assets/access");
   const box = $("access");
+  const url = "/api/ad-assets/access"
+    + (account ? "?account=" + encodeURIComponent(account) : "");
+  let a;
+  try { a = await api(url); }
+  catch (e) {
+    box.innerHTML = `<div class="note bad">Google did not answer, so this is `
+      + `not a report that Drive cannot be read.</div>`;
+    accountOk = false;
+    return false;
+  }
+  accountOk = !!a.ok;
   if (a.ok) {
-    box.innerHTML = `<div class="note good">Reading Drive as <b>${esc(a.email)}</b>.</div>`;
+    const asked = a.wanted || "";
+    const other = asked && a.email && asked.toLowerCase() !== a.email.toLowerCase()
+      ? ` <span class="muted">— you asked for ${esc(asked)}</span>` : "";
+    box.innerHTML = `<div class="note good">Reading Drive as `
+      + `<b>${esc(a.email)}</b>.${other}${accountPicker(a)}</div>`;
     return true;
   }
   const fix = a.reason === "refused" || a.reason === "reauth"
     ? ' <a href="/google/login">Reconnect that login on Google Finder &rarr;</a>' : "";
-  box.innerHTML = `<div class="note bad"><b>Drive cannot be read.</b> `
-    + esc(a.detail || a.error || "") + fix + `</div>`;
+  box.innerHTML = `<div class="note bad"><b>Drive cannot be read`
+    + (a.wanted ? ` as ${esc(a.wanted)}` : "") + `.</b> `
+    + esc(a.detail || a.error || "") + fix + accountPicker(a) + `</div>`;
   return false;
+}
+
+/* The connected logins, offered rather than left to be guessed at. Two
+   accounts do not see one Drive, so "adops is not connected" is only half an
+   answer without "these are". Drawn only where there is a second one to
+   choose: a picker with one entry is furniture. */
+function accountPicker(a){
+  const all = a.connected || [];
+  if (all.length < 2) return "";
+  const cur = (account || a.email || a.wanted || "").toLowerCase();
+  return `<div style="margin-top:8px">`
+    + `<label class="muted" style="font-size:13px">Read Drive as </label>`
+    + `<select id="acct">`
+    + all.map(e => `<option value="${esc(e)}"${e.toLowerCase() === cur ? " selected" : ""}>`
+                 + `${esc(e)}</option>`).join("")
+    + `</select> <button class="btn" id="btnAcct">Use this login</button></div>`;
 }
 
 function rowsTable(title, rows, cls){
@@ -145,7 +184,14 @@ function rowsTable(title, rows, cls){
        + (r.path ? `<div class="muted mono">${esc(r.path)}</div>` : "")
        + `</td><td>${esc(r.io || "—")}${r.product_num ? " / " + esc(r.product_num) : ""}</td>`
        + `<td class="mono muted">${esc(r.folder || "")}</td>`
-       + `<td class="muted">${esc(r.reason || r.error || (r.planned ? "would copy" : "copied"))}</td></tr>`;
+       /* The reason is a bucket and the detail is the sentence. Drawn reason-
+          first, 108 rows all read "refused" and the one thing that says which
+          login was turned away never reached the page. */
+       + `<td class="muted">${esc(r.error || r.detail || r.reason
+           || (r.planned ? "would copy" : "copied"))}`
+       + (r.reason && (r.error || r.detail)
+           ? ` <span class="pill">${esc(r.reason)}</span>` : "")
+       + `</td></tr>`;
   });
   h += "</tbody></table>";
   if (rows.length > 200) h += `<div class="empty">+${rows.length - 200} more</div>`;
@@ -164,6 +210,13 @@ function render(res){
     + `${res.apply ? "Copied" : "Would copy"} <b>${c.copied}</b> file(s) from `
     + `<b>${res.links}</b> Drive link(s). ${c.skipped} skipped, ${c.failed} failed.`
     + (res.note ? "<div>" + esc(res.note) + "</div>" : "") + "</div>";
+  /* A run that authenticated and then failed on every link is one account
+     failing, not a list of broken links — said once, above the table, or it
+     is 108 identical rows nobody reads to the bottom of. */
+  if (res.verdict && res.verdict.detail)
+    h += `<div class="note bad"><b>Nothing came across.</b> `
+       + esc(res.verdict.detail)
+       + ` <a href="/google/login">Connect the right login on Google Finder &rarr;</a></div>`;
   h += rowsTable(res.apply ? "Copied" : "Would copy", res.copied || [], "ok");
   h += rowsTable("Skipped", res.skipped || [], "warn");
   h += rowsTable("Failed", res.failed || [], "bad");
@@ -317,7 +370,7 @@ async function run(apply){
     : null;
   try {
     render(await api("/api/ad-assets/migrate", {method:"POST",
-      body: JSON.stringify({client: client, apply: apply})}));
+      body: JSON.stringify({client: client, apply: apply, account: account})}));
   } catch (e) {
     $("result").innerHTML = `<div class="note bad">That request did not come back.</div>`;
   }
@@ -388,6 +441,16 @@ clientBox.addEventListener("keydown", ev => {
     else { hidePicks(); lookupClient(); }
   } else if (ev.key === "Escape") {
     hidePicks();
+  }
+});
+
+/* The picker is drawn into the access box on every check, so it is bound by
+   delegation rather than by re-binding a node the next render replaces. */
+$("access").addEventListener("click", ev => {
+  if (ev.target && ev.target.id === "btnAcct") {
+    const sel = $("acct");
+    account = sel ? sel.value : "";
+    loadAccess();
   }
 });
 

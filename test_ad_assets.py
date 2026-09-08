@@ -297,6 +297,119 @@ check("and named as such", "No Google Drive creative links" in _n["note"], True)
 
 
 # ---------------------------------------------------------------------------
+# 4b. Which Google login it reads Drive as
+# ---------------------------------------------------------------------------
+#
+# It took whichever connected account answered first. On this deployment that
+# is smartadops@gmail.com and the creative is shared with
+# adops@smart1marketing.com, so a real run authenticated, drew "Reading Drive
+# as ..." in green, and then reported 108 links and 108 failures -- every one
+# of them the per-link word "refused". The wrong account, a moved folder and a
+# broken share are three different situations and all three rendered as that
+# one word.
+print("\nWhose Drive it reads")
+
+check("the ad ops login is the default",
+      ad_assets.drive_account(), "adops@smart1marketing.com")
+os.environ["AD_ASSETS_DRIVE_ACCOUNT"] = "someone.else@smart1marketing.com"
+check("and a deployment can name a different one",
+      ad_assets.drive_account(), "someone.else@smart1marketing.com")
+# Explicitly empty is a decision -- "any connected account", which is what
+# this did before the login was named. Unset is not the same answer.
+os.environ["AD_ASSETS_DRIVE_ACCOUNT"] = ""
+check("an empty value means any connected account", ad_assets.drive_account(), "")
+del os.environ["AD_ASSETS_DRIVE_ACCOUNT"]
+check("and unset is the default again, not empty",
+      ad_assets.drive_account(), "adops@smart1marketing.com")
+
+_asked_account = {}
+
+
+def _recording_access(email=""):
+    _asked_account["email"] = email
+    return {"ok": False, "reason": "none", "email": "", "requested": email,
+            "connected": ["smartadops@gmail.com"], "token": "",
+            "detail": f"{email} is not connected to the Hub."}
+
+
+ad_assets.drive_files.access = _recording_access
+_run = ad_assets.migrate("Riverside HVAC")
+check("a run asks Drive for that login by name",
+      _asked_account.get("email"), "adops@smart1marketing.com")
+check("and is refused by name rather than reading as somebody else",
+      (_run["ok"], _run["reason"]), (False, "none"))
+check("naming the logins that are connected, so the fix is not a guess",
+      _run["connected"], ["smartadops@gmail.com"])
+check("and saying plainly that nothing was read",
+      "not a report that there is nothing there" in _run["note"], True)
+
+ad_assets.migrate("Riverside HVAC", account="picked@smart1marketing.com")
+check("an explicit override is what is asked for",
+      _asked_account.get("email"), "picked@smart1marketing.com")
+
+ad_assets.sweep(actor="t")
+check("the nightly sweep reads the same login",
+      _asked_account.get("email"), "adops@smart1marketing.com")
+
+# 108 rows saying one word is one account failing, not 108 broken links.
+_all_refused = ad_assets._verdict({
+    "account": "smartadops@gmail.com",
+    "connected": ["smartadops@gmail.com", "adops@smart1marketing.com"],
+    "copied": [], "skipped": [],
+    "failed": [{"reason": "refused"} for _ in range(108)]})
+check("a run where every link was refused says so once, above the table",
+      (_all_refused["kind"], _all_refused["count"]), ("refused", 108))
+check("and names the login that was actually read",
+      "smartadops@gmail.com" in _all_refused["detail"], True)
+check("and the other logins that could hold the creative",
+      _all_refused["others"], ["adops@smart1marketing.com"])
+check("a run that copied something is a list of broken links, not a verdict",
+      ad_assets._verdict({"copied": [{"filename": "a.jpg"}], "skipped": [],
+                          "failed": [{"reason": "refused"}]}), {})
+check("and so is a run whose failures do not agree",
+      ad_assets._verdict({"copied": [], "skipped": [],
+                          "failed": [{"reason": "refused"},
+                                     {"reason": "download"}]}), {})
+
+_src_page = (ROOT / "hub" / "templates" / "ad_assets.html").read_text()
+check("the failed table prints the sentence rather than the bucket",
+      "r.error || r.detail || r.reason" in _src_page, True)
+
+# And the rule itself, in drive_files: a named login is the login. Two
+# connected accounts do not see one Drive, so substituting the one that
+# happens to carry the scope is what produced 108 refusals under a green
+# "Reading Drive as ..." banner.
+import modules.google_finder as _gf_pkg                          # noqa: E402
+
+_accounts = [
+    {"email": "smartadops@gmail.com", "refresh_token": "r1", "status": "ACTIVE"},
+    {"email": "adops@smart1marketing.com", "refresh_token": "r2", "status": "ACTIVE"},
+]
+_fake_gf = types.ModuleType("modules.google_finder.app")
+_fake_gf.connected_accounts_result = lambda: (_accounts, "")
+_fake_gf.refresh_access_token = lambda e, r: "tok-" + e
+_fake_gf.ReauthRequired = type("ReauthRequired", (Exception,), {})
+_gf_pkg.app = _fake_gf
+# Only the gmail account was ever consented for Drive.
+drive_files._has_drive = lambda t: t == "tok-smartadops@gmail.com"
+
+_named = drive_files.access("adops@smart1marketing.com")
+check("a login that cannot read Drive is refused, never swapped for one that can",
+      (_named["ok"], _named["reason"], _named["email"]),
+      (False, "refused", "adops@smart1marketing.com"))
+check("and the refusal carries every connected login",
+      _named["connected"],
+      ["smartadops@gmail.com", "adops@smart1marketing.com"])
+check("asking for nobody in particular still takes whichever answers",
+      drive_files.access()["email"], "smartadops@gmail.com")
+_accounts.pop()
+_gone = drive_files.access("adops@smart1marketing.com")
+check("a login nobody has connected says so rather than reading as another",
+      (_gone["reason"], _gone["connected"]),
+      ("none", ["smartadops@gmail.com"]))
+
+
+# ---------------------------------------------------------------------------
 # 5. The dry run, and filing twice
 # ---------------------------------------------------------------------------
 print("\nThe copy")
@@ -309,6 +422,10 @@ _ITEMS = {
          "path": ""},
     ],
 }
+ad_assets.drive_files.access = lambda email="": {
+    "ok": True, "reason": "ok", "email": email or "adops@smart1marketing.com",
+    "requested": email, "connected": [email or "adops@smart1marketing.com"],
+    "token": "t", "detail": ""}
 ad_assets.drive_files.files_for = lambda token, url: _ITEMS.get(url, [])
 
 _plan = ad_assets.migrate("Riverside HVAC")
