@@ -87,6 +87,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: IO template and media-mix validation
+        run: |
+          python test_io_template.py
+          python test_io_media_mix.py
+          node test_io_media_mix.js
+
       # The PDF Optimizer is a wrapper around these two, and they were in the
       # Dockerfile and nowhere else -- so the compression the tool exists for
       # ran in production and in no check anywhere. Same two packages the
