@@ -44,6 +44,12 @@ export interface SizeApproval {
   size: string;
   at: string;
   by?: string;
+  /** Saved input and exact rendered file reviewed at sign-off. */
+  inputHash?: string;
+  campaignRevision?: string;
+  artifact?: string;
+  fileHash?: string;
+  acceptedWarnings?: string[];
 }
 
 /**

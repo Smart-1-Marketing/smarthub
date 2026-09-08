@@ -67,7 +67,7 @@ const SIZE_NOTES: Record<string, string> = {
   '414x125': 'Amazon mobile. The platform supplies its own CTA, so do not write one.',
 };
 
-const SCHEMA = {
+function copySchema(sizes: SizeKey[]) { return {
   type: 'object',
   additionalProperties: false,
   required: ['concepts'],
@@ -85,12 +85,12 @@ const SCHEMA = {
           sizes: {
             type: 'object',
             additionalProperties: false,
-            required: ['300x250'],
+            required: sizes,
             properties: Object.fromEntries(
-              Object.keys(BUDGET).map((s) => [s, {
+              sizes.map((s) => [s, {
                 type: 'object',
                 additionalProperties: false,
-                required: ['headline'],
+                required: ['headline', 'support', 'cta', 'offer', 'trust'],
                 properties: {
                   headline: { type: 'string' },
                   support: { type: ['string', 'null'] },
@@ -105,7 +105,12 @@ const SCHEMA = {
       },
     },
   },
-} as const;
+} as const; }
+
+function budgetFor(size: SizeKey) {
+  const [w, h] = size.split('x').map(Number);
+  return BUDGET[size] ?? BUDGET[h > w ? '300x600' : '300x250'];
+}
 
 function systemPrompt(): string {
   return [
@@ -149,12 +154,11 @@ function userPrompt(brief: CopyBrief, sizes: SizeKey[]): string {
 
   lines.push('', 'Write copy for exactly these sizes:');
   for (const s of sizes) {
-    const b = BUDGET[s];
-    if (!b) continue;
+    const b = budgetFor(s);
     const support = b.support[1] === 0 ? 'no supporting line' : `support ${b.support[0]}-${b.support[1]} words`;
     lines.push(`- ${s}: headline ${b.headline[0]}-${b.headline[1]} words, ${support}, ${b.total} words total maximum. ${SIZE_NOTES[s] ?? ''}`);
   }
-  lines.push('', 'Return only the sizes listed. Omit a field rather than padding it.');
+  lines.push('', 'Return exactly the sizes listed. Return null for optional copy that is not needed or supported by the brief; never pad a field.');
   return lines.join('\n');
 }
 
@@ -248,7 +252,7 @@ export async function generateCopy(
   opts: GenerateOptions = {},
 ): Promise<GeneratedCopy> {
   const warnings: string[] = [];
-  const sizes = opts.sizes ?? (Object.keys(BUDGET) as SizeKey[]);
+  const sizes = [...new Set(opts.sizes?.length ? opts.sizes : Object.keys(BUDGET) as SizeKey[])];
   const apiKey = opts.apiKey ?? process.env.OPENAI_API_KEY;
 
   // Without a key the deterministic writer still produces valid, renderable
@@ -277,7 +281,7 @@ export async function generateCopy(
           { role: 'system', content: systemPrompt() },
           { role: 'user', content: userPrompt(brief, sizes) },
         ],
-        response_format: { type: 'json_schema', json_schema: { name: 'ad_copy', strict: true, schema: SCHEMA } },
+        response_format: { type: 'json_schema', json_schema: { name: 'ad_copy', strict: true, schema: copySchema(sizes) } },
       }),
     });
 
@@ -296,9 +300,12 @@ export async function generateCopy(
 
     for (const c of parsed.concepts ?? []) {
       const copy: CreativeConcept['copy'] = {};
-      for (const [size, set] of Object.entries(c.sizes ?? {}) as [SizeKey, any][]) {
-        const b = BUDGET[size];
-        if (!b) continue;
+      for (const size of sizes) {
+        const set = c.sizes?.[size];
+        if (!set || typeof set.headline !== 'string' || !set.headline.trim()) {
+          throw new Error(`The model returned no headline for ${size}. Retry copy generation or review the form-derived copy.`);
+        }
+        const b = budgetFor(size);
         const where = `${c.conceptId}/${size}`;
         const entry: Partial<CopySet> = {
           headline: sanitise(set.headline, b.headline[1], warnings, `${where} headline`),
@@ -312,8 +319,8 @@ export async function generateCopy(
         }
         copy[size] = entry;
       }
-      // The 300x250 is required by the schema, so it is the safe default.
-      copy.default = (copy['300x250'] ?? {}) as CopySet;
+      // A campaign may request only social or mobile placements.
+      copy.default = (copy['300x250'] ?? copy[sizes[0]]) as CopySet;
       concepts.push({ conceptId: c.conceptId, name: c.name, angle: c.angle, copy });
     }
 

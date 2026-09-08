@@ -70,7 +70,7 @@ test('a color we moved to keep text readable is ours, not theirs', async () => {
 // second copy of this decision is one that drifts from the line the operator
 // actually reads.
 function paletteProvenanceFromPage() {
-  const src = fs.readFileSync(path.join(ROOT, 'public/build.html'), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, 'public/build.html'), 'utf8').replace(/\r\n/g, '\n');
   const from = src.indexOf('function paletteProvenance()');
   assert.notEqual(from, -1, 'the build screen still draws the line');
   const body = src.slice(from);
@@ -172,7 +172,7 @@ test('and never from a wordmark, which we drew in the placeholder ink', async ()
 });
 
 test('the screen offers them to copy and never applies them', () => {
-  const src = fs.readFileSync(path.join(ROOT, 'public/build.html'), 'utf8');
+  const src = fs.readFileSync(path.join(ROOT, 'public/build.html'), 'utf8').replace(/\r\n/g, '\n');
   const from = src.indexOf('function logoPaletteOffer()');
   assert.notEqual(from, -1);
   const body = src.slice(from);

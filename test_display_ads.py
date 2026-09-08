@@ -846,13 +846,14 @@ def test_the_toolbar_appears_in_the_order_the_work_happens():
           'class="btn primary" id="save"' in screen)
     check("one function decides what is on the toolbar",
           "function refreshStage" in screen)
-    check("saving is what reveals the render button",
-          "$('renderAll').style.display = state.saved ? '' : 'none';" in screen)
+    check("render stays visible and identifies unsaved work",
+          "$('renderAll').style.display = '';" in screen and "Save and render…" in screen)
     check("attaching waits for files to exist",
           "!window.S1_BASE || !pid || !state.rendered" in screen)
     check("the gate lives in saveCampaign, so every door opens it",
           "state.saved = true;\n      refreshStage();" in screen)
-    check("opening a campaign is not saving it", "state.saved = false;" in screen)
+    check("an existing saved campaign does not require a redundant write",
+          "state.saved = false;" not in screen and "Saved version loaded" in screen)
 
 
 def test_the_render_button_offers_the_four_real_jobs():
@@ -1287,8 +1288,8 @@ def test_a_client_s_setup_is_saved_and_refilled():
     # counts six tools that were invisible for weeks for exactly that reason.
     screen = BUILD_HTML.read_text()
     check("the build screen offers it", 'id="savePreset"' in screen)
-    check("gated behind Save, like Render and Attach",
-          "presetBtn.style.display = state.saved ? '' : 'none';" in screen)
+    check("presets require a saved version without pending edits",
+          "presetBtn.disabled = !state.saved || state.dirty" in screen)
     check("and the gate lives in the one function that decides the toolbar",
           "var presetBtn = $('savePreset');" in screen)
     check("it asks which lines are slots rather than assuming all of them",
@@ -1619,8 +1620,8 @@ def test_animating_needs_a_saved_static_build_and_says_so():
           or "Save the static design first" in src.replace("' +\n                 '", ""))
 
     screen = BUILD_HTML.read_text()
-    check("the Animate button appears only once the build is saved",
-          "animBtn.style.display = state.saved ? '' : 'none'" in screen)
+    check("animation requires a saved version without pending edits",
+          "animBtn.disabled = !state.saved || state.dirty" in screen)
     check("and it reads the saved build rather than the screen",
           "leaveIfSafe('the animation panel', openAnimator)" in screen)
 

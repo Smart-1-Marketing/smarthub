@@ -130,6 +130,8 @@ export interface CreativeConcept {
    */
   copy: { default?: CopySet } & Partial<Record<SizeKey, Partial<CopySet>>>;
   hero: HeroSet;
+  /** Explicit image-free design; retain hero references so they can be restored. */
+  hideHero?: boolean;
   /** Use the reverse (white) logo — set when the panel behind it is dark. */
   useReverseLogo?: boolean;
   /**

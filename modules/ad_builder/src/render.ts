@@ -23,6 +23,7 @@ import type {
 import { compose, resolveColor, reverseLogoOnBackdrop } from './svg';
 import { rasterise } from './raster';
 import { rollUp, runQa } from './qa';
+import { placeholderFindings } from './asset-quality';
 import { applyBlockStyles, type StyleOverrides } from './block-style';
 import { carriedInto, styleForSize } from './carry';
 import { getPlatform, getTemplate, renderableSizes } from './registry';
@@ -84,7 +85,7 @@ export async function renderOne(opts: RenderOneOptions): Promise<RenderResult> {
     layout,
     brand,
     copy,
-    hero: concept.hero,
+    hero: concept.hero, hideHero: concept.hideHero,
     scale,
     includeText: false,
     includeLogo: false,
@@ -113,7 +114,7 @@ export async function renderOne(opts: RenderOneOptions): Promise<RenderResult> {
     layout,
     brand,
     copy,
-    hero: concept.hero,
+    hero: concept.hero, hideHero: concept.hideHero,
     scale,
     noBakedCta: rule.noBakedCta,
     backgroundImage: concept.backgroundImage,
@@ -151,6 +152,7 @@ export async function renderOne(opts: RenderOneOptions): Promise<RenderResult> {
     carry: carriedInto(concept.styleOverrides, template, size),
   });
 
+  qa.push(...placeholderFindings(brand, concept, size));
   const dir = path.join(outDir, platform, concept.conceptId);
   fs.mkdirSync(dir, { recursive: true });
   const base = `${brand.domain.replace(/\W+/g, '-')}_${concept.conceptId}_${size}`;
@@ -198,7 +200,7 @@ export async function renderPreview(opts: {
   const scale = rule.deliverScale;
   const copy = copyForSize(concept, size);
   const bgPass = await compose({
-    layout, brand, copy, hero: concept.hero, scale,
+    layout, brand, copy, hero: concept.hero, hideHero: concept.hideHero, scale,
     includeText: false, includeLogo: false, noBakedCta: rule.noBakedCta, assetRoot,
     backgroundImage: concept.backgroundImage, backgroundOverlay: concept.backgroundOverlay,
     backgroundOverlayColor: concept.backgroundOverlayColor,
@@ -213,7 +215,7 @@ export async function renderPreview(opts: {
     ?? await reverseLogoOnBackdrop(backgroundPng, layout, scale, brand, concept);
 
   const composed = await compose({
-    layout, brand, copy, hero: concept.hero, scale,
+    layout, brand, copy, hero: concept.hero, hideHero: concept.hideHero, scale,
     noBakedCta: rule.noBakedCta, assetRoot,
     backgroundImage: concept.backgroundImage, backgroundOverlay: concept.backgroundOverlay,
     backgroundOverlayColor: concept.backgroundOverlayColor,
@@ -239,8 +241,8 @@ export async function renderPreview(opts: {
     png,
     width: layout.canvas.w * scale,
     height: layout.canvas.h * scale,
-    qa,
-    status: rollUp(qa),
+    qa: [...qa, ...placeholderFindings(brand, concept, size)],
+    status: rollUp([...qa, ...placeholderFindings(brand, concept, size)]),
     wordCount: composed.wordCount,
   };
 }
@@ -326,7 +328,7 @@ async function buildFrames(opts: {
     const layout = applyBlockStyles(rawLayout, overrides);
     const copy = { ...baseCopy, ...(frame.copy ?? {}) } as CopySet;
     const shared = {
-      layout, brand, copy, hero: concept.hero, scale, assetRoot,
+      layout, brand, copy, hero: concept.hero, hideHero: concept.hideHero, scale, assetRoot,
       noBakedCta: rule.noBakedCta,
       backgroundImage: concept.backgroundImage,
       backgroundOverlay: concept.backgroundOverlay,
