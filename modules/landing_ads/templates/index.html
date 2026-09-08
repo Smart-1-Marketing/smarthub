@@ -64,6 +64,12 @@
   .foot{color:var(--muted);font-size:11.5px;margin-top:26px;text-align:center}
   details{margin-top:10px}
   summary{cursor:pointer;color:var(--blue);font-size:13px}
+
+  [hidden]{display:none!important}
+  .steps{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0}
+  .s1d-page #steps button[aria-current=step]{background:var(--navy);color:white}
+  .wizard-actions{display:flex;justify-content:space-between;gap:12px;margin:18px 0}
+  @media(max-width:600px){.steps button{flex:1}.wrap{padding:20px 14px}}
 </style>
 </head>
 <body data-module="landing_ads">
@@ -73,6 +79,8 @@
   <p class="sub">Pick one of our landing pages and it gets read, then the whole campaign is
      written from what that page actually says — Google search, Meta and TikTok, display
      banners, and streaming-audio scripts. Spec or attached to a client, same as Radio Promo.</p>
+
+  <nav class="steps" id="steps" aria-label="Builder progress"></nav><p class="hint" id="wizardMsg" role="status"></p>
 
   <!-- 1 -->
   <div class="card" id="c-setup">
@@ -126,7 +134,7 @@
   </div>
 
   <!-- 2 -->
-  <div class="card off" id="c-brief">
+  <div class="card" id="c-brief" hidden>
     <h2><span class="n">2</span> Brief</h2>
     <div id="briefBox"></div>
     <label class="f" style="margin-top:14px">Formats</label>
@@ -143,7 +151,7 @@
   </div>
 
   <!-- 3 -->
-  <div class="card off" id="c-out">
+  <div class="card" id="c-out" hidden>
     <h2><span class="n">3</span> Ads</h2>
     <div class="tabs" id="tabs"></div>
     <div id="outBox"></div>
@@ -153,6 +161,8 @@
       <span class="msg" id="outMsg"></span>
     </div>
   </div>
+
+  <div class="wizard-actions"><button class="btn sec" id="wizardBack" type="button" hidden>Back</button><button class="btn" id="wizardNext" type="button" hidden>Continue</button></div>
 
   <!-- pages -->
   <div class="card" id="pages">
@@ -192,7 +202,31 @@ function say(id, t, cls){
   }
   e.textContent=t||'';
 }
-function open(id, on){ $(id).classList.toggle('off', !on); }
+let stepIndex = 0, busy = false, setupSnapshot = '';
+const stepNames = ['Page & client','Brief & formats','Review & export'];
+const stepCards = ['c-setup','c-brief','c-out'];
+function setupKey(){ return JSON.stringify([mode,pageSlug,$('url').value.trim(),$('client').value.trim(),$('objective').value,$('notes').value.trim(),$('audience').value.trim()]); }
+function canStep(i){return i >= 0 && i < 3 && (i === 0 || !!S && (i === 1 ? !!S.brief : Object.keys(S.formats||{}).length > 0));}
+function showStep(i, focus=true){
+  stepIndex=i;
+  stepCards.forEach((id,n)=>$(id).hidden=n!==i);
+  $('pages').hidden=i!==0;
+  $('steps').innerHTML=stepNames.map((name,n)=>'<button type="button" class="btn sec" data-step="'+n+'"'+(n===i?' aria-current="step"':'')+(!canStep(n)?' disabled':'')+'>'+(n+1)+'. '+esc(name)+'</button>').join('');
+  $('wizardMsg').textContent='Step '+(i+1)+' of 3 · '+stepNames[i];
+  $('wizardBack').hidden=i===0;
+  $('wizardNext').hidden=i===2 || !canStep(i+1);
+  $('wizardNext').textContent=i===1?'Continue to review':'Continue';
+  if(focus){const h=$(stepCards[i]).querySelector('h2');h.tabIndex=-1;h.focus({preventScroll:true});$('steps').scrollIntoView({block:'start',behavior:'smooth'});}
+}
+function goStep(i){
+  if(busy || !canStep(i)) return;
+  if(stepIndex===0 && i>0 && setupKey()!==setupSnapshot){say('wizardMsg','Setup changed. Use Read the page to build a fresh brief before continuing.','err');return;}
+  showStep(i);
+}
+$('steps').onclick=e=>{const b=e.target.closest('button[data-step]');if(b)goStep(Number(b.dataset.step));};
+$('wizardBack').onclick=()=>goStep(stepIndex-1);
+$('wizardNext').onclick=()=>goStep(stepIndex+1);
+showStep(0,false);
 
 async function api(path, opts){
   const res = await fetch(MOUNT + path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}));
@@ -253,6 +287,8 @@ drawPages();
 
 /* ---------- start ---------- */
 async function start(){
+  if(busy) return;
+  busy=true;
   $('briefBtn').disabled = true;
   say('setupMsg','Reading the page…','scan');
   try{
@@ -266,13 +302,15 @@ async function start(){
     const b = await api('/api/sets/'+S.id+'/brief', {method:'POST'});
     S = b.set;
     say('setupMsg','Read.','ok');
-    drawBrief();
+    setupSnapshot=setupKey();
+    drawBrief(); showStep(1);
   }catch(e){ say('setupMsg', e.message, 'err'); }
   $('briefBtn').disabled = false;
+  busy=false;
 }
 
 function drawBrief(){
-  open('c-brief', true);
+
   const b = S.brief||{};
   $('briefBox').innerHTML = `<table>
     <tr><th style="width:150px">Product</th><td>${esc(b.product)}</td></tr>
@@ -295,7 +333,9 @@ function toggleFormat(el){
 }
 
 async function generate(){
+  if(busy) return;
   if(!formats.size){ say('genMsg','Pick at least one format.','err'); return; }
+  busy=true;
   say('genMsg','Writing…','ai');
   try{
     const d = await api('/api/sets/'+S.id+'/generate', {method:'POST',
@@ -304,7 +344,11 @@ async function generate(){
     const errs = Object.values(d.errors||{});
     say('genMsg', errs.length ? errs.join(' · ') : 'Written.', errs.length ? 'err' : 'ok');
     drawOut();
+    if(!errs.length && Object.keys(S.formats||{}).length) showStep(2);
+    else showStep(1,false);
+    if(errs.length) say('genMsg',errs.join(' · '),'err');
   }catch(e){ say('genMsg', e.message, 'err'); }
+  finally{busy=false;}
 }
 
 /* ---------- output ---------- */
@@ -312,7 +356,7 @@ const LABEL = {google_rsa:'Google search', paid_social:'Paid social',
                display:'Display banners', streaming_audio:'Streaming audio'};
 
 function drawOut(){
-  open('c-out', true);
+
   const keys = Object.keys(S.formats||{});
   if(!keys.length) return;
   if(!keys.includes(tab)) tab = keys[0];
@@ -415,9 +459,14 @@ async function attachPrompt(){
     setMode(S.spec?'spec':'client');
     if($('client')) $('client').value = S.client||'';
     if($('url')) $('url').value = S.url||'';
+    $('objective').value=S.objective||$('objective').value;
+    $('notes').value=S.notes||''; $('audience').value=S.audience||'';
     pageSlug = S.page_slug||''; drawPages();
+    setupSnapshot=setupKey();
+    if(Object.keys(S.formats||{}).length) formats = new Set(Object.keys(S.formats));
     if(S.brief) drawBrief();
-    if(Object.keys(S.formats||{}).length){ formats = new Set(Object.keys(S.formats)); drawOut(); }
+    if(Object.keys(S.formats||{}).length){ drawOut(); showStep(2); }
+    else if(S.brief) showStep(1);
   }catch(e){ location.hash=''; }
 })();
 </script>
