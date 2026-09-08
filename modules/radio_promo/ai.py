@@ -15,6 +15,7 @@ import os
 import re
 
 import requests
+from hub.ai_models import model as profile_model
 
 from .catalog import (DEFAULT_SLOTS, TONES, budget_line, duration_by_key,
                       structure_for, tone_by_id)
@@ -47,7 +48,7 @@ def chat_json(system: str, user: str, max_tokens: int = 1800,
             f"{OPENAI_BASE}/chat/completions",
             headers={"Authorization": f"Bearer {api_key()}",
                      "Content-Type": "application/json"},
-            json={"model": TEXT_MODEL, "temperature": temperature,
+            json={"model": profile_model("radio.text"), "temperature": temperature,
                   "max_tokens": max_tokens,
                   "response_format": {"type": "json_object"},
                   "messages": [{"role": "system", "content": system},
@@ -59,8 +60,17 @@ def chat_json(system: str, user: str, max_tokens: int = 1800,
         # Deliberately not echoing the body — it can contain a key prefix.
         raise AIError(f"OpenAI refused the request (HTTP {res.status_code}).")
     try:
-        text = res.json()["choices"][0]["message"]["content"]
-        return json.loads(text)
+        data = res.json()
+        from hub import ai as hub_ai
+        choice = data["choices"][0]
+        complete = choice.get("finish_reason") not in ("length", "content_filter")
+        hub_ai.note_usage("radio_promo", data, model=profile_model("radio.text"), purpose="writing", ok=complete)
+        if not complete:
+            raise AIError("The model did not finish the answer. Try again.")
+        result = json.loads(choice["message"]["content"])
+        if not isinstance(result, dict):
+            raise AIError("The model returned an unexpected response shape.")
+        return result
     except (KeyError, IndexError, ValueError) as exc:
         raise AIError("The model returned something that was not valid JSON.") from exc
 
@@ -380,7 +390,7 @@ def banner_art(brand: dict, tone_id: str, headline: str = "") -> dict:
             f"{OPENAI_BASE}/images/generations",
             headers={"Authorization": f"Bearer {api_key()}",
                      "Content-Type": "application/json"},
-            json={"model": IMAGE_MODEL, "prompt": prompt, "size": "1024x1024", "n": 1},
+            json={"model": profile_model("radio.image"), "prompt": prompt, "size": "1024x1024", "n": 1},
             timeout=180)
     except requests.RequestException as exc:
         raise AIError(f"Couldn't reach the image model ({exc.__class__.__name__}).") from exc

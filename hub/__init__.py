@@ -7004,6 +7004,9 @@ def create_hub_app() -> Flask:
             pass
 
     # ---------------- User accounts ----------------
+    from .ai_model_routes import bp as ai_model_review_bp
+    app.register_blueprint(ai_model_review_bp)
+
     # Registered after init_db (models bind to the shared instance) and before
     # the help layer, so /diagnostics/users exists by the time the sidebar
     # renders. Seeds the founding super admins on first boot.
