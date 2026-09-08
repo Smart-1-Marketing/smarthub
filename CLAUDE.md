@@ -13203,6 +13203,9 @@ python3 test_seo_page.py           # the SEO list and record: a pill with four
                                    #   two editors that keep what was typed,
                                    #   and the book read live with the source
                                    #   named on both screens
+python3 test_image_tools.py        # upright photo crops/resizes, target warnings,
+                                   # provider failures and free preview accounting
+node test_image_optimizer_ui.js    # target warnings through download/gallery flows
 python3 test_image_pdf_optimizers.py  # the two file tools: what they refuse,
                                    #   animation that survives a resize, and
                                    #   no Pillow repr or Ghostscript stderr

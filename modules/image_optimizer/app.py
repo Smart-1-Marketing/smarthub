@@ -197,8 +197,14 @@ def process_image():
         crop_enabled = request.form.get("crop_enabled") == "true"
         lock_aspect = request.form.get("lock_aspect") == "true"
         optimize = request.form.get("optimize") == "true"
-        target_kb = int(request.form.get("target_kb", "150"))
-        quality = int(request.form.get("quality", "82"))
+        try:
+            target_kb = int(request.form.get("target_kb", "150"))
+        except ValueError as exc:
+            raise ValueError("Target size must be a whole number of KB.") from exc
+        try:
+            quality = int(request.form.get("quality", "82"))
+        except ValueError as exc:
+            raise ValueError("Quality must be a whole number.") from exc
         output_format = request.form.get("format", "PNG").upper()
         requested_name = request.form.get("output_name")
 
@@ -216,6 +222,9 @@ def process_image():
         source.load() if not getattr(source, "is_animated", False) else None
 
         animated = bool(getattr(source, "is_animated", False))
+        if not animated:
+            # Crop and size the upright image the browser displays.
+            source = ImageOps.exif_transpose(source)
 
         if crop_enabled:
             if crop_width is None or crop_height is None:
@@ -278,17 +287,25 @@ def process_image():
         # every value is a plain read rather than an expression, because
         # audit.log swallows what it is given and cannot save a caller that
         # raises while building its own arguments.
+        with Image.open(io.BytesIO(result)) as output_image:
+            output_size = output_image.size
         _audit("image_optimized", output_format=output_format,
-               width=size[0], height=size[1], optimized=optimize,
+               width=output_size[0], height=output_size[1], optimized=optimize,
                output_bytes=len(result), animated=animated)
 
-        return send_file(
+        response = send_file(
             io.BytesIO(result),
             mimetype=mime,
             as_attachment=True,
             download_name=filename,
             max_age=0,
         )
+        response.headers["X-Output-Width"] = str(output_size[0])
+        response.headers["X-Output-Height"] = str(output_size[1])
+        if optimize:
+            response.headers["X-Target-Bytes"] = str(target_kb * 1024)
+            response.headers["X-Target-Met"] = str(len(result) <= target_kb * 1024).lower()
+        return response
 
     except ValueError as exc:
         # Our own validation messages, written to be read: "Width must be a

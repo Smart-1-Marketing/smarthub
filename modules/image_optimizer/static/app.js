@@ -298,6 +298,11 @@ form.addEventListener("submit", async e => {
       throw new Error(payload.error || "Processing failed.");
     }
     const blob = await response.blob();
+    const targetMissed = response.headers.get("X-Target-Met") === "false";
+    const requestedKB = Number(response.headers.get("X-Target-Bytes")) / 1024;
+    const targetWarning = targetMissed
+      ? ` · The ${requestedKB} KB target was not met. Try JPG or a larger target.`
+      : "";
 
     // Save to the client's gallery instead of downloading, if asked.
     const target = document.querySelector('input[name="saveTarget"]:checked');
@@ -318,12 +323,12 @@ form.addEventListener("submit", async e => {
         fallback.download = (outputName.value || "image") + "." + format.value.toLowerCase();
         document.body.appendChild(fallback); fallback.click(); fallback.remove();
         throw new Error((res.error || "Could not save to the gallery") +
-                        " — downloaded it instead so nothing is lost.");
+                        " — downloaded it instead so nothing is lost." + targetWarning);
       }
       status.textContent = res.gallery_filed
-        ? `Complete · ${(blob.size / 1024).toFixed(1)} KB saved to ${client}'s gallery`
-        : `Complete · ${(blob.size / 1024).toFixed(1)} KB saved, but it could not `
-          + `be filed to ${client}'s gallery — check the client name and try again.`;
+        ? `${targetMissed ? "Saved with warning" : "Complete"} · ${(blob.size / 1024).toFixed(1)} KB saved to ${client}'s gallery${targetWarning}`
+        : `Saved with warning · ${(blob.size / 1024).toFixed(1)} KB saved, but it could not `
+          + `be filed to ${client}'s gallery — check the client name and try again.${targetWarning}`;
       return;
     }
 
@@ -337,7 +342,7 @@ form.addEventListener("submit", async e => {
     link.click();
     link.remove();
     URL.revokeObjectURL(link.href);
-    status.textContent = `Complete · ${(blob.size / 1024).toFixed(1)} KB downloaded`;
+    status.textContent = `${targetMissed ? "Downloaded with warning" : "Complete"} · ${(blob.size / 1024).toFixed(1)} KB downloaded${targetWarning}`;
   } catch (error) {
     status.className = "error";
     status.textContent = error.message;
