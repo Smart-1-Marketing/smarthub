@@ -475,8 +475,8 @@ def generation_enabled() -> bool:
         return False
 
 
-def compose_bed(prompt: str, seconds) -> dict:
-    """One composed bed at the spot's own length, or a reason. Never raises.
+def compose_bed(prompt: str, seconds, *, extra_seconds: float = 0) -> dict:
+    """One composed bed, with any requested runway added, or a reason.
 
     Everything expensive about this -- the content-keyed cache on the shared
     disk, the per-generation metering, the refusal that keeps its row -- is
@@ -485,7 +485,11 @@ def compose_bed(prompt: str, seconds) -> dict:
     audio, error = _cb_audio()
     if not audio:
         return {"audio_bytes": None, "seconds": None, "error": error}
-    length = bed_length_ms(seconds)
+    try:
+        runway = float(seconds or 0) + max(0, float(extra_seconds or 0))
+    except (TypeError, ValueError):
+        runway = float(seconds or 0)
+    length = bed_length_ms(runway)
     if length is None:
         return {"audio_bytes": None, "seconds": None, "error": _MISSING}
     try:

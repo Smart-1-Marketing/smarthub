@@ -734,9 +734,14 @@ def api_set_voice(pid):
     vid = str(body.get("voice_id") or "").strip()
     if not vid:
         return fail("Pick a voice.")
+    try:
+        speed = min(1.2, max(0.7, float(body.get("speed", 1.0))))
+    except (TypeError, ValueError):
+        speed = 1.0
     project["voice"] = {"voice_id": vid,
                         "name": str(body.get("name") or "")[:80],
-                        "energy": body.get("energy") or "energetic"}
+                        "energy": body.get("energy") or "energetic",
+                        "speed": speed}
     store.save(project)
     return jsonify({"ok": True, "voice": project["voice"]})
 
@@ -768,7 +773,8 @@ def api_record(pid, sid):
                                          project.get("pronunciation"))
     try:
         out = voices.render_audio(voice["voice_id"], spoken["spoken"],
-                                  voice.get("energy") or "energetic")
+                                  voice.get("energy") or "energetic",
+                                  voice.get("speed", 1.0))
     except voices.VoiceError as exc:
         return fail(str(exc), 503)
 
@@ -809,8 +815,9 @@ def api_record(pid, sid):
 #
 # Two constraints decide the shape, and both are inherited rather than
 # rediscovered. There is no ffmpeg, ffprobe, pydub or numpy in this runtime, so
-# a bed is **composed at the spot's own length** by ElevenLabs and nothing is
-# ever trimmed to fit; and the mix is rendered **in the browser** through the
+# a bed is **composed at least three seconds longer than the spot** by
+# ElevenLabs and nothing is ever trimmed to fit; and the mix is rendered
+# **in the browser** through the
 # Web Audio API, which hands back a WAV whose header states its own length — so
 # the duration filed against a spot is measured here, from the bytes we stored,
 # rather than reported by the page that made them.
@@ -828,6 +835,12 @@ _PROXY_TIMEOUT = (5, 30)
 _UPLOAD_KINDS = {"audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav",
                  "audio/wave", "audio/mp4", "audio/aac", "audio/ogg",
                  "audio/webm", "video/webm"}
+_BED_EXTRA_SECONDS = 3.0
+
+
+def _bed_minimum_seconds(spot: dict) -> float:
+    """The required runway for every Fan Radio bed, generated or uploaded."""
+    return float(spot.get("seconds") or 30) + _BED_EXTRA_SECONDS
 
 
 def _need_spec():
@@ -979,7 +992,9 @@ def api_bed_compose(pid, sid):
     if rate_limited("bed", 20, 600):
         return fail("Too many beds composed in a row — give it a minute.", 429)
 
-    out = spec.compose_bed(prompt, spot.get("seconds") or 30)
+    minimum_seconds = _bed_minimum_seconds(spot)
+    out = spec.compose_bed(prompt, spot.get("seconds") or 30,
+                           extra_seconds=_BED_EXTRA_SECONDS)
     if out.get("error"):
         return fail(out["error"], 502)
     if out.get("_mock") or not out.get("audio_bytes"):
@@ -996,6 +1011,7 @@ def api_bed_compose(pid, sid):
                    "seconds": out.get("seconds"),
                    "measured": out.get("seconds") is not None,
                    "requested_seconds": out.get("requested_seconds"),
+                   "minimum_seconds": minimum_seconds,
                    "bytes": out.get("bytes"), "at": store.now()}
     _drop_mix(spot, "The bed changed, so the mix made from the old one went "
                     "with it. Render it again.")
@@ -1024,13 +1040,31 @@ def api_bed_upload(pid, sid):
     except ValueError as exc:
         return fail(str(exc))
 
+    spec, error = _need_spec()
+    if not spec:
+        return fail(error, 503)
+    length = _measured(data, filename)
+    # WAV duration is exact. MP3 frames provide an estimate; formats that do
+    # not expose enough information here are refused because this rule is a
+    # guarantee, not a suggestion the browser may happen to notice.
+    if not length["measured"]:
+        estimated = spec.mp3_seconds(data)
+        if estimated is None:
+            return fail("Use a WAV or MP3 bed so Fan Radio can verify it is at "
+                        "least three seconds longer than the commercial.")
+        length.update({"seconds": estimated, "estimated": True,
+                       "measure_note": "MP3 duration estimated from its frames."})
+    minimum_seconds = _bed_minimum_seconds(spot)
+    if float(length["seconds"]) + 0.01 < minimum_seconds:
+        return fail(f"This bed is {length['seconds']}s. It must be at least "
+                    f"{minimum_seconds:g}s for this {spot.get('seconds')}s commercial.")
+
     ext = _ext_of(filename)
     asset = store.store_asset(project, spot, "bed", data, ext)
-    length = _measured(data, filename)
     spot["bed"] = {"kind": "upload", "prompt": "", "filename": filename,
                    "mimetype": mimetype, "audio_url": asset["url"],
                    "audio_where": asset["where"], "bytes": len(data),
-                   "at": store.now(), **length}
+                   "minimum_seconds": minimum_seconds, "at": store.now(), **length}
     _drop_mix(spot, "The bed changed, so the mix made from the old one went "
                     "with it. Render it again.")
     store.save(project)

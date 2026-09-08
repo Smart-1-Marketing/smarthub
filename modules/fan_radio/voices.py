@@ -191,10 +191,14 @@ def _note_characters(script: str, voice_id: str) -> None:
 
 
 def render_audio(voice_id: str, script: str,
-                 energy: str = "energetic") -> dict:
+                 energy: str = "energetic", speed: float = 1.0) -> dict:
     """Return {'audio': bytes, 'seconds': float, 'measured': bool}."""
     if not voice_id:
         raise VoiceError("Pick a voice first.")
+    try:
+        speed = min(1.2, max(0.7, float(speed)))
+    except (TypeError, ValueError):
+        speed = 1.0
     body = {
         "text": script,
         "model_id": MODEL,
@@ -203,6 +207,7 @@ def render_audio(voice_id: str, script: str,
         # default style is cast for nothing. From the shared table.
         "voice_settings": {"stability": 0.45, "similarity_boost": 0.75,
                            "style": voice_casting.style_for(energy),
+                           "speed": speed,
                            "use_speaker_boost": True},
     }
     try:

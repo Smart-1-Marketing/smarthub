@@ -219,6 +219,12 @@
     <label class="f" style="margin-top:15px">What the read should sound like</label>
     <div id="want" class="grid3"></div>
 
+    <div class="row" style="margin-top:12px;max-width:420px">
+      <label class="f" for="voiceSpeed" style="margin:0">Voice speed <span id="voiceSpeedValue">1.0×</span></label>
+      <input id="voiceSpeed" type="range" min="0.7" max="1.2" step="0.05" value="1">
+    </div>
+    <div class="hint">Set the pace before recording. It applies to every AI voice read in this project.</div>
+
     <div class="row" style="margin-top:12px">
       <button class="btn sec sm" id="cast">Suggest voices from the brief</button>
       <button class="btn sec sm" id="rematch">Rank on what I picked</button>
@@ -515,6 +521,9 @@
   function show(){
     showStep(P.share && P.share.enabled ? 6 : (P.spots || []).length ? 3 : 1, false);
     drawWant(); fillProns(); drawSpots(); drawShare();
+    var speed = Number((P.voice || {}).speed || 1);
+    $("voiceSpeed").value = Math.min(1.2, Math.max(0.7, speed));
+    $("voiceSpeedValue").textContent = Number($("voiceSpeed").value).toFixed(2) + "×";
     // The mix config is one cheap read and decides what the Music step can
     // even offer, so it is fetched once a project exists rather than on every
     // draw. A failure costs the panel and never the page.
@@ -702,6 +711,10 @@
         + '</div></div>';
     }).join("");
   }
+
+  $("voiceSpeed").oninput = function(){
+    $("voiceSpeedValue").textContent = Number(this.value).toFixed(2) + "×";
+  };
   function wantNow(){
     var out = {};
     $("want").querySelectorAll("select[data-want]").forEach(function(sel){
@@ -727,7 +740,8 @@
       b.onclick = function(){
         api("/api/projects/"+P.id+"/voice", {method:"POST",
           body:{voice_id:b.getAttribute("data-v"), name:b.getAttribute("data-n"),
-                energy: (wantNow().energy || "energetic")}})
+                energy: (wantNow().energy || "energetic"),
+                speed: Number($("voiceSpeed").value || 1)}})
           .then(function(j){ P.voice = j.voice;
             say("castmsg","Cast: " + b.getAttribute("data-n")
               + ". Record each spot from section 4.","ok"); })
@@ -1015,7 +1029,7 @@
     var levels = MIXCFG.levels || [], ref = MIXCFG.level_reference || "";
     if(levels.length){
       bits.push('<div class="row" style="margin-bottom:12px">'
-        + '<label class="f" style="margin:0">Bed level</label>'
+        + '<label class="f" style="margin:0">Bed volume under the voice</label>'
         + '<select id="mixLevel" style="max-width:420px">'
         + levels.map(function(l){
             return '<option value="' + esc(l.label) + '"'
@@ -1037,7 +1051,8 @@
       var bedLine = bed.audio_url
         ? (bed.kind === "upload" ? "your own track" : "composed")
           + (bed.measured ? " · " + bed.seconds + "s measured"
-                          : " · length not measured")
+                          : (bed.estimated ? " · " + bed.seconds + "s estimated"
+                                           : " · length not measured"))
         : "no bed — straight read";
       var head = '<div class="shead"><b>' + esc(spotName(s)) + '</b>'
         + '<span class="ver">' + esc(bedLine) + '</span>'
@@ -1060,13 +1075,15 @@
         + 'value="' + esc(bed.prompt || "") + '">'
         + (MIXCFG && MIXCFG.can_compose
            ? '<button class="btn sec sm" data-a="compose" data-s="' + esc(s.id)
-             + '">Compose the bed</button>' : "")
+             + '">Compose a bed (commercial + 3 seconds)</button>' : "")
         + '<label class="btn sec sm" style="cursor:pointer">Upload a track'
         + '<input type="file" accept="audio/*" data-a="bedup" data-s="'
         + esc(s.id) + '" style="display:none"></label>'
         + (bed.audio_url ? '<button class="btn danger sm" data-a="bedclear" '
             + 'data-s="' + esc(s.id) + '">No bed</button>' : "")
         + '<span class="msg" data-m="bed-' + esc(s.id) + '"></span></div>'
+        + '<div class="hint">Every bed must be at least ' + esc((s.seconds + 3) + "")
+        + ' seconds for this ' + esc(s.seconds + "") + ' second commercial.</div>'
         + moodTiles(s)
         + (bed.audio_url ? '<audio controls preload="none" style="margin-top:8px" '
             + 'src="' + BASE + '/api/projects/' + P.id + '/spots/' + esc(s.id)
