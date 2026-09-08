@@ -446,6 +446,15 @@ REGISTRY: list[Help] = [
        "absent was not measured; it is never shown as a zero. The name, "
        "address and phone number here are offered into the client info strip "
        "at the top of this record, where one press keeps them."),
+    _h("hub.client360.audience", "Target audience",
+       "Who this client's advertising is for, confirmed once and read "
+       "everywhere a campaign for them is built: the Proposal Builder's "
+       "audience step and the IO Builder's audiences question both offer "
+       "these segments, and Smart 1 Ads' copy writer reads them when the "
+       "campaign typed nothing. Find asks the agency's own audience catalog "
+       "— a billed call, which is why it is a button — and everything that "
+       "comes back is a suggestion until you tick it and press Keep. A "
+       "value typed on a campaign always beats what is confirmed here."),
 
     # ---------------- Ad Assets ----------------
     _h("hub.ad_assets.intro", "Creative out of Drive, into their library",

@@ -2276,6 +2276,18 @@ jobs:
           else
             echo "test_check_reconciliation.py not on this branch — nothing to run."
           fi
+      # One confirmed audience per client (hub/audience_spec.py) and its four
+      # readers: the Client 360 card, the Proposal Builder's audience step,
+      # the IO Builder's audiences question and AD_COPY's {audience} prefill.
+      # The model proposes and a person ticks; confirm is the only write; a
+      # failed lookup is an error and never an empty audience.
+      - name: Audience Finder — one audience, four readers
+        run: |
+          if [ -f test_audience_finder.py ]; then
+            python3 test_audience_finder.py
+          else
+            echo "test_audience_finder.py not on this branch — nothing to run."
+          fi
       # hub/landing_images.py picks the pictures on a page a prospect reads,
       # and its docstring ends "a page may be short, it may not lie".
       # from_site() regexed every image URL out of a 400 KB scan payload and

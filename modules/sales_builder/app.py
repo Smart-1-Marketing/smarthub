@@ -4415,25 +4415,13 @@ def api_find_targets():
     })
 
 
-def _parse_audience_reply(reply: str) -> list:
-    """A Pickaxe chat reply, split into one audience candidate per line.
-
-    The reply is prose from a chat agent, not JSON -- `hub/pickaxe.py`'s own
-    VERIFY note says the response shape is transcribed from Pickaxe's
-    published examples rather than exercised, so this reads defensively:
-    one candidate per line, a leading bullet, dash or number stripped, and
-    a line that reads like a heading or a whole sentence rather than a
-    short name is left out rather than offered as an audience nobody could
-    act on.
-    """
-    out = []
-    for raw in str(reply or "").split("\n"):
-        line = re.sub(r"^[-•*]\s*", "", raw.strip())
-        line = re.sub(r"^\d+[.)]\s*", "", line).strip()
-        if not line or line.endswith(":") or len(line) > 120:
-            continue
-        out.append(line)
-    return out
+# One reading of "a Pickaxe reply, split into audience candidates" and of
+# the tick-gated candidate shaping: both moved to hub/audience_spec.py the
+# day the Client 360 card became their second caller, so the next fix to
+# either lands once — the opportunistic-migration rule. The local name
+# stays so the route below reads unchanged.
+from hub.audience_spec import candidates as _audience_candidates
+from hub.audience_spec import parse_reply as _parse_audience_reply
 
 
 @app.post("/api/find-audiences")
@@ -4497,16 +4485,7 @@ def api_find_audiences():
             return jsonify({"ok": False, "error": "The audience research did not run",
                             "detail": str(exc2)}), 502
 
-    seen = {n.lower() for n in existing if n}
-    out = []
-    for name in names:
-        name = str(name).strip()[:120]
-        if not name or name.lower() in seen:
-            continue
-        seen.add(name.lower())
-        out.append({"name": name, "accepted": False})
-        if len(out) >= 20:
-            break
+    out = _audience_candidates(names, existing)
     return jsonify({
         "ok": True, "audiences": out, "source": source,
         "note": ("Nothing came back for this campaign. That is an answer — it "

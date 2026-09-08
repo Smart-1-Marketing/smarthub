@@ -80,6 +80,7 @@ WANT = {
     "Smart 1 Suite Account": "overview",
     "Proposals": "overview",
     "Client Notes": "overview",
+    "Target audience": "overview",
     "Invoices": "billing",
     "Website record": "website",
     "Site Health & Audits": "website",

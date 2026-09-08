@@ -2649,6 +2649,39 @@ function addFoundAudiences(){
  toast("Added "+picked.length+" audience"+(picked.length===1?"":"s")+".");}
 function drawAudFind(){const h=document.getElementById('audFindWrap');if(h)h.innerHTML=audFindHtml();}
 
+/* The audience confirmed on the client's own record (hub/audience_spec.py,
+   the Client 360 card). Offered as one-press adds, never added by itself —
+   a plan that grows a line on its own is a plan somebody has to audit
+   before every send. A hub route, so the path is root-absolute on purpose:
+   it leaves this mount and reaches the hub app, where /api/client/ lives.
+   A read that failed offers nothing rather than inventing an audience. */
+let AUDFILE={client:"",rows:null};
+async function drawAudOnFile(){
+ const host=document.getElementById('audOnFileWrap'); if(!host)return;
+ const name=(S.client||'').trim();
+ if(!name){host.innerHTML='';return;}
+ if(AUDFILE.client!==name){
+  AUDFILE={client:name,rows:[]};
+  try{
+   const r=await fetch('/api/client/audience?name='+encodeURIComponent(name),{credentials:'same-origin'});
+   const d=await r.json();
+   AUDFILE.rows=(d&&d.picked)?(d.audiences||[]):[];
+  }catch(e){AUDFILE.rows=[];}
+ }
+ const offer=(AUDFILE.rows||[]).filter(a=>!(S.audiences||[]).includes(a));
+ if(!offer.length){host.innerHTML='';return;}
+ window.__audOnFile=offer;
+ host.innerHTML='<div class="note" style="margin-top:9px">On file from Client 360 — the audience confirmed on '
+  +esc(name)+'’s record: '
+  +offer.map((a,i)=>'<a href="#" onclick="addAudOnFile('+i+');return false">+ '+esc(a)+'</a>').join(' · ')
+  +'. A press adds one; nothing is added by itself.</div>';
+}
+function addAudOnFile(i){
+ const a=(window.__audOnFile||[])[i]; if(!a)return;
+ if(!S.audiences.includes(a))S.audiences.push(a);
+ saveSoon();renderStep();
+}
+
 /* The same paste box as the target areas, for the rows inside them. A
    separate reader on the server, deliberately: a competitor line is a
    business and an address, an area line is a geography and a radius, and one
@@ -3754,9 +3787,9 @@ const STEPS=[
     return '<div class="bpanel"><div class="ttl">🎯 Recommended audience layers — '+esc(key)+'</div>'+pillRow(list,S.audiences,'aud')+
     '<div class="addpill"><input id="audIn" placeholder="Add a custom audience…" onkeydown="if(event.key===\'Enter\'){addCustom(\'aud\',\'audIn\');event.preventDefault();}"><button class="btn btn-ghost" onclick="addCustom(\'aud\',\'audIn\')">+ Add</button>'
     +'<button class="btn btn-ghost" onclick="toggleAudFind()">🎯 Find audiences with Smart 1</button></div>'
-    +'<div id="audFindWrap"></div></div>'
+    +'<div id="audFindWrap"></div><div id="audOnFileWrap"></div></div>'
     +competitorPanel();})(),
-   valid:()=>true,after:()=>{drawCompetitors();drawAudFind();}}),
+   valid:()=>true,after:()=>{drawCompetitors();drawAudFind();drawAudOnFile();}}),
 
  ()=>({eyebrow:"Budget",title:"What's the working budget?",help:"sales_builder.budget.working",sub:"Monthly media budget. Three packages build around it and reconfigure if you change it.",
    html:'<div class="cards">'+
