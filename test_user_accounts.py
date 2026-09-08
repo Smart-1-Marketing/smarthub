@@ -328,6 +328,14 @@ _OPEN_ON_PURPOSE = {
     "/api/presence":
         "the headcount on everybody's dashboard. The count is everybody's; "
         "the account-by-account list on /status stays in Utilities",
+    "/creative-studio/templates/admin":
+        "gated, just not through hub.access -- Template Admin is a "
+        "module-scoped admin check (modules/creative_studio/api.py's own "
+        "_is_admin(), mirroring the same reasoning access.py documents) "
+        "rather than a Hub-wide Utilities surface, and test_creative_studio.py "
+        "asserts a General account is refused it and a promoted one reaches it",
+    "/creative-studio/templates/admin/<path:template_id>":
+        "the same module-scoped admin check as /creative-studio/templates/admin",
 }
 
 _open, _unexplained = set(), []
