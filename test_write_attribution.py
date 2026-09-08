@@ -74,6 +74,7 @@ def section(title):
 
 import ast                                                         # noqa: E402
 from hub import audit                                              # noqa: E402
+from hub import integrity                                          # noqa: E402
 
 # Each module, the writes that must be attributable, and the guards it puts
 # in front of them. A module is here once it has been triaged; adding one is
@@ -464,6 +465,126 @@ for name in TRIAGED:
         else:
             check(f"  {logged} files no client work, so it needs no entry",
                   logged not in client_brand.WORK_KINDS)
+
+
+# ---------------------------------------------------------------------------
+section("The finer walk is a continuous check now, not a script somebody runs")
+# ---------------------------------------------------------------------------
+# hub.audit.write_route_attribution() has been exercised only by this file --
+# a regression in sites_admin, seo_images, google_finder, commercial_builder
+# or hyperframes_tools, or a fifth module built the same way, was invisible
+# to /api/integrity's continuous sweep. check_write_route_attribution() is
+# that question asked from integrity.py's own side, scoped to modules that
+# have declared HOUSEKEEPING_ROUTES rather than the whole repo.
+
+check("the real tree has nothing outstanding",
+      integrity.check_write_route_attribution(), [])
+
+_real_sources = integrity._sources
+
+_TRIAGED_SILENT = '''
+HOUSEKEEPING_ROUTES = {"sync": "reads only"}
+
+@app.post("/projects/<pid>/rename")
+def rename_project(pid):
+    client.rename(pid, request.form.get("name"))
+    return "ok"
+
+@app.post("/sync")
+def sync():
+    return "ok"
+'''
+
+
+def _sources_with(rel, src):
+    def _fake():
+        yield from _real_sources()
+        yield rel, src
+    return _fake
+
+
+try:
+    integrity._sources = _sources_with(
+        "modules/went_quiet/app.py", _TRIAGED_SILENT)
+    findings = integrity.check_write_route_attribution()
+    named = [f for f in findings if f.get("module") == "went_quiet"]
+    check("a write route the module never declared is named",
+          [f["detail"] for f in named
+           if "rename_project" in f["detail"]] != [], True)
+    check("the declared route beside it is not reported",
+          [f for f in named if "sync" in f["detail"]
+           and "logs nothing" in f["detail"]], [])
+finally:
+    integrity._sources = _real_sources
+
+check("and the real tree is clean once the fixture is removed",
+      integrity.check_write_route_attribution(), [])
+
+# An untriaged module — no HOUSEKEEPING_ROUTES at all — is not asked the
+# finer question. This is the whole reason the check does not land as a
+# repo-wide gate: ~229 silent write routes exist across 34 files today, and
+# reporting them here would be the "229 findings nobody can act on" failure
+# this file's own docstring names.
+_UNTRIAGED_SILENT = '''
+@app.post("/projects/<pid>/rename")
+def rename_project(pid):
+    client.rename(pid, request.form.get("name"))
+    return "ok"
+'''
+try:
+    integrity._sources = _sources_with(
+        "modules/never_triaged/app.py", _UNTRIAGED_SILENT)
+    findings = integrity.check_write_route_attribution()
+    check("a module with no HOUSEKEEPING_ROUTES at all is left to the backlog",
+          [f for f in findings if f.get("module") == "never_triaged"], [])
+finally:
+    integrity._sources = _real_sources
+
+# A stale exemption -- naming a route that is gone, or one that has since
+# started logging -- is check_stale_json_exemptions()'s rule, one check over.
+_STALE_GONE = '''
+HOUSEKEEPING_ROUTES = {"renamed_ages_ago": "reads only"}
+
+@app.post("/sync")
+def sync():
+    _audit("synced")
+    return "ok"
+'''
+try:
+    integrity._sources = _sources_with(
+        "modules/carries_a_ghost/app.py", _STALE_GONE)
+    findings = integrity.check_write_route_attribution()
+    named = [f for f in findings if f.get("module") == "carries_a_ghost"]
+    check("an exemption naming a route that no longer exists is reported",
+          any("exists any more" in f["detail"] for f in named), True)
+finally:
+    integrity._sources = _real_sources
+
+_STALE_NOW_LOGS = '''
+HOUSEKEEPING_ROUTES = {"sync": "used to read only"}
+
+@app.post("/sync")
+def sync():
+    _audit("synced")
+    return "ok"
+'''
+try:
+    integrity._sources = _sources_with(
+        "modules/outgrew_its_exemption/app.py", _STALE_NOW_LOGS)
+    findings = integrity.check_write_route_attribution()
+    named = [f for f in findings
+             if f.get("module") == "outgrew_its_exemption"]
+    check("an exemption for a route that now logs is reported",
+          any("now logs" in f["detail"] for f in named), True)
+finally:
+    integrity._sources = _real_sources
+
+check("the real tree is clean once every fixture is removed",
+      integrity.check_write_route_attribution(), [])
+
+check("it is registered in /api/integrity's own CHECKS",
+      "write_route_attribution" in [key for key, *_ in integrity.CHECKS], True)
+
 
 print(f"\n{'-' * 62}\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

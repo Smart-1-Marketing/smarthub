@@ -5084,6 +5084,26 @@ def deliver_quote(qid):
         state = json.loads(q.data or "{}")
         ensure_sections(state)
 
+        # consulting_unresolved()'s own docstring calls this a question rather
+        # than a refusal, meant to be answered "afterwards" -- and delivery is
+        # the last moment "afterwards" can still mean anything. Every
+        # consulting line quotes the same product string, so a client who
+        # receives one with no description reads "Consulting & Strategic
+        # Services -- $5,000" and trafficking gets a line it cannot action.
+        # Checked before any of the work below, which is billed (a PDF) or
+        # writes to somebody else's system (Suite) -- there is nothing to
+        # undo by catching this first.
+        unresolved = consulting_unresolved(state)
+        if unresolved:
+            return jsonify({
+                "ok": False,
+                "error": (f"{len(unresolved)} strategy engagement"
+                          f"{'s have' if len(unresolved) != 1 else ' has'} "
+                          "nothing said about what it covers, and every one "
+                          "quotes the same product name on the document."),
+                "consulting_unresolved": unresolved,
+            }), 409
+
         pdf_bytes, title = build_proposal_pdf(q, state)
         q.pdf_blob = pdf_bytes
         q.pdf_filename = title + ".pdf"

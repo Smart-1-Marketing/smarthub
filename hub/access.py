@@ -48,6 +48,8 @@ UTILITY_PREFIXES = (
     "/status",
     "/activity",
     "/api/diagnostics",
+    "/api/throttle",        # counts only, but it is a security posture panel
+                            # on the Diagnostics page and gated with it
     "/api/integrity",
     "/api/oauth-redirects",
     "/api/backup",
