@@ -330,6 +330,51 @@ check("and one that declares image is still rewritten",
 # chain two transformations.
 check("rewriting twice changes nothing", storage.preview_url(_t) == _t, _t)
 
+# =====================================================================
+# An exact size, framed on Cloudinary's own subject detection
+# =====================================================================
+print("\nA suggested crop, never an invented one")
+print("----------------------------------------")
+
+check("with no Cloudinary configured, nothing is proposed",
+      storage.smart_crop_url("smart1/acme/hero", 300, 250) == "")
+
+# `settings` is a frozen dataclass built once at import — the PUBLIC_BASE_URL
+# trap one file over — so a test that wants "configured" cannot flip the env
+# var after the fact. `ready()` is the one function every writer here calls
+# instead of reading `settings.cloudinary_ready` directly, and it is a plain
+# module-level function: patching it is the seam. And cloudinary's own
+# `config()` reads CLOUDINARY_URL from the environment only on its *first*
+# call in the process and caches it from there, so setting the env var this
+# late would configure nothing — the config is set directly instead, which
+# `_configure()`'s later `cloudinary.config(secure=True)` does not clear.
+import cloudinary as _cloudinary                            # noqa: E402
+_cloudinary.config(cloud_name="demo", api_key="key", api_secret="secret",
+                   secure=True)
+_real_ready = storage.ready
+storage.ready = lambda: True                               # noqa: SLF001
+try:
+    _sc = storage.smart_crop_url("smart1/acme/hero", 300, 250)
+    check("it names an exact target size", "w_300" in _sc and "h_250" in _sc, _sc)
+    check("crop mode is fill, not a cap", "c_fill" in _sc and "c_limit" not in _sc, _sc)
+    check("gravity is left to Cloudinary's own detection", "g_auto" in _sc, _sc)
+    check("format and quality are left to the CDN",
+          "f_auto" in _sc and "q_auto" in _sc, _sc)
+
+    check("no public_id proposes nothing",
+          storage.smart_crop_url("", 300, 250) == "")
+    check("a non-positive dimension proposes nothing",
+          storage.smart_crop_url("smart1/acme/hero", 300, 0) == "")
+    check("a raw file is refused rather than 404ing later",
+          storage.smart_crop_url("smart1/acme/spec", 300, 250,
+                                 resource_type="raw") == "")
+    check("nor a video",
+          storage.smart_crop_url("smart1/acme/spot", 300, 250,
+                                 resource_type="video") == "")
+finally:
+    storage.ready = _real_ready
+    storage._configured = False                            # noqa: SLF001
+
 # The archive derives it on read rather than storing it: this index is
 # mirrored into the database, so a stored preview would be restored rather
 # than recomputed and would outlive the size it was computed at.
