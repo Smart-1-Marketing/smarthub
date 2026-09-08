@@ -126,7 +126,16 @@ def generate_spokesperson_clip(project_id, scene_id):
         over_footage = bool(scene.asset_url) and scene.asset_type != "spokesperson"
     over_footage = bool(over_footage)
 
-    identity = media_state.fingerprint({"avatar": avatar_id, "voice": voice_id, "voice_provider": "customer" if customer_voice else "heygen",
+    customer_client = None
+    customer_spoken = None
+    if customer_voice:
+        from ..services.elevenlabs_service import apply_pronunciation_dict
+        customer_client = Client.query.get(project.client_id)
+        customer_spoken = apply_pronunciation_dict(scene.narration, customer_client.pronunciation_dict if customer_client else {})
+    # Keep existing HeyGen request keys stable. Customer reads also include the
+    # actual spoken text so a pronunciation correction creates a fresh take.
+    voice_identity = {"voice_provider": "customer", "spoken": customer_spoken} if customer_voice else {}
+    identity = media_state.fingerprint({"avatar": avatar_id, "voice": voice_id, **voice_identity,
         "speech": media_state.speech_signature(scene.to_dict()), "format": _primary_format(project),
         "over_footage": over_footage})
     previous = dict(scene.asset_meta or {})
@@ -147,9 +156,8 @@ def generate_spokesperson_clip(project_id, scene_id):
 
     audio_url = None
     if customer_voice:
-        from ..services.elevenlabs_service import apply_pronunciation_dict
-        client = Client.query.get(project.client_id)
-        spoken = apply_pronunciation_dict(scene.narration, client.pronunciation_dict if client else {})
+        client = customer_client
+        spoken = customer_spoken
         audio_key = media_state.fingerprint({"voice": voice_id, "text": spoken})
         cached_audio = previous.get("customer_voice_audio") or {}
         audio_url = cached_audio.get("url") if cached_audio.get("key") == audio_key else None

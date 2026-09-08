@@ -114,6 +114,34 @@ class ReliabilityTests(unittest.TestCase):
             self.assertEqual(self.start().status_code, 409)
         self.assertEqual(generate.call_count, 1)
 
+    def test_existing_heygen_take_keeps_its_legacy_request_key(self):
+        self.ready()
+        meta = dict(self.scene.asset_meta)
+        meta["heygen_job"]["request_key"] = media_state.fingerprint({"avatar":"heygen-avatar", "voice":"heygen-voice",
+            "speech":media_state.speech_signature(self.scene.to_dict()), "format":"16:9", "over_footage":False})
+        self.scene.asset_meta = meta
+        db.session.commit()
+        with patch.object(heygen_service, "generate_spokesperson_clip") as generate:
+            response = self.start()
+            self.assertTrue(response.json["reused"])
+            generate.assert_not_called()
+
+    def test_customer_pronunciation_change_creates_fresh_presenter_speech(self):
+        from hub import customer_voices
+        from modules.radio_promo import voices as tts
+        with patch.object(customer_voices, "records", return_value=[{"voice_id":"customer-voice", "status":"ready"}]), \
+             patch.object(tts, "ready", return_value=True), \
+             patch.object(tts, "render_audio", return_value={"audio":b"audio"}) as synthesize, \
+             patch.object(heygen.cloudinary_service, "is_live", return_value=True), \
+             patch.object(heygen.cloudinary_service, "upload_asset", return_value={"secure_url":"https://example.test/customer.mp3"}), \
+             patch.object(heygen_service, "generate_spokesperson_clip", return_value={"status":"completed", "job_id":"done"}):
+            self.assertEqual(self.start(voice_provider="customer", voice_id="customer-voice").status_code, 200)
+            self.client.pronunciation_dict = {"Test":"Tess"}
+            db.session.commit()
+            self.assertEqual(self.start(voice_provider="customer", voice_id="customer-voice").status_code, 200)
+            self.assertEqual(synthesize.call_count, 2)
+            self.assertIn("Tess", synthesize.call_args.args[1])
+
     def test_customer_voice_presenter_synthesizes_once_and_reuses_uploaded_audio(self):
         from hub import customer_voices
         from modules.radio_promo import voices as tts
