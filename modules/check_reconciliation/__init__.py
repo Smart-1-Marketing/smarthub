@@ -90,6 +90,62 @@ def _install(module) -> None:
     from modules.check_reconciliation.bulk import install_bulk
     install_bulk(module)
 
+    # The bulk extension originally injected importKnownChecks by replacing an
+    # exact end-of-script string. That was brittle and could leave the button
+    # visible with no click handler when the base page changed. Always install a
+    # small independent handler after bulk has finished modifying the page.
+    page = getattr(module, "_PAGE", "")
+    if page and 'id="importKnown"' in page:
+        import_script = r'''
+<script>
+(function(){
+  async function runKnownImport(){
+    var b=document.getElementById('importKnown');
+    var m=document.getElementById('importKnownMsg');
+    if(!b) return;
+    b.disabled=true;
+    if(m) m.textContent='Importing…';
+    try{
+      var r=await fetch('api/import-known',{
+        method:'POST',
+        headers:{'Accept':'application/json','Content-Type':'application/json'},
+        body:'{}'
+      });
+      var j=await r.json().catch(function(){return {error:'Unexpected server response'};});
+      if(!r.ok || j.ok===false) throw new Error(j.error || ('Request failed '+r.status));
+      if(m){
+        m.innerHTML='<div class="success">Imported '+j.count+' previous check'+(j.count===1?'':'s')+
+          ' and '+j.aliases+' confirmed client match'+(j.aliases===1?'':'es')+'. Duplicates were skipped.</div>'+
+          (j.customer_lookup_error?'<div class="warning">QuickBooks customer lookup warning: '+String(j.customer_lookup_error).replace(/[&<>"\']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];})+'</div>':'');
+      }
+      if(typeof window.loadChecks==='function') await window.loadChecks();
+      else window.location.reload();
+    }catch(e){
+      if(m) m.innerHTML='<div class="error">'+String(e.message||e)+'</div>';
+      else alert(e.message||e);
+    }finally{
+      b.disabled=false;
+    }
+  }
+  window.importKnownChecks=runKnownImport;
+  function wire(){
+    var b=document.getElementById('importKnown');
+    if(b){
+      b.onclick=function(ev){ev.preventDefault();runKnownImport();};
+      b.setAttribute('type','button');
+    }
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',wire);
+  else wire();
+})();
+</script>
+'''
+        if "</body>" in page:
+            page = page.replace("</body>", import_script + "</body>", 1)
+        else:
+            page += import_script
+        module._PAGE = page
+
 
 class _BridgeLoader(importlib.abc.Loader):
     def __init__(self, wrapped):
