@@ -4,9 +4,11 @@ body[data-module="sales_builder"] .shell{width:100%;max-width:1600px;padding:12p
 .cols > *, .rail, .panel, .aiask input, .search, .two > *, .three > *{min-width:0}
 .headrow{gap:8px;margin-bottom:12px}
 .headrow .btn{padding:9px 12px}
-.stats{gap:10px;margin-bottom:12px}
-.stats .s1d-tile{padding:10px 12px}
-.stats .s1d-tile b{font-size:21px}
+.stats{gap:8px;margin-bottom:10px}
+.stats .s1d-tile{padding:7px 10px;border-radius:9px}
+.stats .s1d-tile b{font-size:18px;line-height:1.15;margin-top:2px}
+.stats .s1d-tile .lab{font-size:10px;line-height:1.2;letter-spacing:.3px}
+.stats .s1d-tile .sub{font-size:10px;line-height:1.2;margin:2px 0 0}
 .panel .phead{padding:10px 12px;gap:8px}
 .tabs{flex-wrap:wrap}
 .tabs span{padding:5px 8px}
