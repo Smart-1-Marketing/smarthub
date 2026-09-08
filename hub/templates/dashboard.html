@@ -10,15 +10,15 @@
 
 /* Partner resources. These five are what a partner actually gets sent to, so
    they are one row of real buttons rather than links buried in a menu. */
-.partner-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));
+.partner-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
   gap:12px;margin:0 0 22px}
-.partner-btn{display:flex;align-items:center;gap:8px;padding:11px 14px;
+.partner-btn{display:flex;align-items:center;gap:6px;padding:11px 10px;min-width:0;
   border-radius:var(--radius);text-decoration:none;color:#fff;
   box-shadow:0 1px 3px rgba(15,23,42,.10);
   transition:transform .12s ease,box-shadow .12s ease}
 .partner-btn:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(15,23,42,.18)}
-.partner-btn .pb-ico{flex:none;font-size:18px;line-height:1}
-.partner-btn .pb-name{font-weight:800;font-size:14.5px;letter-spacing:.01em;white-space:nowrap}
+.partner-btn .pb-ico{flex:none;font-size:16px;line-height:1}
+.partner-btn .pb-name{font-weight:800;font-size:12px;line-height:1.35;overflow-wrap:anywhere}
 .pb-rate{background:linear-gradient(135deg,#12335c,#1d5b96)}
 .pb-spec{background:linear-gradient(135deg,#0a6178,#0f92b0)}
 .pb-kit{background:linear-gradient(135deg,#166148,#1f9169)}
@@ -31,13 +31,24 @@
 /* Request buttons. Same shape as the partner row so the dashboard reads as one
    set of actions, warm instead of cool so "raise a request" is visibly a
    different kind of thing from "go and read a page". */
-.req-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));
+.req-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
   gap:12px;margin:0 0 22px}
 .rb-copy{background:linear-gradient(135deg,#8a2f3f,#c04a5e)}
 .rb-change{background:linear-gradient(135deg,#9a4a10,#d1761c)}
 .rb-support{background:linear-gradient(135deg,#1f4f66,#2f7fa3)}
 .rb-web{background:linear-gradient(135deg,#5c3286,#8a4fc4)}
+.rb-accounting{background:linear-gradient(135deg,#80600f,#a77b12)}
 .req-row .partner-btn{cursor:pointer}
+@media(max-width:1100px){
+  .partner-row,.req-row{grid-template-columns:repeat(auto-fit,minmax(min(100%,155px),1fr))}
+}
+.accounting-dialog{border:0;border-radius:14px;padding:0;width:640px;max-width:calc(100% - 32px);height:86vh;max-height:calc(100% - 32px)}
+.accounting-dialog::backdrop{background:rgba(15,23,42,.55)}
+.accounting-dialog-body{display:flex;flex-direction:column;height:100%}
+.accounting-dialog-head{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+.accounting-dialog-head h3{margin:0;color:var(--navy);font-size:16px}
+.accounting-dialog-head button{border:0;background:none;font-size:22px;cursor:pointer;color:#64748b}
+.accounting-dialog iframe{flex:1;min-height:0;border:0;width:100%}
 
 /* The assigned-client scorecard has one more figure than the other queue
    cards because it also answers what the book bills. Auto-fit keeps those
@@ -120,7 +131,20 @@
   <a class="partner-btn rb-support" id="rq-support">
     <span class="pb-ico">&#128736;</span><span class="pb-name">Campaign Support</span>
   </a>
+  <a class="partner-btn rb-accounting" id="rq-accounting" href="https://api.leadconnectorhq.com/widget/form/oNilGBDoJrYdHl44KeLa" aria-haspopup="dialog">
+    <span class="pb-ico" aria-hidden="true">&#9873;</span><span class="pb-name">Accounting Issues</span>
+  </a>
 </div>
+
+<dialog id="accounting-dialog" class="accounting-dialog" aria-labelledby="accounting-dialog-title">
+  <div class="accounting-dialog-body">
+    <div class="accounting-dialog-head">
+      <h3 id="accounting-dialog-title">Accounting Issues</h3>
+      <button type="button" id="accounting-dialog-close" aria-label="Close accounting issues form">&times;</button>
+    </div>
+    <iframe title="Accounting issues form" data-src="https://api.leadconnectorhq.com/widget/form/oNilGBDoJrYdHl44KeLa"></iframe>
+  </div>
+</dialog>
 
 <div class="kpi-row" id="kpis">
   <div class="kpi"><div class="k-label">Active Clients</div><div class="k-value" id="k-clients"><span class="spin"></span></div><div class="k-sub" id="k-clients-sub"></div></div>
@@ -277,6 +301,18 @@
 <script>
 const $=id=>document.getElementById(id);
 const user_name={{ (user or '')|tojson }};
+const accountingDialog=$('accounting-dialog');
+$('rq-accounting').onclick=function(event){
+  if(typeof accountingDialog.showModal!=='function') return;
+  event.preventDefault();
+  const frame=accountingDialog.querySelector('iframe');
+  if(!frame.hasAttribute('src')) frame.src=frame.dataset.src;
+  accountingDialog.showModal();
+};
+$('accounting-dialog-close').onclick=()=>accountingDialog.close();
+accountingDialog.onclick=event=>{
+  if(event.target===accountingDialog) accountingDialog.close();
+};
 const webTicket=$('rq-web');
 if(webTicket) webTicket.onclick=function(event){
   if(!window.WebTicket || !window.KnackForm) return;
