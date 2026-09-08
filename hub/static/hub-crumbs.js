@@ -72,6 +72,7 @@
     "website-audit": "Website Audit", "builder": "Proposal Builder",
     "io": "IO Builder", "landing": "Landing Page Maker",
     "msa": "Master Services Agreement", "pdf": "PDF Optimizer",
+    "short-links": "Client Link Masking",
     "ads": "Smart 1 Ads", "ads-grader": "Google Ads Grader",
     "calculators": "Media Calculators",
     "gpt-ads": "GPT Ads Builder", "social": "Social Content Planner",

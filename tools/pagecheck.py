@@ -100,6 +100,9 @@ HUB_PAGES = [
     # Same shape again, and it hands the browser its field ids in a JSON
     # script block — the thing this checker learned to tell apart from code.
     "/tools/campaign-assets",
+    # Same shape once more: a hub route under /tools that draws its whole
+    # table from a fetch, with no Jinja inside its <script> at all.
+    "/tools/short-links",
     # A page *inside* a mount rather than its root, so enumerating the mounts
     # never reaches it. It is its own tool -- it has a tile on /tools under
     # Landing Pages -- and it hands the browser its placements in a JSON
