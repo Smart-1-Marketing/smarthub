@@ -123,18 +123,12 @@ section("A private products export nobody mounted is not an admin's to-do")
 import json                                                        # noqa: E402
 from hub import knack_data                                         # noqa: E402
 
-ok("with no fallback file at all, knack_export reports clean",
-   "knack_export" in REPORT["clean"] and "knack_export" not in ROWS,
-   f"came back as {ROWS.get('knack_export')}")
-check("and the state it read from says so",
-      knack_data.export_state()["present"], False)
-check("with the scorecard still labeled from the clock",
-      knack_data.export_state()["current"], knack_data._current_period())
-
 # `BASE` is a module-level constant resolved from CLIENTS_DATA_DIR at import
-# time, which by now has already latched onto the real checkout's
-# clients_app/data — so it is patched directly for this test rather than
-# writing a fallback export into the repo itself.
+# time, and CI sets that variable to tests/fixtures/clients — a fixture
+# products.json that is genuinely *present* — so the "absent" case cannot be
+# read off the ambient environment. All three states are forced by patching
+# `BASE` directly, the way the fixture directory itself was reached, rather
+# than assuming what an unpatched run happens to find.
 _real_base = knack_data.BASE
 CLIENTS_DIR = os.path.join(TMP, "clients_export")
 os.makedirs(CLIENTS_DIR, exist_ok=True)
@@ -149,6 +143,13 @@ def _write_export(data):
 
 
 try:
+    ok("with no fallback file at all, knack_export reports clean",
+       "knack_export" in housekeeping.findings()["clean"])
+    _absent = knack_data.export_state()
+    check("and the state it read from says so", _absent["present"], False)
+    check("with the scorecard still labeled from the clock",
+          _absent["current"], knack_data._current_period())
+
     _write_export({"records": []})
     _state = knack_data.export_state()
     check("a file that exists is reported present", _state["present"], True)
