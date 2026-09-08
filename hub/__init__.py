@@ -6912,7 +6912,7 @@ def create_hub_app() -> Flask:
             extra = b""
             if b"hub-help.js" not in body:
                 extra = (b'<script defer src="/hub-help.js"></script>'
-                         b'<script defer data-hub-inbox src="/assets/hub-inbox.js?v=account-menu-1"></script>'
+                         b'<script defer data-hub-inbox src="/assets/hub-inbox.js?v=qa-inbox-1"></script>'
                          b'<script defer src="/hub-demo.js"></script>'
                     b'<script defer src="/hub-crumbs.js"></script>'
                          b'<script defer src="/hub-thinking.js"></script>'

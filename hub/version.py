@@ -9,9 +9,9 @@ Bump VERSION whenever code is deployed. BUILD_DATE is the date of that bump.
 import os
 import subprocess
 
-VERSION = "1.75.3"
+VERSION = "1.75.4"
 BUILD_DATE = "2026-09-08"
-CODENAME = "Account Menu"
+CODENAME = "Account and QA Notifications"
 
 _sha_cache: str | None = None
 
