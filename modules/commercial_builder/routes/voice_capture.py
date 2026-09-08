@@ -1,10 +1,10 @@
-"""Client voice capture for the Commercial/Radio Builder.
+"""Client voice capture shared by Commercial Builder and Radio Promo.
 
-Staff creates a secure link from the Voice & Music step. The client needs no
-SmartHub login: the public page can record in-browser with a teleprompter or
-accept an existing audio file. The submitted source audio is stored in the
-client's Cloudinary audio folder and remains attached to the request for the
-team to review before creating an ElevenLabs clone.
+Staff creates a secure link. The client needs no SmartHub login: the public
+page can record in-browser with a teleprompter or accept an existing audio
+file. Submitted source audio is stored in the client's Cloudinary audio folder
+and remains attached to the request for the team to review before creating an
+ElevenLabs clone.
 
 The public URLs intentionally live below /review/. Commercial Builder's login
 guard already exempts that prefix for client review links, and the Hub strips
@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import secrets
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 from flask import Blueprint, abort, jsonify, render_template, request, url_for
 from werkzeug.utils import secure_filename
@@ -106,6 +107,34 @@ def _extension(filename):
     return os.path.splitext(filename or "")[1].lower().lstrip(".")
 
 
+def _request_values(data):
+    script = str(data.get("script") or DEFAULT_VOICE_SCRIPT).strip()
+    if len(script) < 100:
+        return None, None, (jsonify({"ok": False, "error": "The recording script is too short."}), 400)
+    if len(script) > 12000:
+        return None, None, (jsonify({"ok": False, "error": "The recording script is too long."}), 400)
+    try:
+        expires_days = int(data.get("expires_days") or DEFAULT_EXPIRES_DAYS)
+    except (TypeError, ValueError):
+        expires_days = DEFAULT_EXPIRES_DAYS
+    expires_days = max(1, min(expires_days, 90))
+    return script, expires_days, None
+
+
+def _as_item(row):
+    item = row.to_dict()
+    item["url"] = _capture_url(row.token) if row.is_available() else ""
+    return item
+
+
+def _client_identity(row):
+    """Stable client name/folder for both builder-native and shared requests."""
+    client = Client.query.get(row.client_id) if row.client_id else None
+    name = (row.client_name or (client.name if client else "") or "Client").strip()
+    slug = (row.client_slug or (client.slug if client else "") or "client").strip()
+    return SimpleNamespace(name=name, slug=slug)
+
+
 # ---------------------------------------------------------------------------
 # Staff routes — normal Commercial Builder login required
 # ---------------------------------------------------------------------------
@@ -114,34 +143,27 @@ def list_voice_capture_requests(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     rows = (VoiceCaptureRequest.query.filter_by(project_id=project.id)
             .order_by(VoiceCaptureRequest.id.desc()).limit(20).all())
-    data = []
-    for row in rows:
-        item = row.to_dict()
-        item["url"] = _capture_url(row.token) if row.is_available() else ""
-        data.append(item)
-    return jsonify({"ok": True, "requests": data, "default_script": DEFAULT_VOICE_SCRIPT})
+    return jsonify({"ok": True, "requests": [_as_item(r) for r in rows],
+                    "default_script": DEFAULT_VOICE_SCRIPT})
 
 
 @bp.post("/api/projects/<int:project_id>/voice-capture-requests")
 def create_voice_capture_request(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     data = request.get_json(silent=True) or {}
-    script = str(data.get("script") or DEFAULT_VOICE_SCRIPT).strip()
-    if len(script) < 100:
-        return jsonify({"ok": False, "error": "The recording script is too short."}), 400
-    if len(script) > 12000:
-        return jsonify({"ok": False, "error": "The recording script is too long."}), 400
-
-    try:
-        expires_days = int(data.get("expires_days") or DEFAULT_EXPIRES_DAYS)
-    except (TypeError, ValueError):
-        expires_days = DEFAULT_EXPIRES_DAYS
-    expires_days = max(1, min(expires_days, 90))
+    script, expires_days, error = _request_values(data)
+    if error:
+        return error
 
     row = VoiceCaptureRequest(
         token=secrets.token_urlsafe(36),
         project_id=project.id,
         client_id=project.client_id,
+        source_module="commercial_builder",
+        source_ref=str(project.id),
+        client_name=project.client.name,
+        client_slug=project.client.slug,
+        context_label=project.title or "Commercial Builder",
         script_text=script,
         created_by=_actor(),
         expires_at=datetime.utcnow() + timedelta(days=expires_days),
@@ -152,9 +174,56 @@ def create_voice_capture_request(project_id):
     _log("voice_capture_requested", client=project.client.name,
          detail=f"Client voice recording link created for {project.title or 'commercial'}",
          project_id=project.id, request_id=row.id)
-    item = row.to_dict()
-    item["url"] = _capture_url(row.token)
-    return jsonify({"ok": True, "request": item}), 201
+    return jsonify({"ok": True, "request": _as_item(row)}), 201
+
+
+@bp.get("/api/radio-projects/<radio_project_id>/voice-capture-requests")
+def list_radio_voice_capture_requests(radio_project_id):
+    from modules.radio_promo import store as radio_store
+    project = radio_store.get(radio_project_id)
+    if not project:
+        abort(404)
+    rows = (VoiceCaptureRequest.query
+            .filter_by(source_module="radio_promo", source_ref=radio_project_id)
+            .order_by(VoiceCaptureRequest.id.desc()).limit(20).all())
+    return jsonify({"ok": True, "requests": [_as_item(r) for r in rows],
+                    "default_script": DEFAULT_VOICE_SCRIPT})
+
+
+@bp.post("/api/radio-projects/<radio_project_id>/voice-capture-requests")
+def create_radio_voice_capture_request(radio_project_id):
+    from modules.radio_promo import store as radio_store
+    project = radio_store.get(radio_project_id)
+    if not project:
+        abort(404)
+    client_name = str(project.get("client") or "").strip()
+    if not client_name:
+        return jsonify({"ok": False,
+                        "error": "Attach this radio project to a client before requesting their voice."}), 400
+
+    data = request.get_json(silent=True) or {}
+    script, expires_days, error = _request_values(data)
+    if error:
+        return error
+
+    row = VoiceCaptureRequest(
+        token=secrets.token_urlsafe(36),
+        source_module="radio_promo",
+        source_ref=radio_project_id,
+        client_name=client_name,
+        client_slug=str(project.get("client_slug") or radio_store.slugify(client_name)),
+        context_label=str(project.get("project_name") or project.get("company") or "Radio Promo")[:300],
+        script_text=script,
+        created_by=_actor(),
+        expires_at=datetime.utcnow() + timedelta(days=expires_days),
+    )
+    db.session.add(row)
+    db.session.commit()
+
+    _log("voice_capture_requested", client=client_name,
+         detail="Client voice recording link created from Radio Promo",
+         radio_project_id=radio_project_id, request_id=row.id)
+    return jsonify({"ok": True, "request": _as_item(row)}), 201
 
 
 @bp.post("/api/voice-capture-requests/<int:capture_id>/revoke")
@@ -164,8 +233,7 @@ def revoke_voice_capture_request(capture_id):
     if row.status == "pending":
         row.status = "revoked"
     db.session.commit()
-    client = Client.query.get(row.client_id)
-    _log("voice_capture_revoked", client=client.name if client else "",
+    _log("voice_capture_revoked", client=_client_identity(row).name,
          detail="Client voice recording link revoked", request_id=row.id)
     return jsonify({"ok": True, "request": row.to_dict()})
 
@@ -176,8 +244,8 @@ def revoke_voice_capture_request(capture_id):
 @bp.get("/review/voice/<token>")
 def client_voice_capture(token):
     row = _public_request(token)
-    project = CommercialProject.query.get_or_404(row.project_id)
-    client = Client.query.get_or_404(row.client_id)
+    client = _client_identity(row)
+    project = CommercialProject.query.get(row.project_id) if row.project_id else None
 
     row.opened_count = int(row.opened_count or 0) + 1
     row.last_opened_at = datetime.utcnow()
@@ -194,8 +262,7 @@ def client_voice_capture(token):
 @bp.post("/review/voice/<token>/submit")
 def submit_client_voice_capture(token):
     row = _public_request(token)
-    project = CommercialProject.query.get_or_404(row.project_id)
-    client = Client.query.get_or_404(row.client_id)
+    client = _client_identity(row)
 
     if request.content_length and request.content_length > MAX_AUDIO_BYTES + (1024 * 1024):
         return jsonify({"ok": False, "error": "That file is larger than the 50 MB limit."}), 413
@@ -262,10 +329,14 @@ def submit_client_voice_capture(token):
     row.consent = True
     db.session.commit()
 
+    extra = {"request_id": row.id, "audio_url": row.audio_url,
+             "source_module": row.source_module or ""}
+    if row.project_id:
+        extra["project_id"] = row.project_id
+    if row.source_module == "radio_promo":
+        extra["radio_project_id"] = row.source_ref
     _log("voice_capture_submitted", client=client.name,
-         detail=f"{submitter_name} submitted a {source_type} voice sample",
-         project_id=project.id, request_id=row.id,
-         audio_url=row.audio_url)
+         detail=f"{submitter_name} submitted a {source_type} voice sample", **extra)
 
     return jsonify({
         "ok": True,
