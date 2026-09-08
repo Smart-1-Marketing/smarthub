@@ -232,7 +232,7 @@ for path in list((ROOT / "hub").rglob("*.py")) + list((ROOT / "modules").rglob("
         continue
     src = path.read_text(encoding="utf-8", errors="replace")
     if "s1-think-star" in src or "s1-think-sweep" in src:
-        _py_mirror.append(str(path.relative_to(ROOT)))
+        _py_mirror.append(path.relative_to(ROOT).as_posix())
 ok("no Python file carries a second copy of the glyph", not _py_mirror,
    ", ".join(_py_mirror))
 
@@ -730,7 +730,7 @@ for _mod in sorted((ROOT / "modules").iterdir()):
                             r'\{%-?\s*(?:include|import|extends)\s+"([^"]+)"', _src):
                         for _c in _mod.rglob(_inc):
                             _full += _c.read_text(encoding="utf-8", errors="ignore")
-                    _rel = str(_t.relative_to(ROOT))
+                    _rel = _t.relative_to(ROOT).as_posix()
                     _swept.append(_rel)
                     _marked = ("s1_wait_assets" in _full or "scan_mark" in _full
                                or "S1Think" in _src)

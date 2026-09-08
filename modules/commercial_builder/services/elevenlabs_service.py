@@ -153,6 +153,11 @@ def generate_voiceover(text, voice_id, stability=0.5, style=0.5, speed=1.0,
     Returns {"audio_path": local file path, "duration_estimate": seconds} or,
     when running live, writes the MP3 to out_path and returns its path.
     """
+    from hub.customer_voices import ensure_usable, LibraryError
+    try:
+        ensure_usable(voice_id)
+    except LibraryError as exc:
+        return {"error": str(exc)}
     spoken_text = apply_pronunciation_dict(text, pronunciation_dict)
     word_count = len(spoken_text.split())
     # ~150 wpm average commercial VO pace, adjusted by requested speed
