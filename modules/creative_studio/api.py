@@ -371,7 +371,7 @@ def templates_page():                                        # noqa: ANN202
         try:
             filtered = [t for t in filtered if t.duration == int(duration)]
         except ValueError:
-            pass
+            pass  # a malformed ?duration= is treated as no filter, not a 400
     if aspect:
         filtered = [t for t in filtered if t.aspect_ratio == aspect]
 

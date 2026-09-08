@@ -519,8 +519,8 @@ with hub_app.app_context():
 # Cannot publish a template that publishing would leave with no scenes to
 # begin with (an empty draft), because nothing there could ever resolve into
 # a project a rep could build from.
-r = client.post("/creative-studio/api/templates",
-                json={"id": "wo-cs2-empty", "name": "Empty", "creative_type": "video_commercial"})
+client.post("/creative-studio/api/templates",
+           json={"id": "wo-cs2-empty", "name": "Empty", "creative_type": "video_commercial"})
 r = client.post("/creative-studio/api/templates/wo-cs2-empty/publish")
 check("a template with no scenes cannot be published", r.status_code, 400)
 
@@ -589,7 +589,6 @@ check("promoted to admin, the same account reaches Template Admin", r.status_cod
 section("WO-CS2: attribution and integrity")
 
 with hub_app.app_context():
-    log_events = {"template_published"}
     src = (ROOT / "modules/creative_studio/api.py").read_text()
     check("template_published is logged under the creative_studio module",
           'audit.log("creative_studio", "template_published"' in src, True)
