@@ -623,7 +623,6 @@ with hub_app.app_context():
           ["hook_fullbleed", "problem_split", "proof_lower_third", "offer_card", "end_card"])
     check("  ...and the end card is marked as the CTA scene", scenes[-1].is_cta, True)
     first_scene_id = scenes[0].id
-    second_scene_id = scenes[1].id
 
 r = client.post(f"/creative-studio/api/projects/{cs_project_id}/open")
 check("reopening an already-bound project is a no-op",
