@@ -19,6 +19,17 @@
         {% else %}None chosen{% endif %}</td></tr>
       <tr><td style="color:var(--muted,#64748B)">Created by</td><td>{{ project.created_by or '—' }} on {{ project.created_at[:10] if project.created_at else '' }}</td></tr>
     </table>
+    {% if template %}
+    <div style="margin-top:12px">
+      <button class="btn btn-primary" id="cpdOpenEditor">
+        {{ 'Open in Storyboard Editor' if not project.cb_project_id else 'Continue in Storyboard Editor' }}
+      </button>
+      <span id="cpdOpenStatus" style="color:var(--muted,#64748B);font-size:12.5px;margin-left:8px"></span>
+    </div>
+    {% else %}
+    <p style="color:var(--muted,#64748B);margin-top:10px">Pick a template before opening the
+       Storyboard Editor -- a project with no template has nothing to build scenes from yet.</p>
+    {% endif %}
   </div>
 
   {% if template %}
@@ -61,10 +72,28 @@
       </tbody>
     </table>
     {% else %}
-    <p style="color:var(--muted,#64748B)">No render yet. The editor and the queued
-       Creatomate render ship in WO-CS3 through WO-CS5 -- this record exists
-       now so nothing about the project is lost while those land.</p>
+    <p style="color:var(--muted,#64748B)">No render yet. The queued Creatomate render
+       ships in WO-CS5 -- open the Storyboard Editor above to build the scenes first.</p>
     {% endif %}
   </div>
 </div>
+
+<script>
+(function(){
+  var btn = document.getElementById('cpdOpenEditor');
+  if (!btn) return;
+  btn.addEventListener('click', function(){
+    var status = document.getElementById('cpdOpenStatus');
+    btn.disabled = true;
+    status.textContent = 'Opening…';
+    fetch('/creative-studio/api/projects/{{ project.id }}/open', {method: 'POST'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.ok) { window.location = d.url; }
+        else { btn.disabled = false; status.textContent = d.error || 'Could not open the editor.'; }
+      })
+      .catch(function(){ btn.disabled = false; status.textContent = 'Could not open the editor.'; });
+  });
+})();
+</script>
 {% endblock %}

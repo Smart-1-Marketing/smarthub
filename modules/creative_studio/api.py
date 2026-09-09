@@ -1,9 +1,11 @@
 """Creative Studio routes.
 
-Foundation only, per WO-CS1: the front door, the client picker, projects, the
-extended Brand Kit, and the Media Library with its Cloudinary backfill.
-Templates, AI Tools, Approvals and Usage are placeholder pages behind the
-same login -- real content lands in WO-CS2 through WO-CS6.
+WO-CS1 laid the front door, the client picker, projects, the extended Brand
+Kit and the Media Library. WO-CS2 added the template database and gallery.
+WO-CS3 is the editor: opening a project built from a template binds it to a
+Commercial Builder storyboard (`binder.bind()`) rather than building a second
+scene editor. AI Tools, Approvals and Usage are placeholder pages behind the
+same login -- real content lands in WO-CS4 through WO-CS6.
 """
 from __future__ import annotations
 
@@ -11,7 +13,7 @@ import re
 
 from flask import Blueprint, jsonify, render_template, request
 
-from . import brand_ext, config, jobs, layouts, resolver
+from . import binder, brand_ext, config, jobs, layouts, resolver
 from .db import db
 from .models import (CreativeJob, CsMediaAsset, CsProject, CsProjectVersion,
                      CsTemplate, CsTemplateScene, CsTemplateVariable)
@@ -183,6 +185,56 @@ def project_detail(project_id):                            # noqa: ANN202
                            statuses=config.PROJECT_STATUSES,
                            template=tmpl.as_dict(with_children=False) if tmpl else None,
                            resolved=resolved, unresolved=unresolved)
+
+
+@bp.post("/api/projects/<int:project_id>/open")
+def api_open_project(project_id):                          # noqa: ANN202
+    """Bind this project to a Commercial Builder storyboard (once) and hand
+    back where to send the browser. WO-CS3: opening a project built from a
+    template lands in the Storyboard Editor with its scenes already laid
+    out, rather than the Commercial Builder's own empty Start page."""
+    project = CsProject.query.get_or_404(project_id)
+    result = binder.bind(project)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify({"ok": True, "cb_project_id": result["cb_project_id"],
+                    "url": f"/tools/commercial-builder/project/{result['cb_project_id']}/blueprint"})
+
+
+@bp.post("/api/projects/<int:project_id>/variables")
+def api_override_variable(project_id):                     # noqa: ANN202
+    """One project-level variable override -- the "manual" rung of the
+    resolver's priority order, so a click on a variable chip in the
+    Storyboard Editor's layer panel changes what this project resolves to
+    without touching the Brand Kit or the template default anything else
+    reads."""
+    project = CsProject.query.get_or_404(project_id)
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Name the variable being overridden."}), 400
+    overrides = dict(project.resolved_vars or {})
+    value = data.get("value")
+    if value is None or str(value).strip() == "":
+        overrides.pop(name, None)
+    else:
+        overrides[name] = str(value)
+    project.resolved_vars = overrides
+    db.session.commit()
+
+    tmpl = CsTemplate.query.get(project.template_id) if project.template_id else None
+    resolved = {}
+    if tmpl is not None:
+        domain = ""
+        if project.client_name:
+            try:
+                from hub.clients_registry import find_client
+                hit = find_client(project.client_name)
+                domain = (hit or {}).get("domain", "")
+            except Exception:                             # noqa: BLE001
+                domain = ""
+        resolved = resolver.resolve(tmpl, project, client=project.client_name, domain=domain)
+    return jsonify({"ok": True, "resolved": resolved})
 
 
 # --------------------------------------------------------------- brand kit

@@ -593,6 +593,124 @@ with hub_app.app_context():
     check("template_published is logged under the creative_studio module",
           'audit.log("creative_studio", "template_published"' in src, True)
 
+# ---------------------------------------------------------------------------
+# WO-CS3 -- binding a cs_project to the Commercial Builder's Storyboard
+# Editor. "Do not build a new editor and do not build a timeline": every
+# assertion here is about the join, not about a second scene editor.
+section("WO-CS3: opening a project built from a template")
+
+from modules.creative_studio import binder as cs_binder  # noqa: E402
+
+with hub_app.app_context():
+    r = client.post("/creative-studio/api/projects",
+                    json={"name": "HVAC spring tune-up", "template_id": "hvac-30"})
+    cs_project_id = r.get_json()["project"]["id"]
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/open")
+check("opening a project built from hvac-30 succeeds", r.status_code, 200)
+cb_project_id = r.get_json()["cb_project_id"]
+check("  ...and hands back the Storyboard Editor's URL",
+      r.get_json()["url"], f"/tools/commercial-builder/project/{cb_project_id}/blueprint")
+
+with hub_app.app_context():
+    from modules.commercial_builder.models import CommercialProject as CbProject, Scene as CbScene
+    cb_project = CbProject.query.get(cb_project_id)
+    scenes = cb_project.scenes.order_by(CbScene.order_index).all()
+    check("hvac-30 opens with five scenes", len(scenes), 5)
+    check("  ...summing to 30", round(sum(s.end - s.start for s in scenes), 2), 30.0)
+    check("  ...each carrying the template's own layout_key",
+          [(s.asset_meta or {}).get("layout_key") for s in scenes],
+          ["hook_fullbleed", "problem_split", "proof_lower_third", "offer_card", "end_card"])
+    check("  ...and the end card is marked as the CTA scene", scenes[-1].is_cta, True)
+    first_scene_id = scenes[0].id
+    second_scene_id = scenes[1].id
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/open")
+check("reopening an already-bound project is a no-op",
+      r.get_json()["cb_project_id"], cb_project_id)
+
+with hub_app.app_context():
+    from modules.creative_studio.models import CsProject as CsProjectModel
+    row = CsProjectModel.query.get(cs_project_id)
+    check("the cs_project remembers which storyboard it handed the work to",
+          row.cb_project_id, cb_project_id)
+
+r = client.post("/creative-studio/api/projects", json={"name": "No template yet",
+                                                        "creative_type": "video_commercial"})
+no_tmpl_id = r.get_json()["project"]["id"]
+r = client.post(f"/creative-studio/api/projects/{no_tmpl_id}/open")
+check("a project with no template refuses to open", r.status_code, 400)
+
+section("WO-CS3: the layer panel is limited to what the layout allows")
+
+r = client.get(f"/tools/commercial-builder/project/{cb_project_id}/blueprint")
+check("the Blueprint page renders", r.status_code, 200)
+body = r.get_data(as_text=True)
+check("  ...carrying the layer panel's vocabulary", "cs-layout-data" in body, True)
+check("  ...and the layer panel container itself", "cb-layer-panel" in body, True)
+
+r = client.put(f"/tools/commercial-builder/api/projects/{cb_project_id}/scenes/{first_scene_id}",
+              json={"layers": {"phone": {"value": "555-1234", "source": "manual"}}})
+check("a layer the layout does not allow is refused server-side", r.status_code, 400)
+check("  ...naming the layer it refused", "phone" in (r.get_json().get("error") or ""), True)
+
+r = client.put(f"/tools/commercial-builder/api/projects/{cb_project_id}/scenes/{first_scene_id}",
+              json={"layers": {"headline": {"value": "Beat the heat", "source": "manual"}}})
+check("a layer the layout does allow is saved", r.status_code, 200)
+check("  ...and reads back", r.get_json()["scene"]["asset_meta"]["layers"]["headline"]["value"],
+      "Beat the heat")
+
+# A project not built from Creative Studio at all (the ordinary Commercial
+# Builder flow) must draw no layer panel -- WO-CS3 changed nothing about a
+# spot nobody bound to a template.
+with hub_app.app_context():
+    from modules.commercial_builder.client_link import ensure_client
+    from modules.commercial_builder import template_bind
+    plain_client = ensure_client("Plain Commercial Client", "")
+    plain_cb = template_bind.build_from_template(
+        client_id=plain_client.id, client_name=plain_client.name, title="No layout here",
+        length_seconds=15, platform="both", formats=["16:9"], commercial_type="stock_vo",
+        scenes=[{"layout_key": "", "default_duration": 15, "layers": {}, "label": ""}])
+    plain_cb_id = plain_cb.id
+
+r = client.get(f"/tools/commercial-builder/project/{plain_cb_id}/blueprint")
+check("a project Creative Studio never touched renders with no layer-panel data",
+      "cs-layout-data" in r.get_data(as_text=True), False)
+
+section("WO-CS3: overriding a variable changes the project, not the Brand Kit")
+
+with hub_app.app_context():
+    from modules.creative_studio import brand_ext as cs_brand_ext
+    before = cs_brand_ext.get("")
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/variables",
+                json={"name": "phone", "value": "(317) 555-0100"})
+check("overriding a variable on the project succeeds", r.status_code, 200)
+check("  ...and the resolver now reads it back as manual",
+      r.get_json()["resolved"]["phone"], {"value": "(317) 555-0100", "source": "manual", "required": True})
+
+with hub_app.app_context():
+    after = cs_brand_ext.get("")
+    check("  ...without touching the Brand Kit", after, before)
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/variables",
+                json={"name": "phone", "value": ""})
+check("clearing an override is allowed", r.status_code, 200)
+check("  ...and the variable falls back through the resolver order",
+      r.get_json()["resolved"]["phone"]["source"] != "manual", True)
+
+section("WO-CS3: the binder degrades rather than raising")
+
+with hub_app.app_context():
+    from modules.creative_studio.models import CsProject as CsProjectModel2
+    ghost = CsProjectModel2(name="Ghost template", creative_type="video_commercial",
+                            template_id="not-a-real-template", status="Draft")
+    from modules.creative_studio.db import db as cs_db
+    cs_db.session.add(ghost)
+    cs_db.session.commit()
+    result = cs_binder.bind(ghost)
+    check("a template that no longer exists is reported, not raised", result["ok"], False)
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)
