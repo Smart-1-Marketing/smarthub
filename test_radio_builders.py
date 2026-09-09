@@ -465,7 +465,7 @@ check("and an unwritten one is not shown as an empty script",
 # mix's own dict is deliberately not forwarded.
 allowed = {"id", "daypart", "daypart_label", "daypart_when", "seconds",
            "length_label", "outcome", "script", "audio_url", "audio_seconds",
-           "audio_is_mix", "has_bed", "voice_name", "status", "comments"}
+           "audio_is_mix", "has_bed", "voice_audio_url", "voice_audio_seconds", "voice_name", "status", "comments"}
 check("a spot carries exactly the fields it is meant to",
       set(view["spots"][0].keys()), allowed)
 check("the page itself carries exactly its own",
@@ -1041,6 +1041,60 @@ check("custom script saves", _custom.get("ok"), True)
 check("a new session can load the saved script", fan_app.app.test_client().get('/api/script-presets').get_json()["custom"][-1]["script"], "Hello from {business}.")
 for payload in ({"name":"", "script":"Hello"}, {"name":"Long", "script":"x"*4001}, {"name":"Empty", "script":""}):
     check("invalid custom copy is rejected", fan.post('/api/script-presets',json=payload).status_code, 400)
+
+section("Locally saved music remains playable")
+with patch.object(fan_store,'cloudinary_ready',return_value=False):
+    local_track=fan_store.save_music_track('Local bed',b'local audio','mp3',{'seconds':33})
+    check('locally saved tracks have the playback field',local_track['audio_url'].startswith('audio/'),True)
+    check('locally saved tracks can be found by id',fan_store.music_track(local_track['id'])['audio_url'],local_track['audio_url'])
+with patch.object(fan_store,'_read',return_value=[{'id':'old','url':'audio/old.mp3','where':'disk'}]):
+    check('old disk library rows are recovered',fan_store.music_library()[0]['audio_url'],'audio/old.mp3')
+
+section("Production voice controls, comments, and bed overrides")
+from modules.fan_radio import delivery
+check("expressive stability uses supported values", delivery.settings({"model_id":"eleven_v3","stability":.4})["stability"], .5)
+for value in ("nan", -1, 2):
+    check("invalid stability is refused", fan.post(_voice_url,json={"voice_id":"sample","stability":value}).status_code,400)
+_before_preview = fan_store.load(_strength_pid)["voice"].copy()
+with patch.object(fan_app.voices, 'render_audio', return_value={"audio":b"preview", "seconds":2.5,"measured":True}) as render:
+    preview=fan.post(f"/api/projects/{_strength_pid}/voice/preview",json={"text":"[excited] Hello!","model_id":"eleven_v3","stability":0,"speed":1.15,"prompt_strength":.7})
+    check("custom voice sample is returned",preview.status_code,200)
+    check("sample uses selected engine and controls",render.call_args.kwargs,{"prompt_strength":.7,"stability":0.0,"model_id":"eleven_v3"})
+    check("sample speed reaches renderer",render.call_args.args[3],1.15)
+    check("expression tag reaches renderer",render.call_args.args[1],"[excited] Hello!")
+    check("preview does not save settings",fan_store.load(_strength_pid)["voice"],_before_preview)
+    render.reset_mock()
+    check("tags cannot silently record in Standard mode",fan.post(f"/api/projects/{_strength_pid}/voice/preview",json={"text":"[excited] Hello!","model_id":"eleven_multilingual_v2"}).status_code,400)
+    check("rejected tags do not spend a render",render.called,False)
+    check("sample text is bounded",fan.post(f"/api/projects/{_strength_pid}/voice/preview",json={"text":"x"*501}).status_code,400)
+_control_project=fan_store.load(_strength_pid)
+_control_project['feedback']=[{"spot_id":"strength-spot","name":"Test","comment":"Previous comment","action":"comment"}]
+_control_project['spots'][0].update(status='approved',audio_url='audio/voice.mp3',audio_seconds=28,bed={"audio_url":"audio/bed.mp3"},mix={"audio_url":"audio/mix.wav","seconds":30})
+_control_project['spots'].append({"id":"another","seconds":30,"script":"Another read."})
+fan_store.save(_control_project)
+_public=fan_app.public_view(_control_project)['spots'][0]
+check("customer receives finished mix",_public['audio_url'],'audio/mix.wav')
+check("customer also receives voice only",_public['voice_audio_url'],'audio/voice.mp3')
+_clear=fan.post(f"/api/projects/{_strength_pid}/comments/clear",json={}).get_json()['project']
+check("previous comments clear from customer view",fan_app.public_view(_clear)['spots'][0]['comments'],[])
+check("comments are archived internally",_clear['feedback_archive'][0]['feedback'][0]['comment'],'Previous comment')
+check("clearing comments preserves approval",_clear['spots'][0]['status'],'approved')
+check("archive is never public",'feedback_archive' in fan_app.public_view(_clear),False)
+with patch.object(fan_store,'music_track',return_value={"id":"library-bed","name":"Warm bed","audio_url":"audio/library.mp3","seconds":40}):
+    applied=fan.post(f"/api/projects/{_strength_pid}/music-library/library-bed/apply",json={"spot_id":"another"}).get_json()
+    check("single-spot bed replacement stays on one spot",applied['applied'],['another'])
+    check("other spot retains its bed",applied['project']['spots'][0]['bed']['audio_url'],'audio/bed.mp3')
+    check("selected library name survives",applied['project']['spots'][1]['bed']['name'],'Warm bed')
+    all_beds=fan.post(f"/api/projects/{_strength_pid}/music-library/library-bed/apply",json={}).get_json()
+    check("project application covers eligible spots",len(all_beds['applied']),2)
+levels=fan.get('/api/mix/config').get_json()['levels']
+if levels:
+    check("bed volume saves",fan.post(f"/api/projects/{_strength_pid}/mix-settings",json={"level":levels[0]['label']}).status_code,200)
+    check("saved volume persists",fan_store.load(_strength_pid)['mix_level'],levels[0]['label'])
+check("invented bed volume is rejected",fan.post(f"/api/projects/{_strength_pid}/mix-settings",json={"level":"invented"}).status_code,400)
+_ui_check=subprocess.run(['node',str(ROOT/'test_radio_production_controls.js')],cwd=ROOT,capture_output=True,text=True)
+check("timing boundaries and actual mix gains",_ui_check.returncode,0)
+if _ui_check.returncode: print(_ui_check.stdout,_ui_check.stderr)
 
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
