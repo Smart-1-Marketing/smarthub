@@ -1936,6 +1936,7 @@ jobs:
       - name: Audio response and render regression tests
         run: |
           python3 test_customer_voices.py
+          python3 test_radio_production.py
           python3 test_audio_response.py
           python3 test_audio_render.py
 

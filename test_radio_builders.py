@@ -343,6 +343,7 @@ check("only the slot with audio on it reaches the client",
 check("and the internal notes/team fields do not — only what public_view names",
       set(promo_view["spots"][0]) ==
       {"id", "slot", "length_label", "script", "audio_url", "mixed",
+       "has_bed", "audio_seconds", "voice_audio_url", "voice_audio_seconds",
        "status", "comments"}, True)
 
 promo_approval = composed.post(

@@ -701,7 +701,7 @@ check("Radio Promo declares exactly the client review page as public",
 _writes = [r for r in rp_app.app.url_map.iter_rules()
            if {"POST"} & r.methods and any(
                k in str(r) for k in ("/bed/", "/mix", "/voice/upload", "/variations"))]
-check("and every new write route is inside that mount", len(_writes), 6)
+check("and every new write route is inside that mount", len(_writes), 8)
 check("and none of the billed writes fall under the public prefixes",
       all(not str(r).startswith(("/tools/radio-promo/r/",
                                  "/tools/radio-promo/api/public/",

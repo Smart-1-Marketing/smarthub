@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Radio Promo — Smart 1 Hub</title>
+<title>Radio Ad Creator — Smart 1 Hub</title>
 <style>
 /* Cards, tables, buttons, form controls, headings and pills come from
    hub/static/hub-detail.css via `s1d-page` on the wrapper below, which
@@ -74,20 +74,20 @@
   .flow{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin:20px 0}
   .flow button{border:0;font:650 12px inherit;color:var(--muted);padding:6px 9px;border-radius:15px;background:#e2e8f0;cursor:pointer}
   .flow button.active{background:var(--navy);color:#fff}.flow button:disabled{cursor:default;opacity:.65}.flow i{color:var(--muted);font-style:normal}
-</style>
+.settings-box{background:white;border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:18px}.settings-box input[type=range]{width:100%}.slot h3 .tag{font-size:9px}.clip{display:flex;align-items:center;gap:12px}.clip audio{flex:1;min-width:120px}.timing{font-weight:600;white-space:nowrap;color:var(--muted)}.timing.ok{color:var(--ok)}.timing.warn{color:var(--warn)}.timing.bad{color:var(--bad)}dialog{border:1px solid var(--line);border-radius:14px;width:min(760px,94vw);max-height:90vh;overflow:auto}dialog::backdrop{background:#0f172a77}</style>
 <link rel="stylesheet" href="/assets/radio-library.css">
 <script src="/assets/radio-library.js" defer></script>
 </head>
 <body data-module="radio_promo">
 <div class="wrap s1d-page">
   <a class="back" href="/tools">&larr; Tools</a>
-  <h1>Radio Promo</h1>
+  <h1>Radio Ad Creator</h1>
   <p class="sub">Streaming-radio commercials written to the clock, cast and recorded.
      Write one on <b>spec</b> to win the business, or attach it to a client and it files
      under their name, shows on their record, and can be pushed to the Suite.</p>
   <section data-radio-library="promo" aria-label="Saved radio projects"></section>
   <div class="flow" aria-label="Radio commercial workflow">
-    <button class="active" onclick="goView('setup')">1. Start</button><i>›</i><button disabled onclick="goView('brief')">2. Brief</button><i>›</i><button disabled onclick="goView('copy')">3. Script</button><i>›</i><button disabled onclick="goView('cast')">4. Voice</button><i>›</i><button disabled onclick="goView('music')">5. Music</button><i>›</i><button disabled onclick="goView('booth')">6. Record</button><i>›</i><button disabled onclick="goView('mix')">7. Mix</button><i>›</i><button disabled onclick="goView('pack')">8. Package</button>
+    <button class="active" onclick="goView('setup')">1. Start</button><i>›</i><button disabled onclick="goView('brief')">2. Brief</button><i>›</i><button disabled onclick="goView('copy')">3. Script</button><i>›</i><button disabled onclick="goView('cast')">4. Voice</button><i>›</i><button disabled onclick="goView('booth')">5. Record</button><i>›</i><button disabled onclick="goView('mix')">6. Music &amp; mix</button><i>›</i><button disabled onclick="goView('pack')">7. Package</button>
   </div>
 
   <!-- 1. SETUP -->
@@ -212,22 +212,24 @@
     <div id="customer-voice-picker" class="slot" style="margin-top:16px"></div>
   </div>
 
-  <!-- 5. MUSIC -->
-  <div class="card view off" id="c-music">
-    <h2><span class="n">5</span> Music bed {{ help_dot('radio_promo.build.music') if help_dot is defined else '' }}</h2>
-    <p class="hint">A bed is composed to the length of the spot it sits under, so nothing has to be
-      trimmed to fit. Each tile shows the words it will actually send. Bring your own track instead,
-      or run the spot as a straight read with no bed at all — all three are real answers.</p>
-    <div id="musicState" class="hint"></div>
-    <div id="musicBox"></div>
-    <div class="rowbar"><button class="btn sec" onclick="goView('booth')">Continue to recording</button>
-      <span class="msg" id="musicMsg"></span></div>
-  </div>
-
   <!-- 5. BOOTH -->
   <div class="card view off" id="c-booth">
-    <h2><span class="n">6</span> Booth {{ help_dot('radio_promo.build.booth') if help_dot is defined else '' }}</h2>
-    <div id="boothBox"></div>
+    <h2><span class="n">5</span> Record {{ help_dot('radio_promo.build.booth') if help_dot is defined else '' }}</h2>
+    <section class="settings-box" aria-label="Voice settings">
+      <h3>Voice settings</h3>
+      <label class="f" for="recordVoice">Voice for all scripts</label><select id="recordVoice" onchange="chooseRecordingVoice()"></select>
+      <div class="grid3">
+        <div><label class="f" for="voiceMode">Voice mode</label><select id="voiceMode" onchange="voiceLabels()"><option value="eleven_multilingual_v2">Standard</option><option value="eleven_v3">Expressive — audio tags</option></select></div>
+        <div><label class="f" for="styleStrength">Style strength <output id="styleValue"></output></label><input id="styleStrength" type="range" min="0" max="100" step="5" value="55" oninput="voiceLabels()"></div>
+        <div><label class="f" for="voiceStability">Stability <output id="stabilityValue"></output></label><input id="voiceStability" type="range" min="0" max="100" step="5" value="50" oninput="voiceLabels()"></div>
+        <div><label class="f" for="voiceSpeed">Speed <output id="speedValue"></output></label><input id="voiceSpeed" type="range" min="0.7" max="1.2" step="0.05" value="1" oninput="voiceLabels()"></div>
+      </div>
+      <p class="hint">Style strength exaggerates the voice’s existing delivery. Lower stability allows more expression; higher stability makes delivery more consistent. Expressive mode supports audio tags, including on instant customer voices.</p>
+      <label class="f" for="voiceSample">Sample text</label><textarea id="voiceSample" maxlength="500">Welcome! Discover something special today.</textarea>
+      <div class="rowbar"><button class="btn sec" id="previewVoice" onclick="previewVoice()">Generate voice sample</button><button class="btn" onclick="saveVoiceSettings()">Save voice settings to all scripts</button><span id="voiceSettingsMsg" class="msg" role="status"></span></div>
+      <p class="hint">Samples use your audio allowance. Saved settings apply to future recordings; existing clips change when you re-record.</p><div id="voiceSamplePlayer"></div>
+    </section>
+    <div id="boothBox"></div><button class="btn sec" onclick="goView('mix')">Continue to music &amp; mix</button>
     <div class="rowbar">
       <button class="btn sec" onclick="makeBanner()">Generate companion banner</button>
       <span class="msg" id="boothMsg"></span>
@@ -237,19 +239,22 @@
 
   <!-- 7. MIX -->
   <div class="card view off" id="c-mix">
-    <h2><span class="n">7</span> Mix &amp; check {{ help_dot('radio_promo.build.mix') if help_dot is defined else '' }}</h2>
-    <p class="hint">The voice over the bed, ducked so the read is always on top. The mix is rendered
-      here in your browser and its length is measured from the file itself when it is filed —
-      there is no audio decoder on the server, so a number the page reported is not a measurement.</p>
-    <div id="mixBox"></div>
+    <h2><span class="n">6</span> Music &amp; mix {{ help_dot('radio_promo.build.mix') if help_dot is defined else '' }}</h2>
+    <p class="hint">Choose a music bed, set its volume under the voice, then render and listen to each finished commercial before filing it.</p>
+    <section class="settings-box" aria-label="Music bed"><h3>Music bed</h3><div id="musicState" class="hint"></div><div id="bedVolume"></div>
+      <button class="btn sec" onclick="openBedDialog(slotsOf().slice().sort((a,b)=>slotSeconds(b)-slotSeconds(a))[0],true)">Create or choose a bed for all eligible commercials</button>
+      <div id="musicBox" style="margin-top:12px"></div><span id="musicMsg" class="msg" role="status"></span></section><div id="mixBox"></div>
     <div class="rowbar"><button class="btn sec" onclick="goView('pack')">Continue to package</button>
       <span class="msg" id="mixMsg"></span></div>
   </div>
 
   <!-- 8. PACKAGE -->
   <div class="card view off" id="c-pack">
-    <h2><span class="n">8</span> Package</h2>
-    <div id="packBox"></div>
+    <h2><span class="n">7</span> Package</h2>
+    <div id="packBox"></div><section class="settings-box" aria-label="Customer delivery"><h3>Customer delivery</h3>
+      <p class="hint">Customers can listen to both with-music and voice-only versions when a music mix is filed.</p>
+      <label class="f" for="shareHeadline">Headline</label><input id="shareHeadline" type="text"><label class="f" for="shareIntro">Message to customer</label><textarea id="shareIntro"></textarea>
+      <div class="rowbar"><button class="btn sec" onclick="clearCustomerComments()">Clear previous customer comments</button><button class="btn" onclick="createReviewLink()">Create customer review link</button></div><div id="shareResult" role="status"></div><div id="customerComments"></div></section>
     <div class="rowbar">
       <button class="btn" onclick="pushGhl()">Push to the Suite</button>
       <button class="btn sec" onclick="attachPrompt()">Attach to a client</button>
@@ -260,6 +265,8 @@
   <p class="foot">Smart 1 Hub · {{ version }}</p>
 </div>
 
+<dialog id="bedDialog"><button class="btn sec" onclick="closeBedDialog()">Close</button><div id="bedDialogBody"></div></dialog>
+<script src="/assets/radio-promo-production.js"></script>
 <script src="/assets/customer-voice-picker.js"></script>
 <script>
 const TONES = {{ tones|tojson }};
@@ -311,15 +318,15 @@ function setMode(m){
   $('clientBox').style.display = m==='client' ? '' : 'none';
 }
 function togglePhone(){ $('phoneBox').style.display = $('include_phone').value==='yes' ? '' : 'none'; }
-const VIEWS=['setup','brief','copy','cast','music','booth','mix','pack'];
+const VIEWS=['setup','brief','copy','cast','booth','mix','pack'];
 function unlockedStep(){
   if(!P) return 1;
   // Keyed on "is there a script at all" rather than on the :15 specifically:
   // a job writing only a :60 had every step past the brief locked, because
   // `scripts.fifteen` is the one slot it does not have.
   const written = slotsOf().some(k => ((P.scripts||{})[k]||{}).script);
-  if((P.spots||[]).length) return 8;
-  if((P.voice_matches||[]).length) return 6;
+  if((P.spots||[]).length) return 7;
+  if(P.voice?.voice_id || (P.voice_matches||[]).length) return 6;
   if(written) return 4;
   if(P.analysis) return 2;
   return 1;
@@ -334,10 +341,12 @@ function showView(name){
   const step=VIEWS.indexOf(name)+1;
   if(step<1 || step>unlockedStep()) return;
   document.querySelectorAll('.view').forEach(el=>el.classList.toggle('active',el.id==='c-'+name));
+  document.querySelectorAll('[data-radio-library]').forEach(el=>el.hidden=step>1);
   setFlow(step); window.scrollTo({top:0,behavior:'smooth'});
 }
 function goView(name){
-  if(name==='music') renderMusic();
+  if(name==='music') name='mix';
+  if(name==='booth') renderBooth();
   if(name==='mix') renderMixView();
   if(name==='cast') renderCast();
   if(name==='pack') renderPack();
@@ -526,7 +535,7 @@ function renderSpoken(){
 
 /* ---------- cast ---------- */
 function renderCast(){
-  CustomerVoicePicker.mount($('customer-voice-picker'), {client:P?.client||P?.company||'', onSelect:v=>{drawVoices([v].concat((P.voice_matches||[]).filter(x=>x.voice_id!==v.voice_id))); return 'Customer voice added below. Choose the spot lengths it should read.';}});
+  CustomerVoicePicker.mount($('customer-voice-picker'), {client:P?.client||P?.company||'', onSelect:async v=>{await selectVoice(v); drawVoices([v].concat((P.voice_matches||[]).filter(x=>x.voice_id!==v.voice_id))); return 'Customer voice saved. Continue to recording to adjust settings or listen to a sample.';}});
   $('castPicks').innerHTML = CHARS.map(g => `
     <div style="margin-bottom:10px">
       <label class="f">${esc(g.label)} ${g.help?`<span class="opt">${esc(g.help)}</span>`:''}</label>
@@ -585,10 +594,9 @@ function drawVoices(list){
         ${(v.match_reasons||[]).length?' — matches: '+ (v.match_reasons||[]).map(esc).join(', '):''}</div>
       ${v.preview_url?`<audio controls preload="none" src="${esc(v.preview_url)}"></audio>`:''}
       <div class="rowbar">
-        <button class="btn sm" onclick="assign('fifteen',${i})">Use for :15</button>
-        <button class="btn sm" onclick="assign('thirty',${i})">Use for :30</button>
+        <button class="btn sm" onclick="selectVoice((P.voice_matches||[])[${i}],true)">Use this voice</button>
       </div>
-    </div>`).join('') + '<div class="rowbar"><button class="btn" onclick="goView(\'music\')">Continue to music bed</button></div>';
+    </div>`).join('') + '<div class="rowbar"><button class="btn" onclick="goView(\'booth\')">Continue to recording</button></div>';
 }
 
 
@@ -668,50 +676,10 @@ function bedOf(slot){ return (P.beds||{})[slot] || null; }
 function mixOf(slot){ return (P.mixes||{})[slot] || null; }
 
 function renderMusic(){
-  const st = $('musicState'), box = $('musicBox');
-  if(!MIXCFG || !MIXCFG.available){
-    st.innerHTML = `<b class="err">Beds are not available.</b> ${esc((MIXCFG||{}).error||'')}`;
-    box.innerHTML = ''; return;
-  }
-  st.innerHTML = MIXCFG.can_compose ? '' :
-    `<b>Composing is off.</b> ${esc(MIXCFG.compose_note||'')}`;
-  box.innerHTML = slotsOf().map(k => {
-    const bed = bedOf(k);
-    let state;
-    if(!bed){
-      state = `<div class="hint">No bed on the ${slotName(k)} yet — it will run as a straight read.</div>`;
-    } else {
-      const len = bed.measured && bed.seconds!=null
-        ? `${bed.seconds}s` : 'length not measured';
-      state = `<div class="hint">On the ${slotName(k)}: <b>${esc(bed.kind==='upload'?'your own track':'composed')}</b>
-          · ${esc(len)}${bed.prompt?' · “'+esc(bed.prompt)+'”':''}</div>
-        <audio controls preload="none" style="width:100%;margin-top:6px"
-          src="${MOUNT}/api/projects/${P.id}/audio?ref=bed:${k}"></audio>`;
-    }
-    const tiles = (MIXCFG.moods||[]).map(m => `
-      <button class="btn sec sm" title="${esc(m.prompt)}"
-        onclick="composeBed('${k}','${esc(m.id)}')" ${MIXCFG.can_compose?'':'disabled'}>${esc(m.label)}</button>`).join(' ');
-    return `<div class="slot">
-      <h3><span>${slotName(k)} bed</span></h3>
-      ${state}
-      <p class="hint" style="margin:10px 0 4px"><b>Compose one.</b> Each tile sends the words on its
-        tooltip, at ${slotSeconds(k)} seconds:</p>
-      <div class="rowbar">${tiles}</div>
-      <div class="rowbar">
-        <input type="text" id="bedPrompt-${k}" style="flex:1;min-width:240px"
-          placeholder="Or describe it: warm acoustic guitar, light percussion, hopeful build…">
-        <button class="btn sm" onclick="composeBed('${k}')" ${MIXCFG.can_compose?'':'disabled'}>Compose</button>
-      </div>
-      ${legacyBeds(k)}
-      <div class="rowbar">
-        <label class="btn sec sm" style="cursor:pointer">Upload a track
-          <input type="file" accept="audio/*" style="display:none"
-            onchange="uploadBed('${k}', this)"></label>
-        ${bed?`<button class="btn sec sm" onclick="clearBed('${k}')">No bed — straight read</button>`:''}
-        <span class="msg" id="bedMsg-${k}"></span>
-      </div>
-    </div>`;
-  }).join('');
+  $('musicState').textContent = MIXCFG?.can_compose ? '' : (MIXCFG?.compose_note||'Composing unavailable; choose a library track or upload.');
+  const levels=MIXCFG?.levels||[], selected=selectedMixLevel();
+  $('bedVolume').innerHTML=levels.length?`<label class="f" for="mixLevel">Bed volume under voice <output id="bedLevelLabel">${esc(selected.label)} · ${selected.ducked_db} dB</output></label><input id="mixLevel" type="range" min="0" max="${levels.length-1}" step="1" value="${Math.max(0,levels.findIndex(l=>l.label===selected.label))}" list="bedLevels" oninput="changeBedVolume(this)"><datalist id="bedLevels">${levels.map((l,i)=>`<option value="${i}" label="${esc(l.label)}"></option>`).join('')}</datalist>`:'';
+  $('musicBox').innerHTML=slotsOf().map(k=>{const b=bedOf(k);return `<div class="slot"><h3><span>${slotName(k)}</span><span class="tag">${esc(b?.name||'No bed')}</span></h3>${b?`<audio controls preload="none" src="${MOUNT}/api/projects/${P.id}/audio?ref=bed:${k}"></audio>`:''}<button class="btn sec sm" onclick="openBedDialog('${k}',false)">Change music bed</button></div>`;}).join('');
 }
 
 function legacyBeds(slot){
@@ -737,19 +705,18 @@ async function composeBed(slot, mood){
   say('bedMsg-'+slot, 'Composing the bed…', 'ai');
   try{
     const d = await api('/api/projects/'+P.id+'/bed/compose', {method:'POST',
-      body: JSON.stringify({slot, prompt, mood: mood||''})});
-    P = d.project; renderMusic();
-    say('bedMsg-'+slot, 'Bed composed.', 'ok');
+      body: JSON.stringify({slot, prompt, mood: mood||'', save_name:$('bedSaveName').value, save_library:$('bedSaveLibrary').checked})});
+    P = d.project; await bedChanged(slot);
   }catch(e){ say('bedMsg-'+slot, e.message, 'err'); }
 }
 
 async function uploadBed(slot, input){
   const file = input.files && input.files[0]; if(!file) return;
-  const fd = new FormData(); fd.append('slot', slot); fd.append('file', file);
+  const fd = new FormData(); fd.append('slot', slot); fd.append('file', file); fd.append('save_name',$('bedSaveName').value); fd.append('save_library',$('bedSaveLibrary').checked?'1':'0');
   say('bedMsg-'+slot, 'Uploading…', 'wait');
   try{
     const d = await post('/api/projects/'+P.id+'/bed/upload', fd);
-    P = d.project; renderMusic(); say('bedMsg-'+slot, 'Track uploaded.', 'ok');
+    P = d.project; await bedChanged(slot);
   }catch(e){ say('bedMsg-'+slot, e.message, 'err'); }
   input.value = '';
 }
@@ -758,7 +725,7 @@ async function clearBed(slot){
   try{
     const d = await api('/api/projects/'+P.id+'/bed/clear', {method:'POST',
       body: JSON.stringify({slot})});
-    P = d.project; renderMusic();
+    P = d.project; closeBedDialog(); discardMixes(); renderMusic(); renderMixPanel();
   }catch(e){ say('bedMsg-'+slot, e.message, 'err'); }
 }
 
@@ -802,7 +769,7 @@ async function buildMix(slot){
   const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   if(!OAC) throw new Error('This browser cannot render audio offline, so the mix '
     + 'cannot be made here. Chrome, Edge, Firefox and Safari all can.');
-  const M = MIXCFG.mix || {};
+  const M = {...(MIXCFG.mix || {}), ...selectedMixLevel()};
   const rate = M.sample_rate || 44100, chans = M.channels || 2;
   const probe = new OAC(1, 1024, rate);
   const vo = await decodeRef('vo:'+slot, probe);
@@ -891,11 +858,12 @@ function toWav(buf){
 async function makeMix(slot){
   say('mixMsg', 'Rendering the '+slotName(slot)+' mix…', 'wait');
   try{
+    const usedLevel = selectedMixLevel().label;
     const {buffer, note} = await buildMix(slot);
     const blob = toWav(buffer);
     if(RENDERED[slot] && RENDERED[slot].url) URL.revokeObjectURL(RENDERED[slot].url);
     RENDERED[slot] = {blob, url: URL.createObjectURL(blob),
-                      seconds: buffer.duration, peak: peakDbfs(buffer), note};
+                      seconds: buffer.duration, peak: peakDbfs(buffer), note, level:usedLevel};
     renderMixPanel();
     say('mixMsg', 'Rendered. Listen to it, then file it.', 'ok');
   }catch(e){ say('mixMsg', e.message, 'err'); }
@@ -904,7 +872,7 @@ async function makeMix(slot){
 async function fileMix(slot, override){
   const made = RENDERED[slot];
   if(!made){ say('mixMsg', 'Render the mix first.', 'err'); return; }
-  const level = ($('mixLevel') && $('mixLevel').value) || '';
+  const level = made.level || '';
   const fd = new FormData();
   fd.append('slot', slot); fd.append('level', level);
   fd.append('file', made.blob, 'mix-'+slot+'.wav');
@@ -953,19 +921,12 @@ function qcRows(slot){
 }
 
 function renderMixPanel(){
-  const levels = (MIXCFG && MIXCFG.levels) || [];
-  const ref = (MIXCFG && MIXCFG.level_reference) || '';
-  const picker = levels.length ? `<div class="rowbar">
-      <label class="f" style="margin:0">Bed level</label>
-      <select id="mixLevel">${levels.map(l =>
-        `<option value="${esc(l.label)}" ${l.label===ref?'selected':''}>${esc(l.label)} — ${l.bed_db} dB under the read at ${l.ducked_db} dB</option>`).join('')}</select>
-    </div>` : '';
-  $('mixBox').innerHTML = picker + slotsOf().map(k => {
+  $('mixBox').innerHTML = slotsOf().map(k => {
     const spot = (P.spots||[]).find(s => s.slot===k);
     const filed = mixOf(k), made = RENDERED[k], bed = bedOf(k), r = QCC[k];
     if(!spot) return `<div class="slot"><h3><span>${slotName(k)}</span></h3>
       <div class="hint">No voice recorded for this length yet — record or upload it first.</div></div>`;
-    const bedLine = bed ? `bed: ${esc(bed.kind==='upload'?'your own track':'composed')}`
+    const bedLine = bed ? `bed: ${esc(bed.name||bed.kind)}`
                         : 'no bed — straight read';
     let madeBlock = '';
     if(made){
@@ -975,7 +936,7 @@ function renderMixPanel(){
           ${clip?'<b class="err">— clipping. Re-record the read quieter.</b>':''}
           <span class="opt">measured in your browser, not on the server</span></div>
         ${made.note?`<div class="hint err">${esc(made.note)}</div>`:''}
-        <audio controls src="${made.url}" style="width:100%;margin-top:6px"></audio>`;
+        <div class="clip"><audio controls src="${made.url}"></audio>${timingBadge(made.seconds,slotSeconds(k),true)}</div>`;
     }
     let filedBlock = '';
     if(filed){
@@ -983,8 +944,7 @@ function renderMixPanel(){
           ${filed.seconds}s, measured from the file · ${esc(filed.level||'')} level
           (${filed.bed_db} / ${filed.ducked_db} dB)
           ${filed.override?`<b class="err">· filed over findings by ${esc(filed.override_by)}: “${esc(filed.override_reason)}”</b>`:''}</div>
-        <audio controls preload="none" style="width:100%;margin-top:6px"
-          src="${MOUNT}/api/projects/${P.id}/audio?ref=mix:${k}"></audio>`;
+        <div class="clip"><audio controls preload="none" src="${MOUNT}/api/projects/${P.id}/audio?ref=mix:${k}"></audio>${timingBadge(filed.seconds,slotSeconds(k),filed.measured)}</div>`;
     }
     const blocked = r && (r.blocking||[]).length;
     return `<div class="slot">
@@ -1005,6 +965,8 @@ function renderMixPanel(){
 
 async function renderMixView(){
   if(!MIXCFG) await loadMixConfig();
+  renderMusic();
+  if(!MIXCFG) await loadMixConfig();
   await loadQc();
   renderMixPanel();
 }
@@ -1017,38 +979,35 @@ function assign(slot, i){
   render(slot);
 }
 async function render(slot){
-  const v = assigned[slot];
+  const v = assigned[slot] || P.voice;
   if(!v) return;
   showView('booth');
-  say('boothMsg','Recording the '+slotName(slot)+'…');
+  if(recordingSlots.has(slot)) return;
+  recordingSlots.add(slot);
+  say('boothMsg','Recording the '+slotName(slot)+'…','ai');
   try{
+    await persistVoiceSettings();
     const d = await api('/api/projects/'+P.id+'/render', {method:'POST',
-      body:JSON.stringify({slot, voice_id:v.voice_id, voice_name:v.name})});
+      body:JSON.stringify({...voiceSettingsNow(), slot, voice_id:v.voice_id, voice_name:v.name})});
     P = d.project;
     say('boothMsg', d.grade.label, d.grade.status==='good'?'ok':'err');
     renderBooth();
   }catch(e){ say('boothMsg', e.message, 'err'); }
+  finally{recordingSlots.delete(slot);}
 }
 
 /* ---------- booth ---------- */
 function renderBooth(){
-  showView('booth');
-  $('boothBox').innerHTML = (P.spots||[]).map(s => `
-    <div class="slot">
-      <h3><span>${slotName(s.slot)} — ${esc(s.voice_name||'')}</span>
-          <span class="meter ${s.grade?s.grade.status:''}">${esc(s.grade?s.grade.label:'')}
-          ${s.measured?'':' <span class="tag">estimated</span>'}</span></h3>
-      <audio controls preload="none" src="${esc(s.audio_url)}"></audio>
-      <div class="rowbar">
-        <button class="btn sm" onclick="approve('${s.slot}',${s.approved?'false':'true'})">
-          ${s.approved?'Approved ✓ — undo':'Approve this spot'}</button>
-        ${s.grade && s.grade.status==='long'
-          ? `<button class="btn sec sm" onclick="tightenAndRerecord('${s.slot}',${s.grade.trim_words||1})">Tighten ${s.grade.trim_words} words &amp; re-record</button>`
-          : ''}
-        <a class="btn sec sm" href="${esc(s.audio_url)}" download>Download</a>
-      </div>
-    </div>`).join('') || '<p class="hint">Assign a voice above and the spot records here.</p>';
-  renderPack(false);
+  showView('booth'); drawVoiceSettings();
+  $('boothBox').innerHTML = slotsOf().map(k => {
+    const s=(P.spots||[]).find(x=>x.slot===k), script=(P.scripts||{})[k]||{};
+    return `<div class="slot"><h3><span>${slotName(k)} — ${esc(s?.voice_name||P.voice?.name||'Choose a voice')}</span><span class="tag">${s?.approved?'Approved':'Draft'}</span></h3>
+      <p class="hint">Music bed: ${esc(bedOf(k)?.name||'No bed')}</p><textarea id="recordScript-${k}" aria-label="${slotName(k)} recording script">${esc(script.script||'')}</textarea>
+      <div class="rowbar"><select aria-label="${slotName(k)} delivery tag" id="deliveryTag-${k}" style="max-width:220px">${DELIVERY_TAGS.map(t=>`<option value="${t}">[${t}]</option>`).join('')}</select><button class="btn sec sm" onclick="insertDeliveryTag('${k}')">Insert delivery tag</button><button class="btn sec sm" onclick="saveRecordingScript('${k}')">Save script</button></div>
+      ${s?`<div class="clip"><audio controls preload="none" src="${esc(s.audio_url)}"></audio>${timingBadge(s.measured_seconds,slotSeconds(k),s.measured)}</div>`:''}
+      <div class="rowbar"><button class="btn" onclick="recordScript('${k}')">${s?'Re-record':'Record'} ${slotName(k)}</button>
+      ${s?`<button class="btn sec sm" onclick="approve('${k}',${!s.approved})">${s.approved?'Undo approval':'Approve this spot'}</button><a class="btn sec sm" href="${esc(s.audio_url)}" download>Download</a>`:''}</div></div>`;
+  }).join(''); renderPack(false);
 }
 
 async function approve(slot, val){
@@ -1085,6 +1044,8 @@ async function makeBanner(){
 function renderPack(navigate=true){
   if(navigate) showView('pack');
   const approved = (P.spots||[]).filter(s=>s.approved).length;
+  $('shareHeadline').value=P.share?.headline||''; $('shareIntro').value=P.share?.intro||'';
+  $('customerComments').textContent=(P.feedback||[]).length+' previous customer comments';
   $('packBox').innerHTML = `
     <p>${P.spec?'<span class="tag spec">spec</span>':'<span class="tag client">'+esc(P.client)+'</span>'}
        <b>${esc(P.company||P.client)}</b> — ${esc(P.project_name||'untitled')} ·
@@ -1132,7 +1093,7 @@ loadMixConfig();
     Array.from(document.querySelectorAll('.slotPick')).forEach(el =>
       el.checked = (P.slots||['fifteen','thirty']).indexOf(el.value) >= 0);
     if(slotsOf().some(k => ((P.scripts||{})[k]||{}).script)) renderCopy();
-    if((P.spots||[]).length) renderBooth();
+    if(P.voice?.voice_id || (P.spots||[]).length) renderBooth();
   }catch(e){ location.hash=''; }
 })();
 </script>

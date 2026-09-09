@@ -160,7 +160,7 @@
 
   function audioSrc(u){
     if(!u) return "";
-    return /^https?:/i.test(u) ? u : AUDIO_BASE + u;
+    return /^https?:/i.test(u) || u.startsWith("/") ? u : AUDIO_BASE + u;
   }
 
   function render(){
@@ -192,6 +192,13 @@
         ? '<audio controls preload="none" src="' + esc(audioSrc(s.audio_url))
           + '"></audio>'
         : '<p class="who">Script only for now — the voice-over comes next.</p>';
+      if(s.mixed && s.has_bed && s.voice_audio_url){
+        player = '<p>With music · '+esc(s.audio_seconds == null ? '' : s.audio_seconds+'s')+'</p>'+player
+          + '<a href="'+esc(audioSrc(s.audio_url))+'" download>Download with music</a>'
+          + '<p>Without music · '+esc(s.voice_audio_seconds == null ? '' : s.voice_audio_seconds+'s')+'</p>'
+          + '<audio controls preload="none" src="'+esc(audioSrc(s.voice_audio_url))+'"></audio>'
+          + '<a href="'+esc(audioSrc(s.voice_audio_url))+'" download>Download without music</a>';
+      }
       var said = (s.comments || []).map(function(c){
         return '<div class="one"><b>' + esc(c.name) + '</b> '
              + (c.action === "approve" ? "approved this" : "asked for changes")
