@@ -27,13 +27,14 @@ from __future__ import annotations
 
 import os
 import re
+import math
 from pathlib import Path
 
 import requests
 from flask import (Flask, Response, jsonify, render_template, request,
                    send_file)
 
-from . import ai, catalog, phrases, speech, store, voices
+from . import ai, catalog, phrases, speech, store, voices, script_presets
 from hub import radio_share, voice_casting
 
 try:
@@ -742,12 +743,34 @@ def api_set_voice(pid):
         speed = min(1.2, max(0.7, float(body.get("speed", 1.0))))
     except (TypeError, ValueError):
         speed = 1.0
+    strength = body.get("prompt_strength", (project.get("voice") or {}).get("prompt_strength"))
+    if strength is not None:
+        try:
+            strength = float(strength)
+            if not math.isfinite(strength) or not 0 <= strength <= 1:
+                raise ValueError()
+        except (TypeError, ValueError):
+            return fail("Prompt strength must be between 0 and 100 percent.")
     project["voice"] = {"voice_id": vid,
                         "name": str(body.get("name") or "")[:80],
                         "energy": body.get("energy") or "energetic",
-                        "speed": speed}
+                        "speed": speed,
+                        "prompt_strength": strength}
     store.save(project)
     return jsonify({"ok": True, "voice": project["voice"]})
+
+
+@app.route("/api/script-presets", methods=["GET", "POST"])
+def api_script_presets():
+    if request.method == "GET":
+        return jsonify({"ok": True, **script_presets.library()})
+    body = request.get_json(silent=True) or {}
+    try:
+        row = script_presets.save(body.get("name"), body.get("script"), actor_name())
+    except ValueError as exc:
+        return fail(str(exc))
+    _log("script_preset_saved", preset=row["id"])
+    return jsonify({"ok": True, "preset": row})
 
 
 @app.route("/api/projects/<pid>/spots/<sid>/record", methods=["POST"])
@@ -776,9 +799,11 @@ def api_record(pid, sid):
     spoken = speech.normalize_for_speech(spot["script"],
                                          project.get("pronunciation"))
     try:
+        settings = ({"prompt_strength": voice["prompt_strength"]}
+                    if voice.get("prompt_strength") is not None else {})
         out = voices.render_audio(voice["voice_id"], spoken["spoken"],
                                   voice.get("energy") or "energetic",
-                                  voice.get("speed", 1.0))
+                                  voice.get("speed", 1.0), **settings)
     except voices.VoiceError as exc:
         _log("render_failed", project=pid, spot=sid,
              detail="Radio recording failed. Open the builder to retry.")

@@ -193,6 +193,12 @@
   <!-- 4 ------------------------------------------------------------- -->
   <div class="card" id="spotscard" style="display:none">
     <h2><span class="n">5</span> Record the spots</h2>
+    <label class="f" for="promptStrength">Prompt strength (expressiveness) <span id="promptStrengthValue">55%</span></label>
+    <input id="promptStrength" type="range" min="0" max="100" step="5" value="55">
+    <p class="hint">Subtle to expressive. Applies to the next recording of every spot using the selected voice. Existing audio stays as recorded.</p>
+    <button class="btn sec sm" id="saveVoiceSettings">Save voice settings</button>
+    <span class="msg" id="voiceSettingsMsg"></span>
+    <p class="hint">Choose a default or saved custom script below, then insert it into a spot. Edit the copy before recording. Custom scripts are shared with staff across Fan Radio projects.</p>
     <div id="spots"></div>
   </div>
 
@@ -382,6 +388,7 @@
         callToAction:$('b_cta').value,mustSay:lines($('b_must').value),avoid:lines($('b_avoid').value)}
     }});
     P = j.project; banned = j.banned || [];
+    if(P.voice && P.voice.voice_id) await saveRecordingSettings();
     for(var card of $('spots').querySelectorAll('.spot')){
       var spot = (P.spots || []).find(function(x){return x.id === card.getAttribute('data-id');});
       var script = card.querySelector('textarea.sc').value;
@@ -546,6 +553,11 @@
     var speed = Number((P.voice || {}).speed || 1);
     $("voiceSpeed").value = Math.min(1.2, Math.max(0.7, speed));
     $("voiceSpeedValue").textContent = Number($("voiceSpeed").value).toFixed(2) + "×";
+    var strength = (P.voice || {}).prompt_strength;
+    if(strength == null) strength = ({laid_back:0.15,conversational:0.3,energetic:0.55,explosive:0.75})[(P.voice||{}).energy] || 0.55;
+    $("promptStrength").value = Math.round(strength * 100);
+    updateStrengthLabel();
+    loadScriptPresets();
     // The mix config is one cheap read and decides what the Music step can
     // even offer, so it is fetched once a project exists rather than on every
     // draw. A failure costs the panel and never the page.
@@ -609,6 +621,38 @@
   $("rewriteall").onclick = function(){ $("write").click(); };
 
   /* ------------------------------------------------------------ spots */
+  var scriptPresets = {defaults:[],custom:[]};
+  function updateStrengthLabel(){
+    $("promptStrengthValue").textContent = $("promptStrength").value + "%";
+  }
+  $("promptStrength").oninput = updateStrengthLabel;
+  async function saveRecordingSettings(){
+    if(!P || !P.voice || !P.voice.voice_id) throw new Error('Choose a voice in Step 4 first.');
+    var body = Object.assign({}, P.voice, {speed:Number($("voiceSpeed").value), prompt_strength:Number($("promptStrength").value)/100});
+    var j = await api('/api/projects/'+P.id+'/voice', {method:'POST',body:body});
+    P.voice = j.voice;
+  }
+  $("saveVoiceSettings").onclick = async function(){
+    this.disabled = true;
+    try { await saveRecordingSettings(); say('voiceSettingsMsg','Voice settings saved.','ok'); }
+    catch(e){ say('voiceSettingsMsg',e.message,'err'); }
+    finally { this.disabled = false; }
+  };
+  function fillScriptPresets(){
+    $('spots').querySelectorAll('[data-script-preset]').forEach(function(sel){
+      var selected = sel.value;
+      sel.innerHTML = '<option value="">Choose a script…</option>' + [['defaults','Default scripts'],['custom','Saved custom scripts']].map(function(group){
+        return '<optgroup label="'+group[1]+'">'+scriptPresets[group[0]].map(function(row){
+          return '<option value="'+esc(row.id)+'">'+esc(row.name)+'</option>';
+        }).join('')+'</optgroup>';
+      }).join('');
+      sel.value = selected;
+    });
+  }
+  async function loadScriptPresets(){
+    try { scriptPresets = await api('/api/script-presets'); fillScriptPresets(); }
+    catch(e){ say('voiceSettingsMsg','Could not load saved scripts: '+e.message,'err'); }
+  }
   function drawSpots(){
     var spots = (P && P.spots) || [];
     if(!spots.length){
@@ -657,6 +701,12 @@
         + '<div style="margin-bottom:7px">' + tags + '</div>'
         + why
         + '<textarea class="sc">' + esc(s.script) + '</textarea>'
+        + '<label class="f" for="preset-'+esc(s.id)+'">Script library</label>'
+        + '<select id="preset-'+esc(s.id)+'" data-script-preset></select>'
+        + '<div class="row"><button class="btn sec sm" data-a="insert-script">Append selected script</button></div>'
+        + '<label class="f" for="preset-name-'+esc(s.id)+'">Save this copy as a reusable script</label>'
+        + '<input id="preset-name-'+esc(s.id)+'" data-preset-name maxlength="80" placeholder="Script name">'
+        + '<button class="btn sec sm" data-a="save-preset">Save custom script</button>'
         + '<div class="sfoot">'
         +   '<button class="btn sec sm" data-a="save">Save edit</button>'
         +   '<button class="btn sec sm" data-a="rewrite">Rewrite</button>'
@@ -671,6 +721,7 @@
         + '</div>' + audio + '</div>';
     }).join("");
 
+    fillScriptPresets();
     $("spots").querySelectorAll(".spot").forEach(function(card){
       var id = card.getAttribute("data-id");
       var msg = card.querySelector('[data-m]');
@@ -684,9 +735,23 @@
       card.querySelectorAll("button").forEach(function(b){
         b.onclick = function(){
           var a = b.getAttribute("data-a");
+          if(a === 'insert-script'){
+            var selected = card.querySelector('[data-script-preset]').value;
+            var preset = scriptPresets.defaults.concat(scriptPresets.custom).find(function(x){return x.id === selected;});
+            if(!preset){ msg.textContent = 'Choose a script first.'; return; }
+            var text = preset.script.split('{business}').join(P.company || P.client || 'our business');
+            var combined = (ta.value.trim() ? ta.value.trim()+'\n\n' : '') + text;
+            if(combined.length > 4000){ msg.textContent='This would exceed 4,000 characters. Shorten the copy first.'; return; }
+            ta.value = combined;
+            msg.textContent = 'Inserted. Review the copy, then save or record.';
+            ta.focus(); return;
+          }
           b.disabled = true; msg.className = "msg"; msg.textContent = "Working…";
           var p;
-          if(a === "save")
+          if(a === 'save-preset')
+            p = api('/api/script-presets', {method:'POST',body:{name:card.querySelector('[data-preset-name]').value,script:ta.value}})
+              .then(function(j){ scriptPresets.custom.push(j.preset); fillScriptPresets(); b.disabled=false; msg.textContent='Custom script saved to the library.'; return null; });
+          else if(a === "save")
             p = api("/api/projects/"+P.id+"/spots/"+id,
                     {method:"POST", body:{script:ta.value, hand_edited:true}});
           else if(a === "rewrite")
@@ -695,7 +760,14 @@
           else if(a === "tighten")
             p = api("/api/projects/"+P.id+"/spots/"+id+"/tighten", {method:"POST", body:{}});
           else if(a === "record")
-            p = api("/api/projects/"+P.id+"/spots/"+id+"/record", {method:"POST", body:{}});
+            p = saveRecordingSettings().then(function(){
+              if(ta.value.length > 4000) throw new Error('Shorten the script to 4,000 characters before recording.');
+              var current = P.spots.find(function(x){return x.id === id;});
+              if(current && current.script === ta.value) return;
+              return api('/api/projects/'+P.id+'/spots/'+id,{method:'POST',body:{script:ta.value,hand_edited:true}}).then(function(j){
+                P.spots = P.spots.map(function(x){return x.id === id ? j.spot : x;});
+              });
+            }).then(function(){ return api("/api/projects/"+P.id+"/spots/"+id+"/record", {method:"POST", body:{}}); });
           else if(a === "delete"){
             if(!confirm("Delete this spot?")){ b.disabled = false;
               msg.textContent = ""; return; }
