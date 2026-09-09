@@ -1,9 +1,7 @@
 """Voice Studio (spec section 9) — ElevenLabs voice selection, per-scene
 voiceover generation, and per-client pronunciation dictionaries."""
 
-import os
 import hashlib
-import tempfile
 
 from flask import Blueprint, jsonify, request
 
@@ -260,57 +258,7 @@ def generate_full_voiceover(project_id):
                     "live": elevenlabs_service.is_live()})
 
 
-def _store_voice_track(project, client, result, signature=None):
-    """Put the generated MP3 somewhere the renderer can reach it.
-
-    Returns what happened, in words, rather than a bare boolean: "no key set",
-    "generated but not stored" and "stored" are three different situations and
-    only the middle one is something to chase.
-    """
-    audio = result.get("audio_bytes")
-    if not audio:
-        if result.get("error"):
-            return {"stored": False, "store_note": f"ElevenLabs refused it: {result['error']}"}
-        return {"stored": False,
-                "store_note": ("Mock mode — no ELEVENLABS_API key is set, so no audio "
-                               "was produced and the render will have no narration.")}
-
-    tmp_path = ""
-    try:
-        # upload_asset takes a path or a URL, not bytes, so the MP3 goes
-        # through a temp file rather than a second upload path being invented
-        # here. Removed in the finally, whatever happens.
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as fh:
-            fh.write(audio)
-            tmp_path = fh.name
-        upload = cloudinary_service.upload_asset(
-            tmp_path, client.slug, "voice",
-            public_id=f"project-{project.id}-voice-{hashlib.sha256(audio).hexdigest()[:16]}", resource_type="video")
-    except Exception as exc:  # noqa: BLE001
-        return {"stored": False, "store_note": f"The voice track could not be stored: {exc}"}
-    finally:
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-
-    url = upload.get("secure_url")
-    if not url or upload.get("_mock"):
-        return {"stored": False,
-                "store_note": ("The voice track was generated but could not be stored, so "
-                               "the render would have no narration. "
-                               + (upload.get("error") or ""))}
-
-    # Merged, never assigned: project.music also carries the mood and level,
-    # and the music panel writes those back.
-    music = dict(project.music or {})
-    music["voice_track_url"] = url
-    music["voice_mode"] = "continuous"
-    music["voice_signature"] = signature or media_state.timeline_signature([s.to_dict() for s in project.scenes.all()])
-    music["voice_track_stale"] = False
-    music["voice_id"] = (result.get("voice_id")
-                         or music.get("voice_id") or "")
-    project.music = music
-    db.session.commit()
-    return {"stored": True, "store_note": "Stored — the render will carry this narration."}
+# _store_voice_track moved to generation.py for WO-CS5 -- the plain-track
+# branch above calls generation.run_full_voiceover instead, which is the
+# same function's own private helper now. Nothing else in this module ever
+# called it.

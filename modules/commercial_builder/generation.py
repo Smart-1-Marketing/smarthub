@@ -243,7 +243,7 @@ def _store_voice_track(project, client, result, signature=None):
             try:
                 os.unlink(tmp_path)
             except OSError:
-                pass
+                pass   # a leftover temp file costs disk, not a broken upload
 
     url = upload.get("secure_url")
     if not url or upload.get("_mock"):
