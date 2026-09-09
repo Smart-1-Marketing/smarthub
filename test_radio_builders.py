@@ -1008,6 +1008,40 @@ check("every products value is a number",
       [isinstance(v, int) for v in _counts], [True, True, True])
 check("and it is the count, not the joined names", _counts, [2, 1, 0])
 
+section("Recording strength and reusable spoken scripts")
+from unittest.mock import Mock
+import base64
+_strength_project = fan_store.create({"company": "Sample Business"}, "Test")
+_strength_pid = _strength_project["id"]
+_voice_url = f"/api/projects/{_strength_pid}/voice"
+for strength in (0, 0.8, 1):
+    _saved = fan.post(_voice_url, json={"voice_id":"sample", "prompt_strength":strength}).get_json()
+    check(f"strength {strength} is saved", _saved["voice"]["prompt_strength"], strength)
+check("strength survives switching voices", fan.post(_voice_url, json={"voice_id":"sample-two"}).get_json()["voice"]["prompt_strength"], 1)
+for bad in (-1, 2, "nan", "inf", "wrong"):
+    check(f"invalid strength {bad} is rejected", fan.post(_voice_url, json={"voice_id":"sample", "prompt_strength":bad}).status_code, 400)
+_strength_project = fan_store.load(_strength_pid)
+_strength_project["spots"] = [{"id":"strength-spot", "script":"Visit our shop today.", "seconds":30, "daypart":"game"}]
+fan_store.save(_strength_project)
+_response = Mock(status_code=200)
+_response.json.return_value = {"audio_base64":base64.b64encode(b"test audio").decode(), "alignment":{"character_end_times_seconds":[2.0]}}
+with patch("hub.customer_voices.ensure_usable"), patch.object(fan_app.voices.requests, "post", return_value=_response) as sent, patch.object(fan_app.voices, "_headers", return_value={}), patch.object(fan_app.voices, "_note_characters"), patch.object(fan_store, "store_audio", return_value={"url":"audio/test.mp3","where":"local"}):
+    _record = fan.post(f"/api/projects/{_strength_pid}/spots/strength-spot/record", json={})
+    check("recording uses persisted strength", _record.status_code, 200)
+    check("strength reaches the provider style control", sent.call_args.kwargs["json"]["voice_settings"]["style"], 1.0)
+    check("only spoken copy is sent as text", sent.call_args.kwargs["json"]["text"], "Visit our shop today.")
+    fan_app.voices.render_audio("sample", "Hello", "laid_back", prompt_strength=0)
+    check("zero strength is not replaced with a default", sent.call_args.kwargs["json"]["voice_settings"]["style"], 0.0)
+    fan_app.voices.render_audio("sample", "Hello", "laid_back")
+    check("older projects retain their energy-based style", sent.call_args.kwargs["json"]["voice_settings"]["style"], 0.15)
+_presets = fan.get('/api/script-presets').get_json()
+check("default scripts are available without synthesis", len(_presets["defaults"]) >= 4, True)
+_custom = fan.post('/api/script-presets', json={"name":"Our greeting", "script":"Hello from {business}."}).get_json()
+check("custom script saves", _custom.get("ok"), True)
+check("a new session can load the saved script", fan_app.app.test_client().get('/api/script-presets').get_json()["custom"][-1]["script"], "Hello from {business}.")
+for payload in ({"name":"", "script":"Hello"}, {"name":"Long", "script":"x"*4001}, {"name":"Empty", "script":""}):
+    check("invalid custom copy is rejected", fan.post('/api/script-presets',json=payload).status_code, 400)
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)
