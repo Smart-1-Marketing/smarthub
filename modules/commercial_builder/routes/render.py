@@ -2,12 +2,12 @@
 
 from flask import Blueprint, jsonify, request
 
+from .. import generation
 from ..config import OUTPUT_FORMATS, build_sort_key
 from ..db import db
 from ..models import (Client, CommercialProject, RenderApproval, RenderJob,
                        Scene)
 from ..services import qc_service, creatomate_service, cloudinary_service
-from .. import vox_spec
 from hub import hyperframes
 
 bp = Blueprint("cb_render", __name__, url_prefix="/api/projects/<int:project_id>")
@@ -127,25 +127,16 @@ def submit_render(project_id):
     voice_track_url = (project.music or {}).get("voice_track_url")
     music_track_url = (project.music or {}).get("music_track_url")
 
-    jobs = []
-    for fmt in formats:
-        if _renders_through_hyperframes(project):
-            result = _submit_vox(project, client, fmt, voice_track_url)
-        else:
-            source = creatomate_service.build_source(project.to_dict(include_scenes=False), scenes, fmt,
-                                                       voice_track_url, music_track_url)
-            result = creatomate_service.submit_render(source)
-        job = RenderJob(project_id=project.id, format=fmt, provider_render_id=result.get("id"),
-                         status=result.get("status", "queued"), output_url=result.get("url"),
-                         error=result.get("error"))
-        db.session.add(job)
-        jobs.append(job)
+    jobs = [generation.submit_render_job(project, client, scenes, fmt,
+                                         voice_track_url=voice_track_url,
+                                         music_track_url=music_track_url)
+            for fmt in formats]
 
     project.status = "rendering"
     db.session.commit()
 
     _log_render(project, client, formats)
-    vox = _renders_through_hyperframes(project)
+    vox = generation.renders_through_hyperframes(project)
     live = hyperframes.is_configured() if vox else creatomate_service.is_live()
     if live:
         note = ""
@@ -163,59 +154,6 @@ def submit_render(project_id):
                     # Mock mode returns a job id and no file. Saying so here is
                     # what stops the panel reporting "succeeded" over nothing.
                     "note": note})
-
-
-def _renders_through_hyperframes(project):
-    """Which renderer assembles this spot.
-
-    Read off the project's own type rather than stored on the job, because a
-    `RenderJob` carries an opaque `provider_render_id` and nothing else that
-    says who issued it — so the poll route has to be able to ask the same
-    question and get the same answer. One reading, for the reason two of them
-    always drift.
-    """
-    return (project.commercial_type or "") == vox_spec.COMMERCIAL_TYPE
-
-
-def _submit_vox(project, client, fmt, voice_track_url=None):
-    """One Vox explainer, whole, through the render service.
-
-    Answers in `creatomate_service.submit_render`'s shape — `{id, status, url,
-    error}` — so the RenderJob row, the poll, the approval and the filing path
-    are all the ones every other commercial type already uses. A second render
-    pipeline beside them is how the two come to disagree about what "approved"
-    delivers.
-    """
-    beats = (project.script or {}).get("beats") or []
-    if len(beats) < vox_spec.MIN_BEATS:
-        return {"id": None, "status": "failed", "url": None,
-                "error": (f"This explainer has {len(beats)} beat"
-                          f"{'' if len(beats) == 1 else 's'} and needs at least "
-                          f"{vox_spec.MIN_BEATS}. Write the beat list first.")}
-    client_dict = client.to_dict()
-    params = hyperframes.vox_params(
-        title=project.title or client_dict.get("name") or "",
-        beats=beats, format_id=fmt,
-        brand_colors=[c for c in (client_dict.get("brand_colors") or []) if c],
-        voice_track_url=voice_track_url or "")
-    job = hyperframes.submit("vox-explainer", params)
-    return {"id": job.get("job_id"), "status": _job_status(job),
-            "url": job.get("url"), "error": job.get("error")}
-
-
-def _job_status(job):
-    """The render service's vocabulary in RenderJob's.
-
-    `RenderJob.status` is queued|rendering|succeeded|failed and HyperFrames
-    says queued|rendering|done|failed. Translated in one place: a "done" left
-    untranslated never satisfies the poll's `status not in ("succeeded",
-    "failed")` guard, so the job is re-checked for ever and the panel never
-    stops spinning.
-    """
-    state = (job or {}).get("status")
-    if state == "done":
-        return "succeeded"
-    return state if state in ("queued", "rendering", "failed") else "queued"
 
 
 def _approved_formats(project):
@@ -301,26 +239,13 @@ def list_render_jobs(project_id):
 def check_render_job(project_id, job_id):
     job = RenderJob.query.filter_by(id=job_id, project_id=project_id).first_or_404()
     project = CommercialProject.query.get(project_id)
-    vox = bool(project) and _renders_through_hyperframes(project)
-    if job.status not in ("succeeded", "failed"):
-        if vox:
-            state = hyperframes.status(job.provider_render_id)
-            job.status = _job_status(state)
-            job.output_url = state.get("url") or job.output_url
-            job.error = state.get("error")
-        else:
-            status = creatomate_service.check_render(job.provider_render_id)
-            if not status.get("retryable"):
-                job.status = status.get("status") or job.status
-            job.output_url = status.get("url") or job.output_url
-            job.error = status.get("error")
-        db.session.commit()
-
-        # Deliberately no filing here any more. This used to copy the finished
-        # video into the client's library the moment Creatomate said
-        # "succeeded" — before anybody had watched it. A cut nobody has looked
-        # at is not a deliverable, and one already sitting in the client's
-        # gallery is one somebody can send. Filing is what Approve does now.
+    vox = bool(project) and generation.renders_through_hyperframes(project)
+    # Deliberately no filing here any more. This used to copy the finished
+    # video into the client's library the moment Creatomate said "succeeded"
+    # — before anybody had watched it. A cut nobody has looked at is not a
+    # deliverable, and one already sitting in the client's gallery is one
+    # somebody can send. Filing is what Approve does now.
+    generation.poll_render_job(job)
     return jsonify({"ok": True, "render_job": job.to_dict(),
                     "approval": _approval_of(job),
                     "renderer": "hyperframes" if vox else "creatomate",
@@ -363,7 +288,7 @@ def approve_render(project_id, job_id):
         # variable that would have changed nothing — the invented diagnosis
         # `hub/openai_responses.py` had to undo across four buttons.
         missing = ("no render service is configured (HF_RENDER_SERVICE_URL)"
-                   if _renders_through_hyperframes(project)
+                   if generation.renders_through_hyperframes(project)
                    else "no CREATOMATE_API_KEY is set")
         return jsonify({"ok": False, "error": (
             "This render reported success but produced no file, so there is "

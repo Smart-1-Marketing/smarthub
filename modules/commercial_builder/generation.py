@@ -161,3 +161,200 @@ def run_stills(scene, client, *, option_count: int = 2) -> list[dict]:
     scene.asset_meta = meta
     db.session.commit()
     return options
+
+
+# ---------------------------------------------------------------------------
+# Voice, render (WO-CS5). Moved out of routes/voices.py and routes/render.py
+# for the same reason as above: Creative Studio's own queued "voice" and
+# "render" job kinds need the identical mutations the Storyboard Editor's
+# synchronous buttons make, and two readings of one question is the drift
+# CLAUDE.md spends its own history undoing.
+# ---------------------------------------------------------------------------
+
+def run_full_voiceover(project, client, voice_id, *, stability=0.5, style=0.5, speed=1.0):
+    """One continuous voiceover track for the whole commercial, stored and
+    written onto `project.music["voice_track_url"]` -- the key
+    `creatomate_service.build_source` reads at render time.
+
+    This is the non-presenter path of `routes/voices.py::generate_full_voiceover`
+    (its presenter-mode branch dispatches per scene through HeyGen instead,
+    and stays there rather than being duplicated here -- WO-CS5's own scope
+    is the plain voice track). Raises `ValueError` with a caller-facing
+    sentence; never leaves `project.music` pointing at nothing playable.
+    """
+    from .services import elevenlabs_service
+    if not voice_id:
+        raise ValueError("Choose a voice first.")
+
+    scenes = project.scenes.all()
+    full_text = " ".join(s.narration or "" for s in scenes)
+    signature = _timeline_signature(scenes)
+    result = elevenlabs_service.generate_voiceover(
+        text=full_text, voice_id=voice_id, stability=stability, style=style,
+        speed=speed, pronunciation_dict=client.pronunciation_dict)
+    result["voice_id"] = voice_id
+    had_audio = bool(result.get("audio_bytes"))
+    stored = _store_voice_track(project, client, result, signature=signature)
+    result.pop("audio_bytes", None)
+    result.update(stored)
+
+    if result.get("error") or (had_audio and not stored.get("stored")):
+        raise ValueError(result.get("error") or stored.get("store_note"))
+    return result
+
+
+def _timeline_signature(scenes):
+    from .services import media_state
+    return media_state.timeline_signature([s.to_dict() for s in scenes])
+
+
+def _store_voice_track(project, client, result, signature=None):
+    """Put the generated MP3 somewhere the renderer can reach it. Moved
+    verbatim from `routes/voices.py` -- see that module's own note on why
+    this exists: a voiceover that is generated and not stored is a silent
+    commercial, and this is the one place that stores it.
+    """
+    import hashlib
+    import os
+    import tempfile
+    from .services import cloudinary_service
+
+    audio = result.get("audio_bytes")
+    if not audio:
+        if result.get("error"):
+            return {"stored": False, "store_note": f"ElevenLabs refused it: {result['error']}"}
+        return {"stored": False,
+                "store_note": ("Mock mode — no ELEVENLABS_API key is set, so no audio "
+                               "was produced and the render will have no narration.")}
+
+    tmp_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as fh:
+            fh.write(audio)
+            tmp_path = fh.name
+        upload = cloudinary_service.upload_asset(
+            tmp_path, client.slug, "voice",
+            public_id=f"project-{project.id}-voice-{hashlib.sha256(audio).hexdigest()[:16]}",
+            resource_type="video")
+    except Exception as exc:                              # noqa: BLE001
+        return {"stored": False, "store_note": f"The voice track could not be stored: {exc}"}
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    url = upload.get("secure_url")
+    if not url or upload.get("_mock"):
+        return {"stored": False,
+                "store_note": ("The voice track was generated but could not be stored, so "
+                               "the render would have no narration.")}
+
+    music = dict(project.music or {})
+    music.update(voice_track_url=url, voice_mode="full", voice_signature=signature,
+                 voice_track_stale=False)
+    project.music = music
+    db.session.commit()
+    return {"stored": True, "store_note": "Voice track saved.", "voice_track_url": url}
+
+
+def renders_through_hyperframes(project) -> bool:
+    """Which renderer assembles this spot -- read off the project's own type
+    rather than stored on the job, because `RenderJob` carries an opaque
+    `provider_render_id` and nothing else that says who issued it, so every
+    reader of a job has to be able to ask the same question and get the
+    same answer. One reading, for the reason two of them always drift."""
+    from . import vox_spec
+    return (project.commercial_type or "") == vox_spec.COMMERCIAL_TYPE
+
+
+def _submit_vox(project, client, fmt, voice_track_url=None):
+    """One Vox explainer, whole, through the render service. Moved verbatim
+    from `routes/render.py` -- see that module's own note: answers in
+    `creatomate_service.submit_render`'s shape so the RenderJob row, the
+    poll, the approval and the filing path are all the ones every other
+    commercial type already uses."""
+    from . import vox_spec
+    from hub import hyperframes
+
+    beats = (project.script or {}).get("beats") or []
+    if len(beats) < vox_spec.MIN_BEATS:
+        return {"id": None, "status": "failed", "url": None,
+                "error": (f"This explainer has {len(beats)} beat"
+                          f"{'' if len(beats) == 1 else 's'} and needs at least "
+                          f"{vox_spec.MIN_BEATS}. Write the beat list first.")}
+    client_dict = client.to_dict()
+    params = hyperframes.vox_params(
+        title=project.title or client_dict.get("name") or "",
+        beats=beats, format_id=fmt,
+        brand_colors=[c for c in (client_dict.get("brand_colors") or []) if c],
+        voice_track_url=voice_track_url or "")
+    job = hyperframes.submit("vox-explainer", params)
+    return {"id": job.get("job_id"), "status": _job_status(job),
+            "url": job.get("url"), "error": job.get("error")}
+
+
+def _job_status(job):
+    """The render service's vocabulary in RenderJob's. Moved verbatim from
+    `routes/render.py` -- see that module's own note: a "done" left
+    untranslated never satisfies the poll's terminal-state guard, so the job
+    is re-checked for ever and the panel never stops spinning."""
+    state = (job or {}).get("status")
+    if state == "done":
+        return "succeeded"
+    return state if state in ("queued", "rendering", "failed") else "queued"
+
+
+def submit_render_job(project, client, scenes, fmt, *, voice_track_url=None, music_track_url=None):
+    """Submit one render and record it as a `RenderJob` -- the single
+    implementation of what `routes/render.py::submit_render` does per
+    format, reused by Creative Studio's own "render" job kind so both build
+    through the identical Creatomate/HyperFrames source builder rather than
+    a second copy of it drifting. Returns the created `RenderJob` row.
+    """
+    from .models import RenderJob
+    from .services import creatomate_service
+
+    if renders_through_hyperframes(project):
+        result = _submit_vox(project, client, fmt, voice_track_url)
+    else:
+        source = creatomate_service.build_source(
+            project.to_dict(include_scenes=False), scenes, fmt,
+            voice_track_url, music_track_url)
+        result = creatomate_service.submit_render(source)
+
+    job = RenderJob(project_id=project.id, format=fmt,
+                    provider_render_id=result.get("id"),
+                    status=result.get("status", "queued"),
+                    output_url=result.get("url"), error=result.get("error"))
+    db.session.add(job)
+    db.session.commit()
+    return job
+
+
+def poll_render_job(job) -> None:
+    """Refresh one `RenderJob`'s status against its provider, in place.
+    `routes/render.py`'s own poll route and Creative Studio's "render" job
+    runner both call this rather than each reading Creatomate/HyperFrames
+    status their own way."""
+    from .models import CommercialProject
+    from .services import creatomate_service
+    from hub import hyperframes
+
+    if job.status in ("succeeded", "failed"):
+        return
+    project = CommercialProject.query.get(job.project_id)
+    vox = bool(project) and renders_through_hyperframes(project)
+    if vox:
+        state = hyperframes.status(job.provider_render_id)
+        job.status = _job_status(state)
+        job.output_url = state.get("url") or job.output_url
+        job.error = state.get("error")
+    else:
+        status = creatomate_service.check_render(job.provider_render_id)
+        if not status.get("retryable"):
+            job.status = status.get("status") or job.status
+        job.output_url = status.get("url") or job.output_url
+        job.error = status.get("error")
+    db.session.commit()

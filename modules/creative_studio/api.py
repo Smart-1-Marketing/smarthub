@@ -10,6 +10,7 @@ same login -- real content lands in WO-CS4 through WO-CS6.
 from __future__ import annotations
 
 import re
+from datetime import datetime
 
 from flask import Blueprint, jsonify, render_template, request
 
@@ -303,6 +304,145 @@ def api_generate_image(project_id):                          # noqa: ANN202
     job = jobs.enqueue("image", project_id=project.id, client_name=project.client_name,
                        payload={"scene_id": scene_id}, created_by=_actor())
     return jsonify({"ok": True, "job": job.as_dict()})
+
+
+@bp.post("/api/projects/<int:project_id>/generate/voice")
+def api_generate_voice(project_id):                          # noqa: ANN202
+    """Enqueue a full-project voiceover (kind="voice") -- WO-CS5 item 1.
+    Single-tick once picked up: ElevenLabs' own call is synchronous."""
+    project = CsProject.query.get_or_404(project_id)
+    if not project.cb_project_id:
+        return jsonify({"ok": False, "error": "Open this project in the "
+                        "Storyboard Editor before generating a voiceover."}), 400
+    data = request.get_json(silent=True) or {}
+    voice_id = (data.get("voice_id") or "").strip()
+    if not voice_id:
+        return jsonify({"ok": False, "error": "Choose a voice first."}), 400
+    job = jobs.enqueue("voice", project_id=project.id, client_name=project.client_name,
+                       payload={"voice_id": voice_id,
+                                "stability": data.get("stability", 0.5),
+                                "style": data.get("style", 0.5),
+                                "speed": data.get("speed", 1.0)},
+                       created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict()})
+
+
+@bp.post("/api/projects/<int:project_id>/generate/heygen")
+def api_generate_heygen(project_id):                          # noqa: ANN202
+    """Enqueue a HeyGen spokesperson clip (kind="heygen") for one scene's
+    narration -- WO-CS5 item 1. Lands in the Media Library as a video, the
+    same shape the "image" job files an AI still under."""
+    project = CsProject.query.get_or_404(project_id)
+    if not project.cb_project_id:
+        return jsonify({"ok": False, "error": "Open this project in the "
+                        "Storyboard Editor before generating a spokesperson clip."}), 400
+    data = request.get_json(silent=True) or {}
+    scene_id = data.get("scene_id")
+    avatar_id = (data.get("avatar_id") or "").strip()
+    if not scene_id:
+        return jsonify({"ok": False, "error": "Name the scene to generate for."}), 400
+    if not avatar_id:
+        return jsonify({"ok": False, "error": "Choose a presenter first."}), 400
+    try:
+        from modules.commercial_builder.models import Scene as CbScene
+        scene = CbScene.query.filter_by(id=scene_id, project_id=project.cb_project_id).first()
+    except Exception as exc:                                # noqa: BLE001
+        return jsonify({"ok": False, "error": type(exc).__name__}), 400
+    if scene is None:
+        return jsonify({"ok": False, "error": "That scene is not on this "
+                        "project's storyboard."}), 400
+    job = jobs.enqueue("heygen", project_id=project.id, client_name=project.client_name,
+                       payload={"scene_id": scene_id, "avatar_id": avatar_id,
+                                "voice_id": data.get("voice_id") or ""},
+                       created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict()})
+
+
+@bp.post("/api/projects/<int:project_id>/render")
+def api_generate_render(project_id):                          # noqa: ANN202
+    """Enqueue a Creatomate render (kind="render") -- WO-CS5 item 2.
+
+    The hard QC gate the Commercial Builder's own `/render` route enforces,
+    with the override it offers turned off: a render started from this
+    front door has nobody watching the QC panel to press force through it,
+    so a failing check refuses here rather than being silently skippable.
+    """
+    project = CsProject.query.get_or_404(project_id)
+    if not project.cb_project_id:
+        return jsonify({"ok": False, "error": "Open this project in the "
+                        "Storyboard Editor before rendering."}), 400
+    try:
+        from modules.commercial_builder.models import (Client as CbClient,
+                                                        CommercialProject as CbProject,
+                                                        Scene as CbScene)
+        from modules.commercial_builder.services import qc_service
+        cb_project = CbProject.query.get(project.cb_project_id)
+        cb_client = CbClient.query.get(cb_project.client_id) if cb_project else None
+    except Exception as exc:                                # noqa: BLE001
+        return jsonify({"ok": False, "error": type(exc).__name__}), 400
+    if cb_project is None or cb_client is None:
+        return jsonify({"ok": False, "error": "This project's storyboard no "
+                        "longer exists."}), 400
+    scenes = [s.to_dict() for s in cb_project.scenes.order_by(CbScene.order_index).all()]
+    qc = qc_service.run_qc(cb_project.to_dict(include_scenes=False), cb_client.to_dict(), scenes)
+    if not qc.get("_all_passed"):
+        return jsonify({"ok": False, "error": "QC checks failed. Fix the "
+                        "flagged items before rendering.", "qc_results": qc}), 409
+    data = request.get_json(silent=True) or {}
+    fmt = data.get("format") or (cb_project.formats or ["16:9"])[0]
+    job = jobs.enqueue("render", project_id=project.id, client_name=project.client_name,
+                       payload={"format": fmt}, created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict()})
+
+
+@bp.get("/api/projects/<int:project_id>/versions")
+def api_list_versions(project_id):                            # noqa: ANN202
+    project = CsProject.query.get_or_404(project_id)
+    rows = project.versions.order_by(CsProjectVersion.version.desc()).all()
+    return jsonify({"ok": True, "versions": [v.as_dict() for v in rows]})
+
+
+@bp.post("/api/projects/<int:project_id>/versions/<int:version_number>/approve")
+def api_approve_version(project_id, version_number):          # noqa: ANN202
+    """A human says this render is good -- and only then is it filed to the
+    client's 360 record. Never mutates the version row: `CsProjectVersion`
+    is written once and stands (WO-CS1's own rule for this table), so
+    approving reads whichever version was named and files THAT one, through
+    the same WORK_KINDS path every other deliverable in this Hub reaches a
+    client's record by -- never a second, module-local idea of what
+    "filed" means."""
+    project = CsProject.query.get_or_404(project_id)
+    version = CsProjectVersion.query.filter_by(
+        project_id=project.id, version=version_number).first_or_404()
+    project.status = "Approved"
+    project.approved_at = datetime.utcnow()
+    db.session.commit()
+    try:
+        from hub import audit
+        audit.log("creative_studio", "version_approved", actor=_actor(),
+                  client=project.client_name or None,
+                  detail=f"{project.name} · V{version.version}",
+                  project=project.id)
+    except Exception:                                        # noqa: BLE001
+        pass
+    return jsonify({"ok": True, "project": project.as_dict(),
+                    "version": version.as_dict()})
+
+
+@bp.get("/api/projects/<int:project_id>/usage-summary")
+def api_project_usage_summary(project_id):                    # noqa: ANN202
+    """The credit meter's own read: running estimated cost for this project
+    from `cs_usage_logs`, grouped through the one shared reading
+    `usage.totals_by_provider` already gives the Usage & Costs page -- never
+    a second tally built here that could drift from it."""
+    project = CsProject.query.get_or_404(project_id)
+    rows = CsUsageLog.query.filter_by(project_id=project.id).all()
+    totals = usage.totals_by_provider(rows)
+    measured = all(t["measured"] for t in totals) if totals else True
+    total_cost = sum((t["estimated_cost"] or 0) for t in totals if t["estimated_cost"] is not None)
+    return jsonify({"ok": True, "totals": totals, "calls": len(rows),
+                    "estimated_cost": (total_cost if measured else None),
+                    "measured": measured})
 
 
 # --------------------------------------------------------------- brand kit

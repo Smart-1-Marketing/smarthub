@@ -1423,5 +1423,29 @@
     ackBox.appendChild(wrap);
   }
 
-  loadScenes().then(loadAbcd).then(loadCompliance);
+  // WO-CS5. Reads back what generate/voice, generate/heygen and render have
+  // actually spent on this project through the creative_jobs queue -- a
+  // running total for the rep to see while they work, never a per-action
+  // estimate guessed at before a call is made. Absent entirely for every
+  // project this wizard built on its own (no cs-credit-meter element on the
+  // page at all), and silent rather than a toast if the read fails: a meter
+  // that cannot answer must not cost the page it is decorating.
+  async function loadCreditMeter() {
+    const el = document.getElementById("cs-credit-meter");
+    if (!el) return;
+    const csProjectId = el.dataset.csProjectId;
+    if (!csProjectId) return;
+    try {
+      const res = await fetch(`/creative-studio/api/projects/${csProjectId}/usage-summary`);
+      const data = await res.json();
+      if (!res.ok || data.ok === false) return;
+      if (!data.calls) return;   // nothing spent yet -- no meter to show
+      const cost = data.measured && data.estimated_cost != null
+        ? `~$${data.estimated_cost.toFixed(2)}` : "cost not measured";
+      el.textContent = `${cost} so far (${data.calls} call${data.calls === 1 ? "" : "s"})`;
+      el.style.display = "";
+    } catch (e) { /* the meter staying hidden is the failure mode */ }
+  }
+
+  loadScenes().then(loadAbcd).then(loadCompliance).then(loadCreditMeter);
 })();

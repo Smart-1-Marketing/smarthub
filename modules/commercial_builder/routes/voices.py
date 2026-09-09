@@ -217,43 +217,47 @@ def generate_full_voiceover(project_id):
                            if stored else "Mock mode — narration has not been produced.")},
             "live": elevenlabs_service.is_live()})
 
-    full_text = " ".join(s.narration or "" for s in scenes)
-    result = elevenlabs_service.generate_voiceover(
-        text=full_text, voice_id=voice_id,
-        stability=float(data.get("stability", 0.5)), style=float(data.get("style", 0.5)),
-        speed=float(data.get("speed", 1.0)), pronunciation_dict=client.pronunciation_dict,
-    )
-
-    # Store it, or the render has no narration on it.
+    # The plain-track path -- one continuous read, generated, stored and
+    # written onto `project.music["voice_track_url"]`. Moved into
+    # `generation.py` for WO-CS5 so Creative Studio's own "voice" job runs
+    # the identical logic rather than a second copy of it: the request, the
+    # storage, and the failure-versus-mock distinction below were each their
+    # own defect once (see that module's docstring), and two readings of one
+    # question is how one of them comes to drift without the other.
     #
-    # This was called "preview" and behaved like one: it generated the whole
-    # voiceover, paid ElevenLabs for every character of it, reported the
-    # estimated duration and threw the audio away. `routes/render.py` reads
-    # `project.music["voice_track_url"]` to put the voice track on the
-    # timeline, and nothing in this module had ever written that key — so
-    # every commercial this tool rendered was silent, with no error at either
-    # end. The bytes go to the client's library and the URL onto the project.
-    result["voice_id"] = voice_id
-    had_audio = bool(result.get("audio_bytes"))
-    stored = _store_voice_track(project, client, result, signature=signature)
-    result.pop("audio_bytes", None)
-    result.update(stored)
-    # The take that is kept. It goes into the client's own Cloudinary tree and
-    # onto the spot's timeline, which makes it work produced for them rather
-    # than an audition — and whether it reached storage is said rather than
-    # assumed, because `_store_voice_track` answers with the reason when it
-    # could not.
-    _log("commercial_voiceover_recorded", client=client.name,
-         detail=(f"Voiceover recorded for {project.title or 'the spot'}"
-                 + ("." if stored.get("voice_track_url")
-                    else ", but it could not be stored.")),
-         project=project.id)
+    # This was called "preview" and behaved like one, before that fix: it
+    # generated the whole voiceover, paid ElevenLabs for every character of
+    # it, reported the estimated duration and threw the audio away.
+    # `routes/render.py` reads `project.music["voice_track_url"]` to put the
+    # voice track on the timeline, and nothing in this module had ever
+    # written that key — so every commercial this tool rendered was silent,
+    # with no error at either end.
+    from .. import generation
+    try:
+        result = generation.run_full_voiceover(
+            project, client, voice_id,
+            stability=float(data.get("stability", 0.5)),
+            style=float(data.get("style", 0.5)),
+            speed=float(data.get("speed", 1.0)))
+    except ValueError as exc:
+        # The take that could not be kept, logged all the same: "generated,
+        # but it could not be stored" is still work somebody asked for, and
+        # is exactly the row somebody would go looking for later.
+        _log("commercial_voiceover_recorded", client=client.name,
+             detail=(f"Voiceover recorded for {project.title or 'the spot'}, "
+                     "but it could not be stored."),
+             project=project.id)
+        return jsonify({"ok": False, "voiceover": {"error": str(exc)},
+                        "error": str(exc),
+                        "voice_track_url": (project.music or {}).get("voice_track_url") or "",
+                        "live": elevenlabs_service.is_live()}), 502
 
-    failed = bool(result.get("error") or (had_audio and not stored.get("stored")))
-    return jsonify({"ok": not failed, "voiceover": result,
-                    "error": (result.get("error") or stored.get("store_note")) if failed else None,
+    _log("commercial_voiceover_recorded", client=client.name,
+         detail=f"Voiceover recorded for {project.title or 'the spot'}.",
+         project=project.id)
+    return jsonify({"ok": True, "voiceover": result, "error": None,
                     "voice_track_url": (project.music or {}).get("voice_track_url") or "",
-                    "live": elevenlabs_service.is_live()}), (502 if failed else 200)
+                    "live": elevenlabs_service.is_live()})
 
 
 def _store_voice_track(project, client, result, signature=None):

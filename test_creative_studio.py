@@ -888,6 +888,276 @@ with hub_app.app_context():
     check("a (provider, service) with no rate is not measured, never zero",
           row.estimated_cost, None)
 
+# ---------------------------------------------------------------------------
+section("WO-CS5: generating a full voiceover as a queued job")
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/generate/voice")
+check("generating a voiceover with no voice chosen is refused", r.status_code, 400)
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/generate/voice",
+                json={"voice_id": "mock-voice-1"})
+check("generating a voiceover enqueues a voice job", r.status_code, 200)
+check("  ...of kind voice", r.get_json()["job"]["kind"], "voice")
+voice_job_id = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)
+with hub_app.app_context():
+    job = CreativeJob.query.get(voice_job_id)
+    check("the voice job completes -- ElevenLabs' own call is synchronous, "
+          "so there is nothing to poll for", job.state, "complete")
+
+    from modules.creative_studio.models import CsMediaAsset as CsMediaAssetModel2
+    rows = CsMediaAssetModel2.query.filter_by(project_id=cs_project_id, source="elevenlabs").all()
+    check("one voiceover media row is filed", len(rows), 1)
+    check("  ...tagged as a voiceover", rows[0].asset_type, "voiceover")
+
+    voice_usage_rows = CsUsageLog.query.filter_by(project_id=cs_project_id, service="voice").all()
+    check("exactly one usage row for the voice call", len(voice_usage_rows), 1)
+    check("  ...naming elevenlabs", voice_usage_rows[0].provider, "elevenlabs")
+
+r = client.post(f"/creative-studio/api/projects/{no_brief_id}/generate/voice",
+                json={"voice_id": "mock-voice-1"})
+check("an unbound project is refused before a voice job is even enqueued",
+      r.status_code, 400)
+
+# ---------------------------------------------------------------------------
+section("WO-CS5: a HeyGen spokesperson clip, and what a mock generation reports")
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/generate/heygen",
+                json={"scene_id": first_scene_id})
+check("generating a spokesperson clip with no presenter chosen is refused",
+      r.status_code, 400)
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/generate/heygen",
+                json={"scene_id": first_scene_id, "avatar_id": "mock-avatar-1"})
+check("generating a spokesperson clip enqueues a heygen job", r.status_code, 200)
+check("  ...of kind heygen", r.get_json()["job"]["kind"], "heygen")
+heygen_job_id = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)
+with hub_app.app_context():
+    job = CreativeJob.query.get(heygen_job_id)
+    check("with no HEYGEN_API key set, the mock generation fails readably "
+          "rather than filing an empty clip", job.state, "failed")
+    check("  ...with a readable error rather than a bare provider code",
+          bool(job.error) and len(job.error) > 10, True)
+
+    from modules.creative_studio.models import CsMediaAsset as CsMediaAssetModel3
+    filed = CsMediaAssetModel3.query.filter_by(project_id=cs_project_id, source="heygen").all()
+    check("  ...and nothing was filed to the Media Library for it", len(filed), 0)
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/generate/heygen",
+                json={"scene_id": 999999, "avatar_id": "mock-avatar-1"})
+check("a scene id not on this project's storyboard is refused before "
+      "a job is even enqueued", r.status_code, 400)
+
+# A scene with real narration on it (the script-generated project from the
+# WO-CS4 section above), so the "no HEYGEN_API key" branch is what actually
+# fires rather than being masked by the scene having nothing to read.
+with hub_app.app_context():
+    narrated_scene = CbScene.query.filter_by(project_id=brief_cb_id).order_by(CbScene.order_index).first()
+    check("the script-generated project has a scene carrying narration",
+          bool(narrated_scene.narration), True)
+    narrated_scene_id = narrated_scene.id
+
+r = client.post(f"/creative-studio/api/projects/{brief_project_id}/generate/heygen",
+                json={"scene_id": narrated_scene_id, "avatar_id": "mock-avatar-1"})
+check("generating a spokesperson clip for a narrated scene enqueues a job",
+      r.status_code, 200)
+narrated_heygen_job_id = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)
+with hub_app.app_context():
+    job = CreativeJob.query.get(narrated_heygen_job_id)
+    check("with real narration and no HEYGEN_API key, it is the mock branch "
+          "that fails it", job.state, "failed")
+    check("  ...naming the missing key", "HEYGEN_API" in (job.error or ""), True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS5: a render request with failing QC is refused")
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/render", json={"format": "16:9"})
+check("an untouched storyboard with no media fails QC and the render is refused",
+      r.status_code, 409)
+check("  ...carrying the qc_results", "qc_results" in r.get_json(), True)
+
+with hub_app.app_context():
+    check("nothing was enqueued for the refused render",
+          CreativeJob.query.filter_by(kind="render", project_id=cs_project_id).count(), 0)
+
+# ---------------------------------------------------------------------------
+section("WO-CS5: two consecutive renders produce V1 and V2, and V1 is unchanged")
+
+from modules.commercial_builder.services import creatomate_service as _creatomate  # noqa: E402
+from modules.commercial_builder.services import qc_service as _qc_service  # noqa: E402
+from modules.creative_studio.models import CsProjectVersion  # noqa: E402
+
+_orig_submit = _creatomate.submit_render
+_orig_check = _creatomate.check_render
+_orig_run_qc = _qc_service.run_qc
+
+_passing_qc = {"_all_passed": True, "scene_assets": {"passed": True},
+              "media_integrity": {"passed": True}}
+_qc_service.run_qc = lambda *a, **k: dict(_passing_qc)
+_creatomate.submit_render = lambda source: {
+    "id": "rend_cs5", "status": "rendering", "url": None, "error": None}
+_creatomate.check_render = lambda rid: {
+    "id": rid, "status": "succeeded", "url": "https://cdn.example.test/out.mp4", "error": None}
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/render", json={"format": "16:9"})
+check("a render request with passing QC is enqueued", r.status_code, 200)
+render_job_1 = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)   # queued -> rendering: builds the source, submits
+with hub_app.app_context():
+    job = CreativeJob.query.get(render_job_1)
+    check("the render job is rendering after its first tick", job.state, "rendering")
+    check("  ...attempts counted once, at submission", job.attempts, 1)
+
+cs_jobs.job_sweep(hub_app)   # rendering -> uploading -> complete: polls, uploads, versions
+with hub_app.app_context():
+    job = CreativeJob.query.get(render_job_1)
+    check("the render job completes on its second tick", job.state, "complete")
+    check("  ...attempts still just one -- a poll is not a fresh attempt", job.attempts, 1)
+    check("  ...producing version 1", job.output.get("version"), 1)
+
+    versions = (CsProjectVersion.query.filter_by(project_id=cs_project_id)
+               .order_by(CsProjectVersion.version).all())
+    check("exactly one version exists", len(versions), 1)
+    v1_url = versions[0].render_url
+    check("  ...carrying a render_url", bool(v1_url), True)
+    v1_id = versions[0].id
+
+    from modules.creative_studio.models import CsProject as CsProjectModel5
+    proj = CsProjectModel5.query.get(cs_project_id)
+    check("the project moves to Internal Review", proj.status, "Internal Review")
+
+    render_usage_rows = CsUsageLog.query.filter_by(project_id=cs_project_id, service="render").all()
+    check("exactly one usage row for this render", len(render_usage_rows), 1)
+    check("  ...naming creatomate", render_usage_rows[0].provider, "creatomate")
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/render", json={"format": "16:9"})
+check("a second render request is also enqueued", r.status_code, 200)
+render_job_2 = r.get_json()["job"]["id"]
+cs_jobs.job_sweep(hub_app)
+cs_jobs.job_sweep(hub_app)
+with hub_app.app_context():
+    job = CreativeJob.query.get(render_job_2)
+    check("a second render also completes", job.state, "complete")
+    check("  ...producing version 2", job.output.get("version"), 2)
+
+    versions = (CsProjectVersion.query.filter_by(project_id=cs_project_id)
+               .order_by(CsProjectVersion.version).all())
+    check("now there are two versions", len(versions), 2)
+    check("  ...V1's own row is unchanged", versions[0].id, v1_id)
+    check("  ...V1's render_url is unchanged", versions[0].render_url, v1_url)
+    check("  ...V1 and V2 are different rows", versions[0].id != versions[1].id, True)
+
+_creatomate.submit_render = _orig_submit
+_creatomate.check_render = _orig_check
+_qc_service.run_qc = _orig_run_qc
+
+# ---------------------------------------------------------------------------
+section("WO-CS5: a render that never completes ends failed at timeout_at, with no version row")
+
+_qc_service.run_qc = lambda *a, **k: dict(_passing_qc)
+_creatomate.submit_render = lambda source: {
+    "id": "rend_stuck", "status": "rendering", "url": None, "error": None}
+_creatomate.check_render = lambda rid: {
+    "id": rid, "status": "rendering", "url": None, "error": None}
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/render", json={"format": "16:9"})
+stuck_render_job_id = r.get_json()["job"]["id"]
+cs_jobs.job_sweep(hub_app)   # queued -> rendering: submits, then Creatomate never resolves
+
+with hub_app.app_context():
+    from datetime import datetime as _dt5, timedelta as _td5
+    from modules.creative_studio.db import db as _cs_db5
+    stuck_job = CreativeJob.query.get(stuck_render_job_id)
+    check("the stuck render is rendering after its first tick", stuck_job.state, "rendering")
+    stuck_job.timeout_at = _dt5.utcnow() - _td5(minutes=1)
+    _cs_db5.session.commit()
+
+cs_jobs.job_sweep(hub_app)   # the overdue check fails it -- never polled again
+with hub_app.app_context():
+    stuck_job = CreativeJob.query.get(stuck_render_job_id)
+    check("an overdue render is swept as failed", stuck_job.state, "failed")
+    check("  ...with a readable error", "did not finish in time" in (stuck_job.error or ""), True)
+
+    versions = CsProjectVersion.query.filter_by(project_id=cs_project_id).all()
+    check("no version row carries the stuck render's provider id",
+          any(v.creatomate_render_id == "rend_stuck" for v in versions), False)
+
+_creatomate.submit_render = _orig_submit
+_creatomate.check_render = _orig_check
+_qc_service.run_qc = _orig_run_qc
+
+# ---------------------------------------------------------------------------
+section("WO-CS5: the QR Amazon caution copy is still present on the CTA control")
+
+amazon_result = _qc_service._check_publisher_rules(
+    {"brief": {"publishers": ["amazon"]}, "cta": {"qr_enabled": True}})
+check("Amazon + a QR code enabled fails the publisher-rules check",
+      amazon_result["passed"], False)
+check("  ...naming what Amazon's specs actually say",
+      "does not support QR codes" in amazon_result["message"], True)
+check("  ...and what to do about it",
+      "Turn the code off" in amazon_result["message"], True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS5: approving a version files THAT version to Client 360")
+
+with hub_app.app_context():
+    from modules.creative_studio.models import CsProject as CsProjectModel6
+    from modules.creative_studio.db import db as cs_db4
+    from modules.creative_studio import binder as cs_binder3
+
+    filed_project = CsProjectModel6(name="Fall HVAC spot", creative_type="video_commercial",
+                                    client_name="Acme Plumbing", status="Draft")
+    cs_db4.session.add(filed_project)
+    cs_db4.session.commit()
+    bind_result = cs_binder3.bind_for_generation(filed_project)
+    check("binding a real-client project for generation succeeds", bind_result.get("ok"), True)
+    filed_project_id = filed_project.id
+
+    v1 = CsProjectVersion(project_id=filed_project_id, version=1,
+                          render_url="https://cdn.example.test/v1.mp4", created_by="Todd")
+    cs_db4.session.add(v1)
+    cs_db4.session.commit()
+
+r = client.post(f"/creative-studio/api/projects/{filed_project_id}/versions/1/approve")
+check("approving an existing version succeeds", r.status_code, 200)
+check("  ...and the project status moves to Approved",
+      r.get_json()["project"]["status"], "Approved")
+
+r = client.post(f"/creative-studio/api/projects/{filed_project_id}/versions/99/approve")
+check("approving a version number that does not exist 404s", r.status_code, 404)
+
+with hub_app.app_context():
+    unchanged = CsProjectVersion.query.filter_by(project_id=filed_project_id, version=1).first()
+    check("the version row itself is never mutated by approving it",
+          unchanged.render_url, "https://cdn.example.test/v1.mp4")
+
+    from hub import client_brand as cb_work
+    log = cb_work.work_log("Acme Plumbing")
+    matches = [it for it in log["items"]
+              if "Fall HVAC spot" in it["detail"] and "V1" in it["detail"]]
+    check("the approval reaches Acme Plumbing's Client 360 work log", len(matches) >= 1, True)
+    check("  ...filed under Creative Studio", matches[0]["kind"] if matches else "", "Creative Studio")
+
+# ---------------------------------------------------------------------------
+section("WO-CS5: the credit meter reads a running estimated cost from cs_usage_logs")
+
+r = client.get(f"/creative-studio/api/projects/{cs_project_id}/usage-summary")
+check("the usage summary route answers", r.status_code, 200)
+body = r.get_json()
+check("  ...measured (every provider used above is in PROVIDER_RATES)", body["measured"], True)
+check("  ...carrying a positive running cost", body["estimated_cost"] > 0, True)
+check("  ...and a call count", body["calls"] > 0, True)
+
+r = client.get("/creative-studio/api/projects/999999/usage-summary")
+check("a project that does not exist 404s", r.status_code, 404)
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)

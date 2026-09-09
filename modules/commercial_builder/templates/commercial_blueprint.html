@@ -12,6 +12,16 @@
        <span id="wc-summary">checking narration length…</span></p>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
+    {% if cs_layout %}
+    {# WO-CS5. A running total, never a bill -- `cs_usage_logs.estimated_cost`
+       is a placeholder rate until Todd supplies real ones, the same caveat
+       the Usage & Costs page carries. Absent for every project this wizard
+       built on its own, the same guard the layer panel above uses: there is
+       nothing in cs_usage_logs for a project Creative Studio never bound. #}
+    <span id="cs-credit-meter" data-cs-project-id="{{ cs_layout.cs_project_id }}"
+          class="cb-status-pill" style="display:none;" title="Estimated cost so far for this project (not a bill)"></span>
+    {% endif %}
+
     {# Its own start button, not the floating one. hub-demo.js's launcher
        offers the module's FIRST scenario, which is the Start page's — and a
        page carrying [data-demo-start] is skipped by that launcher, so naming

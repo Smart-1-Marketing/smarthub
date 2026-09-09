@@ -154,4 +154,7 @@ PROVIDER_RATES = {
     ("openai", "concepts"): 0.01,
     ("openai", "script"): 0.02,
     ("openai", "image"): 0.04,
+    ("elevenlabs", "voice"): 0.30,
+    ("heygen", "spokesperson"): 1.50,
+    ("creatomate", "render"): 0.50,
 }
