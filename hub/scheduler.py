@@ -722,8 +722,9 @@ def job_ad_assets_sweep(app) -> dict:
 def job_creative_studio_sweep(app) -> dict:
     """Advance queued Creative Studio jobs one step -- house rule 4 for that
     module, done here rather than in the request that enqueued the work. See
-    modules/creative_studio/jobs.py::sweep() for what a step means per kind;
-    today that is only the Media Library's Cloudinary backfill.
+    modules/creative_studio/jobs.py::sweep() for what a step means per kind:
+    the Media Library's Cloudinary backfill, and (WO-CS4) concept, script and
+    per-scene still generation.
     """
     try:
         from modules.creative_studio import jobs as cs_jobs
@@ -733,6 +734,30 @@ def job_creative_studio_sweep(app) -> dict:
         return cs_jobs.job_sweep(app)
     except Exception as exc:                            # noqa: BLE001
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def job_creative_jobs_sweep(app) -> dict:
+    """Run one queued creative job — a lead-triggered radio script, today.
+
+    `hub/creative_jobs.py` is the queue, filled by `hub/leads.py`'s own
+    `capture_and_deliver()` the moment a lead from an autostarted source lands
+    — never inside that request, because an OpenAI call has no place on the
+    path that answers a prospect's form. This is the other end of it: every
+    minute, claim the oldest queued row and run it. One at a time,
+    deliberately, so a burst of leads spends a model call a minute rather than
+    a model call each on this one shared thread.
+
+    Safe to run late, skip and repeat: a job is claimed (moved to `running`
+    and committed) before any work starts, so a missed tick simply means the
+    queue is a job longer next time, never a job run twice by two ticks
+    landing close together.
+    """
+    try:
+        from hub import creative_jobs
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        return creative_jobs.run_one()
 
 
 JOBS = {
@@ -775,7 +800,10 @@ JOBS = {
     "weather_triggers":  (30, job_weather_triggers,
                           "Turn each approved weather campaign's triggers on and off."),
     "creative_studio":   (5, job_creative_studio_sweep,
-                          "Advance queued Creative Studio jobs (Media Library backfill, etc.)."),
+                          "Advance queued Creative Studio jobs (Media Library backfill, "
+                          "concept/script/image generation)."),
+    "creative_jobs":     (1, job_creative_jobs_sweep,
+                          "Run one queued lead-triggered creative job (radio scripts)."),
 }
 
 

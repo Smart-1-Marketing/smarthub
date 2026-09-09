@@ -2466,11 +2466,26 @@ def create_hub_app() -> Flask:
         if gate:
             return gate
         from . import leads
-        return jsonify(leads.listing(
+        data = leads.listing(
             days=clamp_int(request.args.get("days"), 30, 1, 730),
             source=request.args.get("source", ""),
             page=request.args.get("page", ""),
-            undelivered_only=request.args.get("undelivered") == "1"))
+            undelivered_only=request.args.get("undelivered") == "1")
+        # Composed here rather than inside hub/leads.py, which knows nothing
+        # about radio scripts and should not — the panel is the one place
+        # that needs both readers at once, so a row that qualified for one
+        # carries its job state alongside it.
+        try:
+            from . import creative_jobs
+            jobs = creative_jobs.state_for_leads(
+                [r.get("id") for r in data["leads"]])
+            for row in data["leads"]:
+                job = jobs.get(row.get("id"))
+                if job:
+                    row["radio_job"] = job
+        except Exception:                               # noqa: BLE001
+            pass
+        return jsonify(data)
 
     @app.route("/api/leads/capture", methods=["POST"])
     def api_leads_capture():
@@ -6912,7 +6927,7 @@ def create_hub_app() -> Flask:
             extra = b""
             if b"hub-help.js" not in body:
                 extra = (b'<script defer src="/hub-help.js"></script>'
-                         b'<script defer data-hub-inbox src="/assets/hub-inbox.js"></script>'
+                         b'<script defer data-hub-inbox src="/assets/hub-inbox.js?v=qa-inbox-1"></script>'
                          b'<script defer src="/hub-demo.js"></script>'
                     b'<script defer src="/hub-crumbs.js"></script>'
                          b'<script defer src="/hub-thinking.js"></script>'
@@ -7255,6 +7270,14 @@ def create_hub_app() -> Flask:
     # it fails into "we could not look" for ever.
     try:
         from . import presence as _presence  # noqa: F401
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Same reason, for the lead-triggered creative queue: `hub_creative_jobs`
+    # has to exist before create_all() below or a lead source that qualifies
+    # queues nothing and nothing says why.
+    try:
+        from . import creative_jobs as _creative_jobs  # noqa: F401
     except Exception:  # noqa: BLE001
         pass
 

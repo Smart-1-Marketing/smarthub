@@ -27,13 +27,14 @@ from __future__ import annotations
 
 import os
 import re
+import base64
 from pathlib import Path
 
 import requests
 from flask import (Flask, Response, jsonify, render_template, request,
                    send_file)
 
-from . import ai, catalog, phrases, speech, store, voices
+from . import ai, catalog, phrases, speech, store, voices, script_presets, delivery
 from hub import radio_share, voice_casting
 
 try:
@@ -222,6 +223,8 @@ def public_view(project: dict) -> dict:
             "audio_seconds": (mix.get("seconds") if mix.get("audio_url")
                               else spot.get("audio_seconds")) or 0,
             "audio_is_mix": bool(mix.get("audio_url")),
+            "voice_audio_url": spot.get("audio_url") or "",
+            "voice_audio_seconds": spot.get("audio_seconds"),
             "has_bed": bool((spot.get("bed") or {}).get("audio_url")),
             "voice_name": (project.get("voice") or {}).get("name") or "",
             "status": spot.get("status") or "pending",
@@ -739,15 +742,65 @@ def api_set_voice(pid):
     if not vid:
         return fail("Pick a voice.")
     try:
-        speed = min(1.2, max(0.7, float(body.get("speed", 1.0))))
-    except (TypeError, ValueError):
-        speed = 1.0
-    project["voice"] = {"voice_id": vid,
-                        "name": str(body.get("name") or "")[:80],
-                        "energy": body.get("energy") or "energetic",
-                        "speed": speed}
+        chosen = delivery.settings(body, project.get("voice"))
+    except ValueError as exc:
+        return fail(str(exc))
+    chosen.update(voice_id=vid, name=str(chosen.get("name") or "")[:80])
+    project["voice"] = chosen
     store.save(project)
     return jsonify({"ok": True, "voice": project["voice"]})
+
+
+@app.route("/api/script-presets", methods=["GET", "POST"])
+def api_script_presets():
+    if request.method == "GET":
+        return jsonify({"ok": True, **script_presets.library()})
+    body = request.get_json(silent=True) or {}
+    try:
+        row = script_presets.save(body.get("name"), body.get("script"), actor_name())
+    except ValueError as exc:
+        return fail(str(exc))
+    _log("script_preset_saved", preset=row["id"])
+    return jsonify({"ok": True, "preset": row})
+
+
+@app.route("/api/projects/<pid>/voice/preview", methods=["POST"])
+def api_voice_preview(pid):
+    project = store.load(pid)
+    if not project:
+        return fail("No project with that id.", 404)
+    if rate_limited("voice_preview", 12, 600):
+        return fail("Too many samples. Wait a minute before trying again.", 429)
+    body = request.get_json(silent=True) or {}
+    text = str(body.get("text") or "").strip()
+    if not text or len(text) > 500:
+        return fail("Enter a sample of 1 to 500 characters.")
+    try:
+        voice = delivery.settings(body, project.get("voice"))
+        delivery.validate_tags(text, voice["model_id"])
+        spoken = speech.normalize_for_speech(text, project.get("pronunciation"))["spoken"]
+        out = voices.render_audio(voice.get("voice_id"), spoken,
+                                  voice.get("energy", "energetic"), voice["speed"],
+                                  **delivery.render_options(voice))
+    except (ValueError, voices.VoiceError) as exc:
+        return fail(str(exc), 400)
+    return jsonify(ok=True, audio_base64=base64.b64encode(out["audio"]).decode(),
+                   seconds=out["seconds"], measured=out["measured"])
+
+
+@app.route("/api/projects/<pid>/comments/clear", methods=["POST"])
+def api_clear_comments(pid):
+    project = store.load(pid)
+    if not project:
+        return fail("No project with that id.", 404)
+    feedback = project.get("feedback") or []
+    if feedback:
+        project.setdefault("feedback_archive", []).append(
+            {"at": store.now(), "actor": actor_name(), "feedback": feedback})
+        project["feedback"] = []
+        store.save(project)
+        _log("comments_cleared", project=pid)
+    return jsonify(ok=True, project=project)
 
 
 @app.route("/api/projects/<pid>/spots/<sid>/record", methods=["POST"])
@@ -776,10 +829,12 @@ def api_record(pid, sid):
     spoken = speech.normalize_for_speech(spot["script"],
                                          project.get("pronunciation"))
     try:
+        delivery.validate_tags(spoken["spoken"], voice.get("model_id", voices.MODEL))
+        settings = delivery.render_options(voice)
         out = voices.render_audio(voice["voice_id"], spoken["spoken"],
                                   voice.get("energy") or "energetic",
-                                  voice.get("speed", 1.0))
-    except voices.VoiceError as exc:
+                                  voice.get("speed", 1.0), **settings)
+    except (voices.VoiceError, ValueError) as exc:
         _log("render_failed", project=pid, spot=sid,
              detail="Radio recording failed. Open the builder to retry.")
         return fail(str(exc), 503)
@@ -966,6 +1021,22 @@ def api_music_library():
     return jsonify({"ok": True, "tracks": store.music_library()})
 
 
+@app.route("/api/projects/<pid>/mix-settings", methods=["POST"])
+def api_mix_settings(pid):
+    project = store.load(pid)
+    if not project:
+        return fail("No project with that id.", 404)
+    level = (request.get_json(silent=True) or {}).get("level")
+    spec, error = _need_spec()
+    if not spec:
+        return fail(error, 503)
+    if level not in [row["label"] for row in spec.bed_levels()["levels"]]:
+        return fail("Choose a bed volume from the slider.")
+    project["mix_level"] = level
+    store.save(project)
+    return jsonify(ok=True, level=level)
+
+
 # --------------------------------------------------------------------- beds
 @app.route("/api/projects/<pid>/spots/<sid>/bed/compose", methods=["POST"])
 def api_bed_compose(pid, sid):
@@ -1032,6 +1103,7 @@ def api_bed_compose(pid, sid):
             "minimum_seconds": minimum_seconds,
         })
         spot["bed"]["library_track_id"] = track["id"]
+        spot["bed"]["name"] = track["name"]
     _drop_mix(spot, "The bed changed, so the mix made from the old one went "
                     "with it. Render it again.")
     store.save(project)
@@ -1091,6 +1163,7 @@ def api_bed_upload(pid, sid):
             "minimum_seconds": minimum_seconds, **length,
         })
         spot["bed"]["library_track_id"] = track["id"]
+        spot["bed"]["name"] = track["name"]
     _drop_mix(spot, "The bed changed, so the mix made from the old one went "
                     "with it. Render it again.")
     store.save(project)
@@ -1132,14 +1205,21 @@ def api_apply_library_track(pid, track_id):
         return fail("No project with that id.", 404)
     if not track or not track.get("audio_url") or not track.get("seconds"):
         return fail("That saved track is no longer available.", 404)
+    target = (request.get_json(silent=True) or {}).get("spot_id")
+    if target and not store.get_spot(project, target):
+        return fail("No spot with that id.", 404)
     applied = []
     for spot in project.get("spots") or []:
+        if target and spot.get("id") != target:
+            continue
         if _bed_minimum_seconds(spot) > float(track["seconds"]):
             continue
         spot["bed"] = {**track, "library_track_id": track_id,
                        "kind": "library", "at": store.now()}
         _drop_mix(spot, "The library bed changed, so the old mix went with it. Render it again.")
         applied.append(spot.get("id"))
+    if target and not applied:
+        return fail("This bed is too short for the selected commercial.")
     store.save(project)
     return jsonify({"ok": True, "project": project, "applied": applied})
 

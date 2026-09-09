@@ -303,6 +303,58 @@ def thumb_url(public_id: str, edge: int = THUMB_EDGE) -> str:
     return url
 
 
+def smart_crop_url(public_id: str, width: int, height: int, *,
+                   resource_type: str = "image") -> str:
+    """A derived crop to an exact size, framed on Cloudinary's own subject
+    detection (``g_auto``) rather than a plain centre crop.
+
+    This is a **suggestion**, not a decision: a caller must offer it as one
+    option beside a manual crop, never apply it and hide the control — the
+    rule `hub/website_audit.py` already states about a finding versus a
+    judgment, and the reason `preview_url()` never upscales or crops on its
+    own. Cloudinary has no opinion to disclaim here (unlike a model call),
+    but a wrong subject is still a wrong subject, and nobody proof-reads a
+    crop that "just worked".
+
+    Deliberately a **URL transformation on something already in the
+    account**, the same shape as `thumb_url()` — never a second upload path.
+    An auto-crop that also stored a new asset would be one more row for the
+    orphaned-asset audit to reconcile for no reason: the source image is
+    already there, and Cloudinary derives and caches this the same way it
+    already does previews.
+
+    `c_fill` here, not the `c_limit` `preview_url()` insists on — the whole
+    point is an *exact* target size, which a caller asked for by width and
+    height, not a cap. That is why this is its own function instead of a
+    parameter on `preview_url()`: the two crop modes answer different
+    questions and a shared signature would make the wrong one the default
+    for whichever caller forgot to override it.
+
+    Not ready, no public_id, or a non-positive dimension all answer ``""``
+    rather than raising — the same "not measured" shape every other reader
+    in this module uses, so a caller can offer a manual crop when this has
+    nothing to propose rather than a page failing to render.
+    """
+    if not ready() or not public_id:
+        return ""
+    try:
+        w, h = int(width), int(height)
+    except (TypeError, ValueError):
+        return ""
+    if w <= 0 or h <= 0:
+        return ""
+    kind = str(resource_type or "image").strip().lower()
+    if kind != "image":
+        return ""
+    _configure()
+    url, _ = cloudinary.utils.cloudinary_url(
+        public_id, resource_type="image", secure=True,
+        transformation=[{"width": w, "height": h, "crop": "fill",
+                         "gravity": "auto", "quality": "auto",
+                         "fetch_format": "auto"}])
+    return url
+
+
 def preview_url(url: str, resource_type: str = "", edge: int = THUMB_EDGE) -> str:
     """The version a gallery draws, from a stored delivery URL.
 

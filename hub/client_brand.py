@@ -182,6 +182,10 @@ NOT_WORK = {
     # Hub housekeeping: a domain attached, an SEO task ticked. Same reason.
     "hub":          "housekeeping — a join or a status, not a deliverable",
     "qa":           "a report row acted on, not work produced",
+    # A lead-triggered job giving up, logged so the failure is attributable —
+    # the deliverable itself (a script set) is logged under "radio_scripts",
+    # already in WORK_KINDS, the moment one is actually written.
+    "creative_jobs": "a queue giving up on a job, not the creative itself",
     # Both surfaced by the same wrapper-resolving pass that found the four
     # added to WORK_KINDS above, and both are the other answer.
     #

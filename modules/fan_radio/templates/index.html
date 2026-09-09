@@ -53,6 +53,14 @@
   .shead{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:9px}
   .len{background:var(--navy);color:#fff;font-weight:700;font-size:12px;border-radius:5px;padding:2px 8px}
   .spot textarea{min-height:94px;font-size:14px}
+  .shead .tag{font-size:9px}
+  .settings-box{border:1px solid #cbd5e1;background:#f8fafc;border-radius:10px;padding:18px;margin-bottom:20px}
+  .settings-box h3{margin:0 0 14px}
+  dialog{border:1px solid #cbd5e1;border-radius:12px;padding:22px;max-width:720px;width:90%}
+  dialog::backdrop{background:#0007}
+  .audio-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px}
+  .timing{font-size:12px;font-weight:600;padding:4px 8px;border-radius:6px}
+  .timing.ok{color:#166534;background:#dcfce7}.timing.warn{color:#854d0e;background:#fef9c3}.timing.bad{color:#991b1b;background:#fee2e2}
   .sfoot{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px;align-items:center}
   .why{background:#fdecec;border-left:3px solid var(--bad);padding:8px 11px;
        border-radius:0 7px 7px 0;font-size:12.5px;margin:8px 0;color:#7f1d1d}
@@ -193,6 +201,21 @@
   <!-- 4 ------------------------------------------------------------- -->
   <div class="card" id="spotscard" style="display:none">
     <h2><span class="n">5</span> Record the spots</h2>
+    <section class="settings-box" aria-label="Voice settings">
+      <h3>Voice settings</h3>
+      <label class="f" for="voiceMode">Voice mode</label>
+      <select id="voiceMode"><option value="eleven_multilingual_v2">Standard</option><option value="eleven_v3">Expressive — supports audio tags</option></select>
+      <div class="grid3">
+        <div><label class="f" for="promptStrength">Style strength <span id="promptStrengthValue">55%</span></label><input id="promptStrength" type="range" min="0" max="100" step="5" value="55"><p class="hint">Exaggerates the voice's speaking style.</p></div>
+        <div><label class="f" for="voiceStability">Stability <span id="voiceStabilityValue">50%</span></label><input id="voiceStability" type="range" min="0" max="100" step="5" value="50"><p class="hint">Lower allows more variation and expression; higher makes the read more consistent.</p></div>
+        <div><label class="f" for="voiceSpeed">Speed <span id="voiceSpeedValue">1.0×</span></label><input id="voiceSpeed" type="range" min="0.7" max="1.2" step="0.05" value="1"><p class="hint">Slower to faster. Check the recorded duration.</p></div>
+      </div>
+      <p class="hint" id="voiceModeNote">Preview settings before applying them.</p>
+      <label class="f" for="voiceSampleText">Sample text</label><textarea id="voiceSampleText" maxlength="500">Thanks for joining us. We are excited to share what is coming next!</textarea>
+      <div class="row"><button class="btn sec sm" id="previewVoice">Generate voice sample</button><button class="btn" id="saveVoiceSettings">Save voice settings to all scripts</button><span class="msg" id="voiceSettingsMsg"></span></div>
+      <div id="voiceSamplePlayer" class="row"></div>
+      <p class="hint">Samples use your voice-generation allowance. Saved settings apply to future recordings; re-record existing clips to hear changes.</p>
+    </section>
     <div id="spots"></div>
   </div>
 
@@ -222,12 +245,6 @@
     <label class="f" style="margin-top:15px">What the read should sound like</label>
     <div id="want" class="grid3"></div>
 
-    <div class="row" style="margin-top:12px;max-width:420px">
-      <label class="f" for="voiceSpeed" style="margin:0">Voice speed <span id="voiceSpeedValue">1.0×</span></label>
-      <input id="voiceSpeed" type="range" min="0.7" max="1.2" step="0.05" value="1">
-    </div>
-    <div class="hint">Set the pace before recording. It applies to every AI voice read in this project.</div>
-
     <div class="row" style="margin-top:12px">
       <button class="btn sec sm" id="cast">Suggest voices from the brief</button>
       <button class="btn sec sm" id="rematch">Rank on what I picked</button>
@@ -256,8 +273,10 @@
       browser — which is what lets its length be measured off the finished file
       rather than reported by this page. A spot with no bed is a straight read,
       which is an ordinary radio spot and passes the checks as one.</p>
-    <div id="mixcfg"></div>
-    <div id="trackLibrary"></div>
+    <section class="settings-box" aria-label="Music bed settings"><h3>Music bed</h3>
+    <div id="mixcfg"></div><div id="trackLibrary"></div>
+    <button class="btn sec" id="newSharedBed">Compose or upload a music bed</button>
+    <p class="hint">Create a bed for the longest commercial, save it to the library, then choose whether to apply it across eligible commercials.</p></section>
     <div id="music"></div>
   </div>
 
@@ -289,6 +308,8 @@
         <a class="link" id="openurl" target="_blank" rel="noopener">Open it as the client sees it →</a>
       </div>
     </div>
+    <button class="btn sec sm" id="clearComments">Clear previous customer comments</button>
+    <p class="hint">Clears comments from the customer page; the history is archived internally and approvals are kept.</p>
     <div id="feedback" style="margin-top:16px"></div>
   </div>
 
@@ -296,6 +317,7 @@
   <footer>{{ version }}</footer>
 </div>
 
+<dialog id="bedDialog"><h3 id="bedDialogTitle">Choose a music bed</h3><div id="bedDialogBody"></div><button class="btn sec sm" id="closeBedDialog">Close</button></dialog>
 <script src="/assets/customer-voice-picker.js"></script>
 <script>
 (function(){
@@ -331,16 +353,25 @@
   }
   function lines(v){ return String(v||"").split("\n").map(function(s){return s.trim();})
                        .filter(Boolean); }
+  var activeWrites = 0, localMixes = 0, navigationWaiting = false;
+  function finishRadioWork(){
+    if (navigationWaiting && !activeWrites && !localMixes) {
+      navigationWaiting = false;
+      say('wizardMsg', 'Ready to continue.', 'ok');
+    }
+  }
   function api(path, opts){
     opts = opts || {};
     if(opts.body){ opts.headers = {"Content-Type":"application/json"};
                    opts.body = JSON.stringify(opts.body); }
+    var writing = (opts.method || 'GET').toUpperCase() !== 'GET';
+    if (writing) activeWrites++;
     return fetch(BASE + path, opts).then(function(r){
       return r.json().then(function(j){
         if(!r.ok || j.ok === false) throw new Error(j.error || "That didn't work.");
         if ((opts.method || 'GET').toUpperCase() !== 'GET') window.dispatchEvent(new Event('radio-library-changed'));
         return j; });
-    });
+    }).finally(function(){ if (writing) activeWrites--; finishRadioWork(); });
   }
 
   // Keep draft fields mounted while moving through the builder.
@@ -355,11 +386,12 @@
       return '<button type="button" class="btn sec" data-step="'+n+'"'+
         (n === i ? ' aria-current="step"' : '')+(!canStep(n) ? ' disabled' : '')+'>'+(n+1)+'. '+esc(name)+'</button>';
     }).join('');
-    $('wizardMsg').textContent = 'Step '+(i+1)+' of 7 · '+stepNames[i];
+    say('wizardMsg', 'Step '+(i+1)+' of 7 · '+stepNames[i]);
     $('wizardBack').hidden = i === 0;
     $('wizardNext').hidden = i === 6 || !canStep(i+1);
     $('wizardNext').textContent = 'Continue to '+stepNames[i+1];
     $('start').hidden = !!P;
+    document.querySelectorAll('[data-radio-library]').forEach(function(el){el.hidden=i>0;});
     if(focus){ var h = $(stepCards[i]).querySelector('h2'); h.tabIndex=-1; h.focus({preventScroll:true}); $('steps').scrollIntoView({block:'start',behavior:'smooth'}); }
   }
   async function saveDraft(){
@@ -373,6 +405,7 @@
         callToAction:$('b_cta').value,mustSay:lines($('b_must').value),avoid:lines($('b_avoid').value)}
     }});
     P = j.project; banned = j.banned || [];
+    if(P.voice && P.voice.voice_id) await saveRecordingSettings();
     for(var card of $('spots').querySelectorAll('.spot')){
       var spot = (P.spots || []).find(function(x){return x.id === card.getAttribute('data-id');});
       var script = card.querySelector('textarea.sc').value;
@@ -384,8 +417,9 @@
   }
   async function goStep(i){
     if(moving || i === stepIndex || !canStep(i)) return;
-    if(stepCards.some(function(id){return !!$(id).querySelector('button:disabled');})){
-      say('wizardMsg','Wait for the current action to finish before continuing.','wait'); return;
+    if(activeWrites || localMixes){
+      navigationWaiting = true;
+      say('wizardMsg','An action is still running. You can continue when it finishes.','warn'); return;
     }
     moving = true;
     try{ await saveDraft(); drawSpots(); showStep(i, true); }
@@ -526,15 +560,23 @@
   };
 
   function show(){
+    window.dispatchEvent(new CustomEvent('radio-project-opened', {detail:{id:P.id}}));
     CustomerVoicePicker.mount($("customer-voice-picker"), {client:P.client||P.company||"", onSelect:async function(v){
       const j = await api("/api/projects/"+P.id+"/voice", {method:"POST", body:{voice_id:v.voice_id, name:v.name, energy:wantNow().energy||"energetic", speed:Number($("voiceSpeed").value||1)}});
-      P.voice=j.voice; say("castmsg", "Cast: "+v.name+". Record each spot from section 4.", "ok");
+      P.voice=j.voice; say("castmsg", "Cast: "+v.name+". Record each spot in Step 5.", "ok");
     }});
-    showStep(P.share && P.share.enabled ? 6 : (P.spots || []).length ? 3 : 1, false);
+    showStep(P.share && P.share.enabled ? 6 : (P.spots || []).length ? 3 : 1, !!location.hash);
     drawWant(); fillProns(); drawSpots(); drawShare();
     var speed = Number((P.voice || {}).speed || 1);
     $("voiceSpeed").value = Math.min(1.2, Math.max(0.7, speed));
     $("voiceSpeedValue").textContent = Number($("voiceSpeed").value).toFixed(2) + "×";
+    var strength = (P.voice || {}).prompt_strength;
+    if(strength == null) strength = ({laid_back:0.15,conversational:0.3,energetic:0.55,explosive:0.75})[(P.voice||{}).energy] || 0.55;
+    $("promptStrength").value = Math.round(strength * 100);
+    updateStrengthLabel();
+    $("voiceMode").value = (P.voice||{}).model_id || 'eleven_multilingual_v2';
+    $("voiceStability").value = Math.round(((P.voice||{}).stability ?? .45)*100);
+    updateVoiceMode();
     // The mix config is one cheap read and decides what the Music step can
     // even offer, so it is fetched once a project exists rather than on every
     // draw. A failure costs the panel and never the page.
@@ -598,6 +640,53 @@
   $("rewriteall").onclick = function(){ $("write").click(); };
 
   /* ------------------------------------------------------------ spots */
+
+  function updateStrengthLabel(){
+    $("promptStrengthValue").textContent = $("promptStrength").value + "%";
+  }
+  $("promptStrength").oninput = updateStrengthLabel;
+  async function saveRecordingSettings(){
+    if(!P || !P.voice || !P.voice.voice_id) throw new Error('Choose a voice in Step 4 first.');
+    var body = voiceSettingsNow();
+    var j = await api('/api/projects/'+P.id+'/voice', {method:'POST',body:body});
+    P.voice = j.voice;
+  }
+  $("saveVoiceSettings").onclick = async function(){
+    this.disabled = true;
+    try { await saveRecordingSettings(); say('voiceSettingsMsg','Voice settings saved.','ok'); }
+    catch(e){ say('voiceSettingsMsg',e.message,'err'); }
+    finally { this.disabled = false; }
+  };
+  function updateVoiceMode(){
+    var expressive=$('voiceMode').value==='eleven_v3';
+    $('voiceStability').step=expressive ? '50' : '5';
+    if(expressive) $('voiceStability').value=Math.round(Number($('voiceStability').value)/50)*50;
+    $('voiceStabilityValue').textContent=expressive ? ({0:'Creative',50:'Natural',100:'Robust'})[$('voiceStability').value] : $('voiceStability').value+'%';
+    $('voiceModeNote').textContent=expressive ? 'Audio tags can guide instant custom voices. Natural or Creative stability responds best; results depend on the voice sample.' : 'Use Expressive mode for tags such as [excited] or [whispers].';
+  }
+  $('voiceMode').onchange=updateVoiceMode;
+  $('voiceStability').oninput=updateVoiceMode;
+  $('previewVoice').onclick=async function(){
+    this.disabled=true; say('voiceSettingsMsg','Generating sample…','ai');
+    try{
+      var j=await api('/api/projects/'+P.id+'/voice/preview',{method:'POST',body:Object.assign(voiceSettingsNow(),{text:$('voiceSampleText').value})});
+      $('voiceSamplePlayer').innerHTML='<audio controls src="data:audio/mpeg;base64,'+j.audio_base64+'"></audio><span>'+ (j.seconds == null ? 'Duration unavailable' : Number(j.seconds).toFixed(1)+'s'+(j.measured ? '' : ' estimated'))+'</span>';
+      say('voiceSettingsMsg','Sample ready. Listen before saving.','ok');
+    }catch(e){say('voiceSettingsMsg',e.message,'err');}finally{this.disabled=false;}
+  };
+  function voiceSettingsNow(){
+    if(!P || !P.voice || !P.voice.voice_id) throw new Error('Choose a voice in Step 4 first.');
+    return Object.assign({},P.voice,{speed:Number($('voiceSpeed').value),prompt_strength:Number($('promptStrength').value)/100,stability:Number($('voiceStability').value)/100,model_id:$('voiceMode').value});
+  }
+  function timingBadge(seconds,target,measured){
+    if(seconds == null || !Number.isFinite(Number(seconds))) return '<span class="timing">Duration unavailable</span>';
+    var value=Number(seconds),gap=Number(target)-value;
+    var color=gap<0 || gap>4 ? 'bad' : gap>=2 ? 'warn' : 'ok';
+    return '<span class="timing '+(measured ? color : '')+'">'+value.toFixed(1)+'s / '+Number(target)+'s'+(measured ? '' : ' estimated')+' · '+Math.abs(gap).toFixed(1)+'s '+(gap<0 ? 'over' : 'short')+'</span>';
+  }
+  function tagControls(s){
+    return '<label class="f" for="tag-'+esc(s.id)+'">Expression tag</label><select id="tag-'+esc(s.id)+'" data-tag><option value="">Choose a delivery…</option>'+['excited','curious','whispers','laughs','sighs','sarcastic','mischievously','short pause','long pause'].map(function(t){return '<option value="'+t+'">['+t+']</option>';}).join('')+'</select><button class="btn sec sm" data-a="insert-tag">Insert at cursor</button><p class="hint">Tags use Expressive mode and work with instant custom voices. Place them before the words they should affect.</p>';
+  }
   function drawSpots(){
     var spots = (P && P.spots) || [];
     if(!spots.length){
@@ -630,9 +719,9 @@
       var out = s.outcome && s.outcome !== "neutral"
         ? ' · ' + (s.outcome === "win" ? "if it went well" : "if it didn't") : "";
       var audio = s.audio_url
-        ? '<div style="margin-top:9px"><audio controls preload="none" src="'
+        ? '<div class="audio-row"><audio controls preload="none" src="'
           + esc(/^https?:/i.test(s.audio_url) ? s.audio_url : BASE + "/" + s.audio_url)
-          + '"></audio><div class="ver">' + esc(s.runtime_note || "")
+          + '"></audio>' + timingBadge(s.audio_seconds,s.seconds,s.audio_measured) + '<div class="ver">' + esc(s.runtime_note || "")
           + (s.audio_measured ? " Measured." : " Estimated runtime.") + '</div></div>'
         : "";
 
@@ -642,10 +731,11 @@
         + esc(({15:":15",30:":30"})[s.seconds] || s.seconds) + '</span>'
         + '<b>' + esc((CAT.dayparts.filter(function(d){return d.id===s.daypart;})[0]
                        || {}).label || s.daypart) + '</b>'
-        + '<span class="ver">' + esc(out) + '</span></div>'
-        + '<div style="margin-bottom:7px">' + tags + '</div>'
+        + '<span class="ver">' + esc(out) + '</span>' + tags + '</div>'
+        + '<div class="hint">Music bed: '+esc(s.bed && s.bed.audio_url ? bedName(s.bed) : 'No bed')+'</div>'
         + why
         + '<textarea class="sc">' + esc(s.script) + '</textarea>'
+        + tagControls(s)
         + '<div class="sfoot">'
         +   '<button class="btn sec sm" data-a="save">Save edit</button>'
         +   '<button class="btn sec sm" data-a="rewrite">Rewrite</button>'
@@ -673,6 +763,14 @@
       card.querySelectorAll("button").forEach(function(b){
         b.onclick = function(){
           var a = b.getAttribute("data-a");
+          if(a === 'insert-tag'){
+            var tag=card.querySelector('[data-tag]').value;
+            if(!tag){msg.textContent='Choose an expression tag first.';return;}
+            var pos=ta.selectionStart ?? ta.value.length;
+            ta.setRangeText('['+tag+'] ',pos,pos,'end');
+            $('voiceMode').value='eleven_v3';updateVoiceMode();ta.focus();
+            msg.textContent='Tag inserted. Expressive mode selected; preview or record to hear it.';return;
+          }
           b.disabled = true; msg.className = "msg"; msg.textContent = "Working…";
           var p;
           if(a === "save")
@@ -684,7 +782,14 @@
           else if(a === "tighten")
             p = api("/api/projects/"+P.id+"/spots/"+id+"/tighten", {method:"POST", body:{}});
           else if(a === "record")
-            p = api("/api/projects/"+P.id+"/spots/"+id+"/record", {method:"POST", body:{}});
+            p = saveRecordingSettings().then(function(){
+              if(ta.value.length > 4000) throw new Error('Shorten the script to 4,000 characters before recording.');
+              var current = P.spots.find(function(x){return x.id === id;});
+              if(current && current.script === ta.value) return;
+              return api('/api/projects/'+P.id+'/spots/'+id,{method:'POST',body:{script:ta.value,hand_edited:true}}).then(function(j){
+                P.spots = P.spots.map(function(x){return x.id === id ? j.spot : x;});
+              });
+            }).then(function(){ return api("/api/projects/"+P.id+"/spots/"+id+"/record", {method:"POST", body:{}}); });
           else if(a === "delete"){
             if(!confirm("Delete this spot?")){ b.disabled = false;
               msg.textContent = ""; return; }
@@ -756,7 +861,7 @@
                 speed: Number($("voiceSpeed").value || 1)}})
           .then(function(j){ P.voice = j.voice;
             say("castmsg","Cast: " + b.getAttribute("data-n")
-              + ". Record each spot from section 4.","ok"); })
+              + ". Record each spot in Step 5.","ok"); })
           .catch(function(e){ say("castmsg", e.message, "err"); });
       };
     });
@@ -864,7 +969,7 @@
      Commercial Builder's one music table — so a radio spot and a video spot
      duck their beds by the same amount, and the level this panel shows is the
      level that renders. */
-  var MIXCFG = null, QCC = {}, RENDERED = {}, MUSIC_LIBRARY = [];
+  var MIXCFG = null, QCC = {}, RENDERED = {}, MUSIC_LIBRARY = [], BED_EDITORS = {};
 
   function loadMixConfig(){
     return api("/api/mix/config").then(function(j){ MIXCFG = j; return j; });
@@ -882,21 +987,46 @@
       + '<select id="savedTrack" style="max-width:420px"><option value="">Choose a saved track…</option>'
       + MUSIC_LIBRARY.map(function(t){ return '<option value="' + esc(t.id) + '">' + esc(t.name)
         + ' · ' + esc(t.seconds) + 's</option>'; }).join("") + '</select>'
-      + '<button class="btn sec sm" id="useSavedTrack">Use across eligible commercials</button></div>';
+      + '<button class="btn sec sm" id="useSavedTrack">Use across eligible commercials</button><audio id="savedTrackPreview" controls hidden></audio></div>';
+    $('savedTrack').onchange=function(){previewLibraryTrack(this.value,'savedTrackPreview');};
     $("useSavedTrack").onclick = function(){
       var id = $("savedTrack").value;
       if(!id) return;
       api("/api/projects/"+P.id+"/music-library/"+id+"/apply", {method:"POST", body:{}})
-        .then(function(j){ P = j.project; drawMusic(); say("wizardMsg", "Applied the saved track to "
+        .then(function(j){ P = j.project; clearRendered(); drawMusic(); say("wizardMsg", "Applied the saved track to "
           + j.applied.length + " eligible commercial(s).", "ok"); })
         .catch(function(e){ say("wizardMsg", e.message, "err"); });
     };
   }
 
+  function clearRendered(){Object.values(RENDERED).forEach(function(x){if(x.url) URL.revokeObjectURL(x.url);});RENDERED={};}
+  function bedName(bed){return bed.name || bed.filename || (bed.prompt ? bed.prompt.slice(0,80) : 'Composed music bed');}
+  function previewLibraryTrack(id,playerId){
+    var t=MUSIC_LIBRARY.find(function(x){return x.id===id;}), player=$(playerId);
+    player.pause();player.hidden=!t;if(t) player.src=/^https:\/\//i.test(t.audio_url) ? t.audio_url : BASE+'/'+t.audio_url;
+  }
+  $('closeBedDialog').onclick=function(){$('bedDialog').close();};
+  $('newSharedBed').onclick=function(){
+    var spots=(P.spots||[]).slice().sort(function(a,b){return b.seconds-a.seconds;});
+    if(spots.length) openBedDialog(spots[0].id,true);
+  };
+  function openBedDialog(sid,shared){
+    var spot=spotById(sid);
+    $('bedDialogTitle').textContent=shared ? 'Create a shared music bed' : 'Music bed for '+spotName(spot);
+    $('bedDialogBody').innerHTML='<label class="f" for="dialogTrack">Replace with a library track</label><select id="dialogTrack"><option value="">Choose a saved bed…</option>'+MUSIC_LIBRARY.map(function(t){return '<option value="'+esc(t.id)+'">'+esc(t.name)+' · '+esc(t.seconds)+'s</option>';}).join('')+'</select><div class="row"><audio controls id="dialogTrackPreview" hidden></audio><button class="btn sec sm" id="dialogUseTrack">'+(shared ? 'Use across eligible commercials' : 'Use for this commercial')+'</button></div><label class="f" for="newBedName">Name for a new or uploaded bed</label><input id="newBedName" data-save-name maxlength="80" value="'+esc(P.company+' — '+spotName(spot))+'"><label><input type="checkbox" data-save-bed checked> Save the new bed to the music library</label>'+ (BED_EDITORS[sid]||'');
+    $('dialogTrack').onchange=function(){previewLibraryTrack(this.value,'dialogTrackPreview');};
+    $('dialogUseTrack').onclick=async function(){
+      var id=$('dialogTrack').value;if(!id)return;this.disabled=true;
+      try{var j=await api('/api/projects/'+P.id+'/music-library/'+id+'/apply',{method:'POST',body:shared ? {} : {spot_id:sid}});P=j.project;clearRendered();$('bedDialog').close();await loadQc();drawMusic();}
+      catch(e){say('[data-m="bed-'+sid+'"]',e.message,'err');}finally{this.disabled=false;}
+    };
+    wireMusic($('bedDialogBody'));
+    $('bedDialog').showModal();
+  }
   function askToReuse(sid){
     if(!confirm("Track created. Use it throughout every eligible commercial in this project?")) return Promise.resolve();
     return api("/api/projects/"+P.id+"/spots/"+sid+"/bed/apply-to-project", {method:"POST", body:{}})
-      .then(function(j){ P = j.project; return loadQc().then(function(){ drawMusic();
+      .then(function(j){ P = j.project; clearRendered(); return loadQc().then(function(){ drawMusic();
         say("wizardMsg", "Applied this track to " + j.applied.length + " other eligible commercial(s).", "ok"); }); });
   }
   function loadQc(){
@@ -922,7 +1052,7 @@
     if(!OAC) return Promise.reject(new Error("This browser cannot render audio "
       + "offline, so the mix cannot be made here. Chrome, Edge, Firefox and "
       + "Safari all can."));
-    var M = (MIXCFG && MIXCFG.mix) || {};
+    var M = Object.assign({},(MIXCFG && MIXCFG.mix) || {},selectedMixLevel());
     var rate = M.sample_rate || 44100, chans = M.channels || 2;
     var probe = new OAC(1, 1024, rate);
     var hasBed = !!(spot.bed && spot.bed.audio_url);
@@ -1018,6 +1148,7 @@
   /* A multipart POST. `api()` sets a JSON content type, which a FormData body
      must not carry — the browser writes its own boundary. */
   function postForm(path, formData){
+    activeWrites++;
     return fetch(BASE + path, {method:"POST", body: formData})
       .then(function(res){
         return res.json().catch(function(){ return {}; })
@@ -1028,7 +1159,7 @@
             }
             window.dispatchEvent(new Event('radio-library-changed'));
             return data; });
-      });
+      }).finally(function(){ activeWrites--; finishRadioWork(); });
   }
 
   function spotById(sid){
@@ -1071,18 +1202,20 @@
       bits.push('<div class="why warn">' + esc(MIXCFG.compose_note) + '</div>');
     var levels = MIXCFG.levels || [], ref = MIXCFG.level_reference || "";
     if(levels.length){
-      bits.push('<div class="row" style="margin-bottom:12px">'
-        + '<label class="f" style="margin:0">Bed volume under the voice</label>'
-        + '<select id="mixLevel" style="max-width:420px">'
-        + levels.map(function(l){
-            return '<option value="' + esc(l.label) + '"'
-              + (l.label === ref ? " selected" : "") + '>' + esc(l.label)
-              + ' — bed at ' + l.bed_db + ' dB, ducked to ' + l.ducked_db
-              + ' dB under the read</option>'; }).join("")
-        + '</select></div>');
+      var selected=levels.findIndex(function(x){return x.label===(P.mix_level||ref);});if(selected<0)selected=0;
+      bits.push('<label class="f" for="mixLevelSlider">Bed volume under the voice</label><input id="mixLevelSlider" type="range" min="0" max="'+(levels.length-1)+'" step="1" value="'+selected+'" list="mixLevelPoints"><datalist id="mixLevelPoints">'+levels.map(function(l,i){return '<option value="'+i+'" label="'+esc(l.label)+'"></option>';}).join('')+'</datalist><div id="mixLevelLabel" class="hint"></div><input type="hidden" id="mixLevel">');
     }
-    $("mixcfg").innerHTML = bits.join("");
+    $('mixcfg').innerHTML=bits.join('');
+    function updateLevel(){var l=selectedMixLevel();$('mixLevel').value=l.label;$('mixLevelLabel').textContent=l.label+' · '+l.ducked_db+' dB under voice / '+l.bed_db+' dB between phrases';}
+    if($('mixLevelSlider')){
+      updateLevel();
+      $('mixLevelSlider').oninput=function(){updateLevel();clearRendered();};
+      $('mixLevelSlider').onchange=function(){
+        api('/api/projects/'+P.id+'/mix-settings',{method:'POST',body:{level:selectedMixLevel().label}}).then(function(j){P.mix_level=j.level;drawMusic();}).catch(function(e){say('wizardMsg',e.message,'err');});
+      };
+    }
   }
+  function selectedMixLevel(){var levels=(MIXCFG&&MIXCFG.levels)||[];return levels[Number(($('mixLevelSlider')||{}).value)||0]||{};}
 
   function drawMusic(){
     var spots = (P && P.spots) || [];
@@ -1092,7 +1225,7 @@
       var bed = s.bed || {}, mix = s.mix || {}, made = RENDERED[s.id];
       var r = QCC[s.id];
       var bedLine = bed.audio_url
-        ? (bed.kind === "upload" ? "your own track" : "composed")
+        ? bedName(bed)
           + (bed.measured ? " · " + bed.seconds + "s measured"
                           : (bed.estimated ? " · " + bed.seconds + "s estimated"
                                            : " · length not measured"))
@@ -1105,12 +1238,6 @@
                  : (r.status === "warn" ? "Worth a look" : "Checks pass"))
               + '</span>' : '')
         + '</div>';
-
-      if(!s.audio_url){
-        return '<div class="spot">' + head + '<div class="hint">No read '
-          + 'recorded for this spot yet — record it in section 4, or upload '
-          + 'one below.</div>' + ownVo(s) + '</div>';
-      }
 
       var bedBlock = '<div class="sfoot">'
         + '<input type="text" data-prompt="' + esc(s.id) + '" placeholder="'
@@ -1137,6 +1264,8 @@
             + '/audio?ref=bed" download="' + esc(bed.filename || "fan-radio-bed.mp3")
             + '">Download track</a></div>' : "");
 
+      BED_EDITORS[s.id]=bedBlock;
+      bedBlock='<div class="row"><b>Music bed: '+esc(bed.audio_url ? bedName(bed) : 'No bed')+'</b><button class="btn sec sm" data-a="change-bed" data-s="'+esc(s.id)+'">Change music bed</button></div>'+(bed.audio_url ? '<audio controls preload="none" src="'+BASE+'/api/projects/'+P.id+'/spots/'+esc(s.id)+'/audio?ref=bed"></audio>' : '');
       var madeBlock = "";
       if(made){
         var clip = made.peak > -0.1;
@@ -1148,7 +1277,7 @@
           + ' <span class="opt">measured in your browser, not on the server</span>'
           + '</div>'
           + (made.note ? '<div class="why warn">' + esc(made.note) + '</div>' : "")
-          + '<audio controls src="' + made.url + '" style="margin-top:6px"></audio>';
+          + '<div class="audio-row"><audio controls src="' + made.url + '"></audio>'+timingBadge(made.seconds,s.seconds,true)+'</div>';
       }
       var filedBlock = "";
       if(mix.audio_url){
@@ -1159,7 +1288,7 @@
               + esc(mix.override_by) + ': “' + esc(mix.override_reason) + '”</b>' : "")
           + ' — this is what the client hears.</div>'
           + '<audio controls preload="none" style="margin-top:6px" src="' + BASE
-          + '/api/projects/' + P.id + '/spots/' + esc(s.id) + '/audio?ref=mix"></audio>';
+          + '/api/projects/' + P.id + '/spots/' + esc(s.id) + '/audio?ref=mix"></audio>'+timingBadge(mix.seconds,s.seconds,true);
       } else if(s.mix_note){
         filedBlock = '<div class="why warn">' + esc(s.mix_note) + '</div>';
       }
@@ -1203,8 +1332,9 @@
         + '</span>'; }).join("") + '</div>';
   }
 
-  function wireMusic(){
-    $("music").querySelectorAll("[data-mood]").forEach(function(tile){
+  function wireMusic(root){
+    root=root||$("music");
+    root.querySelectorAll("[data-mood]").forEach(function(tile){
       tile.onclick = function(){
         // The tile fills the box with the words it will actually send, rather
         // than composing straight away: what is sent should be visible and
@@ -1213,11 +1343,11 @@
         var moods = (MIXCFG && MIXCFG.moods) || [];
         var found = moods.filter(function(m){
           return m.id === tile.getAttribute("data-mood"); })[0];
-        var box = $("music").querySelector('[data-prompt="' + sid + '"]');
+        var box = root.querySelector('[data-prompt="' + sid + '"]');
         if(found && box) box.value = found.prompt;
       };
     });
-    $("music").querySelectorAll("input[type=file][data-a]").forEach(function(input){
+    root.querySelectorAll("input[type=file][data-a]").forEach(function(input){
       input.onchange = function(){
         var sid = input.getAttribute("data-s");
         var file = input.files && input.files[0];
@@ -1228,12 +1358,13 @@
           : "/api/projects/"+P.id+"/spots/"+sid+"/voice-upload";
         var fd = new FormData(); fd.append("file", file);
         if(which === "bed"){
-          var saved = prompt("When this track is uploaded, save it to your music library? Give it a name, or leave blank to skip.") || "";
+          var saved = root.querySelector('[data-save-bed]')?.checked ? root.querySelector('[data-save-name]').value.trim() : '';
+          if(root.querySelector('[data-save-bed]')?.checked && !saved){say("[data-m='bed-"+sid+"']",'Name the bed before saving it to the library.','err');return;}
           if(saved) fd.append("save_name", saved);
         }
         say("[data-m='" + which + "-" + sid + "']", "Uploading…", "wait");
         postForm(path, fd).then(function(j){
-          putSpot(j.spot); delete RENDERED[sid];
+          putSpot(j.spot); delete RENDERED[sid]; if($("bedDialog").open) $("bedDialog").close();
           return loadMusicLibrary().then(function(){ return loadQc(); }).then(function(){ drawMusic(); drawSpots();
             return which === "bed" ? askToReuse(sid) : null; });
         }).catch(function(e){
@@ -1241,24 +1372,26 @@
         input.value = "";
       };
     });
-    $("music").querySelectorAll("button[data-a]").forEach(function(b){
+    root.querySelectorAll("button[data-a]").forEach(function(b){
       b.onclick = function(){
         var sid = b.getAttribute("data-s"), a = b.getAttribute("data-a");
         var msgSel = "[data-m='" + (a === "compose" || a === "bedclear"
                                     ? "bed-" : "mix-") + sid + "']";
+        if(a === 'change-bed'){openBedDialog(sid,false);return;}
         if(a === "compose"){
-          var box = $("music").querySelector('[data-prompt="' + sid + '"]');
-          var saveName = prompt("When this track is created, save it to your music library? Give it a name, or leave blank to skip.") || "";
+          var box = root.querySelector('[data-prompt="' + sid + '"]');
+          var saveName = root.querySelector('[data-save-bed]')?.checked ? root.querySelector('[data-save-name]').value.trim() : '';
+          if(root.querySelector('[data-save-bed]')?.checked && !saveName){say(msgSel,'Name the bed before saving it to the library.','err');return;}
           b.disabled = true;
           say(msgSel, "Composing the bed…", "ai");
           api("/api/projects/"+P.id+"/spots/"+sid+"/bed/compose",
               {method:"POST", body:{prompt: box ? box.value.trim() : "", save_name: saveName}})
-            .then(function(j){ putSpot(j.spot); delete RENDERED[sid];
+            .then(function(j){ putSpot(j.spot); delete RENDERED[sid]; if($("bedDialog").open) $("bedDialog").close();
               return loadMusicLibrary().then(function(){ return loadQc(); }).then(function(){ drawMusic(); return askToReuse(sid); }); })
             .catch(function(e){ b.disabled = false; say(msgSel, e.message, "err"); });
         } else if(a === "bedclear"){
           api("/api/projects/"+P.id+"/spots/"+sid+"/bed/clear", {method:"POST", body:{}})
-            .then(function(j){ putSpot(j.spot); delete RENDERED[sid];
+            .then(function(j){ putSpot(j.spot); delete RENDERED[sid]; if($("bedDialog").open) $("bedDialog").close();
               return loadQc().then(function(){ drawMusic(); }); })
             .catch(function(e){ say(msgSel, e.message, "err"); });
         } else if(a === "reuse"){
@@ -1277,22 +1410,25 @@
     if(!spot) return;
     var sel = "[data-m='mix-" + sid + "']";
     say(sel, "Rendering the mix…", "wait");
+    localMixes++;
+    var usedLevel=selectedMixLevel().label;
     buildMix(spot).then(function(out){
       var blob = toWav(out.buffer);
       if(RENDERED[sid] && RENDERED[sid].url) URL.revokeObjectURL(RENDERED[sid].url);
-      RENDERED[sid] = {blob: blob, url: URL.createObjectURL(blob),
+      RENDERED[sid] = {blob: blob, level:usedLevel, url: URL.createObjectURL(blob),
                        seconds: out.buffer.duration,
                        peak: peakDbfs(out.buffer), note: out.note};
       drawMusic();
       say(sel, "Rendered. Listen to it, then file it.", "ok");
-    }).catch(function(e){ say(sel, e.message, "err"); });
+    }).catch(function(e){ say(sel, e.message, "err"); })
+      .finally(function(){ localMixes--; finishRadioWork(); });
   }
 
   function fileMix(sid, blocked){
     var made = RENDERED[sid];
     var sel = "[data-m='mix-" + sid + "']";
     if(!made){ say(sel, "Render the mix first.", "err"); return; }
-    var level = ($("mixLevel") && $("mixLevel").value) || "";
+    var level = made.level || "";
     var fd = new FormData();
     fd.append("level", level);
     fd.append("file", made.blob, "mix-" + sid + ".wav");
@@ -1316,6 +1452,11 @@
     });
   }
 
+  $('clearComments').onclick=async function(){
+    this.disabled=true;
+    try{var j=await api('/api/projects/'+P.id+'/comments/clear',{method:'POST',body:{}});P=j.project;drawShare();say('sharemsg','Previous comments cleared from the customer page.','ok');}
+    catch(e){say('sharemsg',e.message,'err');}finally{this.disabled=false;}
+  };
   /* ------------------------------------------------------------ share */
   function drawShare(){
     var s = (P && P.share) || {};

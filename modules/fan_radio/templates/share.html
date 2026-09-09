@@ -207,6 +207,10 @@
         ? '<audio controls preload="none" src="' + esc(audioSrc(s.audio_url))
           + '"></audio>'
         : '<p class="who">Script only for now — the voice-over comes next.</p>';
+      if(s.audio_is_mix && s.has_bed){
+        player='<div class="who"><b>With music</b> · '+Number(s.audio_seconds||0).toFixed(1)+'s</div>'+player+'<a href="'+esc(audioSrc(s.audio_url))+'" download>Download with music</a>';
+        if(s.voice_audio_url) player+='<div class="who"><b>Without music</b> · '+Number(s.voice_audio_seconds||0).toFixed(1)+'s</div><audio controls preload="none" src="'+esc(audioSrc(s.voice_audio_url))+'"></audio><a href="'+esc(audioSrc(s.voice_audio_url))+'" download>Download without music</a>';
+      }
       var said = (s.comments || []).map(function(c){
         return '<div class="one"><b>' + esc(c.name) + '</b> '
              + (c.action === "approve" ? "approved this" : "asked for changes")

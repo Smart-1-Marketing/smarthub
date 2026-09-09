@@ -49,9 +49,6 @@ def _install(module) -> None:
             method, url, headers=headers, params=query, json=payload, timeout=45
         )
         if response.status_code == 401 and retry:
-            # Force the existing connector to refresh its shared token, then
-            # retry exactly once. The newly rotated refresh token is persisted
-            # by hub.quickbooks, so Client 360 and this tool stay in agreement.
             stored = qb._load_tokens() or {}
             if stored:
                 stored["expires_at"] = 0
@@ -73,12 +70,8 @@ def _install(module) -> None:
     module._qbo = shared_qbo
     module._redirect_uri = lambda: qb.redirect_uri(module.request)
 
-    # Hub's shared theme also defines a generic `.spinner` animation. The
-    # reconciliation page used the same class name for a tiny inline
-    # "Reading…" label, so HubBar's injected stylesheet turned it into a huge
-    # circular loader that stretched the upload card. Rename that one local
-    # element after the module is loaded and give it deliberately scoped,
-    # text-only busy-state styling.
+    # Hub's shared theme also defines a generic `.spinner` animation. Keep this
+    # module's small upload status isolated from it.
     page = getattr(module, "_PAGE", "")
     if page:
         page = page.replace(
@@ -89,6 +82,68 @@ def _install(module) -> None:
             '<span class="spinner">Reading…</span>',
             '<span class="checkrec-loading" role="status" aria-live="polite">Reading…</span>',
         )
+        module._PAGE = page
+
+    # Add bulk intake and the one-time import of checks previously supplied in
+    # ChatGPT. This extension only populates the reconciliation queue; all QBO
+    # writes still go through the main module's explicit approval flow.
+    from modules.check_reconciliation.bulk import install_bulk
+    install_bulk(module)
+
+    # The bulk extension originally injected importKnownChecks by replacing an
+    # exact end-of-script string. That was brittle and could leave the button
+    # visible with no click handler when the base page changed. Always install a
+    # small independent handler after bulk has finished modifying the page.
+    page = getattr(module, "_PAGE", "")
+    if page and 'id="importKnown"' in page:
+        import_script = r'''
+<script>
+(function(){
+  async function runKnownImport(){
+    var b=document.getElementById('importKnown');
+    var m=document.getElementById('importKnownMsg');
+    if(!b) return;
+    b.disabled=true;
+    if(m) m.textContent='Importing…';
+    try{
+      var r=await fetch('api/import-known',{
+        method:'POST',
+        headers:{'Accept':'application/json','Content-Type':'application/json'},
+        body:'{}'
+      });
+      var j=await r.json().catch(function(){return {error:'Unexpected server response'};});
+      if(!r.ok || j.ok===false) throw new Error(j.error || ('Request failed '+r.status));
+      if(m){
+        m.innerHTML='<div class="success">Imported '+j.count+' previous check'+(j.count===1?'':'s')+
+          ' and '+j.aliases+' confirmed client match'+(j.aliases===1?'':'es')+'. Duplicates were skipped.</div>'+
+          (j.customer_lookup_error?'<div class="warning">QuickBooks customer lookup warning: '+String(j.customer_lookup_error).replace(/[&<>"\']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];})+'</div>':'');
+      }
+      if(typeof window.loadChecks==='function') await window.loadChecks();
+      else window.location.reload();
+    }catch(e){
+      if(m) m.innerHTML='<div class="error">'+String(e.message||e)+'</div>';
+      else alert(e.message||e);
+    }finally{
+      b.disabled=false;
+    }
+  }
+  window.importKnownChecks=runKnownImport;
+  function wire(){
+    var b=document.getElementById('importKnown');
+    if(b){
+      b.onclick=function(ev){ev.preventDefault();runKnownImport();};
+      b.setAttribute('type','button');
+    }
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',wire);
+  else wire();
+})();
+</script>
+'''
+        if "</body>" in page:
+            page = page.replace("</body>", import_script + "</body>", 1)
+        else:
+            page += import_script
         module._PAGE = page
 
 
@@ -121,7 +176,5 @@ class _BridgeFinder(importlib.abc.MetaPathFinder):
         return spec
 
 
-# Package __init__ executes before ``modules.check_reconciliation.app`` is
-# resolved, so this wrapper is in place for the one import that needs it.
 if _TARGET not in sys.modules:
     sys.meta_path.insert(0, _BridgeFinder())

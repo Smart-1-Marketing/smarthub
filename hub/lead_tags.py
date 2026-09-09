@@ -113,6 +113,39 @@ CAPTURE_ONLY: dict[str, str] = {
                    "the record, not a contact anybody asked to be written",
 }
 
+# Tags a lead's contact gains LATER, after something happens to it -- not at
+# capture, so these are not in SOURCES and tags_for() does not compose them.
+# `hub/creative_jobs.py` writes the first the moment a lead-triggered radio
+# script set is ready; a rep sending a storyboard for client review would
+# write the second (WO-4, not yet built). Declared here, per the same "name
+# the workflow or name that none exists yet" rule SOURCES follows, so a tag
+# never goes out with no Suite workflow behind it and nothing says so.
+#
+# Neither is actually WRITTEN onto a Suite contact yet -- adding a tag to a
+# contact that already exists needs its own call, which nothing in this repo
+# has built, and the review-link URL these tags are meant to carry has no
+# mapped Suite custom field to ride in either (the 2026-09-03 gap work order's
+# item 1a, still open). Until both exist, the review link only ever appears
+# inside the Hub for a rep to paste by hand -- this table is the vocabulary
+# the wiring lands on once they do, not a claim that the wiring exists.
+EVENT_TAGS: dict[str, dict] = {
+    "radio_script_ready": {
+        "what": "a lead-triggered radio script set finished generating "
+                "(hub/creative_jobs.py, modules/radio_scripts)",
+        # To build: tag the Suite contact and email the rep (or the client
+        # directly) the /tools/radio-scripts review link on this tag.
+        "workflow": None,
+    },
+    "spot_review_ready": {
+        "what": "a storyboard built from an approved radio concept is ready "
+                "for the client to review (WO-4, not yet built)",
+        # To build: tag the Suite contact and email the client the
+        # /review/<token> storyboard link on this tag, once that share page
+        # exists (build spec WO-3).
+        "workflow": None,
+    },
+}
+
 
 def known(source: str) -> bool:
     return str(source or "") in SOURCES

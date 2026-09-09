@@ -124,50 +124,79 @@ class DriveRefused(RuntimeError):
 def access(email: str = "") -> dict:
     """A Drive access token, or the reason there isn't one.
 
-    Returns {"ok", "reason", "email", "token", "detail"}. `reason` is one of
-    ok / refused / reauth / none / unavailable, and never "empty".
+    Returns {"ok", "reason", "email", "requested", "connected", "token",
+    "detail"}. `reason` is one of ok / refused / reauth / none / unavailable,
+    and never "empty".
+
+    **A named account is the account, and there is no falling back to another
+    one.** Two connected logins do not see one Drive: a folder shared with
+    the ad ops account and with nobody else is `404 File not found` to
+    everybody else, so a run that quietly substituted a second login would
+    report forty broken creative links where the honest answer is one refusal
+    naming the login that has to be reconnected. That is the same distinction
+    this module's own docstring draws between refused and empty, one layer
+    up -- the substitution is silent at every screen, because a 404 per folder
+    reads exactly like a folder somebody has since moved.
+
+    `connected` is the emails that *are* connected, carried so a caller can
+    name the alternatives rather than leaving somebody to guess which login to
+    ask for. It is never chosen from here.
     """
     try:
         from modules.google_finder import app as gf
     except Exception as exc:                            # noqa: BLE001
-        return {"ok": False, "reason": "unavailable", "email": "", "token": "",
+        return {"ok": False, "reason": "unavailable", "email": "",
+                "requested": str(email or "").strip().lower(), "connected": [],
+                "token": "",
                 "detail": f"Google Finder is not importable ({type(exc).__name__})."}
 
+    wanted = str(email or "").strip().lower()
     try:
         accounts, err = gf.connected_accounts_result()
     except Exception as exc:                            # noqa: BLE001
-        return {"ok": False, "reason": "unavailable", "email": "", "token": "",
+        return {"ok": False, "reason": "unavailable", "email": "",
+                "requested": wanted, "connected": [], "token": "",
                 "detail": f"{type(exc).__name__}: {exc}"[:200]}
+    # Every account that answered, whichever one is asked for -- a caller that
+    # has to tell somebody "adops is not connected" is the caller that needs
+    # to say what is.
+    names = [a["email"] for a in accounts]
     if not accounts:
-        return {"ok": False, "reason": "none", "email": "", "token": "",
+        return {"ok": False, "reason": "none", "email": "", "requested": wanted,
+                "connected": [], "token": "",
                 "detail": err or "No Google account is connected to the Hub."}
 
-    wanted = str(email or "").strip().lower()
     ordered = ([a for a in accounts if a["email"].lower() == wanted] if wanted
                else list(accounts))
     if wanted and not ordered:
-        return {"ok": False, "reason": "none", "email": wanted, "token": "",
+        return {"ok": False, "reason": "none", "email": wanted,
+                "requested": wanted, "connected": names, "token": "",
                 "detail": f"{wanted} is not connected to the Hub."}
 
-    last = {"ok": False, "reason": "refused", "email": "", "token": "",
+    last = {"ok": False, "reason": "refused", "email": "", "requested": wanted,
+            "connected": names, "token": "",
             "detail": "No connected Google account has been given Drive access."}
     for acc in ordered:
         try:
             token = gf.refresh_access_token(acc["email"], acc["refresh_token"])
         except gf.ReauthRequired:
             last = {"ok": False, "reason": "reauth", "email": acc["email"],
-                    "token": "", "detail":
+                    "requested": wanted, "connected": names, "token": "",
+                    "detail":
                     f"{acc['email']} needs to sign in to Google again."}
             continue
         except Exception as exc:                        # noqa: BLE001
             last = {"ok": False, "reason": "unavailable", "email": acc["email"],
-                    "token": "", "detail": f"{type(exc).__name__}: {exc}"[:200]}
+                    "requested": wanted, "connected": names, "token": "",
+                    "detail": f"{type(exc).__name__}: {exc}"[:200]}
             continue
         if _has_drive(token):
             return {"ok": True, "reason": "ok", "email": acc["email"],
+                    "requested": wanted, "connected": names,
                     "token": token, "detail": ""}
         last = {"ok": False, "reason": "refused", "email": acc["email"],
-                "token": "", "detail":
+                "requested": wanted, "connected": names, "token": "",
+                "detail":
                 f"{acc['email']} was connected before Drive access was asked "
                 f"for. Reconnect that login on Google Finder and it will be "
                 f"granted -- Google never widens a token that already exists."}

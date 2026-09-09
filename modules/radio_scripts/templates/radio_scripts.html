@@ -110,6 +110,7 @@
   }
 
   function renderSet(row) {
+    window.dispatchEvent(new CustomEvent('radio-project-opened', {detail:{id:row.id}}));
     var el = document.getElementById("rsResult");
     var topFlags = (row.flags || []).map(flagLine).join("");
     var body = '<div style="display:flex;justify-content:space-between;align-items:center">' +
