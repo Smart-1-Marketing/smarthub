@@ -7283,6 +7283,19 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # Seed the AI Tools registry (WO-CS4) the same guarded way -- a row is
+    # data, not a template edit, so a tool added to seed_ai_tools.py reaches
+    # the screen on the next deploy with nothing else to remember.
+    try:
+        from modules.creative_studio.seed_ai_tools import seed as _seed_cs_ai_tools
+        with app.app_context():
+            _seed_cs_ai_tools()
+    except Exception as _cs_ai_seed_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_ai_seed_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # Refill the persistent disk from the database if this is a *new* disk.
     # JSON files on /var/data are outside the database backup and do not
     # survive the disk being recreated, so hub/jsonstore.py mirrors the ones

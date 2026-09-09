@@ -32,6 +32,20 @@
     {% endif %}
   </div>
 
+  {% if can_generate %}
+  <div class="card" id="cpdGenCard">
+    <h3 style="margin-top:0">AI Generation {{ help_dot('creative_studio.ai_tools') if help_dot is defined else '' }}</h3>
+    <p style="color:var(--muted,#64748B);font-size:12.5px;margin-top:0">
+      Runs as a queued job -- this page polls until it finishes, the same way
+      every job in this Hub does. Concepts before a script; a script before
+      per-scene images, which need a scene id from the Storyboard Editor.
+    </p>
+    <button class="btn" id="cpdGenConcepts">Generate Concepts</button>
+    <button class="btn" id="cpdGenScript">Generate Script</button>
+    <div id="cpdGenStatus" style="color:var(--muted,#64748B);font-size:12.5px;margin-top:8px"></div>
+  </div>
+  {% endif %}
+
   {% if template %}
   <div class="card">
     <h3 style="margin-top:0">Variables {{ help_dot('creative_studio.project_detail') if help_dot is defined else '' }}</h3>
@@ -93,6 +107,47 @@
         else { btn.disabled = false; status.textContent = d.error || 'Could not open the editor.'; }
       })
       .catch(function(){ btn.disabled = false; status.textContent = 'Could not open the editor.'; });
+  });
+})();
+(function(){
+  // Enqueue a generation job, then poll it -- "the UI polls and shows the
+  // stage" (WO-CS4 item 2). No third-party helper: these are the only two
+  // buttons on this page that wait on a job, and the loop is eight lines.
+  var status = document.getElementById('cpdGenStatus');
+  function poll(jobId){
+    fetch('/creative-studio/api/jobs/' + jobId).then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.ok) { status.textContent = 'Could not read job status.'; return; }
+        var job = d.job;
+        if (job.state === 'complete') {
+          status.textContent = 'Done.';
+          setTimeout(function(){ window.location.reload(); }, 600);
+        } else if (job.state === 'failed') {
+          status.textContent = job.error || 'The job failed.';
+        } else {
+          status.textContent = (job.stage || job.state) + '…';
+          setTimeout(function(){ poll(jobId); }, 1500);
+        }
+      }).catch(function(){ status.textContent = 'Could not read job status.'; });
+  }
+  function start(url, body){
+    status.textContent = 'Starting…';
+    fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
+               body: JSON.stringify(body || {})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.ok) { poll(d.job.id); }
+        else { status.textContent = d.error || 'Could not start the job.'; }
+      })
+      .catch(function(){ status.textContent = 'Could not start the job.'; });
+  }
+  var cBtn = document.getElementById('cpdGenConcepts');
+  if (cBtn) cBtn.addEventListener('click', function(){
+    start('/creative-studio/api/projects/{{ project.id }}/generate/storyboard');
+  });
+  var sBtn = document.getElementById('cpdGenScript');
+  if (sBtn) sBtn.addEventListener('click', function(){
+    start('/creative-studio/api/projects/{{ project.id }}/generate/script');
   });
 })();
 </script>

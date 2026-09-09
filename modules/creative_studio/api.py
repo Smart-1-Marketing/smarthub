@@ -13,10 +13,10 @@ import re
 
 from flask import Blueprint, jsonify, render_template, request
 
-from . import binder, brand_ext, config, jobs, layouts, resolver
+from . import binder, brand_ext, config, jobs, layouts, resolver, usage
 from .db import db
-from .models import (CreativeJob, CsMediaAsset, CsProject, CsProjectVersion,
-                     CsTemplate, CsTemplateScene, CsTemplateVariable)
+from .models import (CreativeJob, CsAiTool, CsMediaAsset, CsProject, CsProjectVersion,
+                     CsTemplate, CsTemplateScene, CsTemplateVariable, CsUsageLog)
 
 bp = Blueprint("creative_studio", __name__, url_prefix="/creative-studio",
               template_folder="templates")
@@ -184,7 +184,8 @@ def project_detail(project_id):                            # noqa: ANN202
                            versions=[v.as_dict() for v in versions],
                            statuses=config.PROJECT_STATUSES,
                            template=tmpl.as_dict(with_children=False) if tmpl else None,
-                           resolved=resolved, unresolved=unresolved)
+                           resolved=resolved, unresolved=unresolved,
+                           can_generate=project.creative_type in binder.PLATFORM_BY_CREATIVE_TYPE)
 
 
 @bp.post("/api/projects/<int:project_id>/open")
@@ -235,6 +236,73 @@ def api_override_variable(project_id):                     # noqa: ANN202
                 domain = ""
         resolved = resolver.resolve(tmpl, project, client=project.client_name, domain=domain)
     return jsonify({"ok": True, "resolved": resolved})
+
+
+# ------------------------------------------------------------- generation
+
+@bp.post("/api/projects/<int:project_id>/generate/storyboard")
+def api_generate_storyboard(project_id):                   # noqa: ANN202
+    """Enqueue concept generation (kind="storyboard") -- WO-CS4 item 2.
+    Never runs inline: the route's whole job is to write a queued row and
+    hand back its id, the same shape every enqueue route in this module
+    already uses (`api_media_index`)."""
+    project = CsProject.query.get_or_404(project_id)
+    if not project.cb_project_id and not project.template_id:
+        if not project.brief or not project.brief.get("what_advertising"):
+            return jsonify({"ok": False, "error": "Save a commercial brief "
+                            "(what you're advertising) before generating "
+                            "concepts."}), 400
+    job = jobs.enqueue("storyboard", project_id=project.id,
+                       client_name=project.client_name, created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict()})
+
+
+@bp.post("/api/projects/<int:project_id>/generate/script")
+def api_generate_script(project_id):                        # noqa: ANN202
+    """Enqueue script generation (kind="script"). Requires concepts already
+    generated -- the "storyboard" job above -- so this refuses at enqueue
+    time rather than letting the sweep discover it a step later."""
+    project = CsProject.query.get_or_404(project_id)
+    if not project.cb_project_id:
+        return jsonify({"ok": False, "error": "Generate concepts before "
+                        "generating a script."}), 400
+    try:
+        from modules.commercial_builder.models import CommercialProject as CbProject
+        cb_project = CbProject.query.get(project.cb_project_id)
+    except Exception as exc:                                # noqa: BLE001
+        return jsonify({"ok": False, "error": type(exc).__name__}), 400
+    if cb_project is None or not cb_project.concepts:
+        return jsonify({"ok": False, "error": "Generate concepts before "
+                        "generating a script."}), 400
+    job = jobs.enqueue("script", project_id=project.id,
+                       client_name=project.client_name, created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict()})
+
+
+@bp.post("/api/projects/<int:project_id>/generate/image")
+def api_generate_image(project_id):                          # noqa: ANN202
+    """Enqueue per-scene AI-still generation (kind="image"). `scene_id` is a
+    Commercial Builder scene id -- the same scene this project's own
+    Storyboard Editor already draws a "Generate AI" button on."""
+    project = CsProject.query.get_or_404(project_id)
+    if not project.cb_project_id:
+        return jsonify({"ok": False, "error": "Open this project in the "
+                        "Storyboard Editor before generating images."}), 400
+    data = request.get_json(silent=True) or {}
+    scene_id = data.get("scene_id")
+    if not scene_id:
+        return jsonify({"ok": False, "error": "Name the scene to generate for."}), 400
+    try:
+        from modules.commercial_builder.models import Scene as CbScene
+        scene = CbScene.query.filter_by(id=scene_id, project_id=project.cb_project_id).first()
+    except Exception as exc:                                # noqa: BLE001
+        return jsonify({"ok": False, "error": type(exc).__name__}), 400
+    if scene is None:
+        return jsonify({"ok": False, "error": "That scene is not on this "
+                        "project's storyboard."}), 400
+    job = jobs.enqueue("image", project_id=project.id, client_name=project.client_name,
+                       payload={"scene_id": scene_id}, created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict()})
 
 
 # --------------------------------------------------------------- brand kit
@@ -748,12 +816,18 @@ def api_delete_variable(template_id, variable_id):              # noqa: ANN202
 
 @bp.get("/ai-tools")
 def ai_tools_page():                                         # noqa: ANN202
-    return render_template("cs_coming_soon.html", title="AI Tools",
-                           heading="AI Tools",
-                           body="The AI Tools registry ships in WO-CS4, "
-                                "pointing generation at the jobs already "
-                                "wired in this change and at the tools "
-                                "already live under /tools.")
+    """Data-driven, per WO-CS4 item 1: "Adding a tile is a row." Every row
+    in `cs_ai_tools` is drawn; there is no per-tool block in this template
+    to edit when a fifteenth tool is seeded."""
+    category = (request.args.get("category") or "").strip()
+    q = CsAiTool.query
+    if category and category in config.AI_TOOL_CATEGORIES:
+        q = q.filter_by(category=category)
+    rows = q.order_by(CsAiTool.sort, CsAiTool.name).all()
+    return render_template(
+        "cs_ai_tools.html", title="AI Tools", tools=[t.as_dict() for t in rows],
+        categories=config.AI_TOOL_CATEGORIES,
+        category_labels=config.AI_TOOL_CATEGORY_LABELS, selected=category)
 
 
 @bp.get("/approvals")
@@ -768,8 +842,17 @@ def approvals_page():                                        # noqa: ANN202
 
 @bp.get("/usage")
 def usage_page():                                             # noqa: ANN202
-    return render_template("cs_coming_soon.html", title="Usage & Costs",
-                           heading="Usage & Costs",
-                           body="cs_usage_logs and this dashboard ship in "
-                                "WO-CS4/WO-CS6, once there are provider "
-                                "calls here to meter.")
+    """`cs_usage_logs`, grouped by provider (WO-CS4 item 4). Every rate is a
+    placeholder until Todd supplies real ones -- `estimated_cost` reads *not
+    measured* rather than a confident number for any (provider, service)
+    pair not yet in `config.PROVIDER_RATES`."""
+    client = (request.args.get("client") or "").strip()
+    q = CsUsageLog.query
+    if client:
+        q = q.filter_by(client_name=client)
+    rows = q.order_by(CsUsageLog.created_at.desc()).limit(500).all()
+    totals = usage.totals_by_provider(rows)
+    return render_template(
+        "cs_usage.html", title="Usage & Costs", client=client,
+        rows=[r.as_dict() for r in rows[:100]], totals=totals,
+        rates_are_placeholder=True)

@@ -31,3 +31,5 @@ def register_creative_studio(app):
             db.create_all()
             from .seed_templates import seed
             seed()
+            from .seed_ai_tools import seed as seed_ai_tools
+            seed_ai_tools()

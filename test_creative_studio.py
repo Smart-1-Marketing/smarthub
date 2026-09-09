@@ -710,6 +710,184 @@ with hub_app.app_context():
     result = cs_binder.bind(ghost)
     check("a template that no longer exists is reported, not raised", result["ok"], False)
 
+# ---------------------------------------------------------------------------
+section("WO-CS4: the AI Tools registry is data, not a template restated")
+
+with hub_app.app_context():
+    from modules.creative_studio.models import CsAiTool
+    check("the seed ran at boot -- rows exist with no test-side seeding",
+          CsAiTool.query.count() >= 14, True)
+    check("  ...script_generator is seeded live",
+          CsAiTool.query.filter_by(key="script_generator").first().status, "live")
+    check("  ...product_lifestyle is seeded coming_soon",
+          CsAiTool.query.filter_by(key="product_lifestyle").first().status, "coming_soon")
+
+r = client.get("/creative-studio/ai-tools")
+check("the AI Tools page renders", r.status_code, 200)
+check("  ...carrying a live tool's name", b"Script Generator" in r.data, True)
+check("  ...and a coming_soon tile", b"Coming soon" in r.data, True)
+
+r = client.get("/creative-studio/ai-tools?category=video")
+check("filtering by category narrows the page",
+      b"Script Generator" in r.data and b"Product Lifestyle" not in r.data, True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS4: generating concepts and a script as queued jobs")
+
+r = client.post("/creative-studio/api/projects",
+                json={"name": "No brief yet", "creative_type": "video_commercial"})
+no_brief_id = r.get_json()["project"]["id"]
+r = client.post(f"/creative-studio/api/projects/{no_brief_id}/generate/storyboard")
+check("generating concepts with no brief and no template is refused",
+      r.status_code, 400)
+
+r = client.post("/creative-studio/api/projects",
+                json={"name": "Fall Tune-Up Radio Spot", "creative_type": "video_commercial",
+                      "brief": {"what_advertising": "Fall furnace tune-ups"}})
+brief_project_id = r.get_json()["project"]["id"]
+check("a project with a brief and no template is created",
+      r.get_json()["project"]["template_id"], "")
+
+r = client.post(f"/creative-studio/api/projects/{brief_project_id}/generate/storyboard")
+check("generating concepts from a brief enqueues a storyboard job", r.status_code, 200)
+check("  ...of kind storyboard", r.get_json()["job"]["kind"], "storyboard")
+storyboard_job_id = r.get_json()["job"]["id"]
+
+res = cs_jobs.job_sweep(hub_app)
+check("the sweep reports ok", res.get("ok"), True)
+
+with hub_app.app_context():
+    job = CreativeJob.query.get(storyboard_job_id)
+    check("the storyboard job completes", job.state, "complete")
+    check("  ...carrying three concepts", len(job.output.get("concepts") or []), 3)
+
+    from modules.creative_studio.models import CsProject as CsProjectModel3
+    bound = CsProjectModel3.query.get(brief_project_id)
+    check("binding for generation happened without a template",
+          bound.cb_project_id is not None, True)
+    brief_cb_id = bound.cb_project_id
+
+    from modules.commercial_builder.models import CommercialProject as CbProject
+    cb = CbProject.query.get(brief_cb_id)
+    check("  ...and the bound storyboard carries the concepts",
+          len(cb.concepts or []), 3)
+    check("  ...with the brief passed straight through",
+          cb.brief.get("what_advertising"), "Fall furnace tune-ups")
+
+    from modules.creative_studio.models import CsUsageLog
+    concept_usage = CsUsageLog.query.filter_by(
+        project_id=brief_project_id, service="concepts").all()
+    check("exactly one usage row for the concepts call", len(concept_usage), 1)
+    check("  ...naming the provider", concept_usage[0].provider, "openai")
+
+r = client.post(f"/creative-studio/api/projects/{brief_project_id}/generate/script")
+check("generating a script (concepts already exist) enqueues a script job",
+      r.status_code, 200)
+script_job_id = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)
+with hub_app.app_context():
+    job = CreativeJob.query.get(script_job_id)
+    check("the script job completes", job.state, "complete")
+    check("  ...carrying scenes", len(job.output.get("script", {}).get("scenes") or []) > 0, True)
+
+    cb = CbProject.query.get(brief_cb_id)
+    check("  ...and Studio auto-selected the first concept, having no picker screen",
+          cb.selected_concept_id, cb.concepts[0]["id"])
+    check("  ...with Scene rows built from the script",
+          cb.scenes.count() > 0, True)
+
+    script_usage = CsUsageLog.query.filter_by(
+        project_id=brief_project_id, service="script").all()
+    check("exactly one usage row for the script call", len(script_usage), 1)
+
+# A project already bound to a template (from the WO-CS3 section above) has
+# no concepts, so asking it for a script is refused rather than the sweep
+# discovering the problem a step later.
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/generate/script")
+check("a template-bound project with no concepts refuses a script job",
+      r.status_code, 400)
+
+# ---------------------------------------------------------------------------
+section("WO-CS4: generating per-scene AI stills")
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/generate/image",
+                json={"scene_id": first_scene_id})
+check("generating a still for a real scene enqueues an image job", r.status_code, 200)
+image_job_id = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)
+with hub_app.app_context():
+    job = CreativeJob.query.get(image_job_id)
+    check("the image job completes", job.state, "complete")
+    check("  ...offering two mock options", len(job.output.get("options") or []), 2)
+
+    from modules.creative_studio.models import CsMediaAsset as CsMediaAssetModel
+    rows = CsMediaAssetModel.query.filter_by(
+        project_id=cs_project_id, source="openai").all()
+    check("one media row per successfully generated option", len(rows), 2)
+    check("  ...tagged as an image", rows[0].asset_type, "image")
+
+    image_usage = CsUsageLog.query.filter_by(
+        project_id=cs_project_id, service="image").all()
+    check("exactly one usage row for the image job", len(image_usage), 1)
+    check("  ...counting both options", image_usage[0].quantity, 2)
+    check("  ...priced from PROVIDER_RATES", image_usage[0].estimated_cost is not None, True)
+
+r = client.post(f"/creative-studio/api/projects/{brief_project_id}/generate/image",
+                json={"scene_id": first_scene_id})
+check("a scene id belonging to a different project's storyboard is refused",
+      r.status_code, 400)
+
+r = client.post(f"/creative-studio/api/projects/{no_brief_id}/generate/image",
+                json={"scene_id": first_scene_id})
+check("an unbound project is refused before a scene is even looked up",
+      r.status_code, 400)
+
+# ---------------------------------------------------------------------------
+section("WO-CS4: a generation job that times out fails readably, and a retry is a new row")
+
+with hub_app.app_context():
+    from datetime import datetime, timedelta
+    from modules.creative_studio.db import db as cs_db2
+    stuck = cs_jobs.enqueue("storyboard", project_id=brief_project_id,
+                            client_name="", created_by="Todd")
+    stuck.timeout_at = datetime.utcnow() - timedelta(minutes=1)
+    cs_db2.session.commit()
+    stuck_id = stuck.id
+cs_jobs.job_sweep(hub_app)
+with hub_app.app_context():
+    refreshed = CreativeJob.query.get(stuck_id)
+    check("an overdue generation job is swept as failed", refreshed.state, "failed")
+    check("  ...with a readable error", bool(refreshed.error), True)
+
+r = client.post(f"/creative-studio/api/projects/{brief_project_id}/generate/storyboard")
+check("retrying after a failure enqueues a fresh job", r.status_code, 200)
+check("  ...a different row from the one that timed out",
+      r.get_json()["job"]["id"] != stuck_id, True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS4: Usage & Costs reads cs_usage_logs, grouped by provider")
+
+r = client.get("/creative-studio/usage")
+check("the usage page renders", r.status_code, 200)
+check("  ...carrying the openai provider row", b"openai" in r.data, True)
+check("  ...and says every rate is an estimate", b"not measured" in r.data or b"Estimated cost" in r.data, True)
+
+with hub_app.app_context():
+    from modules.creative_studio import usage as cs_usage
+    all_rows = CsUsageLog.query.all()
+    totals = cs_usage.totals_by_provider(all_rows)
+    check("totals_by_provider groups into one row per provider",
+          len({t["provider"] for t in totals}), len(totals))
+    openai_total = next(t for t in totals if t["provider"] == "openai")
+    check("  ...with a measured total (every rate above is in PROVIDER_RATES)",
+          openai_total["estimated_cost"] is not None, True)
+
+    row = cs_usage.record("unpriced_provider", "unpriced_service")
+    check("a (provider, service) with no rate is not measured, never zero",
+          row.estimated_cost, None)
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)

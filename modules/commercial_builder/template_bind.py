@@ -102,3 +102,36 @@ def build_from_template(*, client_id: int, client_name: str, title: str,
         detail=(f"1 spot started for {title} from a Creative Studio template "
                 f"on {platform}: :{length_seconds:02d}."))
     return project
+
+
+def build_blank(*, client_id: int, client_name: str, title: str,
+                length_seconds: int, platform: str, formats: list[str],
+                commercial_type: str, brief: dict) -> CommercialProject:
+    """One `CommercialProject` with no scenes yet -- the other way a
+    `cs_project` can bind (WO-CS4), for a project nobody picked a template
+    for. `brief` is `cs_project.brief` passed straight through: both modules'
+    briefs are the same free-form vocabulary (`what_advertising`,
+    `primary_cta`, `landing_page`, `phone`, `target_audience`, `tone`), so
+    there is no mapping to keep in step, only a value handed across a module
+    boundary.
+
+    Scenes here come from `modules.commercial_builder.generation.run_script`,
+    not from this function -- a project bound this way has nothing to build
+    from until a concept is generated and a script written, which is the
+    whole reason it takes the `creative_jobs` path rather than the
+    synchronous one `build_from_template` above answers to.
+    """
+    project = CommercialProject(
+        client_id=client_id, title=(title or "Untitled spot")[:300],
+        length_seconds=length_seconds, commercial_type=commercial_type,
+        platform=platform, status="draft",
+    )
+    project.formats = formats or ["16:9"]
+    project.brief = brief or {}
+    db.session.add(project)
+    db.session.commit()
+
+    _log("cb_commercial_started", client=client_name or "",
+        detail=(f"1 spot started for {title} from a Creative Studio brief "
+                f"on {platform}: :{length_seconds:02d}."))
+    return project

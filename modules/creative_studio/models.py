@@ -377,6 +377,81 @@ class CsMusicTrack(db.Model):
                 "mood": self.mood or "", "license_source": self.license_source or ""}
 
 
+class CsAiTool(db.Model):
+    """One row per AI Tools tile. "Adding a tool is a row" -- WO-CS4's own
+    words for the whole point of this table: `/creative-studio/ai-tools`
+    renders from a query grouped by category, never a hand-typed block of
+    HTML per tool, the rule CLAUDE.md states for `config.CREATIVE_TYPES` and
+    every gallery filter in this Hub."""
+
+    __tablename__ = "cs_ai_tools"
+
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(60), unique=True, nullable=False, index=True)
+    name = db.Column(db.String(200), nullable=False)
+    category = db.Column(db.String(40), nullable=False, index=True)
+    description = db.Column(db.Text, default="")
+    icon = db.Column(db.String(20), default="")
+    # A URL this deployment already serves -- most tools here are a front
+    # door onto something that exists, not a screen this module owns. Blank
+    # only ever pairs with status="coming_soon", so a live tile always links
+    # somewhere real.
+    route = db.Column(db.String(300), default="")
+    status = db.Column(db.String(20), default="coming_soon")  # live|coming_soon
+    sort = db.Column(db.Integer, default=0)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def as_dict(self) -> dict:
+        return {"id": self.id, "key": self.key, "name": self.name,
+                "category": self.category, "description": self.description or "",
+                "icon": self.icon or "", "route": self.route or "",
+                "status": self.status or "coming_soon", "sort": self.sort or 0}
+
+
+class CsUsageLog(db.Model):
+    """One row per external, billed call this module makes.
+
+    A second, narrower ledger rather than a duplicate of `hub/quotas.py` --
+    that module already meters spend across every module in the Hub for the
+    account-wide usage page; this answers a question a rep actually asks on
+    one project, which quotas.py cannot: what has *this commercial* cost so
+    far. Every rate `config.PROVIDER_RATES` carries is a placeholder until
+    Todd supplies real ones (WO-CS4's own words), and `estimated_cost` is
+    `None` -- printed as *not measured*, never a silent zero -- wherever the
+    rate is not on that table yet, the `HOUSE_LEGIBILITY` rule CLAUDE.md
+    applies to every number nobody here has published.
+    """
+
+    __tablename__ = "cs_usage_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("cs_projects.id"), index=True)
+    client_name = db.Column(db.String(200), default="")
+
+    # openai|runway|pexels|pixabay|unsplash|elevenlabs|heygen|creatomate
+    provider = db.Column(db.String(40), nullable=False, index=True)
+    # concepts|script|image|voice|video|render|stock_search
+    service = db.Column(db.String(40), nullable=False)
+    quantity = db.Column(db.Float, default=1.0)
+    unit = db.Column(db.String(20), default="call")
+    estimated_cost = db.Column(db.Float)   # None -- not measured against config.PROVIDER_RATES
+
+    ok = db.Column(db.Boolean, default=True)
+    created_by = db.Column(db.String(120), default="")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    def as_dict(self) -> dict:
+        return {
+            "id": self.id, "project_id": self.project_id,
+            "client_name": self.client_name or "", "provider": self.provider,
+            "service": self.service, "quantity": self.quantity,
+            "unit": self.unit or "call", "estimated_cost": self.estimated_cost,
+            "ok": bool(self.ok), "created_by": self.created_by or "",
+            "created_at": self.created_at.isoformat() if self.created_at else "",
+        }
+
+
 class CreativeJob(db.Model):
     """One asynchronous unit of work, of whatever kind. Nothing long-running
     ever happens inside a request (house rule 4) -- a route that starts work

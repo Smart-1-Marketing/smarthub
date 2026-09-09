@@ -2218,6 +2218,19 @@ REGISTRY: list[Help] = [
        "project already built from an earlier version keeps saying so, "
        "because a template edited after a dozen projects exist must not "
        "silently change what those dozen say they were built from."),
+
+    # ---------------- Creative Studio (WO-CS4: AI Tools, jobs, usage) -----
+    _h("creative_studio.ai_tools", "One row per tool, live or on the way",
+       "A live tile opens the real screen -- most of these are the "
+       "Commercial Builder's own pipeline, opened in Studio context, or a "
+       "tool already under /tools. Generating a script or a scene image "
+       "runs as a queued job, the same as everything else asynchronous in "
+       "this Hub, and this page polls it and shows the stage."),
+    _h("creative_studio.usage", "An estimate, not a bill",
+       "Every OpenAI, Runway and stock-search call this module makes writes "
+       "one row here. The rate behind each estimate is a placeholder until "
+       "real provider rates are supplied -- a row reading \"not measured\" "
+       "means the call was not free, only that its cost is not priced yet."),
 ]
 
 _BY_KEY = {h.key: h for h in REGISTRY}

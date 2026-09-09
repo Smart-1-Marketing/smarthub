@@ -105,8 +105,29 @@ def _scene_specs(template: CsTemplate, resolved: dict) -> list[dict]:
     return out
 
 
+def _ensure_client_row(project):
+    """`(cb_client, error)` -- the client-adoption half both bind paths need,
+    factored out so it is asked once rather than copied twice."""
+    try:
+        from modules.commercial_builder import client_link as cb_client_link
+    except Exception as exc:                              # noqa: BLE001
+        return None, f"The Commercial Builder is not available ({exc})."
+    domain = _client_domain(project.client_name)
+    client_name = project.client_name or "Smart 1 Marketing"
+    try:
+        return cb_client_link.ensure_client(client_name, domain), None
+    except Exception as exc:                              # noqa: BLE001
+        return None, f"Could not find or create the brand profile ({exc})."
+
+
 def bind(project) -> dict:
     """Create (once) the `CommercialProject` this `cs_project` opens into.
+
+    Requires a template -- WO-CS3's rule, unchanged: opening the Storyboard
+    Editor with nothing built yet reads as a broken page rather than an
+    invitation to start from a brief, which is a different, slower flow
+    `bind_for_generation()` below is for. `/creative-studio/api/projects/<id>/open`
+    is the only caller of this function.
 
     Returns `{"ok": True, "cb_project_id": int}` or `{"ok": False, "error": str}`.
     Never raises: the Commercial Builder not being installed, a template
@@ -127,20 +148,16 @@ def bind(project) -> dict:
         return {"ok": False, "error": "That template has no scenes to build from."}
 
     try:
-        from modules.commercial_builder import client_link as cb_client_link
         from modules.commercial_builder import template_bind as cb_template_bind
         from modules.commercial_builder.config import COMMERCIAL_LENGTHS
     except Exception as exc:                              # noqa: BLE001
         return {"ok": False, "error": f"The Commercial Builder is not available ({exc})."}
 
+    cb_client, error = _ensure_client_row(project)
+    if error:
+        return {"ok": False, "error": error}
+
     domain = _client_domain(project.client_name)
-    client_name = project.client_name or "Smart 1 Marketing"
-
-    try:
-        cb_client = cb_client_link.ensure_client(client_name, domain)
-    except Exception as exc:                              # noqa: BLE001
-        return {"ok": False, "error": f"Could not find or create the brand profile ({exc})."}
-
     length = project.duration or template.duration or 30
     if length not in COMMERCIAL_LENGTHS:
         length = min(COMMERCIAL_LENGTHS, key=lambda x: abs(x - length))
@@ -167,6 +184,62 @@ def bind(project) -> dict:
         audit.log("creative_studio", "project_opened_in_editor", actor=project.created_by or "",
                   client=project.client_name or None, project=project.name,
                   template=project.template_id, cb_project_id=cb_project.id)
+    except Exception:                                     # noqa: BLE001
+        pass
+
+    return {"ok": True, "cb_project_id": cb_project.id}
+
+
+def bind_for_generation(project) -> dict:
+    """Like `bind()`, but a project with no template binds to a **blank**
+    `CommercialProject` (no scenes) instead of refusing.
+
+    WO-CS4's "storyboard" and "script" job kinds write a concept and a script
+    onto whatever this hands back -- a project that has not picked a template
+    is exactly the case they exist for, since a template-bound project's
+    scenes already say what each one is for and has no reason to ask a model.
+    Called only from the `/generate/...` routes those jobs are enqueued
+    through; `/open` keeps calling `bind()` above, unchanged, so a project
+    with no template still refuses to open the (empty) Storyboard Editor.
+    """
+    if project.template_id:
+        return bind(project)
+    if project.cb_project_id:
+        return {"ok": True, "cb_project_id": project.cb_project_id}
+
+    try:
+        from modules.commercial_builder import template_bind as cb_template_bind
+        from modules.commercial_builder.config import COMMERCIAL_LENGTHS
+    except Exception as exc:                              # noqa: BLE001
+        return {"ok": False, "error": f"The Commercial Builder is not available ({exc})."}
+
+    cb_client, error = _ensure_client_row(project)
+    if error:
+        return {"ok": False, "error": error}
+
+    length = project.duration or 30
+    if length not in COMMERCIAL_LENGTHS:
+        length = min(COMMERCIAL_LENGTHS, key=lambda x: abs(x - length))
+    platform = PLATFORM_BY_CREATIVE_TYPE.get(project.creative_type, "both")
+    fmt = project.aspect_ratio if project.aspect_ratio in _CB_FORMATS else "16:9"
+
+    try:
+        cb_project = cb_template_bind.build_blank(
+            client_id=cb_client.id, client_name=cb_client.name, title=project.name,
+            length_seconds=length, platform=platform, formats=[fmt],
+            commercial_type="stock_vo", brief=project.brief or {})
+    except Exception as exc:                              # noqa: BLE001
+        return {"ok": False, "error": f"Could not start the storyboard ({exc})."}
+
+    from .db import db
+    project.cb_project_id = cb_project.id
+    db.session.commit()
+
+    try:
+        from hub import audit
+        audit.log("creative_studio", "project_opened_in_editor", actor=project.created_by or "",
+                  client=project.client_name or None, project=project.name,
+                  template=None, cb_project_id=cb_project.id)
     except Exception:                                     # noqa: BLE001
         pass
 

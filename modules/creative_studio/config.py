@@ -125,3 +125,33 @@ INDUSTRY_LABELS = {"general": "General", "hvac": "HVAC", "restaurant": "Restaura
 
 def industry_label(industry: str) -> str:
     return INDUSTRY_LABELS.get(industry, (industry or "").replace("_", " ").title())
+
+
+# The AI Tools screen's category row, Section 9 of the build spec verbatim.
+# A fixed tuple rather than the DISTINCT-values-of-what-exists pattern every
+# other filter in this module uses (industry, creative type): the build spec
+# enumerates the whole menu on purpose, Social and Quick Tools included, so
+# the tab is there waiting the day a tool is seeded into it rather than
+# appearing out of nowhere when one finally is.
+AI_TOOL_CATEGORIES = ("video", "product", "social", "images", "audio", "brand", "quick_tools")
+
+AI_TOOL_CATEGORY_LABELS = {
+    "video": "Video", "product": "Product", "social": "Social",
+    "images": "Images", "audio": "Audio", "brand": "Brand",
+    "quick_tools": "Quick Tools",
+}
+
+
+# (provider, service) -> dollars per `unit` on CsUsageLog. Every value here is
+# a **placeholder** until Todd supplies real provider rates (WO-CS4's own
+# words) -- `cs_usage_logs.estimated_cost` and the Usage & Costs page both
+# label it as an estimate rather than a bill, the way `hub/quotas.py` already
+# treats `IMAGE_PRICING`. A (provider, service) pair not in this table is not
+# measured against a cost at all: `usage.record()` writes the row with
+# `estimated_cost=None` rather than guessing, which is the difference between
+# "we have not priced this yet" and a confident wrong number.
+PROVIDER_RATES = {
+    ("openai", "concepts"): 0.01,
+    ("openai", "script"): 0.02,
+    ("openai", "image"): 0.04,
+}
