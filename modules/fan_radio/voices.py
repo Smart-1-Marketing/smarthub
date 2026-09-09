@@ -177,7 +177,7 @@ def get_voice(voice_id: str) -> dict:
     return voice_casting.shape(res.json(), custom=True)
 
 
-def _note_characters(script: str, voice_id: str) -> None:
+def _note_characters(script: str, voice_id: str, model_id: str | None = None) -> None:
     """Count this read against the monthly ElevenLabs allowance.
 
     The unit is characters of the script sent, not renders — ElevenLabs bills
@@ -185,14 +185,15 @@ def _note_characters(script: str, voice_id: str) -> None:
     """
     try:
         from hub import quotas as _q
-        _q.record_tts(script, module="fan_radio", model=MODEL, voice=voice_id)
+        _q.record_tts(script, module="fan_radio", model=model_id or MODEL, voice=voice_id)
     except Exception:                                    # noqa: BLE001
         pass
 
 
 def render_audio(voice_id: str, script: str,
                  energy: str = "energetic", speed: float = 1.0,
-                 prompt_strength: float | None = None) -> dict:
+                 prompt_strength: float | None = None, stability: float = 0.45,
+                 model_id: str | None = None) -> dict:
     """Return {'audio': bytes, 'seconds': float, 'measured': bool}."""
     if not voice_id:
         raise VoiceError("Pick a voice first.")
@@ -207,11 +208,11 @@ def render_audio(voice_id: str, script: str,
         raise VoiceError(str(exc)) from exc
     body = {
         "text": script,
-        "model_id": MODEL,
+        "model_id": model_id or MODEL,
         # `style` is the one characteristic that does more than rank: it is
         # sent on the render, so a read cast as explosive and rendered at the
         # default style is cast for nothing. From the shared table.
-        "voice_settings": {"stability": 0.45, "similarity_boost": 0.75,
+        "voice_settings": {"stability": stability, "similarity_boost": 0.75,
                            "style": (voice_casting.style_for(energy) if prompt_strength is None
                                      else min(1.0, max(0.0, float(prompt_strength)))),
                            "speed": speed,
@@ -227,7 +228,7 @@ def render_audio(voice_id: str, script: str,
 
     if res.status_code == 200:
         # Count accepted synthesis even when its response is malformed.
-        _note_characters(script, voice_id)
+        _note_characters(script, voice_id, model_id)
         return timestamp_audio(res, mp3_seconds, VoiceError)
     if res.status_code not in (404, 405, 501):
         raise VoiceError(f"ElevenLabs returned {res.status_code} rendering audio.")
@@ -241,7 +242,7 @@ def render_audio(voice_id: str, script: str,
         raise VoiceError(f"Couldn't reach ElevenLabs ({exc.__class__.__name__}).")
     if res.status_code != 200:
         raise VoiceError(f"ElevenLabs returned {res.status_code} rendering audio.")
-    _note_characters(script, voice_id)
+    _note_characters(script, voice_id, model_id)
     return plain_audio(res, mp3_seconds, VoiceError)
 
 

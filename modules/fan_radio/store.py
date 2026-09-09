@@ -186,7 +186,11 @@ def index() -> list[dict]:
 def music_library() -> list[dict]:
     """Saved, immutable music tracks available to future Fan Radio projects."""
     rows = _read(_music_library_path(), [])
-    return rows if isinstance(rows, list) else []
+    if not isinstance(rows, list):
+        return []
+    return [{**row, "audio_url": row.get("audio_url") or row.get("url", ""),
+             "audio_where": row.get("audio_where") or row.get("where", "")}
+            for row in rows if isinstance(row, dict)]
 
 
 def save_music_track(name: str, data: bytes, ext: str, details: dict) -> dict:
@@ -208,6 +212,8 @@ def save_music_track(name: str, data: bytes, ext: str, details: dict) -> dict:
                                   name=f"library-{track_id}.{ext}")
     else:
         stored = _write_local({}, data, ext=ext, name=f"library-{track_id}.{ext}")
+    stored = {**stored, "audio_url": stored.get("audio_url") or stored.get("url", ""),
+              "audio_where": stored.get("audio_where") or stored.get("where", "")}
     track = {"id": track_id, "name": clean_name, "created": now(),
              "bytes": len(data), **details, **stored}
     rows = [r for r in music_library() if r.get("id") != track_id]
