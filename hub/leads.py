@@ -470,6 +470,17 @@ def capture_and_deliver(source: str, page: str, fields: dict,
     row = capture(source, page, fields, pdf_url, client, meta)
     row = deliver(row)
     _update(row)
+    # A creative job for this lead, if its source is one that starts its own
+    # creative — see hub/creative_jobs.py. After the row is stored and
+    # delivered, and never able to cost the capture above: this is exactly
+    # the "store the lead, then return, then do the slow/unreliable part"
+    # order this module's own docstring states for GHL delivery, applied to
+    # an OpenAI call instead of a webhook.
+    try:
+        from hub import creative_jobs
+        creative_jobs.enqueue_for_lead(row)
+    except Exception:                                   # noqa: BLE001
+        pass
     return {"ok": True, "lead_id": row["id"], "delivered": row["delivered"],
             "contact_id": row.get("contact_id", ""),
             "note": ("Created in Smart 1 Suite." if row["delivered"]

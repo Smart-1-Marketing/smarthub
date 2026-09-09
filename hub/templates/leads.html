@@ -395,6 +395,34 @@ function suiteCell(l){
     : '<span class="pill warn" title="'+esc(l.last_error||'')+'">queued</span>';
 }
 
+/* A lead-triggered radio script job (hub/creative_jobs.py). Most leads never
+   qualify for one at all — undefined `radio_job` reads as an em dash, the
+   same "nothing to show" every other cell on this table uses, rather than as
+   a state this queue never reached. Neither button is a default action: a
+   rep presses one or the other, and "Send to client" stays disabled until
+   the client review link (build spec WO-3) exists to send it to. */
+function radioCell(l){
+  var job = l.radio_job;
+  if(!job) return '<span class="muted">—</span>';
+  if(job.state === 'queued' || job.state === 'running'){
+    return '<span class="pill neutral"><span class="spin" data-s1-think="ai"></span> '+
+      'writing scripts…</span>';
+  }
+  if(job.state === 'failed'){
+    return '<span class="pill err" title="'+esc(job.error||'')+
+      '">script generation failed ('+(job.attempts||0)+' attempts)</span>';
+  }
+  // done
+  var setId = (job.result && job.result.set_id) || '';
+  return '<span class="pill ok">scripts ready</span><br>'+
+    (setId
+      ? '<a class="gbtn" href="/tools/radio-scripts/#set='+esc(setId)+
+        '" target="_blank" rel="noopener">Edit internally</a> '
+      : '')+
+    '<button class="gbtn" disabled title="Ships with the client review link '+
+    '(build spec WO-3) — nothing to send to yet.">Send to client</button>';
+}
+
 function renderLeads(d){
   renderNotices(d);
   renderKpis(d);
@@ -412,7 +440,7 @@ function renderLeads(d){
   document.getElementById('leadTable').innerHTML =
     '<table class="lead-t"><thead><tr>'+
     '<th class="lead-selcol" title="Tick two or more rows to combine them"></th>'+
-    ['Captured','Name','Contact','Page','Report','Suite','Client'].map(function(h){
+    ['Captured','Name','Contact','Page','Report','Radio script','Suite','Client'].map(function(h){
       // The table is drawn from a fetch, so these bubbles arrive after load.
       // hub-help.js watches for that; a dot added here behaves like any other.
       var dot = h === 'Suite' ? HELP_DELIVERY : (h === 'Client' ? HELP_CONVERT : '');
@@ -438,6 +466,7 @@ function renderLeads(d){
         '<td><span class="pill neutral">'+esc(l.source||'—')+'</span>'+
           (l.page?'<div class="lead-sub">'+esc(l.page)+'</div>':'')+'</td>'+
         '<td>'+reportCell(l)+'</td>'+
+        '<td>'+radioCell(l)+'</td>'+
         '<td>'+suiteCell(l)+'</td>'+
         '<td>'+
           (l.converted_at
