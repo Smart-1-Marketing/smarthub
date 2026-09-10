@@ -127,6 +127,7 @@
     "suite-match": ["/qa", "QA Reports"],
     "campaign-assets": ["/qa", "QA Reports"], "domains": ["/qa", "QA Reports"],
     "client-owners": ["/qa", "QA Reports"],
+    "check-reconciliation": ["/qa", "QA Reports"],
     // /my-clients is in the nav *and* tiled on QA Reports. Back goes to the
     // index it is listed on rather than nowhere: a page whose trail ends at
     // the Dashboard offers no way to the list it came from, which is the
