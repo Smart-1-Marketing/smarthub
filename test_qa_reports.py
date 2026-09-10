@@ -704,7 +704,10 @@ staff.set_cookie(auth.COOKIE_NAME, auth.issue_cookie_value("QA test"),
 for group, key, meta in qa.EXTRAS:
     href = meta["href"]
     code = staff.get(href, follow_redirects=False).status_code
-    check(f"{key} answers at {href}", code < 400, f"HTTP {code}")
+    if key == "check-reconciliation":
+        check("the owner-only reconciliation tool rejects the shared QA session", code == 403, f"HTTP {code}")
+    else:
+        check(f"{key} answers at {href}", code < 400, f"HTTP {code}")
 
 for key in qa.REPORTS:
     code = staff.get(f"/qa/{key}", follow_redirects=False).status_code

@@ -619,8 +619,9 @@ def _calls(src, name):
 
 _slotty = [c for c in _calls(_app_src, "upload_asset")
            if "{slot}" in c and "def upload_asset" not in c]
-check("every slot-named upload replaces its predecessor",
-      [" ".join(c.split())[:52] for c in _slotty if "overwrite=True" not in c], [])
+check("slot uploads either replace the same file or use a unique bed filename",
+      [" ".join(c.split())[:52] for c in _slotty
+       if "overwrite=True" not in c and "secrets.token_urlsafe(8)" not in c], [])
 check("and the sweep found every one of them", len(_slotty), 5)
 
 
@@ -701,7 +702,7 @@ check("Radio Promo declares exactly the client review page as public",
 _writes = [r for r in rp_app.app.url_map.iter_rules()
            if {"POST"} & r.methods and any(
                k in str(r) for k in ("/bed/", "/mix", "/voice/upload", "/variations"))]
-check("and every new write route is inside that mount", len(_writes), 6)
+check("and every new write route is inside that mount", len(_writes), 8)
 check("and none of the billed writes fall under the public prefixes",
       all(not str(r).startswith(("/tools/radio-promo/r/",
                                  "/tools/radio-promo/api/public/",
@@ -1011,8 +1012,12 @@ check("and a stranger cannot read a project back either",
 # layer down. Both halves are driven or read structurally now.
 _asset_one = fr_store.store_asset(_proj, {"id": "swept"}, "bed", b"first", "mp3")
 _asset_two = fr_store.store_asset(_proj, {"id": "swept"}, "bed", b"second", "mp3")
-check("a role-named asset lands on one name rather than accumulating",
-      _asset_one["url"], _asset_two["url"])
+check("replacing a shared bed uses a new file", _asset_one["url"] != _asset_two["url"], True)
+check("the original bed remains playable for other spots",
+      (pathlib.Path(fr_store.data_dir()) / "audio" / _asset_one["url"].split("/")[-1]).read_bytes(), b"first")
+_mix_one = fr_store.store_asset(_proj, {"id": "mix-swept"}, "mix", b"first", "wav")
+_mix_two = fr_store.store_asset(_proj, {"id": "mix-swept"}, "mix", b"second", "wav")
+check("a mix still replaces the same spot's previous mix", _mix_one["url"], _mix_two["url"])
 check("and the second write is what is actually there",
       (pathlib.Path(fr_store.data_dir()) / "audio"
        / _asset_two["url"].split("/")[-1]).read_bytes(), b"second")

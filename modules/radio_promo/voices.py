@@ -228,7 +228,7 @@ def clone_voice(name: str, samples: list[tuple[str, bytes, str]],
 mp3_seconds = radio_spec.mp3_seconds
 
 
-def _note_characters(script: str, voice_id: str) -> None:
+def _note_characters(script: str, voice_id: str, model_id=None) -> None:
     """Count this read against the monthly ElevenLabs allowance.
 
     ElevenLabs bills per character of the text sent, so the unit is the length
@@ -236,12 +236,13 @@ def _note_characters(script: str, voice_id: str) -> None:
     """
     try:
         from hub import quotas as _q
-        _q.record_tts(script, module="radio_promo", model=MODEL, voice=voice_id)
+        _q.record_tts(script, module="radio_promo", model=model_id or MODEL, voice=voice_id)
     except Exception:                                            # noqa: BLE001
         pass
 
 
-def render_audio(voice_id: str, script: str, energy: str = "conversational") -> dict:
+def render_audio(voice_id: str, script: str, energy: str = "conversational", speed: float = 1.0,
+                 prompt_strength=None, stability: float = .45, model_id=None) -> dict:
     """Render to MP3. Returns ``{"audio": bytes, "seconds": float|None,
     "measured": bool}``."""
     from hub.customer_voices import ensure_usable, LibraryError
@@ -249,9 +250,9 @@ def render_audio(voice_id: str, script: str, energy: str = "conversational") -> 
         ensure_usable(voice_id)
     except LibraryError as exc:
         raise VoiceError(str(exc)) from exc
-    style = STYLE_BY_ENERGY.get(energy, 0.3)
-    payload = {"text": script, "model_id": MODEL,
-               "voice_settings": {"stability": 0.45, "similarity_boost": 0.8,
+    style = float(prompt_strength) if prompt_strength is not None else STYLE_BY_ENERGY.get(energy, 0.3)
+    payload = {"text": script, "model_id": model_id or MODEL,
+               "voice_settings": {"stability": stability, "speed": speed, "similarity_boost": 0.8,
                                   "style": style, "use_speaker_boost": True}}
     url = f"{BASE}/text-to-speech/{quote(voice_id)}"
     query = "?output_format=mp3_44100_128"
@@ -263,7 +264,7 @@ def render_audio(voice_id: str, script: str, energy: str = "conversational") -> 
                             json=payload, timeout=180)
         if res.status_code < 400:
             # Count accepted synthesis even when its response is malformed.
-            _note_characters(script, voice_id)
+            _note_characters(script, voice_id, model_id)
             return timestamp_audio(res, mp3_seconds, VoiceError)
         if res.status_code not in (404, 405, 501):
             raise VoiceError(f"ElevenLabs render failed (HTTP {res.status_code}).")
@@ -279,7 +280,7 @@ def render_audio(voice_id: str, script: str, energy: str = "conversational") -> 
         raise VoiceError(f"Couldn't reach ElevenLabs ({exc.__class__.__name__}).") from exc
     if res.status_code >= 400:
         raise VoiceError(f"ElevenLabs render failed (HTTP {res.status_code}).")
-    _note_characters(script, voice_id)
+    _note_characters(script, voice_id, model_id)
     return plain_audio(res, mp3_seconds, VoiceError)
 
 
