@@ -233,19 +233,15 @@ jobs:
         working-directory: modules/ad_builder
         run: npm test
 
-      # hf-render-service runs Puppeteer (bundled Chromium) and shells out to
-      # ffmpeg. Same trio the Dockerfile installs for the same module and for
-      # the same reason as the Ghostscript/qPDF step above: without them the
-      # tests that exercise real binaries do not cover the path production
-      # actually runs. chromium is never launched directly -- Puppeteer
-      # bundles its own build -- it is here purely for the shared libraries
-      # (libnss3, libatk, libgbm1, ...) that build needs to start at all.
-      # ffmpeg is what src/ffmpeg.ts actually spawns, and it is not
-      # preinstalled on the runner image -- the first version of this step
-      # assumed it was and every render failed with "spawn ffmpeg ENOENT".
-      - name: Install Chromium's runtime libraries and ffmpeg (hf-render-service)
+      # Puppeteer launches its bundled Chromium; install its shared libraries
+      # directly. Ubuntu's chromium package installs Snap and can spend many
+      # minutes downloading another browser that these tests never launch.
+      # ffmpeg and fonts are still required for the real render/encode tests.
+      - name: Install browser runtime libraries and ffmpeg (hf-render-service)
         run: sudo apt-get update -qq
-             && sudo apt-get install -y -qq --no-install-recommends chromium ffmpeg fonts-liberation
+             && sudo apt-get install -y -qq --no-install-recommends
+                libnss3 libatk-bridge2.0-0t64 libgbm1 libxkbcommon0 libasound2t64
+                ffmpeg fonts-liberation
 
       - name: HyperFrames render service — install
         working-directory: modules/hf_render_service
