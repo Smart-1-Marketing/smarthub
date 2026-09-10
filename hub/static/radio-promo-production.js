@@ -1,7 +1,7 @@
 /* Radio Ad Creator production controls. Provider work is always an explicit action. */
 const DELIVERY_TAGS=['excited','curious','whispers','laughs','sighs','sarcastic','mischievously','short pause','long pause'];
 const recordingSlots=new Set();
-let recordingAction=false;
+let recordingAction=false, mixRevision=0;
 let productionVoiceProject='', bedShared=false, musicTracks=[], volumeSave=Promise.resolve();
 function voiceSettingsNow(){
   return {...(P.voice||{}),voice_id:$('recordVoice').value||P.voice?.voice_id,
@@ -76,7 +76,7 @@ function timingBadge(seconds,target,measured){
   return `<span class="timing ${measured?color:''}">${value.toFixed(1)}s / ${Number(target)}s${measured?'':' estimated'} · ${Math.abs(gap).toFixed(1)}s ${gap<0?'over':'short'}</span>`;
 }
 function selectedMixLevel(){return (MIXCFG?.levels||[]).find(l=>l.label===(P?.mix_level||MIXCFG?.level_reference))||MIXCFG?.levels?.[0]||{};}
-function discardMixes(){Object.keys(RENDERED).forEach(k=>{if(RENDERED[k]?.url)URL.revokeObjectURL(RENDERED[k].url);delete RENDERED[k];});}
+function discardMixes(){mixRevision++;Object.keys(RENDERED).forEach(k=>{if(RENDERED[k]?.url)URL.revokeObjectURL(RENDERED[k].url);delete RENDERED[k];});}
 function changeBedVolume(el){
   const level=MIXCFG.levels[Number(el.value)];P.mix_level=level.label;discardMixes();
   $('bedLevelLabel').textContent=level.label+' · '+level.ducked_db+' dB';renderMixPanel();

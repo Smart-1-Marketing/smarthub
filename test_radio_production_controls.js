@@ -39,5 +39,16 @@ vm.runInContext('function dbGain(db){return Math.pow(10,db/20);}'+functionText('
  vm.runInContext(share.slice(share.indexOf('  function audioSrc('),share.indexOf('  function render(')),context);
  assert.equal(context.audioSrc('/tools/radio-promo/file/sample.mp3'),'/tools/radio-promo/file/sample.mp3');
  assert.equal(context.audioSrc('file/sample.mp3'),'/tools/radio-promo/file/sample.mp3');
+ Object.assign(context,{mixRevision:0,RENDERED:{},slotName:()=>":30",say(){},buildMix:async()=>{context.mixRevision++;return {buffer:{},note:''};}});
+ vm.runInContext(promo.slice(promo.indexOf('async function makeMix('),promo.indexOf('async function fileMix(')),context);
+ await context.makeMix('thirty');
+ assert.equal(Object.keys(context.RENDERED).length,0,'an in-flight mix is discarded when its inputs change');
+ Object.assign(context,{P:{id:'test'},QCC:{},FormData:class {append(){}},URL:{revokeObjectURL(){}},
+   post:async()=>({project:{id:'test'},qc:{status:'pass'},mix:{seconds:30}}),renderMixPanel(){}});
+ context.RENDERED.thirty={blob:{},url:'blob:sample',level:'Soft'};
+ vm.runInContext(promo.slice(promo.indexOf('async function fileMix('),promo.indexOf('/* ---------- QC')),context);
+ await context.fileMix('thirty',false);
+ assert.equal(context.QCC.thirty.status,'pass','filing refreshes the QC verdict');
+ assert.equal(context.RENDERED.thirty,undefined,'filing retires the temporary preview');
  console.log('Timing thresholds and selected mix gains passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

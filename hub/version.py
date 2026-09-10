@@ -10,7 +10,7 @@ import os
 import subprocess
 
 VERSION = "1.76.1"
-BUILD_DATE = "2026-09-09"
+BUILD_DATE = "2026-09-10"
 CODENAME = "Radio Ad Production Controls"
 
 _sha_cache: str | None = None
