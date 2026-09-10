@@ -10,14 +10,16 @@ same login -- real content lands in WO-CS4 through WO-CS6.
 from __future__ import annotations
 
 import re
+import secrets
 from datetime import datetime
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, render_template, request, url_for
 
 from . import binder, brand_ext, config, jobs, layouts, resolver, usage
 from .db import db
 from .models import (CreativeJob, CsAiTool, CsMediaAsset, CsProject, CsProjectVersion,
-                     CsTemplate, CsTemplateScene, CsTemplateVariable, CsUsageLog)
+                     CsShare, CsTemplate, CsTemplateScene,
+                     CsTemplateVariable, CsUsageLog)
 
 bp = Blueprint("creative_studio", __name__, url_prefix="/creative-studio",
               template_folder="templates")
@@ -443,6 +445,212 @@ def api_project_usage_summary(project_id):                    # noqa: ANN202
     return jsonify({"ok": True, "totals": totals, "calls": len(rows),
                     "estimated_cost": (total_cost if measured else None),
                     "measured": measured})
+
+
+# --------------------------------------------------------------- review (WO-CS6)
+
+# Registered in hub/lead_tags.py with the Suite workflow named beside it --
+# the source tag is what a Suite workflow triggers on to actually send the
+# email, and the Hub has no mail sender of its own. Kept in this file rather
+# than imported from review_routes.py (where the public page lives) because
+# it is the `capture_and_deliver()` call site below that names it, and
+# test_lead_delivery.py's sweep reads a source tag from the AST of the file
+# that calls it -- a constant imported across a module boundary is a value
+# it cannot follow, which is exactly the "prose is not a call site" trap
+# CLAUDE.md names for hub/config.py's own drift check.
+REVIEW_SOURCE = "creative_review_ready"
+
+
+def _share_url(token: str) -> str:
+    # cs_review is registered directly on the hub app (see __init__.py),
+    # never nested inside this blueprint -- so its endpoint carries no
+    # "creative_studio." prefix. linkcheck caught the wrong name here: the
+    # try/except below silently absorbed a BuildError and fell back to the
+    # literal path, which happens to be byte-identical to what url_for would
+    # have built, so nothing on screen or in a test noticed.
+    try:
+        path = url_for("cs_review.client_review", token=token)
+    except Exception:                                       # noqa: BLE001
+        path = f"/review/{token}"
+    return request.host_url.rstrip("/") + path
+
+
+@bp.get("/api/projects/<int:project_id>/versions/<int:version_number>/shares")
+def api_list_shares(project_id, version_number):              # noqa: ANN202
+    """Every round sent on this version, newest first, with the verdict on
+    each -- the panel below the version row reads this."""
+    from modules.commercial_builder import review_spec
+    version = CsProjectVersion.query.filter_by(
+        project_id=project_id, version=version_number).first_or_404()
+    shares = (CsShare.query.filter_by(kind="render", subject_id=version.id)
+             .order_by(CsShare.round_no.desc(), CsShare.id.desc()).all())
+    rows = []
+    for share in shares:
+        row = share.to_dict()
+        row["url"] = _share_url(share.token)
+        row["verdict"] = review_spec.verdict(row["decisions"])
+        row["round_state"] = review_spec.round_state(share.round_no)
+        rows.append(row)
+    return jsonify({"ok": True, "shares": rows,
+                    "next_round": review_spec.round_state(len(rows) + 1)})
+
+
+@bp.post("/api/projects/<int:project_id>/versions/<int:version_number>/share")
+def api_send_for_approval(project_id, version_number):        # noqa: ANN202
+    """Mint a token for this version and (optionally) file the reviewer as a
+    Suite contact tagged for the review workflow -- WO-CS6 item 1.
+
+    A new token every round, never a reopened one: `CsShare`'s own docstring
+    gives the reason, the same one `ReviewShare` in the Commercial Builder
+    already states -- a link that has been answered is the record of that
+    answer, and handing the same URL out again for round two would overwrite
+    round one's decision with no trace there had been one.
+    """
+    from modules.commercial_builder import review_spec
+    project = CsProject.query.get_or_404(project_id)
+    version = CsProjectVersion.query.filter_by(
+        project_id=project_id, version=version_number).first_or_404()
+    body = request.get_json(silent=True) or {}
+
+    previous = CsShare.query.filter_by(kind="render", subject_id=version.id).all()
+    round_no = len(previous) + 1
+    for old in previous:
+        old.revoked = True
+
+    share = CsShare(token=secrets.token_urlsafe(24), kind="render",
+                    subject_id=version.id, project_id=project.id,
+                    round_no=round_no, created_by=_actor(),
+                    message=str(body.get("message") or "").strip()[:2000])
+    db.session.add(share)
+    project.status = "Client Review"
+    db.session.commit()
+
+    state = review_spec.round_state(round_no)
+    if state["over"]:
+        _log_review("creative_review_rounds_exceeded", project,
+                    detail=f"Round {round_no} on {project.name}")
+    _log_review("creative_review_sent", project,
+               detail=f"{state['label']} · {project.name} V{version.version}")
+
+    row = share.to_dict()
+    row["url"] = _share_url(share.token)
+    row["round_state"] = state
+    row["delivery"] = _deliver_review(
+        project, share, row["url"],
+        name=str(body.get("reviewer_name") or "").strip()[:200],
+        email=str(body.get("reviewer_email") or "").strip()[:200])
+    return jsonify({"ok": True, "share": row})
+
+
+@bp.post("/api/projects/<int:project_id>/shares/<int:share_id>/revoke")
+def api_revoke_share(project_id, share_id):                   # noqa: ANN202
+    """Switch a link off. What was said on it is kept -- revoking is not
+    deleting."""
+    share = CsShare.query.filter_by(id=share_id, project_id=project_id).first_or_404()
+    share.revoked = True
+    db.session.commit()
+    _log_review("creative_review_revoked", CsProject.query.get(project_id),
+               detail=f"Round {share.round_no} link revoked.")
+    return jsonify({"ok": True, "share": share.to_dict()})
+
+
+def _deliver_review(project, share, url: str, *, name: str, email: str) -> dict:
+    """Write the reviewer into Smart 1 Suite, tagged for the review workflow.
+
+    The same shape `modules.commercial_builder.routes.review._deliver_review`
+    already uses: `hub.leads.capture_and_deliver`, never a second route to
+    Suite. Three answers, never folded -- `sent`, `held` and `skipped` mean
+    different things and a rep reading one has to be able to tell them apart.
+    """
+    if not email:
+        return {"state": "skipped", "sent": False,
+                "note": "No email given, so the link was not filed for sending — "
+                        "copy it and send it yourself."}
+    try:
+        from hub import leads as _hub_leads
+    except Exception:                                       # noqa: BLE001
+        return {"state": "held", "sent": False,
+                "note": "Running outside the Hub, so nothing could be filed in Suite."}
+    try:
+        out = _hub_leads.capture_and_deliver(
+            source=REVIEW_SOURCE, page=project.name or f"Project #{project.id}",
+            fields={"name": name, "email": email, "company": project.client_name or "",
+                    "round": str(share.round_no)},
+            client=project.client_name or "",
+            meta={"report_url": url, "project": project.id, "share_id": share.id,
+                  "round": share.round_no, "kind": "creative_review"})
+    except Exception as exc:                                # noqa: BLE001
+        _log_review("creative_review_delivery_failed", project,
+                   detail=f"Round {share.round_no}: {type(exc).__name__}")
+        return {"state": "held", "sent": False,
+                "note": f"The link exists, but filing it in Suite failed ({type(exc).__name__}). "
+                        "Send it by hand."}
+    sent = bool(out.get("delivered"))
+    _log_review("creative_review_delivered" if sent else "creative_review_delivery_held",
+               project, detail=f"Round {share.round_no} to {email}"
+               + ("" if sent else f" — {out.get('note', '')}"))
+    return {"state": "sent" if sent else "held", "sent": sent,
+            "lead_id": out.get("lead_id", ""),
+            "note": (f"Filed in Smart 1 Suite as a contact tagged {REVIEW_SOURCE}; the "
+                     "review email goes out from the Suite workflow on that tag."
+                     if sent else
+                     "The link exists, but it did not reach Suite: "
+                     + str(out.get("note") or "") + " It is queued on /sales/leads; "
+                     "send the link by hand meanwhile.")}
+
+
+def _log_review(event, project, detail=""):
+    """Never costs the write it describes -- see `_log_render` in
+    `modules/commercial_builder/routes/render.py` for why the detail string
+    is built inside the try rather than by the caller."""
+    try:
+        from hub import audit
+        audit.log("creative_studio", event, actor=_actor(),
+                  client=(getattr(project, "client_name", "") or None),
+                  detail=detail, project=getattr(project, "id", None))
+    except Exception:                                       # noqa: BLE001
+        pass
+
+
+@bp.get("/api/reviews/waiting")
+def api_reviews_waiting():                                    # noqa: ANN202
+    """Every live round across every project, sorted into who is waiting on
+    whom -- the dashboard card and /approvals both read this. Never raises:
+    `review_spec.inbox_unmeasured()` is what a failed read answers with,
+    because a clean zero over a table that would not answer is the one thing
+    this must not draw."""
+    from modules.commercial_builder import review_spec
+    try:
+        shares = CsShare.query.filter_by(revoked=False).order_by(CsShare.id.desc()).all()
+        rows = []
+        for share in shares:
+            project = CsProject.query.get(share.project_id)
+            if project is None:
+                continue
+            decisions = [d.to_dict() for d in share.decisions.all()]
+            verdict = review_spec.verdict(decisions)
+            version = (CsProjectVersion.query.get(share.subject_id)
+                      if share.kind == "render" else None)
+            rows.append({
+                "share_id": share.id, "project_id": project.id,
+                "project_name": project.name, "client": project.client_name or "",
+                "version": version.version if version else None,
+                "round_no": share.round_no or 1,
+                "sent_at": share.created_at.isoformat() if share.created_at else None,
+                "sent_by": share.created_by or "",
+                "opened_count": share.opened_count or 0,
+                "last_opened_at": (share.last_opened_at.isoformat()
+                                   if share.last_opened_at else None),
+                "answered": verdict["answered"], "outcome": verdict["outcome"],
+                "color": verdict["color"], "by": verdict["by"],
+                "conflicting": verdict["conflicting"],
+                "comments": share.comments.count(),
+                "filed": project.status in ("Approved", "Archived"),
+                "url": f"/creative-studio/projects/{project.id}",
+            })
+        return jsonify({"ok": True, **review_spec.inbox(rows)})
+    except Exception as exc:                                # noqa: BLE001
+        return jsonify({"ok": True, **review_spec.inbox_unmeasured(str(exc))})
 
 
 # --------------------------------------------------------------- brand kit
@@ -972,27 +1180,64 @@ def ai_tools_page():                                         # noqa: ANN202
 
 @bp.get("/approvals")
 def approvals_page():                                        # noqa: ANN202
-    return render_template("cs_coming_soon.html", title="Approvals",
-                           heading="Approvals",
-                           body="Client approval ships in WO-CS6, reusing "
-                                "the ads_builder share mechanism at "
-                                "/review/<token> rather than a second "
-                                "approval flow.")
+    """Open shares across every client -- WO-CS6 item 3. Reads the same
+    `api_reviews_waiting()` the dashboard card reads, so the two cannot come
+    to disagree about what is waiting on whom."""
+    data = api_reviews_waiting().get_json()
+    return render_template("cs_approvals.html", title="Approvals", **data)
 
 
 @bp.get("/usage")
 def usage_page():                                             # noqa: ANN202
-    """`cs_usage_logs`, grouped by provider (WO-CS4 item 4). Every rate is a
-    placeholder until Todd supplies real ones -- `estimated_cost` reads *not
-    measured* rather than a confident number for any (provider, service)
-    pair not yet in `config.PROVIDER_RATES`."""
+    """`cs_usage_logs`, grouped by provider (WO-CS4 item 4), filtered and
+    tiled (WO-CS6 item 4). Every rate is a placeholder until Todd supplies
+    real ones -- `estimated_cost` reads *not measured* rather than a
+    confident number for any (provider, service) pair not yet in
+    `config.PROVIDER_RATES`."""
     client = (request.args.get("client") or "").strip()
+    user = (request.args.get("user") or "").strip()
+    provider = (request.args.get("provider") or "").strip()
+    project_id = (request.args.get("project_id") or "").strip()
+    period = (request.args.get("period") or "").strip()   # "today" | "month" | ""
+
     q = CsUsageLog.query
     if client:
         q = q.filter_by(client_name=client)
+    if user:
+        q = q.filter_by(created_by=user)
+    if provider:
+        q = q.filter_by(provider=provider)
+    if project_id:
+        try:
+            q = q.filter_by(project_id=int(project_id))
+        except ValueError:
+            project_id = ""
+    now = datetime.utcnow()
+    if period == "today":
+        q = q.filter(CsUsageLog.created_at >= now.replace(
+            hour=0, minute=0, second=0, microsecond=0))
+    elif period == "month":
+        q = q.filter(CsUsageLog.created_at >= now.replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0))
+
     rows = q.order_by(CsUsageLog.created_at.desc()).limit(500).all()
     totals = usage.totals_by_provider(rows)
+    tile_data = usage.tiles(rows)
+
+    # Filter option values come from what has actually been logged, never a
+    # fixed list -- the rule CLAUDE.md states for every gallery filter here:
+    # a new provider must not need a template edit to become pickable.
+    all_clients = sorted({c for (c,) in db.session.query(CsUsageLog.client_name)
+                          .distinct() if c})
+    all_users = sorted({c for (c,) in db.session.query(CsUsageLog.created_by)
+                        .distinct() if c})
+    all_providers = sorted({c for (c,) in db.session.query(CsUsageLog.provider)
+                            .distinct() if c})
+
     return render_template(
-        "cs_usage.html", title="Usage & Costs", client=client,
-        rows=[r.as_dict() for r in rows[:100]], totals=totals,
+        "cs_usage.html", title="Usage & Costs",
+        client=client, user=user, provider=provider, project_id=project_id,
+        period=period, rows=[r.as_dict() for r in rows[:100]],
+        totals=totals, tiles=tile_data,
+        all_clients=all_clients, all_users=all_users, all_providers=all_providers,
         rates_are_placeholder=True)

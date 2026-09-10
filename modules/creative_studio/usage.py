@@ -36,6 +36,35 @@ def record(provider: str, service: str, *, project_id: int | None = None,
     return row
 
 
+def tiles(rows) -> dict:
+    """The five figures the Usage & Costs dashboard shows -- WO-CS6 item 4.
+
+    `total_generations` counts every row, refused calls included: a wall of
+    refusals is what a spent allowance looks like from this side, the rule
+    `hub/quotas.py` already states about a refused OpenAI call, so dropping
+    them would understate what was actually attempted. The other three count
+    one `service` each. `estimated_cost` is `None`, not a silent zero, the
+    moment any one row could not be priced -- the same rule
+    `totals_by_provider()` already carries, so the two screens cannot
+    disagree about what "not measured" means.
+    """
+    rows = list(rows or [])
+
+    def _count(service: str) -> int:
+        return sum(1 for r in rows if r.service == service)
+
+    measured = all(r.estimated_cost is not None for r in rows) if rows else True
+    cost = sum(r.estimated_cost for r in rows if r.estimated_cost is not None)
+    return {
+        "total_generations": len(rows),
+        "videos_rendered": _count("render"),
+        "images_generated": _count("image"),
+        "voiceovers_generated": _count("voice"),
+        "estimated_cost": cost if measured else None,
+        "measured": measured,
+    }
+
+
 def totals_by_provider(rows) -> list[dict]:
     """One row per provider: calls, quantity, and a total that is `None`
     (not measured) the moment any one row that provider wrote could not be

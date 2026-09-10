@@ -70,10 +70,11 @@
   {% endif %}
 
   <div class="card">
-    <h3 style="margin-top:0">Versions</h3>
+    <h3 style="margin-top:0">Versions {{ help_dot('creative_studio.versions') if help_dot is defined else '' }}</h3>
     {% if versions %}
     <table>
-      <thead><tr><th>Version</th><th>Render</th><th>Created by</th><th>When</th></tr></thead>
+      <thead><tr><th>Version</th><th>Render</th><th>Created by</th><th>When</th>
+             <th>Approval</th><th></th></tr></thead>
       <tbody>
         {% for v in versions %}
         <tr>
@@ -81,14 +82,32 @@
           <td>{% if v.render_url %}<a href="{{ v.render_url }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</td>
           <td>{{ v.created_by or '—' }}</td>
           <td>{{ v.created_at[:10] if v.created_at else '' }}</td>
+          <td class="cpdShareState" data-version="{{ v.version }}">
+            <span class="muted">—</span>
+          </td>
+          <td>
+            {% if v.render_url %}
+            <button class="btn btn-sm cpdSendForApproval" data-version="{{ v.version }}">Send for Approval</button>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     {% else %}
-    <p style="color:var(--muted,#64748B)">No render yet. The queued Creatomate render
-       ships in WO-CS5 -- open the Storyboard Editor above to build the scenes first.</p>
+    <p style="color:var(--muted,#64748B)">No render yet. Render a version from the
+       Storyboard Editor above -- once it lands here it can be sent for approval.</p>
     {% endif %}
+  </div>
+
+  <div class="card" id="cpdShareDialog" style="display:none;">
+    <h3 style="margin-top:0">Review link</h3>
+    <p id="cpdShareNote" style="color:var(--muted,#64748B)"></p>
+    <div class="field">
+      <input type="text" id="cpdShareUrl" readonly style="width:100%;padding:8px;">
+    </div>
+    <button class="btn btn-sm" id="cpdShareCopy">Copy link</button>
+    <button class="btn btn-sm" id="cpdShareClose">Close</button>
   </div>
 </div>
 
@@ -148,6 +167,69 @@
   var sBtn = document.getElementById('cpdGenScript');
   if (sBtn) sBtn.addEventListener('click', function(){
     start('/creative-studio/api/projects/{{ project.id }}/generate/script');
+  });
+})();
+(function(){
+  // WO-CS6: send a version for client approval, and show each version's
+  // current round/verdict beside it. Reads /shares rather than assuming a
+  // version has never been sent -- a rep who has already sent V1 and comes
+  // back to the page a day later should see that state, not a blank cell
+  // that reads as "nothing has happened yet".
+  var projectId = {{ project.id|tojson }};
+
+  function paintState(cell, shares) {
+    if (!shares || !shares.length) { cell.innerHTML = '<span class="muted">Not sent</span>'; return; }
+    var live = shares.find(function(s){ return !s.revoked; }) || shares[0];
+    var v = live.verdict || {};
+    var color = v.color === 'green' ? 'ok' : (v.color === 'red' ? 'err' : 'info');
+    var label = v.outcome ? (v.outcome === 'approved' ? 'Approved' : 'Changes requested') : 'Awaiting reply';
+    cell.innerHTML = '<span class="pill ' + color + '">' + label + '</span>'
+      + ' <span class="muted">Round ' + live.round + '</span>';
+  }
+
+  document.querySelectorAll('.cpdShareState').forEach(function(cell){
+    var version = cell.dataset.version;
+    fetch('/creative-studio/api/projects/' + projectId + '/versions/' + version + '/shares')
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if (d.ok) paintState(cell, d.shares); })
+      .catch(function(){});
+  });
+
+  var dialog = document.getElementById('cpdShareDialog');
+  var urlBox = document.getElementById('cpdShareUrl');
+  var note = document.getElementById('cpdShareNote');
+
+  document.querySelectorAll('.cpdSendForApproval').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var version = btn.dataset.version;
+      btn.disabled = true;
+      fetch('/creative-studio/api/projects/' + projectId + '/versions/' + version + '/share',
+            {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          btn.disabled = false;
+          if (!d.ok) { alert(d.error || 'Could not send this version for approval.'); return; }
+          urlBox.value = d.share.url;
+          note.textContent = (d.share.delivery && d.share.delivery.note) || 'Link created.';
+          dialog.style.display = '';
+          dialog.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+        })
+        .catch(function(){ btn.disabled = false; alert('Could not send this version for approval.'); });
+    });
+  });
+
+  var copyBtn = document.getElementById('cpdShareCopy');
+  if (copyBtn) copyBtn.addEventListener('click', function(){
+    urlBox.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(urlBox.value).catch(function(){});
+    }
+  });
+  var closeBtn = document.getElementById('cpdShareClose');
+  if (closeBtn) closeBtn.addEventListener('click', function(){
+    dialog.style.display = 'none';
+    window.location.reload();
   });
 })();
 </script>
