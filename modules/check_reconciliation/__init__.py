@@ -90,6 +90,12 @@ def _install(module) -> None:
     from modules.check_reconciliation.bulk import install_bulk
     install_bulk(module)
 
+    # Add owner-maintained CSV reconciliation lists. The import only creates
+    # queue records and suggested invoice allocations; it never posts a QBO
+    # Payment without the existing explicit approval step.
+    from modules.check_reconciliation.list_import import install_list_import
+    install_list_import(module)
+
     # The bulk extension originally injected importKnownChecks by replacing an
     # exact end-of-script string. That was brittle and could leave the button
     # visible with no click handler when the base page changed. Always install a
