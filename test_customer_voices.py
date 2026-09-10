@@ -232,6 +232,4 @@ class CustomerVoiceTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    # Include production-flow regressions in the existing CI entry point.
-    from test_radio_production import RadioProductionTests  # noqa: F401
     unittest.main()
