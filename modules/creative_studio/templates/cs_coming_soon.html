@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ heading }} — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>{{ heading }}</h2>
+</div>
+<div class="s1d-page">
+  <div class="card">
+    <p style="color:var(--muted,#64748B)">{{ body }}</p>
+  </div>
+</div>
+{% endblock %}

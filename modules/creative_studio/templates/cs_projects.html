@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Projects — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>Projects {{ help_dot('creative_studio.projects') if help_dot is defined else '' }}</h2>
+  <p>Every project across every client, newest first.</p>
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    {% if projects %}
+    <table>
+      <thead><tr><th>Project</th><th>Client</th><th>Type</th><th>Status</th><th>Duration</th><th>Updated</th><th>Created by</th></tr></thead>
+      <tbody>
+        {% for p in projects %}
+        <tr>
+          <td><a href="/creative-studio/projects/{{ p.id }}">{{ p.name }}</a></td>
+          <td>{{ p.client_name or '—' }}</td>
+          <td>{{ p.creative_type }}</td>
+          <td><span class="pill {{ 'ok' if p.status == 'Approved' else 'info' }}">{{ p.status }}</span></td>
+          <td>{{ p.duration ~ 's' if p.duration else '—' }}</td>
+          <td>{{ p.updated_at[:10] if p.updated_at else '' }}</td>
+          <td>{{ p.created_by or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--muted,#64748B)">Nothing here yet. <a href="/creative-studio/">Start a project</a>.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

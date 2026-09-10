@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}AI Tools — Creative Studio{% endblock %}
+{% block content %}
+{# Every tile comes from cs_ai_tools -- "Adding a tile is a row" (WO-CS4 §9).
+   A coming_soon tile renders disabled and links nowhere. #}
+<div class="page-head s1d-page">
+  <h2>AI Tools {{ help_dot('creative_studio.ai_tools') if help_dot is defined else '' }}</h2>
+  <p>Every generator this Hub has, in one place -- live tools open the real
+     screen; the rest are on the way.</p>
+</div>
+
+<div class="s1d-page">
+  <div style="margin-bottom:14px">
+    <a class="pill {{ 'ok' if not selected else 'info' }}" href="/creative-studio/ai-tools">All</a>
+    {% for c in categories %}
+    <a class="pill {{ 'ok' if selected == c else 'info' }}" style="margin-left:6px"
+       href="/creative-studio/ai-tools?category={{ c }}">{{ category_labels.get(c, c) }}</a>
+    {% endfor %}
+  </div>
+
+  <div class="tool-tiles compact">
+    {% for t in tools %}
+    {% if t.status == 'live' %}
+    <a class="tool-tile" href="{{ t.route }}">
+      <div class="t-ico">{{ t.icon }}</div>
+      <h3>{{ t.name }}</h3>
+      <p style="font-size:12px;color:var(--muted,#64748B);margin:4px 0 0">{{ t.description }}</p>
+    </a>
+    {% else %}
+    <div class="tool-tile" style="opacity:.55;cursor:default" title="Coming soon">
+      <div class="t-ico">{{ t.icon }}</div>
+      <h3>{{ t.name }}</h3>
+      <p style="font-size:12px;color:var(--muted,#64748B);margin:4px 0 0">{{ t.description }}</p>
+      <span class="pill warn" style="margin-top:6px;display:inline-block">Coming soon</span>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% if not tools %}
+  <div class="card"><p style="color:var(--muted,#64748B)">No tools in this category yet.</p></div>
+  {% endif %}
+</div>
+{% endblock %}

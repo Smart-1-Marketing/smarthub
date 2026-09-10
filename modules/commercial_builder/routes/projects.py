@@ -3,13 +3,13 @@ CTA/music -> variations (spec sections 1, 3, 4, 11, 14, 15)."""
 
 from flask import Blueprint, jsonify, request
 
-from .. import client_link, compliance_spec, cost_spec, library_spec, teardown, vox_spec
+from .. import client_link, compliance_spec, cost_spec, generation, library_spec, teardown, vox_spec
 from ..config import (COMMERCIAL_LENGTHS, OUTPUT_FORMATS, COMMERCIAL_TYPES, TONE_OPTIONS,
                       PLATFORMS, DEFAULT_PLATFORM, MAX_LENGTHS_PER_BUILD,
                       qr_eligible, qr_required, qr_default_on, get_structure,
                       logo_persistence_eligible,
-                      length_warning, in_build_order, DEFAULT_SHOT_GRAMMAR,
-                      SHOT_NUMBER_STEP, SHOT_SIZES, SHOT_ANGLES, SHOT_MOVES,
+                      length_warning, in_build_order,
+                      SHOT_SIZES, SHOT_ANGLES, SHOT_MOVES,
                       CTV_PUBLISHERS, publisher_qr_note, shot_label,
                       VOX_LENGTHS)
 from ..db import db
@@ -384,49 +384,15 @@ def save_brief(project_id):
 
 
 
-def _with_hub_facts(client) -> dict:
-    """The adopted brand profile, plus what the rest of the Hub holds.
-
-    The profile is a copy taken at adoption -- fonts, pronunciation, preferred
-    voice -- and it is deliberately one-way, so it does not move when the
-    client record does. What it never had is the client's live products, the
-    industry on their Knack record and what their last site scan read off
-    their own pages, and a model writing a :30 for a client of eleven years
-    was working from a name, a color and a tagline.
-
-    `hub/client_context.for_prompt()` is the one reader every AI feature in
-    the Hub appends, so a fact added there reaches the commercial, the
-    campaign generator and the blog writer alike. It carries what is *not* on
-    file with it: a gap a model cannot see is a gap it fills in.
-
-    Never raises, and never writes back to the profile -- adopting is a copy,
-    and the copy is the one a person edited.
-    """
-    profile = client.to_dict()
-    try:
-        from hub.client_context import for_prompt
-        known = for_prompt(client.name or "", client.website or "")
-        if known:
-            profile["hub_record"] = known
-    except Exception:  # noqa: BLE001
-        pass
-    return profile
-
-
 @bp.post("/<int:project_id>/concepts")
 def generate_concepts(project_id):
     """Generate three materially different concepts from the brief."""
     project = CommercialProject.query.get_or_404(project_id)
     client = Client.query.get_or_404(project.client_id)
-    if not project.brief or not project.brief.get("what_advertising"):
-        return jsonify({"ok": False, "error": "Save a commercial brief before generating concepts."}), 400
-
-    concepts = openai_service.generate_concepts(
-        project.brief, _with_hub_facts(client), project.commercial_type)
-    project.concepts = concepts
-    project.selected_concept_id = None
-    project.status = "concepts"
-    db.session.commit()
+    try:
+        concepts = generation.run_concepts(project, client)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     return jsonify({"ok": True, "concepts": concepts, "live": openai_service.is_live()})
 
 
@@ -450,55 +416,10 @@ def select_concept(project_id):
 def generate_script(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     client = Client.query.get_or_404(project.client_id)
-
-    concept = next((c for c in (project.concepts or []) if c["id"] == project.selected_concept_id), None)
-    if not concept:
-        return jsonify({"ok": False, "error": "Select a concept before generating a script."}), 400
-
-    qr_enabled = bool((project.cta or {}).get("qr_enabled")) if project.cta else qr_eligible(project.length_seconds)
-    script = openai_service.generate_script(concept, project.length_seconds, project.brief, client.to_dict(),
-                                             platform=project.platform, qr_enabled=qr_enabled)
-    project.script = script
-    project.status = "scripted"
-
-    # (Re)build Scene rows from the script. Regenerating the script replaces
-    # unlocked scenes only, so a user's manually-approved footage choices
-    # for earlier scenes survive a script tweak.
-    existing = {s.order_index: s for s in project.scenes.all()}
-    for idx, sc in enumerate(script["scenes"]):
-        is_last = idx == len(script["scenes"]) - 1
-        scene = existing.get(idx)
-        if scene and scene.locked:
-            continue
-        if not scene:
-            scene = Scene(project_id=project.id, order_index=idx)
-            db.session.add(scene)
-        scene.start = sc["start"]
-        scene.end = sc["end"]
-        scene.narration = sc["voiceover"]
-        scene.visual_description = sc["visual"]
-        scene.is_cta = is_last
-        meta = scene.asset_meta or {}
-        # A Scene row is a SHOT now, not a beat. What holds a beat together is
-        # this metadata: every shot in a beat carries the same label and index,
-        # and the Blueprint groups on it. Written here rather than inferred
-        # later, because the beat is the model's answer and re-deriving it from
-        # timings would be guessing at an argument we were told.
-        meta["beat"] = sc.get("beat")
-        meta["beat_index"] = sc.get("beat_index")
-        meta["grammar"] = sc.get("grammar") or dict(DEFAULT_SHOT_GRAMMAR)
-        # Numbered in tens, the way a storyboard is, so a shot inserted between
-        # 20 and 30 does not renumber the board.
-        meta["shot_no"] = (idx + 1) * SHOT_NUMBER_STEP
-        scene.asset_meta = meta
-        if is_last:
-            scene.asset_type = "cta"
-    # drop stale scenes beyond the new scene count
-    for idx, scene in existing.items():
-        if idx >= len(script["scenes"]) and not scene.locked:
-            db.session.delete(scene)
-
-    db.session.commit()
+    try:
+        script = generation.run_script(project, client)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     return jsonify({"ok": True, "script": script, "project": project.to_dict(), "live": openai_service.is_live()})
 
 

@@ -328,6 +328,26 @@ _OPEN_ON_PURPOSE = {
     "/api/presence":
         "the headcount on everybody's dashboard. The count is everybody's; "
         "the account-by-account list on /status stays in Utilities",
+    "/creative-studio/templates/admin":
+        "gated, just not through hub.access -- Template Admin is a "
+        "module-scoped admin check (modules/creative_studio/api.py's own "
+        "_is_admin(), mirroring the same reasoning access.py documents) "
+        "rather than a Hub-wide Utilities surface, and test_creative_studio.py "
+        "asserts a General account is refused it and a promoted one reaches it",
+    "/creative-studio/templates/admin/<path:template_id>":
+        "the same module-scoped admin check as /creative-studio/templates/admin",
+    "/creative-studio/api/projects/<int:project_id>/versions":
+        "a rendered video version, not the Hub's /api/version diagnostic -- "
+        "_ADMIN_SHAPED matches the word 'version' wherever it appears. The "
+        "route is an ordinary Creative Studio project read, gated by the "
+        "blueprint's own hub.blueprint_guard.install() like every other "
+        "route on it, and open to any signed-in General account on purpose: "
+        "any rep working the project can see what has been rendered.",
+    "/creative-studio/api/projects/<int:project_id>/versions/<int:version_number>/approve":
+        "the same false match on 'version' -- approving a rendered cut and "
+        "filing it to the client's 360 record is ordinary Creative Studio "
+        "work, not a Utilities-admin action, and is behind the same "
+        "blueprint guard as the rest of the module.",
 }
 
 _open, _unexplained = set(), []

@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% block title %}{{ 'New template' if not template.id else template.name }} — Template Admin{% endblock %}
+{% block content %}
+{% set is_new = not template.id %}
+<div class="page-head s1d-page">
+  <h2>{{ 'New template' if is_new else template.name }} {{ help_dot('creative_studio.templates_admin') if help_dot is defined else '' }}</h2>
+  {% if not is_new %}
+  <p><span class="pill {{ 'ok' if template.status == 'published' else 'warn' if template.status == 'draft' else 'neutral' }}">{{ template.status }}</span>
+     &middot; v{{ template.version }}
+     &middot; <a href="/creative-studio/templates/{{ template.id }}">Preview</a></p>
+  {% endif %}
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    <h3 style="margin-top:0">Details</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      {% if is_new %}
+      <label>Slug id<br><input type="text" id="tplId" placeholder="hvac-30-general" pattern="[a-z0-9][a-z0-9-]+"></label>
+      {% endif %}
+      <label>Name<br><input type="text" id="tplName" value="{{ template.name }}"></label>
+      <label>Description<br><input type="text" id="tplDescription" value="{{ template.description }}"></label>
+      <label>Category<br><input type="text" id="tplCategory" value="{{ template.category }}" placeholder="commercial / social / brand"></label>
+      <label>Industry<br><input type="text" id="tplIndustry" value="{{ template.industry }}"></label>
+      <label>Duration (seconds)<br><input type="number" id="tplDuration" value="{{ template.duration }}"></label>
+      <label>Aspect ratio<br>
+        <select id="tplAspect">
+          {% for a in aspect_ratios %}<option value="{{ a }}" {{ 'selected' if a == template.aspect_ratio }}>{{ a }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Creative type<br>
+        <select id="tplCtype">
+          <option value="">—</option>
+          {% for t in creative_types %}<option value="{{ t.key }}" {{ 'selected' if t.key == template.creative_type }}>{{ t.label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Tags (comma-separated)<br><input type="text" id="tplTags" value="{{ template.tags|join(', ') }}"></label>
+    </div>
+    <div style="margin-top:12px">
+      <button class="btn btn-primary" id="tplSave">{{ 'Create' if is_new else 'Save' }}</button>
+      {% if not is_new %}
+      <button class="btn" id="tplDuplicate">Duplicate</button>
+      {% if template.status != 'published' %}<button class="btn" id="tplPublish">Publish</button>{% endif %}
+      {% if template.status != 'archived' %}<button class="btn danger" id="tplDisable">Archive</button>{% endif %}
+      {% endif %}
+      <span id="tplStatus" style="color:var(--muted,#64748B);font-size:12.5px"></span>
+    </div>
+  </div>
+
+  {% if not is_new %}
+  <div class="card">
+    <h3 style="margin-top:0">Scenes</h3>
+    <table>
+      <thead><tr><th>#</th><th>Layout</th><th>Duration</th><th>Layers</th><th></th></tr></thead>
+      <tbody id="sceneRows">
+        {% for s in template.scenes %}
+        <tr data-scene-id="{{ s.id }}">
+          <td>{{ s.position }}</td>
+          <td>{{ layouts.get(s.layout_key, {}).get('label', s.layout_key) }}</td>
+          <td>{{ s.default_duration }}s</td>
+          <td style="font-size:11.5px">{% for k, v in s.layers.items() %}<div><b>{{ k }}</b>: {{ v }}</div>{% endfor %}</td>
+          <td><button class="btn small danger" data-delete-scene="{{ s.id }}">Delete</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h4>Add scene</h4>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+      <label>Position<br><input type="number" id="sceneNewPosition" value="{{ (template.scenes|length) + 1 }}" style="width:70px"></label>
+      <label>Layout<br>
+        <select id="sceneNewLayout">
+          {% for key, l in layouts.items() %}<option value="{{ key }}">{{ l.label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Duration (seconds)<br><input type="number" id="sceneNewDuration" value="5" style="width:80px"></label>
+      <label style="flex:1;min-width:260px">Layers (one per line, <code>key: value</code> — value may be
+        <code>{{ '{{' }}variable{{ '}}' }}</code>, <code>slot:image</code>, <code>slot:video</code>, or literal text)<br>
+        <textarea id="sceneNewLayers" rows="3" style="width:100%" placeholder="headline: {{ '{{' }}headline{{ '}}' }} / background: slot:image (one per line)"></textarea>
+      </label>
+      <button class="btn" id="sceneAdd">Add scene</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Variables</h3>
+    <table>
+      <thead><tr><th>Name</th><th>Source</th><th>Default</th><th>Required</th><th></th></tr></thead>
+      <tbody id="varRows">
+        {% for v in template.variables %}
+        <tr data-var-id="{{ v.id }}">
+          <td><code>{{ '{{' }}{{ v.name }}{{ '}}' }}</code></td>
+          <td>{{ v.source }}</td>
+          <td>{{ v.default }}</td>
+          <td>{{ 'Yes' if v.required else 'No' }}</td>
+          <td><button class="btn small danger" data-delete-var="{{ v.id }}">Delete</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h4>Add variable</h4>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+      <label>Name<br><input type="text" id="varNewName" placeholder="headline"></label>
+      <label>Source<br>
+        <select id="varNewSource">
+          <option value="brief">brief</option>
+          <option value="brand">brand</option>
+          <option value="weather">weather</option>
+          <option value="manual">manual</option>
+        </select>
+      </label>
+      <label>Default<br><input type="text" id="varNewDefault"></label>
+      <label><input type="checkbox" id="varNewRequired"> Required</label>
+      <button class="btn" id="varAdd">Add variable</button>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+(function(){
+  var templateId = {{ template.id|tojson }};
+  var isNew = {{ 'true' if is_new else 'false' }};
+  var status = document.getElementById('tplStatus');
+
+  function fields(){
+    return {
+      name: document.getElementById('tplName').value,
+      description: document.getElementById('tplDescription').value,
+      category: document.getElementById('tplCategory').value,
+      industry: document.getElementById('tplIndustry').value,
+      duration: document.getElementById('tplDuration').value,
+      aspect_ratio: document.getElementById('tplAspect').value,
+      creative_type: document.getElementById('tplCtype').value,
+      tags: document.getElementById('tplTags').value.split(',').map(function(s){ return s.trim(); }).filter(Boolean)
+    };
+  }
+
+  document.getElementById('tplSave').addEventListener('click', function(){
+    status.textContent = 'Saving…';
+    var body = fields();
+    var url = '/creative-studio/api/templates';
+    if (!isNew) { url += '/' + encodeURIComponent(templateId); }
+    else { body.id = document.getElementById('tplId').value.trim(); }
+    fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+      .then(function(r){ return r.json(); }).then(function(d){
+        if (!d.ok) { status.textContent = d.error || 'Could not save.'; return; }
+        if (isNew) { window.location = '/creative-studio/templates/admin/' + encodeURIComponent(d.template.id); }
+        else { status.textContent = 'Saved.'; }
+      }).catch(function(){ status.textContent = 'Could not save.'; });
+  });
+
+  var dup = document.getElementById('tplDuplicate');
+  if (dup) dup.addEventListener('click', function(){
+    var newId = prompt('Slug id for the copy:');
+    if (!newId) return;
+    fetch('/creative-studio/api/templates/' + encodeURIComponent(templateId) + '/duplicate', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: newId})
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (d.ok) { window.location = '/creative-studio/templates/admin/' + encodeURIComponent(d.template.id); }
+      else { status.textContent = d.error || 'Could not duplicate.'; }
+    });
+  });
+
+  var pub = document.getElementById('tplPublish');
+  if (pub) pub.addEventListener('click', function(){
+    fetch('/creative-studio/api/templates/' + encodeURIComponent(templateId) + '/publish', {method: 'POST'})
+      .then(function(r){ return r.json(); }).then(function(d){
+        if (d.ok) { window.location.reload(); } else { status.textContent = d.error || 'Could not publish.'; }
+      });
+  });
+
+  var dis = document.getElementById('tplDisable');
+  if (dis) dis.addEventListener('click', function(){
+    if (!confirm('Archive this template? It will leave the public gallery.')) return;
+    fetch('/creative-studio/api/templates/' + encodeURIComponent(templateId) + '/disable', {method: 'POST'})
+      .then(function(){ window.location.reload(); });
+  });
+
+  var addScene = document.getElementById('sceneAdd');
+  if (addScene) addScene.addEventListener('click', function(){
+    var layers = {};
+    (document.getElementById('sceneNewLayers').value || '').split('\n').forEach(function(line){
+      var i = line.indexOf(':');
+      if (i > -1) { layers[line.slice(0, i).trim()] = line.slice(i + 1).trim(); }
+    });
+    fetch('/creative-studio/api/templates/' + encodeURIComponent(templateId) + '/scenes', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        position: document.getElementById('sceneNewPosition').value,
+        layout_key: document.getElementById('sceneNewLayout').value,
+        default_duration: document.getElementById('sceneNewDuration').value,
+        layers: layers
+      })
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (d.ok) { window.location.reload(); } else { alert(d.error || 'Could not add the scene.'); }
+    });
+  });
+
+  document.querySelectorAll('[data-delete-scene]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if (!confirm('Delete this scene?')) return;
+      fetch('/creative-studio/api/templates/' + encodeURIComponent(templateId) + '/scenes/' + btn.getAttribute('data-delete-scene') + '/delete', {method: 'POST'})
+        .then(function(){ window.location.reload(); });
+    });
+  });
+
+  var addVar = document.getElementById('varAdd');
+  if (addVar) addVar.addEventListener('click', function(){
+    fetch('/creative-studio/api/templates/' + encodeURIComponent(templateId) + '/variables', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        name: document.getElementById('varNewName').value.trim(),
+        source: document.getElementById('varNewSource').value,
+        default: document.getElementById('varNewDefault').value,
+        required: document.getElementById('varNewRequired').checked
+      })
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (d.ok) { window.location.reload(); } else { alert(d.error || 'Could not add the variable.'); }
+    });
+  });
+
+  document.querySelectorAll('[data-delete-var]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if (!confirm('Delete this variable?')) return;
+      fetch('/creative-studio/api/templates/' + encodeURIComponent(templateId) + '/variables/' + btn.getAttribute('data-delete-var') + '/delete', {method: 'POST'})
+        .then(function(){ window.location.reload(); });
+    });
+  });
+})();
+</script>
+{% endblock %}
