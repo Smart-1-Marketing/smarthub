@@ -728,9 +728,9 @@ def apply_bed(row, bed, only):
         return fail("That spot is not in this project.", 404)
     seconds = bed.get("seconds")
     targets = [k for k in eligible if (not only or k == only) and
-               bed.get("measured") and seconds is not None and seconds >= duration_by_key(k)["seconds"]]
+               (bed.get("measured") or bed.get("estimated")) and seconds is not None and seconds >= duration_by_key(k)["seconds"]]
     if not targets:
-        return fail("This bed is too short or its duration is unknown. Choose a measured track long enough for the spot.")
+        return fail("This bed is too short or its duration is unknown. Choose a WAV or MP3 track long enough for the spot.")
     beds = _beds(row)
     for slot in targets:
         beds[slot] = dict(bed, slot=slot)
@@ -1143,6 +1143,11 @@ def api_bed_upload(pid):
 
     asset = upload_asset(data, store.cloud_folder(row), f"bed-{slot}-own-{secrets.token_urlsafe(8)}", "audio")
     length = _measured(data, filename)
+    if length.get("seconds") is None and radio_spec:
+        seconds = radio_spec.mp3_seconds(data)
+        if seconds is not None:
+            length.update(seconds=seconds, estimated=True,
+                          measure_note="MP3 duration estimated from its frames.")
     bed = {"kind": "upload", "prompt": "", "filename": filename,
            "mimetype": mimetype, "audio_url": asset["url"],
            "public_id": asset["public_id"], "store": asset["store"],

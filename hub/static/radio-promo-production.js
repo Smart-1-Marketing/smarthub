@@ -100,7 +100,7 @@ async function openBedDialog(slot,shared){
 }
 function filterMusicTracks(){
   const q=$('bedSearch').value.trim().toLowerCase();
-  $('bedLibraryChoice').innerHTML='<option value="">Choose a saved bed</option>'+musicTracks.filter(t=>t.name.toLowerCase().includes(q)).map(t=>`<option value="${esc(t.id)}">${esc(t.name)} — ${t.seconds??'?'}s</option>`).join('');$('bedAudition').replaceChildren();
+  $('bedLibraryChoice').innerHTML='<option value="">Choose a saved bed</option>'+musicTracks.filter(t=>t.name.toLowerCase().includes(q)).map(t=>`<option value="${esc(t.id)}">${esc(t.name)} — ${t.seconds==null?'?':Number(t.seconds).toFixed(1)}s${t.estimated?' estimated':''}</option>`).join('');$('bedAudition').replaceChildren();
 }
 function auditionBed(){
   const track=musicTracks.find(t=>t.id===$('bedLibraryChoice').value);$('bedAudition').replaceChildren();

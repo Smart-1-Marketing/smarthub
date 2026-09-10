@@ -97,6 +97,16 @@ class RadioProductionTests(unittest.TestCase):
             self.assertNotEqual(second.json['bed']['audio_url'],original)
             with self.client.get(self.base+'/audio?ref=bed:fifteen') as response:self.assertEqual(response.data,b'first')
 
+    def test_uploaded_mp3_can_be_saved_and_reused_from_library(self):
+        audio=(b"\xff\xfb\x90\x00"+bytes(413))*1200
+        r=self.client.post(self.base+'/bed/upload',data={'slot':'thirty','save_name':'MP3 bed','save_library':'1','file':(io.BytesIO(audio),'bed.mp3')})
+        self.assertEqual(r.status_code,200,r.json)
+        self.assertTrue(r.json['bed']['estimated']);self.assertFalse(r.json['bed']['measured'])
+        track=self.client.get('/api/music-library?q=MP3').json['tracks'][0]
+        applied=self.client.post(self.base+'/music-library/'+track['id']+'/apply',json={})
+        self.assertEqual(applied.status_code,200,applied.json)
+        self.assertEqual(set(applied.json['applied']),{'fifteen','thirty'})
+
     def test_script_edits_retire_old_recordings_and_approvals(self):
         store.update(self.pid,{'spots':[{'slot':'fifteen','audio_url':'old'}],'mixes':{'fifteen':{'audio_url':'oldmix'}},'decisions':{'fifteen':{'status':'approved'}}})
         with patch.object(promo,'_required_script_gaps',return_value=[]):
