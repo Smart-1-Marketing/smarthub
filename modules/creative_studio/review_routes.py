@@ -43,7 +43,6 @@ one.
 """
 from __future__ import annotations
 
-import secrets
 from datetime import datetime
 
 from flask import Blueprint, abort, jsonify, render_template, request
