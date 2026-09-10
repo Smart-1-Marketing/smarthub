@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Media Library — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>Media Library {{ help_dot('creative_studio.media') if help_dot is defined else '' }}</h2>
+  <p>What Creative Studio has stored for {{ client or 'every client' }} -- uploaded, generated, or found by the Cloudinary backfill.</p>
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    <label>Client
+      <input type="text" id="csMediaClient" value="{{ client }}" placeholder="Type a client name, or leave blank" list="csMediaClientList" autocomplete="off" style="max-width:360px">
+      <datalist id="csMediaClientList"></datalist>
+    </label>
+    <button class="btn" id="csMediaGo">Go</button>
+    <button class="btn" id="csMediaIndex" {{ 'disabled' if not client else '' }}>Index this client's assets</button>
+    <span id="csIndexStatus" style="margin-left:8px;color:var(--muted,#64748B);font-size:12.5px"></span>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Upload</h3>
+    <form id="csUploadForm" enctype="multipart/form-data">
+      <input type="file" name="file" id="csUploadFile" required>
+      <button class="btn btn-primary" type="submit">Upload</button>
+      <span id="csUploadStatus" style="margin-left:8px;color:var(--muted,#64748B);font-size:12.5px"></span>
+    </form>
+  </div>
+
+  <div class="s1d-subnav" style="margin-top:10px">
+    {% for a in asset_types %}
+    <a href="?{% if client %}client={{ client|urlencode }}&amp;{% endif %}tab={{ a.key }}" class="{{ 'on' if a.key == tab else '' }}">{{ a.label }}</a>
+    {% endfor %}
+  </div>
+
+  <div class="card" style="margin-top:10px">
+    {% if assets %}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px">
+      {% for a in assets %}
+      <div style="border:1px solid var(--line-soft,#E2E8F0);border-radius:8px;padding:8px;text-align:center">
+        {% if a.asset_type in ('image', 'generated', 'logo') %}
+        <img src="{{ a.thumbnail_url }}" alt="" style="max-width:100%;max-height:100px;object-fit:contain">
+        {% else %}
+        <div style="height:100px;display:flex;align-items:center;justify-content:center;font-size:28px">{{ '\U0001F3AC' if a.asset_type == 'video' else '\U0001F3B5' if a.asset_type in ('audio','music','voiceover') else '\U0001F4C4' }}</div>
+        {% endif %}
+        <div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ a.filename }}">{{ a.filename }}</div>
+        <div style="font-size:10px;color:var(--muted,#64748B)">{{ a.source }}</div>
+        <button class="btn small danger" data-del="{{ a.id }}" style="margin-top:4px">Delete</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p style="color:var(--muted,#64748B)">Nothing here yet.</p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function(){
+  var input = document.getElementById('csMediaClient');
+  var list = document.getElementById('csMediaClientList');
+  var t;
+  function search(){
+    clearTimeout(t);
+    t = setTimeout(function(){
+      fetch('/creative-studio/api/clients/search?q=' + encodeURIComponent(input.value.trim()))
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          list.innerHTML = '';
+          (d.clients || []).forEach(function(c){
+            var o = document.createElement('option');
+            o.value = c.name;
+            list.appendChild(o);
+          });
+        }).catch(function(){});
+    }, 200);
+  }
+  input.addEventListener('input', search);
+
+  document.getElementById('csMediaGo').addEventListener('click', function(){
+    var u = new URL(window.location.href);
+    u.searchParams.set('client', input.value.trim());
+    window.location = u.pathname + u.search;
+  });
+
+  var idxBtn = document.getElementById('csMediaIndex');
+  var idxStatus = document.getElementById('csIndexStatus');
+  if (idxBtn) {
+    idxBtn.addEventListener('click', function(){
+      idxBtn.disabled = true;
+      idxStatus.textContent = 'Queued…';
+      fetch('/creative-studio/api/media/index', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({client: input.value.trim()})
+      }).then(function(r){ return r.json(); }).then(function(d){
+        idxStatus.textContent = d.ok ? 'Queued. Reload in a moment to see new assets.' : (d.error || 'Could not queue.');
+        idxBtn.disabled = false;
+      }).catch(function(){ idxStatus.textContent = 'Could not queue.'; idxBtn.disabled = false; });
+    });
+  }
+
+  var form = document.getElementById('csUploadForm');
+  var upStatus = document.getElementById('csUploadStatus');
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var fd = new FormData(form);
+    fd.append('client', input.value.trim());
+    upStatus.textContent = 'Uploading…';
+    fetch('/creative-studio/api/media/upload', {method: 'POST', body: fd})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.ok) { window.location.reload(); }
+        else { upStatus.textContent = d.error || 'Could not upload.'; }
+      }).catch(function(){ upStatus.textContent = 'Could not upload.'; });
+  });
+
+  document.querySelectorAll('[data-del]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if (!confirm('Remove this from the library?')) return;
+      fetch('/creative-studio/api/media/' + btn.getAttribute('data-del') + '/delete', {method: 'POST'})
+        .then(function(){ window.location.reload(); });
+    });
+  });
+})();
+</script>
+{% endblock %}

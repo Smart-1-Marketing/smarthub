@@ -212,3 +212,86 @@ def suite_location_id(name: str, url: str = "") -> str:
         return location_for(name, url).get("location_id", "") or ""
     except Exception:  # noqa: BLE001
         return ""
+
+
+def _slug(name: str) -> str:
+    return "-".join("".join(c if c.isalnum() else " " for c in (name or "").lower()).split())
+
+
+def _brand_fields(name: str, domain: str) -> dict:
+    """Colours, fonts and logo for a freshly-adopted client, read from the
+    Hub's own Brand Kit rather than left blank -- Creative Studio's WO-CS3
+    rule that a project's text layers carry the client's brand by default.
+    `hub/brand_template.py`'s confirmed pick wins where one exists; position
+    zero of `client_brand.brand_kit()` is what every other reader here has
+    always trusted as "the" logo and "the" colour, so an unconfirmed client
+    still gets a sane default rather than nothing.
+
+    Never raises, and never invents: a client with no brand data on file gets
+    every field blank, which is what it should get.
+    """
+    try:
+        from hub.client_brand import brand_kit
+        from hub.brand_template import get as brand_pick
+    except Exception:  # noqa: BLE001
+        return {}
+    try:
+        kit = brand_kit(name, domain) or {}
+        pick = brand_pick(name) or {}
+    except Exception:  # noqa: BLE001
+        return {}
+    colors = kit.get("colors") or []
+    picked = pick.get("colors") or {}
+    primary = picked.get("primary") or (colors[0]["hex"] if len(colors) > 0 else "")
+    secondary = picked.get("secondary") or (colors[1]["hex"] if len(colors) > 1 else "")
+    logos = kit.get("logos") or []
+    logo_url = picked.get("logo_url") or (logos[0]["url"] if logos else "")
+    fonts = [f["name"] for f in (kit.get("fonts") or [])]
+    return {"primary_color": primary, "secondary_color": secondary,
+            "logo_url": logo_url, "fonts": fonts}
+
+
+def ensure_client(name: str, url: str = ""):
+    """A `cb_clients` row for this Hub client, found or created.
+
+    The join Creative Studio's binder uses to attach a `cs_project` to a
+    `CommercialProject` -- deliberately here rather than in
+    `modules/creative_studio`, because that module's own model docstring
+    says it "never writes to modules.commercial_builder's tables, it only
+    remembers which row it handed the work to." A caller outside this
+    module gets a row back; only this function's own commit ever writes one.
+
+    **A business already adopted is found again, not adopted twice** — the
+    same `existing_row()` match `adopt_hub_client()` uses, domain first,
+    exact normalised name second, never a substring.
+
+    **Brand fields are set only when the row is created.** A client somebody
+    has already opened a brand profile for and corrected has better
+    information than a fresh Brand Kit read, so this never overwrites what
+    is already on the row — `refresh_note()`'s rule, applied silently rather
+    than surfaced, because this call site has no screen to put a note on.
+    """
+    from .db import db
+    from .models import Client
+
+    name = (name or "").strip() or "Smart 1 Marketing"
+    existing = existing_row(Client.query.all(), name, url)
+    if existing:
+        return existing
+
+    slug = _slug(name) or "client"
+    base_slug, i = slug, 2
+    while Client.query.filter_by(slug=slug).first():
+        slug = f"{base_slug}-{i}"
+        i += 1
+
+    brand = _brand_fields(name, url)
+    client = Client(name=name, slug=slug, website=url or None,
+                    primary_color=brand.get("primary_color") or None,
+                    secondary_color=brand.get("secondary_color") or None,
+                    logo_url=brand.get("logo_url") or None)
+    if brand.get("fonts"):
+        client.fonts = brand["fonts"]
+    db.session.add(client)
+    db.session.commit()
+    return client

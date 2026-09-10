@@ -12,6 +12,16 @@
        <span id="wc-summary">checking narration length…</span></p>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
+    {% if cs_layout %}
+    {# WO-CS5. A running total, never a bill -- `cs_usage_logs.estimated_cost`
+       is a placeholder rate until Todd supplies real ones, the same caveat
+       the Usage & Costs page carries. Absent for every project this wizard
+       built on its own, the same guard the layer panel above uses: there is
+       nothing in cs_usage_logs for a project Creative Studio never bound. #}
+    <span id="cs-credit-meter" data-cs-project-id="{{ cs_layout.cs_project_id }}"
+          class="cb-status-pill" style="display:none;" title="Estimated cost so far for this project (not a bill)"></span>
+    {% endif %}
+
     {# Its own start button, not the floating one. hub-demo.js's launcher
        offers the module's FIRST scenario, which is the Start page's — and a
        page carrying [data-demo-start] is skipped by that launcher, so naming
@@ -141,6 +151,17 @@
 <script id="paint-styles-data" type="application/json">{{ paint_styles|tojson }}</script>
 {% endif %}
 
+{# WO-CS3: the layer panel's vocabulary, for a project Creative Studio built
+   from a template. `cs_layout` is None for every project this wizard built
+   on its own, so the absence of this block is the server's own decision
+   about whether a layer panel belongs on this scene rather than something
+   the browser has to infer. Data, for the same reason paint-styles-data is:
+   a layout added to the vocabulary must not leave this page's own copy of
+   it stale. #}
+{% if cs_layout %}
+<script id="cs-layout-data" type="application/json">{{ cs_layout|tojson }}</script>
+{% endif %}
+
 <template id="scene-card-tpl">
   <div class="cb-scene-card">
     <div>
@@ -171,6 +192,12 @@
       </div>
       <div class="cb-field"><label class="cb-label">Narration</label><textarea class="narration-input" rows="2"></textarea></div>
       <p class="cb-hint spokesperson-note"></p>
+      {# WO-CS3. Built entirely by blueprint.js from cs-layout-data, because
+         which fields belong here is a fact about this scene's own layout --
+         a static block of inputs would either offer a field the layout has
+         nowhere to draw or hide one the checks in scripts.py would refuse
+         anyway. Empty and undecorated on a scene with no layout_key. #}
+      <div class="cb-layer-panel"></div>
       <div class="asset-picker"></div>
     </div>
     <div class="cb-scene-controls">

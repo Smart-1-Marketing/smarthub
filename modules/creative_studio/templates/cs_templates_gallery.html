@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Templates — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>Templates {{ help_dot('creative_studio.templates') if help_dot is defined else '' }}</h2>
+  <p>Every template comes from data -- adding one is a row in Template Admin,
+     never a code change.</p>
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    <form method="get" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+      {% if client %}<input type="hidden" name="client" value="{{ client }}">{% endif %}
+      <label>Type<br>
+        <select name="type">
+          <option value="">All</option>
+          {% for t in all_types %}
+          <option value="{{ t }}" {{ 'selected' if t == selected.type }}>{{ creative_type_labels.get(t, t) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Industry<br>
+        <select name="industry">
+          <option value="">All</option>
+          {% for i in all_industries %}
+          <option value="{{ i }}" {{ 'selected' if i == selected.industry }}>{{ industry_labels.get(i, i|replace('_',' ')|title) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Duration<br>
+        <select name="duration">
+          <option value="">All</option>
+          {% for d in all_durations %}
+          <option value="{{ d }}" {{ 'selected' if d|string == selected.duration }}>:{{ d }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Aspect<br>
+        <select name="aspect">
+          <option value="">All</option>
+          {% for a in all_aspects %}
+          <option value="{{ a }}" {{ 'selected' if a == selected.aspect }}>{{ a }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn" type="submit">Filter</button>
+      {% if selected.type or selected.industry or selected.duration or selected.aspect %}
+      <a href="?{% if client %}client={{ client|urlencode }}{% endif %}" class="btn ghost">Clear</a>
+      {% endif %}
+    </form>
+  </div>
+
+  {% if templates %}
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-top:14px">
+    {% for t in templates %}
+    <a class="card" href="/creative-studio/templates/{{ t.id }}{% if client %}?client={{ client|urlencode }}{% endif %}"
+       style="text-decoration:none;color:inherit;display:block">
+      <div style="height:110px;border-radius:6px;background:var(--line-soft,#E2E8F0);display:flex;align-items:center;justify-content:center;color:var(--muted,#64748B);font-size:12px;margin-bottom:8px">
+        {{ t.aspect_ratio }} &middot; :{{ t.duration }}
+      </div>
+      <h3 style="margin:0 0 4px;font-size:14px">{{ t.name }}</h3>
+      <p style="margin:0;font-size:12px;color:var(--muted,#64748B)">{{ t.description }}</p>
+      <div style="margin-top:8px">
+        <span class="pill info">{{ creative_type_labels.get(t.creative_type, t.creative_type) }}</span>
+        {% if t.industry and t.industry != 'general' %}<span class="pill neutral">{{ industry_labels.get(t.industry, t.industry|replace('_',' ')|title) }}</span>{% endif %}
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p style="color:var(--muted,#64748B);margin-top:14px">No templates match. <a href="?{% if client %}client={{ client|urlencode }}{% endif %}">Clear filters</a>.</p>
+  {% endif %}
+</div>
+{% endblock %}

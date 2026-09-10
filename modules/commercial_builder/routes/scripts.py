@@ -59,6 +59,56 @@ def list_scenes(project_id):
     return jsonify({"ok": True, "scenes": [s.to_dict() for s in project.scenes.all()]})
 
 
+def _clean_layers(layout_key, layers):
+    """`(cleaned, rejected)` for a Storyboard Editor layer-panel save.
+
+    Validated against `modules.creative_studio.layouts` rather than a copy
+    of its vocabulary here -- the drift CLAUDE.md names at length about a
+    rate card, a spec kit, anything transcribed twice. A scene built outside
+    Creative Studio (no `layout_key` on it at all) has nothing to validate
+    against and every submitted key is rejected, which is the correct answer
+    for a scene with no layout: there is nowhere for any of it to draw.
+
+    `text_position`, `animation` and `transition` are scene-level settings
+    rather than one of the layout's own `layers` -- text_position has no
+    per-layout restriction today, and animation/transition are checked
+    against the layout's own allowed subset, because a static end card and a
+    full-bleed hook do not share a motion vocabulary.
+    """
+    try:
+        from modules.creative_studio import layouts as cs_layouts
+    except Exception:                                     # noqa: BLE001
+        return {}, sorted((layers or {}).keys())
+
+    spec = cs_layouts.layout(layout_key) or {}
+    allowed_layers = set(spec.get("layers", ()))
+    allowed_animations = set(spec.get("animations", ()))
+    allowed_transitions = set(spec.get("transitions", ()))
+
+    cleaned, rejected = {}, []
+    for key, value in (layers or {}).items():
+        if key == "text_position":
+            if value in cs_layouts.TEXT_POSITIONS:
+                cleaned[key] = value
+            else:
+                rejected.append(key)
+        elif key == "animation":
+            if value in allowed_animations:
+                cleaned[key] = value
+            else:
+                rejected.append(key)
+        elif key == "transition":
+            if value in allowed_transitions:
+                cleaned[key] = value
+            else:
+                rejected.append(key)
+        elif key in allowed_layers:
+            cleaned[key] = value
+        else:
+            rejected.append(key)
+    return cleaned, rejected
+
+
 def _clean_grammar(grammar):
     """Only values the vocabularies know. The lists are closed because a
     `<select>` and a stock query both read them, so a value from neither is
@@ -95,6 +145,17 @@ def update_scene(project_id, scene_id):
         # camera angle — the same trap `set_music` had.
         meta = dict(scene.asset_meta or {})
         meta["grammar"] = _clean_grammar(data.get("grammar"))
+        scene.asset_meta = meta
+    if "layers" in data:
+        # Same merge-not-replace shape as grammar, for the same reason: a
+        # layer-panel save must not drop this scene out of its own layout.
+        meta = dict(scene.asset_meta or {})
+        cleaned, rejected = _clean_layers(meta.get("layout_key", ""), data.get("layers"))
+        if rejected:
+            return jsonify({"ok": False, "error": (
+                "These are not on this scene's layout: "
+                f"{', '.join(sorted(rejected))}.")}), 400
+        meta["layers"] = {**(meta.get("layers") or {}), **cleaned}
         scene.asset_meta = meta
     if "duration" in data:
         new_duration = max(float(data["duration"]), 0.5)

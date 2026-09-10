@@ -156,6 +156,16 @@ input:focus, textarea:focus, select:focus{outline:none;border-color:var(--cb-pri
 .cb-word-count.ok{color:var(--cb-accent);}
 .cb-word-count.warn{color:var(--cb-warn);}
 
+/* WO-CS3 layer panel -- empty and undecorated on a scene with no
+   layout_key, so it costs nothing on the scenes this wizard has always
+   built. Stacks with the rest of the card at the same 920px break the card
+   itself already uses, so nothing here needs a media query of its own. */
+.cb-layer-panel{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;}
+.cs-layer-row{margin-bottom:0;}
+.cs-layer-chip{border:none;cursor:pointer;margin-left:6px;font-size:10.5px;}
+.cs-layer-select{font-size:12px;padding:5px 6px;border:1px solid var(--cb-border);
+  border-radius:var(--cb-radius-sm);background:#fff;color:var(--cb-text);width:100%;}
+
 /* qc list */
 .cb-qc-item{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--cb-border);}
 .cb-qc-item:last-child{border-bottom:none;}

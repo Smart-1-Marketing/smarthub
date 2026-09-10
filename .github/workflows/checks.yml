@@ -1424,6 +1424,21 @@ jobs:
             echo "test_radio_scripts.py not on this branch — nothing to run."
           fi
 
+      - name: Creative Studio tests
+        # WO-CS1-4: the front door, projects, the extended Brand Kit, the
+        # Media Library, the AI Tools registry and the creative_jobs sweep
+        # (index/storyboard/script/image). No network -- Cloudinary, OpenAI
+        # and Brandfetch are deliberately unset, so the backfill sweep, the
+        # generation jobs and the lookup button are exercised in their "not
+        # configured"/mock shape. Guarded like the steps above so the
+        # workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_creative_studio.py ]; then
+            python test_creative_studio.py
+          else
+            echo "test_creative_studio.py not on this branch — nothing to run."
+          fi
+
       - name: Creative jobs tests
         # The lead-triggered queue (build spec WO-2): the autostart gate on
         # the real Stadium source string, enqueue-never-raises, the three

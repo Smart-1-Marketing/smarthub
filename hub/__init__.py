@@ -7071,6 +7071,19 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # ---------------- Creative Studio ----------------
+    # Also a blueprint: /creative is not a prefix wsgi.py mounts, so it
+    # belongs to the hub app and needs its own guard rather than AuthGuard's.
+    # See modules/creative_studio/__init__.py.
+    try:
+        from modules.creative_studio import register_creative_studio
+        register_creative_studio(app)
+    except Exception as _cs_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ---------------- Weather Trigger Setup ----------------
     # Two blueprints, one gated and one deliberately not: /tools/weather-setup
     # is the staff screen that starts a campaign from a lead, and /wx/<token>
@@ -7278,6 +7291,33 @@ def create_hub_app() -> Flask:
             app.config["HUB_DB_BOOT_ERROR"] = _tbl_err
     except Exception:  # noqa: BLE001
         pass
+
+    # Seed Creative Studio's first 12 templates, now that cs_templates exists.
+    # Idempotent (skips any id already present) and guarded like every other
+    # boot step: a seed that cannot run leaves the gallery emptier than it
+    # should be, not the Hub down.
+    try:
+        from modules.creative_studio.seed_templates import seed as _seed_cs_templates
+        with app.app_context():
+            _seed_cs_templates()
+    except Exception as _cs_seed_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_seed_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Seed the AI Tools registry (WO-CS4) the same guarded way -- a row is
+    # data, not a template edit, so a tool added to seed_ai_tools.py reaches
+    # the screen on the next deploy with nothing else to remember.
+    try:
+        from modules.creative_studio.seed_ai_tools import seed as _seed_cs_ai_tools
+        with app.app_context():
+            _seed_cs_ai_tools()
+    except Exception as _cs_ai_seed_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_ai_seed_exc)
+        except Exception:  # noqa: BLE001
+            pass
 
     # Refill the persistent disk from the database if this is a *new* disk.
     # JSON files on /var/data are outside the database backup and do not

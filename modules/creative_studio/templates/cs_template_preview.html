@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}{{ template.name }} — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>{{ template.name }} {{ help_dot('creative_studio.templates') if help_dot is defined else '' }}</h2>
+  <p>{{ template.description }}
+     {% if client %}&middot; previewing for <strong>{{ client }}</strong>{% else %}&middot; previewing with template defaults -- pick a client on the dashboard to preview with their Brand Kit{% endif %}</p>
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    <span class="pill info">{{ creative_types|selectattr('key','equalto',template.creative_type)|map(attribute='label')|first or template.creative_type }}</span>
+    <span class="pill neutral">{{ template.aspect_ratio }}</span>
+    <span class="pill neutral">:{{ template.duration }}</span>
+    {% if template.industry and template.industry != 'general' %}<span class="pill neutral">{{ industry_labels.get(template.industry, template.industry|replace('_',' ')|title) }}</span>{% endif %}
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Scenes</h3>
+    <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:6px">
+      {% for scene in template.scenes %}
+      {% set layout = layouts.get(scene.layout_key, {}) %}
+      <div style="min-width:180px;max-width:180px;border:1px solid var(--line-soft,#E2E8F0);border-radius:8px;padding:10px;background:#0A1E3C;color:#fff">
+        <div style="font-size:10px;opacity:.7;text-transform:uppercase;letter-spacing:.04em">
+          Scene {{ scene.position }} &middot; {{ scene.default_duration }}s
+        </div>
+        <div style="font-size:11px;font-weight:600;margin:4px 0 8px">{{ layout.label or scene.layout_key }}</div>
+        {% for key, value in scene.layers.items() %}
+        {% set var_name = value[2:-2] if value.startswith('{{') and value.endswith('}}') else None %}
+        <div style="font-size:11px;margin-bottom:4px;opacity:.9">
+          <span style="opacity:.6">{{ key }}:</span>
+          {% if value.startswith('slot:') %}
+            <em style="opacity:.6">[{{ value }}]</em>
+          {% elif var_name %}
+            {{ resolved.get(var_name, {}).get('value') or '(' + var_name + ' unresolved)' }}
+          {% else %}
+            {{ value }}
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Variables</h3>
+    <table>
+      <thead><tr><th>Variable</th><th>Resolved value</th><th>Source</th><th>Required</th></tr></thead>
+      <tbody>
+        {% for name, r in resolved.items() %}
+        <tr>
+          <td><code>{{ '{{' }}{{ name }}{{ '}}' }}</code></td>
+          <td>{{ r.value or '—' }}</td>
+          <td><span class="pill {{ 'ok' if r.source != 'unresolved' else 'err' }}">{{ r.source }}</span></td>
+          <td>{{ 'Yes' if r.required else 'No' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Use this template</h3>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+      <label>Client<br><input type="text" id="ctpClient" value="{{ client }}" placeholder="Leave blank for a generic Smart 1 asset" list="ctpClientList" autocomplete="off"><datalist id="ctpClientList"></datalist></label>
+      <label>Project name<br><input type="text" id="ctpName" placeholder="{{ template.name }} — Client"></label>
+      <button class="btn btn-primary" id="ctpCreate">Create project</button>
+      <span id="ctpStatus" style="color:var(--muted,#64748B);font-size:12.5px"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var templateId = {{ template.id|tojson }};
+  var clientInput = document.getElementById('ctpClient');
+  var list = document.getElementById('ctpClientList');
+  var t;
+  clientInput.addEventListener('input', function(){
+    clearTimeout(t);
+    t = setTimeout(function(){
+      fetch('/creative-studio/api/clients/search?q=' + encodeURIComponent(clientInput.value.trim()))
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          list.innerHTML = '';
+          (d.clients || []).forEach(function(c){
+            var o = document.createElement('option');
+            o.value = c.name;
+            list.appendChild(o);
+          });
+        }).catch(function(){});
+    }, 200);
+  });
+
+  document.getElementById('ctpCreate').addEventListener('click', function(){
+    var status = document.getElementById('ctpStatus');
+    var name = document.getElementById('ctpName').value.trim() || {{ template.name|tojson }};
+    status.textContent = 'Creating…';
+    fetch('/creative-studio/api/projects', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name, template_id: templateId,
+                            client_name: clientInput.value.trim()})
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (d.ok) { window.location = '/creative-studio/projects/' + d.project.id; }
+      else { status.textContent = d.error || 'Could not create the project.'; }
+    }).catch(function(){ status.textContent = 'Could not create the project.'; });
+  });
+})();
+</script>
+{% endblock %}

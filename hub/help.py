@@ -2183,6 +2183,63 @@ REGISTRY: list[Help] = [
        "reported separately and do not claim that weather messaging caused a "
        "lead or sale without a controlled comparison."),
 
+    # ---------------- Creative Studio (WO-CS1: foundation) ----------------
+    _h("creative_studio.dashboard", "One front door, not a new tool",
+       "Every card here opens a real tool -- the template gallery, Image "
+       "Creator, the Display Ad Builder, Radio Scripts. Picking a client "
+       "first carries it through, and the pill row says which Brand Kit "
+       "fields are missing before a template will render well."),
+    _h("creative_studio.projects", "Every project, one record",
+       "A project is created once, from the dashboard's Create New flow, "
+       "and stays here whether it is still a draft brief or has a finished "
+       "render on it. Status follows the vocabulary the whole pipeline uses: "
+       "Draft, Rendering, Internal Review, Client Review, Changes Requested, "
+       "Approved, Archived."),
+    _h("creative_studio.project_detail", "A record, not yet the editor",
+       "The scene-by-scene editor and the queued Creatomate render ship in "
+       "later work orders. This page exists now so nothing about a project "
+       "-- who started it, what it is for, which client it is filed under "
+       "-- is lost while those land."),
+    _h("creative_studio.brand_kits", "Find a client's brand record",
+       "Logos and colors come from Brandfetch and the client's last site "
+       "scan; the business facts below them -- services, promotions, "
+       "pronunciation -- are typed in once here and every template reads "
+       "them from then on."),
+    _h("creative_studio.brand_kit", "One brand record, not a third copy",
+       "Logos, colors and fonts are read from the same brand data Client "
+       "360 already shows -- editing them here would be a second answer to "
+       "one question. What is edited here is the half nothing else "
+       "publishes: services, promotions, disclaimers, the pronunciation "
+       "dictionary, and how this client's creative should look and sound."),
+    _h("creative_studio.media", "What is actually stored, not what was made",
+       "Storage stays Cloudinary; this is the index over it. \"Index "
+       "this client's assets\" queues a backfill job rather than "
+       "reaching Cloudinary on the page load -- the scan can take a moment, "
+       "so check back after it queues."),
+    _h("creative_studio.templates", "A template is data, not a code change",
+       "Every filter here reads the templates that are actually published "
+       "-- an industry or a duration nobody has shipped yet simply will not "
+       "appear. Opening a template shows every scene and how each variable "
+       "resolves for the client you picked, before anything is created."),
+    _h("creative_studio.templates_admin", "Draft, then publish",
+       "A template stays draft -- previewable, editable, invisible in the "
+       "public gallery -- until Publish. Publishing bumps its version; any "
+       "project already built from an earlier version keeps saying so, "
+       "because a template edited after a dozen projects exist must not "
+       "silently change what those dozen say they were built from."),
+
+    # ---------------- Creative Studio (WO-CS4: AI Tools, jobs, usage) -----
+    _h("creative_studio.ai_tools", "One row per tool, live or on the way",
+       "A live tile opens the real screen -- most of these are the "
+       "Commercial Builder's own pipeline, opened in Studio context, or a "
+       "tool already under /tools. Generating a script or a scene image "
+       "runs as a queued job, the same as everything else asynchronous in "
+       "this Hub, and this page polls it and shows the stage."),
+    _h("creative_studio.usage", "An estimate, not a bill",
+       "Every OpenAI, Runway and stock-search call this module makes writes "
+       "one row here. The rate behind each estimate is a placeholder until "
+       "real provider rates are supplied -- a row reading \"not measured\" "
+       "means the call was not free, only that its cost is not priced yet."),
 ]
 
 _BY_KEY = {h.key: h for h in REGISTRY}

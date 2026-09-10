@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}Brand Kit — {{ client }} — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>Brand Kit — {{ client }} {{ help_dot('creative_studio.brand_kit') if help_dot is defined else '' }}</h2>
+  <p>{% if kit.found %}Logos, colors and fonts on file from Brandfetch and the
+     last site scan. {% else %}{{ kit.note or 'No brand data on file yet.' }}{% endif %}</p>
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    <h3 style="margin-top:0">Logos &amp; colors <span style="font-weight:400;color:var(--muted,#64748B);font-size:12.5px">(read from Brandfetch / the client's own site — not edited here)</span></h3>
+    {% if kit.logo_tiles %}
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+      {% for t in kit.logo_tiles %}
+      <div style="border:1px solid var(--line-soft,#E2E8F0);border-radius:8px;padding:10px;text-align:center;width:120px">
+        <img src="{{ t.preview }}" alt="" style="max-width:100px;max-height:60px;object-fit:contain">
+        <div style="font-size:11px;color:var(--muted,#64748B);margin-top:4px">{{ t.label }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if kit.palette %}
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      {% for c in kit.palette %}
+      <div style="text-align:center">
+        <div style="width:40px;height:40px;border-radius:6px;border:1px solid var(--line-soft,#E2E8F0);background:{{ c.hex }}"></div>
+        <div style="font-size:10.5px;color:var(--muted,#64748B)">{{ c.hex }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if not kit.logo_tiles and not kit.palette %}
+    <p style="color:var(--muted,#64748B)">Nothing on file yet.
+      {% if kit.can_lookup %}<button class="btn" id="bkLookup">Look up from {{ kit.lookup_domain }}</button>{% endif %}</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Business information</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      {% for f, label, ph in [
+        ('services', 'Services (one per line)', 'Furnace repair\nAC installation'),
+        ('products', 'Products (one per line)', ''),
+        ('promotions', 'Current promotions (one per line)', '$79 tune-up special'),
+        ('disclaimers', 'Disclaimers (one per line)', ''),
+        ('legal', 'Legal copy (one per line)', ''),
+        ('certifications', 'Certifications (one per line)', 'BBB A+'),
+        ('locations', 'Locations / phone (one per line)', '(614) 555-0100'),
+      ] %}
+      <label>{{ label }}
+        <textarea id="bk_{{ f }}" rows="4" placeholder="{{ ph }}" style="width:100%">{{ kit.ext[f]|join('\n') }}</textarea>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Creative preferences</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <label>Logo position
+        <input type="text" id="bk_logo_position" value="{{ kit.ext.logo_position }}" placeholder="Bottom right">
+      </label>
+      <label>CTA style
+        <input type="text" id="bk_cta_style" value="{{ kit.ext.cta_style }}" placeholder="Bold with phone number">
+      </label>
+      <label>Image style
+        <input type="text" id="bk_image_style" value="{{ kit.ext.image_style }}" placeholder="Bright, real customers, no stock people">
+      </label>
+      <label>Brand voice
+        <input type="text" id="bk_brand_voice" value="{{ kit.ext.brand_voice }}" placeholder="Friendly, local, no jargon">
+      </label>
+      <label>Preferred music style
+        <input type="text" id="bk_preferred_music_style" value="{{ kit.ext.preferred_music_style }}" placeholder="Upbeat acoustic">
+      </label>
+      <label>Preferred spokesperson id
+        <input type="text" id="bk_preferred_spokesperson_id" value="{{ kit.ext.preferred_spokesperson_id }}" placeholder="HeyGen avatar id">
+      </label>
+      <label>Preferred voice id
+        <input type="text" id="bk_preferred_voice_id" value="{{ kit.ext.preferred_voice_id }}" placeholder="ElevenLabs voice id">
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Pronunciation dictionary</h3>
+    <p style="color:var(--muted,#64748B);font-size:12.5px">One per line, <code>word = how it's said</code>. Used
+       by voiceover generation so a client's own name is never mispronounced.</p>
+    <textarea id="bk_pronunciation" rows="4" style="width:100%" placeholder="Gahanna = guh-HAN-uh">{% for k, v in kit.ext.pronunciation_dict.items() %}{{ k }} = {{ v }}
+{% endfor %}</textarea>
+  </div>
+
+  <button class="btn btn-primary" id="bkSave">Save Brand Kit</button>
+  <span id="bkStatus" style="margin-left:10px;color:var(--muted,#64748B);font-size:12.5px"></span>
+</div>
+
+<script>
+(function(){
+  var client = {{ client|tojson }};
+  var lookupBtn = document.getElementById('bkLookup');
+  if (lookupBtn) {
+    lookupBtn.addEventListener('click', function(){
+      lookupBtn.disabled = true;
+      lookupBtn.textContent = 'Looking up…';
+      fetch('/creative-studio/api/brand-kits/' + encodeURIComponent(client) + '/lookup', {method: 'POST'})
+        .then(function(r){ return r.json(); })
+        .then(function(){ window.location.reload(); })
+        .catch(function(){ lookupBtn.disabled = false; lookupBtn.textContent = 'Look up'; });
+    });
+  }
+  document.getElementById('bkSave').addEventListener('click', function(){
+    var listFields = ['services','products','promotions','disclaimers','legal','certifications','locations'];
+    var body = {};
+    listFields.forEach(function(f){
+      body[f] = (document.getElementById('bk_' + f).value || '').split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
+    });
+    ['logo_position','cta_style','image_style','brand_voice','preferred_music_style',
+     'preferred_spokesperson_id','preferred_voice_id'].forEach(function(f){
+      body[f] = document.getElementById('bk_' + f).value || '';
+    });
+    var pron = {};
+    (document.getElementById('bk_pronunciation').value || '').split('\n').forEach(function(line){
+      var i = line.indexOf('=');
+      if (i > -1) {
+        var k = line.slice(0, i).trim(), v = line.slice(i + 1).trim();
+        if (k) pron[k] = v;
+      }
+    });
+    body.pronunciation_dict = pron;
+    var status = document.getElementById('bkStatus');
+    status.textContent = 'Saving…';
+    fetch('/creative-studio/api/brand-kits/' + encodeURIComponent(client), {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    }).then(function(r){ return r.json(); }).then(function(d){
+      status.textContent = d.ok ? 'Saved.' : (d.error || 'Could not save.');
+    }).catch(function(){ status.textContent = 'Could not save.'; });
+  });
+})();
+</script>
+{% endblock %}

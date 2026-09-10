@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Usage & Costs — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>Usage &amp; Costs {{ help_dot('creative_studio.usage') if help_dot is defined else '' }}</h2>
+  <p>What generating in Creative Studio has actually called, and an estimate
+     of what it cost. Every rate is a placeholder until real provider rates
+     are supplied -- a row with no rate reads <em>not measured</em> rather
+     than a confident number.</p>
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    <h3 style="margin-top:0">By provider</h3>
+    {% if totals %}
+    <table>
+      <thead><tr><th>Provider</th><th>Calls</th><th>Quantity</th><th>Estimated cost</th></tr></thead>
+      <tbody>
+        {% for row in totals %}
+        <tr>
+          <td>{{ row.provider }}</td>
+          <td>{{ row.calls }}</td>
+          <td>{{ row.quantity|round(2) }}</td>
+          <td>{% if row.estimated_cost is not none %}${{ '%.2f'|format(row.estimated_cost) }}{% else %}<span class="pill warn">not measured</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--muted,#64748B)">Nothing has been generated yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Recent calls</h3>
+    {% if rows %}
+    <table>
+      <thead><tr><th>When</th><th>Client</th><th>Provider</th><th>Service</th><th>Quantity</th><th>Estimated cost</th><th>Result</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.created_at[:19]|replace('T', ' ') if r.created_at else '' }}</td>
+          <td>{{ r.client_name or '—' }}</td>
+          <td>{{ r.provider }}</td>
+          <td>{{ r.service }}</td>
+          <td>{{ r.quantity }} {{ r.unit }}</td>
+          <td>{% if r.estimated_cost is not none %}${{ '%.4f'|format(r.estimated_cost) }}{% else %}<span class="pill warn">not measured</span>{% endif %}</td>
+          <td><span class="pill {{ 'ok' if r.ok else 'err' }}">{{ 'ok' if r.ok else 'failed' }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--muted,#64748B)">Nothing has been generated yet.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

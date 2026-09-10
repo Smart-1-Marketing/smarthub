@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>{{ project.name }} {{ help_dot('creative_studio.project_detail') if help_dot is defined else '' }}</h2>
+  <p>{{ project.client_name or 'Generic Smart 1 asset' }} &middot; {{ project.creative_type }}
+     &middot; <span class="pill {{ 'ok' if project.status == 'Approved' else 'info' }}">{{ project.status }}</span></p>
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    <h3 style="margin-top:0">Details</h3>
+    <table>
+      <tr><td style="width:180px;color:var(--muted,#64748B)">Duration</td><td>{{ project.duration ~ 's' if project.duration else 'Not set' }}</td></tr>
+      <tr><td style="color:var(--muted,#64748B)">Aspect ratio</td><td>{{ project.aspect_ratio or 'Not set' }}</td></tr>
+      <tr><td style="color:var(--muted,#64748B)">Template</td><td>
+        {% if template %}<a href="/creative-studio/templates/{{ template.id }}">{{ template.name }}</a>
+          <span class="pill info">v{{ project.template_version }}</span>
+        {% else %}None chosen{% endif %}</td></tr>
+      <tr><td style="color:var(--muted,#64748B)">Created by</td><td>{{ project.created_by or '—' }} on {{ project.created_at[:10] if project.created_at else '' }}</td></tr>
+    </table>
+    {% if template %}
+    <div style="margin-top:12px">
+      <button class="btn btn-primary" id="cpdOpenEditor">
+        {{ 'Open in Storyboard Editor' if not project.cb_project_id else 'Continue in Storyboard Editor' }}
+      </button>
+      <span id="cpdOpenStatus" style="color:var(--muted,#64748B);font-size:12.5px;margin-left:8px"></span>
+    </div>
+    {% else %}
+    <p style="color:var(--muted,#64748B);margin-top:10px">Pick a template before opening the
+       Storyboard Editor -- a project with no template has nothing to build scenes from yet.</p>
+    {% endif %}
+  </div>
+
+  {% if can_generate %}
+  <div class="card" id="cpdGenCard">
+    <h3 style="margin-top:0">AI Generation {{ help_dot('creative_studio.ai_tools') if help_dot is defined else '' }}</h3>
+    <p style="color:var(--muted,#64748B);font-size:12.5px;margin-top:0">
+      Runs as a queued job -- this page polls until it finishes, the same way
+      every job in this Hub does. Concepts before a script; a script before
+      per-scene images, which need a scene id from the Storyboard Editor.
+    </p>
+    <button class="btn" id="cpdGenConcepts">Generate Concepts</button>
+    <button class="btn" id="cpdGenScript">Generate Script</button>
+    <div id="cpdGenStatus" style="color:var(--muted,#64748B);font-size:12.5px;margin-top:8px"></div>
+  </div>
+  {% endif %}
+
+  {% if template %}
+  <div class="card">
+    <h3 style="margin-top:0">Variables {{ help_dot('creative_studio.project_detail') if help_dot is defined else '' }}</h3>
+    {% if unresolved %}
+    <p class="pill warn">{{ unresolved|length }} required variable{{ 's' if unresolved|length != 1 else '' }}
+       not yet resolved: {{ unresolved|join(', ') }}</p>
+    {% endif %}
+    <table>
+      <thead><tr><th>Variable</th><th>Value</th><th>Source</th><th>Required</th></tr></thead>
+      <tbody>
+        {% for name, r in resolved.items() %}
+        <tr>
+          <td><code>{{ '{{' }}{{ name }}{{ '}}' }}</code></td>
+          <td>{{ r.value or '—' }}</td>
+          <td><span class="pill {{ 'ok' if r.source != 'unresolved' else 'err' }}">{{ r.source }}</span></td>
+          <td>{{ 'Yes' if r.required else 'No' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h3 style="margin-top:0">Versions</h3>
+    {% if versions %}
+    <table>
+      <thead><tr><th>Version</th><th>Render</th><th>Created by</th><th>When</th></tr></thead>
+      <tbody>
+        {% for v in versions %}
+        <tr>
+          <td>V{{ v.version }}</td>
+          <td>{% if v.render_url %}<a href="{{ v.render_url }}" target="_blank" rel="noopener">Open</a>{% else %}—{% endif %}</td>
+          <td>{{ v.created_by or '—' }}</td>
+          <td>{{ v.created_at[:10] if v.created_at else '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--muted,#64748B)">No render yet. The queued Creatomate render
+       ships in WO-CS5 -- open the Storyboard Editor above to build the scenes first.</p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function(){
+  var btn = document.getElementById('cpdOpenEditor');
+  if (!btn) return;
+  btn.addEventListener('click', function(){
+    var status = document.getElementById('cpdOpenStatus');
+    btn.disabled = true;
+    status.textContent = 'Opening…';
+    fetch('/creative-studio/api/projects/{{ project.id }}/open', {method: 'POST'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.ok) { window.location = d.url; }
+        else { btn.disabled = false; status.textContent = d.error || 'Could not open the editor.'; }
+      })
+      .catch(function(){ btn.disabled = false; status.textContent = 'Could not open the editor.'; });
+  });
+})();
+(function(){
+  // Enqueue a generation job, then poll it -- "the UI polls and shows the
+  // stage" (WO-CS4 item 2). No third-party helper: these are the only two
+  // buttons on this page that wait on a job, and the loop is eight lines.
+  var status = document.getElementById('cpdGenStatus');
+  function poll(jobId){
+    fetch('/creative-studio/api/jobs/' + jobId).then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.ok) { status.textContent = 'Could not read job status.'; return; }
+        var job = d.job;
+        if (job.state === 'complete') {
+          status.textContent = 'Done.';
+          setTimeout(function(){ window.location.reload(); }, 600);
+        } else if (job.state === 'failed') {
+          status.textContent = job.error || 'The job failed.';
+        } else {
+          status.textContent = (job.stage || job.state) + '…';
+          setTimeout(function(){ poll(jobId); }, 1500);
+        }
+      }).catch(function(){ status.textContent = 'Could not read job status.'; });
+  }
+  function start(url, body){
+    status.textContent = 'Starting…';
+    fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
+               body: JSON.stringify(body || {})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.ok) { poll(d.job.id); }
+        else { status.textContent = d.error || 'Could not start the job.'; }
+      })
+      .catch(function(){ status.textContent = 'Could not start the job.'; });
+  }
+  var cBtn = document.getElementById('cpdGenConcepts');
+  if (cBtn) cBtn.addEventListener('click', function(){
+    start('/creative-studio/api/projects/{{ project.id }}/generate/storyboard');
+  });
+  var sBtn = document.getElementById('cpdGenScript');
+  if (sBtn) sBtn.addEventListener('click', function(){
+    start('/creative-studio/api/projects/{{ project.id }}/generate/script');
+  });
+})();
+</script>
+{% endblock %}

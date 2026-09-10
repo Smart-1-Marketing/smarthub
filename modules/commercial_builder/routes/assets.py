@@ -5,6 +5,7 @@ storyboard scene card: 'Generate AI' and 'Upload'."""
 
 from flask import Blueprint, jsonify, request
 
+from .. import generation
 from ..config import ASSET_SOURCE_PRIORITY
 from ..db import db
 from ..models import Client, CommercialProject, Scene
@@ -53,11 +54,7 @@ def generate_ai_footage(project_id, scene_id):
     project = CommercialProject.query.get_or_404(project_id)
     client = Client.query.get_or_404(project.client_id)
 
-    options = openai_service.generate_ai_stills(scene.visual_description or "", client.to_dict())
-    meta = scene.asset_meta or {}
-    meta["ai_options"] = options
-    scene.asset_meta = meta
-    db.session.commit()
+    options = generation.run_stills(scene, client)
     return jsonify({"ok": True, "options": options, "live": openai_service.is_live()})
 
 

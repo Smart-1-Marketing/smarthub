@@ -214,6 +214,12 @@ NOT_A_TOOL: dict[str, str] = {
     # "seo" left this list the day SEO Clients was tiled on Client Tools --
     # its prefix is mapped from that tile now, in PREFIXES above.
     "demo": "the walkthrough layer explaining itself",
+    # Reached from its own sidebar section (hub/sidebar.py's "Creative
+    # Studio" group) rather than a tile on /creative or /tools -- the
+    # client_health precedent above, for the same reason: a front door over
+    # several tools is not itself one tile to click.
+    "creative_studio": "Creative Studio, reached from its own sidebar "
+                       "section rather than tiled on Creative or Client Tools",
 }
 
 

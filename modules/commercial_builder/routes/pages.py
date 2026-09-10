@@ -240,6 +240,39 @@ def concepts(project_id):
                             wizard=_wizard(project, "concepts"))
 
 
+def _cs_layout_context(project):
+    """The layer-panel vocabulary for a project Creative Studio bound to
+    this one -- or None, for every project this wizard has ever built on
+    its own.
+
+    A read only: this module never writes into `modules.creative_studio`'s
+    tables, and it degrades to None rather than raising when that module
+    is not installed (standalone Commercial Builder) or a scene carries no
+    `layout_key` at all (every project built the ordinary way, through the
+    script pipeline, has none). None means "no layer panel" to the
+    template, which is exactly the projects this screen has always served.
+    """
+    try:
+        from modules.creative_studio.models import CsProject
+        from modules.creative_studio import layouts as cs_layouts
+    except Exception:                                     # noqa: BLE001
+        return None
+    try:
+        cs_project = CsProject.query.filter_by(cb_project_id=project.id).first()
+    except Exception:                                     # noqa: BLE001
+        return None
+    if cs_project is None:
+        return None
+    return {
+        "cs_project_id": cs_project.id,
+        "layouts": cs_layouts.LAYOUTS,
+        "layer_keys": cs_layouts.LAYER_KEYS,
+        "animations": list(cs_layouts.ANIMATIONS),
+        "transitions": list(cs_layouts.TRANSITIONS),
+        "text_positions": list(cs_layouts.TEXT_POSITIONS),
+    }
+
+
 @bp.get("/project/<int:project_id>/blueprint")
 def blueprint(project_id):
     """The scenes, their footage and their narration — and the checks.
@@ -269,6 +302,9 @@ def blueprint(project_id):
         hf_ready=hyperframes.is_configured(),
         paint_styles=hyperframes.PAINT_STYLES,
         wizard=_wizard(project, "blueprint"),
+        # WO-CS3: the layer panel and variable chips, for a project Creative
+        # Studio built from a template. None for every other project.
+        cs_layout=_cs_layout_context(project),
     )
 
 

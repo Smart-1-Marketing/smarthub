@@ -18,6 +18,19 @@
     if (!node) return [];
     try { return JSON.parse(node.textContent) || []; } catch (e) { return []; }
   })();
+
+  /* WO-CS3. Absent for every project this wizard built on its own -- the
+     ordinary case -- and present only for one Creative Studio bound to a
+     template. `csLayout.cs_project_id` is what a variable-chip override
+     posts against; `csLayout.layouts[key]` is the same vocabulary
+     scripts.py's `_clean_layers()` validates a save against, read once here
+     rather than re-typed. */
+  const csLayout = (() => {
+    const node = document.getElementById("cs-layout-data");
+    if (!node) return null;
+    try { return JSON.parse(node.textContent) || null; } catch (e) { return null; }
+  })();
+
   let dragSourceId = null;
 
   const ASSET_TYPE_LABEL = {
@@ -373,6 +386,8 @@
     node.querySelector(".narration-input").value = scene.narration || "";
     node.querySelector(".duration-input").value = (scene.end - scene.start).toFixed(1);
 
+    renderLayerPanel(node, scene, meta);
+
     node.querySelector(".visual-input").addEventListener("change", (e) =>
       updateScene(scene.id, { visual_description: e.target.value }));
     node.querySelector(".narration-input").addEventListener("change", (e) =>
@@ -447,6 +462,109 @@
 
   function updateScene(sceneId, body) {
     return CB.api(`/api/projects/${projectId}/scenes/${sceneId}`, { method: "PUT", body });
+  }
+
+  /* WO-CS3 layer panel: headline / subheadline / body / offer / cta / logo /
+     phone / website, limited to what this scene's own layout allows -- the
+     same vocabulary scripts.py's `_clean_layers()` checks a save against, so
+     a field the layout has nowhere to draw is never even offered. Nothing
+     here is a second editor: it edits the same `Scene` row every other
+     control on this card edits, through the same PUT.
+
+     A source label, not read by anything but a person, because "brand" and
+     "manual" are different confidences about the same value -- one came
+     from the client's own Brand Kit, the other from a rep overriding it for
+     this project. Creative Studio's own project detail page draws the
+     identical vocabulary from the same `resolver.py`, so the two screens
+     cannot disagree about what a source means. */
+  const SOURCE_LABEL = {
+    manual: "your override", brief: "brief", brand: "brand kit",
+    template: "template", template_default: "template default",
+    unresolved: "not resolved",
+  };
+
+  async function csApi(path, options = {}) {
+    // A raw fetch rather than CB.api: that helper is rooted at
+    // /tools/commercial-builder, and this call crosses into Creative
+    // Studio's own API -- a different module, on the same Hub app.
+    const opts = { headers: { "Content-Type": "application/json" }, ...options };
+    if (opts.body && typeof opts.body !== "string") opts.body = JSON.stringify(opts.body);
+    const res = await fetch(`/creative-studio/api${path}`, opts);
+    let data;
+    try { data = await res.json(); } catch (e) { data = { ok: false }; }
+    if (!res.ok || data.ok === false) {
+      CB.toast((data && data.error) || "Could not save that override.", true);
+      throw new Error((data && data.error) || "request failed");
+    }
+    return data;
+  }
+
+  function renderLayerPanel(node, scene, meta) {
+    const panel = node.querySelector(".cb-layer-panel");
+    if (!panel) return;
+    panel.innerHTML = "";
+    if (!csLayout || !meta.layout_key) return;
+    const layout = csLayout.layouts[meta.layout_key];
+    if (!layout) return;
+
+    const layers = meta.layers || {};
+    const saveLayer = (key, patch) => {
+      const merged = { ...(meta.layers || {}), [key]: { ...(layers[key] || {}), ...patch } };
+      meta.layers = merged;
+      return updateScene(scene.id, { layers: { [key]: merged[key] } });
+    };
+
+    (layout.layers || []).filter((key) => key !== "background").forEach((key) => {
+      const current = layers[key] || {};
+      const label = csLayout.layer_keys[key] || key;
+      const row = CB.el(`<div class="cb-field cs-layer-row">
+        <label class="cb-label">${CB.escapeHtml(label)}
+          ${current.source ? `<button type="button" class="cb-badge cb-badge-mock cs-layer-chip"
+             title="Click to override on this project">${CB.escapeHtml(SOURCE_LABEL[current.source] || current.source)}</button>` : ""}
+        </label>
+        <input type="text" class="cs-layer-input">
+      </div>`);
+      const input = row.querySelector("input");
+      input.value = current.value || "";
+      input.addEventListener("change", () => saveLayer(key, { value: input.value, source: "manual" }));
+
+      const chip = row.querySelector(".cs-layer-chip");
+      if (chip && current.var) {
+        chip.addEventListener("click", async () => {
+          const next = prompt(`Override "${label}" for this project (leave blank to clear):`, current.value || "");
+          if (next === null) return;
+          await csApi(`/projects/${csLayout.cs_project_id}/variables`,
+            { method: "POST", body: { name: current.var, value: next } });
+          await saveLayer(key, { value: next, source: next ? "manual" : current.source });
+          loadScenes();
+        });
+      }
+      panel.appendChild(row);
+    });
+
+    const animations = layout.animations || [];
+    const transitions = layout.transitions || [];
+    if (animations.length) {
+      const sel = CB.el(`<select class="cs-layer-select" title="Animation"></select>`);
+      animations.forEach((a) => sel.appendChild(new Option(a, a)));
+      sel.value = layers.animation || animations[0];
+      sel.addEventListener("change", () => updateScene(scene.id, { layers: { animation: sel.value } }));
+      panel.appendChild(sel);
+    }
+    if (transitions.length) {
+      const sel = CB.el(`<select class="cs-layer-select" title="Transition"></select>`);
+      transitions.forEach((t) => sel.appendChild(new Option(t, t)));
+      sel.value = layers.transition || transitions[0];
+      sel.addEventListener("change", () => updateScene(scene.id, { layers: { transition: sel.value } }));
+      panel.appendChild(sel);
+    }
+    if ((csLayout.text_positions || []).length && (layout.layers || []).some((k) => k !== "background")) {
+      const sel = CB.el(`<select class="cs-layer-select" title="Text position"></select>`);
+      csLayout.text_positions.forEach((p) => sel.appendChild(new Option(p.replace(/_/g, " "), p)));
+      sel.value = layers.text_position || csLayout.text_positions[0];
+      sel.addEventListener("change", () => updateScene(scene.id, { layers: { text_position: sel.value } }));
+      panel.appendChild(sel);
+    }
   }
 
   function closeExistingPickers() {
@@ -1305,5 +1423,29 @@
     ackBox.appendChild(wrap);
   }
 
-  loadScenes().then(loadAbcd).then(loadCompliance);
+  // WO-CS5. Reads back what generate/voice, generate/heygen and render have
+  // actually spent on this project through the creative_jobs queue -- a
+  // running total for the rep to see while they work, never a per-action
+  // estimate guessed at before a call is made. Absent entirely for every
+  // project this wizard built on its own (no cs-credit-meter element on the
+  // page at all), and silent rather than a toast if the read fails: a meter
+  // that cannot answer must not cost the page it is decorating.
+  async function loadCreditMeter() {
+    const el = document.getElementById("cs-credit-meter");
+    if (!el) return;
+    const csProjectId = el.dataset.csProjectId;
+    if (!csProjectId) return;
+    try {
+      const res = await fetch(`/creative-studio/api/projects/${csProjectId}/usage-summary`);
+      const data = await res.json();
+      if (!res.ok || data.ok === false) return;
+      if (!data.calls) return;   // nothing spent yet -- no meter to show
+      const cost = data.measured && data.estimated_cost != null
+        ? `~$${data.estimated_cost.toFixed(2)}` : "cost not measured";
+      el.textContent = `${cost} so far (${data.calls} call${data.calls === 1 ? "" : "s"})`;
+      el.style.display = "";
+    } catch (e) { /* the meter staying hidden is the failure mode */ }
+  }
+
+  loadScenes().then(loadAbcd).then(loadCompliance).then(loadCreditMeter);
 })();

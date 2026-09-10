@@ -434,6 +434,9 @@ class Settings:
             # IO it ran on — hub/ad_assets.py. The tree below it is
             # image_picker.filing.ad_asset_folder()'s, not this one's.
             "ad_assets": "smart1-ad-assets",
+            # modules/creative_studio -- everything the Media Library indexes
+            # or a rep uploads through it, one client subfolder each.
+            "creative_studio": "smart1-creative-studio",
         }
         return defaults.get(kind, f"smart1-{kind}")
 
