@@ -90,6 +90,30 @@ def _install(module) -> None:
     from modules.check_reconciliation.bulk import install_bulk
     install_bulk(module)
 
+    # Add owner-maintained CSV reconciliation lists. Import creates queue rows
+    # and suggested allocations only; posting still requires explicit approval.
+    from modules.check_reconciliation.list_import import install_list_import
+    install_list_import(module)
+
+    # Surface this accounting workflow on QA Reports as well as Client Tools.
+    # EXTRAS is the single registry the QA landing page reads for whole tools.
+    try:
+        from hub import qa as qa_module
+        if not any(key == "check-reconciliation" for _group, key, _meta in qa_module.EXTRAS):
+            qa_module.EXTRAS.append((
+                "Billing & Accounting",
+                "check-reconciliation",
+                {
+                    "title": "Check Reconciliation",
+                    "desc": "Match paper checks and remittance stubs to QuickBooks invoices, review late-fee differences, and approve customer payments.",
+                    "ico": "&#10003;",
+                    "href": "/tools/check-reconciliation/",
+                },
+            ))
+    except Exception:
+        # A navigation tile must never prevent the accounting tool from loading.
+        pass
+
     # The bulk extension originally injected importKnownChecks by replacing an
     # exact end-of-script string. That was brittle and could leave the button
     # visible with no click handler when the base page changed. Always install a
