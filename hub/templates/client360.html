@@ -912,7 +912,8 @@ function render(g,q){
             + ' style="padding:4px 6px;border:1px solid var(--line);border-radius:6px;font:12px inherit"></td>'
             + '<td class="muted">'+esc(r.d||'')+'</td>'
             + '<td style="white-space:nowrap">'
-            + '<a class="gbtn" href="'+esc(p.url)+'" target="_blank" rel="noopener">'
+            + '<a class="gbtn" href="'+(p.kind==='link'? esc(p.url)
+              : '/api/client/proposals/document/'+encodeURIComponent(p.id||p.filename||'')+'?client='+encodeURIComponent(p.member||name))+'" target="_blank" rel="noopener">'
             + (p.kind==='pdf'?'PDF':p.kind==='link'?'Open':'DOC')+'</a> '
             /* "To IO" reads the proposal document. A link row has no document
                behind it -- it points at a live Hub page -- so offering it would

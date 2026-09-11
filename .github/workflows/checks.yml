@@ -93,6 +93,9 @@ jobs:
       - name: Client 360 proposal-to-IO navigation
         run: node test_client360_proposal_io.js
 
+      - name: Uploaded proposal filenames
+        run: python test_proposal_filename.py
+
       - name: IO template and media-mix validation
         run: |
           python test_io_template.py

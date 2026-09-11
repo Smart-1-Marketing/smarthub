@@ -709,7 +709,8 @@ let DASH=null,LIST=[],UPLOADED=[],listTab="all";
    labeled as such wherever they appear. */
 function asUploadedRow(p){
   return {uploaded:true, id:p.id, client:p.client||"", filename:p.filename||"",
-          title:p.title||p.filename||"Proposal", url:p.url||"",
+          title:p.title||p.filename||"Proposal",
+          url:p.kind==='link' ? (p.url||"") : '/api/client/proposals/document/'+encodeURIComponent(p.id||p.filename||"")+'?client='+encodeURIComponent(p.client||""),
           kind:p.kind||"", note:p.note||"", uploaded_by:p.uploaded_by||"",
           date_sent:p.date_sent||"", created_at:p.uploaded_at||p.date_sent||"",
           value:p.value||0, status:"Uploaded",
