@@ -500,3 +500,142 @@ class CreativeJob(db.Model):
             "started_at": self.started_at.isoformat() if self.started_at else "",
             "finished_at": self.finished_at.isoformat() if self.finished_at else "",
         }
+
+
+class CsShare(db.Model):
+    """One client-facing review link, and what came back on it -- WO-CS6.
+
+    The read-first list for this feature names two things to port:
+    `modules.ads_builder.store.Share` and `modules.commercial_builder.models.
+    ReviewShare`. This follows the second closely (a client answering a
+    review needs the same record either tool asks for: who, what they said,
+    whether it blocks filing, which round), with one deliberate departure --
+    `kind` + `subject_id` name what is being reviewed rather than a hard FK
+    to one table. A rendered video version is the only kind WO-CS6 builds,
+    but the review page itself (the token, the round cap, the rate limit,
+    the Suite tag) has nothing video-specific about it, and a second kind
+    added later must not need a second table.
+
+    Its own table rather than columns on `cs_project_versions`, for the
+    reason `ReviewShare` already gives: `create_all()` creates a missing
+    TABLE and never adds a column to an existing one, and this also keeps
+    what a client writes -- through a page with no Hub login -- out of the
+    row a rep is editing at the same moment.
+
+    A link is per round. Sending a new round issues a NEW token rather than
+    reopening this one: a link that has been answered is the record of that
+    answer, and handing the same URL out again would overwrite the first
+    round's decision with no trace there had been one.
+    """
+    __tablename__ = "creative_shares"
+
+    id = db.Column(db.Integer, primary_key=True)
+    token = db.Column(db.String(64), unique=True, index=True, nullable=False)
+    kind = db.Column(db.String(30), nullable=False, default="render")
+    subject_id = db.Column(db.Integer, nullable=False)
+    project_id = db.Column(db.Integer, db.ForeignKey("cs_projects.id"), nullable=False, index=True)
+    round_no = db.Column(db.Integer, default=1)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by = db.Column(db.String(200), default="")
+    revoked = db.Column(db.Boolean, default=False)
+
+    # A note the rep writes to the client when sending it. Optional, shown
+    # above the preview.
+    message = db.Column(db.Text, default="")
+
+    # "Sent and ignored" and "opened four times and still not answered" are
+    # different conversations.
+    opened_count = db.Column(db.Integer, default=0)
+    last_opened_at = db.Column(db.DateTime, nullable=True)
+
+    decisions = db.relationship("CsShareDecision", backref="share", lazy="dynamic",
+                                cascade="all, delete-orphan")
+    comments = db.relationship("CsShareComment", backref="share", lazy="dynamic",
+                               cascade="all, delete-orphan")
+
+    def to_dict(self, include_children=True) -> dict:
+        out = {
+            "id": self.id, "token": self.token, "kind": self.kind,
+            "subject_id": self.subject_id, "project_id": self.project_id,
+            "round": self.round_no or 1,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_by": self.created_by or "",
+            "revoked": bool(self.revoked),
+            "message": self.message or "",
+            "opened_count": self.opened_count or 0,
+            "last_opened_at": self.last_opened_at.isoformat() if self.last_opened_at else None,
+        }
+        if include_children:
+            out["decisions"] = [d.to_dict() for d in self.decisions.all()]
+            out["comments"] = [c.to_dict() for c in self.comments.all()]
+        return out
+
+
+class CsShareDecision(db.Model):
+    """One person's answer on one review link -- Approve or Request Changes.
+
+    A row per reviewer, not a column on `CsShare`, for `ReviewDecision`'s own
+    reason: a link gets forwarded, two people at the client answer it, and
+    collapsing that to one column means the second answer silently overwrites
+    the first. `modules.commercial_builder.review_spec.verdict()` -- read
+    directly rather than copied, the same cross-module reuse WO-CS4 and
+    WO-CS5 already established for `generation.py` -- resolves the rows into
+    the one answer a screen shows.
+
+    `ip` is new here: `ReviewDecision` has no such column, and WO-CS6 asks
+    for it explicitly ("Records approver name, email, date, IP, comment,
+    status") -- an approval is the thing somebody is held to later, and this
+    page is reached with nothing but a token, so the address it came from is
+    part of the record.
+    """
+    __tablename__ = "creative_share_decisions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    share_id = db.Column(db.Integer, db.ForeignKey("creative_shares.id"), nullable=False)
+    outcome = db.Column(db.String(40), default="")
+    reviewer_name = db.Column(db.String(200), default="")
+    reviewer_email = db.Column(db.String(200), default="")
+    note = db.Column(db.Text, default="")
+    ip = db.Column(db.String(64), default="")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id, "outcome": self.outcome or "",
+            "reviewer_name": self.reviewer_name or "",
+            "reviewer_email": self.reviewer_email or "",
+            "note": self.note or "",
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class CsShareComment(db.Model):
+    """A note a client left on a review link, optionally at a point in it.
+
+    `at_seconds` is nullable on purpose, `ReviewComment`'s own reason: a note
+    about the whole cut is a real thing to leave, and storing it as 0.0 would
+    file it at the first frame where a reader looks for something that is
+    not there.
+    """
+    __tablename__ = "creative_share_comments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    share_id = db.Column(db.Integer, db.ForeignKey("creative_shares.id"), nullable=False)
+    text = db.Column(db.Text, default="")
+    reviewer_name = db.Column(db.String(200), default="")
+    reviewer_email = db.Column(db.String(200), default="")
+    at_seconds = db.Column(db.Float, nullable=True)
+    ip = db.Column(db.String(64), default="")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        from modules.commercial_builder.review_spec import timecode
+        return {
+            "id": self.id, "text": self.text or "",
+            "reviewer_name": self.reviewer_name or "",
+            "reviewer_email": self.reviewer_email or "",
+            "at_seconds": self.at_seconds,
+            "timecode": timecode(self.at_seconds),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

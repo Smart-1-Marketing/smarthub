@@ -1,0 +1,34 @@
+{# The real page a revoked or rate-limited /review/<token> answers with --
+   never a bare status code. See review_routes.py's own docstring for why a
+   revoked Creative Studio link answers 410 with this rather than the plain
+   404 modules/commercial_builder's own review page uses for everything: a
+   revoked link here means a newer round was sent, which is worth saying. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  :root{--ink:#111a24;--muted:#5d6b7d;--bg:#f6f8fb;--card:#fff;--line:#e2e8f0;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:26px;max-width:440px;text-align:center;}
+  h1{font-size:18px;margin:0 0 10px;}
+  p{color:var(--muted);margin:0;}
+  @media (prefers-color-scheme: dark){
+    :root{--ink:#e8eef6;--muted:#9aa8ba;--bg:#111820;--card:#18212b;--line:#2a3441;}
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>{{ heading }}</h1>
+  <p>{{ body }}</p>
+</div>
+</body>
+</html>

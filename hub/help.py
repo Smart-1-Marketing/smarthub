@@ -2240,6 +2240,21 @@ REGISTRY: list[Help] = [
        "one row here. The rate behind each estimate is a placeholder until "
        "real provider rates are supplied -- a row reading \"not measured\" "
        "means the call was not free, only that its cost is not priced yet."),
+
+    # ---------------- Creative Studio (WO-CS6: approvals, review links) ---
+    _h("creative_studio.versions", "Send a version for approval",
+       "Each rendered version can be sent to the client as its own review "
+       "link -- a new token every round, so an old link a client still has "
+       "open cannot answer about a cut that has since been replaced. "
+       "Sending never renders anything; it only mints the link and, where "
+       "an email is given, files the reviewer as a Suite contact tagged for "
+       "the review workflow."),
+    _h("creative_studio.approvals", "What has come back, and what has not",
+       "Every review link sent from Creative Studio, across every client, "
+       "sorted into waiting on us (a client answered or left a note) and "
+       "out with clients (sent, nothing back yet). A round past four is "
+       "flagged for a change-order conversation rather than refused -- the "
+       "client is still served."),
 ]
 
 _BY_KEY = {h.key: h for h in REGISTRY}

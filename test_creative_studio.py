@@ -1158,6 +1158,168 @@ check("  ...and a call count", body["calls"] > 0, True)
 r = client.get("/creative-studio/api/projects/999999/usage-summary")
 check("a project that does not exist 404s", r.status_code, 404)
 
+# ---------------------------------------------------------------------------
+section("WO-CS6: sending a version for approval")
+
+r = client.post(f"/creative-studio/api/projects/{filed_project_id}/versions/1/share")
+check("sending a version for approval succeeds", r.status_code, 200)
+share_body = r.get_json()["share"]
+check("  ...and mints a token", bool(share_body.get("token")), True)
+review_token = share_body["token"]
+check("  ...the url is bare /review/, not under /creative-studio/",
+      share_body["url"].endswith(f"/review/{review_token}"), True)
+check("  ...round 1 of 4", share_body["round_state"]["label"], "Round 1 of 4")
+check("  ...delivery is skipped -- no contact email was given",
+      share_body["delivery"]["state"], "skipped")
+
+with hub_app.app_context():
+    project_after_send = CsProjectModel6.query.get(filed_project_id)
+    check("the project moves to Client Review on send",
+          project_after_send.status, "Client Review")
+
+    from modules.creative_studio.models import CreativeJob as CreativeJobModel6
+    jobs_after_send = CreativeJobModel6.query.filter_by(project_id=filed_project_id).all()
+    check("sending for approval never enqueues a render job",
+          all(j.kind != "render" for j in jobs_after_send), True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS6: the client's own page carries none of the Hub's chrome")
+
+anon = Client(wsgi.application)
+r = anon.get(f"/review/{review_token}")
+check("the review page renders with no session at all", r.status_code, 200)
+page = r.data
+check("  ...no sidebar", b"s1hub-sb" in page, False)
+check("  ...no hub-help.js", b"hub-help.js" in page, False)
+check("  ...no feedback tab", b"s1hub-feedback" in page, False)
+check("  ...noindex, so a search engine never files a client's own version",
+      b'name="robots"' in page and b"noindex" in page, True)
+check("  ...carries the version content",
+      b"cdn.example.test/v1.mp4" in page, True)
+check("  ...and the round label", b"Round 1 of 4" in page, True)
+check("  ...only two outcomes are offered -- no middle 'approved with changes'",
+      b"approved_with_changes" in page, False)
+
+r = anon.get("/review/not-a-real-token-at-all")
+check("a token that never existed answers a bare 404", r.status_code, 404)
+
+# ---------------------------------------------------------------------------
+section("WO-CS6: comment and decide")
+
+r = anon.post(f"/review/{review_token}/comment", json={"text": ""})
+check("an empty comment is refused", r.status_code, 400)
+
+r = anon.post(f"/review/{review_token}/comment",
+              json={"text": "The end card feels rushed", "name": "Pat Owner"})
+check("a comment with text and a name is accepted", r.status_code, 200)
+
+r = anon.post(f"/review/{review_token}/decide",
+              json={"outcome": "approved_with_changes", "name": "Pat Owner",
+                    "email": "pat@acmeplumbing.test"})
+check("an outcome outside the two shown is refused", r.status_code, 400)
+
+r = anon.post(f"/review/{review_token}/decide",
+              json={"outcome": "changes_required", "name": "Pat Owner",
+                    "email": "pat@acmeplumbing.test", "note": "Fix the end card"})
+check("requesting changes is accepted", r.status_code, 200)
+check("  ...and resolves to changes_required",
+      r.get_json()["verdict"]["outcome"], "changes_required")
+
+with hub_app.app_context():
+    after_changes = CsProjectModel6.query.get(filed_project_id)
+    check("the project status follows the decision",
+          after_changes.status, "Changes Requested")
+
+r = anon.post(f"/review/{review_token}/decide",
+              json={"outcome": "approved", "name": "Pat Owner",
+                    "email": "pat@acmeplumbing.test"})
+check("the same reviewer (matched by email) can correct their own answer",
+      r.status_code, 200)
+
+with hub_app.app_context():
+    after_approve = CsProjectModel6.query.get(filed_project_id)
+    check("  ...and the project status follows the correction",
+          after_approve.status, "Approved")
+
+    from modules.creative_studio.models import CsShareDecision as CsShareDecisionModel6
+    decisions_for_pat = [d for d in CsShareDecisionModel6.query.all()
+                        if (d.reviewer_email or "").lower() == "pat@acmeplumbing.test"]
+    check("correcting an answer replaces it rather than adding a second row",
+          len(decisions_for_pat), 1)
+
+# ---------------------------------------------------------------------------
+section("WO-CS6: the round counter, and round 5")
+
+from modules.creative_studio.models import CsShare as CsShareModel6  # noqa: E402
+
+# Each send is scoped to this same version -- `subject_id=version.id` -- so
+# sending again revokes round 1's own token (review_token), which the next
+# section relies on.
+last_round_state = None
+for round_no in range(2, 6):
+    r = client.post(f"/creative-studio/api/projects/{filed_project_id}/versions/1/share")
+    check(f"round {round_no} can be sent", r.status_code, 200)
+    last_round_state = r.get_json()["share"]["round_state"]
+
+check("round 5 is offered rather than refused", last_round_state["round"], 5)
+check("  ...and reads as over the cap", last_round_state["over"], True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS6: revoked reads differently from never-existed")
+
+r = anon.get(f"/review/{review_token}")
+check("the round-1 token, now revoked by the later rounds, answers 410", r.status_code, 410)
+check("  ...with a real page explaining why",
+      b"replaced" in r.data, True)
+
+r = anon.get("/review/still-not-a-real-token")
+check("a token that never existed still answers a bare 404", r.status_code, 404)
+
+# ---------------------------------------------------------------------------
+section("WO-CS6: revoking a share directly")
+
+with hub_app.app_context():
+    live_share = (CsShareModel6.query
+                  .filter_by(project_id=filed_project_id, revoked=False)
+                  .order_by(CsShareModel6.id.desc()).first())
+    live_share_id = live_share.id
+
+r = client.post(f"/creative-studio/api/projects/{filed_project_id}/shares/{live_share_id}/revoke")
+check("revoking a share succeeds", r.status_code, 200)
+check("  ...and reports it revoked", r.get_json()["share"]["revoked"], True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS6: the approvals and usage pages carry real content now")
+
+r = client.get("/creative-studio/approvals")
+check("the approvals page renders", r.status_code, 200)
+check("  ...listing what is out with clients rather than the old placeholder",
+      b"Out with clients" in r.data or b"Waiting on us" in r.data, True)
+
+r = client.get("/creative-studio/usage")
+check("the usage page renders", r.status_code, 200)
+for tile in (b"Total generations", b"Videos rendered", b"Images generated",
+            b"Voiceovers generated", b"Estimated API cost"):
+    check(f"  ...carries the {tile.decode()} tile", tile in r.data, True)
+
+r = client.get("/creative-studio/usage?period=today")
+check("the usage page still renders filtered by period", r.status_code, 200)
+
+# ---------------------------------------------------------------------------
+section("WO-CS6: the shared rate limiter refuses the client's own page too")
+
+from modules.creative_studio import review_routes as cs_review_routes  # noqa: E402
+
+_orig_rate_limited = cs_review_routes._hub_leads.rate_limited
+cs_review_routes._hub_leads.rate_limited = lambda *a, **k: True
+try:
+    r = anon.get(f"/review/{review_token}")
+    check("a rate-limited GET answers 429", r.status_code, 429)
+    r = anon.post(f"/review/{review_token}/comment", json={"text": "x", "name": "x"})
+    check("a rate-limited comment POST answers 429", r.status_code, 429)
+finally:
+    cs_review_routes._hub_leads.rate_limited = _orig_rate_limited
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)
