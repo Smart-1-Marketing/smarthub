@@ -185,9 +185,16 @@
   .pkg li b{color:var(--navy)}
   .bnav{position:fixed;bottom:0;left:0;right:0;background:rgba(255,255,255,.96);border-top:1px solid var(--line);z-index:60;display:none}
   /* The footer nav is fixed, so its height has to be reserved or the last
-     control on a step sits behind Continue -- which reads as a step that
-     will not scroll rather than as a bar overlapping it. */
-  body.wizard .shell{padding-bottom:96px}
+     control on a step -- and on the Current Marketing step, the whole
+     "We Suggest They Should" panel below it -- sits behind Continue, which
+     reads as a panel that is missing rather than a bar overlapping it. 96px
+     was a guess at the bar's height rather than a measurement of it, so a bar
+     that grows even slightly (the autosave label wrapping under it on a
+     narrower window, a longer client name in the quote tag) leaves the last
+     panel exactly as covered. --bnav-clear is set from the bar's own
+     measured height by syncBnavClearance(); the literal here is only the
+     fallback for the instant before that first measurement lands. */
+  body.wizard .shell{padding-bottom:var(--bnav-clear,96px)}
   .bnav .wrap{max-width:960px;margin:0 auto;padding:13px 22px;display:flex;justify-content:space-between;gap:12px;align-items:center}
   .savestate{font-size:11.5px;color:var(--muted)}
   .spin{display:inline-block;width:14px;height:14px;border:2px solid #c3d4ea;border-top-color:var(--blue);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:7px}
@@ -696,7 +703,28 @@ function nav(v){VIEWS.forEach(x=>{document.getElementById('view-'+x).style.displ
  if(v==='io')drawIO();
  if(v==='clients')drawClients();
  if(v==='leads')drawLeads();
- window.scrollTo(0,0);}
+ window.scrollTo(0,0);
+ if(v==='builder')syncBnavClearance();}
+
+/* The fixed footer's own height, measured rather than guessed. `.shell`'s
+   padding-bottom reads --bnav-clear (see the .bnav rule's own comment): this
+   is what sets it, from the bar as it actually rendered, so a panel above it
+   is never left partly covered because 96px turned out to be a bit short. 24px
+   of breathing room on top of the measurement, and never less than the CSS
+   fallback, so a measurement taken before the bar is laid out (0px) cannot
+   shrink the reserved space below what the plain CSS already guaranteed. */
+function syncBnavClearance(){
+ const el=document.getElementById('bnav');
+ if(!el)return;
+ const h=el.getBoundingClientRect().height;
+ document.documentElement.style.setProperty('--bnav-clear',Math.max(96,Math.ceil(h)+24)+'px');}
+if(window.ResizeObserver){
+ const bnavRO=new ResizeObserver(()=>syncBnavClearance());
+ document.addEventListener('DOMContentLoaded',()=>{
+  const el=document.getElementById('bnav');
+  if(el)bnavRO.observe(el);});
+}else{
+ window.addEventListener('resize',syncBnavClearance);}
 
 /* ============================================================
    DASHBOARD
