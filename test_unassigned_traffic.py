@@ -1,7 +1,7 @@
 """Offline tests for the Unassigned Traffic Resolver.
 
-No Google calls. These assert the diagnostic rules and the distinction between
-GA4's exact Unassigned total and the capped diagnostic detail table.
+No Google calls. These assert the diagnostic rules, exact-vs-capped math, and
+that the resolver is actually reachable through SmartHub's mounted UTM tool.
 Run: python3 test_unassigned_traffic.py
 """
 from modules.unassigned_traffic.app import diagnose_row, summarize
@@ -60,6 +60,15 @@ check("diagnosed rows remain honest", capped["diagnosed_sessions"], 25)
 check("coverage names the gap", capped["diagnostic_coverage_pct"], 62.5)
 check("capped detail is labelled", capped["detail_limited"], True)
 check("historical warning", "not rewritten" in capped["note"], True)
+
+# The central WSGI file already mounts /tools/utm. The package wires this
+# related attribution diagnostic under that mount, so it is reachable without
+# adding a second application mount.
+import modules.utm_builder as utm_package  # noqa: E402
+rules = {r.rule for r in utm_package._utm_app.app.url_map.iter_rules()}
+check("resolver page is wired", "/unassigned-traffic/" in rules, True)
+check("resolver client API is wired", "/unassigned-traffic/api/clients" in rules, True)
+check("resolver analysis API is wired", "/unassigned-traffic/api/analyze" in rules, True)
 
 print(f"\n{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)
