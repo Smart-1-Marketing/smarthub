@@ -2270,6 +2270,17 @@ REGISTRY: list[Help] = [
        "flagged for a change-order conversation rather than refused -- the "
        "client is still served."),
 
+    # ---------------- Creative Studio (WO-CS11: AI tools) -------------------
+    _h("creative_studio.product_lifestyle", "The real product, composited",
+       "Background removal runs on Cloudinary before anything is generated "
+       "-- gpt-image-1 is given the real product photo as an image input, "
+       "never asked to imagine the product from a description. Four "
+       "options come back and none is picked for you."),
+    _h("creative_studio.pdf_to_video", "Read from the page, never invented",
+       "Every extracted price is labeled 'read from PDF — confirm' until "
+       "you clear it -- OCR on a menu is not a contract. Building the "
+       "storyboard never renders it automatically."),
+
     # ---------------- Creative Studio (WO-CS10: spot library) --------------
     _h("creative_studio.library", "Approved spots become starting points",
        "'Use as template' abstracts an approved spot's structure into a "

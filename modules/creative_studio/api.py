@@ -2026,3 +2026,158 @@ def api_library_opt_out():                                     # noqa: ANN202
         return jsonify({"ok": False, "error": "Name the client."}), 400
     result = brand_ext.save(client, {"library_opt_out": bool(data.get("opt_out"))}, actor=_actor())
     return jsonify(result)
+
+
+# --------------------------------------------------------------- WO-CS11: Product Lifestyle
+
+@bp.get("/product-lifestyle")
+def product_lifestyle_page():                                  # noqa: ANN202
+    return render_template("cs_product_lifestyle.html", title="Product Lifestyle",
+                          environments=config.ENVIRONMENTS)
+
+
+@bp.post("/api/product-lifestyle")
+def api_product_lifestyle():                                    # noqa: ANN202
+    """Upload, then enqueue (kind="product_lifestyle") -- WO-CS11 item 1.
+    One route rather than an upload route plus a separate enqueue route:
+    the rep supplies a photo, an environment and an optional prompt in one
+    press, and background removal only ever runs against a file this
+    request itself just stored -- never a public_id supplied in a POST
+    body, the rule `modules/ad_builder`'s `assets.generatedImagePath()` was
+    fixed to enforce after a path taken from a request body once let an
+    arbitrary readable file be lifted into a web-served folder."""
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "Choose a product photo."}), 400
+    environment_key = (request.form.get("environment") or "").strip()
+    if config.environment_by_key(environment_key) is None:
+        return jsonify({"ok": False, "error": "Choose an environment."}), 400
+    client = (request.form.get("client") or "").strip()
+    prompt = (request.form.get("prompt") or "").strip()
+
+    data = f.read()
+    try:
+        from hub import storage
+        asset = storage.put("creative_studio", f.filename, data, client=client)
+    except Exception as exc:                                    # noqa: BLE001
+        return jsonify({"ok": False, "error": str(exc)[:300]}), 400
+
+    project = CsProject(name=f"Product lifestyle — {environment_key}",
+                        creative_type="product_ad", client_name=client,
+                        status="Draft", created_by=_actor())
+    db.session.add(project)
+    db.session.commit()
+
+    job = jobs.enqueue("product_lifestyle", project_id=project.id, client_name=client,
+                       payload={"public_id": asset.public_id, "environment": environment_key,
+                               "prompt": prompt},
+                       created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict(), "project_id": project.id})
+
+
+@bp.get("/api/projects/<int:project_id>/product-lifestyle/results")
+def api_product_lifestyle_results(project_id):                  # noqa: ANN202
+    project = CsProject.query.get_or_404(project_id)
+    rows = (CsMediaAsset.query
+           .filter_by(project_id=project.id, source="openai")
+           .order_by(CsMediaAsset.created_at.desc()).all())
+    return jsonify({"ok": True, "assets": [r.as_dict() for r in rows
+                                          if "product_lifestyle" in (r.tags or [])]})
+
+
+# --------------------------------------------------------------- WO-CS11: PDF -> Video
+
+@bp.get("/pdf-to-video")
+def pdf_to_video_page():                                        # noqa: ANN202
+    industries = sorted({t.industry for t in CsTemplate.query.with_entities(
+        CsTemplate.industry).distinct() if t.industry})
+    return render_template("cs_pdf_to_video.html", title="PDF to Video", industries=industries)
+
+
+@bp.post("/api/pdf-to-video")
+def api_pdf_to_video():                                          # noqa: ANN202
+    """Upload a PDF, file it, and enqueue extraction (kind="pdf") --
+    WO-CS11 item 2. Creates the project here rather than asking the rep to
+    create one first: nothing about a PDF flyer names a project, and a
+    second empty screen between "I have a flyer" and "extract it" is
+    friction the tool does not need."""
+    f = request.files.get("file")
+    if not f or not f.filename or not f.filename.lower().endswith(".pdf"):
+        return jsonify({"ok": False, "error": "Choose a PDF file."}), 400
+    client = (request.form.get("client") or "").strip()
+    duration = request.form.get("duration")
+    try:
+        duration = int(duration) if duration else 15
+    except (TypeError, ValueError):
+        duration = 15
+    if duration not in config.PDF_ITEM_CAPS:
+        duration = 15
+
+    data = f.read()
+    try:
+        from hub import storage
+        asset = storage.put("creative_studio", f.filename, data, client=client)
+    except Exception as exc:                                    # noqa: BLE001
+        return jsonify({"ok": False, "error": str(exc)[:300]}), 400
+
+    project = CsProject(name=f.filename.rsplit(".", 1)[0][:200] or "PDF flyer",
+                        creative_type="video_commercial", client_name=client,
+                        duration=duration, status="Draft", created_by=_actor())
+    db.session.add(project)
+    db.session.commit()
+
+    media = CsMediaAsset(client_name=client, asset_type="document",
+                         filename=f.filename, original_filename=f.filename,
+                         mime_type=f.mimetype or "application/pdf", file_size=asset.bytes,
+                         cloudinary_public_id=asset.public_id, cloudinary_url=asset.url,
+                         source="upload", project_id=project.id, created_by=_actor())
+    db.session.add(media)
+    db.session.commit()
+
+    job = jobs.enqueue("pdf", project_id=project.id, client_name=client,
+                       payload={"public_id": asset.public_id}, created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict(), "project_id": project.id})
+
+
+@bp.post("/api/projects/<int:project_id>/pdf/confirm-prices")
+def api_pdf_confirm_prices(project_id):                          # noqa: ANN202
+    """Every extracted price is "read from PDF -- confirm" until a named
+    human clears it -- WO-CS11's own words, and the reason it is a
+    separate press rather than a default: OCR on a menu is not a
+    contract. Bulk, because a twelve-item extraction is not twelve
+    presses, and a rep who edited one price by hand before confirming
+    still sees that edit here, not the original OCR value -- this route
+    never rewrites `price`, only `price_confirmed`."""
+    project = CsProject.query.get_or_404(project_id)
+    extraction = (project.brief or {}).get("pdf_extraction")
+    if not extraction:
+        return jsonify({"ok": False, "error": "Nothing has been extracted "
+                        "from a PDF for this project yet."}), 400
+    items = extraction.get("items") or []
+    for item in items:
+        item["price_confirmed"] = True
+    brief = dict(project.brief or {})
+    brief["pdf_extraction"] = extraction
+    project.brief = brief
+    db.session.commit()
+    return jsonify({"ok": True, "extraction": extraction})
+
+
+@bp.post("/api/projects/<int:project_id>/pdf/build-storyboard")
+def api_pdf_build_storyboard(project_id):                        # noqa: ANN202
+    """"Rep picks a seed template" -- WO-CS11's own words. What is asked
+    for here is the storyboard build itself; the "picking a seed template"
+    half is `resolve_seed_template()` reused from WO-CS8 rather than
+    restated, on the industry the rep names in the request (a PDF names no
+    industry of its own -- reading one off it would be exactly the
+    invention `hub/website_audit.py` refuses about a finding versus a
+    judgment)."""
+    project = CsProject.query.get_or_404(project_id)
+    extraction = (project.brief or {}).get("pdf_extraction")
+    if not extraction or not extraction.get("items"):
+        return jsonify({"ok": False, "error": "Nothing has been extracted "
+                        "from a PDF for this project yet."}), 400
+    result = binder.bind_pdf_storyboard(project, extraction["items"], duration=project.duration)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify({"ok": True, **result, "project": project.as_dict()})

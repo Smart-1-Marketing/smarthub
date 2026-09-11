@@ -174,6 +174,56 @@ def image(prompt: str, *, module: str, purpose: str, size: str = "1024x1024",
         raise AIUnavailable("Image generation failed.") from exc
 
 
+def image_edit(prompt: str, image_bytes: bytes, *, module: str, purpose: str,
+               size: str = "1024x1024", n: int = 1) -> list[bytes]:
+    """Image generation WITH a reference image as input -- OpenAI's
+    `/v1/images/edits`, not `/v1/images/generations`. `image()` above has no
+    way to hand the model a photograph to work from; this is for the one
+    shape of call that needs to (Creative Studio's Product Lifestyle tool,
+    WO-CS11 -- a real product composited into a generated scene, never a
+    product the model merely imagined from a description).
+
+    Multipart, not JSON, so it cannot go through `_post()` -- the one
+    genuinely different transport this module needs. Returns a LIST of
+    image bytes (`n` may be more than one) rather than the single `bytes`
+    `image()` returns, because this endpoint's whole point here is
+    generating several options for a person to choose between, never one
+    auto-selected. Raises `AIUnavailable` rather than returning a partial
+    list: a caller asking for 4 and silently getting 2 would read as a
+    complete set.
+    """
+    if not ready():
+        raise AIUnavailable("OPENAI_API_KEY is not set.")
+    model = settings.openai_image_model
+    started = time.time()
+    try:
+        resp = requests.post(
+            f"{API}/images/edits",
+            headers={"Authorization": f"Bearer {settings.openai_key}"},
+            files={"image": ("product.png", image_bytes, "image/png")},
+            data={"model": model, "prompt": prompt[:4000], "size": size, "n": str(n)},
+            timeout=settings.openai_timeout * 2)
+        if resp.status_code >= 400:
+            raise AIUnavailable(f"OpenAI returned HTTP {resp.status_code}.")
+        data = resp.json()
+        _record(module, purpose, model, data.get("usage", {}),
+               int((time.time() - started) * 1000), True)
+        import base64
+        out = []
+        for item in (data.get("data") or []):
+            b64 = item.get("b64_json") or ""
+            if b64:
+                out.append(base64.b64decode(b64))
+        if not out:
+            raise AIUnavailable("No image came back.")
+        return out
+    except AIUnavailable:
+        raise
+    except Exception as exc:                # noqa: BLE001
+        _record(module, purpose, model, {}, int((time.time() - started) * 1000), False, type(exc).__name__)
+        raise AIUnavailable("Image generation failed.") from exc
+
+
 def note_usage(module: str, response_json: dict, *, model: str = "",
                purpose: str = "", ok: bool = True, ms: int = 0) -> None:
     """Record spend for a call made outside this module's own client.

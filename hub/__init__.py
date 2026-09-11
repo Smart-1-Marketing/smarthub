@@ -7350,6 +7350,21 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # WO-CS11: flip a row already stored as coming_soon to live once its
+    # tool exists -- "via data, not code," seed_ai_tools.promote()'s own
+    # words. seed() above only ever inserts what is missing, so on a
+    # database seeded before this order shipped, changing _ROWS alone
+    # would not move product_lifestyle/pdf_to_video off coming_soon.
+    try:
+        from modules.creative_studio.seed_ai_tools import promote as _promote_cs_ai_tools
+        with app.app_context():
+            _promote_cs_ai_tools()
+    except Exception as _cs_ai_promote_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_ai_promote_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # Bring in every Commercial Builder Campaign row Creative Studio has a
     # project bound to -- WO-CS8 item 1. Idempotent on cb_campaign_id, and
     # guarded the same way: a migration that cannot run this boot leaves a

@@ -41,6 +41,8 @@ def register_creative_studio(app):
             seed()
             from .seed_ai_tools import seed as seed_ai_tools
             seed_ai_tools()
+            from .seed_ai_tools import promote as promote_ai_tools
+            promote_ai_tools()
             from .campaign_spec import migrate_cb_campaigns
             migrate_cb_campaigns()
     # else: the Hub calls db.add_missing_columns() and
