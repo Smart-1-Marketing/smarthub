@@ -1,1 +1,0 @@
-Proposal Execution Center MVP implementation branch. See proposal_execution_mvp.md and issue #457.
