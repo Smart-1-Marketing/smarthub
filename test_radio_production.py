@@ -4,6 +4,7 @@ import io
 import os
 import tempfile
 import unittest
+import wave
 from unittest.mock import patch, Mock
 from modules.radio_promo import app as promo, store, voices, music_library
 from modules.fan_radio import app as fan, store as fan_store, voices as fan_voices
@@ -27,6 +28,31 @@ class RadioProductionTests(unittest.TestCase):
         patch.object(voices,'_headers',return_value={}).start();patch.object(fan_voices,'_headers',return_value={}).start()
         patch.object(promo,'cloud_ready',return_value=False).start()
         patch.object(voices,'_note_characters').start();patch.object(fan_voices,'_note_characters').start()
+
+    def test_customer_link_requires_saved_music_and_serves_the_combined_file(self):
+        store.update(self.pid,{'spots':[{'slot':'fifteen','audio_url':'/voice.mp3'}],
+                              'beds':{'fifteen':{'audio_url':'/bed.mp3','kind':'uploaded'}}})
+        payload={'enabled':True,'require_mixes':True}
+        self.assertEqual(self.client.post(self.base+'/share',json=payload).status_code,409)
+        self.assertFalse((store.get(self.pid).get('share') or {}).get('enabled'))
+        audio=io.BytesIO()
+        with wave.open(audio,'wb') as wav:
+            wav.setnchannels(1);wav.setsampwidth(2);wav.setframerate(8000)
+            wav.writeframes(b'\x01\x00'*120000)
+        with patch.object(promo,'_qc_for',return_value={'blocking':[],'status':'pass'}):
+            saved=self.client.post(self.base+'/mix',data={'slot':'fifteen','file':(io.BytesIO(audio.getvalue()),'mix.wav')})
+        self.assertEqual(saved.status_code,200,saved.json)
+        shared=self.client.post(self.base+'/share',json=payload)
+        self.assertEqual(shared.status_code,200,shared.json)
+        view=self.client.get('/api/public/'+shared.json['share']['token']).json['spots'][0]
+        self.assertTrue(view['mixed']);self.assertTrue(view['has_bed'])
+        self.assertEqual(view['voice_audio_url'],'/voice.mp3')
+        self.assertEqual(view['audio_url'],saved.json['mix']['audio_url'])
+        self.assertNotEqual(view['audio_url'],view['voice_audio_url'])
+        path=view['audio_url'].removeprefix(promo.MOUNT)
+        with self.client.get(path) as response:
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.data,audio.getvalue())
 
     def test_customer_voice_saved_preview_and_record_use_identical_controls(self):
         saved=self.client.post(self.base+'/voice',json=self.chosen)

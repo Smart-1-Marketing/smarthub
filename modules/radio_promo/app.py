@@ -1562,7 +1562,15 @@ def api_share(pid):
         row = need(pid)
     except LookupError as exc:
         return fail(str(exc), 404)
-    share = radio_share.update_share(row.get("share") or {}, body())
+    payload = body()
+    if payload.get("enabled") and payload.get("require_mixes"):
+        pending = [slot for slot in slots_of(row)
+                   if _bed_for(row, slot) and (_spot_for(row, slot) or {}).get("audio_url")
+                   and not ((row.get("mixes") or {}).get(slot) or {}).get("audio_url")]
+        if pending:
+            return fail("Save the voice and music mix in step 6 before sending "
+                        "the customer link: " + ", ".join(pending), 409)
+    share = radio_share.update_share(row.get("share") or {}, payload)
     row = store.update(pid, {"share": share})
     log("share_updated", project=pid, enabled=bool(share.get("enabled")))
     url = share_url(row)

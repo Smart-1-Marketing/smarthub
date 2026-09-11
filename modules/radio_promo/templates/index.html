@@ -254,7 +254,8 @@
     <div id="packBox"></div><section class="settings-box" aria-label="Customer delivery"><h3>Customer delivery</h3>
       <p class="hint">Customers can listen to both with-music and voice-only versions when a music mix is filed.</p>
       <label class="f" for="shareHeadline">Headline</label><input id="shareHeadline" type="text"><label class="f" for="shareIntro">Message to customer</label><textarea id="shareIntro"></textarea>
-      <div class="rowbar"><button class="btn sec" onclick="clearCustomerComments()">Clear previous customer comments</button><button class="btn" onclick="createReviewLink()">Create customer review link</button></div><div id="shareResult" role="status"></div><div id="customerComments"></div></section>
+      <p class="hint">Creating the link saves a combined voice and music track for each recorded commercial with a music bed. Customers can listen to both versions.</p>
+      <div class="rowbar"><button class="btn sec" onclick="clearCustomerComments()">Clear previous customer comments</button><button class="btn" id="createReviewLink" onclick="createReviewLink()">Prepare audio and create customer link</button></div><div id="shareResult" role="status"></div><div id="customerAudioBox"></div><div id="customerComments"></div></section>
     <div class="rowbar">
       <button class="btn" onclick="pushGhl()">Push to the Suite</button>
       <button class="btn sec" onclick="attachPrompt()">Attach to a client</button>
@@ -860,14 +861,15 @@ async function makeMix(slot){
   try{
     const usedLevel = selectedMixLevel().label, revision=mixRevision;
     const {buffer, note} = await buildMix(slot);
-    if(revision!==mixRevision){say('mixMsg','The voice or bed changed. Render the mix again.','err');return;}
+    if(revision!==mixRevision){say('mixMsg','The voice or bed changed. Render the mix again.','err');return false;}
     const blob = toWav(buffer);
     if(RENDERED[slot] && RENDERED[slot].url) URL.revokeObjectURL(RENDERED[slot].url);
     RENDERED[slot] = {blob, url: URL.createObjectURL(blob),
                       seconds: buffer.duration, peak: peakDbfs(buffer), note, level:usedLevel};
     renderMixPanel();
-    say('mixMsg', 'Rendered. Listen to it, then file it.', 'ok');
-  }catch(e){ say('mixMsg', e.message, 'err'); }
+    say('mixMsg', 'Preview ready. Save this mix for the customer after listening.', 'ok');
+    return true;
+  }catch(e){ say('mixMsg', e.message, 'err'); return false; }
 }
 
 async function fileMix(slot, override){
@@ -888,7 +890,8 @@ async function fileMix(slot, override){
     const d = await post('/api/projects/'+P.id+'/mix', fd);
     P = d.project; QCC[slot]=d.qc;
     URL.revokeObjectURL(made.url); delete RENDERED[slot]; renderMixPanel();
-    say('mixMsg', 'Filed. Measured at '+d.mix.seconds+'s.', 'ok');
+    say('mixMsg', 'Saved for the customer. Measured at '+d.mix.seconds+'s.', 'ok');
+    return true;
   }catch(e){
     const payload = e.payload || {};
     if(payload.blocked){ QCC[slot] = payload.qc; renderMixPanel();
@@ -957,7 +960,7 @@ function renderMixPanel(){
       <div class="rowbar">
         <button class="btn sm" onclick="makeMix('${k}')">${made?'Render again':'Render the mix'}</button>
         ${made?`<button class="btn ${blocked?'sec':''} sm" onclick="fileMix('${k}', ${blocked?'true':'false'})">${
-          blocked?'File it anyway, with a reason':'File this mix'}</button>`:''}
+          blocked?'Save with a reason':'Save mix for customer'}</button>`:''}
         ${made?`<a class="btn sec sm" href="${made.url}" download="mix-${k}.wav">Download</a>`:''}
       </div>
       ${qcRows(k)}
@@ -1048,6 +1051,7 @@ function renderPack(navigate=true){
   const approved = (P.spots||[]).filter(s=>s.approved).length;
   $('shareHeadline').value=P.share?.headline||''; $('shareIntro').value=P.share?.intro||'';
   $('customerComments').textContent=(P.feedback||[]).length+' previous customer comments';
+  renderCustomerAudio();
   $('packBox').innerHTML = `
     <p>${P.spec?'<span class="tag spec">spec</span>':'<span class="tag client">'+esc(P.client)+'</span>'}
        <b>${esc(P.company||P.client)}</b> — ${esc(P.project_name||'untitled')} ·
