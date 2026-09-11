@@ -597,10 +597,26 @@ def create_hub_app() -> Flask:
         from . import suite_map
         body = request.get_json(silent=True) or {}
         client = str(body.get("client") or "")
-        out = suite_map.unlink(client)
+        out = suite_map.unlink(client, str(body.get("location_id") or ""))
         if out.get("ok"):
             audit.log("hub", "suite_location_unlinked", actor=current_user(),
                       client=client)
+        return jsonify(out)
+
+    @app.route("/api/suite/primary", methods=["POST"])
+    def api_suite_primary():
+        """Which of a client's several sub-accounts token_for() and the
+        Social Planner push use by default -- see hub/suite_map.py."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "")
+        out = suite_map.set_primary(client, str(body.get("location_id") or ""))
+        if out.get("ok"):
+            audit.log("hub", "suite_location_primary_set", actor=current_user(),
+                      client=client, detail=str(body.get("location_id") or ""))
         return jsonify(out)
 
     @app.route("/api/backup")
@@ -4143,6 +4159,27 @@ def create_hub_app() -> Flask:
         from . import ads_status
         return jsonify(ads_status.scoreboard())
 
+    @app.route("/api/client/suite-locations")
+    def api_client_suite_locations():
+        """Every Smart 1 Suite sub-account actually recorded for this client
+        -- hub/suite_map.py -- for Client 360's Suite Account card.
+
+        Under `/api/client/` so the card reads inside the Suite frame too.
+        This is deliberately not `/api/client/links`, which is a lighter,
+        display-only "these look like they might be this client's" list a
+        rep can attach several of without any of it reaching token_for() or
+        the Social Planner push -- the disconnect the card used to have. This
+        is the mapping those actually read, with which one is primary.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        name = (request.args.get("name") or "").strip()
+        if not name:
+            return jsonify({"locations": []})
+        return jsonify({"locations": suite_map.client_locations(name)})
+
     # ------------- attached Google accounts (shared: SEO page + Client 360)
     @app.route("/api/client/links")
     def api_client_links():
@@ -4286,14 +4323,19 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        from . import knack_api
+        from . import knack_api, client_groups
         name = (request.args.get("name") or "").strip()
         website = (request.args.get("website") or "").strip()
         if not knack_api.configured():
             return jsonify({"configured": False, "tickets": []})
+        # A grouped client reads across the whole group, the way the work log
+        # and the invoices do: a ticket for one location of a multi-location
+        # client is routinely filed under that location's own name.
+        names = client_groups.member_names(name, request.args.get("url", "")) \
+            or [name]
         try:
             return jsonify({"configured": True,
-                            "tickets": knack_api.list_tickets(name, website)})
+                            "tickets": knack_api.list_tickets(names, website)})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-tickets", exc, path=request.path,
                                  actor=current_user() or "")
