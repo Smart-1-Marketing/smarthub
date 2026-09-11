@@ -757,7 +757,26 @@ def job_creative_jobs_sweep(app) -> dict:
     except Exception as exc:                            # noqa: BLE001
         return {"skipped": f"unavailable ({type(exc).__name__})"}
     with app.app_context():
-        return creative_jobs.run_one()
+        out = creative_jobs.run_one()
+        # The Proposal Execution Center advances one task on this same tick,
+        # deliberately: the leader lock, the cadence and the deploy safety are
+        # already here and a second scheduler would be a second answer to when
+        # a queue runs. It rides here rather than rebinding
+        # `creative_jobs.run_one` -- doing that changed what that function
+        # returns for every reader of it, this panel included.
+        #
+        # Its own half is labelled and never merged into the creative counts:
+        # two queues reporting one `claimed` is a number nobody can act on.
+        # A failure in it costs its own line and never the creative result.
+        try:
+            from hub import proposal_execution
+            out = dict(out)
+            out["proposal_execution"] = proposal_execution.run_one()
+        except Exception as exc:                        # noqa: BLE001
+            out = dict(out)
+            out["proposal_execution"] = {
+                "skipped": f"unavailable ({type(exc).__name__})"}
+        return out
 
 
 JOBS = {

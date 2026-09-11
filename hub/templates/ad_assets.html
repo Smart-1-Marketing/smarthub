@@ -448,7 +448,7 @@ function batchRow(r){
     + `<td>${esc(String(r.copied || 0))}</td>`
     + `<td>${esc(String(r.skipped || 0))}</td>`
     + `<td class="${bad ? "" : "muted"}">${esc(String(r.failed || 0))}</td>`
-    + `<td class="muted">${esc(r.error || "")}</td></tr>`;
+    + `<td class="muted">${esc(r.error || r.reason || "")}</td></tr>`;
 }
 
 async function runBatch(apply){
@@ -463,6 +463,7 @@ async function runBatch(apply){
   const live = $("batchLive").checked;
   let after = "", rows = [], totals = {copied:0, skipped:0, failed:0};
   let total = 0, processed = 0, remaining = null, stopped = false, err = "";
+  let links = 0, reasons = {}, verdict = null, source = "", age = null;
 
   const draw = () => {
     /* Three numbers, because they are three questions: how many clients
@@ -476,6 +477,31 @@ async function runBatch(apply){
       + (remaining === null ? "" : ` ${remaining} client(s) still to go.`)
       + (stopped ? " <b>Stopped</b> — press again to carry on from here." : "")
       + `</div>`;
+    /* Which book this ran over. A stale export and a live Knack read are
+       different sets of clients, and "18 of 18" is a complete sweep of
+       whichever one answered — so the source is named rather than left to be
+       assumed, and the link count beside it is what makes a run that found
+       fifty links, on a book whose single-client lookup showed a hundred for
+       one client, visible as the disagreement it is. */
+    if (source)
+      h += `<div class="note"><b>${esc(String(links))}</b> Drive link(s) across `
+         + `<b>${esc(String(total))}</b> client(s), read from <b>${esc(source)}</b>`
+         + (age === null || age === undefined ? ""
+            : ` (${esc(String(Math.round(age)))} minute(s) old)`)
+         + `. A client whose own dry run shows more links than this is a sign `
+         + `the two are reading different product records.</div>`;
+    /* Why, once, rather than a column of the same word. */
+    if (verdict && verdict.detail)
+      h += `<div class="note bad"><b>Nothing came across.</b> `
+         + esc(verdict.detail)
+         + connectFix("refused") + `</div>`;
+    else if (totals.failed) {
+      const why = Object.keys(reasons).sort((a,b) => reasons[b] - reasons[a])
+        .map(k => `${reasons[k]} ${esc(k)}`).join(", ");
+      if (why) h += `<div class="note warn"><b>Why they failed:</b> ${why}. `
+        + `<span class="muted">refused is Drive saying no to this login; `
+        + `missing is a folder that has moved or been deleted.</span></div>`;
+    }
     if (err) h += `<div class="note bad">${esc(err)}</div>`;
     if (rows.length)
       h += '<table><thead><tr><th>Client</th><th>Copied</th><th>Skipped</th>'
@@ -505,6 +531,15 @@ async function runBatch(apply){
       total = res.total || 0;
       processed += res.processed || 0;
       remaining = res.remaining;
+      links = res.links || 0;
+      source = res.source || "";
+      age = res.age_minutes;
+      /* The verdict is the run's, so the latest chunk's reading wins: a book
+         that has started copying is no longer a book where nothing came
+         across, and holding the first chunk's verdict would say otherwise. */
+      verdict = res.verdict && res.verdict.detail ? res.verdict : null;
+      Object.keys(res.reasons || {}).forEach(k => {
+        reasons[k] = (reasons[k] || 0) + res.reasons[k]; });
       rows = rows.concat(res.results || []);
       ["copied", "skipped", "failed"].forEach(k => {
         totals[k] += (res.counts && res.counts[k]) || 0; });

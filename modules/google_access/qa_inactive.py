@@ -97,20 +97,50 @@ def _headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
+def _note_google(url: str, ok: bool = True) -> None:
+    """Count one Google API call against the daily quota on /diagnostics.
+
+    The same shape as `google_finder`'s and `hub/drive_files.py`'s own
+    `_note_google` -- filed by URL, so `quotas.google_api_of()` buckets it
+    under the API it belongs to rather than the total disappearing into
+    "other". This tool walks every GA4 property and every Tag Manager
+    container across every connected login, which is the heaviest Google
+    sweep in the Hub, so leaving it out understated the day's usage by
+    exactly the calls most likely to exhaust it.
+
+    Recorded **before** `raise_for_status()` at every call site, and whatever
+    the response was: a 403 or a 429 has still spent a request against the
+    quota, and a run of those is what a spent quota looks like from this
+    side. Counting only the successes would make the usage page quietest
+    precisely when it matters.
+
+    It never raises: a quota note that breaks the sweep it is measuring is
+    worse than a number nobody has.
+    """
+    try:
+        from hub import quotas
+        quotas.record_google(url, module="google_access", ok=ok)
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
 def _get(token: str, url: str, params=None) -> dict:
     r = requests.get(url, headers=_headers(token), params=params or {}, timeout=20)
+    _note_google(url, ok=r.ok)
     r.raise_for_status()
     return r.json() if r.content else {}
 
 
 def _post(token: str, url: str, body: dict) -> dict:
     r = requests.post(url, headers=_headers(token), json=body, timeout=25)
+    _note_google(url, ok=r.ok)
     r.raise_for_status()
     return r.json() if r.content else {}
 
 
 def _delete(token: str, url: str) -> None:
     r = requests.delete(url, headers=_headers(token), timeout=20)
+    _note_google(url, ok=r.ok)
     r.raise_for_status()
 
 
