@@ -750,24 +750,27 @@ def proposal_choices(client):
 
 
 def install_scheduler_bridge():
-    """Advance one proposal task on the existing once-per-minute creative queue.
+    """Kept as a no-op so nothing that calls it has to change.
 
-    This is deliberately a bridge for the MVP: the scheduler already has the leader lock,
-    retry cadence and deploy safety we need. It avoids creating a second scheduler. A later
-    refactor may give this queue its own named JOBS entry without changing task semantics.
+    This used to rebind ``hub.creative_jobs.run_one`` to a wrapper returning
+    ``{"creative": ..., "proposal_execution": ...}``, which advanced a proposal
+    task on the creative queue's tick and cost a great deal more than it
+    bought: *every* caller of that function got a different shape, from the
+    moment the routes registered, whether or not it had heard of this module.
+    `hub/scheduler.py` reports what it returns onto the scheduler panel, and
+    `test_creative_jobs.py` reads `claimed` off it -- which stopped being there
+    and raised `KeyError: 'claimed'`, invisibly, because CI aborts at its first
+    failing step and had not reached that one.
+
+    The reasoning behind the bridge was right and is kept: the scheduler
+    already holds the leader lock, the retry cadence and the deploy safety this
+    queue needs, and a second scheduler would be worse. What moved is *where*
+    the fan-out happens -- `hub/scheduler.job_creative_queue()` calls both
+    halves and labels each, so there is one reader of "what did this tick do"
+    rather than a public function whose contract depends on which modules
+    happen to have registered.
     """
-    try:
-        from hub import creative_jobs
-        original = creative_jobs.run_one
-        if getattr(original, "_proposal_execution_bridge", False): return
-        def combined():
-            creative_result = original()
-            proposal_result = run_one()
-            return {"creative": creative_result, "proposal_execution": proposal_result}
-        combined._proposal_execution_bridge = True
-        creative_jobs.run_one = combined
-    except Exception:
-        pass
+    return None
 
 
 __all__ = ["ProposalExecutionRun", "ProposalExecutionTask", "ProposalExecutionEvent",
