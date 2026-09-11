@@ -46,7 +46,7 @@ import secrets
 from datetime import datetime, timezone
 
 from hub import jsonstore
-from hub.weather_triggers import TRIGGERS, validate_picks
+from hub.weather_triggers import TRIGGERS, VERTICALS, validate_picks
 
 MAX_EVENTS = 200
 MAX_NOTE_LEN = 600
@@ -179,10 +179,18 @@ def create(*, client: str, vertical: str = "restaurant", lead_id: str = "",
     server" for what was actually a disk write failing on our end.
     """
     token = new_token()
+    picked_vertical = _text(vertical, 40) or "restaurant"
+    if picked_vertical not in VERTICALS:
+        # A vertical nobody has a trigger vocabulary for is not a vertical
+        # this campaign can pick anything against -- validate_picks() would
+        # refuse every one of them by name, one at a time, rather than the
+        # campaign simply having nothing to offer. Falling back to
+        # "restaurant" here is the safe direction to be wrong in.
+        picked_vertical = "restaurant"
     row = {
         "token": token,
         "client": _text(client, 200),
-        "vertical": _text(vertical, 40) or "restaurant",
+        "vertical": picked_vertical,
         "zip_code": _text(zip_code, 12),
         "location_name": "",
         "status": "draft",

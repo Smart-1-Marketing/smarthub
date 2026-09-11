@@ -13,8 +13,10 @@
         box-shadow:0 1px 6px rgba(0,0,0,.06)}
   .card h2{font-size:15px;margin:0 0 14px;color:#1a2b3c}
   label{display:block;font-size:12px;font-weight:600;color:#5a6b7c;margin:10px 0 4px}
-  input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #d6dde5;
-        border-radius:6px;font-size:14px}
+  input,select{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #d6dde5;
+        border-radius:6px;font-size:14px;background:#fff}
+  .vert-pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;
+        font-weight:600;background:#eef2f7;color:#3a4d61;margin-left:6px}
   .row{display:flex;gap:12px}
   .row > div{flex:1}
   button{margin-top:16px;background:#2563eb;color:#fff;border:none;
@@ -48,6 +50,12 @@
         <input id="wx-zip" placeholder="e.g. 46032">
       </div>
     </div>
+    <label for="wx-vertical">Vertical</label>
+    <select id="wx-vertical">
+      {% for v in verticals %}
+      <option value="{{ v.id }}">{{ v.label }}</option>
+      {% endfor %}
+    </select>
     <label for="wx-lead">Lead id (optional — from the row below)</label>
     <input id="wx-lead" placeholder="">
     <button id="wx-start">Start weather setup</button>
@@ -90,10 +98,12 @@
 
   function start(client, leadId) {
     var zip = document.getElementById('wx-zip').value.trim();
+    var vertical = document.getElementById('wx-vertical').value;
     fetch('/tools/weather-setup/api/start', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({client: client, lead_id: leadId || '', zip_code: zip})
+      body: JSON.stringify({client: client, lead_id: leadId || '', zip_code: zip,
+                            vertical: vertical})
     }).then(function (r) { return r.json(); }).then(function (data) {
       if (data.ok) {
         showResult(true, 'Started. Send this link to the client: <a href="' +
