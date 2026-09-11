@@ -92,7 +92,7 @@ PROJECT_STATUSES = (
 # looking like a stuck job -- the sweep this file's own JOBS entry describes.
 JOB_KINDS = ("index", "script", "storyboard", "image", "voice", "heygen",
              "render", "variant", "pdf", "campaign_draft", "weather_set",
-             "library_abstract")
+             "library_abstract", "product_lifestyle")
 
 # Stages shown to the user, in the order Section 11 gives. A job's `stage`
 # is free text so a kind can name its own step, but these are the ones the
@@ -108,7 +108,7 @@ STAGE_ORDER = (
 JOB_TIMEOUT_MINUTES = {
     "index": 10, "script": 5, "storyboard": 5, "image": 8, "voice": 8,
     "heygen": 20, "render": 30, "variant": 15, "pdf": 5, "campaign_draft": 10,
-    "weather_set": 12, "library_abstract": 5,
+    "weather_set": 12, "library_abstract": 5, "product_lifestyle": 10,
 }
 
 # Renders bill; a generation retried three times over is still cheaper than
@@ -279,3 +279,72 @@ INDUSTRY_PACKS: dict[str, dict] = {
 
 def industry_pack(industry: str) -> dict:
     return INDUSTRY_PACKS.get(industry or "general", INDUSTRY_PACKS["general"])
+
+
+# --------------------------------------------------------------- WO-CS11
+
+# Product Lifestyle's environment picker (build spec section 6, "12
+# seeded"). Data, the same reason `WEATHER_CONDITIONS`/`INDUSTRY_PACKS`
+# above are: a thirteenth environment is a fixture, never a template edit.
+# `prompt` is the scene-setting half of what reaches gpt-image-1; the
+# product photo itself (background already removed) is the image input,
+# so the prompt never has to describe the product -- only where it sits.
+ENVIRONMENTS: list[dict] = [
+    {"key": "restaurant_table", "label": "Restaurant table",
+     "prompt": "A softly lit restaurant table setting, warm ambient light, "
+               "shallow depth of field."},
+    {"key": "luxury_kitchen", "label": "Luxury kitchen",
+     "prompt": "A bright, modern luxury kitchen counter, natural light "
+               "from a window, clean marble surface."},
+    {"key": "outdoor_campsite", "label": "Outdoor campsite",
+     "prompt": "An outdoor campsite at golden hour, a campfire glowing "
+               "softly in the background, natural woodland setting."},
+    {"key": "modern_office", "label": "Modern office",
+     "prompt": "A modern office desk, clean and minimal, soft daylight "
+               "through a large window."},
+    {"key": "retail_shelf", "label": "Retail shelf",
+     "prompt": "A well-lit retail store shelf, clean product display "
+               "lighting, shallow depth of field on the shelf edge."},
+    {"key": "home_exterior", "label": "Home exterior",
+     "prompt": "The exterior of a well-kept suburban home, daylight, "
+               "a porch or driveway setting."},
+    {"key": "showroom_floor", "label": "Showroom floor",
+     "prompt": "A polished showroom floor, bright even lighting, a clean "
+               "reflective surface."},
+    {"key": "marina_dock", "label": "Marina dock",
+     "prompt": "A marina dock at sunset, boats softly out of focus in the "
+               "background, warm coastal light."},
+    {"key": "holiday", "label": "Holiday",
+     "prompt": "A warm holiday setting, string lights softly out of focus, "
+               "a festive but uncluttered background."},
+    {"key": "summer", "label": "Summer",
+     "prompt": "A bright summer outdoor setting, clear blue sky, natural "
+               "sunlight."},
+    {"key": "winter", "label": "Winter",
+     "prompt": "A crisp winter setting, soft falling snow out of focus, "
+               "cool natural light."},
+    {"key": "studio_white", "label": "Studio white",
+     "prompt": "A clean white studio backdrop, professional product "
+               "lighting, no shadows."},
+]
+_ENVIRONMENT_BY_KEY = {e["key"]: e for e in ENVIRONMENTS}
+
+
+def environment_by_key(key: str) -> dict | None:
+    return _ENVIRONMENT_BY_KEY.get(key)
+
+
+# The build spec's own numbers: "max 4 items per :15 and 8 per :30" -- an
+# extracted PDF (a menu, a listing sheet) is routinely longer than either,
+# and silently rendering all twelve items is a scene per item nobody asked
+# for and a spot that runs three minutes. `pdf_scene_cap()` is the one
+# reading, so the job runner and any later screen showing "N of M items
+# will be used" cannot drift into two different ceilings.
+PDF_ITEM_CAPS = {15: 4, 30: 8}
+
+
+def pdf_scene_cap(duration) -> int:
+    try:
+        return PDF_ITEM_CAPS[int(duration)]
+    except (KeyError, TypeError, ValueError):
+        return max(PDF_ITEM_CAPS.values())

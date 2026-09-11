@@ -748,3 +748,99 @@ def library_abstract_from_project(project, actor: str = ""):
         pass
 
     return {"ok": True, "template_id": new_tmpl.id}
+
+
+# --------------------------------------------------------------- WO-CS11
+
+def bind_pdf_storyboard(project, items: list[dict], *, duration=None):
+    """Build a storyboard from a PDF extraction's own items -- WO-CS11 item
+    2, "items map to montage_grid/offer_card scenes." `layouts.py` (WO-CS1)
+    has eight layouts and none of them is `montage_grid`; the closest real
+    shape it already has is `offer_card` -- a headline, an offer and a CTA,
+    no background image. Rather than author a new Creatomate layout this
+    order has no way to visually verify, each extracted item becomes its
+    OWN `offer_card` scene in sequence: a "montage" of the items the PDF
+    named, one at a time, which is what `offer_card` was already built to
+    show. `config.pdf_scene_cap(duration)` -- 4 for a :15, 8 for a :30 --
+    caps how many of them are used; the rest are simply not built, never
+    silently truncating what the extraction itself found (that stays on
+    `project.brief["pdf_extraction"]` in full).
+
+    Never renders -- the build spec's own words, "Never renders
+    automatically" -- and this is the one bind path with nowhere to read a
+    price's own confirm flag from except the caller: `items` is exactly
+    what `project.brief["pdf_extraction"]["items"]` holds, confirm flags
+    and all, and this function reads only `name`/`price` off each one.
+    """
+    from . import config
+    from .db import db
+
+    if project.cb_project_id:
+        return {"ok": True, "cb_project_id": project.cb_project_id}
+    if not items:
+        return {"ok": False, "error": "Nothing was extracted from the PDF to build from."}
+
+    try:
+        from modules.commercial_builder import template_bind as cb_template_bind
+    except Exception as exc:                              # noqa: BLE001
+        return {"ok": False, "error": f"The Commercial Builder is not available ({exc})."}
+
+    cb_client, error = _ensure_client_row(project)
+    if error:
+        return {"ok": False, "error": error}
+
+    domain = _client_domain(project.client_name)
+    chrome = {
+        "logo_url": resolver._brand_value("logo", project.client_name, domain),
+        "phone": resolver._brand_value("phone", project.client_name, domain),
+        "website": resolver._brand_value("website", project.client_name, domain),
+    }
+
+    length = duration or project.duration or 15
+    cap = config.pdf_scene_cap(length)
+    used = items[:cap]
+    target = project.aspect_ratio or "16:9"
+    per_scene = max(2.0, round(length / max(1, len(used)), 2))
+
+    new_scenes = []
+    cursor = 0.0
+    for item in used:
+        layer_values = {
+            "headline": {"value": item.get("name") or "", "source": "brief"},
+            "offer": {"value": item.get("price") or "", "source": "brief"},
+        }
+        overlay = layouts.elements_for(
+            "offer_card", target, layer_values, logo_url=chrome["logo_url"],
+            phone=chrome["phone"], website=chrome["website"])
+        new_scenes.append({
+            "start": round(cursor, 2), "end": round(cursor + per_scene, 2),
+            "narration": item.get("name") or "", "visual_description": item.get("description") or "",
+            "is_cta": False, "asset_url": "", "asset_type": "", "asset_source": "",
+            "asset_thumb_url": "",
+            "asset_meta": {"layout_key": "offer_card", "layers": layer_values,
+                          "chrome": chrome, "text_overlay": overlay},
+        })
+        cursor += per_scene
+
+    try:
+        cb_project = cb_template_bind.build_from_scenes(
+            client_id=cb_client.id, client_name=cb_client.name, title=project.name,
+            length_seconds=round(cursor), platform="both", formats=[target],
+            commercial_type="stock_vo", scenes=new_scenes)
+    except Exception as exc:                              # noqa: BLE001
+        return {"ok": False, "error": f"Could not build the storyboard ({exc})."}
+
+    project.cb_project_id = cb_project.id
+    project.duration = round(cursor)
+    db.session.commit()
+
+    try:
+        from hub import audit
+        audit.log("creative_studio", "pdf_storyboard_built", actor=project.created_by or "",
+                  client=project.client_name or None, project=project.name,
+                  detail=f"{len(used)} of {len(items)} extracted items")
+    except Exception:                                     # noqa: BLE001
+        pass
+
+    return {"ok": True, "cb_project_id": cb_project.id, "scenes_used": len(used),
+           "scenes_available": len(items)}

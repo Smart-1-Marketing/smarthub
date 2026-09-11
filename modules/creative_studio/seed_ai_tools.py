@@ -44,13 +44,13 @@ _ROWS: list[tuple] = [
      "\U0001F3AC", "/tools/commercial-builder/", "live", 80),
     ("product_lifestyle", "Product Lifestyle", "product",
      "A product shot placed into a lifestyle scene.",
-     "\U0001F6D2", "", "coming_soon", 90),
+     "\U0001F6D2", "/creative-studio/product-lifestyle", "live", 90),
     ("logo_animation", "Logo Animation", "brand",
      "The logo alone, animated in -- the logo_reveal template layout.",
      "✨", "/creative-studio/templates?type=intro_outro", "live", 100),
     ("pdf_to_video", "PDF to Video", "video",
      "Turn a PDF flyer or one-sheet into a short video.",
-     "\U0001F4C4", "", "coming_soon", 110),
+     "\U0001F4C4", "/creative-studio/pdf-to-video", "live", 110),
     ("dead_air_cutter", "Dead Air Cutter", "audio",
      "Trim silence out of a raw voice or interview recording.",
      "✂️", "/tools/dead-air/", "live", 120),
@@ -79,3 +79,36 @@ def seed() -> int:
     if created:
         db.session.commit()
     return created
+
+
+def promote() -> int:
+    """Flip a row already in the table from `coming_soon` to `live` once
+    the tool behind it actually exists -- WO-CS11's own words, "flip their
+    cs_ai_tools rows to status='live' via data, not code." `seed()` above
+    only ever INSERTS what is missing, so on a database that already has
+    `product_lifestyle`/`pdf_to_video` seeded as coming_soon from an
+    earlier boot, changing `_ROWS` alone changes nothing there -- this is
+    the other half, comparing what is stored against what `_ROWS` now
+    says and syncing `route`/`status` where they differ, never anything
+    else a row carries (an admin's own edit to a name or an icon is not
+    this function's to overwrite).
+
+    "Via data, not code" is the reason this is a comparison against
+    `_ROWS` rather than a hard-coded
+    `if key == "product_lifestyle": row.status = "live"` somewhere in a
+    route -- a third tool promoted the same way needs a data row edited,
+    never a second branch written.
+    """
+    promoted = 0
+    for key, _name, _category, _description, _icon, route, status, _sort in _ROWS:
+        if status != "live" or not route:
+            continue
+        row = CsAiTool.query.filter_by(key=key).first()
+        if row is None or row.status == "live":
+            continue
+        row.route = route
+        row.status = "live"
+        promoted += 1
+    if promoted:
+        db.session.commit()
+    return promoted

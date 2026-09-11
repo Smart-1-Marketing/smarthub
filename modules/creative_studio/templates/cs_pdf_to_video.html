@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}PDF to Video — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>PDF to Video {{ help_dot('creative_studio.pdf_to_video') if help_dot is defined else '' }}</h2>
+  <p>A menu, a listing sheet, a one-sheet -- read into a short video. Extracted
+     prices are labeled "read from PDF — confirm" until you clear them, and
+     nothing ever renders on its own.</p>
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
+      <label>PDF file
+        <input type="file" id="pvFile" accept="application/pdf" style="display:block;margin-top:4px;">
+      </label>
+      <label>Client (optional)
+        <input type="text" id="pvClient" style="width:100%;padding:8px;margin-top:4px;">
+      </label>
+      <label>Length
+        <select id="pvDuration" style="width:100%;padding:8px;margin-top:4px;">
+          <option value="15">:15 (up to 4 items)</option>
+          <option value="30">:30 (up to 8 items)</option>
+        </select>
+      </label>
+    </div>
+    <div style="margin-top:14px;">
+      <button class="btn btn-primary" id="pvExtract">Read the PDF</button>
+      <span id="pvStatus" style="margin-left:8px;color:var(--muted,#64748B);font-size:12.5px;"></span>
+    </div>
+  </div>
+
+  <div class="card" id="pvExtractionCard" style="display:none;">
+    <h3 style="margin-top:0;">What was found</h3>
+    <p><strong>Headline:</strong> <span id="pvHeadline"></span></p>
+    <p><strong>Offer:</strong> <span id="pvOffer"></span></p>
+    <p><strong>Dates:</strong> <span id="pvDates"></span> &nbsp; <strong>Address:</strong> <span id="pvAddress"></span></p>
+    <table>
+      <thead><tr><th>Item</th><th>Price</th><th>Description</th></tr></thead>
+      <tbody id="pvItems"></tbody>
+    </table>
+    <div style="margin-top:12px;">
+      <button class="btn" id="pvConfirm">Confirm all prices</button>
+      <button class="btn btn-primary" id="pvBuild">Build storyboard</button>
+      <span id="pvBuildStatus" style="margin-left:8px;color:var(--muted,#64748B);font-size:12.5px;"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var btn = document.getElementById('pvExtract');
+  var status = document.getElementById('pvStatus');
+  var card = document.getElementById('pvExtractionCard');
+  var currentProjectId = null;
+
+  function esc(s){ var d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+
+  function renderExtraction(ex){
+    document.getElementById('pvHeadline').textContent = ex.headline || '—';
+    document.getElementById('pvOffer').textContent = ex.offer || '—';
+    document.getElementById('pvDates').textContent = ex.dates || '—';
+    document.getElementById('pvAddress').textContent = ex.address || '—';
+    var tbody = document.getElementById('pvItems');
+    tbody.innerHTML = '';
+    (ex.items || []).forEach(function(item){
+      var tr = document.createElement('tr');
+      var priceLabel = item.price
+        ? esc(item.price) + (item.price_confirmed ? '' : ' <span class="pill info">read from PDF — confirm</span>')
+        : '—';
+      tr.innerHTML = '<td>' + esc(item.name) + '</td><td>' + priceLabel + '</td><td>' + esc(item.description) + '</td>';
+      tbody.appendChild(tr);
+    });
+    card.style.display = 'block';
+  }
+
+  function poll(jobId){
+    fetch('/creative-studio/api/jobs/' + jobId).then(function(r){ return r.json(); }).then(function(d){
+      var job = d && d.job;
+      if (!job) { status.textContent = 'Lost track of the job.'; btn.disabled = false; return; }
+      if (job.state === 'complete') {
+        status.textContent = 'Done.';
+        btn.disabled = false;
+        renderExtraction((job.output || {}).extraction || {});
+      } else if (job.state === 'failed') {
+        status.textContent = job.error || 'Could not read the PDF.';
+        btn.disabled = false;
+      } else {
+        status.textContent = job.stage || 'Reading…';
+        setTimeout(function(){ poll(jobId); }, 1500);
+      }
+    });
+  }
+
+  btn.addEventListener('click', function(){
+    var file = document.getElementById('pvFile').files[0];
+    if (!file) { status.textContent = 'Choose a PDF.'; return; }
+    var fd = new FormData();
+    fd.append('file', file);
+    fd.append('client', document.getElementById('pvClient').value.trim());
+    fd.append('duration', document.getElementById('pvDuration').value);
+    btn.disabled = true;
+    status.textContent = 'Uploading…';
+    fetch('/creative-studio/api/pdf-to-video', {method: 'POST', body: fd})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.ok) { status.textContent = d.error || 'Could not start.'; btn.disabled = false; return; }
+        currentProjectId = d.project_id;
+        poll(d.job.id);
+      });
+  });
+
+  document.getElementById('pvConfirm').addEventListener('click', function(){
+    if (!currentProjectId) return;
+    fetch('/creative-studio/api/projects/' + currentProjectId + '/pdf/confirm-prices', {method: 'POST'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if (d.ok) renderExtraction(d.extraction); });
+  });
+
+  document.getElementById('pvBuild').addEventListener('click', function(){
+    if (!currentProjectId) return;
+    var s = document.getElementById('pvBuildStatus');
+    s.textContent = 'Building…';
+    fetch('/creative-studio/api/projects/' + currentProjectId + '/pdf/build-storyboard', {method: 'POST'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        s.textContent = d.ok
+          ? ('Built ' + d.scenes_used + ' of ' + d.scenes_available + ' items -- open the project to edit.')
+          : (d.error || 'Could not build.');
+      });
+  });
+})();
+</script>
+{% endblock %}

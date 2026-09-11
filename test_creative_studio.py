@@ -719,13 +719,12 @@ with hub_app.app_context():
           CsAiTool.query.count() >= 14, True)
     check("  ...script_generator is seeded live",
           CsAiTool.query.filter_by(key="script_generator").first().status, "live")
-    check("  ...product_lifestyle is seeded coming_soon",
-          CsAiTool.query.filter_by(key="product_lifestyle").first().status, "coming_soon")
+    # WO-CS11 turned the registry's last two coming_soon tiles live -- see
+    # that section below for the row-by-row assertions on what changed.
 
 r = client.get("/creative-studio/ai-tools")
 check("the AI Tools page renders", r.status_code, 200)
 check("  ...carrying a live tool's name", b"Script Generator" in r.data, True)
-check("  ...and a coming_soon tile", b"Coming soon" in r.data, True)
 
 r = client.get("/creative-studio/ai-tools?category=video")
 check("filtering by category narrows the page",
@@ -2665,6 +2664,316 @@ check("marking not-applicable on a project with no legal_line requirement "
 _cs10_qc.run_qc = _orig_run_qc10
 _cs10_cta.submit_render = _orig_submit10
 _cs10_cta.check_render = _orig_check10
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: environments and the per-length item cap are data")
+
+check("twelve environments are seeded", len(config.ENVIRONMENTS), 12)
+check("  ...each with a key, a label and a prompt",
+      all({"key", "label", "prompt"} <= set(e.keys()) for e in config.ENVIRONMENTS), True)
+check("a real environment resolves", config.environment_by_key("studio_white") is not None, True)
+check("an unknown one does not", config.environment_by_key("not-a-real-one"), None)
+
+check(":15 caps at 4 items", config.pdf_scene_cap(15), 4)
+check(":30 caps at 8 items", config.pdf_scene_cap(30), 8)
+check("an unknown duration falls back to the largest cap",
+      config.pdf_scene_cap(999), max(config.PDF_ITEM_CAPS.values()))
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: the two Coming Soon tiles are live now, via data not code")
+
+with hub_app.app_context():
+    from modules.creative_studio.models import CsAiTool as CsAiToolModel11
+    from modules.creative_studio import seed_ai_tools as cs_seed_ai_tools
+
+    pl_row = CsAiToolModel11.query.filter_by(key="product_lifestyle").first()
+    check("product_lifestyle promoted to live", pl_row.status, "live")
+    check("  ...with a real route", pl_row.route, "/creative-studio/product-lifestyle")
+    pdf_row = CsAiToolModel11.query.filter_by(key="pdf_to_video").first()
+    check("pdf_to_video promoted to live", pdf_row.status, "live")
+    check("  ...with a real route", pdf_row.route, "/creative-studio/pdf-to-video")
+
+    check("promote() is idempotent -- nothing left to promote",
+          cs_seed_ai_tools.promote(), 0)
+
+r = client.get("/creative-studio/ai-tools")
+check("no coming_soon tile is left on the page", b"Coming soon" in r.data, False)
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: hub.ai.image_edit -- the real product as an image input")
+
+import requests as _cs11_requests  # noqa: E402
+
+
+class _FakeResp:
+    def __init__(self, status_code=200, content=b"", json_data=None):
+        self.status_code = status_code
+        self.content = content
+        self._json = json_data or {}
+
+    def json(self):
+        return self._json
+
+
+_orig_requests_post = _cs11_requests.post
+_orig_requests_get = _cs11_requests.get
+_orig_ai_ready = _hub_ai.ready
+_hub_ai.ready = lambda: True
+
+import base64  # noqa: E402
+_fake_b64 = base64.b64encode(b"fake-png-bytes").decode()
+
+
+def _fake_images_edits_post(url, headers=None, files=None, data=None, timeout=None):
+    check("image_edit posts to the /images/edits endpoint", url.endswith("/images/edits"), True)
+    check("  ...as multipart, carrying the product photo", "image" in (files or {}), True)
+    n = int((data or {}).get("n") or 1)
+    return _FakeResp(200, json_data={"data": [{"b64_json": _fake_b64} for _ in range(n)]})
+
+
+_cs11_requests.post = _fake_images_edits_post
+
+with hub_app.app_context():
+    edited = _hub_ai.image_edit("a product on a table", b"raw product bytes",
+                                module="creative_studio", purpose="product_lifestyle", n=4)
+    check("image_edit returns one bytes object per option", len(edited), 4)
+    check("  ...decoded from base64", edited[0], b"fake-png-bytes")
+
+_cs11_requests.post = lambda *a, **k: _FakeResp(500)
+with hub_app.app_context():
+    try:
+        _hub_ai.image_edit("x", b"y", module="creative_studio", purpose="product_lifestyle")
+        raised = False
+    except _hub_ai.AIUnavailable:
+        raised = True
+check("a refused edits call raises AIUnavailable rather than returning nothing", raised, True)
+
+_cs11_requests.post = _orig_requests_post
+_cs11_requests.get = _orig_requests_get
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: Product Lifestyle -- background removal, then 4 options, none picked")
+
+from hub import storage as _hub_storage  # noqa: E402
+
+_orig_bg_url = _hub_storage.background_removed_url
+_orig_pdf_page_url = _hub_storage.pdf_page_url
+
+_hub_storage.background_removed_url = lambda public_id: (
+    "https://cdn.example.test/bg-removed.png" if public_id else "")
+_cs11_requests.get = lambda url, **kw: _FakeResp(200, content=b"cutout-bytes")
+_cs11_requests.post = _fake_images_edits_post
+
+r = client.post("/creative-studio/api/product-lifestyle",
+                data={"client": "Acme Plumbing", "environment": "studio_white",
+                      "prompt": "top down angle",
+                      "file": (BytesIO(b"a real-enough jpeg"), "widget.jpg")},
+                content_type="multipart/form-data")
+check("starting a product lifestyle generation succeeds", r.status_code, 200)
+pl_job_id = r.get_json()["job"]["id"]
+pl_project_id = r.get_json()["project_id"]
+
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    pl_job = CreativeJob.query.get(pl_job_id)
+    check("the product_lifestyle job completes in one tick", pl_job.state, "complete")
+    check("  ...and reports 4 asset ids", len(pl_job.output.get("asset_ids") or []), 4)
+
+r = client.get(f"/creative-studio/api/projects/{pl_project_id}/product-lifestyle/results")
+check("the results route lists the 4 options", len(r.get_json()["assets"]), 4)
+first_asset = r.get_json()["assets"][0]
+check("  ...tagged product_lifestyle + the environment",
+      first_asset["tags"], ["product_lifestyle", "studio_white"])
+check("  ...filed as source=openai, never as an upload",
+      first_asset["source"], "openai")
+
+r = client.post("/creative-studio/api/product-lifestyle",
+                data={"environment": "not-a-real-environment",
+                      "file": (BytesIO(b"x"), "widget.jpg")},
+                content_type="multipart/form-data")
+check("an unknown environment is refused", r.status_code, 400)
+
+r = client.post("/creative-studio/api/product-lifestyle", data={"environment": "studio_white"})
+check("no file is refused", r.status_code, 400)
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: background removal failing ends the job failed, no "
+       "generation attempted")
+
+_generate_calls = []
+_cs11_requests.post = lambda *a, **k: _generate_calls.append(1) or _FakeResp(200)
+_cs11_requests.get = lambda url, **kw: _FakeResp(500)  # the account cannot do this
+
+r = client.post("/creative-studio/api/product-lifestyle",
+                data={"environment": "summer",
+                      "file": (BytesIO(b"y"), "widget2.jpg")},
+                content_type="multipart/form-data")
+bg_fail_job_id = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    bg_fail_job = CreativeJob.query.get(bg_fail_job_id)
+    check("the job ends failed with a readable error", bg_fail_job.state, "failed")
+    check("  ...naming background removal, not a stack trace",
+          "background" in (bg_fail_job.error or "").lower(), True)
+check("  ...and no generation was ever attempted", len(_generate_calls), 0)
+
+_hub_storage.background_removed_url = _orig_bg_url
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: PDF -> Video -- extraction, confirm, and the per-length cap")
+
+_hub_storage.pdf_page_url = lambda public_id, page=1: (
+    "https://cdn.example.test/pdf-page-1.jpg" if public_id else "")
+
+import json as _json_module  # noqa: E402
+
+_extraction_payload = _json_module.dumps({
+    "headline": "Summer Menu Specials",
+    "items": [{"name": f"Item {i}", "price": f"${i}.99", "description": "A menu item."}
+              for i in range(1, 13)],
+    "dates": "June 1 - August 31", "address": "123 Main St", "offer": "Kids eat free",
+})
+
+
+def _fake_vision(prompt, image_urls, *, module, purpose, **kw):
+    check("vision is handed the rasterised page URL, not raw PDF bytes",
+          image_urls, ["https://cdn.example.test/pdf-page-1.jpg"])
+    return _extraction_payload
+
+
+_orig_vision = _hub_ai.vision
+_hub_ai.vision = _fake_vision
+
+r = client.post("/creative-studio/api/pdf-to-video",
+                data={"client": "Acme Plumbing", "duration": "30",
+                      "file": (BytesIO(b"%PDF-1.4 fake pdf bytes"), "menu.pdf")},
+                content_type="multipart/form-data")
+check("starting a PDF extraction succeeds", r.status_code, 200)
+pdf_job_id = r.get_json()["job"]["id"]
+pdf_project_id = r.get_json()["project_id"]
+
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    pdf_job = CreativeJob.query.get(pdf_job_id)
+    check("the pdf job completes in one tick", pdf_job.state, "complete")
+    extraction = pdf_job.output["extraction"]
+    check("  ...all twelve items are kept on the extraction (the cap is "
+          "applied at BUILD time, not extraction time)", len(extraction["items"]), 12)
+    check("  ...every price starts unconfirmed", all(
+        not i["price_confirmed"] for i in extraction["items"]), True)
+    check("  ...naming the offer, dates and address it read",
+          (extraction["offer"], extraction["dates"], extraction["address"]),
+          ("Kids eat free", "June 1 - August 31", "123 Main St"))
+
+    pdf_project = CsProjectModel7.query.get(pdf_project_id)
+    check("the extraction is stored on the project's own brief",
+          pdf_project.brief["pdf_extraction"]["headline"], "Summer Menu Specials")
+
+    from modules.creative_studio.models import CsMediaAsset as CsMediaAssetModel11
+    pdf_media = CsMediaAssetModel11.query.filter_by(
+        project_id=pdf_project_id, asset_type="document").first()
+    check("the uploaded PDF itself is filed as a document media asset",
+          pdf_media is not None, True)
+    check("  ...source=upload, not generated", pdf_media.source, "upload")
+
+r = client.post(f"/creative-studio/api/projects/{pdf_project_id}/pdf/confirm-prices")
+check("confirming prices succeeds", r.status_code, 200)
+check("  ...and every item is now confirmed",
+      all(i["price_confirmed"] for i in r.get_json()["extraction"]["items"]), True)
+
+r = client.post(f"/creative-studio/api/projects/{pdf_project_id}/pdf/build-storyboard")
+check("building the storyboard from a :30 project succeeds", r.status_code, 200)
+check("  ...using at most 8 of the 12 extracted items", r.get_json()["scenes_used"], 8)
+check("  ...and says how many were available", r.get_json()["scenes_available"], 12)
+
+with hub_app.app_context():
+    from modules.commercial_builder.models import (CommercialProject as CbProject11,
+                                                    Scene as CbScene11)
+    built_cb = CbProject11.query.get(
+        CsProjectModel7.query.get(pdf_project_id).cb_project_id)
+    scenes = built_cb.scenes.order_by(CbScene11.order_index).all()
+    check("exactly 8 scenes were built", len(scenes), 8)
+    check("  ...every one using the offer_card layout (montage_grid does "
+          "not exist here, so each item becomes its own offer_card scene)",
+          all((s.asset_meta or {}).get("layout_key") == "offer_card" for s in scenes), True)
+    check("  ...the first scene's headline is the first item's own name",
+          (scenes[0].asset_meta["layers"]["headline"]["value"]), "Item 1")
+
+r = client.post(f"/creative-studio/api/projects/{pdf_project_id}/pdf/build-storyboard")
+check("building again on an already-bound project is a no-op, not a "
+      "second set of scenes", r.status_code, 200)
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: the :15 cap is 4, and building with nothing extracted is refused")
+
+with hub_app.app_context():
+    short_project = CsProjectModel7(name="Short PDF spot", creative_type="video_commercial",
+                                    client_name="Acme Plumbing", duration=15, status="Draft",
+                                    created_by="Todd")
+    cs_db10.session.add(short_project)
+    cs_db10.session.commit()
+    short_project_id = short_project.id
+
+r = client.post(f"/creative-studio/api/projects/{short_project_id}/pdf/build-storyboard")
+check("building with nothing extracted yet is refused, readably", r.status_code, 400)
+
+_extraction_payload_short = _json_module.dumps({
+    "headline": "Flash Sale", "items": [
+        {"name": f"Item {i}", "price": f"${i}", "description": ""} for i in range(1, 7)],
+    "dates": "", "address": "", "offer": "",
+})
+_hub_ai.vision = lambda *a, **k: _extraction_payload_short
+
+r = client.post("/creative-studio/api/pdf-to-video",
+                data={"duration": "15", "file": (BytesIO(b"%PDF-1.4"), "flash.pdf")},
+                content_type="multipart/form-data")
+short_pdf_project_id = r.get_json()["project_id"]
+cs_jobs.job_sweep(hub_app)
+
+r = client.post(f"/creative-studio/api/projects/{short_pdf_project_id}/pdf/build-storyboard")
+check("a :15 project caps at 4 of the 6 items it extracted", r.get_json()["scenes_used"], 4)
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: a vision failure ends the pdf job failed, and invents nothing")
+
+
+def _failing_vision(*a, **k):
+    raise RuntimeError("simulated vision outage")
+
+
+_hub_ai.vision = _failing_vision
+
+with hub_app.app_context():
+    vision_fail_project = CsProjectModel7(name="Vision outage test",
+                                          creative_type="video_commercial",
+                                          client_name="Acme Plumbing", duration=15,
+                                          status="Draft", created_by="Todd")
+    cs_db10.session.add(vision_fail_project)
+    cs_db10.session.commit()
+    vision_fail_id = vision_fail_project.id
+
+with hub_app.app_context():
+    vf_job = cs_jobs.enqueue("pdf", project_id=vision_fail_id, client_name="Acme Plumbing",
+                             payload={"public_id": "some/fake/public_id"}, created_by="Todd")
+    vf_job_id = vf_job.id
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    vf_job_row = CreativeJob.query.get(vf_job_id)
+    check("a vision outage ends the job failed", vf_job_row.state, "failed")
+    reread = CsProjectModel7.query.get(vision_fail_id)
+    check("  ...and nothing was invented onto the project's brief",
+          "pdf_extraction" in (reread.brief or {}), False)
+
+_hub_ai.vision = _orig_vision
+_hub_ai.ready = _orig_ai_ready
+_hub_storage.pdf_page_url = _orig_pdf_page_url
+_cs11_requests.post = _orig_requests_post
+_cs11_requests.get = _orig_requests_get
 
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)

@@ -1060,6 +1060,218 @@ def _run_library_abstract(job: CreativeJob) -> None:
 _RUNNERS["library_abstract"] = _run_library_abstract
 
 
+def _run_product_lifestyle(job: CreativeJob) -> None:
+    """Product Lifestyle -- WO-CS11 item 1. Background removal via
+    Cloudinary (the real product composited, never regenerated -- the same
+    rule `hub/qr_codes.py` states about never inventing a destination),
+    then gpt-image-1 given the product AS AN IMAGE INPUT, into one of the
+    12 seeded environments. Single-tick: every step is a synchronous
+    request.
+
+    `hub.storage.background_removed_url()` always builds a URL -- Cloudinary
+    transformations are lazy, so this is the point that actually finds out
+    whether the account can do it, by fetching it. A fetch failure ends the
+    job failed with a readable error and no generation is attempted, the
+    build spec's own test.
+    """
+    from . import config
+    from .models import CsMediaAsset, CsProject
+    from hub import ai, storage
+
+    project = CsProject.query.get(job.project_id) if job.project_id else None
+    if project is None:
+        _fail(job, "That project no longer exists.")
+        return
+
+    payload = job.payload or {}
+    public_id = str(payload.get("public_id") or "")
+    environment_key = str(payload.get("environment") or "")
+    extra_prompt = str(payload.get("prompt") or "").strip()
+    environment = config.environment_by_key(environment_key)
+    if not public_id:
+        _fail(job, "No product photo was uploaded.")
+        return
+    if environment is None:
+        _fail(job, f"'{environment_key}' is not a known environment.")
+        return
+
+    job.state = "processing"
+    job.stage = "Removing the background"
+    db.session.commit()
+
+    bg_url = storage.background_removed_url(public_id)
+    if not bg_url:
+        _fail(job, "Storage is not configured -- background removal needs "
+                   "a live Cloudinary account.")
+        return
+    try:
+        import requests
+        resp = requests.get(bg_url, timeout=30)
+        if resp.status_code != 200 or not resp.content:
+            _fail(job, "Background removal could not be applied to this "
+                       "photo -- the Advanced Background Removal add-on may "
+                       "not be enabled on this Cloudinary account.")
+            return
+        product_bytes = resp.content
+    except Exception as exc:                              # noqa: BLE001
+        _fail(job, f"Background removal failed: {exc}")
+        return
+
+    job.stage = "Generating lifestyle options"
+    db.session.commit()
+
+    full_prompt = environment["prompt"]
+    if extra_prompt:
+        full_prompt += " " + extra_prompt
+    full_prompt += (" Place the product from the reference image naturally "
+                    "into this scene, at a realistic scale. Do not alter "
+                    "the product itself.")
+
+    try:
+        images = ai.image_edit(full_prompt, product_bytes, module="creative_studio",
+                               purpose="product_lifestyle", n=4)
+    except Exception as exc:                              # noqa: BLE001
+        _fail(job, f"Could not generate lifestyle images: {exc}")
+        return
+
+    usage.record("openai", "product_lifestyle", project_id=project.id,
+                client_name=project.client_name, quantity=len(images), unit="image",
+                actor=job.created_by)
+
+    asset_ids = []
+    for i, img_bytes in enumerate(images, start=1):
+        try:
+            asset = storage.put("creative_studio", f"lifestyle-{environment_key}-{i}.png",
+                               img_bytes, client=project.client_name)
+        except Exception:                                 # noqa: BLE001
+            continue
+        row = CsMediaAsset(
+            client_name=project.client_name, asset_type="image",
+            filename=f"lifestyle-{environment_key}-{i}.png",
+            cloudinary_public_id=asset.public_id, cloudinary_url=asset.url,
+            source="openai", project_id=project.id, created_by=job.created_by)
+        row.tags = ["product_lifestyle", environment_key]
+        db.session.add(row)
+        db.session.flush()
+        asset_ids.append(row.id)
+    db.session.commit()
+
+    if not asset_ids:
+        _fail(job, "Images were generated but none could be stored.")
+        return
+
+    job.state = "complete"
+    job.stage = "Complete"
+    job.progress = 100
+    job.output = {"asset_ids": asset_ids}
+    job.finished_at = datetime.utcnow()
+    db.session.commit()
+
+
+_RUNNERS["product_lifestyle"] = _run_product_lifestyle
+
+
+def _run_pdf(job: CreativeJob) -> None:
+    """PDF -> Video, page 1 -- WO-CS11 item 2. Rasterises the uploaded PDF
+    through Cloudinary's own `pg_N` parameter (`hub.storage.pdf_page_url`)
+    and hands the image URL straight to `hub.ai.vision` -- no bytes fetched
+    here, the vision endpoint reads the URL itself the same way
+    `generate/image` already does for stock references.
+
+    Never builds a storyboard and never renders: this job's whole job is
+    the extraction. `POST .../pdf/build-storyboard` is the separate, later
+    step a rep takes once they have reviewed what came back -- "Never
+    renders automatically" is the build spec's own words, and a job that
+    extracted AND built AND rendered in one tick would be exactly that.
+    """
+    import json as _json
+
+    from .models import CsProject
+
+    project = CsProject.query.get(job.project_id) if job.project_id else None
+    if project is None:
+        _fail(job, "That project no longer exists.")
+        return
+
+    payload = job.payload or {}
+    public_id = str(payload.get("public_id") or "")
+    if not public_id:
+        _fail(job, "No PDF was uploaded.")
+        return
+
+    job.state = "processing"
+    job.stage = "Reading the PDF"
+    db.session.commit()
+
+    from hub import storage
+    page_url = storage.pdf_page_url(public_id, 1)
+    if not page_url:
+        _fail(job, "Storage is not configured -- this needs a live "
+                   "Cloudinary account.")
+        return
+
+    prompt = (
+        "This is page 1 of a PDF flyer or one-sheet for a local business. "
+        "Read it and return strict JSON with exactly these keys: "
+        '"headline" (string), "items" (a list of objects, each with '
+        '"name", "price" and "description" -- price as it is printed, a '
+        'string, e.g. "$12.99" or "" if none is shown), "dates" (string, '
+        'any date range or deadline printed, or ""), "address" (string, '
+        'or ""), "offer" (string, any headline promotion or discount, or '
+        '""). Read only what is actually printed -- never invent an item, '
+        "a price or a date that is not on the page."
+    )
+    from hub import ai
+    try:
+        raw = ai.vision(prompt, [page_url], module="creative_studio", purpose="pdf_extract")
+        data = _json.loads(raw)
+    except Exception as exc:                              # noqa: BLE001
+        _fail(job, f"Could not read the PDF: {exc}")
+        return
+
+    usage.record("openai", "pdf_extract", project_id=project.id,
+                client_name=project.client_name, quantity=1, unit="call",
+                actor=job.created_by)
+
+    items = []
+    for item in (data.get("items") or [])[:24]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        items.append({
+            "name": name[:200], "price": str(item.get("price") or "").strip()[:60],
+            "description": str(item.get("description") or "").strip()[:400],
+            # WO-CS11's own words: prices are "read from PDF -- confirm",
+            # and stay unconfirmed until a named human clears them --
+            # OCR on a menu is not a contract.
+            "price_confirmed": False,
+        })
+
+    extraction = {
+        "headline": str(data.get("headline") or "").strip()[:300],
+        "items": items,
+        "dates": str(data.get("dates") or "").strip()[:200],
+        "address": str(data.get("address") or "").strip()[:300],
+        "offer": str(data.get("offer") or "").strip()[:300],
+    }
+    brief = dict(project.brief or {})
+    brief["pdf_extraction"] = extraction
+    project.brief = brief
+    db.session.commit()
+
+    job.state = "complete"
+    job.stage = "Complete"
+    job.progress = 100
+    job.output = {"extraction": extraction}
+    job.finished_at = datetime.utcnow()
+    db.session.commit()
+
+
+_RUNNERS["pdf"] = _run_pdf
+
+
 def sweep(app=None, limit: int = 20) -> dict:
     """Advance every queued/in-progress job by one step. Registered on
     `hub/scheduler.py`'s JOBS table; never called from a request."""
