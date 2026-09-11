@@ -2935,6 +2935,8 @@ def create_hub_app() -> Flask:
             direction=str(body.get("direction") or "trust"),
             goal=str(body.get("goal") or ""), offer=str(body.get("offer") or ""),
             promoting=str(body.get("promoting") or ""),
+            reviews=str(body.get("reviews") or ""),
+            ga4_id=str(body.get("ga4_id") or ""),
             actor=current_user() or ""))
 
     @app.route("/api/landing/goals")
