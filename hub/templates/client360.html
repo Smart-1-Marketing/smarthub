@@ -2689,6 +2689,7 @@ function addLogosToImages(){
   }
 }
 
+var COLOR_ROLES_UI=['primary','secondary','accent'];
 function renderBrand(d){
   /* The logo is a client image; it just lives in the brand store rather than
      the gallery, so it never appeared there. The two cards load independently
@@ -2718,9 +2719,43 @@ function renderBrand(d){
       + 'rather than nothing found.</div>'
     : '';
 
+  // Typing a color in never depends on anything having been detected --
+  // that is the whole point, since the automated colors are sometimes
+  // simply wrong (an announcement bar, a header background) and there has
+  // to be a way to say so rather than live with them. hub/brand_template.py
+  // accepts any well-formed hex for this, unlike a logo, which still has to
+  // be one this Hub already has on file.
+  function manualColorRow(role, hx){
+    return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'
+      +'<label style="width:66px;flex:none;font-size:11.5px;color:#64748b;text-transform:capitalize">'+esc(role)+'</label>'
+      +'<input class="bt-hex-input" data-role="'+esc(role)+'" value="'+esc(hx||'')+'" placeholder="#0077B4"'
+      +' style="width:110px;padding:4px 7px;border:1px solid var(--line);border-radius:7px;font:12px monospace">'
+      +'<a href="#" class="bt-hex-save" data-role="'+esc(role)+'" style="font-size:11.5px">save</a>'
+      +(hx?' <a href="#" data-clear-color="'+esc(role)+'" style="font-size:11.5px">clear</a>':'')
+      +'</div>';
+  }
+  function manualColorsBlock(tmpl){
+    const colors=(tmpl&&tmpl.colors)||{};
+    return '<div style="margin-top:8px"><div class="lbl">Not the right colors? Type theirs in</div>'
+      + COLOR_ROLES_UI.map(r=>manualColorRow(r,colors[r])).join('')
+      + '</div>';
+  }
+  const manualColors = manualColorsBlock(d.template);
+  function wireManualColors(){
+    Array.prototype.forEach.call(el.querySelectorAll('.bt-hex-save'), function(a){
+      a.addEventListener('click', function(ev){
+        ev.preventDefault();
+        const role=a.getAttribute('data-role');
+        const input=el.querySelector('.bt-hex-input[data-role="'+role+'"]');
+        setBrandPick(role, input?input.value.trim():'');
+      });
+    });
+  }
+
   if(!d || !d.has_brand){
-    el.innerHTML='<div class="empty">'+esc((d&&d.note)||'No brand data yet.')+'</div>'+unread;
+    el.innerHTML='<div class="empty">'+esc((d&&d.note)||'No brand data yet.')+'</div>'+unread+manualColors;
     if(acts) acts.innerHTML = lookBtn;
+    wireManualColors();
     return;
   }
 
@@ -2729,7 +2764,8 @@ function renderBrand(d){
      services answered — and they stay labeled because a logo the client gave
      us and a logo seen on their home page are different claims, and only the
      first belongs on a document a client reads. */
-  const originText = o => o==='site' ? 'Seen on their website' : 'On file';
+  const originText = o => o==='site' ? 'Seen on their website'
+    : o==='manual' ? 'Typed in' : 'On file';
   /* A swatch or a tile can be *confirmed* now -- a rep's pick of which of
      several is actually the brand, rather than every reader guessing at
      position zero (hub/brand_template.py). The pick/clear links are read
@@ -2778,7 +2814,8 @@ function renderBrand(d){
     (swatches?`<div style="margin-bottom:6px"><div class="lbl">Brand colors</div>${swatches}</div>`:'')+
     (fonts?`<div><div class="lbl">Fonts</div>${fonts}</div>`:'')+
     (d.description?`<p style="margin:10px 0 0;font-size:12.5px;color:#64748b">${esc(d.description)}</p>`:'')+
-    gap + unread;
+    gap + unread + manualColors;
+  wireManualColors();
 
   // Read off data attributes rather than an inline onclick carrying the
   // value itself -- a logo URL or a hex is data, not a JS literal to embed.

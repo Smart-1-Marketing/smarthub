@@ -4284,14 +4284,19 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        from . import knack_api
+        from . import knack_api, client_groups
         name = (request.args.get("name") or "").strip()
         website = (request.args.get("website") or "").strip()
         if not knack_api.configured():
             return jsonify({"configured": False, "tickets": []})
+        # A grouped client reads across the whole group, the way the work log
+        # and the invoices do: a ticket for one location of a multi-location
+        # client is routinely filed under that location's own name.
+        names = client_groups.member_names(name, request.args.get("url", "")) \
+            or [name]
         try:
             return jsonify({"configured": True,
-                            "tickets": knack_api.list_tickets(name, website)})
+                            "tickets": knack_api.list_tickets(names, website)})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-tickets", exc, path=request.path,
                                  actor=current_user() or "")
