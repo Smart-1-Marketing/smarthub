@@ -1948,6 +1948,278 @@ with hub_app.app_context():
     migrated_again = campaign_spec.migrate_cb_campaigns(actor="system")
     check("running the migration again is a no-op", migrated_again, 0)
 
+# ---------------------------------------------------------------------------
+section("WO-CS9: industry packs -- which industries have a weather angle")
+
+check("hvac is weather-ready", config.industry_pack("hvac")["weather_ready"], True)
+check("general is not -- nothing invented for a business with no angle written",
+      config.industry_pack("general")["weather_ready"], False)
+check("an unknown industry falls back to general's (not ready)",
+      config.industry_pack("not-a-real-industry")["weather_ready"], False)
+check("marine suppresses cold/snow/severe", config.industry_pack("marine")["suppress"],
+      ("cold", "snow", "severe"))
+check("hvac's pack covers all seven conditions",
+      set(config.industry_pack("hvac")["weather_copy"]), set(config.WEATHER_CONDITIONS))
+check("marine's pack covers only the four it does not suppress",
+      set(config.industry_pack("marine")["weather_copy"]),
+      set(config.WEATHER_CONDITIONS) - {"cold", "snow", "severe"})
+
+with hub_app.app_context():
+    check("a project bound to the hvac-30 template reads as hvac",
+          cs_binder.project_industry(CsProjectModel7.query.get(cs_project_id)), "hvac")
+    check("a project with no template reads as general",
+          cs_binder.project_industry(CsProjectModel7.query.get(generic_id)), "general")
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: generate_weather_variants -- severe never carries an offer")
+
+from modules.creative_studio import campaign_generation as cs_gen  # noqa: E402
+
+
+def _fake_weather_chat_json(messages, *, module, purpose, **kw):
+    return {
+        "hot": {"headline": "Beat the heat", "offer": "$79 tune-up", "cta": "Call today"},
+        "severe": {"headline": "Stay safe", "offer": "$50 off if you call now!",
+                  "cta": "Call anytime"},
+    }
+
+
+with hub_app.app_context():
+    _orig_chat_json2 = _hub_ai.chat_json
+    _hub_ai.chat_json = _fake_weather_chat_json
+    try:
+        project9 = CsProjectModel7.query.get(cs_project_id)
+        variants = cs_gen.generate_weather_variants(
+            project9, {"weather_copy": {"hot": "x", "severe": "y"}})
+    finally:
+        _hub_ai.chat_json = _orig_chat_json2
+
+check("a normal condition keeps its offer", variants["hot"]["offer"], "$79 tune-up")
+check("severe's offer is blanked regardless of what the model returned",
+      variants["severe"]["offer"], "")
+check("  ...but its headline and cta survive", variants["severe"]["headline"], "Stay safe")
+
+check("a pack with no weather_copy at all asks for nothing",
+      cs_gen.generate_weather_variants(project9, {}), {})
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: Create Weather Set -- refused for an industry with no angle")
+
+r = client.post(f"/creative-studio/api/projects/{generic_id}/weather-set")
+check("a project with no weather-ready industry is refused, readably", r.status_code, 400)
+check("  ...naming which industry has none", "general" in r.get_json()["error"], True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: Create Weather Set -- the real flow, on a real hvac project")
+
+from modules.creative_studio.models import CsWeatherSet  # noqa: E402
+
+_orig_chat_json3 = _hub_ai.chat_json
+_hub_ai.chat_json = _fake_weather_chat_json
+
+from hub import stock_search as _hub_stock  # noqa: E402
+_orig_stock_search = _hub_stock.search
+_hub_stock.search = lambda queries, **kw: {"results": [
+    {"full": "https://cdn.example.test/weather-bg.jpg", "preview": "", "thumb": ""}]}
+
+
+def _fake_hvac_chat_json(messages, *, module, purpose, **kw):
+    return {c: {"headline": f"{c} headline", "offer": f"{c} offer", "cta": f"{c} cta"}
+           for c in config.WEATHER_CONDITIONS}
+
+
+_hub_ai.chat_json = _fake_hvac_chat_json
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/weather-set")
+check("creating a weather set on a real hvac project succeeds", r.status_code, 200)
+weather_job_id = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    job = CreativeJob.query.get(weather_job_id)
+    check("the weather_set job completes in one tick", job.state, "complete")
+
+    rows = CsWeatherSet.query.filter_by(project_id=cs_project_id).order_by(
+        CsWeatherSet.condition).all()
+    check("all seven conditions were written -- hvac suppresses none",
+          sorted(r2.condition for r2 in rows), sorted(config.WEATHER_CONDITIONS))
+    severe_row = next(r2 for r2 in rows if r2.condition == "severe")
+    check("severe's row carries no offer, from the runner too, not only the generator",
+          severe_row.offer, "")
+    hot_row = next(r2 for r2 in rows if r2.condition == "hot")
+    check("  ...an ordinary condition keeps its offer", hot_row.offer, "hot offer")
+    check("  ...and carries a background image (mocked stock search)",
+          bool(hot_row.weather_image_url), True)
+    check("  ...filed as a tagged media asset",
+          CsMediaAsset.query.filter_by(id=hot_row.media_asset_id).first().tags,
+          ["weather", "hot"])
+
+r = client.get(f"/creative-studio/api/projects/{cs_project_id}/weather-set")
+check("listing the weather set succeeds", r.status_code, 200)
+check("  ...returns all seven", len(r.get_json()["conditions"]), 7)
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: a rep can edit, and severe still refuses an offer at the edit route too")
+
+r = client.put(f"/creative-studio/api/projects/{cs_project_id}/weather-set/normal",
+               json={"offer": "$99 seasonal special", "cta": "Book now"})
+check("editing an ordinary condition succeeds", r.status_code, 200)
+check("  ...and reads back", r.get_json()["condition"]["offer"], "$99 seasonal special")
+
+r = client.put(f"/creative-studio/api/projects/{cs_project_id}/weather-set/severe",
+               json={"offer": "$50 off"})
+check("a rep typing an offer into severe is refused, not silently accepted", r.status_code, 400)
+
+r = client.put(f"/creative-studio/api/projects/{cs_project_id}/weather-set/not-a-condition",
+               json={"offer": "x"})
+check("editing a condition that was never generated 404s", r.status_code, 404)
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: approving a condition builds its variation, never renders it")
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/weather-set/normal/approve")
+check("approving 'normal' succeeds", r.status_code, 200)
+normal_condition = r.get_json()["condition"]
+check("  ...and now carries a variant project", bool(normal_condition["variant_project_id"]), True)
+check("  ...and reads as Approved", normal_condition["status"], "Approved")
+weather_variant_id = normal_condition["variant_project_id"]
+
+with hub_app.app_context():
+    variant = CsProjectModel7.query.get(weather_variant_id)
+    check("the variant is its own project, parented to the hvac project",
+          variant.parent_project_id, cs_project_id)
+    check("  ...kind is weather", variant.variation_kind, "weather")
+    check("  ...and it has a real storyboard -- nothing here renders yet",
+          bool(variant.cb_project_id), True)
+    check("  ...no version has been created -- approving is not rendering",
+          variant.versions.count(), 0)
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/weather-set/normal/approve")
+check("approving the same condition again is a no-op, not a second variant",
+      r.status_code, 200)
+with hub_app.app_context():
+    same_check = CsWeatherSet.query.filter_by(project_id=cs_project_id, condition="normal").first()
+    check("  ...the variant_project_id did not change",
+          same_check.variant_project_id, weather_variant_id)
+
+with hub_app.app_context():
+    # A condition never generated cannot be approved.
+    fresh = CsProjectModel7(name="Blank weather host", creative_type="video_commercial",
+                            client_name="Acme Plumbing", status="Draft")
+    cs_db8.session.add(fresh)
+    cs_db8.session.commit()
+    fresh_id = fresh.id
+r = client.post(f"/creative-studio/api/projects/{fresh_id}/weather-set/normal/approve")
+check("approving a condition that was never created 404s", r.status_code, 404)
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: the weather manifest -- token-gated, approved versions only")
+
+r = client.get(f"/creative-studio/api/weather-manifest/{cs_project_id}")
+check("the manifest with no token at all is refused", r.status_code, 403)
+
+r = client.get(f"/creative-studio/api/weather-manifest/{cs_project_id}",
+               query_string={"token": "not-a-real-token"})
+check("a bogus token is refused", r.status_code, 403)
+
+r = client.get(f"/creative-studio/api/projects/{cs_project_id}/weather-manifest-token")
+check("minting a manifest token succeeds", r.status_code, 200)
+manifest_token = r.get_json()["token"]
+
+r = client.get(f"/creative-studio/api/weather-manifest/{cs_project_id}",
+               query_string={"token": manifest_token})
+check("a real token for this project succeeds", r.status_code, 200)
+check("  ...but the manifest is empty -- 'normal' is approved but not yet rendered",
+      r.get_json()["manifest"], {})
+
+r = client.get(f"/creative-studio/api/weather-manifest/{generic_id}",
+               query_string={"token": manifest_token})
+check("a token minted for one project does not work on another", r.status_code, 403)
+
+# Render and approve the weather variant, the ordinary way -- then it should
+# reach the manifest.
+_orig_run_qc9 = _cs8_qc.run_qc
+_orig_submit9 = _cs8_cta.submit_render
+_orig_check9 = _cs8_cta.check_render
+_cs8_qc.run_qc = lambda *a, **k: {"_all_passed": True}
+_cs8_cta.submit_render = lambda source: {
+    "id": "rend_cs9", "status": "rendering", "url": None, "error": None}
+_cs8_cta.check_render = lambda rid: {
+    "id": rid, "status": "succeeded", "url": "https://cdn.example.test/normal-weather.mp4",
+    "error": None}
+
+r = client.post(f"/creative-studio/api/projects/{weather_variant_id}/render",
+                json={"format": "16:9"})
+check("rendering the weather variant succeeds", r.status_code, 200)
+weather_render_job_id = r.get_json()["job"]["id"]
+cs_jobs.job_sweep(hub_app)
+cs_jobs.job_sweep(hub_app)
+with hub_app.app_context():
+    rjob = CreativeJob.query.get(weather_render_job_id)
+    check("the render completes", rjob.state, "complete")
+
+r = client.post(f"/creative-studio/api/projects/{weather_variant_id}/versions/1/approve")
+check("approving the rendered weather variant succeeds", r.status_code, 200)
+
+_cs8_qc.run_qc = _orig_run_qc9
+_cs8_cta.submit_render = _orig_submit9
+_cs8_cta.check_render = _orig_check9
+
+r = client.get(f"/creative-studio/api/weather-manifest/{cs_project_id}",
+               query_string={"token": manifest_token})
+check("now the manifest carries 'normal'", "normal" in r.get_json()["manifest"], True)
+entry = r.get_json()["manifest"]["normal"]
+check("  ...with its rendered video", entry["video_url"], "https://cdn.example.test/normal-weather.mp4")
+check("  ...its background image", bool(entry["image_url"]), True)
+check("  ...and its headline/cta", entry["headline"], "normal headline")
+check("every other approved-but-not-rendered or never-approved condition is "
+      "absent from the manifest", set(r.get_json()["manifest"]), {"normal"})
+
+_hub_ai.chat_json = _orig_chat_json3
+_hub_stock.search = _orig_stock_search
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: a suppressing industry never generates its suppressed conditions")
+
+with hub_app.app_context():
+    marine_tmpl = CsTemplate(id="marine-test-30", name="Marine test", industry="marine",
+                             duration=30, aspect_ratio="16:9",
+                             creative_type="video_commercial", status="published", version=1,
+                             created_by="Todd")
+    cs_db8.session.add(marine_tmpl)
+    cs_db8.session.commit()
+
+    marine_project = CsProjectModel7(
+        name="Marine weather host", creative_type="video_commercial",
+        client_name="Acme Plumbing", template_id="marine-test-30", template_version=1,
+        duration=30, aspect_ratio="16:9", status="Draft", created_by="Todd")
+    cs_db8.session.add(marine_project)
+    cs_db8.session.commit()
+    marine_project_id = marine_project.id
+
+    check("the marine project reads its own industry", cs_binder.project_industry(
+        CsProjectModel7.query.get(marine_project_id)), "marine")
+
+_hub_ai.chat_json = _fake_hvac_chat_json
+_hub_stock.search = lambda queries, **kw: {"results": []}
+
+r = client.post(f"/creative-studio/api/projects/{marine_project_id}/weather-set")
+check("creating a weather set for a suppressing industry succeeds", r.status_code, 200)
+marine_job_id = r.get_json()["job"]["id"]
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    marine_rows = CsWeatherSet.query.filter_by(project_id=marine_project_id).all()
+    check("only the four unsuppressed conditions were generated",
+          sorted(r2.condition for r2 in marine_rows), sorted(["hot", "rain", "humidity", "normal"]))
+    check("cold, snow and severe were never written for marine",
+          any(r2.condition in ("cold", "snow", "severe") for r2 in marine_rows), False)
+    check("no image asset was filed when stock search found nothing",
+          all(not r2.weather_image_url for r2 in marine_rows), True)
+
+_hub_ai.chat_json = _orig_chat_json
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)

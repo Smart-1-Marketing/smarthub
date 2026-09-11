@@ -91,7 +91,7 @@ PROJECT_STATUSES = (
 # dict is refused at enqueue time rather than sitting in the queue forever
 # looking like a stuck job -- the sweep this file's own JOBS entry describes.
 JOB_KINDS = ("index", "script", "storyboard", "image", "voice", "heygen",
-             "render", "variant", "pdf", "campaign_draft")
+             "render", "variant", "pdf", "campaign_draft", "weather_set")
 
 # Stages shown to the user, in the order Section 11 gives. A job's `stage`
 # is free text so a kind can name its own step, but these are the ones the
@@ -107,6 +107,7 @@ STAGE_ORDER = (
 JOB_TIMEOUT_MINUTES = {
     "index": 10, "script": 5, "storyboard": 5, "image": 8, "voice": 8,
     "heygen": 20, "render": 30, "variant": 15, "pdf": 5, "campaign_draft": 10,
+    "weather_set": 12,
 }
 
 # Renders bill; a generation retried three times over is still cheaper than
@@ -185,3 +186,95 @@ def batch_confirm_threshold_usd() -> float:
         return float(os.environ.get("CS_BATCH_CONFIRM_USD", "25") or "25")
     except (TypeError, ValueError):
         return 25.0
+
+
+# WO-CS9. Seven conditions rather than SmartForecast's own fourteen-trigger
+# vocabulary (`hub/weather_triggers.py`) -- the two answer different
+# questions. That file names precise business moments for one vertical
+# ("storm-watch", "first-cool-night") to decide WHEN an ad should run; this
+# is a broad classification of WHICH creative variant to show once
+# something has decided the moment is now, and it has to hold for every
+# industry this module ever serves, not one. `WO-CS9`'s own reading list
+# points at both systems and says to decide the join with whoever owns the
+# other one -- built here as the manifest this file's own item 5 describes,
+# left loosely coupled on purpose rather than merged into one vocabulary.
+WEATHER_CONDITIONS = ("normal", "hot", "cold", "rain", "snow", "humidity", "severe")
+
+# There is no `cs_industry_packs.seed.json` in this repo (WO-CS10's own
+# `cs_archetypes.seed.json` does not exist either) -- a rich pack taxonomy
+# is a later work order's table to build, not this one's to invent early.
+# What this order actually needs is small: which industries have a weather
+# angle worth writing copy for, which conditions do not apply to them, and
+# what to tell the model about each one that does. `_KIT_UNREAD`'s shape
+# from `hub/blog_spec.py` one repo over -- a table declaring only what has
+# been thought through, read by name rather than guessed at.
+#
+# `weather_ready` false (the default via `industry_pack()`'s fallback) is
+# not silence: `api_create_weather_set` refuses by name rather than
+# building a generic set nobody asked for the shape of.
+INDUSTRY_PACKS: dict[str, dict] = {
+    "general": {"weather_ready": False, "suppress": (), "weather_copy": {}},
+    "hvac": {
+        "weather_ready": True, "suppress": (),
+        "weather_copy": {
+            "hot": "AC failing in the heat -- urgency, same-day repair.",
+            "cold": "Furnace/heat pump failure risk -- warmth restored fast.",
+            "rain": "Humidity and drainage around the unit -- a routine check.",
+            "snow": "Heating system strain in the cold snap.",
+            "humidity": "Indoor air quality and a dehumidifier tune-up.",
+            "normal": "A seasonal tune-up before the next swing in weather.",
+            "severe": "Safety first -- if severe weather knocks out power or heat, we answer.",
+        },
+    },
+    "restaurant": {
+        "weather_ready": True, "suppress": (),
+        "weather_copy": {
+            "hot": "Cold drinks and AC comfort -- come in out of the heat.",
+            "cold": "Warm food, a cozy dining room -- comfort food weather.",
+            "rain": "A dry, comfortable place to eat while it pours.",
+            "snow": "Delivery and takeout when driving is the last thing anyone wants.",
+            "humidity": "An air-conditioned dining room, cold drinks.",
+            "normal": "Whatever is on special this week.",
+            "severe": "Safety first -- please check conditions before heading out.",
+        },
+    },
+    "home_services": {
+        "weather_ready": True, "suppress": (),
+        "weather_copy": {
+            "hot": "Yard and exterior work before the heat gets worse.",
+            "cold": "Winterizing and cold-weather prep.",
+            "rain": "Drainage, gutters and roof checks before the next storm.",
+            "snow": "Snow removal and cold-weather readiness.",
+            "humidity": "Moisture and mold prevention around the home.",
+            "normal": "A seasonal maintenance visit.",
+            "severe": "Safety first -- stay safe, we will be here when it clears.",
+        },
+    },
+    # Named even though no seed template exists for either yet -- the
+    # suppression rule the work order states outright ("marine/rv suppress
+    # cold/snow/severe") needs somewhere to live, and a pack with nothing
+    # behind it is still worth declaring rather than guessed at the day a
+    # marine or rv template is finally written.
+    "marine": {
+        "weather_ready": True, "suppress": ("cold", "snow", "severe"),
+        "weather_copy": {
+            "hot": "Get out on the water while the weather holds.",
+            "rain": "Covered storage and maintenance while the boat sits.",
+            "humidity": "Off-season maintenance and detailing.",
+            "normal": "Whatever is moving this week -- inventory, service, a slip.",
+        },
+    },
+    "rv": {
+        "weather_ready": True, "suppress": ("cold", "snow", "severe"),
+        "weather_copy": {
+            "hot": "Beat the heat -- get on the road.",
+            "rain": "Weatherproofing and seal checks before the next trip.",
+            "humidity": "AC service before a summer trip.",
+            "normal": "Whatever is moving this week -- inventory, service, a trip booked.",
+        },
+    },
+}
+
+
+def industry_pack(industry: str) -> dict:
+    return INDUSTRY_PACKS.get(industry or "general", INDUSTRY_PACKS["general"])
