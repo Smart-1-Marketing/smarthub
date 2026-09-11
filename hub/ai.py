@@ -280,9 +280,17 @@ def image(prompt: str, *, module: str, purpose: str, size: str = "1024x1024",
     started = time.time()
     try:
         data = _post("/images/generations", payload, settings.openai_timeout * 2)
+        # b64_json absent, empty, or the whole data list empty/null all decode
+        # to a valid-looking b"" rather than raising -- which used to record a
+        # *successful* call and hand the caller zero bytes as an image. Every
+        # one of those shapes is a failure and must be recorded as one.
+        b64 = ((data.get("data") or [{}])[0] or {}).get("b64_json") or ""
+        if not b64:
+            raise ValueError("OpenAI returned no image data.")
+        raw = base64.b64decode(b64)
         _record(module, purpose, model, data.get("usage", {}),
                 int((time.time() - started) * 1000), True)
-        return base64.b64decode((data.get("data") or [{}])[0].get("b64_json", ""))
+        return raw
     except AIUnavailable:
         raise
     except Exception as exc:                # noqa: BLE001
