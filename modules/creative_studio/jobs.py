@@ -191,8 +191,25 @@ def _run_storyboard(job: CreativeJob) -> None:
 
     job.stage = "Creating scenes"
     db.session.commit()
+
+    # WO-CS10 item 3. `archetype_keys=None` (the default at every other call
+    # site, including Commercial Builder's own Storyboard Editor) leaves
+    # `generation.run_concepts` behaving exactly as before -- this is the
+    # only caller in the Hub that passes a ranked list, and a failure
+    # computing the ranking costs the seeding, never the concepts.
+    ranked = []
     try:
-        concepts = generation.run_concepts(cb_project, client)
+        from . import recommender
+        industry = binder.project_industry(project)
+        platform = (cb_project.platform or "") or \
+            binder.PLATFORM_BY_CREATIVE_TYPE.get(project.creative_type, "")
+        ranked = recommender.rank_archetypes(industry, platform)
+        archetype_keys = [r["key"] for r in ranked] or None
+    except Exception:                                     # noqa: BLE001
+        archetype_keys = None
+
+    try:
+        concepts = generation.run_concepts(cb_project, client, archetype_keys=archetype_keys)
     except ValueError as exc:
         _fail(job, str(exc))
         return
@@ -204,10 +221,24 @@ def _run_storyboard(job: CreativeJob) -> None:
                 client_name=project.client_name, quantity=1, unit="call",
                 actor=job.created_by)
 
+    # WO-CS10 item 4. Run on the brief alone -- there is no script yet at
+    # the Concepts stage, and the offer/legal wording a Reg Z or superlative
+    # finding is about is already typed there. Advisory only: nothing here
+    # blocks concept generation, the same "never a verdict" rule
+    # `compliance_spec` itself states.
+    try:
+        from . import compliance_ext
+        compliance = compliance_ext.scan(
+            brief=cb_project.brief, client=client.to_dict(),
+            commercial_type=cb_project.commercial_type)
+    except Exception:                                     # noqa: BLE001
+        compliance = {"findings": [], "measured": False}
+
     job.state = "complete"
     job.stage = "Complete"
     job.progress = 100
-    job.output = {"concepts": concepts}
+    job.output = {"concepts": concepts, "compliance": compliance,
+                  "recommended_archetypes": ranked}
     job.finished_at = datetime.utcnow()
     db.session.commit()
 
@@ -994,6 +1025,39 @@ def _run_weather_set(job: CreativeJob) -> None:
 
 
 _RUNNERS["weather_set"] = _run_weather_set
+
+
+def _run_library_abstract(job: CreativeJob) -> None:
+    """"Use as template" -- WO-CS10 item 2. Single-tick: no model call and
+    no provider round trip, `binder.library_abstract_from_project` is a
+    database write and nothing else, so there is no partial state for a
+    second tick to resume."""
+    from . import binder
+    from .models import CsProject
+
+    project = CsProject.query.get(job.project_id) if job.project_id else None
+    if project is None:
+        _fail(job, "That project no longer exists.")
+        return
+
+    job.state = "processing"
+    job.stage = "Abstracting the storyboard"
+    db.session.commit()
+
+    result = binder.library_abstract_from_project(project, actor=job.created_by)
+    if not result.get("ok"):
+        _fail(job, result.get("error") or "Could not build a template from this spot.")
+        return
+
+    job.state = "complete"
+    job.stage = "Complete"
+    job.progress = 100
+    job.output = {"template_id": result["template_id"]}
+    job.finished_at = datetime.utcnow()
+    db.session.commit()
+
+
+_RUNNERS["library_abstract"] = _run_library_abstract
 
 
 def sweep(app=None, limit: int = 20) -> dict:

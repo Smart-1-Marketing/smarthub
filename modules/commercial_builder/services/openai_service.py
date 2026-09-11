@@ -128,7 +128,55 @@ def _mock_brand_profile(url):
 # ---------------------------------------------------------------------------
 # 3. Commercial Brief -> Generate Concepts
 # ---------------------------------------------------------------------------
-def generate_concepts(brief, client_profile, commercial_type):
+def generate_concepts(brief, client_profile, commercial_type, *, archetype_keys=None):
+    # `archetype_keys` -- modules/creative_studio's own recommender
+    # (WO-CS10), the only caller that ever passes it. Every other call site
+    # in this Hub, including the Storyboard Editor's own Concepts button,
+    # leaves it None and this function behaves exactly as it always has:
+    # ONE archetype resolved through `library_spec.archetype_for()` below,
+    # its guidance shared across all 3 generated concepts. When a caller
+    # names up to 3 archetypes explicitly, each concept is written to ONE
+    # of them -- 3 different structures rather than 3 paraphrases of one --
+    # which is the build spec's own "seed the three concept generations
+    # with the top three archetypes' voice directions."
+    from .. import library_spec
+    archetype_keys = [k for k in (archetype_keys or []) if k in library_spec.ARCHETYPES][:3]
+    if archetype_keys:
+        guidances = [library_spec.prompt_guidance(k, (client_profile or {}).get("industry", ""))
+                    for k in archetype_keys]
+        if not is_live():
+            return _mock_concepts_multi(brief, guidances)
+        try:
+            result = _chat_json(
+                system=(
+                    "You are a senior copywriter/creative director for a digital marketing "
+                    "agency building :05-:60 second video commercials. Given a client brand "
+                    "profile, a commercial brief, and `archetype_guidances` (a list of "
+                    "archetype guidance objects), write exactly one concept per guidance -- "
+                    "the same number of concepts as guidances given, in the same order -- "
+                    "each following THAT guidance's own beat structure and voice, so the "
+                    "concepts are different STRUCTURES rather than paraphrases of one. "
+                    'Respond as JSON: {"concepts":[{"title":"...","angle":"...",'
+                    '"summary":"..."}, ...]}. "angle" is a short label naming that '
+                    "concept's own archetype structure. \"summary\" is 1-2 sentences. Where "
+                    "a guidance's `category_state` is not 'matched' there is no category "
+                    "guidance for that concept and you must NOT invent any — say nothing "
+                    "category-specific rather than guessing at a trade you were not told."
+                ),
+                user=json.dumps({
+                    "client": client_profile, "brief": brief,
+                    "production_method": library_spec.production_method(commercial_type),
+                    "archetype_guidances": guidances,
+                }),
+                max_tokens=900,
+            )
+            concepts = result.get("concepts", [])[:3]
+            for i, c in enumerate(concepts):
+                c["id"] = f"concept_{i + 1}"
+            return concepts or _mock_concepts_multi(brief, guidances)
+        except Exception:
+            return _mock_concepts_multi(brief, guidances)
+
     # What the spot IS, and what its category needs. `hub/current_marketing.
     # for_prompt()`'s rule: a model handed a label writes label-flavored
     # adjectives, and a model told what to DO about it writes a different
@@ -204,6 +252,25 @@ def _mock_concepts(brief, guidance=None):
          "summary": f"One recognizable person, one moment, and {what} as the "
                     f"thing that changed it."},
     ]
+
+
+def _mock_concepts_multi(brief, guidances):
+    """Mock mode for the multi-archetype path -- one concept per guidance,
+    the same "the choice must not read as dead" rule `_mock_concepts` states,
+    applied to several archetypes at once rather than one archetype's three
+    variations."""
+    what = brief.get("what_advertising") or "this offer"
+    out = []
+    for i, guidance in enumerate(guidances[:3], start=1):
+        guidance = guidance or {}
+        shape = guidance.get("archetype") or "Problem -> solution"
+        structure = guidance.get("structure") or "Problem -> service -> offer -> CTA"
+        hooks = guidance.get("category_hooks") or []
+        lead = hooks[0] if hooks else f"Opens on the reason somebody needs {what}."
+        out.append({"id": f"concept_{i}", "title": shape, "angle": structure,
+                    "summary": f"{lead} Then {what}, following the "
+                               f"{shape.lower()} structure."})
+    return out
 
 
 # ---------------------------------------------------------------------------

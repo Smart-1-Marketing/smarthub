@@ -80,6 +80,12 @@
         <input type="text" id="bk_preferred_voice_id" value="{{ kit.ext.preferred_voice_id }}" placeholder="ElevenLabs voice id">
       </label>
     </div>
+    <label style="display:block;margin-top:14px;">
+      <input type="checkbox" id="bk_library_opt_out" {% if kit.ext.library_opt_out %}checked{% endif %}>
+      Hide this client's approved spots from the Spot Library
+      <span style="color:var(--muted,#64748B);font-size:12.5px;">(other reps will not see them as
+        starting points)</span>
+    </label>
   </div>
 
   <div class="card">
@@ -118,6 +124,7 @@
      'preferred_spokesperson_id','preferred_voice_id'].forEach(function(f){
       body[f] = document.getElementById('bk_' + f).value || '';
     });
+    body.library_opt_out = document.getElementById('bk_library_opt_out').checked;
     var pron = {};
     (document.getElementById('bk_pronunciation').value || '').split('\n').forEach(function(line){
       var i = line.indexOf('=');

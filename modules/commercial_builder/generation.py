@@ -58,19 +58,25 @@ def with_hub_facts(client) -> dict:
     return profile
 
 
-def run_concepts(project, client) -> list[dict]:
+def run_concepts(project, client, *, archetype_keys=None) -> list[dict]:
     """Three materially different concepts from `project.brief`.
 
     Raises `ValueError` when there is no brief yet -- generating concepts
     against nothing to advertise is the empty-input failure this line
     refuses rather than sending a model a blank brief and reporting whatever
     it invents as a real answer.
+
+    `archetype_keys` passes straight through to `openai_service.
+    generate_concepts` -- see that function's own docstring. None (the
+    default, and what every call site but Creative Studio's recommender
+    ever passes) is the ordinary single-archetype path, unchanged.
     """
     if not project.brief or not project.brief.get("what_advertising"):
         raise ValueError("Save a commercial brief before generating concepts.")
 
     concepts = openai_service.generate_concepts(
-        project.brief, with_hub_facts(client), project.commercial_type)
+        project.brief, with_hub_facts(client), project.commercial_type,
+        archetype_keys=archetype_keys)
     project.concepts = concepts
     project.selected_concept_id = None
     project.status = "concepts"
