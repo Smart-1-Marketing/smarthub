@@ -886,6 +886,20 @@ def api_push(pid):
     spots = [s for s in (row.get("spots") or []) if s.get("approved")]
     if not spots:
         return fail("Approve at least one spot first.")
+    final_spots = []
+    for spot in spots:
+        final = ((row.get("mixes") or {}).get(spot["slot"]) or {})
+        if _bed_for(row, spot["slot"]) and not final.get("audio_url"):
+            return fail("Save the combined voice and music track before delivery: "
+                        + spot["slot"], 409)
+        final = final if final.get("audio_url") else spot
+        filed = _file_client_audio(row, spot["slot"], final)
+        if not filed.get("ok"):
+            return fail("The final audio could not be saved to the client. "
+                        "Try again before delivery.", 503)
+        final_spots.append(dict(spot, audio_url=final["audio_url"],
+                                seconds=final.get("seconds") or spot.get("seconds")))
+    spots = final_spots
     payload = {
         "source": "Smart 1 Hub — Radio Promo",
         "company": row.get("company") or row.get("client"),
@@ -1402,7 +1416,7 @@ def api_mix(pid):
         return fail("Say why this is being filed with findings outstanding. "
                     "An override nobody can explain later is not a record.")
 
-    asset = upload_asset(data, store.cloud_folder(row), f"mix-{slot}", "wav",
+    asset = upload_asset(data, store.cloud_folder(row), f"mix-{slot}-{secrets.token_urlsafe(8)}", "wav",
                          overwrite=True)
     mix = {"slot": slot, "audio_url": asset["url"], "public_id": asset["public_id"],
            "store": asset["store"], "seconds": seconds, "measured": True,
@@ -1419,6 +1433,12 @@ def api_mix(pid):
     mixes = dict(row.get("mixes") or {})
     mixes[slot] = mix
     row = store.update(pid, {"mixes": mixes, "status": "mixed"})
+    if row.get("client") and not row.get("spec"):
+        filed = _file_client_audio(row, slot, mix)
+        if not filed.get("ok"):
+            return fail("The mix is saved in this project, but could not be "
+                        "saved to the client's assets. Prepare the customer "
+                        "link again to retry.", 503)
     store.add_version(pid, "mix", {"slot": slot, "seconds": seconds,
                                    "qc_status": report["status"],
                                    "override": mix["override"],
@@ -1497,20 +1517,39 @@ def api_variation(pid):
 # =====================================================================
 # Sharing — one implementation with Fan Radio, in hub/radio_share.py
 # =====================================================================
+def _file_client_audio(row: dict, slot: str, audio: dict) -> dict:
+    """Index the final advertising file in the client's reusable assets."""
+    from modules.image_picker.filing import file_asset
+    url = str(audio.get("audio_url") or "")
+    if url.startswith("/"):
+        base = (os.environ.get("PUBLIC_BASE_URL") or request.host_url).rstrip("/")
+        url = base + url
+    return file_asset(
+        client_name=row.get("client") or row.get("company") or "",
+        public_id=audio.get("public_id") or f"radio-{row['id']}-{slot}-{audio.get('at', '')}",
+        url=url, kind="ad_asset", provider="radio_promo", tool="radio_promo",
+        label="Radio advertising — final audio",
+        filename=f"{store.slugify(row.get('project_name') or 'radio')}-{slot}-final."
+                 + ("wav" if audio.get("format") or str(audio.get("filename") or "").lower().endswith(".wav") else "mp3"),
+        resource_type="raw", size_bytes=audio.get("bytes"),
+        project_name=row.get("project_name") or "Radio advertising",
+        saved_by=actor(), push_to_suite=False)
+
+
 def _client_units(row: dict) -> list[dict]:
     """One reviewable unit per slot this project writes, best audio first.
 
-    The finished mix is what a client should hear; a slot not yet mixed
-    falls back to its raw voice take so there is still something to review
-    while a bed is being composed. A slot with neither is left out — there
-    is nothing to approve yet, and offering an empty player is worse than
-    not listing it.
+    A selected bed requires a saved mix. Never substitute the raw voice for
+    an unfinished music commercial. Straight reads remain final audio when
+    no music bed is selected.
     """
     mixes = row.get("mixes") or {}
     units = []
     for slot in slots_of(row):
         mix = mixes.get(slot)
         spot = _spot_for(row, slot)
+        if _bed_for(row, slot) and not (mix or {}).get("audio_url"):
+            continue
         audio_url = (mix or {}).get("audio_url") or (spot or {}).get("audio_url") or ""
         if not audio_url:
             continue
@@ -1563,13 +1602,20 @@ def api_share(pid):
     except LookupError as exc:
         return fail(str(exc), 404)
     payload = body()
-    if payload.get("enabled") and payload.get("require_mixes"):
+    if payload.get("enabled"):
         pending = [slot for slot in slots_of(row)
                    if _bed_for(row, slot) and (_spot_for(row, slot) or {}).get("audio_url")
                    and not ((row.get("mixes") or {}).get(slot) or {}).get("audio_url")]
         if pending:
             return fail("Save the voice and music mix in step 6 before sending "
                         "the customer link: " + ", ".join(pending), 409)
+        if payload.get("require_mixes"):
+            for unit in _client_units(row):
+                audio = ((row.get("mixes") or {}).get(unit["slot"])
+                         or _spot_for(row, unit["slot"]) or {})
+                if not _file_client_audio(row, unit["slot"], audio).get("ok"):
+                    return fail("The final audio could not be saved to the "
+                                "client's assets. Try preparing the link again.", 503)
     share = radio_share.update_share(row.get("share") or {}, payload)
     row = store.update(pid, {"share": share})
     log("share_updated", project=pid, enabled=bool(share.get("enabled")))

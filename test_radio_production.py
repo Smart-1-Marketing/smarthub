@@ -28,6 +28,41 @@ class RadioProductionTests(unittest.TestCase):
         patch.object(voices,'_headers',return_value={}).start();patch.object(fan_voices,'_headers',return_value={}).start()
         patch.object(promo,'cloud_ready',return_value=False).start()
         patch.object(voices,'_note_characters').start();patch.object(fan_voices,'_note_characters').start()
+        self.file_client_audio=promo._file_client_audio
+        self.filing=patch.object(promo,'_file_client_audio',return_value={'ok':True}).start()
+
+    def test_delivery_uses_final_mix_and_requires_client_filing(self):
+        store.update(self.pid,{'client':'Example Client','spec':False,
+                              'spots':[{'slot':'fifteen','audio_url':'/voice.mp3','seconds':14,'approved':True}],
+                              'beds':{'fifteen':{'audio_url':'/bed.mp3'}}})
+        with patch.dict(os.environ,{'GHL_OPPORTUNITY_WEBHOOK_URL':'https://example.test/hook'}):
+            self.assertEqual(self.client.post(self.base+'/push').status_code,409)
+            self.http.assert_not_called()
+            self.assertEqual(promo.public_view(store.get(self.pid))['spots'],[])
+            store.update(self.pid,{'mixes':{'fifteen':{'audio_url':'https://example.test/final.wav','seconds':15}}})
+            self.filing.return_value={'ok':False}
+            self.assertEqual(self.client.post(self.base+'/push').status_code,503)
+            self.http.assert_not_called()
+            self.assertEqual(self.client.post(self.base+'/share',json={'enabled':True,'require_mixes':True}).status_code,503)
+            self.filing.return_value={'ok':True}
+            self.assertEqual(self.client.post(self.base+'/push').status_code,200)
+        payload=self.http.call_args.kwargs['json']
+        self.assertEqual(payload['audioUrls'],['https://example.test/final.wav'])
+        self.assertEqual(payload['commercials'][0]['audioUrl'],'https://example.test/final.wav')
+        self.assertEqual(payload['commercials'][0]['length'],'15s')
+        self.assertEqual(self.filing.call_args.args[0]['client'],'Example Client')
+
+    def test_final_audio_is_indexed_under_the_client(self):
+        row=dict(store.get(self.pid),client='Example Client',project_name='September offer')
+        with promo.app.test_request_context(), patch('modules.image_picker.filing.file_asset',return_value={'ok':True}) as file_asset:
+            result=self.file_client_audio(row,'fifteen',{'audio_url':'https://example.test/mix.wav','public_id':'mix-version-1','format':'WAV','bytes':123})
+        self.assertTrue(result['ok'])
+        fields=file_asset.call_args.kwargs
+        self.assertEqual(fields['client_name'],'Example Client')
+        self.assertEqual(fields['url'],'https://example.test/mix.wav')
+        self.assertEqual(fields['project_name'],'September offer')
+        self.assertTrue(fields['filename'].endswith('-final.wav'))
+        self.assertFalse(fields['push_to_suite'])
 
     def test_customer_link_requires_saved_music_and_serves_the_combined_file(self):
         store.update(self.pid,{'spots':[{'slot':'fifteen','audio_url':'/voice.mp3'}],

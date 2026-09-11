@@ -126,8 +126,8 @@ function renderCustomerAudio(){
     if(!voice?.audio_url)return '';
     const player=(label,url,seconds,measured)=>`<p><b>${label}</b></p><div class="clip"><audio controls preload="none" src="${esc(url)}"></audio>${timingBadge(seconds,slotSeconds(slot),measured)}</div>`;
     return `<div class="slot"><h3>${esc(slotName(slot))}</h3>`+
-      (mix?.audio_url?player(bed?'With music':'Final audio',mix.audio_url,mix.seconds,mix.measured):bed?'<p class="hint">Music selected. The combined track will be saved when you prepare the customer link.</p>':'')+
-      player('Voice only',voice.audio_url,voice.measured_seconds,voice.measured)+'</div>';
+      (mix?.audio_url?player(bed?'Final advertising audio — With music':'Final advertising audio',mix.audio_url,mix.seconds,mix.measured):bed?'<p class="hint">Music selected. The combined track will be saved when you prepare the customer link.</p>':'')+
+      player(bed?'Voice only — alternate':'Voice only',voice.audio_url,voice.measured_seconds,voice.measured)+'</div>';
   }).join('');
 }
 let preparingCustomerAudio=false;
