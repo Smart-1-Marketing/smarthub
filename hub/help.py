@@ -512,6 +512,20 @@ REGISTRY: list[Help] = [
        "four hundred files are filed. Copying is idempotent — every file "
        "carries the Drive id it came from, so a second run over the same "
        "client copies nothing twice and says so."),
+    _h("hub.ad_assets.batch", "The whole book, rather than one client at a time",
+       "The same copy into the same folders — Ad Assets, then the IO, then "
+       "the product — run across every client carrying a Drive creative "
+       "link. It goes in chunks and keeps its place, because a few hundred "
+       "clients times their folders is hours of work and no single request "
+       "survives that; Stop is honored between chunks and the next press "
+       "carries on from where it stopped rather than starting again. Dry run "
+       "it first, which walks every folder and writes nothing. Three numbers "
+       "are on the answer and they are three questions: how many clients "
+       "carry Drive creative, how many this run has been through, and how "
+       "many are still waiting — a run reporting only its own length reads "
+       "as a finished book. Files are copied and never moved, so a chunk "
+       "that dies halfway loses the report and not the files, and coming "
+       "back skips whatever already landed."),
     _h("hub.ad_assets.proposals", "Rewriting the links in Smart 1 Team",
        "Once the creative is in the library, the link on the product record "
        "should point there. That is a write to the system of record, so it is "
