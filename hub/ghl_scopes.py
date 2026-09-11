@@ -103,8 +103,15 @@ READ: tuple[Scope, ...] = (
 # work, which is the only reason the Marketplace app exists.
 # --------------------------------------------------------------------------
 WRITE: tuple[Scope, ...] = (
+    # modules/landing_ads/prospect_builder.py joined this after the table was
+    # written: a prospect import upserts a contact per row and then adds its
+    # tags through /contacts/{id}/tags, because `tags` on /contacts/upsert
+    # replaces the whole tag set. The coverage check below found it by walking
+    # the tree, which is the whole reason that check reads call sites rather
+    # than re-confirming a hand-written list.
     Scope("contacts.write", "Lead delivery — every Hub form writes a contact",
-          ("hub/ghl_contacts.py", "hub/suite_opportunity.py"), True),
+          ("hub/ghl_contacts.py", "hub/suite_opportunity.py",
+           "modules/landing_ads/prospect_builder.py"), True),
     # hub/qa.py joined this months after the table was written: the accounting
     # QA report moves an opportunity's stage with PUT /opportunities/{id}/status.
     # Nothing named it until the coverage check below started discovering call
