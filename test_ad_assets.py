@@ -375,6 +375,58 @@ _src_page = (ROOT / "hub" / "templates" / "ad_assets.html").read_text()
 check("the failed table prints the sentence rather than the bucket",
       "r.error || r.detail || r.reason" in _src_page, True)
 
+# A refusal that names no way forward.
+#
+# The connect link was drawn for `refused` and `reauth` and not for `none`,
+# which is the wrong way round: those two are a login the Hub holds a token
+# for and cannot use, and `none` is one it has never held a token for -- the
+# state a first run lands in, and the only one a trip to the consent screen
+# actually fixes. And `render()`'s own refusal branch drew no link at all, so
+# the banner offered the consent screen while the button underneath it,
+# pressed on the same login a moment later, printed the refusal with nothing
+# to do about it.
+#
+# The rule is lifted out and driven in node rather than restated here: a copy
+# in the test is a third thing to keep in step.
+import json                                                      # noqa: E402
+import subprocess                                                # noqa: E402
+
+_fix_start = _src_page.find("/* s1:connect-fix:start")
+_fix_end = _src_page.find("/* s1:connect-fix:end")
+check("the connect-fix rule is still marked for lifting",
+      _fix_start > 0 and _fix_end > _fix_start, True)
+
+_fix_driver = _src_page[_fix_start:_fix_end] + """
+var out = {};
+JSON.parse(process.argv[1]).forEach(function (r) { out[r] = connectFix(r); });
+console.log(JSON.stringify(out));
+"""
+_reasons = ["none", "refused", "reauth", "unavailable", ""]
+_fix = json.loads(subprocess.run(
+    ["node", "-e", _fix_driver, "--", json.dumps(_reasons)],
+    capture_output=True, text=True, check=True).stdout)
+
+check("a login nobody has connected is offered the consent screen",
+      "/google/login" in _fix["none"] and "Connect that login" in _fix["none"],
+      True)
+check("a connected login that cannot read Drive is asked to reconnect",
+      "Reconnect that login" in _fix["refused"], True)
+check("and so is one whose token has died", "Reconnect that login" in _fix["reauth"],
+      True)
+# Connecting a login does not fix a Google that would not answer, and a link
+# that cannot help is the furniture accountPicker already refuses to draw.
+check("an outage is offered no link at all", (_fix["unavailable"], _fix[""]), ("", ""))
+
+check("the access banner reads that one rule rather than its own",
+      "const fix = connectFix(a.reason);" in _src_page, True)
+check("and so does the refusal the run itself prints",
+      "+ connectFix(res.reason)" in _src_page, True)
+# The payload has to carry the reason, or render() is reading a key nothing
+# sends -- which is how the coarse word reached the screen in the first place.
+check("and migrate's refusal carries the reason that link is chosen from",
+      '"reason": auth["reason"]'
+      in (ROOT / "hub" / "ad_assets.py").read_text(), True)
+
 # And the rule itself, in drive_files: a named login is the login. Two
 # connected accounts do not see one Drive, so substituting the one that
 # happens to carry the scope is what produced 108 refusals under a green

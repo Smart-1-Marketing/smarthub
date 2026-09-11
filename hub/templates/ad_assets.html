@@ -130,6 +130,30 @@ async function api(url, opts) {
    the check and the copy cannot use different logins. */
 let account = "", accountOk = false;
 
+/* s1:connect-fix:start
+   Where a login is connected, named rather than left to be hunted for.
+
+   The link was drawn for `refused` and `reauth` and not for `none` — which
+   is backwards: those two are a login the Hub already holds a token for and
+   cannot use, and `none` is one it has never held a token for at all. So the
+   one state that genuinely needs somebody sent to the consent screen was the
+   one state with no way forward on the page, and it is the state a first run
+   of this tool lands in.
+
+   Connect and reconnect stay different words: sending somebody to "reconnect"
+   an account that was never connected is a sentence they will read twice and
+   act on wrongly. An outage gets no link at all — connecting a login does not
+   fix a Google that would not answer, and a control that cannot help is the
+   furniture `accountPicker` already refuses to draw. */
+function connectFix(reason){
+  if (reason === "none")
+    return ' <a href="/google/login">Connect that login on Google Finder &rarr;</a>';
+  if (reason === "refused" || reason === "reauth")
+    return ' <a href="/google/login">Reconnect that login on Google Finder &rarr;</a>';
+  return "";
+}
+/* s1:connect-fix:end */
+
 async function loadAccess(){
   const box = $("access");
   const url = "/api/ad-assets/access"
@@ -151,8 +175,7 @@ async function loadAccess(){
       + `<b>${esc(a.email)}</b>.${other}${accountPicker(a)}</div>`;
     return true;
   }
-  const fix = a.reason === "refused" || a.reason === "reauth"
-    ? ' <a href="/google/login">Reconnect that login on Google Finder &rarr;</a>' : "";
+  const fix = connectFix(a.reason);
   box.innerHTML = `<div class="note bad"><b>Drive cannot be read`
     + (a.wanted ? ` as ${esc(a.wanted)}` : "") + `.</b> `
     + esc(a.detail || a.error || "") + fix + accountPicker(a) + `</div>`;
@@ -199,8 +222,14 @@ function rowsTable(title, rows, cls){
 }
 
 function render(res){
+  /* A run refused before it authenticated carries the same reason the access
+     check does, so it gets the same way forward. Without this the two halves
+     of one failure read differently: the banner offered the consent screen
+     and the button underneath it, pressed on the same login a moment later,
+     printed the refusal with nothing to do about it. */
   if (!res.ok) {
     $("result").innerHTML = `<div class="note bad"><b>${esc(res.error || "That did not run.")}</b>`
+      + connectFix(res.reason)
       + (res.note ? "<div>" + esc(res.note) + "</div>" : "") + "</div>";
     $("btnRun").disabled = true;
     return;
