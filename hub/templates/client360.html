@@ -792,42 +792,70 @@ function render(g,q){
     return `<div class="empty" id="c-suite-empty">
       <span class="muted">Checking Smart 1 Suite for an existing account…</span></div>`;
   };
+  /* "Attached" used to mean a display-only list (/api/client/links) that
+     token_for() and the Social Planner push never read -- a client could
+     look connected here and still be refused everywhere else, silently.
+     /api/client/suite-locations is the mapping those actually use, with
+     which sub-account is *primary* (the one a single-target caller gets)
+     when a multi-location client holds several. */
+  function loadSuiteAccount(){
   Promise.all([
     fetch('/suite/api/locations?limit=6&search='+encodeURIComponent(term)).then(r=>r.ok?r.json():null).catch(()=>null),
-    fetch('/api/client/links?name='+encodeURIComponent(name)).then(r=>r.json()).catch(()=>({attached:{}})),
-  ]).then(([d,la])=>{
-    let suiteAtt=((la||{}).attached||{}).suite||[];
-    if(!Array.isArray(suiteAtt)) suiteAtt=[suiteAtt];
-    if(d===null&&!suiteAtt.length){$('c-ghl').innerHTML='<div class="empty">Suite (GHL) not configured yet.</div>';return}
+    fetch('/api/client/suite-locations?name='+encodeURIComponent(name)).then(r=>r.json()).catch(()=>({locations:[]})),
+  ]).then(([d,rec])=>{
+    const recorded=(rec&&rec.locations)||[];
+    if(d===null&&!recorded.length){$('c-ghl').innerHTML='<div class="empty">Suite (GHL) not configured yet.</div>';return}
     const res=(d&&d.locations)||[];
-    const attIds=new Set(suiteAtt.map(a=>a.id));
-    // attached accounts not in the search results still show
-    suiteAtt.forEach(a=>{ if(!res.some(l=>(l.id||l._id)===a.id)) res.push({id:a.id,name:a.name,_attachedOnly:true}); });
+    const recById={}; recorded.forEach(r=>{recById[r.location_id]=r;});
+    // A recorded location not in this search's results still shows -- an
+    // account already mapped must never quietly disappear because a search
+    // for a differently-spelled name didn't happen to find it again.
+    recorded.forEach(r=>{ if(!res.some(l=>(l.id||l._id)===r.location_id))
+      res.push({id:r.location_id,name:'',_recordedOnly:true}); });
     if(!res.length){$('c-ghl').innerHTML=addBtn();return}
+    const multi=recorded.length>1;
     $('c-ghl').innerHTML='<div class="c360-suite-list">'+
       res.map((l,i)=>{const lid=l.id||l._id||'';
-        const isAtt=attIds.has(lid);
-        return `<div class="c360-suite-account"><div class="suite-name"><b>${esc(l.name||'—')}</b>${isAtt?' <span class="pill ok" style="font-size:10.5px">attached</span>':''}</div>
-          <div class="suite-actions"><a class="gbtn" href="/suite/?manage=${encodeURIComponent(lid)}&name=${encodeURIComponent(l.name||'')}">Manage account →</a>
-          ${isAtt?`<a class="gbtn suite-det" data-id="${esc(lid)}" style="cursor:pointer;color:#94a3b8">un-attach</a>`
-                 :`<a class="gbtn suite-att" data-i="${i}" style="cursor:pointer">Attach</a>`}</div>
-          <div class="suite-meta">${esc(l.city||'—')}${l.email?' · '+esc(l.email):''}</div></div>`;}).join('')+'</div>';
+        const r=recById[lid];
+        return `<div class="c360-suite-account"><div class="suite-name"><b>${esc(l.name||'—')}</b>`
+          +(r?(r.primary?' <span class="pill ok" style="font-size:10.5px">primary</span>'
+                        :' <span class="pill neutral" style="font-size:10.5px">recorded</span>'):'')
+          +`</div>
+          <div class="suite-actions"><a class="gbtn" href="/suite/?manage=${encodeURIComponent(lid)}&name=${encodeURIComponent(l.name||'')}">Manage account →</a>`
+          +(r
+            ? (!r.primary&&multi?`<a class="gbtn suite-primary" data-id="${esc(lid)}" style="cursor:pointer">make primary</a>`:'')
+              +`<a class="gbtn suite-det" data-id="${esc(lid)}" style="cursor:pointer;color:#94a3b8">remove</a>`
+            : `<a class="gbtn suite-att" data-i="${i}" style="cursor:pointer">${recorded.length?'Attach another location':'Attach'}</a>`)
+          +'</div>'
+          +`<div class="suite-meta">${esc(l.city||'—')}${l.email?' · '+esc(l.email):''}</div></div>`;}).join('')+'</div>';
     document.querySelectorAll('.suite-att').forEach(btn=>{
       btn.onclick=()=>{
         const l=res[parseInt(btn.dataset.i,10)];
-        fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({client:name,kind:'suite',data:{id:l.id||l._id,name:l.name}})})
-          .then(r=>r.json()).then(()=>{btn.outerHTML='<span class="pill ok">attached ✓</span>';});
+        fetch('/api/suite/link',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,location_id:l.id||l._id})})
+          .then(r=>r.json()).then(d=>{ if(d.ok===false){alert(d.detail||'That could not be attached.');return;}
+            loadSuiteAccount(); });
+      };
+    });
+    document.querySelectorAll('.suite-primary').forEach(btn=>{
+      btn.onclick=()=>{
+        fetch('/api/suite/primary',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,location_id:btn.dataset.id})})
+          .then(r=>r.json()).then(d=>{ if(d.ok===false){alert(d.detail||'That could not be set.');return;}
+            loadSuiteAccount(); });
       };
     });
     document.querySelectorAll('.suite-det').forEach(btn=>{
       btn.onclick=()=>{
-        fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({client:name,kind:'suite',remove:btn.dataset.id})})
-          .then(r=>r.json()).then(()=>{btn.outerHTML='<span class="muted" style="font-size:11px">removed</span>';});
+        fetch('/api/suite/unlink',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,location_id:btn.dataset.id})})
+          .then(r=>r.json()).then(d=>{ if(d.ok===false){alert(d.detail||'That could not be removed.');return;}
+            loadSuiteAccount(); });
       };
     });
   }).catch(()=>{$('c-ghl').innerHTML='<div class="empty">Suite module unavailable.</div>'});
+  }
+  loadSuiteAccount();
 
   // Proposals from the Proposal Builder — "+ New proposal" prefills this client.
   // /sales/builder is the one builder now; /sales/proposals redirects here and
