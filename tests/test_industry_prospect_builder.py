@@ -2,10 +2,10 @@ from modules.landing_ads import prospect_builder as pb
 
 
 def test_parse_csv_maps_common_vendor_headers_and_dedupes():
-    raw = (b"Business Email,First Name,Last Name,Company Name,Job Title,Website\n"
-           b"Owner@Example.com,Ada,Lovelace,Example HVAC,Owner,example.com\n"
-           b"owner@example.com,Ada,Lovelace,Example HVAC,Owner,example.com\n"
-           b"not-an-email,No,Address,Bad Co,Owner,bad.example\n")
+    raw = (b"Business Email,First Name,Last Name,Company Name,Job Title,Website,Country\n"
+           b"Owner@Example.com,Ada,Lovelace,Example HVAC,Owner,example.com,United States\n"
+           b"owner@example.com,Ada,Lovelace,Example HVAC,Owner,example.com,USA\n"
+           b"not-an-email,No,Address,Bad Co,Owner,bad.example,United States\n")
     result = pb.parse_csv(raw)
     assert len(result["rows"]) == 1
     assert result["duplicate"] == 1
@@ -13,6 +13,15 @@ def test_parse_csv_maps_common_vendor_headers_and_dedupes():
     assert result["rows"][0]["email"] == "owner@example.com"
     assert result["rows"][0]["company"] == "Example HVAC"
     assert result["rows"][0]["website"] == "https://example.com"
+    assert result["rows"][0]["country"] == "US"
+
+
+def test_country_normalization_never_invents_a_code():
+    assert pb._normal_country("United States") == "US"
+    assert pb._normal_country("usa") == "US"
+    assert pb._normal_country("ca") == "CA"
+    assert pb._normal_country("Canada") == "CA"
+    assert pb._normal_country("France") == ""
 
 
 def test_tags_are_tracking_first_and_trigger_is_opt_in():
@@ -46,9 +55,10 @@ def test_contact_payload_does_not_include_tags():
     payload = pb._contact_payload({
         "email": "owner@example.com",
         "company": "Example HVAC",
-        "country": "US",
+        "country": "United States",
     }, "location-123", "Apollo")
     assert payload["email"] == "owner@example.com"
     assert payload["locationId"] == "location-123"
+    assert payload["country"] == "US"
     assert payload["createNewIfDuplicateAllowed"] is False
     assert "tags" not in payload
