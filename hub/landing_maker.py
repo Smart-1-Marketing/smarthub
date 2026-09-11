@@ -20,6 +20,23 @@ may not add reviews, awards, guarantees, prices or locations that aren't in
 the material — those are the claims that get an agency into trouble, and they
 are exactly what a language model will supply if you let it.
 
+## The copywriting doctrine, and what a page is built from
+
+`SYSTEM` folds in the web team's direct-response spec: message match (the
+headline confirms the visitor is in the right place), pain before relief
+before proof, specific claims over vague ones, real urgency only, and proof
+ordered to answer the biggest doubt first. `hub/landing_render.py`'s own
+notes cover the rest of that spec — the fixed page architecture, one CTA
+never diluted, accessible focus states — since those live in the renderer
+rather than the prompt.
+
+Two more inputs follow the same never-invented rule as the offer: a rep can
+paste in real Google reviews and a client's own GA4 measurement id when
+building the page. Neither is guessed at, and neither blocks a build when
+it's missing — the page ships without a social-proof section or a tracking
+script rather than with a fabricated review or a made-up id, and the build
+response says so.
+
 ## Where a proposal actually lives
 
 There is one Proposal Builder, and it keeps quotes in the ``quotes`` table,
@@ -301,14 +318,34 @@ def brief_from_proposal(proposal_id: str = "", client: str = "",
 # ---------------------------------------------------------------------------
 
 SYSTEM = (
-    "You write landing page copy for a marketing agency's client. You are "
-    "given only what is actually known about the business.\n\n"
-    "Hard rules, because breaking them is what gets an agency sued:\n"
+    "You are a direct-response conversion strategist writing landing page "
+    "copy for a marketing agency's client. Your one job is to turn ad "
+    "traffic into a phone call or a form submission, right now, on a phone "
+    "screen. You are given only what is actually known about the business.\n\n"
+    "Hard rules, because breaking them is what gets an agency sued or "
+    "embarrassed, and it always gets caught:\n"
     "- Never invent reviews, testimonials, awards, accreditations, "
     "guarantees, prices, discounts, locations, staff or years in business.\n"
     "- Never write a claim the material doesn't support.\n"
+    "- Never manufacture urgency — no countdown language, no fake scarcity, "
+    "no deadline that isn't in the material. A real deadline (a genuine "
+    "expiry, 24-hour service) is fine to state plainly.\n"
     "- If you have nothing for a section, return an empty string for it and "
     "it will be left out. An honest gap beats an invented fact.\n\n"
+    "Copywriting doctrine:\n"
+    "- Message match: the headline must instantly confirm to the visitor "
+    "that this page is about the thing they were promised, not a general "
+    "pitch for the business.\n"
+    "- Pain, then relief, then proof: name the visitor's actual problem in "
+    "their own words before you say you fix it, and only THEN back that "
+    "with proof. Never lead with a credential — nobody trusts a stranger's "
+    "credentials before the stranger has shown they understand the problem.\n"
+    "- Specificity beats cleverness: a named number or a named service beats "
+    "a vague claim ('24-hour emergency service' beats 'here when you need "
+    "us'). Be as concrete as the material allows.\n"
+    "- Order proof to answer the biggest doubt first — the objection the "
+    "visitor is most likely silently having ('are these people legit', "
+    "'have they done this before') gets answered soonest.\n\n"
     "Style: write to the customer, not the business owner. Specific, "
     "benefit-led, plain. No 'Welcome', no 'Experience Excellence', no "
     "'Solutions for Your Needs'. Short paragraphs. One clear action."
@@ -350,10 +387,15 @@ def write_copy(brief: dict, goal: str, offer: str,
         raw = ai.chat(
             [{"role": "system", "content": SYSTEM},
              {"role": "user", "content":
-              "Return JSON with: headline (under 12 words, benefit-led), "
-              "subhead (one sentence), cta (3-4 words, specific), "
-              "benefits (3-5 {title, text}), how_it_works (3 {step, text}), "
-              "why_us (3-4 short strings), faqs (3-4 {q, a}).\n\n"
+              "Return JSON with: headline (under 12 words — it must echo "
+              "what this page is promoting, so a visitor who just saw an ad "
+              "for it feels instantly confirmed they're in the right "
+              "place), subhead (one sentence), cta (3-4 words, specific), "
+              "benefits (3-5 {title, text} — name the visitor's specific "
+              "problem or need first, in their own words, not a generic "
+              "category), how_it_works (3 {step, text}), "
+              "why_us (3-4 short strings, ordered so the biggest reason to "
+              "doubt a stranger is answered first), faqs (3-4 {q, a}).\n\n"
               "Write for ONE next step: " + payload["conversion_goal"]
               + ". " + payload["goal_guidance"]
               + " Before asking, the page must establish "
@@ -377,13 +419,52 @@ def write_copy(brief: dict, goal: str, offer: str,
 
 
 # ---------------------------------------------------------------------------
+# Real reviews, real tracking -- read, never invented
+# ---------------------------------------------------------------------------
+
+def _parse_reviews(raw: str) -> list[dict]:
+    """A rep's own pasted reviews, one per line.
+
+    ``Author | rating | quote`` -- the author and the rating are both
+    optional, so a bare pasted quote still comes through as a review with no
+    attribution rather than being dropped. Nothing here writes review text;
+    it only reads what a person typed, the trust the offer field already
+    gets. Capped at two, which is what the page has room for.
+    """
+    out: list[dict] = []
+    for line in str(raw or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = [p.strip() for p in line.split("|", 2)]
+        if len(parts) == 3:
+            author, rating_raw, quote = parts
+        elif len(parts) == 2:
+            author, quote = parts
+            rating_raw = ""
+        else:
+            author, rating_raw, quote = "", "", parts[0]
+        if not quote:
+            continue
+        row = {"quote": quote, "author": author}
+        digits = re.sub(r"[^0-9]", "", rating_raw)
+        if digits:
+            row["rating"] = int(digits)
+        out.append(row)
+        if len(out) >= 2:
+            break
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Create / store
 # ---------------------------------------------------------------------------
 
 def create(proposal_id: str = "", client: str = "", text: str = "",
            direction: str = "trust", goal: str = "", offer: str = "",
            actor: str = "", uploaded_id: str = "", kind: str = "client",
-           website: str = "", promoting: str = "") -> dict:
+           website: str = "", promoting: str = "", reviews: str = "",
+           ga4_id: str = "") -> dict:
     kind = "prospect" if kind == "prospect" else "client"
     brief = brief_from_proposal(proposal_id, client, text, uploaded_id,
                                 website, kind)
@@ -393,14 +474,16 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
     goal_id = spec.goal(goal)["id"]
     promoting = spec.promoting_from(brief, promoting)
     copy = write_copy(brief, goal, offer, promoting)
-    from .landing_render import render_page, with_endpoint
+    from .landing_render import render_page, with_endpoint, is_valid_ga4_id
     from .landing_images import pick
 
     page_id = uuid.uuid4().hex[:12]
+    review_rows = _parse_reviews(reviews)
+    ga4_id = ga4_id.strip()
     pics = pick(brief, benefits=len([b for b in (copy.get("benefits") or [])
                                      if isinstance(b, dict) and b.get("title")]))
     html = render_page(brief, copy, DIRECTIONS.get(direction, DIRECTIONS["trust"]),
-                       pics, goal_id=goal_id)
+                       pics, goal_id=goal_id, reviews=review_rows, ga4_id=ga4_id)
     # Absolute, so the form still reaches us from wherever the page is pasted.
     from hub.config import settings
     base = settings.public_base_url
@@ -426,6 +509,7 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
         "headline": copy.get("headline", ""),
         "copy_source": copy.get("source", ""),
         "brief": brief, "copy": copy,
+        "reviews": review_rows, "ga4_id": ga4_id,
         "page_html": html,
         "created": _now(), "by": actor,
         "versions": [],
@@ -457,6 +541,17 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
         # Otherwise the form posts to whatever domain the page is pasted onto.
         note += (" PUBLIC_BASE_URL isn't set, so the lead form uses a relative "
                  "URL and will only work while the page is served from the Hub.")
+    if not review_rows:
+        note += (" No reviews were given, so the page has no social-proof "
+                 "section — paste in 1-2 real Google reviews and rebuild if "
+                 "you have them. The page will never invent one.")
+    if ga4_id and not is_valid_ga4_id(ga4_id):
+        note += (" That GA4 ID didn't look like a real measurement ID "
+                 "(G-XXXXXXX), so no tracking script was added.")
+    elif not ga4_id:
+        note += (" No GA4 measurement ID was given, so the page has no "
+                 "phone-click or form-submit tracking beyond the lead "
+                 "already logged in the Hub.")
     # What the page could not answer for itself. Asked rather than written
     # around: copy that works around a gap is copy that could be about any
     # business in the industry.
@@ -567,7 +662,8 @@ def revise(id_or_slug: str, instructions: str, actor: str = "") -> dict:
                                      if isinstance(b, dict) and b.get("title")]))
     html = render_page(brief, copy,
                        DIRECTIONS.get(row.get("direction"), DIRECTIONS["trust"]),
-                       pics)
+                       pics, reviews=row.get("reviews"),
+                       ga4_id=row.get("ga4_id", ""))
     from hub.config import settings
     base = settings.public_base_url
     html = with_endpoint(html, f"{base}/api/leads/capture" if base

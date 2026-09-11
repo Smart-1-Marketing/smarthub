@@ -41,7 +41,6 @@ order number and the two IO PDFs, because those belong to the IO.
 """
 
 import json
-import math
 import os
 import re
 import secrets
@@ -93,6 +92,7 @@ from hub import rate_card as hub_rate_card
 from hub import short_links as hub_short_links
 from hub import target_areas as hub_areas
 from hub import target_map as hub_map
+from hub import zip_geo as hub_zip_geo
 from hub import view_tracking as hub_views
 from hub.config import settings as hub_config
 
@@ -4156,71 +4156,24 @@ def api_review_landing_page():
 def api_zipcodes_in_radius():
     """The ZIP Codes a radius touches — per target area, not per campaign.
 
-    Same lookup the IO builder runs. Having it here means the ZIP list is
-    attached to the area it belongs to while the proposal is still being
-    built, rather than being rebuilt at IO time against whichever origin
-    happened to be typed first.
+    Same lookup the IO builder runs, through ``hub.zip_geo`` — a bundled
+    centroid table and a distance measurement, not a model asked to
+    enumerate them. That call used to be handed to a model with a web-search
+    tool and came back plausible and wrong by two orders of magnitude on an
+    ordinary small-town radius; a geometry question is answered by measuring
+    it. Having it here means the ZIP list is attached to the area it belongs
+    to while the proposal is still being built, rather than being rebuilt at
+    IO time against whichever origin happened to be typed first.
     """
     body = request.get_json(force=True) or {}
     origin = str(body.get("origin") or "").strip()
     radius = str(body.get("radius") or "").strip()
-    if not origin or not radius:
-        return jsonify({"ok": False, "error": "An origin and a radius are required."}), 400
-    prompt = (
-        f"Find the complete list of United States ZIP Codes whose geographic polygon is fully or "
-        f"partially touched by a {radius}-mile radius centered on {origin}. Include a ZIP Code whenever "
-        f"any portion of that ZIP Code area intersects the radius, not only when its centroid is inside. "
-        "Use current authoritative geographic sources where possible. Return only five-digit ZIP Codes, "
-        "comma-separated, sorted ascending, with no commentary. Be exhaustive and do not intentionally "
-        "omit any matching ZIP Code.")
-    # `search=True`, and the call falls back without the tool rather than
-    # failing: the tool riding on this request is what stopped the button.
-    try:
-        zips = hub_areas.zip_list(_openai_response(prompt, 12000, search=True))
-    except Exception as exc:                            # noqa: BLE001
-        logger.exception("ZIP-radius lookup failed")
-        return jsonify({"ok": False, "error": "ZIP-radius lookup failed",
-                        "detail": str(exc)}), 502
-    if not zips:
-        # Said in the terms of the question that was asked. "No ZIP Codes were
-        # returned" reads as a radius with nothing in it, which is not a thing
-        # that happens -- it was always the call, never the geography.
-        return jsonify({"ok": False,
-                        "error": f"The lookup came back with no ZIP Codes for "
-                                 f"{radius} miles around {origin}. Check the "
-                                 f"origin is a real city or ZIP Code, or enter "
-                                 f"the list by hand."}), 502
-    # This model has no real geographic reasoning behind it and no dataset of
-    # ZCTA boundaries to check against -- it is asked to "find" a list, and
-    # what it sometimes finds is every ZIP Code in the region rather than the
-    # ones this radius touches. Not hypothetical: a 10-mile radius around
-    # Bristol, CT came back with 2,985 ZIP Codes, where the real answer is
-    # 22 -- roughly the whole of New England, mistaken for one town's radius.
-    # There is no dataset here to confirm the right count either, so this is
-    # a house ceiling rather than a geographic law: generous enough that a
-    # dense multi-borough urban search should clear it (three ZIP Codes per
-    # square mile is already far denser than all but the smallest, most
-    # crowded ZIP Codes in the country), and tight enough to catch the model
-    # answering a different, much larger question than the one it was asked.
-    try:
-        radius_mi = float(radius)
-    except ValueError:
-        radius_mi = 0.0
-    area_sqmi = math.pi * radius_mi * radius_mi
-    plausible_cap = max(80, int(area_sqmi * 3))
-    if len(zips) > plausible_cap:
-        logger.warning(
-            "ZIP-radius lookup for %r + %smi returned an implausible %d ZIP Codes (house cap %d)",
-            origin, radius, len(zips), plausible_cap)
-        return jsonify({"ok": False,
-                        "error": f"The lookup returned {len(zips):,} ZIP Codes for {radius} miles "
-                                 f"around {origin}, which is far more than a radius that size "
-                                 f"should touch -- it looks like the AI answered for a wider region "
-                                 f"rather than filtering by the radius. Enter the ZIP Codes by hand, "
-                                 f"or try again with a narrower origin."}), 502
+    result = hub_zip_geo.lookup_radius(origin, radius)
+    if not result.get("ok"):
+        return jsonify(result), 400 if not origin or not radius else 502
+    zips = result["zipcodes"]
     return jsonify({"ok": True, "zipcodes": ", ".join(zips), "count": len(zips),
-                    "warning": "AI-assisted ZIP-radius results should be reviewed before "
-                               "trafficking — ZIP boundaries and radius intersections change."})
+                    "warning": result["warning"]})
 
 
 @app.get("/api/quotes/<int:qid>/target-map.png")

@@ -3169,7 +3169,7 @@ async function lookupZips(){
  try{
   const d=await api('/sales/builder/api/zipcodes-in-radius',{method:'POST',
    body:JSON.stringify({origin:a.origin,radius:a.radius})});
-  a.zips=d.zipcodes||"";a.zipSource="AI-assisted — unverified";a.zipVerified=false;syncLegacyGeo();saveSoon();renderStep();
+  a.zips=d.zipcodes||"";a.zipSource="Centroid distance — unverified";a.zipVerified=false;syncLegacyGeo();saveSoon();renderStep();
   // The exception was applied to the previous list. Left alone it would go
   // on describing that one while a new list ran unfiltered -- the rule
   // reading as saved and doing nothing, which is the failure the field
