@@ -375,6 +375,58 @@ _src_page = (ROOT / "hub" / "templates" / "ad_assets.html").read_text()
 check("the failed table prints the sentence rather than the bucket",
       "r.error || r.detail || r.reason" in _src_page, True)
 
+# A refusal that names no way forward.
+#
+# The connect link was drawn for `refused` and `reauth` and not for `none`,
+# which is the wrong way round: those two are a login the Hub holds a token
+# for and cannot use, and `none` is one it has never held a token for -- the
+# state a first run lands in, and the only one a trip to the consent screen
+# actually fixes. And `render()`'s own refusal branch drew no link at all, so
+# the banner offered the consent screen while the button underneath it,
+# pressed on the same login a moment later, printed the refusal with nothing
+# to do about it.
+#
+# The rule is lifted out and driven in node rather than restated here: a copy
+# in the test is a third thing to keep in step.
+import json                                                      # noqa: E402
+import subprocess                                                # noqa: E402
+
+_fix_start = _src_page.find("/* s1:connect-fix:start")
+_fix_end = _src_page.find("/* s1:connect-fix:end")
+check("the connect-fix rule is still marked for lifting",
+      _fix_start > 0 and _fix_end > _fix_start, True)
+
+_fix_driver = _src_page[_fix_start:_fix_end] + """
+var out = {};
+JSON.parse(process.argv[1]).forEach(function (r) { out[r] = connectFix(r); });
+console.log(JSON.stringify(out));
+"""
+_reasons = ["none", "refused", "reauth", "unavailable", ""]
+_fix = json.loads(subprocess.run(
+    ["node", "-e", _fix_driver, "--", json.dumps(_reasons)],
+    capture_output=True, text=True, check=True).stdout)
+
+check("a login nobody has connected is offered the consent screen",
+      "/google/login" in _fix["none"] and "Connect that login" in _fix["none"],
+      True)
+check("a connected login that cannot read Drive is asked to reconnect",
+      "Reconnect that login" in _fix["refused"], True)
+check("and so is one whose token has died", "Reconnect that login" in _fix["reauth"],
+      True)
+# Connecting a login does not fix a Google that would not answer, and a link
+# that cannot help is the furniture accountPicker already refuses to draw.
+check("an outage is offered no link at all", (_fix["unavailable"], _fix[""]), ("", ""))
+
+check("the access banner reads that one rule rather than its own",
+      "const fix = connectFix(a.reason);" in _src_page, True)
+check("and so does the refusal the run itself prints",
+      "+ connectFix(res.reason)" in _src_page, True)
+# The payload has to carry the reason, or render() is reading a key nothing
+# sends -- which is how the coarse word reached the screen in the first place.
+check("and migrate's refusal carries the reason that link is chosen from",
+      '"reason": auth["reason"]'
+      in (ROOT / "hub" / "ad_assets.py").read_text(), True)
+
 # And the rule itself, in drive_files: a named login is the login. Two
 # connected accounts do not see one Drive, so substituting the one that
 # happens to carry the scope is what produced 108 refusals under a green
@@ -466,6 +518,126 @@ check("the dedupe key is the Drive file id, on the row",
       'key=f"gdrive:{item.get(\'id\')}"' in _src_aa, True)
 check("and the copy keeps the Drive address it came from",
       "row.source_url = url[:500]" in _src_aa, True)
+
+
+# ---------------------------------------------------------------------------
+# 5b. The whole book, one chunk at a time
+# ---------------------------------------------------------------------------
+#
+# `sweep()` was the batch and was reachable only from the scheduler: no way to
+# run it on demand, no dry run, and `candidates()[:25]` reported as
+# `clients: 25` with no mention of how many it had left -- a page reporting
+# its own length as the total, which on a backfill reads as a finished book.
+print("\nEvery client at once")
+
+ad_assets.filed_keys = lambda client, *, names=None: {}
+
+# Other Co's link is a single file rather than a folder and the fixture mapped
+# nothing behind it, so the batch copied two files across two clients -- a
+# total equal to the client count, which cannot tell "counts the files" from
+# "counts the clients". Given a file of its own the two can never collide.
+_ITEMS["https://drive.google.com/file/d/1CCCCCCCCCCC/view"] = [
+    {"id": "f3", "name": "static-300x600.jpg", "mimeType": "image/jpeg",
+     "path": ""},
+]
+
+_batch = ad_assets.batch(limit_clients=1)
+check("a chunk stops at the cap rather than walking the book",
+      _batch["processed"], 1)
+check("and says how many clients there are in total", _batch["total"], 2)
+check("and how many are still waiting", _batch["remaining"], 1)
+check("a dry run writes nothing", _batch["apply"], False)
+# The cursor is the client name, not an index: sorted order means a client
+# added between chunks cannot make the next one skip or repeat somebody.
+check("it hands back where to carry on from",
+      _batch["next_after"], _batch["results"][0]["client"])
+
+_rest = ad_assets.batch(limit_clients=25, after=_batch["next_after"])
+check("and resuming takes the rest", _rest["processed"], 1)
+check("without doing the first one again",
+      _rest["results"][0]["client"] != _batch["results"][0]["client"], True)
+check("a finished book offers no cursor", _rest["next_after"], "")
+check("and says nothing is left", _rest["remaining"], 0)
+check("the two chunks between them cover every client",
+      sorted(r["client"] for r in _batch["results"] + _rest["results"]),
+      ["Other Co", "Riverside HVAC"])
+
+_whole = ad_assets.batch()
+check("the files behind every client are counted, not the clients",
+      _whole["counts"]["copied"], 3)
+
+# One client's failure is not the book's. Without this a single bad folder
+# costs every client after it in the alphabet, and the run reports a total
+# that stopped early as though it were the answer.
+_real_migrate = ad_assets.migrate
+
+
+def _one_bad(name, **kw):
+    if name == "Other Co":
+        raise RuntimeError("Drive fell over")
+    return _real_migrate(name, **kw)
+
+
+ad_assets.migrate = _one_bad
+_partial = ad_assets.batch()
+ad_assets.migrate = _real_migrate
+check("a client that raises does not stop the ones after it",
+      _partial["processed"], 2)
+_bad = [r for r in _partial["results"] if r["client"] == "Other Co"][0]
+check("and the row says what happened to it",
+      "Drive fell over" in _bad["error"], True)
+
+# A refusal is one refusal. The check runs before the first client, so a batch
+# that cannot read Drive stops there rather than producing several hundred
+# identical "not connected" rows -- the wall of `refused` this module already
+# had to undo one layer down. (In the success path each client still resolves
+# its own token inside migrate(), so a token dying mid-backfill costs that
+# client and not the rest of the book; this asserts the refusal path only,
+# which is the one that short-circuits.)
+_asked = []
+_ok_access = ad_assets.drive_files.access
+
+
+def _count_access(email=""):
+    _asked.append(email)
+    return {"ok": False, "reason": "none", "email": email, "requested": email,
+            "connected": ["smartadops@gmail.com"], "token": "",
+            "detail": f"{email} is not connected to the Hub."}
+
+
+ad_assets.drive_files.access = _count_access
+_refused = ad_assets.batch()
+ad_assets.drive_files.access = _ok_access
+check("a batch that cannot read Drive refuses whole", _refused["ok"], False)
+check("having asked before the first client rather than during", len(_asked), 1)
+check("and carries the reason the page picks a connect link from",
+      _refused["reason"], "none")
+check("and names what is connected instead",
+      _refused["connected"], ["smartadops@gmail.com"])
+# The refusal must not read as a migrated book.
+check("a refusal is not a report that nothing is left",
+      (_refused["total"], _refused["processed"]), (0, 0))
+
+# sweep() is one chunk of that rather than a second reading of what a batch
+# is -- and it now says what it left for tomorrow.
+_swept = ad_assets.sweep(limit_clients=1)
+check("the nightly sweep copies for real", _swept["ok"], True)
+check("it reports what it reached", _swept["clients"], 1)
+check("and no longer reports that as the whole book",
+      (_swept["total"], _swept["remaining"]), (2, 1))
+check("the sweep holds no loop of its own",
+      "for name in names:" in (ROOT / "hub" / "ad_assets.py").read_text(), False)
+
+# The batch is a write and is billed at two providers, so it is a POST and its
+# numbers are clamped rather than trusted.
+_src_batch = (ROOT / "hub" / "ad_assets.py").read_text()
+check("the batch route is a POST",
+      '@bp.route("/api/ad-assets/batch", methods=["POST"])' in _src_batch, True)
+check("and the caller's numbers are clamped",
+      "clamp_int(body.get(\"clients\")" in _src_batch
+      and "clamp_int(body.get(\"budget\")" in _src_batch, True)
+check("the batch files under the same folder rule as one client",
+      "migrate(name, apply=apply" in _src_batch, True)
 
 
 # ---------------------------------------------------------------------------

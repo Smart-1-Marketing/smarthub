@@ -96,6 +96,26 @@
   </div>
 
   <div class="card">
+    <h2>Every client at once
+      {{ help_dot('hub.ad_assets.batch') if help_dot is defined else '' }}</h2>
+    <p class="sub">The same copy, the same folders &mdash; Ad Assets, then the
+      IO, then the product &mdash; run across every client carrying a Drive
+      creative link rather than one at a time. It goes in chunks and keeps
+      its place, so you can stop it and pick it up where it left off.
+      <b>Dry run first:</b> it walks every folder and writes nothing.</p>
+    <div class="bar">
+      <button class="btn" id="btnBatchPlan">Dry run: the whole book</button>
+      <button class="btn primary" id="btnBatchRun">Copy every client</button>
+      <button class="btn" id="btnBatchStop" disabled>Stop</button>
+      <label class="muted" style="font-size:13px">
+        <input type="checkbox" id="batchLive"> Live products only</label>
+      <span class="muted" id="batchStatus"></span>
+    </div>
+    <div id="batch"><div class="empty">Not started. Nothing is read from Drive
+      until you run it.</div></div>
+  </div>
+
+  <div class="card">
     <h2>Proposed link rewrites in Smart 1 Team
       {{ help_dot('hub.ad_assets.proposals') if help_dot is defined else '' }}</h2>
     <p class="sub">Offered only where <em>every</em> file behind the link came
@@ -130,6 +150,30 @@ async function api(url, opts) {
    the check and the copy cannot use different logins. */
 let account = "", accountOk = false;
 
+/* s1:connect-fix:start
+   Where a login is connected, named rather than left to be hunted for.
+
+   The link was drawn for `refused` and `reauth` and not for `none` — which
+   is backwards: those two are a login the Hub already holds a token for and
+   cannot use, and `none` is one it has never held a token for at all. So the
+   one state that genuinely needs somebody sent to the consent screen was the
+   one state with no way forward on the page, and it is the state a first run
+   of this tool lands in.
+
+   Connect and reconnect stay different words: sending somebody to "reconnect"
+   an account that was never connected is a sentence they will read twice and
+   act on wrongly. An outage gets no link at all — connecting a login does not
+   fix a Google that would not answer, and a control that cannot help is the
+   furniture `accountPicker` already refuses to draw. */
+function connectFix(reason){
+  if (reason === "none")
+    return ' <a href="/google/login">Connect that login on Google Finder &rarr;</a>';
+  if (reason === "refused" || reason === "reauth")
+    return ' <a href="/google/login">Reconnect that login on Google Finder &rarr;</a>';
+  return "";
+}
+/* s1:connect-fix:end */
+
 async function loadAccess(){
   const box = $("access");
   const url = "/api/ad-assets/access"
@@ -151,8 +195,7 @@ async function loadAccess(){
       + `<b>${esc(a.email)}</b>.${other}${accountPicker(a)}</div>`;
     return true;
   }
-  const fix = a.reason === "refused" || a.reason === "reauth"
-    ? ' <a href="/google/login">Reconnect that login on Google Finder &rarr;</a>' : "";
+  const fix = connectFix(a.reason);
   box.innerHTML = `<div class="note bad"><b>Drive cannot be read`
     + (a.wanted ? ` as ${esc(a.wanted)}` : "") + `.</b> `
     + esc(a.detail || a.error || "") + fix + accountPicker(a) + `</div>`;
@@ -199,8 +242,14 @@ function rowsTable(title, rows, cls){
 }
 
 function render(res){
+  /* A run refused before it authenticated carries the same reason the access
+     check does, so it gets the same way forward. Without this the two halves
+     of one failure read differently: the banner offered the consent screen
+     and the button underneath it, pressed on the same login a moment later,
+     printed the refusal with nothing to do about it. */
   if (!res.ok) {
     $("result").innerHTML = `<div class="note bad"><b>${esc(res.error || "That did not run.")}</b>`
+      + connectFix(res.reason)
       + (res.note ? "<div>" + esc(res.note) + "</div>" : "") + "</div>";
     $("btnRun").disabled = true;
     return;
@@ -379,6 +428,102 @@ async function run(apply){
   $("btnPlan").disabled = !canRun;
 }
 
+/* The whole book, chunk by chunk.
+
+   The server does one chunk and hands back `next_after`; this asks for the
+   next one. That is what keeps each request short enough to survive a
+   gateway timeout on a job that is hours long — and it is why the page can
+   show progress at all, rather than one request that either returns in an
+   hour or does not.
+
+   `stop` is honored between chunks and never mid-chunk: the files a chunk
+   already copied are copied, and pretending a stop unwound them would be the
+   confident wrong answer. Stopping leaves the cursor where it is, so the next
+   press resumes rather than starting the alphabet again. */
+let batchStop = false, batchRunning = false;
+
+function batchRow(r){
+  const bad = r.failed > 0 || r.error;
+  return `<tr><td>${esc(r.client)}</td>`
+    + `<td>${esc(String(r.copied || 0))}</td>`
+    + `<td>${esc(String(r.skipped || 0))}</td>`
+    + `<td class="${bad ? "" : "muted"}">${esc(String(r.failed || 0))}</td>`
+    + `<td class="muted">${esc(r.error || "")}</td></tr>`;
+}
+
+async function runBatch(apply){
+  if (batchRunning) return;
+  if (apply && !window.confirm(
+      "Copy every client's Drive creative into their library?\n\n"
+    + "Files are copied, never moved — the Drive folders are not touched. "
+    + "It runs in chunks and you can stop between them.")) return;
+  batchRunning = true; batchStop = false;
+  $("btnBatchPlan").disabled = $("btnBatchRun").disabled = true;
+  $("btnBatchStop").disabled = false;
+  const live = $("batchLive").checked;
+  let after = "", rows = [], totals = {copied:0, skipped:0, failed:0};
+  let total = 0, processed = 0, remaining = null, stopped = false, err = "";
+
+  const draw = () => {
+    /* Three numbers, because they are three questions: how many clients
+       carry Drive creative at all, how many this run has been through, and
+       how many are still waiting. A run that reported only its own length
+       would read as a finished book. */
+    let h = `<div class="note ${apply ? "good" : ""}">`
+      + `${apply ? "Copied" : "Would copy"} <b>${totals.copied}</b> file(s) `
+      + `across <b>${processed}</b> of <b>${total}</b> client(s). `
+      + `${totals.skipped} skipped, ${totals.failed} failed.`
+      + (remaining === null ? "" : ` ${remaining} client(s) still to go.`)
+      + (stopped ? " <b>Stopped</b> — press again to carry on from here." : "")
+      + `</div>`;
+    if (err) h += `<div class="note bad">${esc(err)}</div>`;
+    if (rows.length)
+      h += '<table><thead><tr><th>Client</th><th>Copied</th><th>Skipped</th>'
+         + '<th>Failed</th><th></th></tr></thead><tbody>'
+         + rows.map(batchRow).join("") + "</tbody></table>";
+    $("batch").innerHTML = h;
+  };
+
+  const wait = (window.S1Think && window.S1Think.attach)
+    ? window.S1Think.attach($("batchStatus"), {kind: "scan",
+        stages: ["Reading Drive folders…", "Working down the book…"]}) : null;
+  try {
+    for (;;) {
+      const res = await api("/api/ad-assets/batch", {method:"POST",
+        body: JSON.stringify({apply: apply, after: after,
+                              live_only: live, account: account})});
+      if (!res.ok) {
+        /* The same refusal the banner draws, and the same way forward —
+           a batch that cannot read Drive is one login to fix, not a book
+           with nothing in it. */
+        err = (res.error || "That did not run.");
+        $("batch").innerHTML = `<div class="note bad"><b>${esc(err)}</b>`
+          + connectFix(res.reason)
+          + (res.note ? "<div>" + esc(res.note) + "</div>" : "") + "</div>";
+        break;
+      }
+      total = res.total || 0;
+      processed += res.processed || 0;
+      remaining = res.remaining;
+      rows = rows.concat(res.results || []);
+      ["copied", "skipped", "failed"].forEach(k => {
+        totals[k] += (res.counts && res.counts[k]) || 0; });
+      draw();
+      if (!res.next_after) break;
+      if (batchStop) { stopped = true; draw(); break; }
+      after = res.next_after;
+    }
+  } catch (e) {
+    err = "That request did not come back. Anything already copied is copied — "
+        + "press again to carry on.";
+    draw();
+  }
+  if (wait && wait.done) { try { wait.done(); } catch (e) {} }
+  batchRunning = false;
+  $("btnBatchPlan").disabled = $("btnBatchRun").disabled = false;
+  $("btnBatchStop").disabled = true;
+}
+
 async function loadProposals(){
   const client = $("client").value.trim();
   const res = await api("/api/ad-assets/proposals?client=" + encodeURIComponent(client));
@@ -417,6 +562,11 @@ async function applyProposals(){
 
 $("btnPlan").onclick = () => run(false);
 $("btnRun").onclick = () => run(true);
+$("btnBatchPlan").onclick = () => runBatch(false);
+$("btnBatchRun").onclick = () => runBatch(true);
+$("btnBatchStop").onclick = () => { batchStop = true;
+  $("btnBatchStop").disabled = true;
+  $("batchStatus").textContent = "Stopping after this chunk…"; };
 $("btnProposals").onclick = loadProposals;
 $("btnApply").onclick = applyProposals;
 
