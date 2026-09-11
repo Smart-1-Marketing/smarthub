@@ -188,17 +188,16 @@ check("a top-level test_*.py fixture string is not scanned", findings, [])
 section("An ALLOW entry with no reason is itself a finding")
 # ---------------------------------------------------------------------------
 
-import hub.client_brief as _brief_module                          # noqa: E402
-_saved_allow = dict(_brief_module.ALLOW)
+_saved_allow = dict(ALLOW)
 try:
-    _brief_module.ALLOW["hub/some_file.py"] = ""
+    ALLOW["hub/some_file.py"] = ""
     findings = check_ai_callers(FIXTURE_ROOT)
     check("an empty-reason ALLOW entry is flagged",
           [f["file"] for f in findings if f.get("allow_entry")],
           ["hub/some_file.py"])
 finally:
-    _brief_module.ALLOW.clear()
-    _brief_module.ALLOW.update(_saved_allow)
+    ALLOW.clear()
+    ALLOW.update(_saved_allow)
 
 
 shutil.rmtree(TMP, ignore_errors=True)
