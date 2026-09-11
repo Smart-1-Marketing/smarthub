@@ -1,0 +1,43 @@
+name: MCP gateway
+
+on:
+  pull_request:
+    paths:
+      - 'mcp_gateway/**'
+      - '.github/workflows/mcp-gateway.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'mcp_gateway/**'
+      - '.github/workflows/mcp-gateway.yml'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            mcp_gateway/requirements.txt
+      - name: Install gateway dependencies
+        run: pip install -r mcp_gateway/requirements.txt
+      - name: Compile gateway
+        run: python -m py_compile mcp_gateway/server.py
+      - name: Import gateway
+        env:
+          MCP_API_TOKEN: ci-test-token-not-for-production
+          HUB_DATA_DIR: /tmp/smarthub-mcp-ci
+        run: |
+          python - <<'PY'
+          from mcp_gateway.server import SERVER_NAME, app, mcp
+          assert SERVER_NAME == 'SmartHub MCP'
+          assert app is not None
+          assert mcp is not None
+          print('SmartHub MCP gateway import OK')
+          PY
