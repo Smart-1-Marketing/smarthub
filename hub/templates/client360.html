@@ -2137,20 +2137,22 @@ function render(g,q){
     return used;
   }
   function socialAddMenu(used){
-    // Only what isn't already on the record. A menu that offers a platform
-    // the client already has just makes a duplicate row. The caller passes
-    // what is used rather than the menu reading the page, so the rows it was
-    // built beside and the menu can't disagree.
+    // A platform already on the record stays offered rather than dropping
+    // off the menu -- a multi-location client genuinely has more than one
+    // Facebook page, one per storefront, and a menu that hides a platform
+    // the moment it is used once has no way to add the second one. Picking
+    // an already-used platform a second time seeds a labeled row instead of
+    // colliding with the first (see wireSocial()).
     used=used||{};
     var groups=[], byGroup={};
     SOCIAL_CATALOG.forEach(function(c){
-      if(used[c.key]) return;
       if(!byGroup[c.group]){byGroup[c.group]=[];groups.push(c.group);}
       byGroup[c.group].push(c);
     });
     var opts=groups.map(function(g){
       return '<optgroup label="'+esc(g)+'">'+byGroup[g].map(function(c){
-        return '<option value="'+esc(c.key)+'">'+esc(c.label)+'</option>';
+        return '<option value="'+esc(c.key)+'">'+esc(c.label)
+          +(used[c.key]?' (add another)':'')+'</option>';
       }).join('')+'</optgroup>';
     }).join('');
     return '<div style="display:flex;gap:6px;align-items:center;margin-top:10px">'
@@ -2159,7 +2161,9 @@ function render(g,q){
       +'<option value="">+ Add a link…</option>'+opts
       +'<optgroup label="Anything else"><option value="__custom">Custom link…</option>'
       +'</optgroup></select>'
-      +'<span class="muted" style="font-size:11.5px">Pick a platform, paste the URL, then Save.</span>'
+      +'<span class="muted" style="font-size:11.5px">Pick a platform, paste the URL, then Save. '
+      +'A client with several locations can have more than one of the same '
+      +'platform -- pick it again and name which location it is.</span>'
       +'</div>';
   }
   function renderSocial(social,fromScan){
@@ -2201,12 +2205,24 @@ function render(g,q){
         host.style.gap='8px';
       }
       var empty=$('c-social').querySelector('.empty'); if(empty) empty.remove();
+      // A platform already on the record cannot become a second plain row of
+      // the same key -- both would save under one dict key and the save loop
+      // would keep only whichever came last, silently losing the other
+      // location's link. It becomes a labeled row instead, seeded with the
+      // platform's own name so a rep only has to add which location it is.
+      var already=k!=='__custom'&&socialUsedKeys()[k];
+      var isCustom=k==='__custom'||already;
       host.insertAdjacentHTML('beforeend',
-        k==='__custom' ? socialRow('','',true) : socialRow(k,'',false));
+        isCustom ? socialRow(already?k:'','',true) : socialRow(k,'',false));
       var row=host.lastElementChild;
       wireSocialRows();
-      var f=row.querySelector(k==='__custom'?'.s-label':'.s-url'); if(f) f.focus();
-      // The menu must not keep offering what was just added.
+      var lbl=row.querySelector('.s-label');
+      if(already&&lbl){ lbl.value=socialLabelFor(k)+' — '; }
+      var f=row.querySelector(isCustom?'.s-label':'.s-url'); if(f){ f.focus();
+        if(already&&f.setSelectionRange) f.setSelectionRange(f.value.length,f.value.length); }
+      // The menu must not keep offering what was just added -- except a
+      // catalog platform, which stays offered so a third location can be
+      // added the same way.
       var menu=document.getElementById('c-social-add');
       if(menu&&menu.parentElement) menu.parentElement.outerHTML=socialAddMenu(socialUsedKeys());
       wireSocial();
