@@ -70,6 +70,27 @@
   .rowact{display:flex;gap:6px;justify-content:flex-end}
   .ic{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:13px;display:grid;place-items:center}
   .ic:hover{background:var(--sky)}
+  /* The row has always opened this drawer on any click inside it -- which is
+     exactly how somebody finds it by accident and how everybody else never
+     finds it at all. Nothing on the row said "click here" beyond a cursor
+     change, and the one explicit control for it was a lone magnifying glass
+     lost among five other icons at the far right edge. This sits where the
+     eye already lands, reading, rather than where the actions happen to be. */
+  .detailslink{display:inline-block;margin-top:4px;background:none;border:0;padding:0;font:inherit;
+    font-size:11.5px;font-weight:700;color:var(--blue);cursor:pointer}
+  .detailslink:hover{text-decoration:underline}
+  /* Package / Products is a package name plus a summary of every product on
+     the plan, squeezed into one column beside five others -- long enough on
+     a real quote to wrap two or three times and crowd the row it sits in.
+     It is its own full-width row now, directly under the record it belongs
+     to, with room to read rather than truncate. Specificity keeps the zebra
+     tint from fighting the hover highlight above it (2 classes + pseudo
+     beats 1 class), so a striped row still lights up on hover like any
+     other. */
+  tr.rzA td{background:#fff}
+  tr.rzB td{background:#f6fafd}
+  tr.pkgrow td{padding-top:0;font-size:12.5px;color:#33415C}
+  tr.pkgrow .pkglabel{color:var(--muted);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.4px;margin-right:6px}
   .ic.gold{background:#fff5df;border-color:#f0d69a}
   .miss{font-size:10.5px;color:#8a6410;background:#fff5df;border:1px solid #f0d69a;border-radius:7px;padding:3px 8px;font-weight:700;display:inline-block;margin-top:4px}
   .rail .panel{margin-bottom:16px}
@@ -105,6 +126,16 @@
   .dfoot{padding:14px 22px;border-top:1px solid var(--line);display:flex;gap:9px;flex-wrap:wrap;background:#fbfcfe}
   .xclose{margin-left:auto;background:none;border:0;font-size:20px;cursor:pointer;color:var(--muted);float:right}
   .note{font-size:11.5px;color:var(--muted);font-style:italic}
+  /* Why Continue is blocked. A red-tinted .note -- 11.5px, italic, the same
+     weight as an aside about ZIP verification sitting two lines above it --
+     is the wrong size for the one sentence on the page that explains why
+     nothing else can be pressed. A rep reading top to bottom reaches the
+     stage without ever seeing it and reports the step as stuck for no
+     reason. This is not an aside: solid red, white text, not italic,
+     sized to be read from a glance rather than found by searching. */
+  .blockmsg{background:#c0362c;color:#fff;font-style:normal;font-size:13.5px;font-weight:800;
+    padding:10px 14px;border-radius:9px;margin-top:12px;line-height:1.4}
+  .blockmsg b{color:#fff}
   .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:#0d1b2f;color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.3);display:none;z-index:200;max-width:560px;text-align:center}
   /* ===== builder ===== */
   /* The Client 360 arrangement: the record's rail down the left, the work on
@@ -777,14 +808,14 @@ async function drawDashboard(){
      <div class="tabs" id="tabs">${["all","Draft","Sent","Approved","Converted","Uploaded"].map(t=>`<span class="${t===listTab?'on':''}" onclick="setTab(this,'${t}')">${t==="all"?"All":t+"s"===t+"s"?(t==="Draft"?"Drafts":t):t}</span>`).join("")}</div>
      <div class="search"><input id="q" placeholder="Search client, quote #, website…" oninput="drawRows()"></div></div>
     <div class="focusBanner"></div>
-   <table><thead><tr><th>Quote #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Created by</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+   <table><thead><tr><th>Quote #</th><th>Client</th><th>Monthly</th><th>Created by</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
     <tbody id="rows"></tbody></table>
    </div>
    <div class="panel" style="margin-top:16px">
     <div class="phead"><span class="ttl">Insertion Orders</span>
      <button class="btn btn-primary" style="padding:8px 14px;font-size:12.5px" onclick="nav('io')">＋ New IO — open the IO builder</button>
      <div class="search"><input id="ioq" placeholder="Look up IO #, client, quote #…" oninput="drawIoRows()"></div></div>
-    <table><thead><tr><th>IO #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Converted</th><th style="text-align:right">Documents</th></tr></thead>
+    <table><thead><tr><th>IO #</th><th>Client</th><th>Monthly</th><th>Converted</th><th style="text-align:right">Documents</th></tr></thead>
     <tbody id="ioRows"></tbody></table>
    </div>
   </div>
@@ -808,11 +839,12 @@ async function drawDashboard(){
  drawIoRows();
  salesDashboardLayout(host);
 }
-function ioRowHtml(x){
- return `<tr class="rowlink" onclick="openDrawer(${x.id})">
+function ioRowHtml(x,i){
+ const z=(i|0)%2?"rzB":"rzA";
+ return `<tr class="rowlink ${z}" onclick="openDrawer(${x.id})">
   <td><span class="qnum">IO #${esc(x.io_number)}<small>from ${esc(x.quote_number)}</small></span></td>
-  <td><b style="color:var(--navy)">${esc(x.client||"—")}</b><small style="display:block;color:var(--muted)">${esc(x.website||"")}</small></td>
-  <td style="font-size:12.5px;color:#33415C">${x.package?`<b>${esc(x.package)}</b> · `:""}${esc(x.products_summary||"—")}</td>
+  <td><b style="color:var(--navy)">${esc(x.client||"—")}</b><small style="display:block;color:var(--muted)">${esc(x.website||"")}</small>
+   <button class="detailslink" onclick="event.stopPropagation();openDrawer(${x.id})">🔍 View details</button></td>
   <td><span class="money">${money(x.monthly_budget)}<small>${x.months} mo · ${money(x.total_budget)} total</small></span></td>
   <td style="font-size:12px;color:var(--muted)">${ago(x.converted_at||x.updated_at)}</td>
   <td><div class="rowact" onclick="event.stopPropagation()">
@@ -820,14 +852,15 @@ function ioRowHtml(x){
    ${x.io_internal_pdf_url?`<button class="ic" title="Internal PDF" onclick="window.open('${esc(x.io_internal_pdf_url)}','_blank')">🔒</button>`:""}
    <button class="ic" title="View details" onclick="openDrawer(${x.id})">🔍</button>
    <button class="ic" title="New quote based on this IO" onclick="dupQuote(${x.id})">📋</button>
-  </div></td></tr>`;
+  </div></td></tr>
+  <tr class="pkgrow ${z}"><td colspan="5"><span class="pkglabel">Package / Products</span>${x.package?`<b>${esc(x.package)}</b> · `:""}${esc(x.products_summary||"—")}</td></tr>`;
 }
 function drawIoRows(){
  const tb=document.getElementById('ioRows');if(!tb)return;
  const q=(document.getElementById('ioq')?.value||"").toLowerCase();
  const rows=LIST.filter(x=>x.status==='Converted'&&x.io_number)
   .filter(x=>!q||["io #"+x.io_number,x.io_number,x.client,x.website,x.quote_number,x.products_summary].join(" ").toLowerCase().includes(q));
- tb.innerHTML=rows.map(ioRowHtml).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:22px">No IOs yet — convert an approved proposal above, or click <b>＋ New IO</b> to build one directly in the IO builder.</td></tr>`;
+ tb.innerHTML=rows.map((x,i)=>ioRowHtml(x,i)).join("")||`<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:22px">No IOs yet — convert an approved proposal above, or click <b>＋ New IO</b> to build one directly in the IO builder.</td></tr>`;
  salesTable(tb,q);
 }
 function setTab(el,t){listTab=t;document.querySelectorAll('#tabs span').forEach(s=>s.classList.remove('on'));el.classList.add('on');drawRows();}
@@ -841,14 +874,15 @@ function byLine(who,kind){
  const name=String(who||"").trim();
  if(!name)return `<span class="note" style="margin:0;display:block">${esc(kind)}<small style="display:block;color:var(--muted)">not recorded</small></span>`;
  return `<span style="font-size:12.5px;color:#33415C">${esc(name)}<small style="display:block;color:var(--muted)">${esc(kind)}</small></span>`;}
-function rowHtml(x){
+function rowHtml(x,i){
  const gapsN=(x.gaps||[]).length,guard=(x.guardrails||[]);
- return `<tr class="rowlink" onclick="openDrawer(${x.id})">
+ const z=(i|0)%2?"rzB":"rzA";
+ return `<tr class="rowlink ${z}" onclick="openDrawer(${x.id})">
   <td><span class="qnum">${esc(x.quote_number)}<small>${ago(x.created_at)}</small></span></td>
   <td><b style="color:var(--navy)">${esc(x.client||"—")}</b><small style="display:block;color:var(--muted)">${esc(x.website||"")}</small>
+   <button class="detailslink" onclick="event.stopPropagation();openDrawer(${x.id})">🔍 View details</button>
    ${x.status==='Approved'&&gapsN?`<span class="miss">⚠ ${gapsN} answers needed for IO</span>`:""}
    ${x.status==='Draft'&&guard.length?`<span class="miss">⚠ ${esc(guard[0])}</span>`:""}</td>
-  <td style="font-size:12.5px;color:#33415C">${x.package?`<b>${esc(x.package)}</b> · `:""}${esc(x.products_summary||"—")}</td>
   <td><span class="money">${money(x.monthly_budget)}<small>${x.months} mo · ${money(x.total_budget)} total</small></span></td>
   <td>${byLine(x.created_by,"Built here")}</td>
   <td><span class="badge ${badge(x.shown_status||x.status)}">${x.shown_status||x.status}</span>${x.io_number?`<small style="display:block;color:var(--muted);margin-top:3px">IO #${esc(x.io_number)}</small>`:""}
@@ -861,7 +895,8 @@ function rowHtml(x){
    <button class="ic" data-demo="duplicate" title="Duplicate as new quote" onclick="dupQuote(${x.id})">📋</button>
    ${x.status!=='Converted'?`<button class="ic gold" data-demo="convert" title="${x.status==='Approved'?'Convert to IO':'Convert to IO — this quote is '+x.status.toLowerCase()+', so check it is agreed first'}" onclick="openConvert(${x.id})">🔁</button>`:""}
    ${x.status==='Draft'?`<button class="ic" title="Delete this draft" onclick="deleteQuote(${x.id})">🗑️</button>`:""}
-  </div></td></tr>`;
+  </div></td></tr>
+  <tr class="pkgrow ${z}"><td colspan="6"><span class="pkglabel">Package / Products</span>${x.package?`<b>${esc(x.package)}</b> · `:""}${esc(x.products_summary||"—")}</td></tr>`;
 }
 
 /* Drafts only, matching the server. Every other status is a document that
@@ -881,12 +916,12 @@ This cannot be undone. Only the draft goes — anything already filed on the cli
   drawRows();
  }catch(e){toast(e.message);}
 }
-function uploadedRowHtml(x){
- return `<tr data-upid="${esc(x.id)}">
+function uploadedRowHtml(x,i){
+ const z=(i|0)%2?"rzB":"rzA";
+ return `<tr data-upid="${esc(x.id)}" class="${z}">
   <td><span class="qnum">${x.quote_number?esc(x.quote_number):"Uploaded"}<small>Uploaded · ${esc(mdy(x.date_sent||x.created_at))}</small></span></td>
   <td><b style="color:var(--navy)">${esc(x.client||"—")}</b>
-   <small style="display:block;color:var(--muted)">${esc(x.filename)}</small></td>
-  <td style="font-size:12.5px;color:#33415C">${esc(x.title)}${x.note?` · ${esc(x.note)}`:""}</td>
+   <small style="display:block;color:var(--muted)">${esc(x.filename)}${x.title?" · "+esc(x.title):""}${x.note?" · "+esc(x.note):""}</small></td>
   <td><span class="money">${x.value?money(x.value):"—"}<small>${x.value?"":"not priced here"}</small></span></td>
   <td>${byLine(x.uploaded_by,"Uploaded")}</td>
   <td><span class="badge">Uploaded</span></td>
@@ -972,16 +1007,21 @@ function drawRows(){
  const ups=(!FOCUS)&&(listTab==="all"||listTab==="Uploaded")
    ? UPLOADED.filter(x=>!q||[x.client,x.filename,x.title,x.note,x.uploaded_by].join(" ").toLowerCase().includes(q))
    : [];
- const merged=rows.map(x=>({x,html:rowHtml(x),t:x.created_at||""}))
-   .concat(ups.map(x=>({x,html:uploadedRowHtml(x),t:x.date_sent||x.created_at||""})))
-   .sort((a,b)=>String(b.t).localeCompare(String(a.t)));
+ // The zebra stripe is per record, not per physical <tr> -- rowHtml now
+ // emits two rows per quote (the record, and its Package/Products line
+ // underneath), so the index has to be assigned after sorting and read by
+ // both rows of a pair, or every other record would come out white-on-white.
+ const merged=rows.map(x=>({x,t:x.created_at||"",up:false}))
+   .concat(ups.map(x=>({x,t:x.date_sent||x.created_at||"",up:true})))
+   .sort((a,b)=>String(b.t).localeCompare(String(a.t)))
+   .map((r,i)=>({...r,html:r.up?uploadedRowHtml(r.x,i):rowHtml(r.x,i)}));
  /* Both list views draw through drawRows, so both carry the banner and both
     are filled: an id would have put it on whichever screen was written
     first, which is the one nobody arrives on from the dashboard. */
  const note=focusBanner();
  document.querySelectorAll('.focusBanner').forEach(el=>{el.innerHTML=note;});
  const tb=document.getElementById('rows');if(!tb)return;
- tb.innerHTML=merged.map(r=>r.html).join("")||`<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:30px">No quotes yet — click <b>✨ New Proposal</b> to build the first one.</td></tr>`;
+ tb.innerHTML=merged.map(r=>r.html).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:30px">No quotes yet — click <b>✨ New Proposal</b> to build the first one.</td></tr>`;
  salesTable(tb,[q,listTab,FOCUS?.key].join('|'));
 }
 function quickConvert(){
@@ -1029,7 +1069,7 @@ async function drawProposals(){
     <div class="tabs" id="tabs">${["all","Draft","Sent","Approved","Converted","Lost","Uploaded"].map(t=>`<span class="${t===listTab?'on':''}" onclick="setTab(this,'${t}')">${t==="all"?"All":t}</span>`).join("")}</div>
     <div class="search"><input id="q" placeholder="Search client, quote #, IO #…" oninput="drawRows()"></div></div>
    <div class="focusBanner"></div>
-   <table><thead><tr><th>Quote #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Created by</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+   <table><thead><tr><th>Quote #</th><th>Client</th><th>Monthly</th><th>Created by</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
    <tbody id="rows"></tbody></table>
   </div>`;
  drawRows();
@@ -1095,7 +1135,7 @@ async function drawIO(){
   <div class="panel" style="margin-bottom:16px">
    <div class="phead"><span class="ttl">🔍 IO Lookup</span><span class="note">IOs created from converted proposals — with their quote history and PDFs</span>
     <div class="search"><input id="ioq2" placeholder="Search IO #, client, quote #…" oninput="drawIoLookup()"></div></div>
-   <table><thead><tr><th>IO #</th><th>Client</th><th>Package / Products</th><th>Monthly</th><th>Converted</th><th style="text-align:right">Documents</th></tr></thead>
+   <table><thead><tr><th>IO #</th><th>Client</th><th>Monthly</th><th>Converted</th><th style="text-align:right">Documents</th></tr></thead>
    <tbody id="ioRows2"></tbody></table>
   </div>
   <div class="panel" style="margin-bottom:0;overflow:hidden">
@@ -1113,7 +1153,7 @@ function drawIoLookup(){
  const q=(document.getElementById('ioq2')?.value||"").toLowerCase();
  const rows=LIST.filter(x=>x.status==='Converted'&&x.io_number)
   .filter(x=>!q||["io #"+x.io_number,x.io_number,x.client,x.website,x.quote_number,x.products_summary].join(" ").toLowerCase().includes(q));
- tb.innerHTML=rows.map(ioRowHtml).join("")||`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:18px">No converted IOs yet. IOs built directly in the IO builder below live in the IO system (client gallery / Smart 1 Suite); IOs converted from proposals show up here automatically.</td></tr>`;
+ tb.innerHTML=rows.map((x,i)=>ioRowHtml(x,i)).join("")||`<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:18px">No converted IOs yet. IOs built directly in the IO builder below live in the IO system (client gallery / Smart 1 Suite); IOs converted from proposals show up here automatically.</td></tr>`;
  salesTable(tb,q);
 }
 function setIoUrl(){const v=prompt("IO builder URL:",CFG.io_app_url);if(v!==null&&v.trim()){CFG.io_app_url=v.trim();lsSet("s1_io_app_url",CFG.io_app_url);drawIO();}}
@@ -1818,6 +1858,19 @@ function areaComplete(a){
  if(a.type==="DMA")return !!(a.dma||"").trim();
  if(a.type==="Other")return !!((a.other||"").trim()||(a.zips||"").trim());
  return !!(a.origin||"").trim();}
+/* What areaComplete() is still waiting on, in the reader's own words -- the
+   Save button disabling itself said nothing about which field was missing,
+   which on a step with only one required field should never be a mystery. */
+function areaMissingText(a){
+ if(!a||areaComplete(a))return"";
+ if(a.type==="Statewide")return"Enter the state before saving.";
+ if(a.type==="DMA")return"Enter the DMA before saving.";
+ if(a.type==="Other")return"Describe the area, or enter ZIP Codes by hand, before saving.";
+ return"Enter the city or ZIP the radius starts from before saving.";}
+function drawAreaMissing(){
+ const box=document.getElementById('areaMissing');if(!box)return;
+ const t=areaMissingText(currentArea());
+ box.style.display=t?'block':'none';box.textContent=t?"⚠ "+t:"";}
 /* Every ZIP the lookup returned. */
 function areaZipsAll(a){return String((a&&a.zips)||"").match(/\b\d{5}\b/g)||[];}
 /* The ZIPs this area actually runs in -- the found list minus whatever the
@@ -2972,7 +3025,15 @@ function setArea(k,v){
  let a=currentArea();
  if(!a){S.targetAreas=[blankArea()];S._areaIx=0;S._areaView="edit";a=S.targetAreas[0];}
  if(['zips','origin','radius','zipException','zipSource'].includes(k))a.zipVerified=false;
- a[k]=v;S.aiEst=null;syncLegacyGeo();saveSoon();}
+ a[k]=v;S.aiEst=null;syncLegacyGeo();saveSoon();
+ // Typing an origin, a DMA, a state or a description is what makes the area
+ // complete, and the Save button's disabled state was only ever recomputed
+ // on a full renderStep() -- which a text field never triggers. Filling in
+ // exactly the field the step asked for left the button looking disabled
+ // forever, with nothing on screen saying why. syncNext() re-reads valid()
+ // on every keystroke, the way the client-name field already does, and
+ // drawAreaMissing() clears the warning line the same moment it does.
+ syncNext();drawAreaMissing();}
 function areaEditorStep(){
  const a=currentArea()||blankArea();
  const n=S.targetAreas.length,ix=(S._areaIx|0)+1;
@@ -3017,12 +3078,13 @@ function areaEditorStep(){
   <div class="fld"><label>Notes for this area (optional)</label>
    <input value="${esc(a.notes||'')}" oninput="setArea('notes',this.value)" placeholder="Weekend traffic only · competitor conquesting · new location opening in March"></div>
   <div class="bpanel"><div class="ttl">📊 Estimated reach for this area</div><div id="areaEst" class="note"></div></div>
+  <div class="blockmsg" id="areaMissing" style="display:none"></div>
   <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:16px">
    <button class="btn btn-good" id="areaSaveBtn" onclick="saveArea()">✓ Save this target area</button>
    ${n>1||areaComplete(a)?`<button class="btn btn-line" onclick="discardArea()">Discard this area</button>`:''}
   </div>`,
   valid:()=>areaComplete(currentArea()),
-  after:drawAreaEst,
+  after:()=>{drawAreaEst();drawAreaMissing();},
   nextLabel:"✓ Save this target area",
   onNext:saveArea,
   onBack:()=>{
@@ -3088,7 +3150,7 @@ function discardArea(){
  syncLegacyGeo();saveSoon();renderStep();}
 function saveArea(){
  const a=currentArea();
- if(!areaComplete(a)){toast("Fill in where this area is before saving it.");return true;}
+ if(!areaComplete(a)){toast("Fill in where this area is before saving it.");drawAreaMissing();return true;}
  if(!(a.name||"").trim())a.name=areaGeo(a);
  S._areaView="list";S.aiEst=null;syncLegacyGeo();saveNow();renderStep();
  return true;}          // handled here — the wizard does not advance
@@ -3713,7 +3775,7 @@ const STEPS=[
    html:`<div class="bpanel"><div class="ttl">📋 What's running today</div>
     <div class="note" style="margin-top:2px">Every one needs an answer. <b>Unknown</b> is a real one — it says we have not confirmed it, which is different from a no.</div>
     <div class="disc2">${DISCOVERY_QUESTIONS.map(q=>seg(q.label,q.key)).join('')}</div>
-    ${discoveryUnanswered().length?`<div class="note" style="margin-top:10px;color:#8c2f24"><b>${discoveryUnanswered().length} still unanswered:</b> ${discoveryUnanswered().map(q=>esc(q.label.replace(/\?$/,''))).join(' · ')}</div>`:''}</div>
+    ${discoveryUnanswered().length?`<div class="blockmsg">⚠ ${discoveryUnanswered().length} still unanswered — Continue is blocked until every question above has Yes, No or Unknown: ${discoveryUnanswered().map(q=>esc(q.label.replace(/\?$/,''))).join(' · ')}</div>`:''}</div>
 
    <div class="bpanel"><div class="ttl">📻 Traditional media</div>
     ${seg("Are they doing traditional media (radio, TV, print, outdoor, direct mail)?","__traditional")}

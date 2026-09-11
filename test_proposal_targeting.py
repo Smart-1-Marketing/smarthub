@@ -771,7 +771,13 @@ _harness = (
                                "function areaZipsAll(", "function areaZips(",
                                "function areaComplete(", "function syncLegacyGeo(",
                                "function currentArea(", "function setArea("))
-    + "function saveSoon(){}function saveNow(){}function renderStep(){}\n"
+    # syncNext() and drawAreaMissing() read #nextBtn / #areaMissing, which do
+    # not exist in this harness -- setArea() calls both on every field write
+    # (so the Save button and its warning line update live rather than only
+    # on a full renderStep()), and a lifted setArea() with no stub for either
+    # is a ReferenceError on the very first keystroke.
+    + "function saveSoon(){}function saveNow(){}function renderStep(){}"
+      "function syncNext(){}function drawAreaMissing(){}\n"
     + "var S={targetAreas:[],geo:'',geoType:'',radius:0};\n"
     + "function enterStep(){" + _seed + "}\n"
     + "function pressBack(){" + _back + " return false;}\n"
