@@ -11,6 +11,77 @@
 
 <div class="s1d-page">
   <div class="card">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;">
+      <div>
+        <div style="font-size:11px;color:var(--muted,#64748B);text-transform:uppercase;letter-spacing:.03em">Total generations</div>
+        <div style="font-size:22px;font-weight:700">{{ tiles.total_generations }}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted,#64748B);text-transform:uppercase;letter-spacing:.03em">Videos rendered</div>
+        <div style="font-size:22px;font-weight:700">{{ tiles.videos_rendered }}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted,#64748B);text-transform:uppercase;letter-spacing:.03em">Images generated</div>
+        <div style="font-size:22px;font-weight:700">{{ tiles.images_generated }}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted,#64748B);text-transform:uppercase;letter-spacing:.03em">Voiceovers generated</div>
+        <div style="font-size:22px;font-weight:700">{{ tiles.voiceovers_generated }}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--muted,#64748B);text-transform:uppercase;letter-spacing:.03em">Estimated API cost</div>
+        <div style="font-size:22px;font-weight:700">
+          {% if tiles.measured %}${{ '%.2f'|format(tiles.estimated_cost) }}
+          {% else %}<span class="pill warn">not measured</span>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Filters</h3>
+    <form method="get" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+      <div>
+        <label style="display:block;font-size:12px;color:var(--muted,#64748B)">Period</label>
+        <select name="period">
+          <option value="" {{ 'selected' if not period }}>All time</option>
+          <option value="today" {{ 'selected' if period == 'today' }}>Today</option>
+          <option value="month" {{ 'selected' if period == 'month' }}>This month</option>
+        </select>
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;color:var(--muted,#64748B)">Client</label>
+        <select name="client">
+          <option value="">Every client</option>
+          {% for c in all_clients %}<option value="{{ c }}" {{ 'selected' if c == client }}>{{ c }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;color:var(--muted,#64748B)">User</label>
+        <select name="user">
+          <option value="">Everyone</option>
+          {% for u in all_users %}<option value="{{ u }}" {{ 'selected' if u == user }}>{{ u }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;color:var(--muted,#64748B)">Provider</label>
+        <select name="provider">
+          <option value="">Every provider</option>
+          {% for p in all_providers %}<option value="{{ p }}" {{ 'selected' if p == provider }}>{{ p }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;color:var(--muted,#64748B)">Project id</label>
+        <input type="text" name="project_id" value="{{ project_id }}" style="width:100px;">
+      </div>
+      <div><button class="btn btn-primary" type="submit">Apply</button></div>
+      {% if client or user or provider or project_id or period %}
+      <div><a class="btn" href="/creative-studio/usage">Clear</a></div>
+      {% endif %}
+    </form>
+  </div>
+
+  <div class="card">
     <h3 style="margin-top:0">By provider</h3>
     {% if totals %}
     <table>
@@ -27,7 +98,7 @@
       </tbody>
     </table>
     {% else %}
-    <p style="color:var(--muted,#64748B)">Nothing has been generated yet.</p>
+    <p style="color:var(--muted,#64748B)">Nothing matches these filters.</p>
     {% endif %}
   </div>
 
@@ -35,12 +106,13 @@
     <h3 style="margin-top:0">Recent calls</h3>
     {% if rows %}
     <table>
-      <thead><tr><th>When</th><th>Client</th><th>Provider</th><th>Service</th><th>Quantity</th><th>Estimated cost</th><th>Result</th></tr></thead>
+      <thead><tr><th>When</th><th>Client</th><th>User</th><th>Provider</th><th>Service</th><th>Quantity</th><th>Estimated cost</th><th>Result</th></tr></thead>
       <tbody>
         {% for r in rows %}
         <tr>
           <td>{{ r.created_at[:19]|replace('T', ' ') if r.created_at else '' }}</td>
           <td>{{ r.client_name or '—' }}</td>
+          <td>{{ r.created_by or '—' }}</td>
           <td>{{ r.provider }}</td>
           <td>{{ r.service }}</td>
           <td>{{ r.quantity }} {{ r.unit }}</td>
@@ -51,7 +123,7 @@
       </tbody>
     </table>
     {% else %}
-    <p style="color:var(--muted,#64748B)">Nothing has been generated yet.</p>
+    <p style="color:var(--muted,#64748B)">Nothing matches these filters.</p>
     {% endif %}
   </div>
 </div>

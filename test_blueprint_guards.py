@@ -346,6 +346,10 @@ PUBLIC_DYNAMIC: dict[str, str] = {
                                            "reads and signs off (build spec "
                                            "WO-3), ported from Commercial "
                                            "Builder's review link",
+    "/review/<token>": "the Creative Studio version a client watches and "
+                       "signs off (WO-CS6) -- bare, not under /tools/, "
+                       "because modules/creative_studio/review_routes.py is "
+                       "registered with no url_prefix",
     "/tools/fan-radio/r/<token>": "the radio spot a rep mails a client to "
                                   "approve",
     "/tools/fan-radio/api/public/<token>": "that page reading its own spot",
@@ -442,6 +446,10 @@ PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
     "/tools/image-creator/review/<token>/comment": "a note against the "
                                                    "graphic, kept apart from "
                                                    "the decision",
+    "/review/<token>/decide": "the client's Approve or Request Changes on a "
+                              "Creative Studio version",
+    "/review/<token>/comment": "a timecoded note against that version, kept "
+                               "apart from the decision",
     "/tools/fan-radio/api/public/<token>/feedback": "the client answering on "
                                                     "the radio spot",
     "/tools/radio-promo/api/public/<token>/feedback": "the same answer on "
@@ -793,7 +801,7 @@ check("every dynamic entry says why it is public",
 # link. Asserted by name so the failure says which.
 for pattern in ("/scans/w/<slug>", "/sales/builder/p/<token>",
                 "/tools/commercial-builder/review/<token>",
-                "/tools/image-picker/pick/<token>"):
+                "/tools/image-picker/pick/<token>", "/review/<token>"):
     check(f"  {pattern} still opens for a client",
           pattern in dyn_reached, "refused a stranger")
 

@@ -26,6 +26,12 @@ def register_creative_studio(app):
     from . import models  # noqa: F401 — register the tables before create_all
     from .api import bp
     app.register_blueprint(bp)
+    # The client review page (WO-CS6). Its own blueprint, registered
+    # unprefixed so the address is bare /review/<token> rather than
+    # /creative-studio/review/<token> -- see review_routes.py's own
+    # docstring for why it cannot simply live on `bp` above.
+    from .review_routes import bp as review_bp
+    app.register_blueprint(review_bp)
     if STANDALONE:
         with app.app_context():
             db.create_all()

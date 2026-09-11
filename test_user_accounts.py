@@ -348,6 +348,13 @@ _OPEN_ON_PURPOSE = {
         "filing it to the client's 360 record is ordinary Creative Studio "
         "work, not a Utilities-admin action, and is behind the same "
         "blueprint guard as the rest of the module.",
+    "/creative-studio/api/projects/<int:project_id>/versions/<int:version_number>/shares":
+        "the same false match, one route along (WO-CS6) -- listing who a "
+        "version has been sent to for review is an ordinary staff read.",
+    "/creative-studio/api/projects/<int:project_id>/versions/<int:version_number>/share":
+        "the same false match -- sending a version for client approval "
+        "(WO-CS6) is an ordinary Creative Studio write, gated the same way "
+        "as the rest of the blueprint.",
 }
 
 _open, _unexplained = set(), []

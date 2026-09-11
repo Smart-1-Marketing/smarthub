@@ -96,6 +96,11 @@ SOURCES: dict[str, dict] = {
                 "(modules/commercial_builder/routes/review.py)",
         "workflow": None,   # to build: email the review link on this tag
     },
+    "creative_review_ready": {
+        "what": "a Creative Studio review link sent to the client's contact "
+                "(modules/creative_studio/review_routes.py)",
+        "workflow": None,   # to build: email the /review/<token> link on this tag
+    },
     "weather_trigger_setup": {
         "what": "a client approving weather-triggered ad copy from a lead "
                 "(modules/weather_setup)",

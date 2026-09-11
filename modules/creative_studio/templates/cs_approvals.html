@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Approvals — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>Approvals {{ help_dot('creative_studio.approvals') if help_dot is defined else '' }}</h2>
+  <p>Every review link sent from Creative Studio, across every client, sorted
+     into what has come back and what is still with the client. Send for
+     Approval from a project's Versions card; nothing here writes anything --
+     it is a read of <code>creative_shares</code>.</p>
+</div>
+
+<div class="s1d-page">
+  {% if not measured %}
+  <div class="card">
+    <p class="pill warn">Not measured — {{ line }}</p>
+  </div>
+  {% else %}
+
+  <div class="card">
+    <h3 style="margin-top:0">Waiting on us — {{ waiting_count }}</h3>
+    <p style="color:var(--muted,#64748B);font-size:12.5px;margin-top:0">
+      A client has answered or left a note and this version has not been
+      filed.
+    </p>
+    {% if waiting %}
+    <table>
+      <thead><tr><th>Client</th><th>Project</th><th>Round</th><th>Outcome</th>
+             <th>Comments</th><th>Opened</th><th></th></tr></thead>
+      <tbody>
+        {% for r in waiting %}
+        <tr>
+          <td>{{ r.client or '—' }}</td>
+          <td><a href="{{ r.url }}">{{ r.project_name }}{% if r.version %} · V{{ r.version }}{% endif %}</a></td>
+          <td>Round {{ r.round_no }}</td>
+          <td><span class="pill {{ 'ok' if r.color == 'green' else ('err' if r.color == 'red' else 'info') }}">
+              {{ r.outcome or 'commented only' }}</span>
+              {% if r.conflicting %} <span class="pill warn">conflicting</span>{% endif %}</td>
+          <td>{{ r.comments }}</td>
+          <td>{{ r.opened_count }}</td>
+          <td><a class="btn btn-sm" href="{{ r.url }}">Open</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--muted,#64748B)">Nothing waiting on us right now.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Out with clients — {{ out_count }}</h3>
+    <p style="color:var(--muted,#64748B);font-size:12.5px;margin-top:0">
+      Sent, and nothing has come back yet.
+    </p>
+    {% if out_with_clients %}
+    <table>
+      <thead><tr><th>Client</th><th>Project</th><th>Round</th><th>Sent</th>
+             <th>By</th><th>Opened</th><th></th></tr></thead>
+      <tbody>
+        {% for r in out_with_clients %}
+        <tr>
+          <td>{{ r.client or '—' }}</td>
+          <td><a href="{{ r.url }}">{{ r.project_name }}{% if r.version %} · V{{ r.version }}{% endif %}</a></td>
+          <td>Round {{ r.round_no }}</td>
+          <td>{{ r.sent_at[:10] if r.sent_at else '' }}</td>
+          <td>{{ r.sent_by or '—' }}</td>
+          <td>{{ r.opened_count }}{% if not r.opened_count %} <span class="muted">— not opened yet</span>{% endif %}</td>
+          <td><a class="btn btn-sm" href="{{ r.url }}">Open</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--muted,#64748B)">Nothing is currently out with a client.</p>
+    {% endif %}
+  </div>
+
+  {% if state == 'never_sent' %}
+  <div class="card">
+    <p style="color:var(--muted,#64748B)">{{ line }}</p>
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

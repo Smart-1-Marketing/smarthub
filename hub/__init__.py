@@ -6783,6 +6783,15 @@ def create_hub_app() -> Flask:
                   # (modules/radio_scripts/__init__.py::_guard, reading
                   # review.PUBLIC_PATHS) is only half.
                   "/tools/radio-scripts/review/",
+                  # The Creative Studio client review link (WO-CS6) -- a
+                  # client opens this with nothing but a token to approve a
+                  # rendered version or ask for changes, so it must not
+                  # arrive wearing the staff sidebar and a feedback tab, the
+                  # same reason as the review link above. Bare, unlike that
+                  # one, because modules/creative_studio/review_routes.py is
+                  # registered with no url_prefix -- see that module's own
+                  # docstring for why the two addresses cannot collide.
+                  "/review/",
                   # The weather trigger setup wizard. A client opens this
                   # with a token and no Hub account, so it must not arrive
                   # wearing the staff sidebar, help layer or feedback tab --
