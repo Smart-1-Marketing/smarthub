@@ -2270,6 +2270,16 @@ REGISTRY: list[Help] = [
        "flagged for a change-order conversation rather than refused -- the "
        "client is still served."),
 
+    # ---------------- Creative Studio (WO-CS10: spot library) --------------
+    _h("creative_studio.library", "Approved spots become starting points",
+       "'Use as template' abstracts an approved spot's structure into a "
+       "reusable template -- client names, phones and websites are turned "
+       "back into {{variables}}, and footage is stripped so no client's "
+       "actual video reaches another client's storyboard. 'Use as "
+       "reference' attaches it to a new project's Concepts step as a "
+       "'make it like this' input, words only. A client's own "
+       "library_opt_out (set on their Brand Kit) hides their spots here."),
+
     # ---------------- Creative Studio (WO-CS8: campaigns) ------------------
     _h("creative_studio.campaigns", "One concept, several assets",
        "A campaign shares one offer and one CTA across every channel it "

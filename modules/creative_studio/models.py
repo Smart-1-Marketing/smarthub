@@ -123,6 +123,14 @@ class CsProject(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     approved_at = db.Column(db.DateTime)
 
+    # WO-CS10 item 4. A gated template (one declaring a required
+    # `legal_line` variable) blocks render until this is either filled in
+    # or explicitly marked not applicable -- and "not applicable" is a
+    # decision, so it is recorded against a name rather than left as an
+    # unattributable tickbox. Both are added columns: see `db._LATE_COLUMNS`.
+    legal_line_na = db.Column(db.Boolean, default=False)
+    legal_line_na_by = db.Column(db.String(120), default="")
+
     brief = JSONField("brief_json")
     resolved_vars = JSONField("resolved_vars_json")
 
@@ -147,6 +155,8 @@ class CsProject(db.Model):
             "created_at": self.created_at.isoformat() if self.created_at else "",
             "updated_at": self.updated_at.isoformat() if self.updated_at else "",
             "approved_at": self.approved_at.isoformat() if self.approved_at else "",
+            "legal_line_na": bool(self.legal_line_na),
+            "legal_line_na_by": self.legal_line_na_by or "",
             "version_count": self.versions.count(),
         }
 
@@ -212,6 +222,12 @@ class CsTemplate(db.Model):
     industry = db.Column(db.String(60), default="general", index=True)
     duration = db.Column(db.Integer, default=30)
     aspect_ratio = db.Column(db.String(20), default="16:9", index=True)
+
+    # WO-CS10. "seed" is one of the fixtures `seed_templates.seed()` writes
+    # at boot; "custom" is a row the spot library's "Use as template" built
+    # from an approved client spot. Added column: see `db._LATE_COLUMNS` --
+    # `create_all()` never alters an existing table.
+    source = db.Column(db.String(20), default="seed", index=True)
     creative_type = db.Column(db.String(60), default="", index=True)
 
     tags_json = db.Column(db.Text)
@@ -250,6 +266,7 @@ class CsTemplate(db.Model):
             "duration": self.duration, "aspect_ratio": self.aspect_ratio or "",
             "creative_type": self.creative_type or "", "tags": self.tags or [],
             "status": self.status, "version": self.version,
+            "source": self.source or "seed",
             "created_by": self.created_by or "",
             "created_at": self.created_at.isoformat() if self.created_at else "",
             "updated_at": self.updated_at.isoformat() if self.updated_at else "",

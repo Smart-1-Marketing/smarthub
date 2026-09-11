@@ -596,3 +596,155 @@ def bind_weather_variant(project, condition: str, *, headline: str = "",
         pass
 
     return {"ok": True, "cb_project_id": cb_project.id}
+
+
+# --------------------------------------------------------------- WO-CS10
+
+def project_needs_legal_line(project) -> bool:
+    """True when this project's own bound template declares a required
+    `legal_line` variable -- WO-CS10 item 4's "gated template". Read from
+    the template rather than a flag stored on the project, the same
+    `project_industry` reasoning: `cs_template_variables` is already the
+    one place that fact lives."""
+    if not project.template_id:
+        return False
+    tmpl = CsTemplate.query.get(project.template_id)
+    if tmpl is None:
+        return False
+    return any(v.name == "legal_line" and v.required for v in tmpl.variables.all())
+
+
+# Client strings this abstraction turns back into the `{{variable}}` that
+# would have produced them, longest value first (see `_abstract_text`).
+_ABSTRACT_FIELDS = (
+    ("name", "{{company_name}}"), ("website", "{{website}}"),
+    ("phone", "{{phone}}"), ("address", "{{address}}"),
+    ("tagline", "{{tagline}}"), ("cta", "{{cta}}"),
+)
+
+
+def library_abstract_from_project(project, actor: str = ""):
+    """Build a `source="custom"` `CsTemplate` from an approved spot --
+    WO-CS10 item 2's "Use as template". Client-identifying footage is never
+    reused across clients (the build spec's own rule): every scene's own
+    background stays a `slot:video` placeholder either way, and any layer
+    text carrying the resolved Brand Kit's own strings is turned back into
+    the `{{variable}}` that would have produced it.
+
+    Two source shapes, because a `CsProject` is bound one of two ways.
+    A `template_id`-bound project's own template is ALREADY variable-
+    abstracted -- `resolver.resolve()` computes values for the PROJECT, it
+    never mutates the template's own scenes -- so that path is a straight
+    copy of the original template's scenes and variables, nothing to
+    replace. A `cb_project_id`-only project (the AI Concepts/Script path)
+    has no such source: its scenes carry the client's own name, phone and
+    so on as literal generated prose, so those are turned back into
+    variables by a plain string match against the client's own Brand Kit
+    fields on the `CommercialProject`'s client row.
+
+    Returns `{"ok": True, "template_id": ...}` or `{"ok": False, "error": ...}`.
+    """
+    import uuid
+
+    from .db import db
+    from .models import CsTemplateVariable
+
+    if project.status != "Approved":
+        return {"ok": False, "error": "Only an approved spot can become a template."}
+    if not project.cb_project_id and not project.template_id:
+        return {"ok": False, "error": "This project has no storyboard to abstract."}
+
+    new_id = f"custom-{project.id}-{uuid.uuid4().hex[:8]}"
+    new_tmpl = CsTemplate(
+        id=new_id, name=f"{project.name} (from a spot)"[:200],
+        description=f"Abstracted from an approved spot for "
+                    f"{project.client_name or 'a client'}.",
+        category="commercial", industry=project_industry(project),
+        duration=project.duration or 30, aspect_ratio=project.aspect_ratio or "16:9",
+        creative_type=project.creative_type, status="draft", version=1,
+        source="custom", created_by=actor)
+    db.session.add(new_tmpl)
+    db.session.flush()
+
+    if project.template_id:
+        source_tmpl = CsTemplate.query.get(project.template_id)
+        if source_tmpl is None:
+            db.session.rollback()
+            return {"ok": False, "error": "The source template no longer exists."}
+        for scene in source_tmpl.scenes.order_by(CsTemplateScene.position).all():
+            row = CsTemplateScene(template_id=new_tmpl.id, position=scene.position,
+                                  default_duration=scene.default_duration,
+                                  layout_key=scene.layout_key)
+            row.layers = dict(scene.layers or {})
+            db.session.add(row)
+        for var in source_tmpl.variables.all():
+            db.session.add(CsTemplateVariable(
+                template_id=new_tmpl.id, name=var.name, source=var.source,
+                default=var.default, required=var.required))
+    else:
+        try:
+            from modules.commercial_builder.models import (
+                CommercialProject as CbProject, Scene as CbScene)
+        except Exception as exc:                          # noqa: BLE001
+            db.session.rollback()
+            return {"ok": False, "error": f"The Commercial Builder is not available ({exc})."}
+        cb_project = CbProject.query.get(project.cb_project_id)
+        if cb_project is None:
+            db.session.rollback()
+            return {"ok": False, "error": "The source storyboard no longer exists."}
+        client = cb_project.client
+
+        import re as _re
+        replacements = []
+        for field, token in _ABSTRACT_FIELDS:
+            value = str(getattr(client, field, "") or "").strip() if client else ""
+            if value:
+                replacements.append((value, token))
+        # Longest value first, so a phone number inside a longer address
+        # string is not left half-replaced by a shorter match landing first.
+        replacements.sort(key=lambda pair: -len(pair[0]))
+
+        def _abstract_text(text: str) -> str:
+            out = str(text or "")
+            for value, token in replacements:
+                out = _re.sub(_re.escape(value), token, out, flags=_re.IGNORECASE)
+            return out
+
+        variables_seen = set()
+        scenes = list(cb_project.scenes.order_by(CbScene.order_index).all())
+        for i, scene in enumerate(scenes, start=1):
+            headline = _abstract_text(scene.narration or "")
+            visual_note = _abstract_text(scene.visual_description or "")
+            layers = {"background": "slot:video"}
+            if headline:
+                layers["headline"] = headline
+            if visual_note:
+                layers["visual_note"] = visual_note
+            row = CsTemplateScene(
+                template_id=new_tmpl.id, position=i,
+                default_duration=round(float(scene.end or 0) - float(scene.start or 0), 2) or 5.0,
+                # `hook_fullbleed` is the one layout every layer these
+                # scenes carry (`background`, `headline`) actually fits --
+                # `layouts.LAYOUTS` is what `layout_key` must resolve
+                # against, and this abstraction has no per-scene beat role
+                # to pick a more specific one from.
+                layout_key="hook_fullbleed")
+            row.layers = layers
+            db.session.add(row)
+            for _, token in _ABSTRACT_FIELDS:
+                if token in headline:
+                    variables_seen.add(token.strip("{}"))
+        for name in sorted(variables_seen):
+            db.session.add(CsTemplateVariable(
+                template_id=new_tmpl.id, name=name, source="brand", required=False))
+
+    db.session.commit()
+    try:
+        from hub import audit
+        audit.log("creative_studio", "library_abstracted", actor=actor,
+                  client=project.client_name or None, project=new_tmpl.name,
+                  detail=f"from approved spot #{project.id}")
+    except Exception:                                     # noqa: BLE001
+        pass
+
+    return {"ok": True, "template_id": new_tmpl.id}

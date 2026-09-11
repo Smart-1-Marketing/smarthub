@@ -397,16 +397,69 @@ def api_generate_render(project_id):                          # noqa: ANN202
     if cb_project is None or cb_client is None:
         return jsonify({"ok": False, "error": "This project's storyboard no "
                         "longer exists."}), 400
+
+    # WO-CS10 item 4. Checked before QC, and blocking: a gated template with
+    # an empty legal_line refuses render until a named human fills it in or
+    # marks it not applicable -- the one compliance check in this module
+    # that is a hard gate rather than advisory, because it is a template's
+    # OWN declared requirement rather than a judgment about the copy.
+    if binder.project_needs_legal_line(project) and not project.legal_line_na:
+        tmpl = CsTemplate.query.get(project.template_id)
+        domain = ""
+        if project.client_name:
+            try:
+                from hub.clients_registry import find_client
+                domain = (find_client(project.client_name) or {}).get("domain", "")
+            except Exception:                               # noqa: BLE001
+                domain = ""
+        resolved = resolver.resolve(tmpl, project, client=project.client_name, domain=domain)
+        if "legal_line" in resolver.unresolved_required(resolved):
+            return jsonify({"ok": False, "error": "This template requires a "
+                            "legal line. Fill it in, or mark it not "
+                            "applicable, before rendering."}), 409
+
     scenes = [s.to_dict() for s in cb_project.scenes.order_by(CbScene.order_index).all()]
     qc = qc_service.run_qc(cb_project.to_dict(include_scenes=False), cb_client.to_dict(), scenes)
+    try:
+        from . import compliance_ext
+        compliance = compliance_ext.scan(
+            script={"scenes": scenes}, brief=cb_project.brief, client=cb_client.to_dict(),
+            commercial_type=cb_project.commercial_type)
+    except Exception:                                       # noqa: BLE001
+        compliance = {"findings": [], "measured": False}
     if not qc.get("_all_passed"):
         return jsonify({"ok": False, "error": "QC checks failed. Fix the "
-                        "flagged items before rendering.", "qc_results": qc}), 409
+                        "flagged items before rendering.", "qc_results": qc,
+                        "compliance": compliance}), 409
     data = request.get_json(silent=True) or {}
     fmt = data.get("format") or (cb_project.formats or ["16:9"])[0]
     job = jobs.enqueue("render", project_id=project.id, client_name=project.client_name,
                        payload={"format": fmt}, created_by=_actor())
-    return jsonify({"ok": True, "job": job.as_dict()})
+    return jsonify({"ok": True, "job": job.as_dict(), "compliance": compliance})
+
+
+@bp.post("/api/projects/<int:project_id>/legal-line/not-applicable")
+def api_legal_line_not_applicable(project_id):                # noqa: ANN202
+    """WO-CS10 item 4's other half of the gate: a named human marking a
+    required `legal_line` not applicable to this spot. Recorded against
+    who marked it, the same reason `CsWeatherSet`'s approvals and
+    `api_approve_version` above are -- a decision nobody can attribute is
+    one nobody can revisit."""
+    project = CsProject.query.get_or_404(project_id)
+    if not binder.project_needs_legal_line(project):
+        return jsonify({"ok": False, "error": "This template has no "
+                        "legal_line requirement to mark."}), 400
+    actor = _actor()
+    project.legal_line_na = True
+    project.legal_line_na_by = actor
+    db.session.commit()
+    try:
+        from hub import audit
+        audit.log("creative_studio", "legal_line_marked_na", actor=actor,
+                  client=project.client_name or None, project=project.name)
+    except Exception:                                       # noqa: BLE001
+        pass
+    return jsonify({"ok": True, "project": project.as_dict()})
 
 
 @bp.get("/api/projects/<int:project_id>/versions")
@@ -1871,3 +1924,105 @@ def usage_page():                                             # noqa: ANN202
         totals=totals, tiles=tile_data,
         all_clients=all_clients, all_users=all_users, all_providers=all_providers,
         rates_are_placeholder=True)
+
+
+# --------------------------------------------------------------- WO-CS10: spot library
+
+@bp.get("/library")
+def library_page():                                          # noqa: ANN202
+    """`/creative-studio/library` -- WO-CS10 item 1. The listing itself is
+    built client-side from `/api/library` (the filters are query-string
+    driven, the same shape the template gallery already uses), so this
+    route only needs to render the shell and the filter choices."""
+    industries = sorted({t.industry for t in CsTemplate.query.with_entities(
+        CsTemplate.industry).distinct() if t.industry})
+    try:
+        from modules.commercial_builder import library_spec
+        archetypes = [{"key": k, "label": v["label"]}
+                     for k, v in library_spec.ARCHETYPES.items()]
+    except Exception:                                        # noqa: BLE001
+        archetypes = []
+    return render_template("cs_library.html", title="Spot Library",
+                          industries=industries, archetypes=archetypes)
+
+
+@bp.get("/api/library")
+def api_library_list():                                       # noqa: ANN202
+    from . import library
+    industry = request.args.get("industry", "").strip()
+    archetype = request.args.get("archetype", "").strip()
+    client = request.args.get("client", "").strip()
+    rows = library.approved_spots(industry=industry, archetype=archetype, client=client)
+    return jsonify({"ok": True, "spots": rows})
+
+
+@bp.post("/api/projects/<int:project_id>/library/abstract")
+def api_library_abstract(project_id):                          # noqa: ANN202
+    """"Use as template" -- WO-CS10 item 2. Enqueued (kind="library_abstract")
+    rather than run inline: the same "a route that starts work writes a
+    queued row and hands back its id" shape every other generate/build
+    route in this module already uses."""
+    project = CsProject.query.get_or_404(project_id)
+    if project.status != "Approved":
+        return jsonify({"ok": False, "error": "Only an approved spot can "
+                        "become a template."}), 400
+    job = jobs.enqueue("library_abstract", project_id=project.id,
+                       client_name=project.client_name, created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict()})
+
+
+@bp.post("/api/projects/<int:project_id>/library/reference")
+def api_library_reference(project_id):                         # noqa: ANN202
+    """"Use as reference" -- WO-CS10 item 2's other button. Attaches the
+    source spot's render and a short summary to a NEW project's own brief
+    under the key `reference`, as a "make it like this" input for its
+    Concepts step -- and needs no change to the model prompt to reach the
+    model with it: `generate_concepts`'s user payload already serializes
+    `project.brief` whole, so a key added here rides along with everything
+    else already in it.
+
+    `new_project_id` names an existing project (typically one just created
+    on Concepts step 1, blank) rather than this route creating one itself
+    -- creating a project is `POST /api/projects`'s own job, and this
+    button attaches to whichever project the rep is already working from.
+    """
+    source = CsProject.query.get_or_404(project_id)
+    if source.status != "Approved":
+        return jsonify({"ok": False, "error": "Only an approved spot can be "
+                        "used as a reference."}), 400
+    data = request.get_json(silent=True) or {}
+    new_project_id = data.get("new_project_id")
+    if not new_project_id:
+        return jsonify({"ok": False, "error": "Name the project to attach "
+                        "this reference to."}), 400
+    target = CsProject.query.get(new_project_id)
+    if target is None:
+        return jsonify({"ok": False, "error": "That project does not exist."}), 400
+
+    source_version = source.versions.order_by(CsProjectVersion.version.desc()).first()
+    brief = dict(target.brief or {})
+    brief["reference"] = {
+        "project_id": source.id, "project_name": source.name,
+        "render_url": source_version.render_url if source_version else "",
+        "summary": f"Modeled on an approved spot for "
+                   f"{source.client_name or 'another client'} -- match its "
+                   f"structure and pacing, not its specific words.",
+    }
+    target.brief = brief
+    db.session.commit()
+    return jsonify({"ok": True, "project": target.as_dict()})
+
+
+@bp.post("/api/library/opt-out")
+def api_library_opt_out():                                     # noqa: ANN202
+    """A client's own `library_opt_out` flag -- WO-CS10 item 1's "A
+    per-client library_opt_out flag hides that client's spots." Stored on
+    `brand_ext`, the same overlay every other business-fact field on the
+    Brand Kit screen already lives on, never a second table."""
+    from . import brand_ext
+    data = request.get_json(silent=True) or {}
+    client = str(data.get("client") or "").strip()
+    if not client:
+        return jsonify({"ok": False, "error": "Name the client."}), 400
+    result = brand_ext.save(client, {"library_opt_out": bool(data.get("opt_out"))}, actor=_actor())
+    return jsonify(result)

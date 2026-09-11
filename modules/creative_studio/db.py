@@ -37,6 +37,12 @@ _LATE_COLUMNS = [
     # about -- NULL for the ordinary kind="render" decisions this column
     # predates.
     ("creative_share_decisions", "asset_project_id", "INTEGER"),
+    # WO-CS10: the spot library. "seed" (this table's own default) vs
+    # "custom" (built by "Use as template" from an approved spot); and the
+    # gated-template legal_line escape hatch, recorded against a name.
+    ("cs_templates", "source", "VARCHAR(20)"),
+    ("cs_projects", "legal_line_na", "BOOLEAN"),
+    ("cs_projects", "legal_line_na_by", "VARCHAR(120)"),
 ]
 
 

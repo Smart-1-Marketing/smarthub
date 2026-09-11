@@ -91,7 +91,8 @@ PROJECT_STATUSES = (
 # dict is refused at enqueue time rather than sitting in the queue forever
 # looking like a stuck job -- the sweep this file's own JOBS entry describes.
 JOB_KINDS = ("index", "script", "storyboard", "image", "voice", "heygen",
-             "render", "variant", "pdf", "campaign_draft", "weather_set")
+             "render", "variant", "pdf", "campaign_draft", "weather_set",
+             "library_abstract")
 
 # Stages shown to the user, in the order Section 11 gives. A job's `stage`
 # is free text so a kind can name its own step, but these are the ones the
@@ -107,7 +108,7 @@ STAGE_ORDER = (
 JOB_TIMEOUT_MINUTES = {
     "index": 10, "script": 5, "storyboard": 5, "image": 8, "voice": 8,
     "heygen": 20, "render": 30, "variant": 15, "pdf": 5, "campaign_draft": 10,
-    "weather_set": 12,
+    "weather_set": 12, "library_abstract": 5,
 }
 
 # Renders bill; a generation retried three times over is still cheaper than
