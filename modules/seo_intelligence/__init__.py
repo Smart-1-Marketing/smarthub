@@ -14,9 +14,15 @@ __version__ = "0.1.0"
 
 def register_seo_intelligence(app, create_tables=True):
     from .app import bp
+    from .actions import bp as actions_bp
+    from .web import bp as web_bp
 
     if "seo_intelligence" not in app.blueprints:
         app.register_blueprint(bp)
+    if "seo_intelligence_actions" not in app.blueprints:
+        app.register_blueprint(actions_bp)
+    if "seo_intelligence_web" not in app.blueprints:
+        app.register_blueprint(web_bp)
 
     if create_tables:
         try:
@@ -31,16 +37,16 @@ def register_seo_intelligence(app, create_tables=True):
             app.config["SEO_INTELLIGENCE_DB_BOOT_ERROR"] = str(exc)
             log.warning("seo_intelligence: create_all failed: %s", exc)
 
-    # The Hub scheduler is started after modules are mounted. Add one job to
-    # its registry so the existing leader lock, status screen and manual-run
-    # endpoint handle SEO exactly like the other background work.
+    # Check once per day, while the job itself refreshes only clients due for
+    # their weekly snapshot. This is more reliable than a 7-day timer because
+    # deploys/restarts do not postpone the next refresh by another full week.
     try:
         from hub import scheduler
         from .scheduler import job_refresh_seo_intelligence
         scheduler.JOBS.setdefault(
             "seo_intelligence",
-            (10080, job_refresh_seo_intelligence,
-             "Refresh weekly Search Console intelligence for active SEO clients."),
+            (1440, job_refresh_seo_intelligence,
+             "Refresh due weekly Search Console intelligence for active SEO clients."),
         )
     except Exception as exc:
         log.warning("seo_intelligence: scheduler registration failed: %s", exc)
