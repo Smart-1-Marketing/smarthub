@@ -342,6 +342,10 @@ PUBLIC_DYNAMIC: dict[str, str] = {
     "/tools/image-creator/review/<token>": "the graphic a client watches and "
                                            "signs off, ported from Commercial "
                                            "Builder's review link",
+    "/tools/radio-scripts/review/<token>": "the script concepts a client "
+                                           "reads and signs off (build spec "
+                                           "WO-3), ported from Commercial "
+                                           "Builder's review link",
     "/tools/fan-radio/r/<token>": "the radio spot a rep mails a client to "
                                   "approve",
     "/tools/fan-radio/api/public/<token>": "that page reading its own spot",
@@ -421,6 +425,13 @@ PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
                                                        "or no",
     "/tools/commercial-builder/review/<token>/comment": "a timecoded note "
                                                         "against the cut",
+    "/tools/radio-scripts/review/<token>/decide": "the client's approve, "
+                                                  "approve-with-changes or no "
+                                                  "on a radio script set",
+    "/tools/radio-scripts/review/<token>/comment": "a note against one "
+                                                    "concept and length in "
+                                                    "the set, or the set as "
+                                                    "a whole",
     "/tools/commercial-builder/review/voice/<token>/submit": "the client's "
                                                              "recorded or "
                                                              "uploaded voice "

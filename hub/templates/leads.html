@@ -417,10 +417,36 @@ function radioCell(l){
   return '<span class="pill ok">scripts ready</span><br>'+
     (setId
       ? '<a class="gbtn" href="/tools/radio-scripts/#set='+esc(setId)+
-        '" target="_blank" rel="noopener">Edit internally</a> '
-      : '')+
-    '<button class="gbtn" disabled title="Ships with the client review link '+
-    '(build spec WO-3) — nothing to send to yet.">Send to client</button>';
+        '" target="_blank" rel="noopener">Edit internally</a> '+
+        '<button class="gbtn" onclick="sendScriptForReview(\''+esc(setId)+
+        '\')">Send to client</button>'
+      : '<button class="gbtn" disabled title="No script set on file for '+
+        'this job.">Send to client</button>');
+}
+
+/* Issues a client review link for a radio script set (build spec WO-3) and
+   copies it to the clipboard. modules/radio_scripts/review.py revokes the
+   previous round and mints a fresh token every time this is pressed, so
+   pressing it again for a set that already has an answered round is the
+   correct way to send a new pass -- the old link stops working the moment
+   the new one exists. */
+function sendScriptForReview(setId){
+  if(!setId) return;
+  fetch('/tools/radio-scripts/api/sets/'+encodeURIComponent(setId)+'/reviews',{
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'}, body:'{}'
+  }).then(function(r){return r.json();}).then(function(d){
+    if(!d.ok){ say(esc(d.error || 'Could not issue a review link.'),''); return; }
+    var url = d.review.url;
+    var link = '<a href="'+esc(url)+'" target="_blank" rel="noopener">'+esc(url)+'</a>';
+    if(navigator.clipboard){
+      navigator.clipboard.writeText(url)
+        .then(function(){ say('Review link copied — '+link,'ok'); })
+        .catch(function(){ say('Review link — '+link,'ok'); });
+    } else {
+      say('Review link — '+link,'ok');
+    }
+  }).catch(function(){ say('Could not reach the server.',''); });
 }
 
 function renderLeads(d){

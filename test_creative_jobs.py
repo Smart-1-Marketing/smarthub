@@ -425,8 +425,8 @@ template = (ROOT / "hub" / "templates" / "leads.html").read_text(encoding="utf-8
 check_true("the panel has a Radio script column", "Radio script" in template)
 check_true("...and offers Edit internally once a set exists",
            "Edit internally" in template)
-check_true("...and Send to client, disabled until WO-3 exists",
-           "Send to client" in template and "disabled" in template)
+check_true("...and Send to client wired to the WO-3 review link",
+           "Send to client" in template and "sendScriptForReview" in template)
 check_true("...pointed at the tool's own set-opening hash route",
            "/tools/radio-scripts/#set=" in template)
 
