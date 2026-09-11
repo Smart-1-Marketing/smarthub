@@ -380,13 +380,24 @@ def _suggest_allocations(amount: float, invoices: list[dict[str, Any]]) -> dict[
 
 
 def _extract_check(raw: bytes, mime: str) -> dict[str, Any]:
+    """Read a check image, through ``hub.ai.vision()`` -- the one wrapper, so
+    this call writes a usage row the same as every other AI feature in the
+    Hub rather than this module's own OpenAI client. There is no client to
+    inject here: a check payer is not a Hub client, so this is a
+    ``client=None`` call, an explicit "there is none" rather than an
+    oversight.
+    """
     result = {"payer": "", "date": "", "amount": None, "check_number": "", "confidence": "manual"}
-    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
-    if not api_key or not mime.startswith("image/"):
+    if not mime.startswith("image/"):
         return result
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
+        from hub import ai as hub_ai
+    except Exception as exc:                              # noqa: BLE001
+        result["ocr_error"] = f"hub.ai unavailable: {exc}"
+        return result
+    if not hub_ai.ready():
+        return result
+    try:
         data_url = f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
         prompt = (
             "Read this business check or remittance image. Return ONLY JSON with keys payer, date, amount, "
@@ -394,27 +405,11 @@ def _extract_check(raw: bytes, mime: str) -> dict[str, Any]:
             "date must be YYYY-MM-DD when visible. amount must be a JSON number without $ or commas. "
             "If a field is uncertain use an empty string/null. confidence is high, medium, or low."
         )
-        resp = client.chat.completions.create(
-            model=os.environ.get("OPENAI_VISION_MODEL", "gpt-4o"), temperature=0, max_tokens=300,
-            messages=[{"role": "user", "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": data_url}},
-            ]}],
-        )
-        # A billed call that records nothing is invisible on the usage page,
-        # which is the untracked-spend failure hub/quotas.py sweeps for. The
-        # chat completions response carries real token counts, so they are
-        # recorded; standalone runs (no hub package) lose the row, never the
-        # read.
-        try:
-            from hub import ai as hub_ai
-            hub_ai.note_sdk_usage("check_reconciliation", resp, purpose="check_ocr")
-        except Exception:
-            # Standalone run without the hub package: the usage row is lost,
-            # the check read must not be.
-            pass
-        text = resp.choices[0].message.content or "{}"
-        text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.I).strip()
+        text = hub_ai.vision(
+            prompt, [data_url], module="check_reconciliation", purpose="check_ocr",
+            model=os.environ.get("OPENAI_VISION_MODEL", "gpt-4o"),
+            temperature=0, max_tokens=300, client=None)
+        text = re.sub(r"^```(?:json)?|```$", "", (text or "{}").strip(), flags=re.I).strip()
         parsed = json.loads(text)
         result.update({k: parsed.get(k) for k in result if k in parsed})
     except Exception as exc:

@@ -76,13 +76,11 @@ def _user_content(context):
 
 def suggest(image_bytes, context, *, avoid=None, mime="image/webp"):
     """Ask the vision model for a filename and alt. Never raises."""
-    if not settings.OPENAI_API_KEY:
+    from hub import ai as _hub_ai
+    if not _hub_ai.ready():
         return fallback_name(context, context.get("source_url", ""))
 
     try:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
         prompt = _user_content(context)
         if avoid:
             prompt += (
@@ -91,28 +89,22 @@ def suggest(image_bytes, context, *, avoid=None, mime="image/webp"):
             )
 
         encoded = base64.b64encode(image_bytes).decode("ascii")
-        resp = client.chat.completions.create(
-            model=settings.OPENAI_VISION_MODEL,
-            temperature=0.4,
-            max_tokens=200,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url",
-                     "image_url": {"url": f"data:{mime};base64,{encoded}",
-                                   "detail": "low"}},
-                ]},
-            ],
-            timeout=45,
-        )
-        try:  # record spend so /diagnostics doesn't under-report
-            from hub import ai as _hub_ai
-            _hub_ai.note_sdk_usage("page_image_optimizer", resp, purpose="alt_text")
-        except Exception:  # noqa: BLE001
-            pass
-        data = json.loads(resp.choices[0].message.content or "{}")
+        # Routed through hub.ai now -- one wrapper, so this call gets the
+        # client brief injected and writes a usage row the same as every
+        # other AI feature in the Hub, rather than this module's own SDK
+        # client and its own note_sdk_usage() call.
+        data = _hub_ai.chat_json(
+            [{"role": "system", "content": SYSTEM_PROMPT},
+             {"role": "user", "content": [
+                 {"type": "text", "text": prompt},
+                 {"type": "image_url",
+                  "image_url": {"url": f"data:{mime};base64,{encoded}",
+                                "detail": "low"}},
+             ]}],
+            module="page_image_optimizer", purpose="alt_text",
+            model=settings.OPENAI_VISION_MODEL, temperature=0.4,
+            max_tokens=200, timeout=45,
+            client=context.get("company") or None, audience="image")
         filename = slugify(data.get("filename", ""))
         alt = re.sub(r"\s+", " ", str(data.get("alt", ""))).strip()
         if not filename:

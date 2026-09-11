@@ -355,46 +355,36 @@ say so plainly in the alt text and name it accordingly."""
 
 def generate_seo_data(image_bytes: bytes, mime: str, meta: dict) -> dict:
     """Ask the model for a filename and alt text for one image."""
-    api_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
-    if not api_key:
+    from hub import ai as _hub_ai
+    if not _hub_ai.ready():
         raise RuntimeError("OPENAI_API_KEY is not set, so images can't be named "
                            "automatically. You can still type names yourself.")
     data_url = f"data:{mime};base64," + base64.b64encode(image_bytes).decode()
+    company = meta.get("company_name", "")
+    website = meta.get("web_url", "")
     context = {
-        "company": meta.get("company_name", ""),
-        "website": meta.get("web_url", ""),
+        "company": company,
+        "website": website,
         "project": meta.get("project_name", ""),
         "page": meta.get("page_name", ""),
         "page_topic": meta.get("page_name") or meta.get("project_name") or "",
     }
-    payload = {
-        "model": os.environ.get("OPENAI_VISION_MODEL",
-                                os.environ.get("OPENAI_MODEL", "gpt-4o")),
-        "response_format": {"type": "json_object"},
-        "temperature": 0.3,
-        "max_tokens": 300,
-        "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": [
-                {"type": "text",
-                 "text": "Business and page context:\n" + json.dumps(context, indent=1)
-                         + "\n\nName this image."},
-                {"type": "image_url", "image_url": {"url": data_url, "detail": "low"}},
-            ]},
-        ],
-    }
-    r = requests.post("https://api.openai.com/v1/chat/completions",
-                      headers={"Authorization": f"Bearer {api_key}",
-                               "Content-Type": "application/json"},
-                      json=payload, timeout=90)
-    if not r.ok:
-        raise RuntimeError(f"OpenAI returned {r.status_code}: {r.text[:200]}")
-    try:  # record spend so /diagnostics doesn't under-report
-        from hub import ai as _hub_ai
-        _hub_ai.note_usage("seo_images", r.json(), purpose="alt_text")
-    except Exception:  # noqa: BLE001
-        pass
-    out = json.loads(r.json()["choices"][0]["message"]["content"])
+    vision_model = os.environ.get("OPENAI_VISION_MODEL",
+                                  os.environ.get("OPENAI_MODEL", "gpt-4o"))
+    try:
+        out = _hub_ai.chat_json(
+            [{"role": "system", "content": _SYSTEM_PROMPT},
+             {"role": "user", "content": [
+                 {"type": "text",
+                  "text": "Business and page context:\n" + json.dumps(context, indent=1)
+                          + "\n\nName this image."},
+                 {"type": "image_url", "image_url": {"url": data_url, "detail": "low"}},
+             ]}],
+            module="seo_images", purpose="alt_text", model=vision_model,
+            temperature=0.3, max_tokens=300, timeout=90,
+            client=company or None, domain=website, audience="image")
+    except _hub_ai.AIUnavailable as exc:
+        raise RuntimeError(str(exc)) from exc
     return {"seoFilename": slugify(out.get("seoFilename"), "web-image"),
             "altText": _clean_alt(out.get("altText"))}
 

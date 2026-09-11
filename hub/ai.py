@@ -92,19 +92,71 @@ def _post(path: str, payload: dict, timeout: int) -> dict:
     return resp.json()
 
 
+def _inject_brief(messages: list[dict], *, client: str | None, domain: str,
+                  audience: str, brief: dict | None) -> list[dict]:
+    """Prepend "what we know about this client" as its own system message.
+
+    The one place every text call in the Hub picks up the client brief --
+    `hub/client_brief.py` builds it, `render()` cuts it to what `audience`
+    should see, and this is the only site that turns that block into a
+    message. A caller passing neither `client` nor `brief` gets `messages`
+    back unchanged, which is the caller's own input, not a lookup: nothing is
+    injected for a prospect nobody has a client for, or for a model call that
+    genuinely has no client (client=None is a caller's explicit "there is
+    none", never an oversight).
+    """
+    if brief is None and not (client or "").strip():
+        return messages
+    try:
+        from hub import client_brief as _brief
+        block = _brief.render(brief if brief is not None else
+                              _brief.build(client or "", domain or ""), audience)
+    except Exception:                                     # noqa: BLE001
+        return messages
+    if not block:
+        return messages
+    return [{"role": "system", "content": block}] + list(messages)
+
+
 def chat(messages: list[dict], *, module: str, purpose: str,
          model: str | None = None, json_mode: bool = False,
          max_tokens: int = 2000, temperature: float = 0.4,
-         timeout: int | None = None) -> str:
-    """Text completion. Raises AIUnavailable; never returns a partial string."""
+         timeout: int | None = None,
+         client: str | None = None, domain: str = "",
+         audience: str = "copy", brief: dict | None = None,
+         extra_payload: dict | None = None) -> str:
+    """Text completion. Raises AIUnavailable; never returns a partial string.
+
+    `client=`/`brief=` are additive: pass a client name (or a brief already
+    built by `hub.client_brief.build()`) and the facts this Hub holds about
+    that business are injected as a system message before the call, cut to
+    `audience`. Neither is required -- a caller with no client (a housekeeping
+    call, an internal reconciliation) passes nothing and nothing changes.
+
+    `extra_payload` merges additional fields onto the request -- a reasoning
+    model (gpt-5/o1/o3) takes `max_completion_tokens` and `reasoning_effort`
+    instead of `max_tokens`/`temperature`, which a caller sets here rather
+    than this module inventing a second call shape for it.
+    """
     if not ready():
         raise AIUnavailable("OPENAI_API_KEY is not set.")
+    messages = _inject_brief(messages, client=client, domain=domain,
+                             audience=audience, brief=brief)
     model = model or settings.openai_model
     timeout = timeout or settings.openai_timeout
     payload: dict[str, Any] = {"model": model, "messages": messages,
                                "max_tokens": max_tokens, "temperature": temperature}
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
+    if extra_payload:
+        # A reasoning model refuses max_tokens/temperature alongside its own
+        # fields -- drop the defaults rather than sending both and letting
+        # the API refuse the whole request.
+        if "max_completion_tokens" in extra_payload:
+            payload.pop("max_tokens", None)
+        if "reasoning_effort" in extra_payload:
+            payload.pop("temperature", None)
+        payload.update(extra_payload)
 
     last = ""
     for attempt in range(settings.openai_retries + 1):
@@ -151,22 +203,94 @@ def vision(prompt: str, image_urls: list[str], *, module: str, purpose: str,
                 model=model or settings.openai_vision_model, **kw)
 
 
+def responses(input_messages: list[dict], *, module: str, purpose: str,
+             model: str | None = None, timeout: int | None = None,
+             client: str | None = None, domain: str = "",
+             audience: str = "copy", brief: dict | None = None,
+             **extra_payload: Any) -> dict:
+    """One call to the Responses API, for a caller that needs structured
+    output (`text.format: json_schema`) the Chat Completions shape `chat()`
+    wraps cannot express. Returns the raw parsed response body; the caller
+    reads `output` itself, the same shape `hub/openai_responses.py` already
+    hands back to its own two callers.
+
+    `client=`/`brief=` are additive, same as `chat()` — injected as the first
+    message in `input_messages` rather than a bolted-on system prompt, since
+    the Responses API's `input` is already a list of role/content messages.
+
+    A landing-page report call (a sector recommendation payload for a
+    business somebody has not signed a contract with yet) is a legitimate
+    caller of this rather than of `hub.openai_responses.ask()`, which has no
+    `text.format` support and is documented as the two builders' own reader.
+    """
+    if not ready():
+        raise AIUnavailable("OPENAI_API_KEY is not set.")
+    messages = _inject_brief(list(input_messages), client=client, domain=domain,
+                             audience=audience, brief=brief)
+    payload: dict[str, Any] = {"model": model or settings.openai_model,
+                               "input": messages}
+    payload.update(extra_payload)
+    timeout = timeout or settings.openai_timeout
+    started = time.time()
+    try:
+        data = _post("/responses", payload, timeout)
+    except AIUnavailable:
+        raise
+    except Exception as exc:                              # noqa: BLE001
+        _record(module, purpose, payload["model"], {},
+               int((time.time() - started) * 1000), False, type(exc).__name__)
+        raise AIUnavailable(f"OpenAI did not respond ({type(exc).__name__}).") from exc
+    ms = int((time.time() - started) * 1000)
+    _record(module, purpose, payload["model"], data.get("usage", {}), ms, True)
+    return data
+
+
 def image(prompt: str, *, module: str, purpose: str, size: str = "1024x1024",
-          transparent: bool = False) -> bytes:
-    """Generate an image, returned as raw bytes ready for hub.storage.put()."""
+          transparent: bool = False, model: str | None = None,
+          client: str | None = None, domain: str = "",
+          brief: dict | None = None) -> bytes:
+    """Generate an image, returned as raw bytes ready for hub.storage.put().
+
+    `client=`/`brief=` are additive, same as `chat()`: the client brief is
+    rendered for the "image" audience — names, hex values, logo URLs; never
+    spend, pixels, review counts or keyword rankings — and appended to the
+    prompt as a "Business facts" block, because an image-generation request
+    carries no separate system-message channel.
+
+    `model=` overrides the Hub default for a caller with its own per-tool
+    model profile (`hub.ai_models.model()`) — the Commercial Builder's still
+    generation is the reason this exists.
+    """
     if not ready():
         raise AIUnavailable("OPENAI_API_KEY is not set.")
     import base64
-    model = settings.openai_image_model
+    model = model or settings.openai_image_model
+    if brief is not None or (client or "").strip():
+        try:
+            from hub import client_brief as _brief
+            block = _brief.render(brief if brief is not None else
+                                  _brief.build(client or "", domain or ""), "image")
+        except Exception:                                 # noqa: BLE001
+            block = ""
+        if block:
+            prompt = f"{prompt}\n\nBusiness facts:\n{block}"
     payload = {"model": model, "prompt": prompt, "size": size, "n": 1}
     if transparent:
         payload["background"] = "transparent"
     started = time.time()
     try:
         data = _post("/images/generations", payload, settings.openai_timeout * 2)
+        # b64_json absent, empty, or the whole data list empty/null all decode
+        # to a valid-looking b"" rather than raising -- which used to record a
+        # *successful* call and hand the caller zero bytes as an image. Every
+        # one of those shapes is a failure and must be recorded as one.
+        b64 = ((data.get("data") or [{}])[0] or {}).get("b64_json") or ""
+        if not b64:
+            raise ValueError("OpenAI returned no image data.")
+        raw = base64.b64decode(b64)
         _record(module, purpose, model, data.get("usage", {}),
                 int((time.time() - started) * 1000), True)
-        return base64.b64decode((data.get("data") or [{}])[0].get("b64_json", ""))
+        return raw
     except AIUnavailable:
         raise
     except Exception as exc:                # noqa: BLE001

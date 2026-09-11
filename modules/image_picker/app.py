@@ -680,6 +680,16 @@ def api_save():
         )
 
         try:
+            # asset_meta.for_client() adds the shared identity keys (a
+            # derived slug, the palette primary where one is on file) onto
+            # whatever this call already builds -- extending it, not
+            # replacing it, so nothing already reading `client`/`industry`
+            # off these rows has to change.
+            try:
+                from hub.asset_meta import for_client as _asset_meta
+                _meta = _asset_meta(client.name)
+            except Exception:                             # noqa: BLE001
+                _meta = {"context": {}, "tags": []}
             up = cloudinary_sink.upload_from_url(
                 image_url=source,
                 folder=client.folder(),
@@ -692,8 +702,11 @@ def api_save():
                     "provider": provider,
                     "author": row.author or "",
                     "source": row.source_url or "",
+                    **{k: v for k, v in _meta["context"].items()
+                       if k not in ("client", "source")},
                 },
-                tags=["smart1-image-picker", client.slug, client.industry_key],
+                tags=sorted(set(["smart1-image-picker", client.slug,
+                                client.industry_key] + _meta["tags"])),
             )
         except Exception as exc:  # noqa: BLE001
             log.exception("cloudinary upload failed for client %s", client.id)
