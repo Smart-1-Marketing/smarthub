@@ -217,6 +217,71 @@ with app.app_context():
           qa_tasks.NEEDS_MORE)
     check("...and clears the completion stamp", task.completed_at, None)
 
+    print("\n-- claiming, on somebody's behalf --")
+    yoda = _account("yoda@smart1marketing.com", "Yoda")
+    for_boss = qa_tasks.create(
+        target_key="other", target_other="The Proposal Builder",
+        instructions="Run a quote through it.",
+        assigned_to_email=boss.email, due_on="",
+        actor_email=rev.email, actor_name=rev.name)
+
+    try:
+        qa_tasks.claim(for_boss.id, actor_email=yoda.email, actor_name=yoda.name)
+        check("claiming is off with no delegate named", "claimed", "refused")
+    except qa_tasks.QaTaskError as exc:
+        check_true("claiming is off with no delegate named",
+                   "standing in for" in str(exc))
+
+    os.environ["QA_TASK_DELEGATES"] = f"{other.email}:{boss.email}"
+    try:
+        qa_tasks.claim(for_boss.id, actor_email=yoda.email, actor_name=yoda.name)
+        check("a delegate for somebody else cannot claim", "claimed", "refused")
+    except qa_tasks.QaTaskError as exc:
+        check_true("a delegate for somebody else cannot claim",
+                   "standing in for" in str(exc))
+
+    os.environ["QA_TASK_DELEGATES"] = f"{yoda.email}:{boss.email}"
+    for_boss_id = for_boss.id
+    claimed = qa_tasks.claim(for_boss.id, actor_email=yoda.email,
+                             actor_name=yoda.name)
+    check("the named delegate can claim it", claimed.assigned_to_email, yoda.email)
+    check("...and it is unread for the new holder",
+          claimed.unread_for(yoda.email), True)
+
+    thread = qa_tasks.get(for_boss.id, viewer_email=yoda.email)["responses"]
+    check_true("the claim is posted into the thread",
+               any(r["kind"] == "claim" and boss.name in r["body"]
+                   for r in thread))
+
+    boss_now = qa_tasks.for_person(boss.email)
+    check_true("it leaves the original assignee's queue",
+               all(t["id"] != for_boss.id for t in boss_now["to_do"]))
+    yoda_now = qa_tasks.for_person(yoda.email)
+    check_true("...and lands in the delegate's queue",
+               any(t["id"] == for_boss.id for t in yoda_now["to_do"]))
+
+    try:
+        qa_tasks.claim(9999999, actor_email=yoda.email, actor_name=yoda.name)
+        check("claiming a task that does not exist is refused",
+              "claimed", "refused")
+    except qa_tasks.QaTaskError as exc:
+        check_true("claiming a task that does not exist is refused",
+                   "could not be found" in str(exc))
+
+    done_task = qa_tasks.create(
+        target_key="other", target_other="Something already closed",
+        instructions="Check it.", assigned_to_email=boss.email, due_on="",
+        actor_email=rev.email, actor_name=rev.name)
+    qa_tasks.respond(done_task.id, body="Looks fine.", actor_email=boss.email,
+                     actor_name=boss.name)
+    qa_tasks.complete(done_task.id, actor_email=rev.email)
+    try:
+        qa_tasks.claim(done_task.id, actor_email=yoda.email, actor_name=yoda.name)
+        check("a completed task cannot be claimed", "claimed", "refused")
+    except qa_tasks.QaTaskError as exc:
+        check_true("a completed task cannot be claimed",
+                   "nothing to pick up" in str(exc))
+
     print("\n-- the two queues --")
     mine = qa_tasks.for_person(rev.email)
     check_true("the reviewer's list is measured", mine["measured"])
@@ -280,6 +345,8 @@ for path in ("/qa-tasks", "/api/qa-tasks", "/api/qa-tasks/board",
     check(f"{path} refuses a stranger", resp.status_code in (301, 302, 401), True)
 resp = client.post("/api/qa-tasks", json={})
 check("POST /api/qa-tasks refuses a stranger", resp.status_code, 401)
+resp = client.post(f"/api/qa-tasks/{for_boss_id}/claim")
+check("the claim route refuses a stranger", resp.status_code, 401)
 
 print("\n-- the tile, the nav and the trail --")
 from hub import qa as qa_reports                                 # noqa: E402

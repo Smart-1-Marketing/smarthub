@@ -228,6 +228,23 @@ def api_respond(task_id):
                     "task": qa_tasks.get(task_id, viewer_email=email)})
 
 
+@bp.route("/api/qa-tasks/<int:task_id>/claim", methods=["POST"])
+def api_claim(task_id):
+    """Take over a task assigned to somebody this account stands in for.
+
+    See `qa_tasks.claim` for why this is not "anyone can": the caller has to
+    be named in `QA_TASK_DELEGATES` for the task's current assignee.
+    """
+    email, name = _who()
+    if not email:
+        return _no_account()
+    try:
+        task = qa_tasks.claim(task_id, actor_email=email, actor_name=name)
+    except qa_tasks.QaTaskError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "task": task.as_dict(viewer_email=email)})
+
+
 @bp.route("/api/qa-tasks/<int:task_id>/complete", methods=["POST"])
 def api_complete(task_id):
     email, _name = _who()

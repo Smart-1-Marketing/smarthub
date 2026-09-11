@@ -440,5 +440,57 @@ finally:
     wx_app.store.create = _orig_create
 
 
+# ---------------------------------------------------------------------------
+section("HVAC: the second vertical, end to end")
+# ---------------------------------------------------------------------------
+# hub/weather_triggers.py carries the vocabulary and its own tests; this is
+# what the module built on top of it -- store.create(), the copy house
+# drafts, and the staff api/start route -- does with a vertical it did not
+# ship with originally.
+
+hvac_row = wx_store.create(client="Cool Breeze HVAC", vertical="hvac", zip_code="46032")
+check("an hvac campaign records its vertical", hvac_row["vertical"], "hvac")
+
+result = wx_store.save_picks(hvac_row["token"], ["ac-overload", "hard-freeze"])
+check("hvac picks against hvac triggers are accepted", result["ok"], True)
+
+result = wx_store.save_picks(hvac_row["token"], ["patio-day"])
+check("a restaurant trigger id is refused on an hvac campaign", result["ok"], False)
+
+unknown_vertical_row = wx_store.create(client="Mystery Co", vertical="lawn-care")
+check("an unrecognized vertical falls back to restaurant rather than "
+     "accepting nothing anyone can pick against",
+     unknown_vertical_row["vertical"], "restaurant")
+
+hvac_drafts = wx_copy.generate_drafts("hard-freeze", "Cool Breeze HVAC")
+check("hvac drafts fall back to the house source with no AI key",
+     hvac_drafts["source"], "house")
+check("hvac house copy is written for a service call, not a restaurant",
+     any("appointments" in d["primary_text"] or "furnace" in d["primary_text"].lower()
+         or "breakdown" in d["headline"].lower() or "ready when you are" in d["headline"].lower()
+         for d in hvac_drafts["drafts"]), True)
+check("hvac house copy never talks about sitting down to eat",
+     any("table" in (d["headline"] + d["primary_text"]).lower()
+         for d in hvac_drafts["drafts"]), False)
+
+storm_hvac_drafts = wx_copy.generate_drafts("storm-power-risk", "Cool Breeze HVAC")
+check("the alert-driven storm blocklist covers hvac's own alert trigger too",
+     storm_hvac_drafts["source"] in ("house", "ai"), True)
+
+resp = staff_client.post("/tools/weather-setup/api/start",
+                         json={"client": "Steady Air HVAC", "vertical": "hvac"})
+check("api/start accepts a vertical and starts the campaign", resp.status_code, 200)
+started_token = resp.get_json()["token"]
+check("the campaign it started actually carries the hvac vertical",
+     wx_store.get(started_token)["vertical"], "hvac")
+
+resp = staff_client.post("/tools/weather-setup/api/start",
+                         json={"client": "Whatever Co", "vertical": "not-a-vertical"})
+check("api/start falls back to restaurant on a bogus vertical rather than 400ing",
+     resp.status_code, 200)
+check("...and the campaign records the fallback",
+     wx_store.get(resp.get_json()["token"])["vertical"], "restaurant")
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

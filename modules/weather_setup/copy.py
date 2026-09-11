@@ -18,9 +18,20 @@ alike, the same shape `hub/proposal_spec.client_safe()` and
   is not invented; a draft that reads as carrying one is flagged rather than
   silently rewritten, because inventing a *different* wrong answer is worse
   than leaving the placeholder visible for a rep to confirm before launch.
-* **Storms are not a promotion.** `storm-watch` copy is checked against a
-  small blocklist — no jokes, no urgency language that could read as
-  encouraging someone to drive in a warned area.
+* **Storms are not a promotion.** Any alert-driven trigger's copy — not
+  only `storm-watch`, but `hvac`'s `storm-power-risk` too — is checked
+  against a small blocklist: no jokes, no urgency language that could read
+  as encouraging someone to drive in a warned area.
+
+**The angle is written to the vertical, not to a swapped-in name.** A
+restaurant ad invites ("come sit outside"); an HVAC ad warns or reminds
+("book this before it fails"). One generic house template with the
+business name dropped in would answer a hard-freeze ad with "The weather's
+right for Acme Heating & Air" — grammatical, and wrong for what the ad is
+for — so `_house_draft_restaurant()` and `_house_draft_hvac()` are two
+separate templates per angle, and `_house_draft()` dispatches on
+`Trigger.vertical` rather than guessing from the trigger's tags. The model
+prompt carries the same split, through `_PROMPT_CONTEXT`.
 """
 from __future__ import annotations
 
@@ -47,14 +58,21 @@ _STORM_BLOCKLIST = (
 )
 
 
+# What the reader of a draft is being asked to do differs by vertical: a
+# restaurant ad is an invitation ("come sit outside"), an HVAC ad is a
+# warning or a reminder ("book this before it fails"). Each house-draft
+# branch below writes to its own vertical's psychology rather than one
+# generic template with the business name swapped in — a swapped-name
+# template is what produced "The weather's right for Acme Heating & Air"
+# on a hard-freeze ad before this branch existed.
+_URGENT_TAGS = ("emergency", "safety", "backup")
+
+
 def _clean(text: str, limit: int = 220) -> str:
     return " ".join(str(text or "").split())[:limit]
 
 
-def _house_draft(trigger_id: str, client_name: str, angle: str) -> dict:
-    """A deterministic, no-model draft. Always available, always safe."""
-    trig = TRIGGERS[trigger_id]
-    name = client_name or "your table"
+def _house_draft_restaurant(trig, name: str, angle: str) -> tuple[str, str]:
     by_angle = {
         "Direct": (f"{trig.name} at {name}",
                   f"{trig.condition_label} — {name} is open and ready."),
@@ -65,7 +83,36 @@ def _house_draft(trigger_id: str, client_name: str, angle: str) -> dict:
         "Invitation": (f"{name} is calling your name",
                        f"{trig.reason} Stop by today."),
     }
-    headline, primary = by_angle.get(angle, by_angle["Direct"])
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+def _house_draft_hvac(trig, name: str, angle: str) -> tuple[str, str]:
+    urgent = any(t in _URGENT_TAGS for t in trig.tags)
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has appointments today."),
+        "Comfort": ((f"Don't wait for a breakdown, {name}" if urgent
+                    else f"Get ahead of it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Schedule your visit today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+_HOUSE_DRAFT_BY_VERTICAL = {
+    "restaurant": _house_draft_restaurant,
+    "hvac": _house_draft_hvac,
+}
+
+
+def _house_draft(trigger_id: str, client_name: str, angle: str) -> dict:
+    """A deterministic, no-model draft. Always available, always safe."""
+    trig = TRIGGERS[trigger_id]
+    fallback_name = "your table" if trig.vertical == "restaurant" else "your business"
+    name = client_name or fallback_name
+    write = _HOUSE_DRAFT_BY_VERTICAL.get(trig.vertical, _house_draft_restaurant)
+    headline, primary = write(trig, name, angle)
     return {"angle": angle, "headline": _clean(headline, 40),
             "primary_text": _clean(primary, 125), "source": "house"}
 
@@ -92,15 +139,33 @@ def _guardrail(draft: dict, trigger_id: str) -> dict:
         draft.setdefault("note", "This draft carries a specific offer or "
                                  "price — confirm it before launch.")
 
-    if TRIGGERS[trigger_id].id == "storm-watch":
+    # Checked by cadence rather than by this one id, because storm-watch is
+    # not the only alert-driven trigger any more: hvac's storm-power-risk
+    # carries the identical reasoning ("never run as an invitation to be
+    # outside in it") and needs the identical blocklist. Keying this on
+    # `trigger_id == "storm-watch"` would have left the second one unchecked
+    # the day it was added -- the same class of miss `check_work_kinds()`
+    # exists to catch when a second module logs under a wrapper nobody
+    # taught the walk to resolve.
+    if TRIGGERS[trigger_id].cadence == "alert_driven":
         lowered = text.lower()
         if any(phrase in lowered for phrase in _STORM_BLOCKLIST):
             replacement = _house_draft(trigger_id, "", draft.get("angle", "Direct"))
             replacement["note"] = ("The generated draft read as an invitation "
-                                   "to go out in a warned storm, so it was "
-                                   "replaced.")
+                                   "to go out during a severe alert, so it "
+                                   "was replaced.")
             return replacement
     return draft
+
+
+# What to call the business in the prompt, and what a per-trigger "notes"
+# field is asking about -- both read differently by vertical, and a
+# restaurant-flavoured prompt sent for an HVAC trigger is how a model comes
+# back describing "tonight's specials" on a furnace-repair ad.
+_PROMPT_CONTEXT = {
+    "restaurant": {"noun": "restaurant", "notes_label": "Menu or voice notes"},
+    "hvac": {"noun": "HVAC / home comfort company", "notes_label": "Service notes"},
+}
 
 
 def generate_drafts(trigger_id: str, client_name: str, menu_note: str = "") -> dict:
@@ -115,17 +180,18 @@ def generate_drafts(trigger_id: str, client_name: str, menu_note: str = "") -> d
         return {"drafts": [], "source": "none",
                 "error": f"Unknown trigger {trigger_id!r}."}
     trig = TRIGGERS[trigger_id]
+    ctx = _PROMPT_CONTEXT.get(trig.vertical, _PROMPT_CONTEXT["restaurant"])
 
     drafts: list[dict] = []
     source = "house"
     try:
         from hub import ai as hub_ai
         prompt = (
-            f"Write three short ad drafts for a restaurant, one per angle: "
+            f"Write three short ad drafts for a {ctx['noun']}, one per angle: "
             f"{', '.join(ANGLES)}. The weather condition triggering this ad is "
-            f"\"{trig.name}\" ({trig.condition_label}). The restaurant is "
-            f"\"{client_name or 'the restaurant'}\". "
-            f"{('Menu or voice notes: ' + menu_note) if menu_note else ''} "
+            f"\"{trig.name}\" ({trig.condition_label}). The business is "
+            f"\"{client_name or ('the ' + ctx['noun'])}\". "
+            f"{(ctx['notes_label'] + ': ' + menu_note) if menu_note else ''} "
             "Each draft needs a headline (<=40 characters) and primary text "
             "(<=125 characters). Never invent a price, a discount, an hour of "
             "operation, or a specific claim about the premises that was not "
