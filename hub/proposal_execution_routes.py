@@ -76,7 +76,8 @@ def _error(exc, status=400):
 @bp.get("/proposal-execution")
 def page():
     _owner, name = _who()
-    return render_template("proposal_execution.html", user=name, active="salesb")
+    return render_template("proposal_execution.html", user=name,
+                           active="proposal_execution")
 
 
 @bp.get("/api/proposal-execution/proposals")
@@ -211,7 +212,56 @@ def adapters():
     return jsonify(ok=True, adapters=pe.adapters())
 
 
+def _install_nav_entry():
+    """Put Proposal Execution directly after Proposal Builder in the Sales nav.
+
+    The permanent home for this row is hub.sidebar. Keeping the MVP insertion
+    here avoids touching that long shared navigation file while the workflow is
+    being proven; it is still one row in the one `_ITEMS` list every renderer
+    reads, so hub pages and mounted modules agree.
+    """
+    try:
+        from hub import sidebar
+        if any(row[0] == "proposal_execution" for row in sidebar._ITEMS):
+            return
+        row = ("proposal_execution", "/proposal-execution", "&#9881;",
+               "Proposal Execution", sidebar.EVERYONE)
+        index = next(i for i, item in enumerate(sidebar._ITEMS)
+                     if item[0] == "salesb")
+        sidebar._ITEMS.insert(index + 1, row)
+    except Exception:  # noqa: BLE001 — navigation must never block the feature
+        pass
+
+
+def _install_client360_entry(app):
+    """Add an Execute link beside uploaded proposal documents in Client 360.
+
+    Client 360 builds that table asynchronously, so the tiny static script uses
+    the table's own `To IO` button as proof that a row has a PDF/DOCX behind it.
+    Link-type proposal rows never get the action.
+    """
+    @app.after_request
+    def _proposal_execute_link(resp):
+        try:
+            if request.path != "/client360" or resp.status_code != 200:
+                return resp
+            if not (resp.mimetype or "").startswith("text/html") or resp.direct_passthrough:
+                return resp
+            body = resp.get_data()
+            marker = b"proposal-execution-link.js"
+            if marker in body or b"</body>" not in body:
+                return resp
+            script = b'<script defer src="/assets/proposal-execution-link.js"></script>'
+            cut = body.rfind(b"</body>")
+            resp.set_data(body[:cut] + script + body[cut:])
+        except Exception:  # noqa: BLE001 — a shortcut cannot break Client 360
+            pass
+        return resp
+
+
 def register_proposal_execution(app):
     app.register_blueprint(bp)
+    _install_nav_entry()
+    _install_client360_entry(app)
     pe.install_scheduler_bridge()
     return app
