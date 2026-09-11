@@ -1039,6 +1039,8 @@ def batch(*, apply: bool = False, after: str = "", limit_clients: int = 0,
 
     results = []
     totals = {"copied": 0, "skipped": 0, "failed": 0}
+    reasons: dict = {}
+    per_client: dict = {}
     last = after
     for name in todo:
         if len(results) >= cap or time.monotonic() - started >= budget:
@@ -1051,31 +1053,66 @@ def batch(*, apply: bool = False, after: str = "", limit_clients: int = 0,
             # the row says what happened, or a single bad folder costs every
             # client after it in the alphabet.
             results.append({"client": name, "copied": 0, "skipped": 0,
-                            "failed": 0,
+                            "failed": 0, "reason": "error",
                             "error": f"{type(exc).__name__}: {exc}"[:200]})
+            per_client = {}
             last = name
             continue
         counts = res.get("counts") or {}
         for key in totals:
             totals[key] += int(counts.get(key) or 0)
+        # Why, not just how many. `migrate()` works out per link whether Drive
+        # refused it, could not find it or fell over, and a batch that kept
+        # only the counts would report "49 failed" across the book with the
+        # cause computed and thrown away -- the wall of identical `refused`
+        # rows this module already had to undo one layer down, one layer up.
+        # The rows themselves are not kept: several hundred clients of them is
+        # a payload nobody reads. The tally is.
+        for row in res.get("failed") or []:
+            why = str(row.get("reason") or "error")
+            reasons[why] = reasons.get(why, 0) + 1
+            per_client[why] = per_client.get(why, 0) + 1
+        top = max(per_client, key=per_client.get) if per_client else ""
         results.append({"client": name,
                         "copied": int(counts.get("copied") or 0),
                         "skipped": int(counts.get("skipped") or 0),
                         "failed": int(counts.get("failed") or 0),
                         "links": int(res.get("links") or 0),
+                        "reason": top,
                         "error": res.get("error", "")})
+        per_client = {}
         last = name
 
     done_names = {r["client"] for r in results}
     remaining = [n for n in todo if n not in done_names]
-    return {"ok": True, "apply": apply, "account": auth["email"],
-            "account_wanted": wanted,
-            "connected": auth.get("connected") or [],
-            "source": found.get("source"),
-            "total": len(names), "processed": len(results),
-            "remaining": len(remaining),
-            "next_after": last if remaining else "",
-            "results": results, "counts": totals}
+    out = {"ok": True, "apply": apply, "account": auth["email"],
+           "account_wanted": wanted,
+           "connected": auth.get("connected") or [],
+           # Which product source answered, and how old it is. `candidates()`
+           # has always carried both and the batch reported neither: a run
+           # reading a stale export covers a different book from the one the
+           # single-client lookup reads, and "18 of 18 clients" is a complete
+           # sweep of whichever book answered. `links` is the other half --
+           # a client whose lookup showed a hundred links, in a whole-book run
+           # that found fifty, is two readings of one question and only the
+           # count makes that visible.
+           "source": found.get("source"),
+           "age_minutes": found.get("age_minutes"),
+           "links": len(found.get("links") or []),
+           "total": len(names), "processed": len(results),
+           "remaining": len(remaining),
+           "next_after": last if remaining else "",
+           "results": results, "counts": totals, "reasons": reasons}
+    # The same rule `migrate()` applies to one client, applied to the book:
+    # a run that authenticated and then failed on everything is one cause, not
+    # a list of broken links. Read through `_verdict()` rather than worded
+    # again here, or the two come to say different things about one failure.
+    out["verdict"] = _verdict({
+        "copied": [1] if totals["copied"] else [],
+        "skipped": [1] if totals["skipped"] else [],
+        "failed": [{"reason": why} for why, n in reasons.items() for _ in range(n)],
+        "account": auth["email"], "connected": auth.get("connected") or []})
+    return out
 
 
 def sweep(limit_clients: int = 25, actor: str = "scheduler") -> dict:
