@@ -74,6 +74,27 @@ sitting in the same month tuple as an HVAC id costs nothing: each vertical
 only ever sees the ids that belong to it, in the relative order they were
 written in for that month. Splitting the table in two would be a second
 shape doing the one job this filtering step already does.
+
+## The third vertical
+
+Retail / Home Goods, and the same claim held a second time: thirteen more
+rows, still the same rule vocabulary, still no change to
+`evaluate_trigger()`. The psychology here is neither an invitation nor a
+service reminder — it is a purchase trigger, closer to a stock-up call than
+either of the first two. `heat-wave-cooling` and `heat-index-retail` are the
+day a fan or a window AC actually sells rather than being researched for
+later; `deep-freeze-retail` and `cold-snap-retail` are the same shape for
+space heaters and warm layers, escalating exactly the way `hard-freeze` and
+`deep-freeze` do for HVAC. `first-frost-shop` is the once-per-season event —
+patio-furniture covers and pipe insulation move before the freeze, not
+after — with its own season-state key so it cannot collide with
+restaurant's `first-freeze` or HVAC's `first-hard-freeze` inside one
+campaign's carried state. `patio-season-open` and `fall-clearance-day` are
+the two shoulder-season pushes the vertical leans on hardest, named for the
+season they are *for* rather than left for a rep to infer from the month
+strip. `storm-prep` is the alert-driven row, and its own `reason` says what
+keeps it from reading as fear-mongering: it is a stock-up call for
+flashlights and batteries, not an invitation to be outside in the alert.
 """
 from __future__ import annotations
 
@@ -85,8 +106,9 @@ from datetime import date
 # auction. Enforced here, not merely disabled in the picker.
 MAX_TRIGGERS = 3
 
-VERTICALS = ("restaurant", "hvac")
-VERTICAL_LABELS = {"restaurant": "Restaurant", "hvac": "HVAC / Home Comfort"}
+VERTICALS = ("restaurant", "hvac", "retail")
+VERTICAL_LABELS = {"restaurant": "Restaurant", "hvac": "HVAC / Home Comfort",
+                   "retail": "Retail / Home Goods"}
 
 
 @dataclass(frozen=True)
@@ -368,6 +390,135 @@ TRIGGERS: dict[str, Trigger] = {
         windows=(("07:00", "19:00"),),
         cadence="daily", tags=("heating", "maintenance"),
     ),
+
+    # -- Retail / Home Goods ---------------------------------------------
+    "storm-prep": Trigger(
+        id="storm-prep", name="Storm Prep", vertical="retail",
+        reason="A severe weather alert is when people actually go buy "
+               "flashlights, batteries and water — a stock-up ad, never "
+               "an invitation to be outside in it.",
+        condition_label="NWS severe weather alert issued",
+        rule={"alert_required": True},
+        cadence="alert_driven", tags=("safety", "stock-up"),
+    ),
+    "snow-gear-day": Trigger(
+        id="snow-gear-day", name="Snow Gear Day", vertical="retail",
+        reason="The day it's actually snowing is the day someone finds "
+               "out they own no shovel, no salt and no boots that still "
+               "fit.",
+        condition_label="snowfall ≥ 2 in / 24h",
+        rule={"snow_in_min": 2.0},
+        windows=(("08:00", "20:00"),),
+        cadence="daily", tags=("seasonal", "stock-up"),
+    ),
+    "first-frost-shop": Trigger(
+        id="first-frost-shop", name="First Frost", vertical="retail",
+        reason="The first frost of the season is when patio-furniture "
+               "covers, pipe insulation and space heaters start moving "
+               "— before the freeze, not after.",
+        condition_label="first low ≤ 32°F of the season",
+        rule={"temp_low_max": 32.0, "once_per_season": "cold"},
+        cadence="once_per_season", tags=("event", "seasonal"),
+    ),
+    "heat-wave-cooling": Trigger(
+        id="heat-wave-cooling", name="Cooling Sale Day", vertical="retail",
+        reason="A genuinely hot day is when the fan or window AC that "
+               "sat on a shelf all spring finally sells.",
+        condition_label="high ≥ 90°F",
+        rule={"temp_min": 90.0},
+        windows=(("09:00", "20:00"),),
+        cadence="daily", tags=("relief", "stock-up"),
+    ),
+    "patio-season-open": Trigger(
+        id="patio-season-open", name="Patio Season Opener", vertical="retail",
+        reason="The first comfortable outdoor stretch of the year is "
+               "when patio furniture, grills and outdoor decor actually "
+               "move.",
+        condition_label="68–85°F and dry, April–June",
+        rule={"temp_min": 68.0, "temp_max": 85.0, "precip_prob_max": 10.0,
+              "months": (4, 5, 6)},
+        windows=(("09:00", "19:00"),),
+        cadence="daily", tags=("seasonal", "home"),
+    ),
+    "fall-clearance-day": Trigger(
+        id="fall-clearance-day", name="Fall Clearance Day", vertical="retail",
+        reason="A cool, clear fall day is when people finally think "
+               "about the yard and the garage before winter shuts both "
+               "down.",
+        condition_label="45–62°F and clear, September–November",
+        rule={"temp_min": 45.0, "temp_max": 62.0, "precip_prob_max": 20.0,
+              "months": (9, 10, 11)},
+        windows=(("09:00", "19:00"),),
+        cadence="daily", tags=("seasonal", "clearance"),
+    ),
+    "rain-day-indoor": Trigger(
+        id="rain-day-indoor", name="Rainy Day Browse", vertical="retail",
+        reason="A rained-out weekend keeps people inside a store, or on "
+               "the site, instead of outside — the day an indoor project "
+               "finally gets started.",
+        condition_label="≥ 70% chance of rain",
+        rule={"precip_prob_min": 70.0},
+        windows=(("10:00", "19:00"),),
+        cadence="daily", tags=("indoor", "browse"),
+    ),
+    "wind-advisory": Trigger(
+        id="wind-advisory", name="Wind Advisory", vertical="retail",
+        reason="High wind is what tips over a patio umbrella and tears "
+               "a trampoline net — a replace-and-tie-down ad, not a "
+               "warning.",
+        condition_label="wind ≥ 25 mph",
+        rule={"wind_mph_min": 25.0},
+        windows=(("09:00", "19:00"),),
+        cadence="daily", tags=("safety", "home"),
+    ),
+    "gray-streak-retail": Trigger(
+        id="gray-streak-retail", name="Gray Stretch", vertical="retail",
+        reason="Several gray days in a row is a mood worth lifting with "
+               "something new for the house, not a specific need.",
+        condition_label="cloud cover ≥ 80% for 3 consecutive days",
+        rule={"cloud_percent_min": 80.0, "consecutive_days": 3},
+        windows=(("09:00", "19:00"),),
+        cadence="daily", tags=("mood", "home"),
+    ),
+    "deep-freeze-retail": Trigger(
+        id="deep-freeze-retail", name="Deep Freeze", vertical="retail",
+        reason="Dangerous cold is when a space heater, pipe insulation "
+               "or an emergency kit sells regardless of what else is on "
+               "sale.",
+        condition_label="high ≤ 10°F",
+        rule={"temp_max": 10.0},
+        windows=(("08:00", "20:00"),),
+        cadence="daily", tags=("emergency", "stock-up"),
+    ),
+    "first-warm-weekend": Trigger(
+        id="first-warm-weekend", name="Warm Weekend Surprise", vertical="retail",
+        reason="An unseasonably warm day in the middle of winter is a "
+               "rare window to sell outdoor goods nobody was thinking "
+               "about yet.",
+        condition_label="high ≥ 65°F, November–March",
+        rule={"temp_min": 65.0, "months": (11, 12, 1, 2, 3)},
+        windows=(("09:00", "19:00"),),
+        cadence="daily", tags=("seasonal", "surprise"),
+    ),
+    "cold-snap-retail": Trigger(
+        id="cold-snap-retail", name="Cold Snap", vertical="retail",
+        reason="Hard cold is when blankets, space heaters and "
+               "warm-layer clothing move off the shelf.",
+        condition_label="high ≤ 28°F",
+        rule={"temp_max": 28.0},
+        windows=(("08:00", "20:00"),),
+        cadence="daily", tags=("comfort", "stock-up"),
+    ),
+    "heat-index-retail": Trigger(
+        id="heat-index-retail", name="Heat Index Day", vertical="retail",
+        reason="Humidity stacked on heat is when a portable AC or a "
+               "dehumidifier gets bought the same day, not researched "
+               "for later.",
+        condition_label="heat index ≥ 95°F",
+        rule={"heat_index_min": 95.0},
+        windows=(("09:00", "19:00"),),
+        cadence="daily", tags=("relief", "stock-up"),
+    ),
 }
 
 # Ordering for the month strip: which triggers a rep browsing that month is
@@ -381,28 +532,48 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "hard-freeze", "deep-freeze", "first-hard-freeze", "wind-chill-strain",
             "overcast-run", "storm-power-risk", "snow-load", "mild-winter-break",
             "spring-tune-up-day", "fall-tune-up-day", "early-heat-wave",
-            "heat-index-strain", "ac-overload"),
+            "heat-index-strain", "ac-overload",
+            "deep-freeze-retail", "cold-snap-retail", "first-warm-weekend",
+            "snow-gear-day", "wind-advisory", "gray-streak-retail",
+            "storm-prep", "fall-clearance-day", "patio-season-open",
+            "heat-wave-cooling", "heat-index-retail", "first-frost-shop",
+            "rain-day-indoor"),
     "Feb": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "evening-cooldown", "heat-index",
             "heat-wave", "patio-day", "rain-delay", "first-freeze", "first-cool-night",
             "deep-freeze", "hard-freeze", "first-hard-freeze", "wind-chill-strain",
             "mild-winter-break", "overcast-run", "storm-power-risk", "snow-load",
             "spring-tune-up-day", "fall-tune-up-day", "early-heat-wave",
-            "heat-index-strain", "ac-overload"),
+            "heat-index-strain", "ac-overload",
+            "deep-freeze-retail", "cold-snap-retail", "first-warm-weekend",
+            "snow-gear-day", "wind-advisory", "gray-streak-retail",
+            "storm-prep", "fall-clearance-day", "patio-season-open",
+            "heat-wave-cooling", "heat-index-retail", "first-frost-shop",
+            "rain-day-indoor"),
     "Mar": ("warm-break", "crisp-day", "rain-delay", "cold-snap", "gray-streak",
             "wind-chill", "storm-watch", "patio-day", "evening-cooldown",
             "heat-index", "heat-wave", "snow-day", "first-freeze", "first-cool-night",
             "spring-tune-up-day", "mild-winter-break", "hard-freeze",
             "wind-chill-strain", "overcast-run", "storm-power-risk",
             "early-heat-wave", "snow-load", "fall-tune-up-day", "deep-freeze",
-            "first-hard-freeze", "heat-index-strain", "ac-overload"),
+            "first-hard-freeze", "heat-index-strain", "ac-overload",
+            "first-warm-weekend", "patio-season-open", "cold-snap-retail",
+            "wind-advisory", "gray-streak-retail", "storm-prep",
+            "fall-clearance-day", "snow-gear-day", "deep-freeze-retail",
+            "heat-wave-cooling", "heat-index-retail", "first-frost-shop",
+            "rain-day-indoor"),
     "Apr": ("crisp-day", "patio-day", "rain-delay", "gray-streak", "storm-watch",
             "evening-cooldown", "warm-break", "heat-index", "heat-wave",
             "cold-snap", "wind-chill", "snow-day", "first-freeze", "first-cool-night",
             "spring-tune-up-day", "early-heat-wave", "overcast-run",
             "storm-power-risk", "wind-chill-strain", "hard-freeze",
             "mild-winter-break", "ac-overload", "heat-index-strain", "snow-load",
-            "fall-tune-up-day", "deep-freeze", "first-hard-freeze"),
+            "fall-tune-up-day", "deep-freeze", "first-hard-freeze",
+            "patio-season-open", "wind-advisory", "storm-prep",
+            "gray-streak-retail", "rain-day-indoor", "fall-clearance-day",
+            "first-warm-weekend", "heat-wave-cooling", "heat-index-retail",
+            "cold-snap-retail", "snow-gear-day", "deep-freeze-retail",
+            "first-frost-shop"),
     "May": ("patio-day", "crisp-day", "rain-delay", "storm-watch",
             "evening-cooldown", "heat-index", "heat-wave", "gray-streak",
             "warm-break", "cold-snap", "wind-chill", "snow-day",
@@ -410,7 +581,12 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "spring-tune-up-day", "early-heat-wave", "ac-overload",
             "heat-index-strain", "storm-power-risk", "overcast-run",
             "wind-chill-strain", "fall-tune-up-day", "hard-freeze",
-            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze"),
+            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze",
+            "patio-season-open", "storm-prep", "wind-advisory",
+            "rain-day-indoor", "heat-wave-cooling", "heat-index-retail",
+            "gray-streak-retail", "fall-clearance-day", "first-warm-weekend",
+            "cold-snap-retail", "snow-gear-day", "deep-freeze-retail",
+            "first-frost-shop"),
     "Jun": ("patio-day", "heat-wave", "heat-index", "rain-delay",
             "storm-watch", "evening-cooldown", "crisp-day", "gray-streak",
             "warm-break", "cold-snap", "wind-chill", "snow-day",
@@ -418,7 +594,12 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "early-heat-wave", "ac-overload", "heat-index-strain",
             "storm-power-risk", "spring-tune-up-day", "overcast-run",
             "fall-tune-up-day", "wind-chill-strain", "hard-freeze",
-            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze"),
+            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze",
+            "patio-season-open", "heat-wave-cooling", "heat-index-retail",
+            "storm-prep", "wind-advisory", "rain-day-indoor",
+            "gray-streak-retail", "fall-clearance-day", "first-warm-weekend",
+            "cold-snap-retail", "snow-gear-day", "deep-freeze-retail",
+            "first-frost-shop"),
     "Jul": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "evening-cooldown", "crisp-day", "gray-streak",
             "warm-break", "cold-snap", "wind-chill", "snow-day",
@@ -426,7 +607,12 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "ac-overload", "heat-index-strain", "storm-power-risk",
             "early-heat-wave", "overcast-run", "spring-tune-up-day",
             "fall-tune-up-day", "wind-chill-strain", "hard-freeze",
-            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze"),
+            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze",
+            "heat-wave-cooling", "heat-index-retail", "storm-prep",
+            "patio-season-open", "wind-advisory", "rain-day-indoor",
+            "gray-streak-retail", "fall-clearance-day", "first-warm-weekend",
+            "cold-snap-retail", "snow-gear-day", "deep-freeze-retail",
+            "first-frost-shop"),
     "Aug": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "first-cool-night", "evening-cooldown", "crisp-day",
             "gray-streak", "warm-break", "cold-snap", "wind-chill", "snow-day",
@@ -434,7 +620,12 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "ac-overload", "heat-index-strain", "storm-power-risk",
             "early-heat-wave", "overcast-run", "fall-tune-up-day",
             "spring-tune-up-day", "wind-chill-strain", "hard-freeze",
-            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze"),
+            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze",
+            "heat-wave-cooling", "heat-index-retail", "storm-prep",
+            "patio-season-open", "wind-advisory", "rain-day-indoor",
+            "fall-clearance-day", "gray-streak-retail", "first-warm-weekend",
+            "cold-snap-retail", "snow-gear-day", "deep-freeze-retail",
+            "first-frost-shop"),
     "Sep": ("patio-day", "first-cool-night", "rain-delay", "crisp-day",
             "evening-cooldown", "heat-index", "heat-wave", "storm-watch",
             "gray-streak", "warm-break", "cold-snap", "wind-chill",
@@ -442,7 +633,12 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "fall-tune-up-day", "ac-overload", "heat-index-strain",
             "overcast-run", "storm-power-risk", "early-heat-wave",
             "spring-tune-up-day", "wind-chill-strain", "hard-freeze",
-            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze"),
+            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze",
+            "fall-clearance-day", "heat-wave-cooling", "heat-index-retail",
+            "storm-prep", "wind-advisory", "rain-day-indoor",
+            "gray-streak-retail", "first-frost-shop", "patio-season-open",
+            "first-warm-weekend", "cold-snap-retail", "snow-gear-day",
+            "deep-freeze-retail"),
     "Oct": ("crisp-day", "first-cool-night", "first-freeze", "evening-cooldown",
             "rain-delay", "warm-break", "gray-streak", "storm-watch",
             "cold-snap", "wind-chill", "patio-day", "heat-index",
@@ -450,7 +646,12 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "fall-tune-up-day", "first-hard-freeze", "overcast-run",
             "storm-power-risk", "wind-chill-strain", "hard-freeze",
             "mild-winter-break", "ac-overload", "heat-index-strain",
-            "snow-load", "spring-tune-up-day", "deep-freeze", "early-heat-wave"),
+            "snow-load", "spring-tune-up-day", "deep-freeze", "early-heat-wave",
+            "fall-clearance-day", "first-frost-shop", "wind-advisory",
+            "storm-prep", "rain-day-indoor", "gray-streak-retail",
+            "cold-snap-retail", "snow-gear-day", "deep-freeze-retail",
+            "heat-wave-cooling", "heat-index-retail", "patio-season-open",
+            "first-warm-weekend"),
     "Nov": ("first-freeze", "cold-snap", "gray-streak", "warm-break",
             "crisp-day", "wind-chill", "storm-watch", "snow-day",
             "rain-delay", "evening-cooldown", "patio-day", "heat-index",
@@ -459,7 +660,12 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "overcast-run", "wind-chill-strain", "mild-winter-break",
             "storm-power-risk", "snow-load", "deep-freeze",
             "spring-tune-up-day", "ac-overload", "heat-index-strain",
-            "early-heat-wave"),
+            "early-heat-wave",
+            "first-frost-shop", "cold-snap-retail", "fall-clearance-day",
+            "wind-advisory", "gray-streak-retail", "storm-prep",
+            "snow-gear-day", "deep-freeze-retail", "first-warm-weekend",
+            "rain-day-indoor", "heat-wave-cooling", "heat-index-retail",
+            "patio-season-open"),
     "Dec": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "rain-delay", "evening-cooldown",
             "heat-index", "heat-wave", "patio-day", "first-freeze",
@@ -467,7 +673,12 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "hard-freeze", "deep-freeze", "first-hard-freeze", "wind-chill-strain",
             "overcast-run", "storm-power-risk", "snow-load", "mild-winter-break",
             "spring-tune-up-day", "fall-tune-up-day", "early-heat-wave",
-            "heat-index-strain", "ac-overload"),
+            "heat-index-strain", "ac-overload",
+            "deep-freeze-retail", "cold-snap-retail", "snow-gear-day",
+            "first-warm-weekend", "wind-advisory", "gray-streak-retail",
+            "storm-prep", "first-frost-shop", "fall-clearance-day",
+            "rain-day-indoor", "heat-wave-cooling", "heat-index-retail",
+            "patio-season-open"),
 }
 
 MONTH_ABBR = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",

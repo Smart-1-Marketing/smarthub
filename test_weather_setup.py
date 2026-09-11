@@ -492,5 +492,44 @@ check("...and the campaign records the fallback",
      wx_store.get(resp.get_json()["token"])["vertical"], "restaurant")
 
 
+# ---------------------------------------------------------------------------
+section("Retail / Home Goods: the third vertical, end to end")
+# ---------------------------------------------------------------------------
+
+retail_row = wx_store.create(client="Corner Hardware", vertical="retail", zip_code="46032")
+check("a retail campaign records its vertical", retail_row["vertical"], "retail")
+
+result = wx_store.save_picks(retail_row["token"], ["storm-prep", "heat-wave-cooling"])
+check("retail picks against retail triggers are accepted", result["ok"], True)
+
+result = wx_store.save_picks(retail_row["token"], ["ac-overload"])
+check("an hvac trigger id is refused on a retail campaign", result["ok"], False)
+
+retail_drafts = wx_copy.generate_drafts("deep-freeze-retail", "Corner Hardware")
+check("retail drafts fall back to the house source with no AI key",
+     retail_drafts["source"], "house")
+check("retail house copy is written as a stock-up call, not a dining invitation",
+     any("stock up" in d["headline"].lower() or "has what you need" in d["primary_text"].lower()
+         or "ready for this weather" in d["headline"].lower()
+         for d in retail_drafts["drafts"]), True)
+check("retail house copy never talks about sitting down to eat",
+     any("table" in (d["headline"] + d["primary_text"]).lower()
+         for d in retail_drafts["drafts"]), False)
+check("retail house copy never talks about appointments",
+     any("appointment" in (d["headline"] + d["primary_text"]).lower()
+         for d in retail_drafts["drafts"]), False)
+
+storm_retail_drafts = wx_copy.generate_drafts("storm-prep", "Corner Hardware")
+check("the alert-driven storm blocklist covers retail's own alert trigger too",
+     storm_retail_drafts["source"] in ("house", "ai"), True)
+
+resp = staff_client.post("/tools/weather-setup/api/start",
+                         json={"client": "Lakeside Home Goods", "vertical": "retail"})
+check("api/start accepts the retail vertical and starts the campaign", resp.status_code, 200)
+retail_started_token = resp.get_json()["token"]
+check("the campaign it started actually carries the retail vertical",
+     wx_store.get(retail_started_token)["vertical"], "retail")
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
