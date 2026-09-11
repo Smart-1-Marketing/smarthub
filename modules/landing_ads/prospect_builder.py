@@ -62,6 +62,15 @@ ALIASES = {
     "revenue": ("revenue", "annualrevenue", "companyrevenue"),
 }
 
+_COUNTRY_CODES = {
+    "united states": "US", "united states of america": "US", "usa": "US", "us": "US",
+    "canada": "CA", "ca": "CA",
+    "united kingdom": "GB", "great britain": "GB", "uk": "GB", "gb": "GB",
+    "australia": "AU", "au": "AU",
+    "new zealand": "NZ", "nz": "NZ",
+    "ireland": "IE", "ie": "IE",
+}
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -155,6 +164,25 @@ def _normal_email(value: str) -> str:
     return value if _EMAIL.match(value) else ""
 
 
+def _normal_country(value: str) -> str:
+    """HighLevel requires ISO 3166-1 alpha-2, never the first two letters.
+
+    Apollo and Data Axle commonly export full country names (for example,
+    ``United States``). Sending ``UN`` would make an otherwise good contact
+    fail its upsert. Preserve valid two-letter codes, map the common names we
+    expect in these lists, and omit an unknown value rather than inventing one.
+    """
+    raw = re.sub(r"\s+", " ", str(value or "").strip())
+    if not raw:
+        return ""
+    key = raw.lower().rstrip(".")
+    if key in _COUNTRY_CODES:
+        return _COUNTRY_CODES[key]
+    if re.fullmatch(r"[A-Za-z]{2}", raw):
+        return raw.upper()
+    return ""
+
+
 def parse_csv(raw: bytes) -> dict:
     text = _decode(raw)
     sample = text[:8192]
@@ -189,6 +217,7 @@ def parse_csv(raw: bytes) -> dict:
             continue
         seen.add(row["email"])
         row["website"] = _normal_url(row.get("website", ""))
+        row["country"] = _normal_country(row.get("country", ""))
         # Keep only fields the preview/import actually uses. This avoids
         # turning the staging store into a copy of every vendor column.
         rows.append({k: str(row.get(k) or "")[:500] for k in ALIASES})
@@ -317,7 +346,7 @@ def _contact_payload(row: dict, location_id: str, source: str) -> dict:
         "city": row.get("city") or "",
         "state": row.get("state") or "",
         "postalCode": row.get("postal_code") or "",
-        "country": (row.get("country") or "")[:2].upper(),
+        "country": _normal_country(row.get("country") or ""),
         "source": f"Smart 1 Hub · Prospect Builder · {source}"[:300],
         # Force the normal duplicate-safe path even if this location allows
         # duplicates. The list should update a known person, not multiply them.
