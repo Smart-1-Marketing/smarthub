@@ -155,6 +155,43 @@ def _pages(token: str, url: str, key: str, params=None):
         params["pageToken"] = nxt
 
 
+def _gtm_get(token: str, url: str, params=None) -> dict:
+    """Tag Manager reads go through Google Finder's shared, paced getter.
+
+    Every other call in this file hits `_get` directly, which is right for
+    GA4 -- that API does not rate-limit the way Tag Manager does. GTM is the
+    one Google Finder built `gtm_get()` for after measuring what an unpaced
+    sweep costs against it: 180 accounts on one login threw a 429 on very
+    nearly every first attempt, and the retries alone spent 440 seconds and a
+    quarter of the day's quota rediscovering a limit that a shared, adaptive
+    interval avoids hitting in the first place.
+
+    This is "the heaviest Google sweep in the Hub" (its own commit message
+    says so) and it walks GTM containers across *every* connected login on
+    every visit to this page -- unpaced, it was firing a burst of GTM calls
+    with no memory of the last one, on the same per-user limit Google
+    Finder's own scheduled sweep paces itself against. Two callers hitting
+    one limit, only one of them slowing down, is what turns a few
+    rate-limited accounts into a scan that keeps retrying (or keeps stacking
+    "Could not inspect live container -- HTTP 429" rows) for a very long
+    time. Going through `gtm_get()` puts this tool on the *same* shared
+    interval and retry-after handling as the sweep, so a 429 either meets is
+    news the other slows down for.
+    """
+    return _finder().gtm_get(token, url, params=params or {})
+
+
+def _gtm_pages(token: str, url: str, key: str, params=None):
+    params = dict(params or {})
+    while True:
+        payload = _gtm_get(token, url, params)
+        yield from (payload.get(key) or [])
+        nxt = payload.get("nextPageToken")
+        if not nxt:
+            return
+        params["pageToken"] = nxt
+
+
 def _ga_properties(token: str) -> list[dict]:
     out = []
     url = "https://analyticsadmin.googleapis.com/v1beta/accountSummaries"
@@ -204,12 +241,12 @@ def _ga_measurement_ids(token: str, property_id: str) -> set[str]:
 
 def _gtm_accounts(token: str) -> list[dict]:
     # GTM v2 list endpoints accept pageToken but not pageSize.
-    return list(_pages(token,
+    return list(_gtm_pages(token,
         "https://tagmanager.googleapis.com/tagmanager/v2/accounts", "account"))
 
 
 def _gtm_containers(token: str, account_id: str) -> list[dict]:
-    return list(_pages(token,
+    return list(_gtm_pages(token,
         f"https://tagmanager.googleapis.com/tagmanager/v2/accounts/{account_id}/containers",
         "container"))
 
@@ -218,7 +255,7 @@ def _live_tags(token: str, account_id: str, container_id: str) -> tuple[list[dic
     url = ("https://tagmanager.googleapis.com/tagmanager/v2/accounts/"
            f"{account_id}/containers/{container_id}/versions:live")
     try:
-        version = _get(token, url)
+        version = _gtm_get(token, url)
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code in (400, 404):
             return [], "No published container version"
