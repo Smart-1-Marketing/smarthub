@@ -19,7 +19,7 @@ from . import binder, brand_ext, campaign_spec, config, jobs, layouts, resolver,
 from .db import db
 from .models import (CreativeJob, CsAiTool, CsCampaign, CsCampaignAsset, CsMediaAsset,
                      CsProject, CsProjectVersion, CsShare, CsShareDecision, CsTemplate,
-                     CsTemplateScene, CsTemplateVariable, CsUsageLog)
+                     CsTemplateScene, CsTemplateVariable, CsUsageLog, CsWeatherSet)
 
 bp = Blueprint("creative_studio", __name__, url_prefix="/creative-studio",
               template_folder="templates")
@@ -35,7 +35,19 @@ def _actor() -> str:
 
 def _guard() -> None:
     from hub.blueprint_guard import install
-    install(bp, mount="/creative-studio")
+    # The weather manifest (WO-CS9 item 5) is read by whatever external
+    # trigger flow swaps creative on a live campaign -- it has no Hub
+    # session, so this one path is exempt and carries its own signed
+    # token instead (api_weather_manifest, below). It lives at its OWN
+    # prefix (/api/weather-manifest/<id>) rather than nested under
+    # /api/projects/<id>/... -- `install()`'s `public` is a prefix match,
+    # and a project id varies, so nesting it there would have needed
+    # either a public prefix wide enough to open every /api/projects/
+    # route to an anonymous caller, or a suffix match `install()` does not
+    # support. Everything else on this blueprint stays behind the
+    # ordinary staff login.
+    install(bp, mount="/creative-studio",
+           public=("/api/weather-manifest/",))
 
 
 _guard()
@@ -894,6 +906,159 @@ def api_send_campaign_for_approval(campaign_id):              # noqa: ANN202
         name=str(body.get("reviewer_name") or "").strip()[:200],
         email=str(body.get("reviewer_email") or "").strip()[:200])
     return jsonify({"ok": True, "share": row})
+
+
+# --------------------------------------------------------------- WO-CS9: weather sets
+
+@bp.post("/api/projects/<int:project_id>/weather-set")
+def api_create_weather_set(project_id):                       # noqa: ANN202
+    """Create Weather Set -- WO-CS9 item 3. Queued: one OpenAI call plus a
+    stock image lookup per condition is not request-speed work. Refuses by
+    name, with a readable message, when the project's own industry has no
+    weather angle written for it -- never a generic set nobody asked for
+    the shape of."""
+    project = CsProject.query.get_or_404(project_id)
+    industry = binder.project_industry(project)
+    pack = config.industry_pack(industry)
+    if not pack.get("weather_ready"):
+        return jsonify({"ok": False, "error": (
+            f"There is no weather angle written for '{industry}' yet -- "
+            "Create Weather Set needs an industry with weather copy.")}), 400
+    job = jobs.enqueue("weather_set", project_id=project.id, client_name=project.client_name,
+                       created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict()})
+
+
+@bp.get("/api/projects/<int:project_id>/weather-set")
+def api_list_weather_set(project_id):                         # noqa: ANN202
+    rows = (CsWeatherSet.query.filter_by(project_id=project_id)
+           .order_by(CsWeatherSet.condition).all())
+    return jsonify({"ok": True, "conditions": [r.as_dict() for r in rows]})
+
+
+@bp.put("/api/projects/<int:project_id>/weather-set/<condition>")
+def api_edit_weather_set(project_id, condition):               # noqa: ANN202
+    """A rep's own edit -- WO-CS9 item 3's "rep edits". The severe rule
+    still holds here, not only in the generated draft: a rep typing an
+    offer into the severe row is refused, the same "code is the check, not
+    only the prompt" reasoning `generate_weather_variants` already applies
+    to the model's own answer."""
+    row = CsWeatherSet.query.filter_by(project_id=project_id, condition=condition).first_or_404()
+    if row.status == "Approved":
+        return jsonify({"ok": False, "error": "This condition is already "
+                        "approved -- unapprove it before editing."}), 400
+    data = request.get_json(silent=True) or {}
+    row.headline = str(data.get("headline") or row.headline or "").strip()[:300]
+    offer = str(data.get("offer") or "").strip()[:300]
+    if condition == "severe" and offer:
+        return jsonify({"ok": False, "error": "Severe-weather copy carries "
+                        "no offer -- it is a safety message, never a sales pitch."}), 400
+    row.offer = offer or row.offer
+    row.cta = str(data.get("cta") or row.cta or "").strip()[:300]
+    db.session.commit()
+    return jsonify({"ok": True, "condition": row.as_dict()})
+
+
+@bp.post("/api/projects/<int:project_id>/weather-set/<condition>/approve")
+def api_approve_weather_condition(project_id, condition):      # noqa: ANN202
+    """Approving one condition builds its variation storyboard --
+    `binder.bind_weather_variant()` -- so it becomes renderable through the
+    ordinary render route or, if this project sits on a campaign, WO-CS8's
+    batch render. Approving never renders by itself: the same "a public
+    page with no QC gate in front of it must never trigger a render" rule
+    WO-CS6's client review already states, one screen over -- this is a
+    staff action, but the render is still a separate, billed press."""
+    project = CsProject.query.get_or_404(project_id)
+    row = CsWeatherSet.query.filter_by(project_id=project_id, condition=condition).first_or_404()
+    if not row.headline:
+        return jsonify({"ok": False, "error": "Write or generate this "
+                        "condition's copy before approving it."}), 400
+
+    if row.variant_project_id is None:
+        variant = CsProject(
+            client_name=project.client_name, name=f"{project.name} — {condition}",
+            creative_type=project.creative_type, template_id=project.template_id,
+            template_version=project.template_version, duration=project.duration,
+            aspect_ratio=project.aspect_ratio, status="Draft",
+            parent_project_id=project.id, variation_kind="weather", created_by=_actor())
+        db.session.add(variant)
+        db.session.commit()
+        result = binder.bind_weather_variant(variant, condition, headline=row.headline,
+                                             offer=row.offer, cta=row.cta)
+        if not result.get("ok"):
+            db.session.delete(variant)
+            db.session.commit()
+            return jsonify({"ok": False, "error": result.get("error") or
+                            "Could not build this weather variant."}), 400
+        row.variant_project_id = variant.id
+
+    row.status = "Approved"
+    db.session.commit()
+
+    try:
+        from hub import audit
+        audit.log("creative_studio", "weather_condition_approved", actor=_actor(),
+                  client=project.client_name or None, project=project.name,
+                  detail=f"{condition} approved")
+    except Exception:                                     # noqa: BLE001
+        pass
+
+    return jsonify({"ok": True, "condition": row.as_dict()})
+
+
+def _weather_manifest_serializer():
+    from hub import signing
+    return signing.serializer("cs_weather_manifest")
+
+
+@bp.get("/api/projects/<int:project_id>/weather-manifest-token")
+def api_weather_manifest_token(project_id):                    # noqa: ANN202
+    """Staff-only: mint the signed token a trigger flow reads the manifest
+    with. Never a literal secret of this module's own -- `hub.signing` is
+    the one place this Hub resolves that from, the rule CLAUDE.md gives at
+    length about a fallback secret in the source being a forgeable token."""
+    CsProject.query.get_or_404(project_id)
+    token = _weather_manifest_serializer().dumps(project_id)
+    return jsonify({"ok": True, "token": token,
+                    "url": f"/creative-studio/api/weather-manifest/{project_id}?token={token}"})
+
+
+@bp.get("/api/weather-manifest/<int:project_id>")
+def api_weather_manifest(project_id):                          # noqa: ANN202
+    """{condition: {video_url, image_url, headline, cta}} for the APPROVED
+    set only -- WO-CS9 item 5. Public (see `_guard()` above), so the token
+    is the whole of its access control: no Hub session reaches this path,
+    a bad or missing token is refused, and a real one names only the
+    project it was minted for."""
+    token = str(request.args.get("token") or "")
+    try:
+        signed_id = _weather_manifest_serializer().loads(token)
+    except Exception:                                     # noqa: BLE001
+        return jsonify({"ok": False, "error": "Invalid or missing token."}), 403
+    if signed_id != project_id:
+        return jsonify({"ok": False, "error": "Invalid or missing token."}), 403
+
+    rows = CsWeatherSet.query.filter_by(project_id=project_id, status="Approved").all()
+    manifest = {}
+    for row in rows:
+        if not row.variant_project_id:
+            continue
+        variant = CsProject.query.get(row.variant_project_id)
+        if variant is None:
+            continue
+        # Only a version this project has actually rendered and approved --
+        # "the manifest only lists approved versions" is the work order's
+        # own words, and a Draft variant with a pending render has no file
+        # a trigger flow could safely point creative at.
+        version = variant.versions.order_by(CsProjectVersion.version.desc()).first()
+        if variant.status != "Approved" or version is None or not version.render_url:
+            continue
+        manifest[row.condition] = {
+            "video_url": version.render_url,
+            "image_url": row.weather_image_url or "",
+            "headline": row.headline or "", "cta": row.cta or "",
+        }
+    return jsonify({"ok": True, "manifest": manifest})
 
 
 @bp.get("/api/projects/<int:project_id>/usage-summary")

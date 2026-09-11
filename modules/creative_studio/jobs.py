@@ -899,6 +899,103 @@ def _run_campaign_draft(job: CreativeJob) -> None:
 _RUNNERS["campaign_draft"] = _run_campaign_draft
 
 
+def _run_weather_set(job: CreativeJob) -> None:
+    """One project's seven (or fewer) weather variants -- WO-CS9 item 3
+    (copy) and item 4 (image). Single-tick: the OpenAI call and each stock
+    image fetch are synchronous requests, same shape as `_run_voice`.
+
+    Never renders anything and never creates a variation project --
+    `api_approve_weather_set` does that, on a per-condition, rep-reviewed
+    basis ("rep edits" in the work order's own words), the same two-step
+    "create it, then a person decides whether to build from it" shape
+    `_run_variant` already draws for WO-CS7.
+    """
+    from . import binder
+    from .campaign_generation import generate_weather_variants
+    from .models import CsMediaAsset, CsProject, CsWeatherSet
+
+    project = CsProject.query.get(job.project_id) if job.project_id else None
+    if project is None:
+        _fail(job, "That project no longer exists.")
+        return
+
+    industry = binder.project_industry(project)
+    pack = config.industry_pack(industry)
+    if not pack.get("weather_ready"):
+        _fail(job, f"There is no weather angle written for '{industry}' yet "
+                   "-- Create Weather Set needs an industry with weather copy.")
+        return
+
+    job.state = "processing"
+    job.stage = "Writing the weather variants"
+    db.session.commit()
+
+    try:
+        variants = generate_weather_variants(project, pack)
+    except Exception as exc:                              # noqa: BLE001
+        _fail(job, f"Could not write the weather variants: {exc}")
+        return
+
+    usage.record("openai", "weather_set", project_id=project.id,
+                client_name=project.client_name, quantity=1, unit="call",
+                actor=job.created_by)
+
+    job.stage = "Finding a background per condition"
+    db.session.commit()
+
+    conditions = []
+    for condition, copy in variants.items():
+        try:
+            from hub import stock_search
+            found = stock_search.search([f"{condition} weather"], per_page=1)
+            candidate = (found.get("results") or [None])[0]
+        except Exception:                                 # noqa: BLE001
+            candidate = None
+
+        image_url, media_id = "", None
+        if candidate:
+            source_url = candidate.get("full") or candidate.get("preview") or ""
+            if source_url:
+                try:
+                    url, public_id = _materialize_remote(
+                        project.client_name, source_url,
+                        f"weather-{condition}.jpg", kind="creative_studio_weather")
+                    asset = CsMediaAsset(
+                        client_name=project.client_name, asset_type="image",
+                        filename=f"weather-{condition}.jpg", cloudinary_public_id=public_id,
+                        cloudinary_url=url, source="stock", project_id=project.id,
+                        created_by=job.created_by)
+                    asset.tags = ["weather", condition]
+                    db.session.add(asset)
+                    db.session.flush()
+                    image_url, media_id = url, asset.id
+                except Exception:                          # noqa: BLE001
+                    pass  # a missing background costs the image, never the copy
+
+        row = CsWeatherSet.query.filter_by(project_id=project.id, condition=condition).first()
+        if row is None:
+            row = CsWeatherSet(project_id=project.id, condition=condition)
+            db.session.add(row)
+        row.headline = copy["headline"]
+        row.offer = copy["offer"]
+        row.cta = copy["cta"]
+        if image_url:
+            row.weather_image_url = image_url
+            row.media_asset_id = media_id
+        db.session.commit()
+        conditions.append(condition)
+
+    job.state = "complete"
+    job.stage = "Complete"
+    job.progress = 100
+    job.output = {"conditions": conditions}
+    job.finished_at = datetime.utcnow()
+    db.session.commit()
+
+
+_RUNNERS["weather_set"] = _run_weather_set
+
+
 def sweep(app=None, limit: int = 20) -> dict:
     """Advance every queued/in-progress job by one step. Registered on
     `hub/scheduler.py`'s JOBS table; never called from a request."""

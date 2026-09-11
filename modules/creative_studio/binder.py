@@ -485,3 +485,114 @@ def create_campaign_asset(campaign, *, industry: str, duration, aspect_ratio: st
 def config_channel_label(channel: str) -> str:
     from . import config
     return config.CHANNEL_LABELS.get(channel, channel or "Asset")
+
+
+# --------------------------------------------------------------- WO-CS9
+
+def project_industry(project) -> str:
+    """The industry this project's own bound template declares, or
+    "general" for a project with no template (or none bound) -- what
+    `config.industry_pack()` is looked up by. Read from the template
+    rather than stored a second time on the project: `cs_templates.industry`
+    is already the one place that fact lives, and a copy here would be the
+    exact drift CLAUDE.md's spelling table exists to stop."""
+    if not project.template_id:
+        return "general"
+    tmpl = CsTemplate.query.get(project.template_id)
+    return (tmpl.industry if tmpl else "general") or "general"
+
+
+def bind_weather_variant(project, condition: str, *, headline: str = "",
+                         offer: str = "", cta: str = ""):
+    """Create the `variation_kind="weather"` project a `CsWeatherSet` row's
+    approval turns into -- WO-CS9 item 3's "render ... through the WO-CS8
+    batch gate": this function only builds the storyboard, at the SAME
+    aspect as the parent (a weather variant swaps words, not framing), with
+    every scene's own headline/offer/cta layer replaced by the condition's
+    own copy wherever the parent's layout carries one. Rendering it is the
+    ordinary render route, or WO-CS8's batch render if it is added to a
+    campaign -- this function never queues a render itself.
+
+    Idempotent like `bind_variation()`: a project that already has a
+    `cb_project_id` returns it rather than rebuilding.
+    """
+    if project.cb_project_id:
+        return {"ok": True, "cb_project_id": project.cb_project_id}
+    if not project.parent_project_id:
+        return {"ok": False, "error": "This project has no parent to copy from."}
+
+    parent = CsProject.query.get(project.parent_project_id)
+    if parent is None or not parent.cb_project_id:
+        return {"ok": False, "error": "The source project has no storyboard to copy."}
+
+    try:
+        from modules.commercial_builder import template_bind as cb_template_bind
+        from modules.commercial_builder.models import (CommercialProject as CbProject,
+                                                        Scene as CbScene)
+    except Exception as exc:                              # noqa: BLE001
+        return {"ok": False, "error": f"The Commercial Builder is not available ({exc})."}
+
+    cb_parent = CbProject.query.get(parent.cb_project_id)
+    if cb_parent is None:
+        return {"ok": False, "error": "The source storyboard no longer exists."}
+
+    cb_client, error = _ensure_client_row(project)
+    if error:
+        return {"ok": False, "error": error}
+
+    target = project.aspect_ratio or parent.aspect_ratio
+
+    overrides = {"headline": headline, "offer": offer, "cta": cta}
+    source_scenes = list(cb_parent.scenes.order_by(CbScene.order_index).all())
+    new_scenes = []
+    cursor = 0.0
+    for scene in source_scenes:
+        meta = dict(scene.asset_meta or {})
+        layout_key = meta.get("layout_key") or ""
+        layer_values = {k: dict(v) for k, v in (meta.get("layers") or {}).items()}
+        for key, value in overrides.items():
+            if value and key in layer_values:
+                layer_values[key] = {"value": value, "source": "weather"}
+        chrome = meta.get("chrome") or {}
+        new_meta = dict(meta)
+        new_meta["layers"] = layer_values
+        new_meta["text_overlay"] = (
+            layouts.elements_for(layout_key, target, layer_values,
+                                 logo_url=chrome.get("logo_url", ""),
+                                 phone=chrome.get("phone", ""),
+                                 website=chrome.get("website", ""))
+            if layout_key else [])
+        duration = round(float(scene.end or 0) - float(scene.start or 0), 2)
+        new_scenes.append({
+            "start": round(cursor, 2), "end": round(cursor + duration, 2),
+            "narration": scene.narration or "", "visual_description": scene.visual_description or "",
+            "is_cta": bool(scene.is_cta), "asset_url": scene.asset_url or "",
+            "asset_type": scene.asset_type or "", "asset_source": scene.asset_source or "",
+            "asset_thumb_url": scene.asset_thumb_url or "", "asset_meta": new_meta,
+        })
+        cursor += duration
+
+    length = max(1, round(cursor))
+
+    try:
+        cb_project = cb_template_bind.build_from_scenes(
+            client_id=cb_client.id, client_name=cb_client.name, title=project.name,
+            length_seconds=length, platform=cb_parent.platform, formats=[target],
+            commercial_type=cb_parent.commercial_type, scenes=new_scenes)
+    except Exception as exc:                              # noqa: BLE001
+        return {"ok": False, "error": f"Could not build the weather variant's storyboard ({exc})."}
+
+    from .db import db
+    project.cb_project_id = cb_project.id
+    project.duration = length
+    db.session.commit()
+
+    try:
+        from hub import audit
+        audit.log("creative_studio", "weather_variant_bound", actor=project.created_by or "",
+                  client=project.client_name or None, project=project.name,
+                  detail=f"{condition} variant of #{parent.id}")
+    except Exception:                                     # noqa: BLE001
+        pass
+
+    return {"ok": True, "cb_project_id": cb_project.id}

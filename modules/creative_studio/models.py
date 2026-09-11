@@ -777,3 +777,53 @@ class CsCampaignAsset(db.Model):
             "channel": self.channel or "", "role": self.role or "",
             "created_at": self.created_at.isoformat() if self.created_at else "",
         }
+
+
+class CsWeatherSet(db.Model):
+    """One project's variant copy for one weather condition -- WO-CS9. Its
+    own table rather than a column on `cs_projects`: a project has up to
+    seven of these (`config.WEATHER_CONDITIONS`), which is a collection, not
+    a single fact about the project the way `status` or `aspect_ratio` are.
+
+    `variant_project_id` is set once this condition has been approved and
+    rendered as its own `cs_projects` row (`variation_kind="weather"`,
+    `binder.bind_weather_variant()`) -- the same two-step "create the
+    variation, then render it separately" shape WO-CS7's aspect variations
+    already use, so the WO-CS8 batch render gate (QC, the confirm
+    threshold, a shared batch_id) is what actually renders it rather than a
+    second render path built here.
+    """
+    __tablename__ = "cs_weather_sets"
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("cs_projects.id"), nullable=False, index=True)
+    condition = db.Column(db.String(20), nullable=False)   # config.WEATHER_CONDITIONS
+
+    headline = db.Column(db.String(300), default="")
+    offer = db.Column(db.String(300), default="")
+    cta = db.Column(db.String(300), default="")
+
+    weather_image_url = db.Column(db.String(1000), default="")
+    media_asset_id = db.Column(db.Integer, db.ForeignKey("cs_media_assets.id"), nullable=True)
+
+    variant_project_id = db.Column(db.Integer, db.ForeignKey("cs_projects.id"), nullable=True)
+    status = db.Column(db.String(20), default="Draft")     # Draft | Approved
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint("project_id", "condition", name="uq_cs_weather_project_condition"),
+    )
+
+    def as_dict(self) -> dict:
+        return {
+            "id": self.id, "project_id": self.project_id, "condition": self.condition,
+            "headline": self.headline or "", "offer": self.offer or "", "cta": self.cta or "",
+            "weather_image_url": self.weather_image_url or "",
+            "media_asset_id": self.media_asset_id,
+            "variant_project_id": self.variant_project_id,
+            "status": self.status or "Draft",
+            "created_at": self.created_at.isoformat() if self.created_at else "",
+            "updated_at": self.updated_at.isoformat() if self.updated_at else "",
+        }
