@@ -41,6 +41,7 @@ order number and the two IO PDFs, because those belong to the IO.
 """
 
 import json
+import math
 import os
 import re
 import secrets
@@ -4189,6 +4190,34 @@ def api_zipcodes_in_radius():
                                  f"{radius} miles around {origin}. Check the "
                                  f"origin is a real city or ZIP Code, or enter "
                                  f"the list by hand."}), 502
+    # This model has no real geographic reasoning behind it and no dataset of
+    # ZCTA boundaries to check against -- it is asked to "find" a list, and
+    # what it sometimes finds is every ZIP Code in the region rather than the
+    # ones this radius touches. Not hypothetical: a 10-mile radius around
+    # Bristol, CT came back with 2,985 ZIP Codes, where the real answer is
+    # 22 -- roughly the whole of New England, mistaken for one town's radius.
+    # There is no dataset here to confirm the right count either, so this is
+    # a house ceiling rather than a geographic law: generous enough that a
+    # dense multi-borough urban search should clear it (three ZIP Codes per
+    # square mile is already far denser than all but the smallest, most
+    # crowded ZIP Codes in the country), and tight enough to catch the model
+    # answering a different, much larger question than the one it was asked.
+    try:
+        radius_mi = float(radius)
+    except ValueError:
+        radius_mi = 0.0
+    area_sqmi = math.pi * radius_mi * radius_mi
+    plausible_cap = max(80, int(area_sqmi * 3))
+    if len(zips) > plausible_cap:
+        logger.warning(
+            "ZIP-radius lookup for %r + %smi returned an implausible %d ZIP Codes (house cap %d)",
+            origin, radius, len(zips), plausible_cap)
+        return jsonify({"ok": False,
+                        "error": f"The lookup returned {len(zips):,} ZIP Codes for {radius} miles "
+                                 f"around {origin}, which is far more than a radius that size "
+                                 f"should touch -- it looks like the AI answered for a wider region "
+                                 f"rather than filtering by the radius. Enter the ZIP Codes by hand, "
+                                 f"or try again with a narrower origin."}), 502
     return jsonify({"ok": True, "zipcodes": ", ".join(zips), "count": len(zips),
                     "warning": "AI-assisted ZIP-radius results should be reviewed before "
                                "trafficking — ZIP boundaries and radius intersections change."})
