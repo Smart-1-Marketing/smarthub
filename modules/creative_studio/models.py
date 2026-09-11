@@ -489,6 +489,13 @@ class CreativeJob(db.Model):
     project_id = db.Column(db.Integer, db.ForeignKey("cs_projects.id"), index=True)
     client_name = db.Column(db.String(200), default="")
 
+    # WO-CS8. Several render jobs fired from one "Batch render" press carry
+    # the same value here, so the campaign screen can poll one thing --
+    # "how many of this batch are done" -- rather than a rep watching a
+    # list of otherwise-unrelated job rows. "" for every job this predates
+    # and every job not started from a batch.
+    batch_id = db.Column(db.String(40), default="", index=True)
+
     state = db.Column(db.String(20), default="queued", index=True)
     # queued | processing | rendering | uploading | complete | failed
     stage = db.Column(db.String(80), default="")
@@ -513,7 +520,7 @@ class CreativeJob(db.Model):
     def as_dict(self) -> dict:
         return {
             "id": self.id, "kind": self.kind, "project_id": self.project_id,
-            "client_name": self.client_name or "",
+            "client_name": self.client_name or "", "batch_id": self.batch_id or "",
             "state": self.state, "stage": self.stage or "", "progress": self.progress or 0,
             "attempts": self.attempts or 0, "max_attempts": self.max_attempts or 3,
             "timeout_at": self.timeout_at.isoformat() if self.timeout_at else "",
@@ -624,12 +631,21 @@ class CsShareDecision(db.Model):
     ip = db.Column(db.String(64), default="")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # WO-CS8. NULL for an ordinary kind="render" decision, which is already
+    # scoped to one project through `share.project_id` -- this only carries
+    # a value for kind="campaign", where one share covers several assets and
+    # a decision has to say which one it is about. Added column: see
+    # `db._LATE_COLUMNS` for why this table needs `_add_missing_columns()`
+    # rather than the declaration alone.
+    asset_project_id = db.Column(db.Integer, nullable=True)
+
     def to_dict(self) -> dict:
         return {
             "id": self.id, "outcome": self.outcome or "",
             "reviewer_name": self.reviewer_name or "",
             "reviewer_email": self.reviewer_email or "",
             "note": self.note or "",
+            "asset_project_id": self.asset_project_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -662,4 +678,102 @@ class CsShareComment(db.Model):
             "at_seconds": self.at_seconds,
             "timecode": timecode(self.at_seconds),
             "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class CsCampaign(db.Model):
+    """One concept, several lengths/aspects/channels -- WO-CS8. Supersedes
+    `modules.commercial_builder.models.Campaign` for anything built here:
+    that table is a bare (client, name, master_concept) grouping with no
+    screen of its own, and this is the richer record -- offer, CTA, a
+    flight window, a brief -- the Campaigns screen and batch render both
+    need. `cb_campaign_id` is how the two stay joined rather than
+    duplicated: a project already sharing a CB `campaign_id` (built through
+    `start_commercial`'s own "several lengths at once" path, which predates
+    this table) is migrated in rather than orphaned -- see
+    `campaign_spec.migrate_cb_campaigns()`.
+
+    `status` is deliberately not a column. CLAUDE.md's own rule, stated a
+    dozen times over: a state that is a function of other rows must be
+    derived on read, never stored, or two workers -- or a campaign edited
+    from two screens -- come to disagree about which answer is current.
+    `campaign_spec.status_of()` is the one reading.
+
+    Client identity is a name, never a numeric id of this module's own --
+    the same rule `CsProject.client_name` states at the top of this file.
+    """
+    __tablename__ = "cs_campaigns"
+
+    id = db.Column(db.Integer, primary_key=True)
+    client_name = db.Column(db.String(200), default="", index=True)
+    name = db.Column(db.String(300), nullable=False)
+
+    start = db.Column(db.Date, nullable=True)
+    end = db.Column(db.Date, nullable=True)
+
+    offer = db.Column(db.Text, default="")
+    cta = db.Column(db.String(300), default="")
+    brief_json = db.Column(db.Text)
+    brief = JSONField("brief_json")
+
+    # A bare CB `cb_campaigns.id`, if this row was migrated from one --
+    # never a real ForeignKey, since Commercial Builder's own table must
+    # survive independently of this one (the ownership direction CLAUDE.md
+    # states: Creative Studio depends on Commercial Builder, never the
+    # reverse).
+    cb_campaign_id = db.Column(db.Integer, index=True)
+
+    created_by = db.Column(db.String(120), default="")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    assets = db.relationship("CsCampaignAsset", backref="campaign", lazy="dynamic",
+                             cascade="all, delete-orphan",
+                             order_by="CsCampaignAsset.id")
+
+    def as_dict(self) -> dict:
+        return {
+            "id": self.id, "client_name": self.client_name or "",
+            "name": self.name,
+            "start": self.start.isoformat() if self.start else "",
+            "end": self.end.isoformat() if self.end else "",
+            "offer": self.offer or "", "cta": self.cta or "",
+            "brief": self.brief, "cb_campaign_id": self.cb_campaign_id,
+            "created_by": self.created_by or "",
+            "created_at": self.created_at.isoformat() if self.created_at else "",
+            "asset_count": self.assets.count(),
+        }
+
+
+class CsCampaignAsset(db.Model):
+    """One project's place on a campaign -- WO-CS8. A join row rather than a
+    column on `CsProject`, because a project's membership is a fact about
+    the campaign's plan (which channel, which role) and not about the
+    project itself, and a project already carries `parent_project_id` for
+    an entirely different relationship (WO-CS7's own aspect variations) --
+    folding this into that column would make one field answer two
+    unrelated questions.
+
+    `project_id` is unique: a project belongs to at most one campaign,
+    because a project asked to be two different channels' asset at once has
+    no single answer to "does this differ from the campaign".
+    """
+    __tablename__ = "cs_campaign_assets"
+
+    id = db.Column(db.Integer, primary_key=True)
+    campaign_id = db.Column(db.Integer, db.ForeignKey("cs_campaigns.id"),
+                            nullable=False, index=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("cs_projects.id"),
+                           nullable=False, unique=True, index=True)
+
+    channel = db.Column(db.String(40), default="")   # config.CHANNELS
+    role = db.Column(db.String(40), default="")       # free text: "hero", "cutdown", ...
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def as_dict(self) -> dict:
+        return {
+            "id": self.id, "campaign_id": self.campaign_id,
+            "project_id": self.project_id,
+            "channel": self.channel or "", "role": self.role or "",
+            "created_at": self.created_at.isoformat() if self.created_at else "",
         }

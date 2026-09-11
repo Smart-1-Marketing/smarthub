@@ -1557,6 +1557,397 @@ r = client.get(f"/creative-studio/projects/{orphan_id}")
 check("a project with no rendered version yet gets no Create Variations panel",
       b"Create Variations" not in r.data, True)
 
+# ---------------------------------------------------------------------------
+section("WO-CS8: campaign_spec -- status derived, never stored")
+
+from modules.creative_studio import campaign_spec  # noqa: E402
+
+check("no assets is Empty, not Draft", campaign_spec.status_of([]), "Empty")
+check("one Draft asset reads Draft", campaign_spec.status_of(["Draft"]), "Draft")
+check("Draft beats Approved -- the campaign is only as far along as its "
+      "least-advanced asset", campaign_spec.status_of(["Draft", "Approved"]), "Draft")
+check("all Approved reads Approved", campaign_spec.status_of(["Approved", "Approved"]), "Approved")
+check("Changes Requested outranks everything", campaign_spec.status_of(
+    ["Client Review", "Changes Requested", "Approved"]), "Changes Requested")
+
+check("an asset with no offer typed of its own has not departed",
+      campaign_spec.asset_differs({}, "Campaign offer", "Campaign CTA"),
+      {"offer": False, "cta": False})
+check("an asset whose own offer matches the campaign's has not departed",
+      campaign_spec.asset_differs({"offer": "Campaign offer"}, "Campaign offer", ""),
+      {"offer": False, "cta": False})
+check("an asset whose own offer differs from the campaign's is flagged",
+      campaign_spec.asset_differs({"offer": "Something else"}, "Campaign offer", ""),
+      {"offer": True, "cta": False})
+
+check("the render estimate is one creatomate.render unit per asset",
+      campaign_spec.render_estimate(4), 2.0)
+check("a small batch needs no confirmation", campaign_spec.needs_confirmation(2.0), False)
+check("a batch over the threshold needs confirmation", campaign_spec.needs_confirmation(30.0), True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: creating a campaign -- nothing invented against the client book")
+
+r = client.post("/creative-studio/api/campaigns",
+                json={"name": "Fall Push", "client_name": "Some Business Nobody Has Heard Of"})
+check("a typed client that resolves to nobody is refused", r.status_code, 400)
+
+r = client.post("/creative-studio/api/campaigns", json={"name": "Generic Campaign"})
+check("a blank client (generic Smart 1 campaign) is allowed", r.status_code, 200)
+check("  ...and files with no client name", r.get_json()["campaign"]["client_name"], "")
+
+r = client.post("/creative-studio/api/campaigns", json={"name": ""})
+check("an unnamed campaign is refused", r.status_code, 400)
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: resolving a seed template by industry/duration/aspect/type")
+
+with hub_app.app_context():
+    exact_tmpl, exact = cs_binder.resolve_seed_template("hvac", 30, "16:9", "video_commercial")
+    check("an exact match returns the exact template", exact_tmpl.id if exact_tmpl else None, "hvac-30")
+    check("  ...and says so", exact, True)
+
+    general_tmpl, exact2 = cs_binder.resolve_seed_template("restaurant", 30, "9:16",
+                                                           "social_video")
+    check("no restaurant template at 9:16 falls back to the same shape in general",
+          general_tmpl.id if general_tmpl else None, "social-ugc-vertical-30")
+    check("  ...and says it was not an exact match", exact2, False)
+
+    none_tmpl, _exact3 = cs_binder.resolve_seed_template("hvac", 999, "16:9", "video_commercial")
+    check("no template fits a made-up duration", none_tmpl, None)
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: a real campaign, its assets, and the differs chip")
+
+with hub_app.app_context():
+    from modules.creative_studio.models import CsCampaign as CsCampaignModel8
+    from modules.creative_studio.models import CsCampaignAsset as CsCampaignAssetModel8
+    from modules.creative_studio.db import db as cs_db8
+
+    campaign = CsCampaignModel8(client_name="Acme Plumbing", name="Spring Push",
+                                offer="$79 seasonal tune-up", cta="Call today",
+                                created_by="Todd")
+    cs_db8.session.add(campaign)
+    cs_db8.session.commit()
+    campaign_id = campaign.id
+
+asset1, err1 = None, None
+with hub_app.app_context():
+    campaign = CsCampaignModel8.query.get(campaign_id)
+    asset1, err1 = cs_binder.create_campaign_asset(
+        campaign, industry="hvac", duration=30, aspect_ratio="16:9",
+        creative_type="video_commercial", channel="ctv", created_by="Todd")
+    check("adding an asset with a real seed template succeeds", err1, "")
+    check("  ...and joins the campaign", asset1.campaign_id, campaign_id)
+    asset1_project_id = asset1.project_id
+
+    with_no_template, err_no_tmpl = cs_binder.create_campaign_asset(
+        campaign, industry="hvac", duration=999, aspect_ratio="16:9",
+        creative_type="video_commercial", channel="social", created_by="Todd")
+    check("an asset with no matching seed template is refused",
+          with_no_template, None)
+    check("  ...with a readable reason", bool(err_no_tmpl), True)
+
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/assets",
+                json={"industry": "hvac", "duration": 15, "aspect_ratio": "16:9",
+                     "creative_type": "video_commercial", "channel": "social"})
+check("adding a second asset through the API succeeds", r.status_code, 200)
+asset2_project_id = r.get_json()["asset"]["project_id"]
+
+with hub_app.app_context():
+    p1 = CsProjectModel7.query.get(asset1_project_id)
+    p1.brief = {"offer": "A different offer entirely", "cta": campaign.cta}
+    cs_db8.session.commit()
+
+r = client.get(f"/creative-studio/api/campaigns/{campaign_id}")
+check("reading the campaign back succeeds", r.status_code, 200)
+row = r.get_json()["campaign"]
+check("  ...carrying both assets", len(row["assets"]), 2)
+differing = next(a for a in row["assets"] if a["project_id"] == asset1_project_id)
+check("  ...the edited asset's offer chip fires", differing["differs"]["offer"], True)
+untouched = next(a for a in row["assets"] if a["project_id"] == asset2_project_id)
+check("  ...the untouched asset's does not", untouched["differs"]["offer"], False)
+check("  ...status is Empty-to-Draft, i.e. Draft (every asset still a fresh Draft)",
+      row["status"], "Draft")
+
+r = client.get(f"/creative-studio/campaigns/{campaign_id}")
+check("the campaign detail page renders", r.status_code, 200)
+check("  ...naming the campaign", b"Spring Push" in r.data, True)
+check("  ...with the offer-differs chip visible", b"offer differs" in r.data, True)
+
+r = client.get("/creative-studio/campaigns")
+check("the campaigns list page renders", r.status_code, 200)
+check("  ...listing the campaign", b"Spring Push" in r.data, True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: generate all drafts -- one campaign-level call, every asset derived")
+
+from modules.creative_studio import campaign_generation  # noqa: E402
+
+_cs8_calls = []
+
+
+def _fake_chat_json(messages, *, module, purpose, **kw):
+    _cs8_calls.append((module, purpose))
+    return {"headline": "Beat the Ohio heat", "subheadline": "Local and licensed",
+            "body": "Same-day service", "offer": "$79 seasonal tune-up", "cta": "Call today"}
+
+
+from hub import ai as _hub_ai  # noqa: E402
+_orig_chat_json = _hub_ai.chat_json
+_hub_ai.chat_json = _fake_chat_json
+
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/generate-all")
+check("generate-all enqueues a job", r.status_code, 200)
+gen_job_id = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    job = CreativeJob.query.get(gen_job_id)
+    check("the campaign_draft job completes in one tick", job.state, "complete")
+    check("  ...exactly one OpenAI call for the whole campaign", len(_cs8_calls), 1)
+    check("  ...filed under this module and purpose",
+          _cs8_calls[0], ("creative_studio", "campaign_draft"))
+
+    campaign = CsCampaignModel8.query.get(campaign_id)
+    check("the campaign's own brief is written", campaign.brief.get("headline"),
+          "Beat the Ohio heat")
+
+    p1 = CsProjectModel7.query.get(asset1_project_id)
+    check("asset 1's own already-typed offer is kept -- a rep's answer beats a derived one",
+          p1.brief.get("offer"), "A different offer entirely")
+    check("  ...but its empty headline is filled from the campaign brief",
+          p1.brief.get("headline"), "Beat the Ohio heat")
+    check("  ...and its storyboard was auto-built", bool(p1.cb_project_id), True)
+
+    p2 = CsProjectModel7.query.get(asset2_project_id)
+    check("asset 2 had nothing typed, so its whole brief is derived",
+          p2.brief.get("offer"), "$79 seasonal tune-up")
+    check("  ...and its storyboard was auto-built too", bool(p2.cb_project_id), True)
+
+_hub_ai.chat_json = _orig_chat_json
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: batch render -- shared batch_id, one asset failing never cancels the rest")
+
+from modules.commercial_builder.services import creatomate_service as _cs8_cta
+from modules.commercial_builder.services import qc_service as _cs8_qc
+
+_orig_run_qc8 = _cs8_qc.run_qc
+_orig_submit8 = _cs8_cta.submit_render
+_orig_check8 = _cs8_cta.check_render
+_cs8_qc.run_qc = lambda *a, **k: {"_all_passed": True}
+_cs8_cta.submit_render = lambda source: {
+    "id": "rend_cs8", "status": "rendering", "url": None, "error": None}
+_cs8_cta.check_render = lambda rid: {
+    "id": rid, "status": "succeeded", "url": "https://cdn.example.test/cs8.mp4", "error": None}
+
+with hub_app.app_context():
+    unopened = CsProjectModel7(name="Never opened for batch", creative_type="video_commercial",
+                               client_name="Acme Plumbing", status="Draft")
+    cs_db8.session.add(unopened)
+    cs_db8.session.commit()
+    unopened_id = unopened.id
+    unopened_asset = CsCampaignAssetModel8(campaign_id=campaign_id, project_id=unopened_id,
+                                           channel="ott")
+    cs_db8.session.add(unopened_asset)
+    cs_db8.session.commit()
+
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/render",
+                json={"project_ids": [asset1_project_id, asset2_project_id, unopened_id]})
+check("a small batch (below the confirm threshold) renders without confirmation",
+      r.status_code, 200)
+batch_body = r.get_json()
+check("  ...two of three assets queued", len(batch_body["rendered"]), 2)
+check("  ...the unopened one refused, not silently dropped", len(batch_body["refused"]), 1)
+check("  ...naming the unopened project", batch_body["refused"][0]["project_id"], unopened_id)
+check("  ...every queued job shares one batch_id",
+      len({j["job"]["batch_id"] for j in batch_body["rendered"]}), 1)
+batch_id = batch_body["batch_id"]
+
+r = client.get(f"/creative-studio/api/campaigns/{campaign_id}/batch/{batch_id}")
+check("batch status answers before any tick", r.status_code, 200)
+check("  ...none done yet", r.get_json()["done"], 0)
+
+for _ in batch_body["rendered"]:
+    cs_jobs.job_sweep(hub_app)
+    cs_jobs.job_sweep(hub_app)
+
+r = client.get(f"/creative-studio/api/campaigns/{campaign_id}/batch/{batch_id}")
+check("both queued jobs complete", r.get_json()["done"], 2)
+
+r = client.get(f"/creative-studio/api/campaigns/{campaign_id}/batch/not-a-real-batch")
+check("a batch id nothing recognizes 404s", r.status_code, 404)
+
+# A batch above the threshold needs the campaign's own name typed back.
+os.environ["CS_BATCH_CONFIRM_USD"] = "0.10"
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/render",
+                json={"project_ids": [asset1_project_id]})
+check("above the (lowered) threshold, an unconfirmed batch is refused", r.status_code, 409)
+check("  ...naming the reason", r.get_json()["error"], "confirm_required")
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/render",
+                json={"project_ids": [asset1_project_id], "confirm": "not the campaign name"})
+check("a wrong typed confirmation is still refused", r.status_code, 409)
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/render",
+                json={"project_ids": [asset1_project_id], "confirm": "Spring Push"})
+check("typing the campaign's own name confirms it", r.status_code, 200)
+os.environ["CS_BATCH_CONFIRM_USD"] = "25"
+
+_cs8_qc.run_qc = _orig_run_qc8
+_cs8_cta.submit_render = _orig_submit8
+_cs8_cta.check_render = _orig_check8
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: send campaign for approval -- per-asset decisions, one round counter")
+
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/share")
+check("sending the campaign for approval succeeds", r.status_code, 200)
+campaign_share = r.get_json()["share"]
+check("  ...kind is campaign", campaign_share["kind"], "campaign")
+check("  ...round 1", campaign_share["round"], 1)
+campaign_token = campaign_share["token"]
+
+with hub_app.app_context():
+    p1 = CsProjectModel7.query.get(asset1_project_id)
+    p2 = CsProjectModel7.query.get(asset2_project_id)
+    check("every asset moves to Client Review", (p1.status, p2.status),
+          ("Client Review", "Client Review"))
+
+r = anon.get(f"/review/{campaign_token}")
+check("the client campaign review page renders with no session at all", r.status_code, 200)
+check("  ...no sidebar", b"s1hub-sidebar" not in r.data and b"hub-sidebar" not in r.data, True)
+check("  ...naming the first asset", b"Spring Push \xe2\x80\x94 Connected TV" in r.data, True)
+check("  ...and the second, independently", b"Spring Push \xe2\x80\x94 Social" in r.data, True)
+check("  ...carries the campaign name", b"Spring Push" in r.data, True)
+
+r = anon.post(f"/review/{campaign_token}/decide",
+              json={"outcome": "approved", "name": "Pat", "email": "pat@acmeplumbing.test"})
+check("deciding with no asset_project_id is refused -- a campaign decision "
+      "must say which asset it is about", r.status_code, 400)
+
+r = anon.post(f"/review/{campaign_token}/decide",
+              json={"outcome": "approved", "name": "Pat", "email": "pat@acmeplumbing.test",
+                   "asset_project_id": 999999})
+check("an asset_project_id not on this campaign is refused", r.status_code, 400)
+
+r = anon.post(f"/review/{campaign_token}/decide",
+              json={"outcome": "approved", "name": "Pat", "email": "pat@acmeplumbing.test",
+                   "asset_project_id": asset1_project_id})
+check("approving asset 1 succeeds", r.status_code, 200)
+
+r = anon.post(f"/review/{campaign_token}/decide",
+              json={"outcome": "changes_required", "name": "Pat", "email": "pat@acmeplumbing.test",
+                   "asset_project_id": asset2_project_id, "note": "Wrong phone number"})
+check("requesting changes on asset 2 succeeds independently", r.status_code, 200)
+
+with hub_app.app_context():
+    p1 = CsProjectModel7.query.get(asset1_project_id)
+    p2 = CsProjectModel7.query.get(asset2_project_id)
+    check("asset 1 is Approved", p1.status, "Approved")
+    check("  ...asset 2 is Changes Requested, independently", p2.status, "Changes Requested")
+
+    from modules.creative_studio.models import CsShareDecision as CsShareDecisionModel8
+    same_reviewer_rows = CsShareDecisionModel8.query.filter_by(
+        share_id=campaign_share["id"], reviewer_email="pat@acmeplumbing.test").all()
+    check("one reviewer answering about two assets leaves two rows, not one "
+          "overwriting the other", len(same_reviewer_rows), 2)
+
+# Answering again on the SAME asset replaces that answer rather than adding a row.
+r = anon.post(f"/review/{campaign_token}/decide",
+              json={"outcome": "approved", "name": "Pat", "email": "pat@acmeplumbing.test",
+                   "asset_project_id": asset2_project_id})
+check("correcting the same reviewer's answer on the same asset succeeds", r.status_code, 200)
+with hub_app.app_context():
+    rows = CsShareDecisionModel8.query.filter_by(
+        reviewer_email="pat@acmeplumbing.test", asset_project_id=asset2_project_id).all()
+    check("  ...and replaces it rather than adding a second row", len(rows), 1)
+    check("  ...reading the corrected outcome", rows[0].outcome, "approved")
+
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/share")
+check("sending a second round succeeds", r.status_code, 200)
+check("  ...round 2", r.get_json()["share"]["round"], 2)
+
+r = anon.get(f"/review/{campaign_token}")
+check("round 1's now-revoked token answers 410, not a bare 404", r.status_code, 410)
+
+r = client.get(f"/creative-studio/api/campaigns/{campaign_id}/shares")
+check("listing campaign shares succeeds", r.status_code, 200)
+check("  ...both rounds present", len(r.get_json()["shares"]), 2)
+
+r = client.post("/creative-studio/api/campaigns/999999/share")
+check("sending a campaign that does not exist 404s", r.status_code, 404)
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: radio assets appear read-only, matched by exact client name")
+
+try:
+    from modules.radio_scripts.db import db as _rs_db
+    from modules.radio_scripts.models import RadioScriptSet
+    _radio_available = True
+except Exception:                                             # noqa: BLE001
+    _radio_available = False
+
+if _radio_available:
+    with hub_app.app_context():
+        rs = RadioScriptSet(client_name="Acme Plumbing", actor="Todd")
+        rs.brief_json = '{"market": "Columbus", "package": "Drive Time"}'
+        _rs_db.session.add(rs)
+        _rs_db.session.commit()
+
+    r = client.get(f"/creative-studio/campaigns/{campaign_id}")
+    check("the campaign page lists the exactly-matched radio set", r.status_code, 200)
+    check("  ...marked read-only", b"Read-only" in r.data, True)
+else:
+    print("  (skipped -- modules.radio_scripts not importable in this environment)")
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: migrating a Commercial Builder Campaign row")
+
+with hub_app.app_context():
+    from modules.commercial_builder.models import Campaign as CbCampaignModel8
+    from modules.commercial_builder.models import CommercialProject as CbProjectModel8
+    from modules.commercial_builder.models import Client as CbClientModel8
+    from modules.commercial_builder.db import db as cb_db8
+
+    cb_client = CbClientModel8.query.filter_by(name="Acme Plumbing").first()
+    if cb_client is None:
+        cb_client = CbClientModel8(name="Acme Plumbing")
+        cb_db8.session.add(cb_client)
+        cb_db8.session.commit()
+
+    cb_campaign = CbCampaignModel8(client_id=cb_client.id, name="Legacy Multi-Length Build")
+    cb_db8.session.add(cb_campaign)
+    cb_db8.session.commit()
+
+    # A CB project this module has never heard of -- must not be migrated in.
+    cb_db8.session.add(CbProjectModel8(client_id=cb_client.id, campaign_id=cb_campaign.id,
+                                       title="Untouched by Studio", length_seconds=30,
+                                       commercial_type="stock_vo", status="draft"))
+    # A CB project Creative Studio HAS bound -- but NOT already a member of
+    # some other cs_campaign (a project belongs to at most one). Reuse the
+    # WO-CS7 project's own storyboard, which has a cb_project_id and has
+    # never been added to any campaign.
+    standalone = CsProjectModel7.query.get(cs_project_id)
+    linked_cb_project = CbProjectModel8.query.get(standalone.cb_project_id)
+    linked_cb_project.campaign_id = cb_campaign.id
+    cb_db8.session.commit()
+    cb_campaign_id = cb_campaign.id
+
+    migrated = campaign_spec.migrate_cb_campaigns(actor="system")
+    check("migrating finds the one legacy campaign with a bound project", migrated, 1)
+
+    new_row = CsCampaignModel8.query.filter_by(cb_campaign_id=cb_campaign_id).first()
+    check("  ...creates a cs_campaigns row for it", new_row is not None, True)
+    check("  ...naming it after the CB campaign", new_row.name, "Legacy Multi-Length Build")
+    linked_assets = CsCampaignAssetModel8.query.filter_by(campaign_id=new_row.id).all()
+    check("  ...joining only the ONE project Studio actually bound "
+          "(never the untouched sibling)", len(linked_assets), 1)
+    check("  ...that project is the one Studio knows", linked_assets[0].project_id, cs_project_id)
+
+    migrated_again = campaign_spec.migrate_cb_campaigns(actor="system")
+    check("running the migration again is a no-op", migrated_again, 0)
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)

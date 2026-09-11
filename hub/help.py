@@ -2270,6 +2270,15 @@ REGISTRY: list[Help] = [
        "flagged for a change-order conversation rather than refused -- the "
        "client is still served."),
 
+    # ---------------- Creative Studio (WO-CS8: campaigns) ------------------
+    _h("creative_studio.campaigns", "One concept, several assets",
+       "A campaign shares one offer and one CTA across every channel it "
+       "covers. 'Generate all drafts' writes that shared brief once and "
+       "derives each asset's own copy from it -- no asset asks the model "
+       "twice. Nothing renders until you press Render, and a batch above "
+       "the confirmation threshold asks you to type the campaign's own "
+       "name before it spends anything."),
+
     # ---------------- Creative Studio (WO-CS7: aspect variations) ----------
     _h("creative_studio.variations", "Preview before you render",
        "Pick a size and this builds the same scenes, same footage, same "

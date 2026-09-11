@@ -29,6 +29,14 @@ _LATE_COLUMNS = [
     ("cs_projects", "parent_project_id", "INTEGER"),
     ("cs_projects", "variation_kind", "VARCHAR(20)"),
     ("cs_projects", "preview_url", "VARCHAR(1000)"),
+    # WO-CS8: several render jobs from one "Batch render" press share a
+    # batch_id, so the campaign screen can report "N of M done" rather than
+    # a rep watching M separate job rows with nothing tying them together.
+    ("creative_jobs", "batch_id", "VARCHAR(40)"),
+    # WO-CS8: which campaign asset a kind="campaign" review decision is
+    # about -- NULL for the ordinary kind="render" decisions this column
+    # predates.
+    ("creative_share_decisions", "asset_project_id", "INTEGER"),
 ]
 
 

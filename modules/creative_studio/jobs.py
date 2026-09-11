@@ -822,6 +822,83 @@ def _run_variant(job: CreativeJob) -> None:
 _RUNNERS["variant"] = _run_variant
 
 
+def _run_campaign_draft(job: CreativeJob) -> None:
+    """One OpenAI call for a whole campaign, then every asset's brief
+    derived from it and its storyboard auto-built -- WO-CS8 item 3.
+    Single-tick, like `_run_voice`: `hub.ai.chat_json` is a synchronous
+    request, so there is nothing here to poll for on a later sweep pass.
+
+    `job.project_id` is deliberately unset -- a campaign is not a project,
+    and `campaign_id` rides in the payload instead, the same shape the
+    `heygen` job uses for `scene_id`.
+    """
+    from . import binder
+    from .campaign_generation import generate_campaign_brief
+    from .models import CsCampaign, CsCampaignAsset, CsProject
+
+    campaign_id = (job.payload or {}).get("campaign_id")
+    campaign = CsCampaign.query.get(campaign_id) if campaign_id else None
+    if campaign is None:
+        _fail(job, "That campaign no longer exists.")
+        return
+
+    job.state = "processing"
+    job.stage = "Writing the campaign brief"
+    db.session.commit()
+
+    try:
+        brief = generate_campaign_brief(campaign)
+    except Exception as exc:                              # noqa: BLE001
+        _fail(job, f"Could not write the campaign brief: {exc}")
+        return
+
+    usage.record("openai", "campaign_draft", client_name=campaign.client_name,
+                quantity=1, unit="call", actor=job.created_by)
+
+    campaign.brief = brief
+    db.session.commit()
+
+    job.stage = "Building each asset's storyboard"
+    db.session.commit()
+
+    built, skipped = [], []
+    assets = CsCampaignAsset.query.filter_by(campaign_id=campaign.id).all()
+    for asset in assets:
+        project = CsProject.query.get(asset.project_id)
+        if project is None:
+            continue
+        if project.cb_project_id:
+            # Already opened -- a rep may have been editing it since it was
+            # added. Deriving a fresh brief onto a storyboard somebody is
+            # mid-edit on would be the `set_music` trap CLAUDE.md names for
+            # the Commercial Builder's own music panel, one screen over.
+            skipped.append(project.id)
+            continue
+        merged = dict(project.brief or {})
+        for key, value in brief.items():
+            if value and not str(merged.get(key) or "").strip():
+                merged[key] = value
+        project.brief = merged
+        db.session.commit()
+
+        result = binder.bind(project) if project.template_id else \
+            binder.bind_for_generation(project)
+        if result.get("ok"):
+            built.append(project.id)
+        else:
+            skipped.append(project.id)
+
+    job.state = "complete"
+    job.stage = "Complete"
+    job.progress = 100
+    job.output = {"brief": brief, "built": built, "skipped": skipped}
+    job.finished_at = datetime.utcnow()
+    db.session.commit()
+
+
+_RUNNERS["campaign_draft"] = _run_campaign_draft
+
+
 def sweep(app=None, limit: int = 20) -> dict:
     """Advance every queued/in-progress job by one step. Registered on
     `hub/scheduler.py`'s JOBS table; never called from a request."""

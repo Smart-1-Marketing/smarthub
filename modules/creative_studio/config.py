@@ -91,7 +91,7 @@ PROJECT_STATUSES = (
 # dict is refused at enqueue time rather than sitting in the queue forever
 # looking like a stuck job -- the sweep this file's own JOBS entry describes.
 JOB_KINDS = ("index", "script", "storyboard", "image", "voice", "heygen",
-             "render", "variant", "pdf")
+             "render", "variant", "pdf", "campaign_draft")
 
 # Stages shown to the user, in the order Section 11 gives. A job's `stage`
 # is free text so a kind can name its own step, but these are the ones the
@@ -106,7 +106,7 @@ STAGE_ORDER = (
 # before the sweep gives up on it.
 JOB_TIMEOUT_MINUTES = {
     "index": 10, "script": 5, "storyboard": 5, "image": 8, "voice": 8,
-    "heygen": 20, "render": 30, "variant": 15, "pdf": 5,
+    "heygen": 20, "render": 30, "variant": 15, "pdf": 5, "campaign_draft": 10,
 }
 
 # Renders bill; a generation retried three times over is still cheaper than
@@ -158,3 +158,30 @@ PROVIDER_RATES = {
     ("heygen", "spokesperson"): 1.50,
     ("creatomate", "render"): 0.50,
 }
+
+
+# WO-CS8. What an asset is FOR on a campaign, distinct from its aspect ratio
+# or duration -- a 9:16 can be a "social" asset or a "ctv" bumper, and the
+# channel is what a media plan actually buys against. A closed vocabulary
+# for the reason `hub/creative_specs.py` keeps one for a unit id: free text
+# here is a filter that means something different on every campaign.
+CHANNELS = ("ctv", "youtube", "social", "ott", "display", "audio")
+CHANNEL_LABELS = {
+    "ctv": "Connected TV", "youtube": "YouTube", "social": "Social",
+    "ott": "OTT", "display": "Display", "audio": "Audio",
+}
+
+
+def batch_confirm_threshold_usd() -> float:
+    """The estimated cost, in dollars, above which a batch render needs the
+    rep to type the number rather than just click a button -- WO-CS8 item 4.
+    `CS_BATCH_CONFIRM_USD` on the deployment, defaulting to 25 (the spec's
+    own number). Read at call time, never cached: this is exactly the kind
+    of value somebody corrects mid-incident, the reason
+    `hub/config.py.public_base_origin()` reads its own setting per call
+    rather than once at import."""
+    import os
+    try:
+        return float(os.environ.get("CS_BATCH_CONFIRM_USD", "25") or "25")
+    except (TypeError, ValueError):
+        return 25.0

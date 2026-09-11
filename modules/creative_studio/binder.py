@@ -403,3 +403,85 @@ def bind_variation(project) -> dict:
         pass
 
     return {"ok": True, "cb_project_id": cb_project.id}
+
+
+# --------------------------------------------------------------- WO-CS8
+
+def resolve_seed_template(industry: str, duration, aspect_ratio: str,
+                          creative_type: str):
+    """The published seed template that fits a campaign asset's channel --
+    WO-CS8 item 2's own words: "resolves the seed template." There is no
+    `archetype` or `platform` field on `cs_templates` yet (that taxonomy is
+    WO-CS10's own job, and building it early would be exactly the premature
+    table CLAUDE.md warns against building ahead of the work order that
+    actually reads it) -- so the lookup is the four fields the table
+    genuinely has: industry, duration, aspect ratio and creative type.
+
+    Exact match first. Failing that, the same duration/aspect/type in
+    `general` -- a channel with a real duration and aspect nearly always
+    has *some* template that fits, and a rep would rather start from a
+    close template than from nothing. Returns `(template, exact: bool)`;
+    `template` is `None` only when no published template matches even
+    loosely, which the caller reports by name rather than silently
+    building an empty project.
+    """
+    q = CsTemplate.query.filter_by(status="published", duration=duration,
+                                   aspect_ratio=aspect_ratio, creative_type=creative_type)
+    exact = q.filter_by(industry=industry).first()
+    if exact is not None:
+        return exact, True
+    fallback = q.filter_by(industry="general").first()
+    if fallback is not None:
+        return fallback, False
+    return q.first(), False
+
+
+def create_campaign_asset(campaign, *, industry: str, duration, aspect_ratio: str,
+                          creative_type: str, channel: str = "", role: str = "",
+                          created_by: str = ""):
+    """Add one asset to a campaign -- WO-CS8 item 2's "Add asset": resolve a
+    seed template for the channel asked for, create the project it becomes,
+    and join it to the campaign. Never renders and never calls a model --
+    the project is a `Draft` the same way any other new project is, until
+    "Generate all drafts" or a rep's own edits give it something to render.
+
+    Returns `(CsCampaignAsset | None, error: str)`.
+    """
+    from .db import db
+    from .models import CsCampaignAsset
+
+    tmpl, exact = resolve_seed_template(industry, duration, aspect_ratio, creative_type)
+    if tmpl is None:
+        return None, (f"No published template fits a {duration}s {aspect_ratio} "
+                      f"{creative_type or 'video'} asset yet.")
+
+    project = CsProject(
+        client_name=campaign.client_name or "",
+        name=f"{campaign.name} — {config_channel_label(channel)}"[:300],
+        creative_type=tmpl.creative_type, template_id=tmpl.id,
+        template_version=tmpl.version, duration=tmpl.duration,
+        aspect_ratio=tmpl.aspect_ratio, status="Draft", created_by=created_by)
+    project.brief = {"offer": campaign.offer or "", "cta": campaign.cta or ""}
+    db.session.add(project)
+    db.session.flush()
+
+    asset = CsCampaignAsset(campaign_id=campaign.id, project_id=project.id,
+                            channel=channel, role=role)
+    db.session.add(asset)
+    db.session.commit()
+
+    try:
+        from hub import audit
+        audit.log("creative_studio", "campaign_asset_added", actor=created_by,
+                  client=campaign.client_name or None, project=project.name,
+                  detail=f"{campaign.name} · {channel or 'no channel'}"
+                        + ("" if exact else " (closest template, not an exact match)"))
+    except Exception:                                     # noqa: BLE001
+        pass
+
+    return asset, ""
+
+
+def config_channel_label(channel: str) -> str:
+    from . import config
+    return config.CHANNEL_LABELS.get(channel, channel or "Asset")
