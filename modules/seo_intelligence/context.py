@@ -39,19 +39,17 @@ def _memory(client_id):
     try:
         row = SEOMemory.query.filter_by(client_id=client_id).first()
     except Exception:                                 # noqa: BLE001
-        row = None
-        unreachable = True
+        pass                       # only this falls through to the file below
     else:
-        unreachable = False
-        if row is not None:
-            return (_loads(row.memory_json, {}),
-                    str(row.source_week) if row.source_week else None,
-                    "SmartHub weekly Google Search Console SEO Intelligence",
-                    False)
+        if row is None:
+            return None, None, "", False              # nobody has one yet
+        return (_loads(row.memory_json, {}),
+                str(row.source_week) if row.source_week else None,
+                "SmartHub weekly Google Search Console SEO Intelligence",
+                False)
 
-    if not unreachable:
-        return None, None, "", False                  # nobody has one yet
-
+    # Reached only where the query raised, which is the whole condition the
+    # mirrored file exists for.
     mirrored = read_client(client_id)
     if not isinstance(mirrored, dict):
         return None, None, "", True
