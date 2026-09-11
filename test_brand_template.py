@@ -123,7 +123,7 @@ check("none of that wrote anything",
 
 
 # =====================================================================
-section("A colour needs no offer to type — it is a rep's own answer")
+section("A color needs no offer to type — it is a rep's own answer")
 # =====================================================================
 
 typed = brand_template.save("Acme Plumbing", "acmeplumbing.com",
@@ -136,7 +136,7 @@ typed_kit = client_brand.brand_kit("Acme Plumbing", "acmeplumbing.com")
 check("it draws on the card as its own swatch",
       any(c["hex"] == "#00FF00" for c in typed_kit["palette"]), True)
 typed_swatch = next(c for c in typed_kit["palette"] if c["hex"] == "#00FF00")
-check("labelled as typed in, not observed", typed_swatch["origin"], "manual")
+check("labeled as typed in, not observed", typed_swatch["origin"], "manual")
 check("clearing it always works",
       brand_template.save("Acme Plumbing", "acmeplumbing.com",
                           "secondary", "")["ok"], True)
@@ -216,7 +216,7 @@ check("with nothing confirmed, the raw order (svg first) is back",
 
 
 # =====================================================================
-section("Brandfetch answering differently does not undo a typed colour")
+section("Brandfetch answering differently does not undo a typed color")
 # =====================================================================
 
 # Simulate Brandfetch answering differently since the pick was confirmed:
