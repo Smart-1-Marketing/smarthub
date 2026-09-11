@@ -16,6 +16,7 @@ written to disk -- this talks to the live Hub, not to this checkout.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -80,16 +81,12 @@ def cmd_show(args) -> int:
 
 def cmd_reply(args) -> int:
     sess = _session()
-    files = {}
-    if args.file:
-        files["file"] = open(args.file, "rb")
-    try:
+    opener = open(args.file, "rb") if args.file else contextlib.nullcontext()
+    with opener as fh:
         resp = sess.post(
             f"{BASE_URL}/api/qa-tasks/{args.task_id}/respond",
-            data={"body": args.body}, files=files or None, timeout=30)
-    finally:
-        for fh in files.values():
-            fh.close()
+            data={"body": args.body}, files={"file": fh} if fh else None,
+            timeout=30)
     body = resp.json()
     if not body.get("ok"):
         print(body.get("error", "could not post"), file=sys.stderr)
