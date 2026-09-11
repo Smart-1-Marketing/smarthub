@@ -97,6 +97,11 @@ STATUS_LABEL = {
 ASSIGNEE_STATES = (OPEN, NEEDS_MORE)
 OWNER_STATES = (ANSWERED,)
 
+# A response nobody has to act on, the third `kind` the module docstring
+# already names as the obvious next addition -- a "claim" is a reassignment
+# recorded where the answer will be, not a reply and not a request.
+CLAIM = "claim"
+
 
 def _now() -> _dt.datetime:
     return _dt.datetime.now(_dt.timezone.utc)
@@ -573,6 +578,85 @@ def reopen(task_id: int, *, actor_email: str) -> QaTask:
     task.owner_seen_at = now
     db.session.commit()
     _log("reopened", actor=actor_email, task=task.id, target=task.target_label)
+    return task
+
+
+def _delegates() -> dict[str, set[str]]:
+    """delegate email -> the principals' tasks they may pick up.
+
+    `QA_TASK_DELEGATES` is "delegate:principal,delegate:principal,...". Unset
+    means nobody may claim anybody's task -- claiming is off by construction
+    until somebody names who stands in for whom, the way `NOT_REQUESTED` and
+    `WRITE_EXEMPT` elsewhere in this Hub name an absence rather than leaving
+    it to be inferred. Read fresh on every call rather than cached: this is a
+    small string, and a cache here is one more thing that would need
+    invalidating the day the mapping changes.
+    """
+    raw = os.environ.get("QA_TASK_DELEGATES", "")
+    out: dict[str, set[str]] = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if not pair or ":" not in pair:
+            continue
+        delegate, principal = pair.split(":", 1)
+        delegate = delegate.strip().lower()
+        principal = principal.strip().lower()
+        if delegate and principal:
+            out.setdefault(delegate, set()).add(principal)
+    return out
+
+
+def may_claim(delegate_email: str, principal_email: str) -> bool:
+    delegate_email = (delegate_email or "").strip().lower()
+    principal_email = (principal_email or "").strip().lower()
+    return bool(principal_email) and principal_email in _delegates().get(delegate_email, set())
+
+
+def claim(task_id: int, *, actor_email: str, actor_name: str) -> QaTask:
+    """Take over somebody else's task. A named stand-in, never a guess.
+
+    This is not "anyone can", the way raising a task is: handing somebody's
+    work to an account they never chose is the confident wrong answer this
+    codebase keeps undoing, one queue over. `respond()` already trusts
+    exactly two people with a task -- the assignee and the assigner -- and a
+    delegate is neither, so the caller has to be named in `QA_TASK_DELEGATES`
+    for the task's *current* assignee, checked here rather than left to
+    whichever caller remembers to ask.
+
+    The old assignee is not silently dropped: the claim is posted into the
+    task's own thread, so anyone who opens it later -- including the person
+    it was originally for -- can see what happened and who did it, rather
+    than the task simply reading as though it had always belonged to whoever
+    holds it now.
+    """
+    task = QaTask.query.get(int(task_id))
+    if task is None:
+        raise QaTaskError("That task could not be found.")
+    if task.status not in ASSIGNEE_STATES:
+        raise QaTaskError("This task is not waiting on an answer, so there "
+                          "is nothing to pick up.")
+
+    email = (actor_email or "").strip().lower()
+    if not may_claim(email, task.assigned_to_email):
+        raise QaTaskError(
+            "You are not on file as standing in for "
+            f"{task.assigned_to_name or task.assigned_to_email or 'this assignee'}.")
+
+    from_email = task.assigned_to_email
+    from_name = task.assigned_to_name or from_email
+    now = _now()
+    task.assigned_to_email = email[:255]
+    task.assigned_to_name = (actor_name or "").strip()[:160]
+    # Freshly assigned, so it is unread for whoever holds it now.
+    task.assignee_seen_at = None
+    task.last_activity_at = now
+    db.session.add(QaResponse(
+        task_id=task.id, author_email=email[:255],
+        author_name=(actor_name or "").strip()[:160], kind=CLAIM,
+        body=f"Picked this up on {from_name}'s behalf.", created_at=now))
+    db.session.commit()
+    _log("claimed", actor=email, task=task.id, target=task.target_label,
+         from_assignee=from_email)
     return task
 
 
