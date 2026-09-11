@@ -19,19 +19,22 @@ alike, the same shape `hub/proposal_spec.client_safe()` and
   silently rewritten, because inventing a *different* wrong answer is worse
   than leaving the placeholder visible for a rep to confirm before launch.
 * **Storms are not a promotion.** Any alert-driven trigger's copy — not
-  only `storm-watch`, but `hvac`'s `storm-power-risk` too — is checked
-  against a small blocklist: no jokes, no urgency language that could read
-  as encouraging someone to drive in a warned area.
+  only `storm-watch`, but `hvac`'s `storm-power-risk` and `retail`'s
+  `storm-prep` too — is checked against a small blocklist: no jokes, no
+  urgency language that could read as encouraging someone to drive in a
+  warned area.
 
 **The angle is written to the vertical, not to a swapped-in name.** A
-restaurant ad invites ("come sit outside"); an HVAC ad warns or reminds
-("book this before it fails"). One generic house template with the
-business name dropped in would answer a hard-freeze ad with "The weather's
-right for Acme Heating & Air" — grammatical, and wrong for what the ad is
-for — so `_house_draft_restaurant()` and `_house_draft_hvac()` are two
-separate templates per angle, and `_house_draft()` dispatches on
-`Trigger.vertical` rather than guessing from the trigger's tags. The model
-prompt carries the same split, through `_PROMPT_CONTEXT`.
+restaurant ad invites ("come sit outside"), an HVAC ad warns or reminds
+("book this before it fails"), a retail ad is a purchase trigger ("stock
+up before it's gone"). One generic house template with the business name
+dropped in would answer a hard-freeze ad with "The weather's right for
+Acme Heating & Air" — grammatical, and wrong for what the ad is for — so
+`_house_draft_restaurant()`, `_house_draft_hvac()` and
+`_house_draft_retail()` are three separate templates per angle, and
+`_house_draft()` dispatches on `Trigger.vertical` rather than guessing
+from the trigger's tags. The model prompt carries the same split, through
+`_PROMPT_CONTEXT`.
 """
 from __future__ import annotations
 
@@ -100,16 +103,38 @@ def _house_draft_hvac(trig, name: str, angle: str) -> tuple[str, str]:
     return by_angle.get(angle, by_angle["Direct"])
 
 
+def _house_draft_retail(trig, name: str, angle: str) -> tuple[str, str]:
+    # Neither an invitation nor a service reminder -- a purchase trigger,
+    # closer to a stock-up call. "stock-up" and "emergency" tags get the
+    # urgent framing; everything else (a mood lift, a seasonal browse) gets
+    # the softer one.
+    stock_up = "stock-up" in trig.tags or "emergency" in trig.tags
+    by_angle = {
+        "Direct": (f"{trig.name} at {name}",
+                  f"{trig.condition_label} — {name} has what you need today."),
+        "Comfort": ((f"Stock up before it's gone, {name}" if stock_up
+                    else f"New for your home at {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready for this weather",
+                       f"{trig.reason} Stop by or shop online today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
 _HOUSE_DRAFT_BY_VERTICAL = {
     "restaurant": _house_draft_restaurant,
     "hvac": _house_draft_hvac,
+    "retail": _house_draft_retail,
 }
+
+_FALLBACK_NAME = {"restaurant": "your table", "hvac": "your business",
+                  "retail": "your store"}
 
 
 def _house_draft(trigger_id: str, client_name: str, angle: str) -> dict:
     """A deterministic, no-model draft. Always available, always safe."""
     trig = TRIGGERS[trigger_id]
-    fallback_name = "your table" if trig.vertical == "restaurant" else "your business"
+    fallback_name = _FALLBACK_NAME.get(trig.vertical, "your business")
     name = client_name or fallback_name
     write = _HOUSE_DRAFT_BY_VERTICAL.get(trig.vertical, _house_draft_restaurant)
     headline, primary = write(trig, name, angle)
@@ -165,6 +190,7 @@ def _guardrail(draft: dict, trigger_id: str) -> dict:
 _PROMPT_CONTEXT = {
     "restaurant": {"noun": "restaurant", "notes_label": "Menu or voice notes"},
     "hvac": {"noun": "HVAC / home comfort company", "notes_label": "Service notes"},
+    "retail": {"noun": "retail / home goods store", "notes_label": "Inventory or promo notes"},
 }
 
 
