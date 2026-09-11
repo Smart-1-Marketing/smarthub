@@ -95,13 +95,82 @@ function render(data){state=data;$('#inactiveCount').textContent=data.inactive.l
  $('#skippedBody').innerHTML=data.skipped.length?data.skipped.map(rowSkipped).join(''):'<tr><td colspan="6" class="empty">Nothing skipped.</td></tr>';
  const bits=[];if(data.source_error)bits.push(data.source_error);if(data.errors?.length)bits.push(data.errors.join(' | '));show(bits.join(' — ')); bind();}
 function bind(){document.querySelectorAll('[data-skip]').forEach(b=>b.onclick=()=>openSkip(JSON.parse(decodeURIComponent(b.dataset.skip))));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>openDelete(JSON.parse(decodeURIComponent(b.dataset.delete))));document.querySelectorAll('[data-unskip]').forEach(b=>b.onclick=()=>unskip(JSON.parse(decodeURIComponent(b.dataset.unskip))))}
-async function load(force=false){$('#refresh').disabled=true;$('#refresh').innerHTML='<span class="spinner"></span>Scanning';show('');try{const r=await fetch(`api/scan${force?'?force=1':''}`,{headers:{Accept:'application/json'}});const d=await r.json();if(!r.ok)throw new Error(d.error||'Scan failed');render(d)}catch(e){show(e.message);$('#inactiveBody').innerHTML='<tr><td colspan="9" class="empty">Scan failed. Use Run fresh scan to retry.</td></tr>'}finally{$('#refresh').disabled=false;$('#refresh').textContent='Run fresh scan'}}
+let pollTimer=null;
+function stopPolling(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
+function setScanningUI(on){$('#refresh').disabled=on;$('#refresh').innerHTML=on?'<span class="spinner"></span>Scanning':'Run fresh scan'}
+
+// The scan is minutes, not seconds, and slower still on a day this
+// account's Tag Manager quota is already stretched -- it paces itself
+// against 429s rather than bursting through them. Running it inline on the
+// request left the page with nothing to show but a static "Scanning..."
+// for however long that took, indistinguishable from a hung request. It
+// runs on a background thread now, and this polls a progress endpoint
+// rather than holding one long fetch open.
+function renderProgress(p){
+  setScanningUI(true);
+  const done=(p.completed_logins||0), total=(p.total_logins||0);
+  $('#inactiveCount').textContent=n(p.inactive_count);
+  $('#reviewCount').textContent=n(p.review_count);
+  $('#activeCount').textContent=n(p.active_count);
+  $('#loginCount').textContent=total?`${done} / ${total}`:'—';
+  $('#scanTime').textContent=`Scanning… ${done} of ${total} Google logins`;
+  const stage=p.current_login?`${esc(p.current_login)}${p.current_stage?' — '+esc(p.current_stage):''}`:'Starting…';
+  $('#inactiveBody').innerHTML=`<tr><td colspan="9" class="empty"><span class="spinner"></span>${stage}<br><small class="muted">${n(p.inactive_count)} inactive · ${n(p.review_count)} needs review · ${n(p.active_count)} active found so far</small></td></tr>`;
+  $('#reviewBody').innerHTML='<tr><td colspan="6" class="empty">Waiting for scan…</td></tr>';
+  const g=p.gtm_pace;
+  if(g&&g.interval&&g.floor&&g.interval>g.floor+0.05){
+    show(`Tag Manager is currently rate-limiting this account — backing off to ${g.interval.toFixed(1)}s between calls. That can make this take a while; it is still working.`);
+  }else{
+    show('');
+  }
+}
+async function loadCached(){
+  try{
+    const r=await fetch('api/scan',{headers:{Accept:'application/json'}});
+    const d=await r.json();
+    if(d.pending){
+      $('#inactiveBody').innerHTML='<tr><td colspan="9" class="empty">No scan has completed yet. Press Run fresh scan.</td></tr>';
+      $('#reviewBody').innerHTML='<tr><td colspan="6" class="empty">Waiting for scan…</td></tr>';
+      return;
+    }
+    render(d);
+  }catch(e){show(e.message)}
+}
+async function pollProgress(){
+  try{
+    const r=await fetch('api/scan/progress',{headers:{Accept:'application/json'}});
+    const p=await r.json();
+    if(p.running){renderProgress(p);return}
+    stopPolling();setScanningUI(false);
+    if(p.result){render(p.result);return}
+    if(p.error){
+      show('Scan failed: '+p.error);
+      $('#inactiveBody').innerHTML='<tr><td colspan="9" class="empty">Scan failed. Use Run fresh scan to retry.</td></tr>';
+      return;
+    }
+    await loadCached();
+  }catch(e){stopPolling();setScanningUI(false);show(e.message)}
+}
+function startPolling(){stopPolling();pollProgress();pollTimer=setInterval(pollProgress,1500)}
+async function startFreshScan(){
+  setScanningUI(true);show('');
+  try{await fetch('api/scan/start?force=1',{method:'POST'})}catch(e){/* the poll below reports the real state either way */}
+  startPolling();
+}
+async function init(){
+  try{
+    const r=await fetch('api/scan/progress',{headers:{Accept:'application/json'}});
+    const p=await r.json();
+    if(p.running){startPolling();return}
+  }catch(e){/* fall through to the cached read */}
+  await loadCached();
+}
 function openSkip(r){selected=r;$('#skipName').textContent=`${r.kind}: ${r.name}`;$('#skipReason').value='';$('#skipDialog').showModal()}
-$('#skipForm').addEventListener('submit',async e=>{e.preventDefault();if(!selected)return;const b=$('#confirmSkip');b.disabled=true;try{const r=await fetch('api/skip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selected,reason:$('#skipReason').value})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not skip');$('#skipDialog').close();await load(true)}catch(e){show(e.message)}finally{b.disabled=false}});
+$('#skipForm').addEventListener('submit',async e=>{e.preventDefault();if(!selected)return;const b=$('#confirmSkip');b.disabled=true;try{const r=await fetch('api/skip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selected,reason:$('#skipReason').value})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not skip');$('#skipDialog').close();await startFreshScan()}catch(e){show(e.message)}finally{b.disabled=false}});
 function openDelete(r){selected=r;$('#deleteName').textContent=r.name;$('#deleteConfirm').value='';$('#deleteTitle').textContent=r.kind==='GA4'?'Move GA4 property to trash?':'Delete GTM container?';$('#deleteWarning').textContent=r.kind==='GA4'?'Google Analytics deletion moves the property to the Analytics trash can. The connected login must have Analytics Edit permission.':'This permanently deletes the GTM container through Google Tag Manager. Verify the account and container name before continuing.';$('#deleteDialog').showModal()}
-$('#deleteForm').addEventListener('submit',async e=>{e.preventDefault();if(!selected)return;const b=$('#confirmDelete');b.disabled=true;try{const r=await fetch('api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selected,confirm:$('#deleteConfirm').value})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Delete failed');$('#deleteDialog').close();show(d.message||'Deleted');await load(true)}catch(e){show(e.message)}finally{b.disabled=false}});
-async function unskip(r){try{const res=await fetch('api/unskip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(r)});const d=await res.json();if(!res.ok)throw new Error(d.error||'Could not un-skip');await load(true)}catch(e){show(e.message)}}
-$('#refresh').onclick=()=>load(true);load(false);
+$('#deleteForm').addEventListener('submit',async e=>{e.preventDefault();if(!selected)return;const b=$('#confirmDelete');b.disabled=true;try{const r=await fetch('api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selected,confirm:$('#deleteConfirm').value})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Delete failed');$('#deleteDialog').close();show(d.message||'Deleted');await startFreshScan()}catch(e){show(e.message)}finally{b.disabled=false}});
+async function unskip(r){try{const res=await fetch('api/unskip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(r)});const d=await res.json();if(!res.ok)throw new Error(d.error||'Could not un-skip');await startFreshScan()}catch(e){show(e.message)}}
+$('#refresh').onclick=()=>startFreshScan();init();
 </script>
 </body>
 </html>

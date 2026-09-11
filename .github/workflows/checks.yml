@@ -1199,6 +1199,22 @@ jobs:
             echo "test_google_access.py not on this branch — nothing to run."
           fi
 
+      - name: Google Access inactive-accounts scan progress tests
+        # The QA scan runs on a background thread now rather than blocking
+        # the request thread for the life of the scan, with progress on the
+        # shared data disk so either gunicorn worker can answer a poll. A
+        # stale running flag reads as a dead worker, a second start while
+        # one is in flight never races it, and a GET can never start work --
+        # only the POST does. Offline; nothing reaches Google. Guarded like
+        # the steps around it so this workflow stays mergeable on a branch
+        # that predates it.
+        run: |
+          if [ -f test_google_inactive_qa_progress.py ]; then
+            python test_google_inactive_qa_progress.py
+          else
+            echo "test_google_inactive_qa_progress.py not on this branch — nothing to run."
+          fi
+
       - name: Blog taxonomy, guardrail and CMS publish tests
         # The blog section's approved-topic list, the never-mention check and
         # what the two CMS panels are handed. Guarded like the steps above so
