@@ -1,0 +1,37 @@
+{% extends "base.html" if false else "seo_intelligence/standalone.html" %}
+{% block body %}
+<div class="wrap">
+  <header>
+    <div><div class="eyebrow">SMART 1 HUB</div><h1>SEO Overview</h1><p>Weekly Google Search Console intelligence, prioritized into work your SEO team can act on.</p></div>
+    <div class="client-search"><input id="clientId" placeholder="Client ID"><button onclick="loadClient()">Load Client</button></div>
+  </header>
+  <div id="status" class="status">Showing agency-wide SEO action queue.</div>
+  <section id="clientPanel" hidden>
+    <div class="cards">
+      <div class="card"><span>SEO Health</span><strong id="health">—</strong></div>
+      <div class="card"><span>Clicks</span><strong id="clicks">—</strong><small id="clickDelta"></small></div>
+      <div class="card"><span>Impressions</span><strong id="impressions">—</strong><small id="impDelta"></small></div>
+      <div class="card"><span>CTR</span><strong id="ctr">—</strong></div>
+      <div class="card"><span>Avg. Position</span><strong id="position">—</strong></div>
+      <div class="card"><span>Open Opportunities</span><strong id="opportunities">—</strong></div>
+    </div>
+    <div class="section-title"><h2>Priority Opportunities</h2><span id="sourceWeek"></span></div>
+    <div id="clientItems" class="list"></div>
+  </section>
+  <section>
+    <div class="section-title"><h2>Agency Action Queue</h2><select id="kind" onchange="loadQueue()"><option value="">All Types</option><option value="title_meta">Titles & Meta</option><option value="page_snippet">Page Snippets</option><option value="faq">FAQs</option><option value="schema_review">Schema</option><option value="content_opportunity">Blogs / Content</option><option value="page_optimization">Page Optimization</option><option value="cannibalization">Cannibalization</option></select></div>
+    <div id="queue" class="list"></div>
+  </section>
+</div>
+<script>
+const fmt=n=>new Intl.NumberFormat().format(Math.round(Number(n||0)));
+const pct=n=>`${(Number(n||0)*100).toFixed(1)}%`;
+const delta=(a,b)=>!b?'':`${a>=b?'↑':'↓'} ${Math.abs((a-b)/b*100).toFixed(1)}% vs prior`;
+const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+function itemHtml(x){const ev=x.evidence||{};const facts=[];if(ev.impressions!=null)facts.push(`${fmt(ev.impressions)} impressions`);if(ev.position!=null)facts.push(`position ${Number(ev.position).toFixed(1)}`);if(ev.ctr!=null)facts.push(`${pct(ev.ctr)} CTR`);return `<article class="item"><div class="score">${esc(x.priority_score)}</div><div class="item-main"><div class="badges"><b>${esc((x.kind||'opportunity').replaceAll('_',' '))}</b><span>${esc(x.impact)} impact</span></div><h3>${esc(x.title)}</h3><p>${esc(x.query||x.page_url||'')}</p><small>${facts.map(esc).join(' · ')}</small></div><div class="actions"><button onclick="setStatus(${Number(x.id)},'reviewing')">Review</button><button onclick="setStatus(${Number(x.id)},'task_created')">Create Task</button><button class="ghost" onclick="setStatus(${Number(x.id)},'dismissed')">Dismiss</button></div></article>`}
+async function loadQueue(){const kind=document.getElementById('kind').value;const r=await fetch(`/seo/intelligence/api/action-queue?status=open${kind?'&kind='+encodeURIComponent(kind):''}`);const d=await r.json();document.getElementById('queue').innerHTML=(d.items||[]).map(itemHtml).join('')||'<div class="empty">No open opportunities in this view.</div>'}
+async function loadClient(){const id=document.getElementById('clientId').value.trim();if(!id)return;const r=await fetch(`/seo/intelligence/api/clients/${encodeURIComponent(id)}/overview`);const d=await r.json();document.getElementById('clientPanel').hidden=false;document.getElementById('status').textContent=`Client: ${id}`;const m=d.metrics||{},p=d.previous_metrics||{};document.getElementById('health').textContent=d.seo_health_score==null?'—':d.seo_health_score+'/100';document.getElementById('clicks').textContent=fmt(m.clicks);document.getElementById('clickDelta').textContent=delta(m.clicks,p.clicks);document.getElementById('impressions').textContent=fmt(m.impressions);document.getElementById('impDelta').textContent=delta(m.impressions,p.impressions);document.getElementById('ctr').textContent=pct(m.ctr);document.getElementById('position').textContent=Number(m.position||0).toFixed(1);document.getElementById('opportunities').textContent=fmt(d.open_opportunities);document.getElementById('sourceWeek').textContent=d.source_week?`Google data refreshed week of ${d.source_week}`:'';document.getElementById('clientItems').innerHTML=(d.top_opportunities||[]).map(itemHtml).join('')||'<div class="empty">No open opportunities.</div>'}
+async function setStatus(id,status){await fetch(`/seo/intelligence/api/recommendations/${id}/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});await loadQueue();const cid=document.getElementById('clientId').value.trim();if(cid)await loadClient()}
+loadQueue();
+</script>
+{% endblock %}
