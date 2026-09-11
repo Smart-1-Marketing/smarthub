@@ -18,7 +18,7 @@ from typing import Any
 from urllib.parse import quote
 
 import requests
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, current_app, jsonify, render_template, request
 
 from hub import jsonstore
 from .app import require_login
@@ -35,6 +35,25 @@ _GA_RE = re.compile(r"\bG-[A-Z0-9]{4,}\b", re.I)
 _CACHE: dict[str, Any] = {"at": 0.0, "payload": None}
 _LOCK = threading.Lock()
 
+# A scan across every connected login's GA4 properties and GTM containers is
+# minutes, not seconds -- and slower still on a day this account's Tag
+# Manager quota is already stretched, since the scan now paces itself rather
+# than burning through it faster and wrongly. Running it inline on the
+# request thread meant the page had nothing to show but a static "Scanning..."
+# for the entire wait, indistinguishable from a hung request. It runs on a
+# background thread instead, and progress is written to a small file on the
+# shared data disk rather than kept in a module-level dict -- this Hub runs
+# two gunicorn workers, and a browser's poll can land on either one
+# regardless of which worker started the scan.
+_SCAN_THREAD_LOCK = threading.Lock()
+_SCAN_THREAD: threading.Thread | None = None
+# A `running: true` flag with no recent heartbeat is a worker that died
+# mid-scan, not a scan still in flight -- the hub/domain_purchase.py
+# distinction between a stale snapshot and a dead sweep. Treating it as
+# running forever would mean nobody could start a new scan without
+# restarting the whole Hub.
+_HEARTBEAT_STALE_SECONDS = 90
+
 
 def _finder():
     # Imported lazily so this QA page cannot make Hub startup depend on the
@@ -45,6 +64,37 @@ def _finder():
 
 def _path(name: str) -> str:
     return os.path.join(jsonstore.data_root(), name)
+
+
+def _progress_path() -> str:
+    return _path("google_inactive_qa_progress.json")
+
+
+def _result_path() -> str:
+    return _path("google_inactive_qa_last_result.json")
+
+
+def _progress_read() -> dict:
+    data = jsonstore.read_json(_progress_path(), default={})
+    return data if isinstance(data, dict) else {}
+
+
+def _progress_write(data: dict) -> None:
+    data = dict(data)
+    data["heartbeat_at"] = time.time()
+    jsonstore.write_json(_progress_path(), data)
+
+
+def _progress_update(**kwargs) -> None:
+    data = _progress_read()
+    data.update(kwargs)
+    _progress_write(data)
+
+
+def _progress_is_running(data: dict) -> bool:
+    if not data.get("running"):
+        return False
+    return (time.time() - float(data.get("heartbeat_at") or 0)) < _HEARTBEAT_STALE_SECONDS
 
 
 def _actor() -> str:
@@ -280,12 +330,20 @@ def _http_reason(exc: requests.HTTPError) -> str:
     return f"HTTP {status}" + (f": {msg}" if msg else "")
 
 
-def _scan_login(login: str, refresh: str) -> tuple[list[dict], list[dict], list[dict]]:
+def _scan_login(login: str, refresh: str, on_stage=None) -> tuple[list[dict], list[dict], list[dict]]:
+    def _stage(text: str) -> None:
+        if on_stage:
+            try:
+                on_stage(login, text)
+            except Exception:                              # noqa: BLE001
+                pass
+
     gf = _finder()
     token = gf.refresh_access_token(login, refresh)
     inactive, review, active = [], [], []
     by_mid: dict[str, list[dict]] = {}
 
+    _stage("Reading GA4 properties")
     for prop in _ga_properties(token):
         base = {"kind": "GA4", "login": login, "account": prop["account"],
                 "account_id": prop["account_id"], "name": prop["name"],
@@ -304,6 +362,7 @@ def _scan_login(login: str, refresh: str) -> tuple[list[dict], list[dict], list[
         for mid in _ga_measurement_ids(token, prop["property_id"]):
             by_mid.setdefault(mid, []).append(row)
 
+    _stage("Listing Tag Manager accounts")
     try:
         accounts = _gtm_accounts(token)
     except requests.HTTPError as exc:
@@ -313,11 +372,12 @@ def _scan_login(login: str, refresh: str) -> tuple[list[dict], list[dict], list[
                        "reason": _http_reason(exc)})
         return inactive, review, active
 
-    for acc in accounts:
+    for idx, acc in enumerate(accounts):
         aid = str(acc.get("accountId") or acc.get("path") or "").split("/")[-1]
         aname = acc.get("name") or aid or "Tag Manager"
         if not aid:
             continue
+        _stage(f"Tag Manager account {idx + 1} of {len(accounts)}: {aname}")
         try:
             containers = _gtm_containers(token, aid)
         except requests.HTTPError as exc:
@@ -377,30 +437,42 @@ def _dedupe(rows: list[dict]) -> list[dict]:
     return list(out.values())
 
 
-def scan(force=False) -> dict:
-    now = time.time()
-    with _LOCK:
-        if (not force and _CACHE.get("payload") and
-                now - float(_CACHE.get("at") or 0) < CACHE_SECONDS):
-            return _CACHE["payload"]
-
+def _run_scan() -> dict:
+    """The scan body, run on a background thread so the page can poll live
+    progress instead of staring at a static "Scanning..." for however long
+    this account's Tag Manager throttling makes it take.
+    """
     gf = _finder()
     accounts, source_error = gf.connected_accounts_result()
     inactive, review, active = [], [], []
     errors = []
-    for account in accounts:
+    _progress_write({
+        "running": True, "done": False, "error": None,
+        "started_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        "total_logins": len(accounts), "completed_logins": 0,
+        "current_login": "", "current_stage": "",
+        "inactive_count": 0, "review_count": 0, "active_count": 0,
+    })
+
+    def _stage(login: str, text: str) -> None:
+        _progress_update(current_login=login, current_stage=text)
+
+    for i, account in enumerate(accounts):
         login = account.get("email") or ""
         if str(account.get("status") or "ACTIVE") != "ACTIVE":
             review.append({"kind": "Google", "login": login, "account": "Connected login",
                            "account_id": "", "name": login, "resource": login, "public_id": "",
                            "status": "review", "events": None, "sessions": None,
                            "reason": "Google login requires reconnection"})
-            continue
-        try:
-            dead, unsure, alive = _scan_login(login, account["refresh_token"])
-            inactive += dead; review += unsure; active += alive
-        except Exception as exc:
-            errors.append(f"{login}: {type(exc).__name__}: {exc}")
+        else:
+            try:
+                dead, unsure, alive = _scan_login(login, account["refresh_token"], on_stage=_stage)
+                inactive += dead; review += unsure; active += alive
+            except Exception as exc:
+                errors.append(f"{login}: {type(exc).__name__}: {exc}")
+        _progress_update(completed_logins=i + 1, current_login="", current_stage="",
+                          inactive_count=len(inactive), review_count=len(review),
+                          active_count=len(active))
 
     inactive, review, active = map(_dedupe, (inactive, review, active))
     skip_data = _skips()
@@ -421,8 +493,51 @@ def scan(force=False) -> dict:
         "skipped": sorted(skipped, key=sort_key), "source_error": source_error, "errors": errors,
     }
     with _LOCK:
-        _CACHE.update(at=now, payload=payload)
+        _CACHE.update(at=time.time(), payload=payload)
+    jsonstore.write_json(_result_path(), payload)
+    _progress_update(running=False, done=True, current_login="", current_stage="",
+                      completed_logins=len(accounts),
+                      inactive_count=len(visible) + len(skipped), review_count=len(review),
+                      active_count=len(active))
     return payload
+
+
+def start_scan_async(force: bool) -> dict:
+    """Kick off a scan on a background thread, or say why one did not start.
+
+    Checked cross-worker through the shared progress file rather than a
+    module-level flag -- this Hub runs two gunicorn workers, and a start
+    request from one browser tab can land on either regardless of which one
+    a poll later lands on.
+    """
+    global _SCAN_THREAD
+    with _SCAN_THREAD_LOCK:
+        if _progress_is_running(_progress_read()):
+            return {"ok": True, "started": False, "already_running": True}
+
+        if not force:
+            with _LOCK:
+                fresh = bool(_CACHE.get("payload")) and (
+                    time.time() - float(_CACHE.get("at") or 0) < CACHE_SECONDS)
+            if fresh:
+                return {"ok": True, "started": False, "already_running": False, "cached": True}
+
+        if force:
+            _clear_cache()
+
+        app_obj = current_app._get_current_object()
+
+        def _runner():
+            with app_obj.app_context():
+                try:
+                    _run_scan()
+                except Exception as exc:                    # noqa: BLE001
+                    _progress_update(running=False, done=True,
+                                      error=f"{type(exc).__name__}: {exc}")
+
+        _SCAN_THREAD = threading.Thread(target=_runner, name="qa-inactive-scan", daemon=True)
+        _SCAN_THREAD.start()
+        return {"ok": True, "started": True, "already_running": False}
 
 
 def _clear_cache():
@@ -439,8 +554,48 @@ def page():
 @qa_bp.route("/api/scan")
 @require_login
 def api_scan():
+    """The most recently completed scan. Never blocks and never starts one --
+    a GET that could trigger minutes of Google API calls is the shape
+    hub/domain_purchase.py already refuses for its own refresh: a reload, a
+    prefetch or a link preview must not be able to fire this. Starting a scan
+    is POST /api/scan/start; watching one run is GET /api/scan/progress.
+    """
+    with _LOCK:
+        payload = _CACHE.get("payload")
+    if payload is None:
+        stored = jsonstore.read_json(_result_path(), default=None)
+        if isinstance(stored, dict):
+            payload = stored
+            with _LOCK:
+                _CACHE.update(at=time.time(), payload=payload)
+    if payload is None:
+        return jsonify(ok=False, pending=True,
+                        error="No scan has completed yet. Press Run fresh scan.")
+    return jsonify(payload)
+
+
+@qa_bp.route("/api/scan/start", methods=["POST"])
+@require_login
+def api_scan_start():
     force = str(request.args.get("force") or "").lower() in ("1", "true", "yes")
-    return jsonify(scan(force=force))
+    return jsonify(start_scan_async(force=force))
+
+
+@qa_bp.route("/api/scan/progress")
+@require_login
+def api_scan_progress():
+    prog = _progress_read()
+    running = _progress_is_running(prog)
+    prog["running"] = running
+    if not running and prog.get("done"):
+        stored = jsonstore.read_json(_result_path(), default=None)
+        if isinstance(stored, dict):
+            prog["result"] = stored
+    try:
+        prog["gtm_pace"] = _finder().gtm_pace_state()
+    except Exception:                                       # noqa: BLE001
+        prog["gtm_pace"] = None
+    return jsonify(prog)
 
 
 @qa_bp.route("/api/skip", methods=["POST"])
