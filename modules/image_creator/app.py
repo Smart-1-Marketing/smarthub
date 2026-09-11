@@ -302,30 +302,17 @@ def _openai_error(status: int) -> str:
     return "The AI service is unavailable right now. Please try again later."
 
 
-def _openai_json(system: str, user: str, timeout: int = 60):
-    import json as _json
-
-    import requests as _rq
-    key = _settings().openai_key
-    if not key:
+def _openai_json(system: str, user: str, timeout: int = 60, client: str = ""):
+    from hub import ai as _hub_ai
+    if not _hub_ai.ready():
         raise ImageProviderError("AI is not configured. Ask an administrator to connect it.")
-    r = _rq.post("https://api.openai.com/v1/chat/completions",
-                 headers={"Authorization": f"Bearer {key}",
-                          "Content-Type": "application/json"},
-                 json={"model": _settings().openai_model,
-                       "response_format": {"type": "json_object"},
-                       "temperature": 0.6,
-                       "messages": [{"role": "system", "content": system},
-                                    {"role": "user", "content": user}]},
-                 timeout=timeout)
-    if not r.ok:
-        raise ImageProviderError(_openai_error(r.status_code))
-    try:  # record spend so /diagnostics doesn't under-report
-        from hub import ai as _hub_ai
-        _hub_ai.note_usage("image_creator", r.json(), purpose="copy")
-    except Exception:  # noqa: BLE001
-        pass
-    return _json.loads(r.json()["choices"][0]["message"]["content"])
+    try:
+        return _hub_ai.chat_json(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            module="image_creator", purpose="copy", temperature=0.6,
+            timeout=timeout, client=client or None)
+    except _hub_ai.AIUnavailable as exc:
+        raise ImageProviderError(str(exc)) from exc
 
 
 _SEARCH_PROMPT = """You turn a plain-English description of a wanted photo into
@@ -344,7 +331,7 @@ def api_ai_photo_queries():
     if not prompt:
         return jsonify({"error": "Describe the photo you're looking for."}), 400
     try:
-        out = _openai_json(_SEARCH_PROMPT, prompt)
+        out = _openai_json(_SEARCH_PROMPT, prompt, client=body.get("client", ""))
     except ImageProviderError as exc:
         return jsonify({"error": str(exc)}), 502
     except Exception as exc:                          # noqa: BLE001
@@ -377,7 +364,8 @@ def api_ai_copy():
         "cta": "Turn it into a short call to action.",
     }.get(mode, "Rewrite it more persuasively.")
     try:
-        out = _openai_json(_COPY_PROMPT, f"{instruction}\n\nText: {text}")
+        out = _openai_json(_COPY_PROMPT, f"{instruction}\n\nText: {text}",
+                           client=body.get("client", ""))
     except ImageProviderError as exc:
         return jsonify({"error": str(exc)}), 502
     except Exception as exc:                          # noqa: BLE001
@@ -390,7 +378,6 @@ def api_ai_copy():
 def api_ai_image():
     """Generate an image or background with OpenAI and return it as a data URL
     so it drops straight onto the canvas."""
-    import requests as _rq
     key = _settings().openai_key
     if not key:
         return jsonify({"error": "OPENAI_API_KEY is not set."}), 503
@@ -413,59 +400,28 @@ def api_ai_image():
     if body.get("background"):
         full += (" Suitable as a background: keep the composition uncluttered "
                  "with clear space, and include no words or lettering.")
-    payload = {"model": _settings().openai_image_model,
-               "prompt": full[:3800], "size": size, "n": 1}
-    if body.get("transparent"):
-        payload["background"] = "transparent"
-    model = payload["model"]
 
-    def _note(ok):
-        """Record the spend. An image is billed per press and this route was
-        recording nothing, so every generation here was invisible on the usage
-        page -- while the two text routes beside it, which go through
-        `_openai_json`, were tracked. `untracked_openai_modules()` read the
-        *file* and found `from hub import ai` in that helper, so the whole
-        module was exempted and the check reported it clean: the string
-        satisfying the check, which is the `for_module(` failure one provider
-        over.
-
-        The model is passed explicitly because an images response carries no
-        `usage` block -- `openai_cost()` prices anything named `gpt-image*`
-        per image, and without the name there is nothing to price. A refused
-        call keeps its row with `ok=False`: it spent nothing and is out of
-        every billable total, but a wall of them is what a spent allowance
-        looks like from this side.
-        """
-        try:
-            from hub import ai as _hub_ai
-            _hub_ai.note_usage("image_creator", {}, model=model,
-                               purpose="image", ok=ok)
-        except Exception:                             # noqa: BLE001
-            pass
-
+    # Routed through hub.ai.image() now -- one wrapper, so this call gets the
+    # client brief injected (cut to the "image" audience: names, hex values,
+    # logo URLs, never spend or review counts) and writes its own usage row,
+    # rather than this route posting to the API directly and recording spend
+    # separately, which is what let the whole module read as tracked on the
+    # strength of a helper two functions away that was.
+    import base64 as _b64_img
+    from hub import ai as _hub_ai
     try:
-        r = _rq.post("https://api.openai.com/v1/images/generations",
-                     headers={"Authorization": f"Bearer {key}",
-                              "Content-Type": "application/json"},
-                     json=payload, timeout=180)
-        if not r.ok:
-            _note(False)
-            return jsonify({"error": _openai_error(r.status_code)}), 502
-        item = (r.json().get("data") or [{}])[0]
-        if not isinstance(item, dict) or not (item.get("b64_json") or item.get("url")):
-            _note(False)
-            return jsonify({"error": "No image came back. Please try again later."}), 502
+        raw = _hub_ai.image(
+            full[:3800], module="image_creator", purpose="image", size=size,
+            transparent=bool(body.get("transparent")),
+            client=body.get("client", "") or None)
+    except _hub_ai.AIUnavailable as exc:
+        app.logger.warning("AI image request failed (%s)", exc)
+        return jsonify({"error": str(exc)}), 502
     except Exception as exc:                          # noqa: BLE001
-        _note(False)
         app.logger.warning("AI image request failed (%s)", type(exc).__name__)
         return jsonify({"error": "The image request could not be completed. Please try again later."}), 502
 
-    _note(True)
-    if item.get("b64_json"):
-        return jsonify({"image": f"data:image/png;base64,{item['b64_json']}"})
-    if item.get("url"):
-        return jsonify({"image": item["url"], "needs_proxy": True})
-    return jsonify({"error": "No image came back."}), 502
+    return jsonify({"image": "data:image/png;base64," + _b64_img.b64encode(raw).decode("ascii")})
 
 
 # =====================================================================

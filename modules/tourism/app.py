@@ -103,36 +103,27 @@ def health():
 # ---------------------------------------------------------------------------
 
 def chat_complete(system: str, user: str, max_tokens: int = 700,
-                  temperature: float = 0.6, json_mode: bool = False):
-    """Port of lib/openai.js. Returns None when no key is set, as it did."""
-    key = (os.environ.get("OPENAI_API_KEY") or "").strip()
-    if not key:
+                  temperature: float = 0.6, json_mode: bool = False,
+                  company: str = "", url: str = ""):
+    """Routed through hub.ai -- the one wrapper -- rather than this module's
+    own request. Still returns None when no key is set and still raises on
+    an empty answer, as it did."""
+    from hub import ai as _hub_ai
+    from hub.client_brief import build_from_fields
+    if not _hub_ai.ready():
         return None
-    import requests
-    body = {
-        "model": MODEL,
-        "messages": ([{"role": "system", "content": system}] if system else [])
-                    + [{"role": "user", "content": user}],
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-    }
-    if json_mode:
-        body["response_format"] = {"type": "json_object"}
-    r = requests.post("https://api.openai.com/v1/chat/completions",
-                      headers={"Content-Type": "application/json",
-                               "Authorization": f"Bearer {key}"},
-                      json=body, timeout=REQUEST_TIMEOUT)
-    if not r.ok:
-        raise RuntimeError(f"OpenAI API responded {r.status_code}: "
-                           f"{r.text[:200]}")
-    data = r.json()
+    messages = ([{"role": "system", "content": system}] if system else []) \
+        + [{"role": "user", "content": user}]
+    brief = build_from_fields({"company": company, "website": url}) \
+        if (company or url) else None
     try:
-        from hub import ai as _hub_ai
-        _hub_ai.note_usage("tourism", data, purpose="analyze_business")
-    except Exception:                                   # noqa: BLE001
-        pass
-    content = (((data.get("choices") or [{}])[0].get("message") or {})
-               .get("content") or "")
+        content = _hub_ai.chat(
+            messages, module="tourism", purpose="analyze_business",
+            model=MODEL, max_tokens=max_tokens, temperature=temperature,
+            json_mode=json_mode, timeout=REQUEST_TIMEOUT,
+            brief=brief, audience="strategy")
+    except _hub_ai.AIUnavailable as exc:
+        raise RuntimeError(str(exc)) from exc
     if not content.strip():
         raise RuntimeError("Empty OpenAI response")
     return content.strip()

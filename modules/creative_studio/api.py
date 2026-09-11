@@ -15,11 +15,11 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, render_template, request, url_for
 
-from . import binder, brand_ext, config, jobs, layouts, resolver, usage
+from . import binder, brand_ext, campaign_spec, config, jobs, layouts, resolver, usage
 from .db import db
-from .models import (CreativeJob, CsAiTool, CsMediaAsset, CsProject, CsProjectVersion,
-                     CsShare, CsTemplate, CsTemplateScene,
-                     CsTemplateVariable, CsUsageLog)
+from .models import (CreativeJob, CsAiTool, CsCampaign, CsCampaignAsset, CsMediaAsset,
+                     CsProject, CsProjectVersion, CsShare, CsShareDecision, CsTemplate,
+                     CsTemplateScene, CsTemplateVariable, CsUsageLog, CsWeatherSet)
 
 bp = Blueprint("creative_studio", __name__, url_prefix="/creative-studio",
               template_folder="templates")
@@ -35,7 +35,19 @@ def _actor() -> str:
 
 def _guard() -> None:
     from hub.blueprint_guard import install
-    install(bp, mount="/creative-studio")
+    # The weather manifest (WO-CS9 item 5) is read by whatever external
+    # trigger flow swaps creative on a live campaign -- it has no Hub
+    # session, so this one path is exempt and carries its own signed
+    # token instead (api_weather_manifest, below). It lives at its OWN
+    # prefix (/api/weather-manifest/<id>) rather than nested under
+    # /api/projects/<id>/... -- `install()`'s `public` is a prefix match,
+    # and a project id varies, so nesting it there would have needed
+    # either a public prefix wide enough to open every /api/projects/
+    # route to an anonymous caller, or a suffix match `install()` does not
+    # support. Everything else on this blueprint stays behind the
+    # ordinary staff login.
+    install(bp, mount="/creative-studio",
+           public=("/api/weather-manifest/",))
 
 
 _guard()
@@ -385,16 +397,69 @@ def api_generate_render(project_id):                          # noqa: ANN202
     if cb_project is None or cb_client is None:
         return jsonify({"ok": False, "error": "This project's storyboard no "
                         "longer exists."}), 400
+
+    # WO-CS10 item 4. Checked before QC, and blocking: a gated template with
+    # an empty legal_line refuses render until a named human fills it in or
+    # marks it not applicable -- the one compliance check in this module
+    # that is a hard gate rather than advisory, because it is a template's
+    # OWN declared requirement rather than a judgment about the copy.
+    if binder.project_needs_legal_line(project) and not project.legal_line_na:
+        tmpl = CsTemplate.query.get(project.template_id)
+        domain = ""
+        if project.client_name:
+            try:
+                from hub.clients_registry import find_client
+                domain = (find_client(project.client_name) or {}).get("domain", "")
+            except Exception:                               # noqa: BLE001
+                domain = ""
+        resolved = resolver.resolve(tmpl, project, client=project.client_name, domain=domain)
+        if "legal_line" in resolver.unresolved_required(resolved):
+            return jsonify({"ok": False, "error": "This template requires a "
+                            "legal line. Fill it in, or mark it not "
+                            "applicable, before rendering."}), 409
+
     scenes = [s.to_dict() for s in cb_project.scenes.order_by(CbScene.order_index).all()]
     qc = qc_service.run_qc(cb_project.to_dict(include_scenes=False), cb_client.to_dict(), scenes)
+    try:
+        from . import compliance_ext
+        compliance = compliance_ext.scan(
+            script={"scenes": scenes}, brief=cb_project.brief, client=cb_client.to_dict(),
+            commercial_type=cb_project.commercial_type)
+    except Exception:                                       # noqa: BLE001
+        compliance = {"findings": [], "measured": False}
     if not qc.get("_all_passed"):
         return jsonify({"ok": False, "error": "QC checks failed. Fix the "
-                        "flagged items before rendering.", "qc_results": qc}), 409
+                        "flagged items before rendering.", "qc_results": qc,
+                        "compliance": compliance}), 409
     data = request.get_json(silent=True) or {}
     fmt = data.get("format") or (cb_project.formats or ["16:9"])[0]
     job = jobs.enqueue("render", project_id=project.id, client_name=project.client_name,
                        payload={"format": fmt}, created_by=_actor())
-    return jsonify({"ok": True, "job": job.as_dict()})
+    return jsonify({"ok": True, "job": job.as_dict(), "compliance": compliance})
+
+
+@bp.post("/api/projects/<int:project_id>/legal-line/not-applicable")
+def api_legal_line_not_applicable(project_id):                # noqa: ANN202
+    """WO-CS10 item 4's other half of the gate: a named human marking a
+    required `legal_line` not applicable to this spot. Recorded against
+    who marked it, the same reason `CsWeatherSet`'s approvals and
+    `api_approve_version` above are -- a decision nobody can attribute is
+    one nobody can revisit."""
+    project = CsProject.query.get_or_404(project_id)
+    if not binder.project_needs_legal_line(project):
+        return jsonify({"ok": False, "error": "This template has no "
+                        "legal_line requirement to mark."}), 400
+    actor = _actor()
+    project.legal_line_na = True
+    project.legal_line_na_by = actor
+    db.session.commit()
+    try:
+        from hub import audit
+        audit.log("creative_studio", "legal_line_marked_na", actor=actor,
+                  client=project.client_name or None, project=project.name)
+    except Exception:                                       # noqa: BLE001
+        pass
+    return jsonify({"ok": True, "project": project.as_dict()})
 
 
 @bp.get("/api/projects/<int:project_id>/versions")
@@ -429,6 +494,624 @@ def api_approve_version(project_id, version_number):          # noqa: ANN202
         pass
     return jsonify({"ok": True, "project": project.as_dict(),
                     "version": version.as_dict()})
+
+
+# --------------------------------------------------------------- variations
+
+# The blocking rule WO-CS7 states: "A 9:16 variant with text outside
+# 14/35/6 fails; a 1:1 whose CTA sits in the bottom 12% warns." 9:16's
+# numbers are a platform's own UI overlay (`layouts.SAFE_ZONES`'s own note),
+# so text placed there is not merely tight, it is covered; every other
+# aspect's margin is a house legibility inset and stays advisory.
+_BLOCKING_SAFE_ZONE_ASPECTS = ("9:16",)
+
+
+def _scene_layout_specs(project):
+    """(layout_key, layer_values, chrome) for every scene of this project's
+    bound storyboard that carries a Creative Studio layout -- a scene the
+    script pipeline wrote (no `layout_key`) contributes nothing, the same
+    "this is not this work order's to touch" rule `binder.bind_variation()`
+    applies to reframing."""
+    from modules.commercial_builder.models import CommercialProject as CbProject
+    from modules.commercial_builder.models import Scene as CbScene
+    if not project.cb_project_id:
+        return []
+    cb_project = CbProject.query.get(project.cb_project_id)
+    if cb_project is None:
+        return []
+    out = []
+    for scene in cb_project.scenes.order_by(CbScene.order_index).all():
+        meta = scene.asset_meta or {}
+        layout_key = meta.get("layout_key")
+        if layout_key:
+            out.append((layout_key, meta.get("layers") or {}, meta.get("chrome") or {}))
+    return out
+
+
+def _safe_zone_findings(project, aspect: str) -> list[dict]:
+    findings = []
+    for layout_key, layer_values, chrome in _scene_layout_specs(project):
+        findings.extend(layouts.check_safe_zone(
+            layout_key, aspect, layer_values,
+            logo_url=chrome.get("logo_url", ""), phone=chrome.get("phone", ""),
+            website=chrome.get("website", "")))
+    return findings
+
+
+@bp.get("/api/projects/<int:project_id>/variations")
+def api_list_variations(project_id):                          # noqa: ANN202
+    """Every variation ever created from this project, newest first -- the
+    panel below the version row reads this to draw preview thumbnails and
+    poll the jobs still building them."""
+    project = CsProject.query.get_or_404(project_id)
+    rows = (CsProject.query.filter_by(parent_project_id=project.id)
+           .order_by(CsProject.created_at.desc()).all())
+    return jsonify({"ok": True, "variations": [p.as_dict() for p in rows]})
+
+
+@bp.post("/api/projects/<int:project_id>/versions/<int:version_number>/variations")
+def api_create_variations(project_id, version_number):        # noqa: ANN202
+    """Create Variations -- WO-CS7 item 2. One new `cs_projects` row per
+    requested aspect (plus the static link image), each queued for a
+    single-frame preview -- kind="variant" -- rather than a video render:
+    "Preview all" happens before "Render selected" ever spends a Creatomate
+    video call, the whole reason a preview render exists as its own,
+    cheaper thing.
+
+    `version_number` is read to require a real version exists (there is
+    nothing to make a variation FROM before a first render), but a
+    variation is built from the parent's CURRENT storyboard, not a frozen
+    copy of that one render -- the same distinction `bind()` already draws
+    between "the template as it stood" and "the template as it now reads."
+    """
+    project = CsProject.query.get_or_404(project_id)
+    CsProjectVersion.query.filter_by(
+        project_id=project.id, version=version_number).first_or_404()
+    if not project.cb_project_id:
+        return jsonify({"ok": False, "error": "Open this project in the "
+                        "Storyboard Editor before creating variations."}), 400
+
+    data = request.get_json(silent=True) or {}
+    aspects = [a for a in (data.get("aspects") or [])
+              if a in ("16:9", "9:16", "1:1", "4:5")]
+    link_image = bool(data.get("link_image"))
+    if not aspects and not link_image:
+        return jsonify({"ok": False, "error": "Pick at least one size."}), 400
+
+    created, refused = [], []
+    for aspect in aspects:
+        findings = _safe_zone_findings(project, aspect)
+        if findings and aspect in _BLOCKING_SAFE_ZONE_ASPECTS:
+            refused.append({"aspect": aspect, "findings": findings})
+            continue
+        child = CsProject(
+            client_name=project.client_name, name=f"{project.name} — {aspect}",
+            creative_type=project.creative_type, template_id=project.template_id,
+            template_version=project.template_version, duration=project.duration,
+            aspect_ratio=aspect, status="Draft",
+            parent_project_id=project.id, variation_kind="aspect",
+            created_by=_actor())
+        db.session.add(child)
+        db.session.commit()
+        job = jobs.enqueue("variant", project_id=child.id, client_name=project.client_name,
+                           created_by=_actor())
+        created.append({"project": child.as_dict(), "job": job.as_dict(),
+                        "safe_zone_warnings": findings})
+
+    if link_image:
+        child = CsProject(
+            client_name=project.client_name, name=f"{project.name} — link image",
+            creative_type=project.creative_type, template_id=project.template_id,
+            template_version=project.template_version, duration=0,
+            aspect_ratio="1200x628", status="Draft",
+            parent_project_id=project.id, variation_kind="link_image",
+            created_by=_actor())
+        db.session.add(child)
+        db.session.commit()
+        job = jobs.enqueue("variant", project_id=child.id, client_name=project.client_name,
+                           created_by=_actor())
+        created.append({"project": child.as_dict(), "job": job.as_dict(),
+                        "safe_zone_warnings": []})
+
+    if created:
+        try:
+            from hub import audit
+            audit.log("creative_studio", "variations_created", actor=_actor(),
+                      client=project.client_name or None,
+                      detail=f"{len(created)} variation(s) from V{version_number}",
+                      project=project.id)
+        except Exception:                                    # noqa: BLE001
+            pass
+
+    return jsonify({"ok": True, "created": created, "refused": refused})
+
+
+# --------------------------------------------------------------- WO-CS8: campaigns
+
+@bp.get("/campaigns")
+def campaigns_page():                                        # noqa: ANN202
+    rows = CsCampaign.query.order_by(CsCampaign.created_at.desc()).limit(200).all()
+    out = []
+    for row in rows:
+        d = row.as_dict()
+        d["status"] = campaign_spec.status_of(
+            [CsProject.query.get(a.project_id).status
+             for a in row.assets.all() if CsProject.query.get(a.project_id)])
+        out.append(d)
+    return render_template("cs_campaigns.html", title="Campaigns", campaigns=out)
+
+
+@bp.post("/api/campaigns")
+def api_create_campaign():                                    # noqa: ANN202
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Name the campaign."}), 400
+
+    client = str(data.get("client_name") or "").strip()
+    if client:
+        try:
+            from hub.clients_registry import find_client
+            hit = find_client(client)
+        except Exception:                                    # noqa: BLE001
+            hit = None
+        if not hit:
+            return jsonify({"ok": False, "error": "That is not a client on "
+                            "file. Leave it blank for a generic Smart 1 "
+                            "asset, or pick one from the list."}), 400
+        client = hit.get("name") or client
+
+    def _date(key):
+        raw = str(data.get(key) or "").strip()
+        if not raw:
+            return None
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+
+    campaign = CsCampaign(
+        client_name=client, name=name[:300],
+        start=_date("start"), end=_date("end"),
+        offer=str(data.get("offer") or "").strip(),
+        cta=str(data.get("cta") or "").strip()[:300],
+        created_by=_actor())
+    db.session.add(campaign)
+    db.session.commit()
+
+    try:
+        from hub import audit
+        audit.log("creative_studio", "campaign_created", actor=_actor(),
+                  client=client or None, project=campaign.name)
+    except Exception:                                        # noqa: BLE001
+        pass
+
+    return jsonify({"ok": True, "campaign": campaign.as_dict()})
+
+
+def _radio_assets_for(campaign) -> list[dict]:
+    """Radio script sets belonging to this campaign's client, read-only --
+    WO-CS8 item 6. Matched EXACTLY, never a substring: `hub.client_key`'s
+    own rule, applied here because `RadioScriptSet.client_name` is a bare
+    string with no id of its own to join on, the same shape this file's own
+    `client_name` is."""
+    if not campaign.client_name:
+        return []
+    try:
+        from hub.client_key import same_client
+        from modules.radio_scripts.models import RadioScriptSet
+    except Exception:                                        # noqa: BLE001
+        return []
+    out = []
+    try:
+        rows = RadioScriptSet.query.order_by(RadioScriptSet.created_at.desc()).limit(500).all()
+    except Exception:                                        # noqa: BLE001
+        return []
+    for row in rows:
+        if same_client(campaign.client_name, "", row.client_name or "", ""):
+            out.append(row.to_dict(full=False))
+    return out
+
+
+def _asset_row(asset, campaign) -> dict:
+    project = CsProject.query.get(asset.project_id)
+    row = asset.as_dict()
+    if project is None:
+        row["project"] = None
+        return row
+    row["project"] = project.as_dict()
+    row["differs"] = campaign_spec.asset_differs(project.brief, campaign.offer, campaign.cta)
+    return row
+
+
+@bp.get("/campaigns/<int:campaign_id>")
+def campaign_detail(campaign_id):                             # noqa: ANN202
+    campaign = CsCampaign.query.get_or_404(campaign_id)
+    assets = [_asset_row(a, campaign) for a in campaign.assets.all()]
+    status = campaign_spec.status_of([a["project"]["status"] for a in assets if a["project"]])
+    return render_template(
+        "cs_campaign_detail.html", title=campaign.name,
+        campaign=campaign.as_dict(), status=status, assets=assets,
+        radio_assets=_radio_assets_for(campaign),
+        channels=config.CHANNELS, channel_labels=config.CHANNEL_LABELS,
+        confirm_threshold=config.batch_confirm_threshold_usd())
+
+
+@bp.get("/api/campaigns/<int:campaign_id>")
+def api_get_campaign(campaign_id):                            # noqa: ANN202
+    campaign = CsCampaign.query.get_or_404(campaign_id)
+    assets = [_asset_row(a, campaign) for a in campaign.assets.all()]
+    status = campaign_spec.status_of([a["project"]["status"] for a in assets if a["project"]])
+    row = campaign.as_dict()
+    row["status"] = status
+    row["assets"] = assets
+    return jsonify({"ok": True, "campaign": row})
+
+
+@bp.post("/api/campaigns/<int:campaign_id>/assets")
+def api_add_campaign_asset(campaign_id):                      # noqa: ANN202
+    """Add one asset -- WO-CS8 item 2. Resolves a seed template for the
+    channel asked for and creates the project it becomes; nothing renders
+    and no model is called here."""
+    campaign = CsCampaign.query.get_or_404(campaign_id)
+    data = request.get_json(silent=True) or {}
+
+    channel = str(data.get("channel") or "").strip()
+    if channel and channel not in config.CHANNELS:
+        return jsonify({"ok": False, "error": "Unknown channel."}), 400
+
+    try:
+        duration = int(data.get("duration") or 30)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Duration must be a number of seconds."}), 400
+
+    industry = str(data.get("industry") or "general").strip() or "general"
+    aspect_ratio = str(data.get("aspect_ratio") or "16:9").strip()
+    creative_type = str(data.get("creative_type") or "video_commercial").strip()
+    role = str(data.get("role") or "").strip()[:40]
+
+    asset, error = binder.create_campaign_asset(
+        campaign, industry=industry, duration=duration, aspect_ratio=aspect_ratio,
+        creative_type=creative_type, channel=channel, role=role, created_by=_actor())
+    if asset is None:
+        return jsonify({"ok": False, "error": error}), 400
+    return jsonify({"ok": True, "asset": _asset_row(asset, campaign)})
+
+
+@bp.post("/api/campaigns/<int:campaign_id>/generate-all")
+def api_generate_all_drafts(campaign_id):                     # noqa: ANN202
+    """"Generate all drafts" -- WO-CS8 item 3. ONE campaign-level script
+    call; every asset's own brief is derived from it and its storyboard
+    auto-built, with no further model call. Queued -- writing a whole
+    campaign's brief and binding several storyboards is not request-speed
+    work, house rule 4."""
+    campaign = CsCampaign.query.get_or_404(campaign_id)
+    if campaign.assets.count() == 0:
+        return jsonify({"ok": False, "error": "Add at least one asset "
+                        "before generating drafts."}), 400
+    job = jobs.enqueue("campaign_draft", client_name=campaign.client_name,
+                       payload={"campaign_id": campaign.id}, created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict()})
+
+
+@bp.post("/api/campaigns/<int:campaign_id>/render")
+def api_batch_render(campaign_id):                            # noqa: ANN202
+    """Batch render -- WO-CS8 item 4. One render job per project id,
+    sharing a `batch_id`; a QC failure on one asset is reported and skipped
+    rather than cancelling the rest, the same "one asset failing never
+    cancels the rest" rule the work order states outright.
+
+    Above `config.batch_confirm_threshold_usd()`, the campaign's own name
+    has to be typed back -- the rule `modules/image_picker` and
+    `modules/suite_panel` already use for a press that costs real money and
+    cannot be undone by clicking again: a checkbox is agreed to without
+    reading, a name has to be read to be typed.
+    """
+    from modules.commercial_builder.models import Client as CbClient
+    from modules.commercial_builder.models import CommercialProject as CbProject
+    from modules.commercial_builder.models import Scene as CbScene
+    from modules.commercial_builder.services import qc_service
+
+    campaign = CsCampaign.query.get_or_404(campaign_id)
+    data = request.get_json(silent=True) or {}
+    requested_ids = [int(pid) for pid in (data.get("project_ids") or [])
+                     if str(pid).isdigit()]
+    campaign_project_ids = {a.project_id for a in campaign.assets.all()}
+    project_ids = [pid for pid in requested_ids if pid in campaign_project_ids]
+    if not project_ids:
+        return jsonify({"ok": False, "error": "Pick at least one asset "
+                        "on this campaign to render."}), 400
+
+    estimate = campaign_spec.render_estimate(len(project_ids))
+    if campaign_spec.needs_confirmation(estimate):
+        typed = str(data.get("confirm") or "").strip()
+        if typed != campaign.name:
+            return jsonify({
+                "ok": False, "error": "confirm_required",
+                "estimate_usd": estimate,
+                "message": f"This batch is estimated at ${estimate:.2f}. "
+                          f"Type the campaign's name, \"{campaign.name}\", to render it.",
+            }), 409
+
+    batch_id = secrets.token_hex(8)
+    rendered, refused = [], []
+    for project_id in project_ids:
+        project = CsProject.query.get(project_id)
+        if project is None or not project.cb_project_id:
+            refused.append({"project_id": project_id,
+                            "error": "Open this project in the Storyboard Editor first."})
+            continue
+        try:
+            cb_project = CbProject.query.get(project.cb_project_id)
+            cb_client = CbClient.query.get(cb_project.client_id) if cb_project else None
+        except Exception as exc:                              # noqa: BLE001
+            refused.append({"project_id": project_id, "error": type(exc).__name__})
+            continue
+        if cb_project is None or cb_client is None:
+            refused.append({"project_id": project_id,
+                            "error": "This project's storyboard no longer exists."})
+            continue
+        scenes = [s.to_dict() for s in cb_project.scenes.order_by(CbScene.order_index).all()]
+        qc = qc_service.run_qc(cb_project.to_dict(include_scenes=False), cb_client.to_dict(), scenes)
+        if not qc.get("_all_passed"):
+            refused.append({"project_id": project_id,
+                            "error": "QC checks failed.", "qc_results": qc})
+            continue
+        fmt = (cb_project.formats or ["16:9"])[0]
+        job = jobs.enqueue("render", project_id=project.id, client_name=project.client_name,
+                           payload={"format": fmt, "batch_id": batch_id}, created_by=_actor())
+        job.batch_id = batch_id
+        db.session.commit()
+        rendered.append({"project_id": project_id, "job": job.as_dict()})
+
+    if rendered:
+        try:
+            from hub import audit
+            audit.log("creative_studio", "campaign_batch_render", actor=_actor(),
+                      client=campaign.client_name or None, project=campaign.name,
+                      detail=f"{campaign.name}: {len(rendered)} of {len(project_ids)} "
+                            f"assets queued (batch {batch_id})")
+        except Exception:                                     # noqa: BLE001
+            pass
+
+    return jsonify({"ok": True, "batch_id": batch_id, "estimate_usd": estimate,
+                    "rendered": rendered, "refused": refused})
+
+
+@bp.get("/api/campaigns/<int:campaign_id>/batch/<batch_id>")
+def api_batch_status(campaign_id, batch_id):                  # noqa: ANN202
+    campaign = CsCampaign.query.get_or_404(campaign_id)
+    jobs_rows = CreativeJob.query.filter_by(batch_id=batch_id).order_by(CreativeJob.id).all()
+    if not jobs_rows:
+        return jsonify({"ok": False, "error": "No batch with that id on this campaign."}), 404
+    done = sum(1 for j in jobs_rows if j.state == "complete")
+    failed = sum(1 for j in jobs_rows if j.state == "failed")
+    return jsonify({"ok": True, "batch_id": batch_id, "total": len(jobs_rows),
+                    "done": done, "failed": failed,
+                    "jobs": [j.as_dict() for j in jobs_rows]})
+
+
+@bp.get("/api/campaigns/<int:campaign_id>/shares")
+def api_list_campaign_shares(campaign_id):                    # noqa: ANN202
+    from modules.commercial_builder import review_spec
+    shares = (CsShare.query.filter_by(kind="campaign", subject_id=campaign_id)
+             .order_by(CsShare.round_no.desc(), CsShare.id.desc()).all())
+    rows = []
+    for share in shares:
+        row = share.to_dict()
+        row["url"] = _share_url(share.token)
+        row["round_state"] = review_spec.round_state(share.round_no)
+        rows.append(row)
+    return jsonify({"ok": True, "shares": rows,
+                    "next_round": review_spec.round_state(len(rows) + 1)})
+
+
+@bp.post("/api/campaigns/<int:campaign_id>/share")
+def api_send_campaign_for_approval(campaign_id):              # noqa: ANN202
+    """Send the whole campaign for approval -- WO-CS8 item 5. One
+    `kind="campaign"` share whose `subject_id` is the campaign, covering
+    every asset that has something to show; per-asset decisions are what
+    `CsShareDecision.asset_project_id` (added for exactly this) is for. The
+    round counter and cap are `CsShare`'s own, read from
+    `modules.commercial_builder.review_spec` exactly as a single version's
+    review already does -- one rule, never a second copy of it for a
+    campaign."""
+    from modules.commercial_builder import review_spec
+    campaign = CsCampaign.query.get_or_404(campaign_id)
+    assets = campaign.assets.all()
+    if not assets:
+        return jsonify({"ok": False, "error": "Add at least one asset "
+                        "before sending this campaign for approval."}), 400
+    body = request.get_json(silent=True) or {}
+
+    previous = CsShare.query.filter_by(kind="campaign", subject_id=campaign.id).all()
+    round_no = len(previous) + 1
+    for old in previous:
+        old.revoked = True
+
+    # A share row still needs a project_id -- a representative one, never
+    # read as the subject for this kind. `CsShare`'s own docstring says why
+    # `kind` + `subject_id` exist: so a second kind added later needs no
+    # second table, not so `project_id` stops meaning anything.
+    share = CsShare(token=secrets.token_urlsafe(24), kind="campaign",
+                    subject_id=campaign.id, project_id=assets[0].project_id,
+                    round_no=round_no, created_by=_actor(),
+                    message=str(body.get("message") or "").strip()[:2000])
+    db.session.add(share)
+    for a in assets:
+        p = CsProject.query.get(a.project_id)
+        if p is not None:
+            p.status = "Client Review"
+    db.session.commit()
+
+    state = review_spec.round_state(round_no)
+    if state["over"]:
+        _log_review("creative_review_rounds_exceeded", campaign,
+                    detail=f"Round {round_no} on {campaign.name}")
+    _log_review("creative_review_sent", campaign,
+               detail=f"{state['label']} · {campaign.name} ({len(assets)} assets)")
+
+    row = share.to_dict()
+    row["url"] = _share_url(share.token)
+    row["round_state"] = state
+    row["delivery"] = _deliver_review(
+        campaign, share, row["url"],
+        name=str(body.get("reviewer_name") or "").strip()[:200],
+        email=str(body.get("reviewer_email") or "").strip()[:200])
+    return jsonify({"ok": True, "share": row})
+
+
+# --------------------------------------------------------------- WO-CS9: weather sets
+
+@bp.post("/api/projects/<int:project_id>/weather-set")
+def api_create_weather_set(project_id):                       # noqa: ANN202
+    """Create Weather Set -- WO-CS9 item 3. Queued: one OpenAI call plus a
+    stock image lookup per condition is not request-speed work. Refuses by
+    name, with a readable message, when the project's own industry has no
+    weather angle written for it -- never a generic set nobody asked for
+    the shape of."""
+    project = CsProject.query.get_or_404(project_id)
+    industry = binder.project_industry(project)
+    pack = config.industry_pack(industry)
+    if not pack.get("weather_ready"):
+        return jsonify({"ok": False, "error": (
+            f"There is no weather angle written for '{industry}' yet -- "
+            "Create Weather Set needs an industry with weather copy.")}), 400
+    job = jobs.enqueue("weather_set", project_id=project.id, client_name=project.client_name,
+                       created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict()})
+
+
+@bp.get("/api/projects/<int:project_id>/weather-set")
+def api_list_weather_set(project_id):                         # noqa: ANN202
+    rows = (CsWeatherSet.query.filter_by(project_id=project_id)
+           .order_by(CsWeatherSet.condition).all())
+    return jsonify({"ok": True, "conditions": [r.as_dict() for r in rows]})
+
+
+@bp.put("/api/projects/<int:project_id>/weather-set/<condition>")
+def api_edit_weather_set(project_id, condition):               # noqa: ANN202
+    """A rep's own edit -- WO-CS9 item 3's "rep edits". The severe rule
+    still holds here, not only in the generated draft: a rep typing an
+    offer into the severe row is refused, the same "code is the check, not
+    only the prompt" reasoning `generate_weather_variants` already applies
+    to the model's own answer."""
+    row = CsWeatherSet.query.filter_by(project_id=project_id, condition=condition).first_or_404()
+    if row.status == "Approved":
+        return jsonify({"ok": False, "error": "This condition is already "
+                        "approved -- unapprove it before editing."}), 400
+    data = request.get_json(silent=True) or {}
+    row.headline = str(data.get("headline") or row.headline or "").strip()[:300]
+    offer = str(data.get("offer") or "").strip()[:300]
+    if condition == "severe" and offer:
+        return jsonify({"ok": False, "error": "Severe-weather copy carries "
+                        "no offer -- it is a safety message, never a sales pitch."}), 400
+    row.offer = offer or row.offer
+    row.cta = str(data.get("cta") or row.cta or "").strip()[:300]
+    db.session.commit()
+    return jsonify({"ok": True, "condition": row.as_dict()})
+
+
+@bp.post("/api/projects/<int:project_id>/weather-set/<condition>/approve")
+def api_approve_weather_condition(project_id, condition):      # noqa: ANN202
+    """Approving one condition builds its variation storyboard --
+    `binder.bind_weather_variant()` -- so it becomes renderable through the
+    ordinary render route or, if this project sits on a campaign, WO-CS8's
+    batch render. Approving never renders by itself: the same "a public
+    page with no QC gate in front of it must never trigger a render" rule
+    WO-CS6's client review already states, one screen over -- this is a
+    staff action, but the render is still a separate, billed press."""
+    project = CsProject.query.get_or_404(project_id)
+    row = CsWeatherSet.query.filter_by(project_id=project_id, condition=condition).first_or_404()
+    if not row.headline:
+        return jsonify({"ok": False, "error": "Write or generate this "
+                        "condition's copy before approving it."}), 400
+
+    if row.variant_project_id is None:
+        variant = CsProject(
+            client_name=project.client_name, name=f"{project.name} — {condition}",
+            creative_type=project.creative_type, template_id=project.template_id,
+            template_version=project.template_version, duration=project.duration,
+            aspect_ratio=project.aspect_ratio, status="Draft",
+            parent_project_id=project.id, variation_kind="weather", created_by=_actor())
+        db.session.add(variant)
+        db.session.commit()
+        result = binder.bind_weather_variant(variant, condition, headline=row.headline,
+                                             offer=row.offer, cta=row.cta)
+        if not result.get("ok"):
+            db.session.delete(variant)
+            db.session.commit()
+            return jsonify({"ok": False, "error": result.get("error") or
+                            "Could not build this weather variant."}), 400
+        row.variant_project_id = variant.id
+
+    row.status = "Approved"
+    db.session.commit()
+
+    try:
+        from hub import audit
+        audit.log("creative_studio", "weather_condition_approved", actor=_actor(),
+                  client=project.client_name or None, project=project.name,
+                  detail=f"{condition} approved")
+    except Exception:                                     # noqa: BLE001
+        pass
+
+    return jsonify({"ok": True, "condition": row.as_dict()})
+
+
+def _weather_manifest_serializer():
+    from hub import signing
+    return signing.serializer("cs_weather_manifest")
+
+
+@bp.get("/api/projects/<int:project_id>/weather-manifest-token")
+def api_weather_manifest_token(project_id):                    # noqa: ANN202
+    """Staff-only: mint the signed token a trigger flow reads the manifest
+    with. Never a literal secret of this module's own -- `hub.signing` is
+    the one place this Hub resolves that from, the rule CLAUDE.md gives at
+    length about a fallback secret in the source being a forgeable token."""
+    CsProject.query.get_or_404(project_id)
+    token = _weather_manifest_serializer().dumps(project_id)
+    return jsonify({"ok": True, "token": token,
+                    "url": f"/creative-studio/api/weather-manifest/{project_id}?token={token}"})
+
+
+@bp.get("/api/weather-manifest/<int:project_id>")
+def api_weather_manifest(project_id):                          # noqa: ANN202
+    """{condition: {video_url, image_url, headline, cta}} for the APPROVED
+    set only -- WO-CS9 item 5. Public (see `_guard()` above), so the token
+    is the whole of its access control: no Hub session reaches this path,
+    a bad or missing token is refused, and a real one names only the
+    project it was minted for."""
+    token = str(request.args.get("token") or "")
+    try:
+        signed_id = _weather_manifest_serializer().loads(token)
+    except Exception:                                     # noqa: BLE001
+        return jsonify({"ok": False, "error": "Invalid or missing token."}), 403
+    if signed_id != project_id:
+        return jsonify({"ok": False, "error": "Invalid or missing token."}), 403
+
+    rows = CsWeatherSet.query.filter_by(project_id=project_id, status="Approved").all()
+    manifest = {}
+    for row in rows:
+        if not row.variant_project_id:
+            continue
+        variant = CsProject.query.get(row.variant_project_id)
+        if variant is None:
+            continue
+        # Only a version this project has actually rendered and approved --
+        # "the manifest only lists approved versions" is the work order's
+        # own words, and a Draft variant with a pending render has no file
+        # a trigger flow could safely point creative at.
+        version = variant.versions.order_by(CsProjectVersion.version.desc()).first()
+        if variant.status != "Approved" or version is None or not version.render_url:
+            continue
+        manifest[row.condition] = {
+            "video_url": version.render_url,
+            "image_url": row.weather_image_url or "",
+            "headline": row.headline or "", "cta": row.cta or "",
+        }
+    return jsonify({"ok": True, "manifest": manifest})
 
 
 @bp.get("/api/projects/<int:project_id>/usage-summary")
@@ -1241,3 +1924,260 @@ def usage_page():                                             # noqa: ANN202
         totals=totals, tiles=tile_data,
         all_clients=all_clients, all_users=all_users, all_providers=all_providers,
         rates_are_placeholder=True)
+
+
+# --------------------------------------------------------------- WO-CS10: spot library
+
+@bp.get("/library")
+def library_page():                                          # noqa: ANN202
+    """`/creative-studio/library` -- WO-CS10 item 1. The listing itself is
+    built client-side from `/api/library` (the filters are query-string
+    driven, the same shape the template gallery already uses), so this
+    route only needs to render the shell and the filter choices."""
+    industries = sorted({t.industry for t in CsTemplate.query.with_entities(
+        CsTemplate.industry).distinct() if t.industry})
+    try:
+        from modules.commercial_builder import library_spec
+        archetypes = [{"key": k, "label": v["label"]}
+                     for k, v in library_spec.ARCHETYPES.items()]
+    except Exception:                                        # noqa: BLE001
+        archetypes = []
+    return render_template("cs_library.html", title="Spot Library",
+                          industries=industries, archetypes=archetypes)
+
+
+@bp.get("/api/library")
+def api_library_list():                                       # noqa: ANN202
+    from . import library
+    industry = request.args.get("industry", "").strip()
+    archetype = request.args.get("archetype", "").strip()
+    client = request.args.get("client", "").strip()
+    rows = library.approved_spots(industry=industry, archetype=archetype, client=client)
+    return jsonify({"ok": True, "spots": rows})
+
+
+@bp.post("/api/projects/<int:project_id>/library/abstract")
+def api_library_abstract(project_id):                          # noqa: ANN202
+    """"Use as template" -- WO-CS10 item 2. Enqueued (kind="library_abstract")
+    rather than run inline: the same "a route that starts work writes a
+    queued row and hands back its id" shape every other generate/build
+    route in this module already uses."""
+    project = CsProject.query.get_or_404(project_id)
+    if project.status != "Approved":
+        return jsonify({"ok": False, "error": "Only an approved spot can "
+                        "become a template."}), 400
+    job = jobs.enqueue("library_abstract", project_id=project.id,
+                       client_name=project.client_name, created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict()})
+
+
+@bp.post("/api/projects/<int:project_id>/library/reference")
+def api_library_reference(project_id):                         # noqa: ANN202
+    """"Use as reference" -- WO-CS10 item 2's other button. Attaches the
+    source spot's render and a short summary to a NEW project's own brief
+    under the key `reference`, as a "make it like this" input for its
+    Concepts step -- and needs no change to the model prompt to reach the
+    model with it: `generate_concepts`'s user payload already serializes
+    `project.brief` whole, so a key added here rides along with everything
+    else already in it.
+
+    `new_project_id` names an existing project (typically one just created
+    on Concepts step 1, blank) rather than this route creating one itself
+    -- creating a project is `POST /api/projects`'s own job, and this
+    button attaches to whichever project the rep is already working from.
+    """
+    source = CsProject.query.get_or_404(project_id)
+    if source.status != "Approved":
+        return jsonify({"ok": False, "error": "Only an approved spot can be "
+                        "used as a reference."}), 400
+    data = request.get_json(silent=True) or {}
+    new_project_id = data.get("new_project_id")
+    if not new_project_id:
+        return jsonify({"ok": False, "error": "Name the project to attach "
+                        "this reference to."}), 400
+    target = CsProject.query.get(new_project_id)
+    if target is None:
+        return jsonify({"ok": False, "error": "That project does not exist."}), 400
+
+    source_version = source.versions.order_by(CsProjectVersion.version.desc()).first()
+    brief = dict(target.brief or {})
+    brief["reference"] = {
+        "project_id": source.id, "project_name": source.name,
+        "render_url": source_version.render_url if source_version else "",
+        "summary": f"Modeled on an approved spot for "
+                   f"{source.client_name or 'another client'} -- match its "
+                   f"structure and pacing, not its specific words.",
+    }
+    target.brief = brief
+    db.session.commit()
+    return jsonify({"ok": True, "project": target.as_dict()})
+
+
+@bp.post("/api/library/opt-out")
+def api_library_opt_out():                                     # noqa: ANN202
+    """A client's own `library_opt_out` flag -- WO-CS10 item 1's "A
+    per-client library_opt_out flag hides that client's spots." Stored on
+    `brand_ext`, the same overlay every other business-fact field on the
+    Brand Kit screen already lives on, never a second table."""
+    from . import brand_ext
+    data = request.get_json(silent=True) or {}
+    client = str(data.get("client") or "").strip()
+    if not client:
+        return jsonify({"ok": False, "error": "Name the client."}), 400
+    result = brand_ext.save(client, {"library_opt_out": bool(data.get("opt_out"))}, actor=_actor())
+    return jsonify(result)
+
+
+# --------------------------------------------------------------- WO-CS11: Product Lifestyle
+
+@bp.get("/product-lifestyle")
+def product_lifestyle_page():                                  # noqa: ANN202
+    return render_template("cs_product_lifestyle.html", title="Product Lifestyle",
+                          environments=config.ENVIRONMENTS)
+
+
+@bp.post("/api/product-lifestyle")
+def api_product_lifestyle():                                    # noqa: ANN202
+    """Upload, then enqueue (kind="product_lifestyle") -- WO-CS11 item 1.
+    One route rather than an upload route plus a separate enqueue route:
+    the rep supplies a photo, an environment and an optional prompt in one
+    press, and background removal only ever runs against a file this
+    request itself just stored -- never a public_id supplied in a POST
+    body, the rule `modules/ad_builder`'s `assets.generatedImagePath()` was
+    fixed to enforce after a path taken from a request body once let an
+    arbitrary readable file be lifted into a web-served folder."""
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "Choose a product photo."}), 400
+    environment_key = (request.form.get("environment") or "").strip()
+    if config.environment_by_key(environment_key) is None:
+        return jsonify({"ok": False, "error": "Choose an environment."}), 400
+    client = (request.form.get("client") or "").strip()
+    prompt = (request.form.get("prompt") or "").strip()
+
+    data = f.read()
+    try:
+        from hub import storage
+        asset = storage.put("creative_studio", f.filename, data, client=client)
+    except Exception as exc:                                    # noqa: BLE001
+        return jsonify({"ok": False, "error": str(exc)[:300]}), 400
+
+    project = CsProject(name=f"Product lifestyle — {environment_key}",
+                        creative_type="product_ad", client_name=client,
+                        status="Draft", created_by=_actor())
+    db.session.add(project)
+    db.session.commit()
+
+    job = jobs.enqueue("product_lifestyle", project_id=project.id, client_name=client,
+                       payload={"public_id": asset.public_id, "environment": environment_key,
+                               "prompt": prompt},
+                       created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict(), "project_id": project.id})
+
+
+@bp.get("/api/projects/<int:project_id>/product-lifestyle/results")
+def api_product_lifestyle_results(project_id):                  # noqa: ANN202
+    project = CsProject.query.get_or_404(project_id)
+    rows = (CsMediaAsset.query
+           .filter_by(project_id=project.id, source="openai")
+           .order_by(CsMediaAsset.created_at.desc()).all())
+    return jsonify({"ok": True, "assets": [r.as_dict() for r in rows
+                                          if "product_lifestyle" in (r.tags or [])]})
+
+
+# --------------------------------------------------------------- WO-CS11: PDF -> Video
+
+@bp.get("/pdf-to-video")
+def pdf_to_video_page():                                        # noqa: ANN202
+    industries = sorted({t.industry for t in CsTemplate.query.with_entities(
+        CsTemplate.industry).distinct() if t.industry})
+    return render_template("cs_pdf_to_video.html", title="PDF to Video", industries=industries)
+
+
+@bp.post("/api/pdf-to-video")
+def api_pdf_to_video():                                          # noqa: ANN202
+    """Upload a PDF, file it, and enqueue extraction (kind="pdf") --
+    WO-CS11 item 2. Creates the project here rather than asking the rep to
+    create one first: nothing about a PDF flyer names a project, and a
+    second empty screen between "I have a flyer" and "extract it" is
+    friction the tool does not need."""
+    f = request.files.get("file")
+    if not f or not f.filename or not f.filename.lower().endswith(".pdf"):
+        return jsonify({"ok": False, "error": "Choose a PDF file."}), 400
+    client = (request.form.get("client") or "").strip()
+    duration = request.form.get("duration")
+    try:
+        duration = int(duration) if duration else 15
+    except (TypeError, ValueError):
+        duration = 15
+    if duration not in config.PDF_ITEM_CAPS:
+        duration = 15
+
+    data = f.read()
+    try:
+        from hub import storage
+        asset = storage.put("creative_studio", f.filename, data, client=client)
+    except Exception as exc:                                    # noqa: BLE001
+        return jsonify({"ok": False, "error": str(exc)[:300]}), 400
+
+    project = CsProject(name=f.filename.rsplit(".", 1)[0][:200] or "PDF flyer",
+                        creative_type="video_commercial", client_name=client,
+                        duration=duration, status="Draft", created_by=_actor())
+    db.session.add(project)
+    db.session.commit()
+
+    media = CsMediaAsset(client_name=client, asset_type="document",
+                         filename=f.filename, original_filename=f.filename,
+                         mime_type=f.mimetype or "application/pdf", file_size=asset.bytes,
+                         cloudinary_public_id=asset.public_id, cloudinary_url=asset.url,
+                         source="upload", project_id=project.id, created_by=_actor())
+    db.session.add(media)
+    db.session.commit()
+
+    job = jobs.enqueue("pdf", project_id=project.id, client_name=client,
+                       payload={"public_id": asset.public_id}, created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict(), "project_id": project.id})
+
+
+@bp.post("/api/projects/<int:project_id>/pdf/confirm-prices")
+def api_pdf_confirm_prices(project_id):                          # noqa: ANN202
+    """Every extracted price is "read from PDF -- confirm" until a named
+    human clears it -- WO-CS11's own words, and the reason it is a
+    separate press rather than a default: OCR on a menu is not a
+    contract. Bulk, because a twelve-item extraction is not twelve
+    presses, and a rep who edited one price by hand before confirming
+    still sees that edit here, not the original OCR value -- this route
+    never rewrites `price`, only `price_confirmed`."""
+    project = CsProject.query.get_or_404(project_id)
+    extraction = (project.brief or {}).get("pdf_extraction")
+    if not extraction:
+        return jsonify({"ok": False, "error": "Nothing has been extracted "
+                        "from a PDF for this project yet."}), 400
+    items = extraction.get("items") or []
+    for item in items:
+        item["price_confirmed"] = True
+    brief = dict(project.brief or {})
+    brief["pdf_extraction"] = extraction
+    project.brief = brief
+    db.session.commit()
+    return jsonify({"ok": True, "extraction": extraction})
+
+
+@bp.post("/api/projects/<int:project_id>/pdf/build-storyboard")
+def api_pdf_build_storyboard(project_id):                        # noqa: ANN202
+    """"Rep picks a seed template" -- WO-CS11's own words. What is asked
+    for here is the storyboard build itself; the "picking a seed template"
+    half is `resolve_seed_template()` reused from WO-CS8 rather than
+    restated, on the industry the rep names in the request (a PDF names no
+    industry of its own -- reading one off it would be exactly the
+    invention `hub/website_audit.py` refuses about a finding versus a
+    judgment)."""
+    project = CsProject.query.get_or_404(project_id)
+    extraction = (project.brief or {}).get("pdf_extraction")
+    if not extraction or not extraction.get("items"):
+        return jsonify({"ok": False, "error": "Nothing has been extracted "
+                        "from a PDF for this project yet."}), 400
+    result = binder.bind_pdf_storyboard(project, extraction["items"], duration=project.duration)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify({"ok": True, **result, "project": project.as_dict()})

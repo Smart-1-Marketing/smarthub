@@ -92,6 +92,7 @@ from hub import rate_card as hub_rate_card
 from hub import short_links as hub_short_links
 from hub import target_areas as hub_areas
 from hub import target_map as hub_map
+from hub import zip_geo as hub_zip_geo
 from hub import view_tracking as hub_views
 from hub.config import settings as hub_config
 
@@ -4155,43 +4156,24 @@ def api_review_landing_page():
 def api_zipcodes_in_radius():
     """The ZIP Codes a radius touches — per target area, not per campaign.
 
-    Same lookup the IO builder runs. Having it here means the ZIP list is
-    attached to the area it belongs to while the proposal is still being
-    built, rather than being rebuilt at IO time against whichever origin
-    happened to be typed first.
+    Same lookup the IO builder runs, through ``hub.zip_geo`` — a bundled
+    centroid table and a distance measurement, not a model asked to
+    enumerate them. That call used to be handed to a model with a web-search
+    tool and came back plausible and wrong by two orders of magnitude on an
+    ordinary small-town radius; a geometry question is answered by measuring
+    it. Having it here means the ZIP list is attached to the area it belongs
+    to while the proposal is still being built, rather than being rebuilt at
+    IO time against whichever origin happened to be typed first.
     """
     body = request.get_json(force=True) or {}
     origin = str(body.get("origin") or "").strip()
     radius = str(body.get("radius") or "").strip()
-    if not origin or not radius:
-        return jsonify({"ok": False, "error": "An origin and a radius are required."}), 400
-    prompt = (
-        f"Find the complete list of United States ZIP Codes whose geographic polygon is fully or "
-        f"partially touched by a {radius}-mile radius centered on {origin}. Include a ZIP Code whenever "
-        f"any portion of that ZIP Code area intersects the radius, not only when its centroid is inside. "
-        "Use current authoritative geographic sources where possible. Return only five-digit ZIP Codes, "
-        "comma-separated, sorted ascending, with no commentary. Be exhaustive and do not intentionally "
-        "omit any matching ZIP Code.")
-    # `search=True`, and the call falls back without the tool rather than
-    # failing: the tool riding on this request is what stopped the button.
-    try:
-        zips = hub_areas.zip_list(_openai_response(prompt, 12000, search=True))
-    except Exception as exc:                            # noqa: BLE001
-        logger.exception("ZIP-radius lookup failed")
-        return jsonify({"ok": False, "error": "ZIP-radius lookup failed",
-                        "detail": str(exc)}), 502
-    if not zips:
-        # Said in the terms of the question that was asked. "No ZIP Codes were
-        # returned" reads as a radius with nothing in it, which is not a thing
-        # that happens -- it was always the call, never the geography.
-        return jsonify({"ok": False,
-                        "error": f"The lookup came back with no ZIP Codes for "
-                                 f"{radius} miles around {origin}. Check the "
-                                 f"origin is a real city or ZIP Code, or enter "
-                                 f"the list by hand."}), 502
+    result = hub_zip_geo.lookup_radius(origin, radius)
+    if not result.get("ok"):
+        return jsonify(result), 400 if not origin or not radius else 502
+    zips = result["zipcodes"]
     return jsonify({"ok": True, "zipcodes": ", ".join(zips), "count": len(zips),
-                    "warning": "AI-assisted ZIP-radius results should be reviewed before "
-                               "trafficking — ZIP boundaries and radius intersections change."})
+                    "warning": result["warning"]})
 
 
 @app.get("/api/quotes/<int:qid>/target-map.png")

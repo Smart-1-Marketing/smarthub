@@ -93,6 +93,22 @@ def build_from_template(*, client_id: int, client_name: str, title: str,
             "layers": spec.get("layers") or {},
             "beat": spec.get("label") or "", "beat_index": i,
             "needs_background": spec.get("needs_background") or None,
+            # Opaque to this module -- WO-CS7. `text_overlay` is a list of
+            # already-positioned Creatomate elements and `background_fill`
+            # a flat colour for a layout with no background slot; both are
+            # computed by Creative Studio's own `binder.py` from its own
+            # layout vocabulary, which this file must not need to know
+            # about (this module "never writes to modules.commercial_builder's
+            # tables" is the direction that dependency runs; a reverse
+            # import here would run it backwards). `creatomate_service`
+            # reads both by key, indifferent to what produced them.
+            "text_overlay": spec.get("text_overlay") or [],
+            "background_fill": spec.get("background_fill") or "",
+            # The project's logo/phone/website, at the moment this scene
+            # was resolved -- carried so a WO-CS7 variation can recompose
+            # `text_overlay` for a new aspect from a scene it copied,
+            # without a second pass through Creative Studio's resolver.
+            "chrome": spec.get("chrome") or {},
         }
         db.session.add(scene)
         cursor = end
@@ -101,6 +117,50 @@ def build_from_template(*, client_id: int, client_name: str, title: str,
     _log("cb_commercial_started", client=client_name or "",
         detail=(f"1 spot started for {title} from a Creative Studio template "
                 f"on {platform}: :{length_seconds:02d}."))
+    return project
+
+
+def build_from_scenes(*, client_id: int, client_name: str, title: str,
+                      length_seconds: int, platform: str, formats: list[str],
+                      commercial_type: str, scenes: list[dict]) -> CommercialProject:
+    """One `CommercialProject` whose scenes are copied **verbatim** -- WO-CS7's
+    aspect variations. `build_from_template` above scales a template's own
+    authored durations to whatever length the rep chose; a variation keeps
+    the parent's timing and footage exactly, because "same scenes, same
+    resolved variables, same footage" is the whole point of a variation
+    rather than a second pass through the template pipeline. `scenes` is
+    already `Scene.to_dict()`-shaped -- `start`/`end`/`asset_url`/
+    `asset_type`/`asset_meta` all final -- so this function's only job,
+    like `build_from_template`'s, is to write the rows.
+    """
+    project = CommercialProject(
+        client_id=client_id, title=(title or "Untitled spot")[:300],
+        length_seconds=length_seconds, commercial_type=commercial_type,
+        platform=platform, status="draft",
+    )
+    project.formats = formats or ["16:9"]
+    db.session.add(project)
+    db.session.flush()
+
+    for i, spec in enumerate(scenes):
+        scene = Scene(
+            project_id=project.id, order_index=i,
+            start=float(spec.get("start") or 0), end=float(spec.get("end") or 0),
+            narration=spec.get("narration") or "",
+            visual_description=spec.get("visual_description") or "",
+            is_cta=bool(spec.get("is_cta")), asset_url=spec.get("asset_url") or "",
+            asset_type=spec.get("asset_type") or "",
+            asset_source=spec.get("asset_source") or "",
+            asset_thumb_url=spec.get("asset_thumb_url") or "",
+        )
+        scene.asset_meta = spec.get("asset_meta") or {}
+        db.session.add(scene)
+    db.session.commit()
+
+    _log("cb_commercial_started", client=client_name or "",
+        detail=(f"1 variation started for {title} from an existing "
+                f"Creative Studio storyboard on {platform}: "
+                f":{length_seconds:02d}."))
     return project
 
 

@@ -1623,7 +1623,7 @@ function question(){
    if(state.zipMode==="I already have the ZIP Codes"){
     return{key:"geoZipcodes",q:"Which ZIP Codes should be targeted? Enter them comma-separated (for example: 73701, 73703, 73705)."};
    }
-   return{key:"geoZipcodes",q:`SMART1 will identify every ZIP Code that appears to touch a ${state.geoRadius}-mile radius around ${state.geoOrigin}. This AI-assisted list can be reviewed and edited before continuing. Type RETRY to run the lookup again, or SKIP to continue and add ZIP Codes later.`};
+   return{key:"geoZipcodes",q:`SMART1 will find every ZIP Code whose centroid is within ${state.geoRadius} miles of ${state.geoOrigin}. This measured list can be reviewed and edited before continuing — a ZIP whose boundary reaches the radius without its centroid being inside won't appear. Type RETRY to run the lookup again, or SKIP to continue and add ZIP Codes later.`};
   }
 
   if(String(q.key||"").indexOf("intake")===0)return intakeQuestion(q);

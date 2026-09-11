@@ -1628,34 +1628,6 @@ def api_client_owner():
     })
 
 
-@bp.route("/api/client/issues")
-def api_client_issues():
-    """Outstanding issues for Client 360's inline disclosure.
-
-    This deliberately lives under ``/api/client/`` alongside the owner read:
-    that prefix is available when Client 360 is embedded in Smart 1 Suite.
-    Sending the card to ``/api/my-clients`` would make the disclosure work in
-    the Hub and fail in the frame where the same record is also used.
-    """
-    name = (request.args.get("client") or "").strip()
-    if not name:
-        return _json_error("A client is required.")
-    try:
-        return jsonify(issues_for_client(name))
-    except Exception as exc:                            # noqa: BLE001
-        return jsonify({
-            "ok": False,
-            "client": name,
-            "matched": False,
-            "measured": False,
-            "complete": False,
-            "issues": [],
-            "issue_count": 0,
-            "error": f"The outstanding issues could not be read: "
-                     f"{type(exc).__name__}: {exc}"[:300],
-        }), 503
-
-
 @bp.route("/api/client/owner/set", methods=["POST"])
 def api_client_owner_set():
     """Assign or clear the owner of one client.

@@ -650,7 +650,14 @@ def untracked_openai_modules() -> list[str]:
     for p in paths:
         if "_attic" in p.parts or "__pycache__" in p.parts:
             continue
-        if p.name in {"ai.py", "quotas.py", "diagnostics.py"}:
+        # client_brief.py documents the endpoint strings and SDK call
+        # spellings as *data* -- its own check_ai_callers() AST sweep and
+        # its ALLOW dict's reasons for the modules not yet migrated (each
+        # naming "/v1/responses" in prose) -- and calls OpenAI nowhere
+        # itself. Excluded for the same reason ai.py/quotas.py/
+        # diagnostics.py are: this check matches the file as a whole, and a
+        # docstring or a data table naming the pattern is not a call site.
+        if p.name in {"ai.py", "quotas.py", "diagnostics.py", "client_brief.py"}:
             continue
         try:
             src = p.read_text(encoding="utf-8", errors="ignore")

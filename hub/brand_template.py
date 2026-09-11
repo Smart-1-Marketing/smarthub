@@ -21,13 +21,20 @@ working exactly as it did.
 
 Three rules, the ones this corner of the Hub keeps having to relearn.
 
-**Nothing is invented.** A pick is checked against a fresh `brand_kit()` call
-at save time: the exact logo URL or the exact hex must be one the merge is
-*currently* offering for that client. There is no way to set a template to a
-URL or a colour this Hub never actually saw for that client, and a stale pick
-— a Brandfetch answer that has changed since it was confirmed — is refused
-rather than silently accepted, the `client_urls.NOT_A_WEBSITE` rule wearing a
-swatch.
+**A logo is never invented; a colour can be typed.** A logo pick is checked
+against a fresh `brand_kit()` call at save time — the exact URL must be one
+the merge is *currently* offering for that client, and a stale pick (a
+Brandfetch answer that has changed since it was confirmed) is refused rather
+than silently accepted, the `client_urls.NOT_A_WEBSITE` rule wearing a swatch.
+A colour is different on purpose: the automated palette is Brandfetch's guess
+and a scan's own sighting, and both routinely pick up a page's accent colour
+— an announcement bar, a header background — rather than the brand's actual
+one. A rep holding the client's real style guide is the authority the guess
+exists to be corrected by, so a colour is accepted as typed, as long as it is
+a well-formed hex; it does not have to be one this Hub ever observed for that
+client. `hub/client_brand.py` still draws it on the card, as its own swatch
+labelled where it came from, so a rep who typed a colour can see that and
+clear it exactly like any other.
 
 **A pick is not a fetch.** Saving one costs nothing at Brandfetch — it is a
 choice among tiles `brand_kit()` already paid for and is already showing, the
@@ -105,12 +112,13 @@ def _hex_of(value: str) -> str:
 
 
 def save(client: str, domain: str, field: str, value: str, actor: str = "") -> dict:
-    """Confirm — or clear, with `value=""` — one pick against what is on offer now.
+    """Confirm a tile or type a colour — or clear either with `value=""`.
 
-    Refuses a value `brand_kit()` is not currently showing for this client,
-    logo URLs and hex codes alike, so a rep can only ever confirm something
-    this Hub has actually fetched or observed, never type a stray one in.
-    Clearing is always allowed: taking a pick back can never be "not offered".
+    A logo still has to be one `brand_kit()` is currently showing for this
+    client, never a stray URL. A colour needs only to be a well-formed hex:
+    it is a rep naming the client's real brand colour, not this Hub guessing
+    at one, so there is nothing to check it against. Clearing is always
+    allowed either way: taking a pick back can never be "not offered".
     """
     client = str(client or "").strip()
     if not client:
@@ -121,9 +129,9 @@ def save(client: str, domain: str, field: str, value: str, actor: str = "") -> d
     value = str(value or "").strip()
     logo_theme = ""
     if value:
-        from hub.client_brand import brand_kit
-        kit = brand_kit(client, domain)
         if field == "logo":
+            from hub.client_brand import brand_kit
+            kit = brand_kit(client, domain)
             tile = next((t for t in (kit.get("logo_tiles") or [])
                         if t.get("url") == value), None)
             if not tile:
@@ -132,9 +140,9 @@ def save(client: str, domain: str, field: str, value: str, actor: str = "") -> d
             logo_theme = tile.get("theme", "")
         else:
             hx = _hex_of(value)
-            if not hx or hx not in {c.get("hex") for c in kit.get("palette") or []}:
-                return {"ok": False, "error": "That color is not one this Hub "
-                        "currently has on file for this client."}
+            if not hx:
+                return {"ok": False, "error": "That isn't a color code — use "
+                        "a hex value like #0077B4."}
             value = hx
 
     row = jsonstore.read_json(_path(client), default={}) or {}

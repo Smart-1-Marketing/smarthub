@@ -179,6 +179,11 @@ button.lp-chip:hover{border-color:var(--brand);color:var(--brand)}
 .lead-when{white-space:nowrap}
 .lead-name{font-weight:700}
 .lead-sub{color:var(--muted);font-size:11.5px;margin-top:2px}
+/* .gbtn carries no nowrap of its own — fine for the free-flowing prose it's
+   normally dropped into, and wrong here: "Link to client" is the longest
+   label this table draws, so inside the auto-laid-out Client column it wraps
+   onto two lines and that row alone grows taller than every other. */
+.lead-t .gbtn{white-space:nowrap}
 .k-value.warnv{color:var(--warn)}
 .k-value.badv{color:var(--danger)}
 /* The hand-picked combine. A narrow column of checkboxes, and a bar that
