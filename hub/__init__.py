@@ -5690,6 +5690,15 @@ def create_hub_app() -> Flask:
         return jsonify({"ok": True, "proposal": hit,
                         "proposals": proposals.list_proposals(client)})
 
+    @app.route("/api/client/proposals/document/<proposal_id>")
+    def api_client_proposals_document(proposal_id):
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import proposals
+        return proposals.document_response(
+            (request.args.get("client") or "").strip(), proposal_id)
+
     @app.route("/api/client/proposals/file/<path:name>")
     def api_client_proposals_file(name):
         """Serves proposals kept on disk when Cloudinary isn't configured."""
