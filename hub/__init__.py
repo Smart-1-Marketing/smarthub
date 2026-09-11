@@ -7308,6 +7308,21 @@ def create_hub_app() -> Flask:
     except Exception:  # noqa: BLE001
         pass
 
+    # cs_projects grew three columns after WO-CS1 shipped (WO-CS7) --
+    # create_all() above creates missing TABLES and never ALTERs an
+    # existing one, so this is the one place that adds them on the live
+    # Postgres. Guarded like every boot step here: a database that cannot
+    # be altered right now must not take the Hub down.
+    try:
+        from modules.creative_studio.db import add_missing_columns as _cs_add_columns
+        with app.app_context():
+            _cs_add_columns()
+    except Exception as _cs_col_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_col_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # Seed Creative Studio's first 12 templates, now that cs_templates exists.
     # Idempotent (skips any id already present) and guarded like every other
     # boot step: a seed that cannot run leaves the gallery emptier than it

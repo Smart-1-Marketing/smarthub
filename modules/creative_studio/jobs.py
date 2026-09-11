@@ -23,13 +23,15 @@ new must not count against the one-retry ceiling `config.JOB_MAX_ATTEMPTS`
 gives `"render"`; that ceiling matters at submission, not at every check-in
 afterward.
 
-`variant` and `pdf` are not implemented; enqueuing either writes the row and
-the sweep marks it failed at its first pass with a readable reason, rather
-than a job that "queued" reads as running for ever with nothing behind it.
-That is deliberately different from silently refusing the enqueue: a project
-should be able to *ask* for one today and see honestly that nothing can
-answer yet, the same distinction `hub/hyperframes.py` draws between
-configured, reachable and working.
+`pdf` is not implemented; enqueuing it writes the row and the sweep marks it
+failed at its first pass with a readable reason, rather than a job that
+"queued" reads as running for ever with nothing behind it. That is
+deliberately different from silently refusing the enqueue: a project should
+be able to *ask* for one today and see honestly that nothing can answer yet,
+the same distinction `hub/hyperframes.py` draws between configured,
+reachable and working. `variant` (WO-CS7) was declared the same way and is
+built now -- the same shape as every multi-tick runner here: `queued` binds
+and submits, later ticks poll.
 """
 from __future__ import annotations
 
@@ -703,6 +705,121 @@ def _run_render(job: CreativeJob) -> None:
 
 
 _RUNNERS["render"] = _run_render
+
+
+def _run_variant(job: CreativeJob) -> None:
+    """Build one variation's storyboard and render its single-frame preview
+    -- WO-CS7. This is the `"variant"` kind this file's own module docstring
+    named as declared-and-not-yet-built; it is built now.
+
+    Multi-tick like `_run_render`, and for the same reason: `queued` binds
+    the variation (`binder.bind_variation` -- copying the parent's scenes,
+    reframed and recomposed for this aspect, same footage, same resolved
+    text) and submits a still; later ticks poll `check_render` until a URL
+    lands. Binding itself needs no provider and is not why this is a job --
+    the still render is a billed Creatomate call, and nothing long-running
+    happens inside the request that asked for a variation.
+    """
+    from .models import CsProject
+    from . import binder
+    from modules.commercial_builder.models import CommercialProject as CbProject
+    from modules.commercial_builder.models import Scene as CbScene
+    from modules.commercial_builder.services import creatomate_service
+
+    project = CsProject.query.get(job.project_id) if job.project_id else None
+    if project is None:
+        _fail(job, "That project no longer exists.")
+        return
+
+    payload = dict(job.payload or {})
+
+    if job.state == "queued":
+        job.state = "processing"
+        job.stage = "Building the variation's storyboard"
+        db.session.commit()
+
+        result = binder.bind_variation(project)
+        if not result.get("ok"):
+            _fail(job, result.get("error") or "Could not build this variation.")
+            return
+
+        cb_project = CbProject.query.get(project.cb_project_id)
+        scenes = [s.to_dict() for s in cb_project.scenes.order_by(CbScene.order_index).all()]
+        source = creatomate_service.build_source(
+            cb_project.to_dict(include_scenes=False), scenes, project.aspect_ratio,
+            still=True)
+
+        job.state = "rendering"
+        job.stage = "Rendering a preview frame"
+        db.session.commit()
+
+        result = creatomate_service.submit_render(source)
+        if result.get("status") == "failed":
+            _fail(job, result.get("error") or "Creatomate refused the preview.")
+            return
+        if result.get("status") == "succeeded" and not result.get("url"):
+            # Mock mode -- `approve_render`'s own rule, applied here before
+            # anything is filed: the storyboard is real, the preview is not.
+            _fail(job, "No CREATOMATE_API_KEY is set, so this is a mock: it "
+                       "reported success and produced no preview. The "
+                       "variation's storyboard was still built.")
+            return
+        if result.get("status") == "succeeded" and result.get("url"):
+            payload["preview_url"] = result["url"]
+        else:
+            payload["provider_render_id"] = result.get("id")
+        job.payload = payload
+        db.session.commit()
+        if not payload.get("preview_url"):
+            return   # still rendering -- the next tick polls it
+
+    if not payload.get("preview_url"):
+        status = creatomate_service.check_render(payload.get("provider_render_id"))
+        if "status" not in status:
+            return   # could not reach Creatomate -- try again next tick
+        if status["status"] == "failed":
+            _fail(job, status.get("error") or "Creatomate reported the preview failed.")
+            return
+        if status["status"] == "succeeded" and not status.get("url"):
+            _fail(job, "Creatomate reported the preview complete but returned no file.")
+            return
+        if status["status"] != "succeeded":
+            return   # still queued/rendering on Creatomate's side
+        payload["preview_url"] = status["url"]
+        job.payload = payload
+        db.session.commit()
+
+    preview_url = payload.get("preview_url")
+    if not preview_url:
+        return
+
+    job.state = "uploading"
+    job.stage = "Storing the preview"
+    db.session.commit()
+
+    try:
+        url, _public_id = _materialize_remote(
+            project.client_name, preview_url, f"{project.name or 'variation'}-preview.jpg")
+    except Exception as exc:                              # noqa: BLE001
+        _fail(job, f"The preview could not be stored: {exc}")
+        return
+
+    project.preview_url = url
+    db.session.commit()
+
+    usage.record("creatomate", "preview", project_id=project.id,
+                client_name=project.client_name, quantity=1, unit="preview",
+                actor=job.created_by)
+
+    job.state = "complete"
+    job.stage = "Complete"
+    job.progress = 100
+    job.output = {"preview_url": url}
+    job.finished_at = datetime.utcnow()
+    db.session.commit()
+
+
+_RUNNERS["variant"] = _run_variant
 
 
 def sweep(app=None, limit: int = 20) -> dict:
