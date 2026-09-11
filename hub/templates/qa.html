@@ -2,6 +2,17 @@
 {% block title %}QA Reports — Smart 1 Hub{% endblock %}
 {% block content %}
 <div class="page-head"><h2>QA Reports {{ help_dot('qa.reports.billing') if help_dot is defined else '' }}</h2><p>Data-quality and billing checks across Smart 1 Team &amp; QuickBooks</p></div>
+
+<div class="qa-group-label">Google Account QA</div>
+<p class="qa-group-blurb">Housekeeping checks across the Google accounts connected to SmartHub.</p>
+<div class="tool-tiles">
+  <a class="tool-tile" href="/tools/google-access/qa-inactive/">
+    <div class="t-ico">📉</div>
+    <h3>Inactive GA &amp; GTM</h3>
+    <p>Find GA4 properties and defensible GTM containers with no activity for 60 days, then skip or remove them.</p>
+  </a>
+</div>
+
 {% for group, items in groups %}
 <div class="qa-group-label">{{ group }}</div>
 {% set blurbs = {
