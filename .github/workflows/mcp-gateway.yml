@@ -28,7 +28,7 @@ jobs:
       - name: Install gateway dependencies
         run: pip install -r mcp_gateway/requirements.txt
       - name: Compile gateway
-        run: python -m py_compile mcp_gateway/server.py
+        run: python -m py_compile mcp_gateway/server.py mcp_gateway/test_server.py
       - name: Import gateway
         env:
           MCP_API_TOKEN: ci-test-token-not-for-production
@@ -41,3 +41,8 @@ jobs:
           assert mcp is not None
           print('SmartHub MCP gateway import OK')
           PY
+      - name: Test identity and security boundary
+        env:
+          MCP_API_TOKEN: ci-test-token-not-for-production
+          HUB_DATA_DIR: /tmp/smarthub-mcp-ci
+        run: python -m unittest mcp_gateway.test_server -v
