@@ -428,7 +428,7 @@ def _explode(**_k):
     raise RuntimeError("something unrelated broke")
 
 
-import modules.weather_setup.app as wx_app                   # noqa: E402
+from modules.weather_setup import app as wx_app               # noqa: E402
 wx_app.store.create = _explode
 try:
     resp = staff_client.post("/tools/weather-setup/api/start",
