@@ -7,10 +7,33 @@ used by the durable creative queue.
 """
 from __future__ import annotations
 
+import json
+
 from flask import Blueprint, jsonify, render_template, request
 
 from hub.blueprint_guard import install as install_guard
 from hub import proposal_execution as pe
+
+# MVP hardening kept beside registration so it is active before the first run is
+# created. Empty lists must stay lists (the original helper's ``value or {}``
+# collapsed [] to {}), because dependencies and missing-inputs are arrays. This
+# assignment can disappear once the helper itself is folded into main.
+def _stable_dumps(value):
+    return json.dumps({} if value is None else value, ensure_ascii=False,
+                      separators=(",", ":"))
+pe._dumps = _stable_dumps
+
+# The Monogram proposal names YouTube Channel Optimization as a one-time option.
+# We still prepare it in the batch so nothing promised in a proposal is lost,
+# but an option is reviewable rather than silently treated as committed scope.
+_base_build_task_specs = pe.build_task_specs
+def _build_task_specs_with_optional_gate(analysis):
+    specs = _base_build_task_specs(analysis)
+    for spec in specs:
+        if spec.get("key") == "youtube_optimization":
+            spec["mode"] = "approval"
+    return specs
+pe.build_task_specs = _build_task_specs_with_optional_gate
 
 bp = Blueprint("proposal_execution", __name__)
 install_guard(bp, mount="/proposal-execution")
