@@ -2505,3 +2505,26 @@ jobs:
         run: |
           python3 test_video_render.py
           node test_video_search_ui.js
+
+      # hub/client_brief.py is the one client record every AI feature reads
+      # now, and hub/client_brief.check_ai_callers() is the sweep that keeps
+      # it that way: any file in hub/ or modules/ that imports openai, builds
+      # an OpenAI() client, calls .chat.completions.create/.responses.create/
+      # .images.generate, or names api.openai.com/v1/chat/completions in a
+      # string -- outside hub/ai.py and a small, reasoned ALLOW list -- gets
+      # no client brief injected and writes no usage row. Registered here so
+      # the next direct call fails CI rather than reading as tracked because
+      # some other call site in the same file happened to import hub.ai.
+      - name: Every OpenAI call site routes through hub.ai
+        run: python3 test_ai_callers.py
+      # hub/client_brief.py: what build() assembles per section, what a
+      # failing source costs (only its own section), what render() cuts for
+      # "image" against "strategy", and that for_prompt() is unchanged from
+      # the caller's point of view.
+      - name: One client brief, and what each audience is shown
+        run: python3 test_client_brief.py
+      # hub/ai.py: the client brief is injected as a system message when
+      # client=/brief= is passed and is a no-op when neither is, so the ~40
+      # existing call sites that pass neither keep working unchanged.
+      - name: The client brief is injected at the one wrapper
+        run: python3 test_ai_injection.py

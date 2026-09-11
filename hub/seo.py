@@ -570,7 +570,7 @@ def enrich_business_info(client: str, force: bool = False) -> dict:
 
     fields = {}
     try:
-        out = _openai_json(_GMB_EXTRACT_PROMPT, payload, timeout=90) or {}
+        out = _openai_json(_GMB_EXTRACT_PROMPT, payload, timeout=90, client=client) or {}
         raw = out.get("fields") if isinstance(out.get("fields"), dict) else {}
         for k, v in (raw or {}).items():
             k = str(k).strip().lower()
@@ -1521,34 +1521,22 @@ for that page. Rules:
 
 
 def _ai_schema(facts: dict, business: dict, answers: dict, client: str):
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
+    from hub import ai as _hub_ai
+    if not _hub_ai.ready():
         return None
-    payload = {
-        "model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-        "response_format": {"type": "json_object"},
-        "temperature": 0.2,
-        "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps({
-                "client_name": client,
-                "page_facts": facts,
-                "business_info": business,
-                "answered_questions": answers,
-            })},
-        ],
-    }
-    r = requests.post("https://api.openai.com/v1/chat/completions",
-                      headers={"Authorization": f"Bearer {api_key}",
-                               "Content-Type": "application/json"},
-                      json=payload, timeout=90)
-    r.raise_for_status()
-    try:  # record spend so /diagnostics doesn't under-report
-        from hub import ai as _hub_ai
-        _hub_ai.note_usage("seo", r.json(), purpose="schema")
-    except Exception:  # noqa: BLE001
-        pass
-    out = json.loads(r.json()["choices"][0]["message"]["content"])
+    try:
+        out = _hub_ai.chat_json(
+            [{"role": "system", "content": _SYSTEM_PROMPT},
+             {"role": "user", "content": json.dumps({
+                 "client_name": client,
+                 "page_facts": facts,
+                 "business_info": business,
+                 "answered_questions": answers,
+             })}],
+            module="seo", purpose="schema", temperature=0.2,
+            client=client)
+    except _hub_ai.AIUnavailable:
+        return None
     if isinstance(out, dict) and "schema" in out:
         return out
     return {"schema": out, "questions": []}
@@ -1960,26 +1948,19 @@ Rules:
   wrong; follow "taxonomy_rules" if you change them."""
 
 
-def _openai_json(system: str, user_payload: dict, timeout: int = 120):
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
+def _openai_json(system: str, user_payload: dict, timeout: int = 120,
+                 client: str | None = None):
+    from hub import ai as _hub_ai
+    if not _hub_ai.ready():
         return None
-    r = requests.post("https://api.openai.com/v1/chat/completions",
-                      headers={"Authorization": f"Bearer {api_key}",
-                               "Content-Type": "application/json"},
-                      json={"model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-                            "response_format": {"type": "json_object"},
-                            "temperature": 0.5,
-                            "messages": [{"role": "system", "content": system},
-                                         {"role": "user", "content": json.dumps(user_payload)}]},
-                      timeout=timeout)
-    r.raise_for_status()
-    try:  # record spend so /diagnostics doesn't under-report
-        from hub import ai as _hub_ai
-        _hub_ai.note_usage("seo", r.json(), purpose="content")
-    except Exception:  # noqa: BLE001
-        pass
-    return json.loads(r.json()["choices"][0]["message"]["content"])
+    try:
+        return _hub_ai.chat_json(
+            [{"role": "system", "content": system},
+             {"role": "user", "content": json.dumps(user_payload)}],
+            module="seo", purpose="content", temperature=0.5, timeout=timeout,
+            client=client)
+    except _hub_ai.AIUnavailable:
+        return None
 
 
 def client_site_url(client: str, store: dict | None = None) -> str:
@@ -2062,7 +2043,7 @@ def blog_plan(client: str, focus: str, months: int = 3, start_date: str = "") ->
 
     posts_meta, questions, ai_error = [], [], ""
     try:
-        out = _openai_json(_BLOG_PLAN_PROMPT, ctx) or {}
+        out = _openai_json(_BLOG_PLAN_PROMPT, ctx, client=client) or {}
         posts_meta = out.get("posts") or []
         questions = [q for q in (out.get("questions") or []) if isinstance(q, str)][:6]
     except Exception as exc:  # noqa: BLE001
@@ -2152,7 +2133,7 @@ def blog_write(client: str, ids: list[int], limit: int = 3) -> dict:
         payload["post_tags"] = p.get("tags") or []
         out = None
         try:
-            out = _openai_json(_BLOG_WRITE_PROMPT, payload)
+            out = _openai_json(_BLOG_WRITE_PROMPT, payload, client=client)
         except Exception as exc:  # noqa: BLE001
             ai_error = str(exc)
         if out and out.get("html"):
@@ -2229,7 +2210,8 @@ def blog_tag_posts(client: str, ids: list[int] | None = None) -> dict:
             "existing_categories": known,
             "taxonomy_rules": ctx.get("taxonomy_rules", ""),
             "posts": [{"id": p["id"], "title": p["title"],
-                       "summary": p.get("summary", "")} for p in todo]})
+                       "summary": p.get("summary", "")} for p in todo]},
+            client=client)
     except Exception as exc:  # noqa: BLE001
         ai_error = str(exc)
 

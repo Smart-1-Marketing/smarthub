@@ -229,30 +229,20 @@ def build_prompt(payload: dict) -> str:
 
 
 def call_openai_once(payload: dict) -> dict:
-    key = (os.environ.get("OPENAI_API_KEY") or "").strip()
-    if not key:
+    from hub import ai as _hub_ai
+    from hub.client_brief import build_from_fields
+    if not _hub_ai.ready():
         raise RuntimeError("OPENAI_API_KEY is not set.")
-    import requests
-    r = requests.post(
-        "https://api.openai.com/v1/chat/completions",
-        headers={"Content-Type": "application/json",
-                 "Authorization": f"Bearer {key}"},
-        json={"model": MODEL,
-              "messages": [{"role": "user", "content": build_prompt(payload)}],
-              "response_format": {"type": "json_object"},
-              "temperature": 0.4, "max_tokens": 1500},
-        timeout=OPENAI_TIMEOUT)
-    if not r.ok:
-        raise RuntimeError(f"OpenAI responded {r.status_code}")
-    data = r.json()
+    brief = build_from_fields({"company": payload.get("dealership_name", ""),
+                               "zip": payload.get("zip", "")})
     try:
-        from hub import ai as _hub_ai
-        _hub_ai.note_usage("rv", data, purpose="demand_estimate")
-    except Exception:                                   # noqa: BLE001
-        pass
-    content = (((data.get("choices") or [{}])[0].get("message") or {})
-               .get("content") or "")
-    return json.loads(content)
+        return _hub_ai.chat_json(
+            [{"role": "user", "content": build_prompt(payload)}],
+            module="rv", purpose="demand_estimate", model=MODEL,
+            temperature=0.4, max_tokens=1500, timeout=OPENAI_TIMEOUT,
+            brief=brief, audience="strategy")
+    except _hub_ai.AIUnavailable as exc:
+        raise RuntimeError(str(exc)) from exc
 
 
 def build_fallback_estimate(payload: dict) -> dict:
