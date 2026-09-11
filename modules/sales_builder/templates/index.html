@@ -1818,6 +1818,19 @@ function areaComplete(a){
  if(a.type==="DMA")return !!(a.dma||"").trim();
  if(a.type==="Other")return !!((a.other||"").trim()||(a.zips||"").trim());
  return !!(a.origin||"").trim();}
+/* What areaComplete() is still waiting on, in the reader's own words -- the
+   Save button disabling itself said nothing about which field was missing,
+   which on a step with only one required field should never be a mystery. */
+function areaMissingText(a){
+ if(!a||areaComplete(a))return"";
+ if(a.type==="Statewide")return"Enter the state before saving.";
+ if(a.type==="DMA")return"Enter the DMA before saving.";
+ if(a.type==="Other")return"Describe the area, or enter ZIP Codes by hand, before saving.";
+ return"Enter the city or ZIP the radius starts from before saving.";}
+function drawAreaMissing(){
+ const box=document.getElementById('areaMissing');if(!box)return;
+ const t=areaMissingText(currentArea());
+ box.style.display=t?'block':'none';box.textContent=t?"⚠ "+t:"";}
 /* Every ZIP the lookup returned. */
 function areaZipsAll(a){return String((a&&a.zips)||"").match(/\b\d{5}\b/g)||[];}
 /* The ZIPs this area actually runs in -- the found list minus whatever the
@@ -2972,7 +2985,15 @@ function setArea(k,v){
  let a=currentArea();
  if(!a){S.targetAreas=[blankArea()];S._areaIx=0;S._areaView="edit";a=S.targetAreas[0];}
  if(['zips','origin','radius','zipException','zipSource'].includes(k))a.zipVerified=false;
- a[k]=v;S.aiEst=null;syncLegacyGeo();saveSoon();}
+ a[k]=v;S.aiEst=null;syncLegacyGeo();saveSoon();
+ // Typing an origin, a DMA, a state or a description is what makes the area
+ // complete, and the Save button's disabled state was only ever recomputed
+ // on a full renderStep() -- which a text field never triggers. Filling in
+ // exactly the field the step asked for left the button looking disabled
+ // forever, with nothing on screen saying why. syncNext() re-reads valid()
+ // on every keystroke, the way the client-name field already does, and
+ // drawAreaMissing() clears the warning line the same moment it does.
+ syncNext();drawAreaMissing();}
 function areaEditorStep(){
  const a=currentArea()||blankArea();
  const n=S.targetAreas.length,ix=(S._areaIx|0)+1;
@@ -3017,12 +3038,13 @@ function areaEditorStep(){
   <div class="fld"><label>Notes for this area (optional)</label>
    <input value="${esc(a.notes||'')}" oninput="setArea('notes',this.value)" placeholder="Weekend traffic only · competitor conquesting · new location opening in March"></div>
   <div class="bpanel"><div class="ttl">📊 Estimated reach for this area</div><div id="areaEst" class="note"></div></div>
+  <div class="note" id="areaMissing" style="display:none;margin-top:10px;color:#8c5a00;font-weight:700"></div>
   <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:16px">
    <button class="btn btn-good" id="areaSaveBtn" onclick="saveArea()">✓ Save this target area</button>
    ${n>1||areaComplete(a)?`<button class="btn btn-line" onclick="discardArea()">Discard this area</button>`:''}
   </div>`,
   valid:()=>areaComplete(currentArea()),
-  after:drawAreaEst,
+  after:()=>{drawAreaEst();drawAreaMissing();},
   nextLabel:"✓ Save this target area",
   onNext:saveArea,
   onBack:()=>{
@@ -3088,7 +3110,7 @@ function discardArea(){
  syncLegacyGeo();saveSoon();renderStep();}
 function saveArea(){
  const a=currentArea();
- if(!areaComplete(a)){toast("Fill in where this area is before saving it.");return true;}
+ if(!areaComplete(a)){toast("Fill in where this area is before saving it.");drawAreaMissing();return true;}
  if(!(a.name||"").trim())a.name=areaGeo(a);
  S._areaView="list";S.aiEst=null;syncLegacyGeo();saveNow();renderStep();
  return true;}          // handled here — the wizard does not advance
