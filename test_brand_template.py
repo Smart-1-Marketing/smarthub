@@ -15,18 +15,22 @@ itself "frequently does not say which entry is the brand colour", so
 zero and called it the answer. `hub/brand_template.py` is the pick that
 replaces the guess, and this is worth asserting from both ends:
 
-* **Nothing is invented.** A pick has to be one of the tiles or swatches
-  `brand_kit()` is offering *right now* — the exact URL, the exact hex — or it
-  is refused, named, and nothing is written.
+* **A logo is never invented; a colour can be typed.** A logo pick has to be
+  one of the tiles `brand_kit()` is offering *right now* — the exact URL — or
+  it is refused, named, and nothing is written. A colour only has to be a
+  well-formed hex: the automated palette is a guess and a rep with the
+  client's real brand colour is the authority it exists to be corrected by.
 * **Read by nothing until this, so it is used.** `brand_kit()` promotes a
   confirmed pick to position zero without brand_guide_payload() or
   client_context.py changing a line, and Magic Resize's project reference
   (`store.brand_for()`) resolves from the client's name rather than a stored
   key that could go stale.
-* **A stale pick never raises.** A pick confirmed against last month's
+* **A stale logo pick never raises.** A logo confirmed against last month's
   Brandfetch answer, which has since changed, is simply not found in the
   current list — the order stands as it was, and nothing crashes reading it
-  back.
+  back. A colour pick has no such staleness: it was never tied to being
+  currently observed, so it keeps leading the card even after the automated
+  answer moves on.
 """
 import os
 import shutil
@@ -97,7 +101,7 @@ check("no tile reads as confirmed yet",
 
 
 # =====================================================================
-section("Nothing is invented — a pick must be on offer right now")
+section("A logo is never invented — it must be on offer right now")
 # =====================================================================
 
 bogus = brand_template.save("Acme Plumbing", "acmeplumbing.com", "logo",
@@ -105,18 +109,37 @@ bogus = brand_template.save("Acme Plumbing", "acmeplumbing.com", "logo",
 check("a logo nobody has seen for this client is refused", bogus["ok"], False)
 check("and named as such", "not one this Hub" in bogus["error"], True)
 
-bogus_color = brand_template.save("Acme Plumbing", "acmeplumbing.com",
-                                  "primary", "#00ff00")
-check("a color nobody has seen for this client is refused",
-      bogus_color["ok"], False)
-
 bogus_field = brand_template.save("Acme Plumbing", "acmeplumbing.com",
                                   "spokesperson", "anyone")
 check("a field this cannot confirm is refused by name",
       "is not something this can confirm" in bogus_field["error"], True)
 
+not_a_hex = brand_template.save("Acme Plumbing", "acmeplumbing.com",
+                                "primary", "not a color")
+check("a value that isn't a hex is refused", not_a_hex["ok"], False)
+
 check("none of that wrote anything",
       brand_template.get("Acme Plumbing")["picked"], False)
+
+
+# =====================================================================
+section("A color needs no offer to type — it is a rep's own answer")
+# =====================================================================
+
+typed = brand_template.save("Acme Plumbing", "acmeplumbing.com",
+                            "secondary", "#00ff00")
+check("a color nobody has seen for this client is accepted anyway",
+      typed["ok"], True)
+check("normalized the same way", typed["template"]["colors"]["secondary"],
+      "#00FF00")
+typed_kit = client_brand.brand_kit("Acme Plumbing", "acmeplumbing.com")
+check("it draws on the card as its own swatch",
+      any(c["hex"] == "#00FF00" for c in typed_kit["palette"]), True)
+typed_swatch = next(c for c in typed_kit["palette"] if c["hex"] == "#00FF00")
+check("labeled as typed in, not observed", typed_swatch["origin"], "manual")
+check("clearing it always works",
+      brand_template.save("Acme Plumbing", "acmeplumbing.com",
+                          "secondary", "")["ok"], True)
 
 
 # =====================================================================
@@ -193,7 +216,7 @@ check("with nothing confirmed, the raw order (svg first) is back",
 
 
 # =====================================================================
-section("A stale pick is not found, and nothing raises")
+section("Brandfetch answering differently does not undo a typed color")
 # =====================================================================
 
 # Simulate Brandfetch answering differently since the pick was confirmed:
@@ -202,12 +225,12 @@ STALE = {"name": "Acme Plumbing", "domain": "acmeplumbing.com",
         "logos": PAYLOAD["logos"], "colors": [{"hex": "#112233", "type": "accent"}]}
 seo.save_brandfetch("acmeplumbing.com", STALE, client="Acme Plumbing")
 stale_kit = client_brand.brand_kit("Acme Plumbing", "acmeplumbing.com")
-check("the stale color pick is simply not there to promote",
-      stale_kit["colors"][0]["hex"], "#112233")
+check("the typed color still leads — it was never tied to being observed",
+      stale_kit["colors"][0]["hex"], "#FFCC00")
 check("and the template still reports what was confirmed",
       brand_template.get("Acme Plumbing")["colors"]["primary"], "#FFCC00")
-check("no swatch is wrongly marked confirmed",
-      any(c.get("confirmed") for c in stale_kit["palette"]), False)
+check("its swatch is still marked confirmed",
+      any(c.get("confirmed") for c in stale_kit["palette"]), True)
 
 
 # =====================================================================

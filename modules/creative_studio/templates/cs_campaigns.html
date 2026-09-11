@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Campaigns — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>Campaigns {{ help_dot('creative_studio.campaigns') if help_dot is defined else '' }}</h2>
+  <p>One concept, several lengths, aspects and channels -- newest first.</p>
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    <h3 style="margin-top:0">Start a campaign</h3>
+    <div class="row" style="display:flex;gap:10px;flex-wrap:wrap;">
+      <input type="text" id="ccName" placeholder="Campaign name" style="flex:1 1 220px;padding:8px;">
+      <input type="text" id="ccClient" placeholder="Client (leave blank for generic Smart 1)" style="flex:1 1 220px;padding:8px;">
+      <input type="text" id="ccOffer" placeholder="Offer" style="flex:1 1 220px;padding:8px;">
+      <input type="text" id="ccCta" placeholder="Call to action" style="flex:1 1 160px;padding:8px;">
+    </div>
+    <div style="margin-top:10px">
+      <button class="btn btn-primary" id="ccCreate">Create campaign</button>
+      <span id="ccStatus" style="color:var(--muted,#64748B);font-size:12.5px;margin-left:8px"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    {% if campaigns %}
+    <table>
+      <thead><tr><th>Campaign</th><th>Client</th><th>Status</th><th>Assets</th><th>Created</th></tr></thead>
+      <tbody>
+        {% for c in campaigns %}
+        <tr>
+          <td><a href="/creative-studio/campaigns/{{ c.id }}">{{ c.name }}</a></td>
+          <td>{{ c.client_name or '—' }}</td>
+          <td><span class="pill {{ 'ok' if c.status == 'Approved' else ('err' if c.status == 'Changes Requested' else 'info') }}">{{ c.status }}</span></td>
+          <td>{{ c.asset_count }}</td>
+          <td>{{ c.created_at[:10] if c.created_at else '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--muted,#64748B)">No campaigns yet.</p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function(){
+  var btn = document.getElementById('ccCreate');
+  var status = document.getElementById('ccStatus');
+  btn.addEventListener('click', function(){
+    var name = document.getElementById('ccName').value.trim();
+    if (!name) { status.textContent = 'Name the campaign.'; return; }
+    btn.disabled = true;
+    status.textContent = 'Creating…';
+    fetch('/creative-studio/api/campaigns', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        name: name,
+        client_name: document.getElementById('ccClient').value.trim(),
+        offer: document.getElementById('ccOffer').value.trim(),
+        cta: document.getElementById('ccCta').value.trim()
+      })})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        btn.disabled = false;
+        if (d.ok) { window.location = '/creative-studio/campaigns/' + d.campaign.id; }
+        else { status.textContent = d.error || 'Could not create the campaign.'; }
+      })
+      .catch(function(){ btn.disabled = false; status.textContent = 'Could not create the campaign.'; });
+  });
+})();
+</script>
+{% endblock %}

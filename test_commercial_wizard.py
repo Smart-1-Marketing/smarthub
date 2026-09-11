@@ -336,25 +336,43 @@ check("and still reports the room",
 # ---------------------------------------------------------------------------
 # 5. gpt-image-1 returns b64_json, and never a url
 # ---------------------------------------------------------------------------
-section("A generated still is read whichever way the model returns it")
+section("A generated still is read through hub.ai.image(), always as bytes")
+
+# hub.ai.image() decodes b64_json unconditionally -- gpt-image-1 never
+# returns a hosted url, and older dall-e-* urls expire within the hour
+# anyway -- so generate_ai_stills() has no url/b64 branch left to get wrong.
+# is_live() gates on the OpenAI key being set; patch it live and mock the
+# call hub.ai.image() actually makes.
+from hub import ai as _hub_ai_for_stills                               # noqa: E402
+
+_real_is_live = openai_service.is_live
+_real_hub_ai_image = _hub_ai_for_stills.image
+
+openai_service.is_live = lambda: True
+_hub_ai_for_stills.image = lambda *a, **kw: b"fake-png-bytes"
+try:
+    live_options = openai_service.generate_ai_stills("a van in a driveway",
+                                                      {"business_name": "Acme"})
+finally:
+    pass
+check("two options in live mode", len(live_options), 2)
+check("both are data URLs, decoded from the mocked bytes",
+      all((o.get("url") or "").startswith("data:image/png;base64,") for o in live_options), True)
+check("neither is flagged as mock", any(o.get("_mock") for o in live_options), False)
 
 
-class _B64Item:
-    b64_json = "aGVsbG8="
-    url = None
+def _raise_refused(*a, **kw):
+    raise RuntimeError("refused")
 
 
-class _UrlItem:
-    b64_json = None
-    url = "https://example.com/frame.png"
-
-
-check("b64_json becomes a data URL",
-      openai_service._image_result_url(_B64Item()).startswith("data:image/png;base64,"), True)
-check("a hosted url is passed through",
-      openai_service._image_result_url(_UrlItem()), "https://example.com/frame.png")
-check("neither is None, not an exception",
-      openai_service._image_result_url(type("E", (), {"b64_json": None, "url": None})()), None)
+_hub_ai_for_stills.image = _raise_refused
+try:
+    failed_options = openai_service.generate_ai_stills("a van in a driveway", {})
+finally:
+    openai_service.is_live = _real_is_live
+    _hub_ai_for_stills.image = _real_hub_ai_image
+check("a refused option carries its own error, not a batch failure",
+      all(o.get("url") is None and o.get("error") for o in failed_options), True)
 
 # Mock mode still hands back two pickable options, so the picker can be
 # exercised without a key — and each is flagged as mock.

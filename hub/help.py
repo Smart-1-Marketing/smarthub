@@ -2269,6 +2269,46 @@ REGISTRY: list[Help] = [
        "out with clients (sent, nothing back yet). A round past four is "
        "flagged for a change-order conversation rather than refused -- the "
        "client is still served."),
+
+    # ---------------- Creative Studio (WO-CS11: AI tools) -------------------
+    _h("creative_studio.product_lifestyle", "The real product, composited",
+       "Background removal runs on Cloudinary before anything is generated "
+       "-- gpt-image-1 is given the real product photo as an image input, "
+       "never asked to imagine the product from a description. Four "
+       "options come back and none is picked for you."),
+    _h("creative_studio.pdf_to_video", "Read from the page, never invented",
+       "Every extracted price is labeled 'read from PDF — confirm' until "
+       "you clear it -- OCR on a menu is not a contract. Building the "
+       "storyboard never renders it automatically."),
+
+    # ---------------- Creative Studio (WO-CS10: spot library) --------------
+    _h("creative_studio.library", "Approved spots become starting points",
+       "'Use as template' abstracts an approved spot's structure into a "
+       "reusable template -- client names, phones and websites are turned "
+       "back into {{variables}}, and footage is stripped so no client's "
+       "actual video reaches another client's storyboard. 'Use as "
+       "reference' attaches it to a new project's Concepts step as a "
+       "'make it like this' input, words only. A client's own "
+       "library_opt_out (set on their Brand Kit) hides their spots here."),
+
+    # ---------------- Creative Studio (WO-CS8: campaigns) ------------------
+    _h("creative_studio.campaigns", "One concept, several assets",
+       "A campaign shares one offer and one CTA across every channel it "
+       "covers. 'Generate all drafts' writes that shared brief once and "
+       "derives each asset's own copy from it -- no asset asks the model "
+       "twice. Nothing renders until you press Render, and a batch above "
+       "the confirmation threshold asks you to type the campaign's own "
+       "name before it spends anything."),
+
+    # ---------------- Creative Studio (WO-CS7: aspect variations) ----------
+    _h("creative_studio.variations", "Preview before you render",
+       "Pick a size and this builds the same scenes, same footage, same "
+       "resolved text -- re-flowed into that size's own safe area -- and "
+       "renders a single still frame first. Nothing queues a video until "
+       "you choose to render a variation, so checking a size costs nothing. "
+       "A 9:16 whose text would sit under a platform's own UI is refused "
+       "rather than built; every other size is built and named if it is "
+       "tight."),
 ]
 
 _BY_KEY = {h.key: h for h in REGISTRY}

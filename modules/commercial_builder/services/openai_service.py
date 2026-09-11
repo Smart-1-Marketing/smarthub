@@ -50,32 +50,29 @@ def is_live():
     return bool(_key())
 
 
-def _client():
-    from openai import OpenAI
-    return OpenAI(api_key=_key())
+def _chat_json(system, user, max_tokens=1500, client=""):
+    """One JSON call, through ``hub.ai`` rather than this module's own SDK
+    client — the one wrapper, so a call here gets the client brief injected
+    (``client=`` is the business name off the client profile, where the
+    caller has one) and writes a usage row the same as everywhere else.
 
-
-def _chat_json(system, user, max_tokens=1500):
-    """Call the Chat Completions API and parse a JSON object response."""
-    client = _client()
+    Still asks the shared model profile for a reasoning model and still
+    switches the payload shape for one (``max_completion_tokens`` /
+    ``reasoning_effort`` rather than ``max_tokens`` / ``temperature``) — that
+    is a fact about which model is selected, not about the transport, and
+    ``hub.ai.chat_json``'s ``extra_payload`` exists to carry exactly this.
+    """
+    from hub import ai as _hub_ai
     selected_model = profile_model("commercial.text")
-    # Reasoning models reject temperature and the legacy max_tokens field.
-    # Preserve the shared model profile; changing providers is not necessary.
-    options = {"max_tokens": max_tokens, "temperature": 0.8}
+    extra = None
     if re.match(r"^(?:gpt-[56](?:[.-]|$)|o[134](?:[-.]|$))", selected_model):
-        options = {"max_completion_tokens": max(4096, max_tokens * 4), "reasoning_effort": "low"}
-    resp = client.chat.completions.create(
-        model=selected_model,
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-        response_format={"type": "json_object"},
-        **options,
-    )
-    try:  # record spend so /diagnostics doesn't under-report
-        from hub import ai as _hub_ai
-        _hub_ai.note_sdk_usage("commercial_builder", resp, purpose="script")
-    except Exception:  # noqa: BLE001
-        pass
-    return json.loads(resp.choices[0].message.content)
+        extra = {"max_completion_tokens": max(4096, max_tokens * 4),
+                 "reasoning_effort": "low"}
+    return _hub_ai.chat_json(
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        module="commercial_builder", purpose="script", model=selected_model,
+        max_tokens=max_tokens, temperature=0.8, extra_payload=extra,
+        client=client or None, audience="strategy")
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +125,55 @@ def _mock_brand_profile(url):
 # ---------------------------------------------------------------------------
 # 3. Commercial Brief -> Generate Concepts
 # ---------------------------------------------------------------------------
-def generate_concepts(brief, client_profile, commercial_type):
+def generate_concepts(brief, client_profile, commercial_type, *, archetype_keys=None):
+    # `archetype_keys` -- modules/creative_studio's own recommender
+    # (WO-CS10), the only caller that ever passes it. Every other call site
+    # in this Hub, including the Storyboard Editor's own Concepts button,
+    # leaves it None and this function behaves exactly as it always has:
+    # ONE archetype resolved through `library_spec.archetype_for()` below,
+    # its guidance shared across all 3 generated concepts. When a caller
+    # names up to 3 archetypes explicitly, each concept is written to ONE
+    # of them -- 3 different structures rather than 3 paraphrases of one --
+    # which is the build spec's own "seed the three concept generations
+    # with the top three archetypes' voice directions."
+    from .. import library_spec
+    archetype_keys = [k for k in (archetype_keys or []) if k in library_spec.ARCHETYPES][:3]
+    if archetype_keys:
+        guidances = [library_spec.prompt_guidance(k, (client_profile or {}).get("industry", ""))
+                    for k in archetype_keys]
+        if not is_live():
+            return _mock_concepts_multi(brief, guidances)
+        try:
+            result = _chat_json(
+                system=(
+                    "You are a senior copywriter/creative director for a digital marketing "
+                    "agency building :05-:60 second video commercials. Given a client brand "
+                    "profile, a commercial brief, and `archetype_guidances` (a list of "
+                    "archetype guidance objects), write exactly one concept per guidance -- "
+                    "the same number of concepts as guidances given, in the same order -- "
+                    "each following THAT guidance's own beat structure and voice, so the "
+                    "concepts are different STRUCTURES rather than paraphrases of one. "
+                    'Respond as JSON: {"concepts":[{"title":"...","angle":"...",'
+                    '"summary":"..."}, ...]}. "angle" is a short label naming that '
+                    "concept's own archetype structure. \"summary\" is 1-2 sentences. Where "
+                    "a guidance's `category_state` is not 'matched' there is no category "
+                    "guidance for that concept and you must NOT invent any — say nothing "
+                    "category-specific rather than guessing at a trade you were not told."
+                ),
+                user=json.dumps({
+                    "client": client_profile, "brief": brief,
+                    "production_method": library_spec.production_method(commercial_type),
+                    "archetype_guidances": guidances,
+                }),
+                max_tokens=900,
+            )
+            concepts = result.get("concepts", [])[:3]
+            for i, c in enumerate(concepts):
+                c["id"] = f"concept_{i + 1}"
+            return concepts or _mock_concepts_multi(brief, guidances)
+        except Exception:
+            return _mock_concepts_multi(brief, guidances)
+
     # What the spot IS, and what its category needs. `hub/current_marketing.
     # for_prompt()`'s rule: a model handed a label writes label-flavored
     # adjectives, and a model told what to DO about it writes a different
@@ -168,6 +213,7 @@ def generate_concepts(brief, client_profile, commercial_type):
                 "guidance": guidance,
             }),
             max_tokens=700,
+            client=client_profile.get("business_name") or client_profile.get("name") or "",
         )
         concepts = result.get("concepts", [])[:3]
         for i, c in enumerate(concepts):
@@ -204,6 +250,25 @@ def _mock_concepts(brief, guidance=None):
          "summary": f"One recognizable person, one moment, and {what} as the "
                     f"thing that changed it."},
     ]
+
+
+def _mock_concepts_multi(brief, guidances):
+    """Mock mode for the multi-archetype path -- one concept per guidance,
+    the same "the choice must not read as dead" rule `_mock_concepts` states,
+    applied to several archetypes at once rather than one archetype's three
+    variations."""
+    what = brief.get("what_advertising") or "this offer"
+    out = []
+    for i, guidance in enumerate(guidances[:3], start=1):
+        guidance = guidance or {}
+        shape = guidance.get("archetype") or "Problem -> solution"
+        structure = guidance.get("structure") or "Problem -> service -> offer -> CTA"
+        hooks = guidance.get("category_hooks") or []
+        lead = hooks[0] if hooks else f"Opens on the reason somebody needs {what}."
+        out.append({"id": f"concept_{i}", "title": shape, "angle": structure,
+                    "summary": f"{lead} Then {what}, following the "
+                               f"{shape.lower()} structure."})
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +349,7 @@ def generate_script(concept, length_seconds, brief, client_profile, platform="bo
                     "length_seconds": length_seconds, "platform": platform,
                 }),
                 max_tokens=1200,
+                client=client_profile.get("business_name") or client_profile.get("name") or "",
             )
             scenes = _shots_from_beats(result, length_seconds, beats)
             script = {"duration": length_seconds, "scenes": scenes}
@@ -537,6 +603,7 @@ def regenerate_scene_content(concept, duration_seconds, brief, client_profile):
             ),
             user=json.dumps({"concept": concept, "brief": brief, "client": client_profile}),
             max_tokens=250,
+            client=client_profile.get("business_name") or client_profile.get("name") or "",
         )
         return {"visual": (result.get("visual") or "").strip(), "voiceover": (result.get("voiceover") or "").strip()}
     except Exception:
@@ -635,6 +702,7 @@ def expand_narration(scenes, length_seconds, brief, client_profile, concept=None
             user=json.dumps({"scenes": payload, "brief": brief,
                              "client": client_profile, "concept": concept or {}}),
             max_tokens=900,
+            client=client_profile.get("business_name") or client_profile.get("name") or "",
         )
     except Exception as exc:  # noqa: BLE001
         return {"scenes": [], "note": f"The narration could not be written: {exc}"}
@@ -693,6 +761,7 @@ def write_runway_prompt(visual_description, client_profile):
             ),
             user=visual_description,
             max_tokens=150,
+            client=client_profile.get("business_name") or client_profile.get("name") or "",
         )
         return result.get("prompt") or base
     except Exception:
@@ -702,28 +771,12 @@ def write_runway_prompt(visual_description, client_profile):
 # ---------------------------------------------------------------------------
 # 7. AI Generate button — interim still-frame generation until Runway (V1.5)
 # ---------------------------------------------------------------------------
-def _image_result_url(item):
-    """The usable URL for one generated image, whichever way it came back.
-
-    This is the line that made "Generate AI" fail. `gpt-image-1` — the default
-    image model, and the one this deployment runs — **always** returns
-    `b64_json` and never a `url`; only the older `dall-e-*` models return a
-    hosted URL, and that URL expires within the hour anyway. The old code read
-    `resp.data[0].url` unconditionally, so on this deployment both options came
-    back with `url: None`: the picker drew Option A and Option B exactly as it
-    would for a success, and clicking either one said "This option failed to
-    generate" with nothing anywhere saying why. Two options, and both dead.
-
-    A data URL is the right answer for both shapes. It cannot expire, it needs
-    no second round trip, and `choose-ai-option` already mirrors whatever it is
-    given into Cloudinary — so the picture that survives is the stored one
-    rather than a signed link that 404s next week, which is the trap
-    `hub/storage.py` and the HeyGen mirror both exist for.
-    """
-    b64 = getattr(item, "b64_json", None)
-    if b64:
-        return f"data:image/png;base64,{b64}"
-    return getattr(item, "url", None)
+# A data URL is the right answer here: `hub.ai.image()` decodes `b64_json`
+# unconditionally (every image model this deployment runs answers that way;
+# gpt-image-1 never returns a hosted `url`), so there is no url/b64 branch
+# left to write -- the failure `_image_result_url` used to exist to paper
+# over ("This option failed to generate" on both options, with nothing
+# saying why) cannot happen through this path.
 
 
 def generate_ai_stills(visual_description, client_profile, option_count=2):
@@ -746,34 +799,23 @@ def generate_ai_stills(visual_description, client_profile, option_count=2):
         return [{"url": f"https://placehold.co/1024x576/333/fff?text=AI+Option+{chr(65+i)}",
                   "prompt": prompt, "_mock": True} for i in range(option_count)]
 
-    try:
-        client = _client()
-    except Exception as exc:  # noqa: BLE001 — the SDK is missing or the key is unusable
-        return [{"url": None, "prompt": prompt, "error": str(exc)}
-                for _ in range(option_count)]
+    from hub import ai as _hub_ai
+    import base64
 
+    business = client_profile.get("business_name") or client_profile.get("name") or ""
     options = []
     for index in range(option_count):
         try:
-            resp = client.images.generate(model=profile_model("commercial.image"), prompt=prompt,
-                                          size="1536x1024", n=1)
-            # `hub/ai.note_sdk_usage()` records the text calls by reading
-            # `.usage`, which an images response does not carry — so this path
-            # was billed and counted nowhere while every chat call was
-            # tracked. Two options per press at image rates is the commonest
-            # single spend in this module.
+            # hub.ai.image() always returns raw bytes -- decoded from
+            # b64_json where the model answers that way, which is every
+            # model this deployment runs -- so there is no `_image_result_url`
+            # url/b64 branch left to duplicate here.
+            raw = _hub_ai.image(prompt, module="commercial_builder", purpose="still",
+                                model=profile_model("commercial.image"),
+                                size="1536x1024", client=business or None)
             _meter_image()
-            url = _image_result_url(resp.data[0]) if resp.data else None
-            if url:
-                options.append({"url": url, "prompt": prompt})
-            else:
-                # A response with no image in it is a different failure from a
-                # refused request, and saying "failed to generate" for both
-                # sends somebody to check a key that was fine.
-                options.append({"url": None, "prompt": prompt,
-                                "error": (f"{_IMAGE_MODEL} returned no image data. If this "
-                                          f"model is not enabled on the account, set "
-                                          f"OPENAI_IMAGE_MODEL to one that is.")})
+            url = "data:image/png;base64," + base64.b64encode(raw).decode("ascii")
+            options.append({"url": url, "prompt": prompt})
         except Exception as exc:  # noqa: BLE001
             # A refused request spent nothing and is excluded from every
             # billable total, but the row stays: a wall of them is what a
@@ -815,6 +857,7 @@ def qc_spelling_check(script_text, client_profile):
             ),
             user=json.dumps({"script": script_text, "client": client_profile}),
             max_tokens=300,
+            client=business_name,
         )
         issues.extend(result.get("issues", []))
     except Exception:
@@ -900,6 +943,8 @@ def generate_vox_beats(source_text, client_profile, *,
                 "material": body[:8000],
             }),
             max_tokens=1600,
+            client=(client_profile or {}).get("business_name")
+                   or (client_profile or {}).get("name") or "",
         )
     except Exception as e:  # noqa: BLE001
         # The provider's own sentence, not an invented diagnosis of it —
