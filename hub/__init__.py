@@ -6776,6 +6776,13 @@ def create_hub_app() -> Flask:
                   # nav; the other way round is a login form in front of
                   # somebody with no account.
                   "/tools/commercial-builder/review/",
+                  # The radio script review link (build spec WO-3) — the same
+                  # reasoning as commercial-builder's, one line above: this
+                  # module is a blueprint too, so wsgi.py's PUBLIC_PREFIXES
+                  # never sees it, and the login exemption
+                  # (modules/radio_scripts/__init__.py::_guard, reading
+                  # review.PUBLIC_PATHS) is only half.
+                  "/tools/radio-scripts/review/",
                   # The Creative Studio client review link (WO-CS6) -- a
                   # client opens this with nothing but a token to approve a
                   # rendered version or ask for changes, so it must not

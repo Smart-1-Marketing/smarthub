@@ -113,14 +113,49 @@
     window.dispatchEvent(new CustomEvent('radio-project-opened', {detail:{id:row.id}}));
     var el = document.getElementById("rsResult");
     var topFlags = (row.flags || []).map(flagLine).join("");
-    var body = '<div style="display:flex;justify-content:space-between;align-items:center">' +
+    var body = '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
       "<h3 style=\"margin:0\">" + esc(row.client_name || "(no client on file)") + "</h3>" +
-      '<a class="btn" href="' + BASE + "/api/sets/" + row.id + '/pdf">Download PDF</a></div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<button class="btn" onclick="rsSendForReview(' + row.id + ')">Send for client review</button>' +
+      '<a class="btn" href="' + BASE + "/api/sets/" + row.id + '/pdf">Download PDF</a>' +
+      "</div></div>" +
+      '<div id="rsReviewStatus"></div>' +
       topFlags + "<div style=\"margin-top:10px\">" +
       (row.concepts || []).map(function (c, i) { return concept(c, i, row.id); }).join("") +
       "</div>";
     el.innerHTML = body;
   }
+
+  window.rsSendForReview = function (setId) {
+    var status = document.getElementById("rsReviewStatus");
+    status.innerHTML = '<span class="spin" data-s1-think="wait"></span> Issuing a review link…';
+    fetch(BASE + "/api/sets/" + setId + "/reviews", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.d.ok) {
+          status.innerHTML = '<span style="color:#B42318">' +
+            esc((res.d && res.d.error) || "Could not issue a review link.") + "</span>";
+          return;
+        }
+        var url = res.d.review.url;
+        status.innerHTML = '<div class="hint" style="margin-top:6px">Review link (' +
+          esc(res.d.review.round === 1 ? 'first round' : 'round ' + res.d.review.round) +
+          '): <a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + '</a> ' +
+          '<button class="btn" id="rsCopyReviewLink">Copy</button></div>';
+        var copyBtn = document.getElementById("rsCopyReviewLink");
+        if (copyBtn) {
+          copyBtn.addEventListener("click", function () {
+            if (!navigator.clipboard) return;
+            navigator.clipboard.writeText(url).then(function () {
+              copyBtn.textContent = "Copied";
+            });
+          });
+        }
+      }).catch(function () {
+        status.innerHTML = '<span style="color:#B42318">Could not reach the server.</span>';
+      });
+  };
 
   window.rsGenerate = function () {
     var btn = document.getElementById("rsGenBtn");

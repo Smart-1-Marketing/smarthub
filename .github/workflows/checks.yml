@@ -1451,6 +1451,21 @@ jobs:
             echo "test_creative_jobs.py not on this branch — nothing to run."
           fi
 
+      - name: Radio Scripts review link tests
+        # Build spec WO-3: the client review link for a radio script set,
+        # ported from modules/commercial_builder's review pattern (its own
+        # review_spec.py rather than a cross-module import, the reason
+        # modules/image_creator's copy gives). No network -- OpenAI is
+        # stubbed at the same seam test_radio_scripts.py uses. Guarded
+        # like the steps above so the workflow stays mergeable on a branch
+        # that predates the file.
+        run: |
+          if [ -f test_radio_review.py ]; then
+            python test_radio_review.py
+          else
+            echo "test_radio_review.py not on this branch — nothing to run."
+          fi
+
       - name: Web ticket field tests
         # The pinned object_107 ids, the form built from them, and what a
         # write may and may not contain. Guarded like the steps above so this

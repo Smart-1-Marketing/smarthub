@@ -342,6 +342,10 @@ PUBLIC_DYNAMIC: dict[str, str] = {
     "/tools/image-creator/review/<token>": "the graphic a client watches and "
                                            "signs off, ported from Commercial "
                                            "Builder's review link",
+    "/tools/radio-scripts/review/<token>": "the script concepts a client "
+                                           "reads and signs off (build spec "
+                                           "WO-3), ported from Commercial "
+                                           "Builder's review link",
     "/review/<token>": "the Creative Studio version a client watches and "
                        "signs off (WO-CS6) -- bare, not under /tools/, "
                        "because modules/creative_studio/review_routes.py is "
@@ -425,6 +429,13 @@ PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
                                                        "or no",
     "/tools/commercial-builder/review/<token>/comment": "a timecoded note "
                                                         "against the cut",
+    "/tools/radio-scripts/review/<token>/decide": "the client's approve, "
+                                                  "approve-with-changes or no "
+                                                  "on a radio script set",
+    "/tools/radio-scripts/review/<token>/comment": "a note against one "
+                                                    "concept and length in "
+                                                    "the set, or the set as "
+                                                    "a whole",
     "/tools/commercial-builder/review/voice/<token>/submit": "the client's "
                                                              "recorded or "
                                                              "uploaded voice "
