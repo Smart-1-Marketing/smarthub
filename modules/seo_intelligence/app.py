@@ -8,6 +8,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from hub.extensions import db
 from .context import get_seo_context
+from .file_store import mirror_client
 from .models import SEOAction, SEOMemory, SEOProperty, SEORecommendation, SEOSnapshot
 from .service import refresh_property, upsert_property
 
@@ -43,12 +44,7 @@ def _recommendation_dict(r):
 
 
 def _token_for(prop):
-    """Resolve a short-lived access token without storing it in this module.
-
-    Production can set app.config['SEO_GSC_TOKEN_PROVIDER'] to a callable that
-    reuses SmartHub's agency Google credential store. Tests/dev may set
-    SEO_GSC_ACCESS_TOKEN. No token is ever written to an SEO table/snapshot.
-    """
+    """Resolve a short-lived access token without storing it in this module."""
     provider = current_app.config.get("SEO_GSC_TOKEN_PROVIDER")
     if callable(provider):
         return provider(prop)
@@ -116,6 +112,7 @@ def refresh_now(property_id):
     body = request.get_json(silent=True) or {}
     try:
         result = refresh_property(prop, token, inspect_urls=body.get("inspect_urls") or [])
+        result["intelligence_file"] = bool(mirror_client(prop.client_id))
         return jsonify(result)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 502
