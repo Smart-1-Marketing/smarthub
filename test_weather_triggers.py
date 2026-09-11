@@ -36,17 +36,30 @@ from hub import weather_triggers as wt                    # noqa: E402
 
 
 section("The vocabulary")
-check("fourteen triggers", len(wt.TRIGGERS), 14)
-check("all restaurant for v1", all(t.vertical == "restaurant" for t in wt.TRIGGERS.values()), True)
+check("two verticals", set(wt.VERTICALS), {"restaurant", "hvac"})
+check("fourteen restaurant triggers", len(wt.triggers_for_vertical("restaurant")), 14)
+check("thirteen hvac triggers", len(wt.triggers_for_vertical("hvac")), 13)
+check("every trigger is one of the two verticals",
+     all(t.vertical in wt.VERTICALS for t in wt.TRIGGERS.values()), True)
+check("no trigger id is used by two verticals",
+     len(wt.TRIGGERS), len(wt.triggers_for_vertical("restaurant")) + len(wt.triggers_for_vertical("hvac")))
 check("cap is three", wt.MAX_TRIGGERS, 3)
-check("every month has every trigger", all(
-    set(wt.month_order("restaurant", m)) == set(wt.triggers_for_vertical("restaurant"))
-    for m in wt.MONTH_ABBR), True)
+for vertical in wt.VERTICALS:
+    check(f"every month has every {vertical} trigger", all(
+        set(wt.month_order(vertical, m)) == set(wt.triggers_for_vertical(vertical))
+        for m in wt.MONTH_ABBR), True)
 check("spec's Sep example order is honored (first four)",
      wt.month_order("restaurant", "Sep")[:4],
      ["patio-day", "first-cool-night", "rain-delay", "crisp-day"])
-check("unknown month falls back to the registry order",
-     set(wt.month_order("restaurant", "Nope")), set(wt.TRIGGERS))
+check("hvac's Jul order leads with the emergency-cooling pair",
+     wt.month_order("hvac", "Jul")[:3],
+     ["ac-overload", "heat-index-strain", "storm-power-risk"])
+check("unknown month falls back to the registry order, restaurant",
+     set(wt.month_order("restaurant", "Nope")), set(wt.triggers_for_vertical("restaurant")))
+check("unknown month falls back to the registry order, hvac",
+     set(wt.month_order("hvac", "Nope")), set(wt.triggers_for_vertical("hvac")))
+check("a vertical's month order never leaks the other vertical's ids",
+     bool(set(wt.month_order("hvac", "Jan")) & set(wt.triggers_for_vertical("restaurant"))), False)
 
 
 section("The cap is enforced server-side, not only in the picker")
@@ -63,6 +76,14 @@ ok, err = wt.validate_picks([])
 check("empty picks: refused", ok, False)
 ok, err = wt.validate_picks(["patio-day", "cold-snap", "snow-day"])
 check("exactly the cap: ok", ok, True)
+ok, err = wt.validate_picks(["ac-overload", "hard-freeze"], "hvac")
+check("two hvac picks: ok", ok, True)
+ok, err = wt.validate_picks(["ac-overload", "patio-day"], "hvac")
+check("a restaurant id is not a recognized hvac trigger", ok, False)
+ok, err = wt.validate_picks(["patio-day", "cold-snap"], "hvac")
+check("both restaurant ids refused under the hvac vertical", ok, False)
+ok, err = wt.validate_picks(["ac-overload", "cold-snap"])
+check("an hvac id is not a recognized restaurant trigger", ok, False)
 
 
 section("Plain range rules")
@@ -155,6 +176,69 @@ section("An unknown trigger never claims a verdict")
 r = wt.evaluate_trigger("not-real", {})
 check("unknown trigger id is not measured", r["measured"], False)
 check("unknown trigger id has no verdict", r["active"], None)
+
+
+section("HVAC — the second vertical, same rule vocabulary")
+r = wt.evaluate_trigger("ac-overload", {"temperature": 95})
+check("ac-overload fires above 92F", r["active"], True)
+r = wt.evaluate_trigger("ac-overload", {"temperature": 88})
+check("ac-overload does not fire at 88F", r["active"], False)
+
+r = wt.evaluate_trigger("heat-index-strain", {"temperature": 96, "humidity": 60})
+check("heat-index-strain fires on hot + humid", r["active"], True)
+r = wt.evaluate_trigger("heat-index-strain", {"temperature": 96})
+check("heat-index-strain with no humidity is not measured", r["measured"], False)
+
+r = wt.evaluate_trigger("hard-freeze", {"temperature": 10})
+check("hard-freeze fires at 10F", r["active"], True)
+r = wt.evaluate_trigger("deep-freeze", {"temperature": 10})
+check("deep-freeze does not fire at 10F -- it escalates past hard-freeze", r["active"], False)
+r = wt.evaluate_trigger("deep-freeze", {"temperature": -5})
+check("deep-freeze fires below zero", r["active"], True)
+
+r = wt.evaluate_trigger("spring-tune-up-day",
+                        {"temperature": 72, "rain_probability": 5},
+                        today=date(2026, 4, 15))
+check("spring-tune-up-day fires on a mild dry April day", r["active"], True)
+r = wt.evaluate_trigger("spring-tune-up-day",
+                        {"temperature": 72, "rain_probability": 5},
+                        today=date(2026, 8, 15))
+check("spring-tune-up-day is outside its months in August", r["active"], False)
+
+r = wt.evaluate_trigger("fall-tune-up-day",
+                        {"temperature": 60, "rain_probability": 10},
+                        today=date(2026, 10, 1))
+check("fall-tune-up-day fires on a mild dry October day", r["active"], True)
+
+state = {}
+r = wt.evaluate_trigger("first-hard-freeze", {"forecast_low": 25}, state,
+                        today=date(2026, 11, 1))
+check("first-hard-freeze fires the first time it is cold enough", r["active"], True)
+r = wt.evaluate_trigger("first-hard-freeze", {"forecast_low": 20}, r["state"],
+                        today=date(2026, 11, 10))
+check("first-hard-freeze does not fire again the same season", r["active"], False)
+
+r = wt.evaluate_trigger("storm-power-risk", {"official_alerts": ["Severe Thunderstorm Warning"]})
+check("storm-power-risk fires on a real alert", r["active"], True)
+r = wt.evaluate_trigger("storm-power-risk", {"official_alerts": []})
+check("storm-power-risk does not fire with no alert", r["active"], False)
+
+r = wt.evaluate_trigger("snow-load", {"snow_inches": 6})
+check("snow-load fires at 6in", r["active"], True)
+r = wt.evaluate_trigger("snow-load", {"snow_inches": 1})
+check("snow-load does not fire at 1in", r["active"], False)
+
+# The two once-per-season triggers -- restaurant's first-freeze and hvac's
+# first-hard-freeze -- both key their season state on the rule's own
+# once_per_season value ("cold"), not on the trigger id. They must not be
+# able to see each other's carried state.
+r1 = wt.evaluate_trigger("first-freeze", {"forecast_low": 20},
+                         {"season_fired_cold_2026": "2026-11-01"},
+                         today=date(2026, 11, 2))
+check("first-freeze's own carried state still blocks a second fire", r1["active"], False)
+r2 = wt.evaluate_trigger("first-hard-freeze", {"forecast_low": 20}, {},
+                         today=date(2026, 11, 2))
+check("first-hard-freeze has its own, separate state and fires", r2["active"], True)
 
 
 print(f"\n{_passed} passed, {_failed} failed")

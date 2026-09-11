@@ -38,6 +38,42 @@ a QC check with no pixels to look at.
 number nobody measured, that trigger reads the closest thing the provider
 does publish — chance of rain — and says so on the card, so the
 approximation is a decision on screen rather than a silent substitution.
+
+## The second vertical
+
+HVAC is the second vertical, and it needed no new plumbing —
+`Trigger.vertical` was already a field, `triggers_for_vertical()` already
+filters on it, and `evaluate_trigger()`'s rule vocabulary (`temp_min`,
+`temp_max`, `feels_like_max`, `heat_index_min`, `snow_in_min`,
+`cloud_percent_min`, `alert_required`, `once_per_season`, `months`) already
+covered every condition an HVAC book actually needs. Nothing here reads
+`humidity` on its own or a plain overnight low outside `once_per_season`,
+so the thirteen HVAC rows below were written to fit the vocabulary that
+already exists rather than growing it — the same discipline `rain-delay`
+and `evening-cooldown` already impose on the restaurant thirteen.
+
+The psychology is different from a restaurant's and the rows say so: a
+restaurant ad is an invitation ("come sit outside"), an HVAC ad is a
+warning or a reminder ("book this before it fails"). `ac-overload` and
+`heat-index-strain` are the emergency-repair pair for a cooling system
+under strain; `hard-freeze` and `deep-freeze` are the same pair for
+heating, escalating rather than duplicating one another; `first-hard-freeze`
+is the once-per-season "the furnace gets tested for real" event, the exact
+shape of the restaurant's `first-freeze` with its own id and its own
+season-state key so the two never collide inside one campaign's carried
+state. `spring-tune-up-day` and `fall-tune-up-day` are the two the whole
+vertical exists to sell: a maintenance appointment booked in a comfortable
+shoulder-season week is cheaper for everyone than an emergency call in the
+week that follows it, which is why each names the season it is *for* in its
+own `reason` rather than leaving a rep to infer it from the month strip.
+
+`MONTHS` stays one flat table rather than becoming one nested by vertical
+— `month_order()` already filters its ranked list down to
+`triggers_for_vertical(vertical)` before returning, so a restaurant id
+sitting in the same month tuple as an HVAC id costs nothing: each vertical
+only ever sees the ids that belong to it, in the relative order they were
+written in for that month. Splitting the table in two would be a second
+shape doing the one job this filtering step already does.
 """
 from __future__ import annotations
 
@@ -49,7 +85,8 @@ from datetime import date
 # auction. Enforced here, not merely disabled in the picker.
 MAX_TRIGGERS = 3
 
-VERTICALS = ("restaurant",)
+VERTICALS = ("restaurant", "hvac")
+VERTICAL_LABELS = {"restaurant": "Restaurant", "hvac": "HVAC / Home Comfort"}
 
 
 @dataclass(frozen=True)
@@ -202,6 +239,135 @@ TRIGGERS: dict[str, Trigger] = {
         windows=(("17:00", "22:00"),),
         cadence="once_per_season", tags=("event", "patio"),
     ),
+
+    # -- HVAC -----------------------------------------------------------
+    "ac-overload": Trigger(
+        id="ac-overload", name="AC Overload Risk", vertical="hvac",
+        reason="Sustained heat pushes a cooling system past what it was "
+               "sized for — the day a breakdown call comes in.",
+        condition_label="high ≥ 92°F",
+        rule={"temp_min": 92.0},
+        windows=(("09:00", "20:00"),),
+        cadence="daily", tags=("cooling", "emergency"),
+    ),
+    "heat-index-strain": Trigger(
+        id="heat-index-strain", name="Heat Index Strain", vertical="hvac",
+        reason="Humidity stacked on heat is what actually burns out a "
+               "compressor, not the number on the thermometer.",
+        condition_label="heat index ≥ 100°F",
+        rule={"heat_index_min": 100.0},
+        windows=(("09:00", "20:00"),),
+        cadence="daily", tags=("cooling", "relief"),
+    ),
+    "early-heat-wave": Trigger(
+        id="early-heat-wave", name="Early Heat Wave", vertical="hvac",
+        reason="An 85°+ day arriving before summer has properly started is "
+               "exactly when a system that skipped its spring check-up "
+               "gets caught out.",
+        condition_label="high ≥ 85°F, April–June",
+        rule={"temp_min": 85.0, "months": (4, 5, 6)},
+        windows=(("09:00", "19:00"),),
+        cadence="daily", tags=("cooling", "seasonal"),
+    ),
+    "mild-winter-break": Trigger(
+        id="mild-winter-break", name="Mild Winter Break", vertical="hvac",
+        reason="A surprisingly mild day in the dead of winter is a quiet "
+               "moment to ask whether a struggling system needs help, "
+               "rather than an emergency-repair pitch.",
+        condition_label="high ≥ 55°F, December–February",
+        rule={"temp_min": 55.0, "months": (12, 1, 2)},
+        windows=(("09:00", "18:00"),),
+        cadence="daily", tags=("heating", "seasonal"),
+    ),
+    "spring-tune-up-day": Trigger(
+        id="spring-tune-up-day", name="Spring Tune-Up Day", vertical="hvac",
+        reason="The first comfortable stretch of spring is when people "
+               "finally think about the AC they ignored all winter — sell "
+               "the tune-up before the first heat wave finds the problem "
+               "for them.",
+        condition_label="65–80°F and dry, March–May",
+        rule={"temp_min": 65.0, "temp_max": 80.0, "precip_prob_max": 20.0,
+              "months": (3, 4, 5)},
+        windows=(("09:00", "19:00"),),
+        cadence="daily", tags=("maintenance", "seasonal"),
+    ),
+    "fall-tune-up-day": Trigger(
+        id="fall-tune-up-day", name="Fall Tune-Up Day", vertical="hvac",
+        reason="The same logic in reverse — a mild fall day is the moment "
+               "to get the furnace checked before the first cold snap "
+               "makes the appointment book slam shut.",
+        condition_label="50–70°F and dry, September–November",
+        rule={"temp_min": 50.0, "temp_max": 70.0, "precip_prob_max": 20.0,
+              "months": (9, 10, 11)},
+        windows=(("09:00", "18:00"),),
+        cadence="daily", tags=("maintenance", "seasonal"),
+    ),
+    "overcast-run": Trigger(
+        id="overcast-run", name="Overcast Run", vertical="hvac",
+        reason="Short, gray, cold days keep a furnace running nearly "
+               "non-stop without anyone testing it first — the ad for "
+               "catching a weak system before it becomes a no-heat call.",
+        condition_label="cloud cover ≥ 80% for 3 consecutive days",
+        rule={"cloud_percent_min": 80.0, "consecutive_days": 3},
+        windows=(("09:00", "19:00"),),
+        cadence="daily", tags=("heating", "efficiency"),
+    ),
+    "wind-chill-strain": Trigger(
+        id="wind-chill-strain", name="Wind Chill Strain", vertical="hvac",
+        reason="Wind driving the cold straight through poor insulation is "
+               "what turns an ordinary cold day into a heating-bill "
+               "complaint.",
+        condition_label="feels-like ≤ 0°F",
+        rule={"feels_like_max": 0.0},
+        windows=(("07:00", "21:00"),),
+        cadence="daily", tags=("heating", "efficiency"),
+    ),
+    "hard-freeze": Trigger(
+        id="hard-freeze", name="Hard Freeze", vertical="hvac",
+        reason="Below this, a furnace runs nearly continuously — the day "
+               "an aging system's weak point finds itself and \"no heat\" "
+               "calls spike.",
+        condition_label="high ≤ 15°F",
+        rule={"temp_max": 15.0},
+        windows=(("07:00", "21:00"),),
+        cadence="daily", tags=("heating", "emergency"),
+    ),
+    "deep-freeze": Trigger(
+        id="deep-freeze", name="Deep Freeze", vertical="hvac",
+        reason="Below zero is where a marginal system actually fails — "
+               "the emergency-repair ad, not the tune-up one.",
+        condition_label="high ≤ 0°F",
+        rule={"temp_max": 0.0},
+        cadence="daily", tags=("heating", "emergency"),
+    ),
+    "first-hard-freeze": Trigger(
+        id="first-hard-freeze", name="First Hard Freeze", vertical="hvac",
+        reason="The first hard freeze of the season is when a furnace "
+               "that coasted through fall gets tested for real — an "
+               "inspection ad before it fails, not after.",
+        condition_label="first low ≤ 28°F of the season",
+        rule={"temp_low_max": 28.0, "once_per_season": "cold"},
+        cadence="once_per_season", tags=("event", "heating"),
+    ),
+    "storm-power-risk": Trigger(
+        id="storm-power-risk", name="Storm Power Risk", vertical="hvac",
+        reason="A severe weather alert is also a power-outage risk — the "
+               "moment a backup-power conversation is timely, never run "
+               "as an invitation to be outside in it.",
+        condition_label="NWS severe weather alert issued",
+        rule={"alert_required": True},
+        cadence="alert_driven", tags=("safety", "backup"),
+    ),
+    "snow-load": Trigger(
+        id="snow-load", name="Snow Load", vertical="hvac",
+        reason="Heavy snow is also the day an outdoor condenser gets "
+               "buried and a vent gets blocked — an ad about keeping "
+               "equipment clear, not just about being open.",
+        condition_label="snowfall ≥ 4 in / 24h",
+        rule={"snow_in_min": 4.0},
+        windows=(("07:00", "19:00"),),
+        cadence="daily", tags=("heating", "maintenance"),
+    ),
 }
 
 # Ordering for the month strip: which triggers a rep browsing that month is
@@ -211,48 +377,97 @@ TRIGGERS: dict[str, Trigger] = {
 MONTHS: dict[str, tuple[str, ...]] = {
     "Jan": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "evening-cooldown", "heat-index",
-            "heat-wave", "patio-day", "rain-delay", "first-freeze", "first-cool-night"),
+            "heat-wave", "patio-day", "rain-delay", "first-freeze", "first-cool-night",
+            "hard-freeze", "deep-freeze", "first-hard-freeze", "wind-chill-strain",
+            "overcast-run", "storm-power-risk", "snow-load", "mild-winter-break",
+            "spring-tune-up-day", "fall-tune-up-day", "early-heat-wave",
+            "heat-index-strain", "ac-overload"),
     "Feb": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "evening-cooldown", "heat-index",
-            "heat-wave", "patio-day", "rain-delay", "first-freeze", "first-cool-night"),
+            "heat-wave", "patio-day", "rain-delay", "first-freeze", "first-cool-night",
+            "deep-freeze", "hard-freeze", "first-hard-freeze", "wind-chill-strain",
+            "mild-winter-break", "overcast-run", "storm-power-risk", "snow-load",
+            "spring-tune-up-day", "fall-tune-up-day", "early-heat-wave",
+            "heat-index-strain", "ac-overload"),
     "Mar": ("warm-break", "crisp-day", "rain-delay", "cold-snap", "gray-streak",
             "wind-chill", "storm-watch", "patio-day", "evening-cooldown",
-            "heat-index", "heat-wave", "snow-day", "first-freeze", "first-cool-night"),
+            "heat-index", "heat-wave", "snow-day", "first-freeze", "first-cool-night",
+            "spring-tune-up-day", "mild-winter-break", "hard-freeze",
+            "wind-chill-strain", "overcast-run", "storm-power-risk",
+            "early-heat-wave", "snow-load", "fall-tune-up-day", "deep-freeze",
+            "first-hard-freeze", "heat-index-strain", "ac-overload"),
     "Apr": ("crisp-day", "patio-day", "rain-delay", "gray-streak", "storm-watch",
             "evening-cooldown", "warm-break", "heat-index", "heat-wave",
-            "cold-snap", "wind-chill", "snow-day", "first-freeze", "first-cool-night"),
+            "cold-snap", "wind-chill", "snow-day", "first-freeze", "first-cool-night",
+            "spring-tune-up-day", "early-heat-wave", "overcast-run",
+            "storm-power-risk", "wind-chill-strain", "hard-freeze",
+            "mild-winter-break", "ac-overload", "heat-index-strain", "snow-load",
+            "fall-tune-up-day", "deep-freeze", "first-hard-freeze"),
     "May": ("patio-day", "crisp-day", "rain-delay", "storm-watch",
             "evening-cooldown", "heat-index", "heat-wave", "gray-streak",
             "warm-break", "cold-snap", "wind-chill", "snow-day",
-            "first-freeze", "first-cool-night"),
+            "first-freeze", "first-cool-night",
+            "spring-tune-up-day", "early-heat-wave", "ac-overload",
+            "heat-index-strain", "storm-power-risk", "overcast-run",
+            "wind-chill-strain", "fall-tune-up-day", "hard-freeze",
+            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze"),
     "Jun": ("patio-day", "heat-wave", "heat-index", "rain-delay",
             "storm-watch", "evening-cooldown", "crisp-day", "gray-streak",
             "warm-break", "cold-snap", "wind-chill", "snow-day",
-            "first-freeze", "first-cool-night"),
+            "first-freeze", "first-cool-night",
+            "early-heat-wave", "ac-overload", "heat-index-strain",
+            "storm-power-risk", "spring-tune-up-day", "overcast-run",
+            "fall-tune-up-day", "wind-chill-strain", "hard-freeze",
+            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze"),
     "Jul": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "evening-cooldown", "crisp-day", "gray-streak",
             "warm-break", "cold-snap", "wind-chill", "snow-day",
-            "first-freeze", "first-cool-night"),
+            "first-freeze", "first-cool-night",
+            "ac-overload", "heat-index-strain", "storm-power-risk",
+            "early-heat-wave", "overcast-run", "spring-tune-up-day",
+            "fall-tune-up-day", "wind-chill-strain", "hard-freeze",
+            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze"),
     "Aug": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "first-cool-night", "evening-cooldown", "crisp-day",
             "gray-streak", "warm-break", "cold-snap", "wind-chill", "snow-day",
-            "first-freeze"),
+            "first-freeze",
+            "ac-overload", "heat-index-strain", "storm-power-risk",
+            "early-heat-wave", "overcast-run", "fall-tune-up-day",
+            "spring-tune-up-day", "wind-chill-strain", "hard-freeze",
+            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze"),
     "Sep": ("patio-day", "first-cool-night", "rain-delay", "crisp-day",
             "evening-cooldown", "heat-index", "heat-wave", "storm-watch",
             "gray-streak", "warm-break", "cold-snap", "wind-chill",
-            "snow-day", "first-freeze"),
+            "snow-day", "first-freeze",
+            "fall-tune-up-day", "ac-overload", "heat-index-strain",
+            "overcast-run", "storm-power-risk", "early-heat-wave",
+            "spring-tune-up-day", "wind-chill-strain", "hard-freeze",
+            "mild-winter-break", "snow-load", "deep-freeze", "first-hard-freeze"),
     "Oct": ("crisp-day", "first-cool-night", "first-freeze", "evening-cooldown",
             "rain-delay", "warm-break", "gray-streak", "storm-watch",
             "cold-snap", "wind-chill", "patio-day", "heat-index",
-            "heat-wave", "snow-day"),
+            "heat-wave", "snow-day",
+            "fall-tune-up-day", "first-hard-freeze", "overcast-run",
+            "storm-power-risk", "wind-chill-strain", "hard-freeze",
+            "mild-winter-break", "ac-overload", "heat-index-strain",
+            "snow-load", "spring-tune-up-day", "deep-freeze", "early-heat-wave"),
     "Nov": ("first-freeze", "cold-snap", "gray-streak", "warm-break",
             "crisp-day", "wind-chill", "storm-watch", "snow-day",
             "rain-delay", "evening-cooldown", "patio-day", "heat-index",
-            "heat-wave", "first-cool-night"),
+            "heat-wave", "first-cool-night",
+            "first-hard-freeze", "fall-tune-up-day", "hard-freeze",
+            "overcast-run", "wind-chill-strain", "mild-winter-break",
+            "storm-power-risk", "snow-load", "deep-freeze",
+            "spring-tune-up-day", "ac-overload", "heat-index-strain",
+            "early-heat-wave"),
     "Dec": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "rain-delay", "evening-cooldown",
             "heat-index", "heat-wave", "patio-day", "first-freeze",
-            "first-cool-night"),
+            "first-cool-night",
+            "hard-freeze", "deep-freeze", "first-hard-freeze", "wind-chill-strain",
+            "overcast-run", "storm-power-risk", "snow-load", "mild-winter-break",
+            "spring-tune-up-day", "fall-tune-up-day", "early-heat-wave",
+            "heat-index-strain", "ac-overload"),
 }
 
 MONTH_ABBR = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
