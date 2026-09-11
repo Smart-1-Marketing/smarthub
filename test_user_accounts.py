@@ -355,6 +355,12 @@ _OPEN_ON_PURPOSE = {
         "the same false match -- sending a version for client approval "
         "(WO-CS6) is an ordinary Creative Studio write, gated the same way "
         "as the rest of the blueprint.",
+    "/creative-studio/api/projects/<int:project_id>/versions/<int:version_number>/variations":
+        "the same false match on 'version' inside 'versions' -- Create "
+        "Variations (WO-CS7 item 2) spins up child projects at other aspect "
+        "ratios from the parent's current storyboard, which is ordinary "
+        "Creative Studio work behind the same blueprint guard as the rest "
+        "of the module, open to any signed-in General account on purpose.",
 }
 
 _open, _unexplained = set(), []
