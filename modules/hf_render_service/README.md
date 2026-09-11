@@ -1,8 +1,9 @@
 # hf-render-service
 
 The render service `hub/hyperframes.py` talks to over `HF_RENDER_SERVICE_URL`.
-Headless Chrome (Puppeteer, bundled Chromium) captures a p5.js template frame
-by frame; ffmpeg encodes the sequence into an MP4. Two templates, matching
+Headless Chrome (Puppeteer, bundled Chromium — see "Which Chrome, and why
+$HOME matters" below) captures a p5.js template frame by frame; ffmpeg
+encodes the sequence into an MP4. Two templates, matching
 `hub/hyperframes.TEMPLATES` exactly:
 
 - **paint-animation** — handwriting / paint-on / living-painting treatments
@@ -90,7 +91,33 @@ render call, so a directory literally named `templates` reads as two orphans
 to that check. Same reason `modules/ad_builder` keeps its own layout JSON
 under `src/templates` rather than a bare `templates/` at the module root.
 
-Requires `ffmpeg` on `PATH` and the system libraries Puppeteer's bundled
-Chromium needs to launch (see the Dockerfile's `hf_render_service` apt
-block — the same shared-library set the ad builder's own Chromium
-dependency documentation lists).
+Requires the system libraries Puppeteer's bundled Chromium needs to launch
+(see the Dockerfile's `hf_render_service` apt block, and CI's own "Install
+browser runtime libraries" step for the same list without pulling in the
+whole `chromium` package) and `ffmpeg` on `PATH`.
+
+## Which Chrome, and why $HOME matters
+
+Puppeteer downloads its own Chrome and, by default, decides where to put it
+— and later, where to look for it again to launch — from `$HOME`
+(`~/.cache/puppeteer`). That is fine as long as whatever downloads it and
+whatever launches it agree on what `$HOME` means, which a plain container
+build does not guarantee: this Dockerfile's `npm ci` runs during the image
+*build*, and `capture.ts`'s `puppeteer.launch()` runs once the image is
+*running* as a Render service — two different points at which the platform
+gets to decide `$HOME`, and nothing here had ever checked they agreed. They
+did not: every production render failed at launch with "Could not find
+Chrome (ver. ...)", invisibly, because nothing here calls `captureFrames()`
+at boot to surface it sooner.
+
+`PUPPETEER_CACHE_DIR=/opt/puppeteer-cache` in the Dockerfile is the fix — an
+absolute path read at both the download and the launch, so the two cannot
+drift apart over what `$HOME` resolves to. Locally, with nothing set,
+Puppeteer falls back to `~/.cache/puppeteer` as it always did — the ordinary
+`npm ci` experience, no environment variable required for a laptop checkout.
+
+`capture.ts` also accepts `PUPPETEER_EXECUTABLE_PATH` as a named,
+unset-by-default override — a way to point it at a different Chrome
+binary (the apt `chromium` package already sitting in the image for its
+shared libraries, say) without touching the code, should the bundled
+download ever stop being the right answer here.

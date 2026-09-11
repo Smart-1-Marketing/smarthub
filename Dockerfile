@@ -34,8 +34,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
-# ffmpeg + Chromium's runtime libraries, for hf-render-service (Paint
-# Animation, Vox Explainer).
+# ffmpeg + Chromium, for hf-render-service (Paint Animation, Vox Explainer).
 #
 # hub/hyperframes.py's own docstring is explicit that Puppeteer, Chromium and
 # FFmpeg do not belong in this image -- they were meant to run as their own
@@ -55,7 +54,11 @@ RUN apt-get update \
 # installed purely to pull in the shared libraries (libnss3, libatk,
 # libgbm1, and the rest of the well-known headless-Chrome dependency list)
 # that build needs to launch at all, without this Dockerfile hand-listing
-# thirty exact package names that drift between Debian releases.
+# thirty exact package names that drift between Debian releases. CI installs
+# the same libraries directly rather than this package -- Ubuntu's own
+# `chromium` is a Snap wrapper, which is pointless weight for a runner that
+# never launches it -- and its own real end-to-end render is what proves the
+# download-and-launch path below actually works, on both bases.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends chromium ffmpeg fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
@@ -70,6 +73,23 @@ RUN pip install --no-cache-dir -r requirements.txt
 # and NODE_ENV=production would otherwise make npm skip them.
 COPY modules/ad_builder/package.json modules/ad_builder/package-lock.json ./modules/ad_builder/
 RUN cd modules/ad_builder && npm ci --include=dev --no-audit --no-fund
+
+# Puppeteer resolves its download-and-launch cache directory from $HOME by
+# default (~/.cache/puppeteer), and this Dockerfile never pinned it -- so
+# `npm ci` below downloads Chrome into whatever $HOME resolves to during the
+# *build* stage (root, building the image: /root), and capture.ts's
+# puppeteer.launch() looks for it in whatever $HOME resolves to when the
+# *container actually runs* on Render. Nothing here asserted those are the
+# same value, and on this platform they are not: a paint animation request
+# failed at launch with "Could not find Chrome (ver. ...)" on production,
+# and nothing calls captureFrames() at boot to have surfaced it any sooner --
+# the mismatch is invisible until the first real render request.
+# Pinned to an absolute path here, so the download and the later launch
+# agree regardless of what $HOME turns out to mean at either point. A
+# Dockerfile ENV applies to every layer built after it and is baked into the
+# image itself, so nothing in docker-start.sh has to repeat this for it to
+# hold at runtime too.
+ENV PUPPETEER_CACHE_DIR=/opt/puppeteer-cache
 
 COPY modules/hf_render_service/package.json modules/hf_render_service/package-lock.json ./modules/hf_render_service/
 RUN cd modules/hf_render_service && npm ci --include=dev --no-audit --no-fund
