@@ -291,12 +291,24 @@ class ReliabilityTests(unittest.TestCase):
         self.assertEqual(elements[0]["text"], "Test Business")
 
     def test_astra_parameters_preserve_selected_profile(self):
-        client = Mock()
-        client.chat.completions.create.return_value = SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content='{"ok": true}'))], usage=None)
-        with patch.object(openai_service, "_client", return_value=client), patch.object(openai_service, "profile_model", return_value="gpt-6-astra"):
-            self.assertEqual(openai_service._chat_json("Return JSON", "test"), {"ok":True})
-        kwargs = client.chat.completions.create.call_args.kwargs
+        # openai_service._chat_json now routes through hub.ai.chat_json(),
+        # which is the one wrapper -- so the reasoning-model payload shape
+        # (max_completion_tokens/reasoning_effort, no temperature/max_tokens)
+        # is asserted on the request hub.ai actually sends, by mocking
+        # hub.ai._post rather than an SDK client this module no longer builds.
+        from hub import ai as hub_ai
+        seen = {}
+
+        def _fake_post(path, payload, timeout):
+            seen["payload"] = payload
+            return {"choices": [{"message": {"content": '{"ok": true}'},
+                                 "finish_reason": "stop"}], "usage": {}}
+
+        with patch.object(hub_ai, "_post", side_effect=_fake_post), \
+             patch.object(hub_ai, "ready", return_value=True), \
+             patch.object(openai_service, "profile_model", return_value="gpt-6-astra"):
+            self.assertEqual(openai_service._chat_json("Return JSON", "test"), {"ok": True})
+        kwargs = seen["payload"]
         self.assertEqual(kwargs["model"], "gpt-6-astra")
         self.assertNotIn("temperature", kwargs)
         self.assertNotIn("max_tokens", kwargs)

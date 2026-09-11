@@ -39,4 +39,11 @@ assert.equal(destinations[0].searchParams.get('from_proposal'), 'proposal & 1');
 assert.equal(destinations[0].searchParams.get('client'), 'Member & Company');
 assert.equal(destinations[1].searchParams.get('client'), 'Parent Client');
 assert.equal(destinations[2].searchParams.get('from_proposal'), 'legacy proposal.pdf');
+const documents = [...host.innerHTML.matchAll(/href="(\/api\/client\/proposals\/document\/[^\"]+)"/g)]
+  .map(m => new URL(m[1].replaceAll('&amp;', '&'), 'https://example.test'));
+assert.equal(documents.length, 3, 'Document links use the named-file endpoint');
+assert.equal(documents[0].searchParams.get('client'), 'Member & Company');
+assert.equal(documents[1].searchParams.get('client'), 'Parent Client');
+assert.equal(decodeURIComponent(documents[2].pathname.split('/').pop()), 'legacy proposal.pdf');
+assert(host.innerHTML.includes('href="/ads/"'), 'Live-page proposals keep their original link');
 console.log('Client 360 proposal links: mixed rows, native navigation, member ownership, and filename fallback passed.');

@@ -339,12 +339,17 @@ check("a file that never reaches OpenAI is not asked",
       quotas.openai_spend_unrecorded("x = 1\n"), False)
 # An images response carries no usage block, so the model name is what makes
 # the spend priceable at all -- openai_cost() prices anything named gpt-image*
-# per image, and without the name there is nothing to price.
-_img = pathlib.Path(ROOT, "modules", "image_creator", "app.py").read_text()
-check("Image Creator passes the model when it records an image",
-      "model=model" in _img and 'purpose="image"' in _img, True)
+# per image, and without the name there is nothing to price. Image Creator's
+# own route no longer records this itself -- it is routed through
+# hub.ai.image() now, which is the one place that spend is recorded on
+# both the success and the failure path (an AIUnavailable/malformed
+# response must still show in the allowance, not vanish silently).
+_ai_image_body = pathlib.Path(ROOT, "hub", "ai.py").read_text() \
+    .split("\ndef image(", 1)[1].split("\ndef note_usage(", 1)[0]
+check("hub.ai.image() passes the model when it records an image",
+      "_record(module, purpose, model," in _ai_image_body, True)
 check("and records a refused call too, so a spent allowance is visible",
-      "_note(False)" in _img, True)
+      "_record(module, purpose, model, {}," in _ai_image_body, True)
 
 # Brandfetch joined the table late, and the two things that make it worth
 # having are the two it could most easily get wrong.

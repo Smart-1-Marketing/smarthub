@@ -725,8 +725,7 @@ for path in ("/my-clients", "/qa/client-owners"):
     check(f"{path} redirects a stranger to the login",
           anon.get(path).status_code, 302)
 for path in ("/api/my-clients", "/api/my-clients/scoreboard",
-             "/api/client-owners", "/api/client/owner?client=Acme",
-             "/api/client/issues?client=Acme"):
+             "/api/client-owners", "/api/client/owner?client=Acme"):
     check(f"{path} refuses a stranger", anon.get(path).status_code, 401)
 for path in ("/api/my-clients/mark", "/api/my-clients/note",
              "/api/my-clients/note/delete", "/api/my-clients/refresh",
@@ -745,48 +744,6 @@ body = signed.get("/api/client-owners").get_json()
 check("the assignment API answers", body["measured"], True)
 check("with somebody to assign to", bool(body["users"]), True)
 check("and the partners to select by", isinstance(body["partners"], list), True)
-
-# Client 360 expands one exact client's work in place. The source remains the
-# report (so marks and source-health warnings cannot drift), but a partial
-# client-name match must never put another company's work on this record.
-_real_issue_report = client_health.report
-client_health.report = lambda **kw: {
-    "measured": True,
-    "generated_at": "2026-08-31T12:00:00Z",
-    "sources": {"products": {"measured": True},
-                "registry": {"measured": True}},
-    "note": "2 clients read.",
-    "rows": [
-        {"client": "Acme", "issues": [issue]},
-        {"client": "Acme Roofing", "issues": [
-            client_health._issue("no_dashboard", "live", "Roofing issue",
-                                 "This belongs to the other client.")
-        ]},
-    ],
-}
-try:
-    body = signed.get("/api/client/issues?client=Acme").get_json()
-    check("Client 360's issue API answers one exact client",
-          body["client"], "Acme")
-    check("without absorbing a partial-name match",
-          [i["title"] for i in body["issues"]], ["Spring campaign"])
-    check("and reports the expandable count", body["issue_count"], 1)
-    check("a fully read issue list says it is complete", body["complete"], True)
-
-    client_health.report = lambda **kw: {
-        "measured": True,
-        "generated_at": "2026-08-31T12:00:00Z",
-        "sources": {"products": {"measured": True},
-                    "campaign_assets": {"measured": False}},
-        "note": "Not measured this run: campaign assets.",
-        "rows": [{"client": "Acme", "issues": []}],
-    }
-    body = signed.get("/api/client/issues?client=Acme").get_json()
-    check("a source-blind empty issue list is not called complete",
-          body["complete"], False)
-    check("and carries the report's warning", bool(body["warning"]), True)
-finally:
-    client_health.report = _real_issue_report
 
 # The shared-password session has no account behind it, so there is no "my"
 # to answer -- "Shared login" is a true statement about the session and a

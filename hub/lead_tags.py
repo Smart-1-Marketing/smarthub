@@ -149,6 +149,45 @@ EVENT_TAGS: dict[str, dict] = {
         # exists (build spec WO-3).
         "workflow": None,
     },
+    # Creative Studio Phase 2's own WO-CS12, "notifications (Todd-gated)":
+    # "Only when GHL custom-field ids for review URL and render URL exist
+    # on Render." Declared here -- the vocabulary this table exists to
+    # hold -- and deliberately not wired: `hub/lead_tags.py` has said since
+    # before this order shipped that the review-link URL these tags carry
+    # "has no mapped Suite custom field to ride in either," which is
+    # exactly this order's own precondition, unmet on this deployment.
+    # Building the write path against a guessed field id would be worse
+    # than not building it -- a tag that lands on the wrong custom field,
+    # or on none, reads as a working notification that silently does
+    # nothing. Until the two ids exist: `/creative-studio/approvals` and
+    # the dashboard's recent-projects band are the notification surface,
+    # the build spec's own words.
+    "creative_render_complete": {
+        "what": "a Creative Studio render finished (modules/creative_studio/"
+                "jobs.py's render/variant/weather_set/library_abstract runners)",
+        # To build: tag the Suite contact and write the render URL to the
+        # mapped custom field, once GHL_CREATIVE_RENDER_FIELD_ID exists.
+        "workflow": None,
+    },
+    "creative_client_responded": {
+        "what": "a client answered a Creative Studio review link -- "
+                "approved or requested changes (modules/creative_studio/"
+                "review_routes.py::client_decide)",
+        # To build: tag the Suite contact on either outcome. Needs no
+        # custom field of its own -- the review URL was already written
+        # when creative_review_ready fired.
+        "workflow": None,
+    },
+    "creative_round_5": {
+        "what": "a Creative Studio review has reached its round cap "
+                "(review_spec.MAX_ROUNDS, read from Commercial Builder's "
+                "own review_spec rather than a second number here)",
+        # To build: tag the Suite contact so a rep is prompted to step in
+        # by phone or email rather than sending a sixth round nobody asked
+        # for -- the same shape modules/ads_builder's own round cap flags
+        # rather than refuses.
+        "workflow": None,
+    },
 }
 
 

@@ -169,7 +169,7 @@ class Resp:
             raise RuntimeError(f"HTTP {self.status_code}")
 
 
-SENT = {"post": None, "put": None}
+SENT = {"post": None, "put": None, "ticket_filters": None}
 
 
 class FakeRequests:
@@ -193,6 +193,7 @@ class FakeRequests:
             # this fixture exists to catch.
             return Resp(200, {"records": CLIENTS, "total_records": CLIENT_TOTAL})
         if url.endswith("/objects/object_107/records"):
+            SENT["ticket_filters"] = json.loads((kw.get("params") or {}).get("filters", "{}"))
             return Resp(200, {"records": [{
                 "id": "e" * 24,
                 "field_1895": "Homepage banner swap",
@@ -370,6 +371,19 @@ def main():
        not ({"web_services", "build_website", "status"} & set(vals)))
     check("but the table can still show the type", rows[0]["shown"]["type"], "Website Change")
     check("and the status Knack set", rows[0]["status"], "Open")
+
+    print()
+    print("a grouped client is looked up under every name in the group")
+    reset()
+    knack_api.list_tickets(["Healthy Pets", "Healthy Pets - Carmel"],
+                           "healthypets.com")
+    client_rules = [r for r in SENT["ticket_filters"]["rules"]
+                    if r["field"] == "field_1784"]
+    check("one contains-rule per name", len(client_rules), 2)
+    check("both names went in", {r["value"] for r in client_rules},
+          {"Healthy Pets", "Healthy Pets - Carmel"})
+    check("still matched with 'or', so any name or the domain is enough",
+          SENT["ticket_filters"]["match"], "or")
 
     print()
     print("a field's display name is read whichever key Knack used")

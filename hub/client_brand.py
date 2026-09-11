@@ -37,6 +37,11 @@ WORK_KINDS = {
     "bg_remover":           ("Cut-out produced", "Background Remover"),
     "scans":                ("Site audit", "Site Scans"),
     "seo":                  ("Schema / FAQ", "SEO"),
+    # Its own name rather than folded into `seo`: what this module files
+    # is a change made inside the client's own Google Search Console --
+    # a sitemap submitted or withdrawn -- and reading as schema work on
+    # their record would say we wrote something we did not.
+    "seo_intelligence":     ("Search Console change", "SEO Intelligence"),
     "proposals":            ("Proposal", "Proposals"),
     "proposal_builder":     ("Proposal generated", "Proposal Builder"),
     "sales_builder":        ("Quote", "Sales Builder"),
@@ -569,6 +574,20 @@ def _tag_confirmed(tiles: list[dict], palette: list[dict], tmpl: dict) -> None:
         c["confirmed"] = bool(roles)
         c["role"] = roles[0] if roles else ""
 
+def _add_manual_colors(palette: list[dict], tmpl: dict) -> None:
+    """A colour a rep typed straight in (`hub/brand_template.py`) may not be
+    one either source ever observed — that is the whole reason a rep can
+    override one. It still has to be on the card to be shown as confirmed and
+    to be cleared later, so it is added here as its own swatch rather than
+    left for `_tag_confirmed` to tag a tile that was never built."""
+    have = {c.get("hex") for c in palette}
+    for hx in (tmpl.get("colors") or {}).values():
+        hx = str(hx or "").upper()
+        if hx and hx not in have:
+            palette.append({"hex": hx, "type": "", "origin": "manual"})
+            have.add(hx)
+
+
 def _hex(value: str) -> str:
     v = str(value or "").strip()
     if not v:
@@ -688,6 +707,7 @@ def brand_kit(client: str, domain: str = "") -> dict:
             note = f"No brand data on file yet. Look it up from {dom}."
         tiles, palette = _merge([], [], observed)
         tmpl = _template_for(client)
+        _add_manual_colors(palette, tmpl)
         _tag_confirmed(tiles, palette, tmpl)
         return {"found": False, "client": client, "domain": domain,
                 "logos": [], "colors": [], "fonts": [],
@@ -750,10 +770,20 @@ def brand_kit(client: str, domain: str = "") -> dict:
     # both take [0] outright. Promoting the confirmed pick there means
     # neither has to change to start reading it.
     logos = _promote(logos, "url", tmpl.get("logo_url") or "")
-    colors = _promote(colors, "hex", (tmpl.get("colors") or {}).get("primary") or "")
+    primary_hex = (tmpl.get("colors") or {}).get("primary") or ""
+    colors = _promote(colors, "hex", primary_hex)
+    # A logo can only ever be one already on offer, so `_promote` finding
+    # nothing to reorder is always a stale pick. A colour can be one nobody
+    # ever observed — that is the whole point of letting a rep type theirs in
+    # over a wrong auto-detected one — so it is inserted at the front rather
+    # than left unfindable, which is what makes it reach client_context.py
+    # and brand_guide_payload() as "the" colour and not only the card.
+    if primary_hex and not any(c.get("hex") == primary_hex for c in colors):
+        colors = [{"hex": primary_hex, "type": "", "brightness": None}] + colors
 
     observed = _observed(domain or payload.get("domain") or "")
     tiles, palette = _merge(logos[:8], colors[:10], observed)
+    _add_manual_colors(palette, tmpl)
     _tag_confirmed(tiles, palette, tmpl)
 
     return {

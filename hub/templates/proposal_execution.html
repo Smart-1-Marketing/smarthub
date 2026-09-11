@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Proposal Execution — Smart 1 Hub{% endblock %}
+{% block body_attrs %} data-s1hub-collapse="1"{% endblock %}
+{% block content %}
+<style>
+.pex-head{display:flex;align-items:flex-start;gap:16px;justify-content:space-between;margin-bottom:16px}
+.pex-head h2{margin:0;color:var(--navy);font-size:24px}.pex-head p{margin:5px 0 0;color:#64748b;max-width:820px}
+.pex-safe{font-size:12px;color:#6b5b16;background:#fffbeb;border:1px solid #fde68a;border-radius:9px;padding:9px 11px;max-width:500px}
+.pex-card{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.pex-card-h{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line-soft,#edf2f7)}
+.pex-card-h h3{font-size:14px;margin:0;color:var(--navy)}.pex-card-b{padding:14px}
+.pex-intake{display:grid;grid-template-columns:minmax(220px,1fr) minmax(260px,1.4fr) auto;gap:10px;align-items:end}
+.pex-intake label,.pex-field label{display:block;font-size:11px;font-weight:700;color:#526b89;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.pex-intake input,.pex-intake select,.pex-field input,.pex-field textarea{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #cad8e7;border-radius:8px;background:#fff;font:13px inherit}
+.pex-btn{border:0;border-radius:8px;background:var(--navy,#0f2742);color:#fff;padding:9px 13px;font:650 12.5px inherit;cursor:pointer}.pex-btn:hover{filter:brightness(1.08)}
+.pex-btn.alt{background:#eef4fa;color:#173d65;border:1px solid #d3e0ed}.pex-btn.warn{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa}.pex-btn.danger{background:#fff1f2;color:#b91c1c;border:1px solid #fecdd3}.pex-btn:disabled{opacity:.5;cursor:default}
+.pex-top{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(260px,.8fr);gap:14px}
+.pex-title{font-size:19px;font-weight:750;color:var(--navy);margin-bottom:4px}.pex-sub{font-size:12px;color:#64748b}.pex-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+.pex-progress{height:9px;border-radius:999px;background:#e7edf4;overflow:hidden;margin:12px 0 4px}.pex-progress span{display:block;height:100%;background:#0891b2;transition:width .25s}
+.pex-stats{display:grid;grid-template-columns:repeat(5,minmax(90px,1fr));gap:8px;margin:14px 0}
+.pex-stat{padding:10px;border:1px solid #e1e8f0;border-radius:10px;background:#fbfdff}.pex-stat b{display:block;font-size:20px;color:var(--navy)}.pex-stat span{font-size:11px;color:#64748b}
+.pex-analysis{font-size:12px;color:#475569;display:grid;gap:7px}.pex-channels{display:flex;flex-wrap:wrap;gap:6px}.pex-chip{font-size:11px;padding:4px 8px;border-radius:999px;background:#eef5fb;color:#1769aa;border:1px solid #d6e5f2}
+.pex-input-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:11px}.pex-field small{display:block;color:#64748b;font-size:11px;margin-top:4px}.pex-field .uses{color:#7c3aed}.pex-input-empty{color:#047857;font-size:13px;font-weight:600}
+.pex-board{display:grid;gap:10px}.pex-task{border:1px solid #dde5ee;border-radius:11px;background:#fff;padding:12px}.pex-task-top{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}.pex-task h4{margin:0;color:#182f4c;font-size:14px}.pex-task-meta{font-size:11px;color:#64748b;margin-top:4px}.pex-status{display:inline-flex;padding:4px 8px;border-radius:999px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.035em;white-space:nowrap;background:#eef2f7;color:#475569}
+.pex-status.running,.pex-status.queued{background:#e0f2fe;color:#0369a1}.pex-status.needs_input{background:#fff7ed;color:#9a3412}.pex-status.needs_approval{background:#f5f3ff;color:#6d28d9}.pex-status.failed{background:#fff1f2;color:#b91c1c}.pex-status.completed,.pex-status.live,.pex-status.approved{background:#ecfdf5;color:#047857}.pex-status.blocked{background:#f8fafc;color:#64748b}.pex-status.changes_requested{background:#fef2f2;color:#b45309}
+.pex-result{margin-top:9px;background:#f8fafc;border-radius:8px;padding:9px;font-size:12px;color:#334155}.pex-result pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 0;font:11px ui-monospace,monospace;max-height:220px;overflow:auto}.pex-error{margin-top:8px;color:#b91c1c;font-size:12px}.pex-deps{font-size:11px;color:#64748b;margin-top:6px}.pex-task-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}.pex-task-actions .pex-btn{padding:6px 9px;font-size:11px}
+.pex-filter{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}.pex-filter button{border:1px solid #d8e2ed;background:#fff;border-radius:999px;padding:4px 8px;font-size:11px;cursor:pointer}.pex-filter button.on{background:#173d65;color:#fff;border-color:#173d65}
+.pex-events{display:grid;gap:7px}.pex-event{display:grid;grid-template-columns:145px 110px 1fr;gap:9px;font-size:11.5px;border-bottom:1px solid #edf2f7;padding-bottom:6px}.pex-event:last-child{border:0}.pex-muted{color:#64748b}.pex-empty{padding:14px;color:#64748b;text-align:center}.pex-toast{position:fixed;right:18px;bottom:18px;z-index:100020;background:#102b49;color:#fff;border-radius:9px;padding:10px 13px;box-shadow:0 12px 34px rgba(15,23,42,.24);font-size:12px;display:none;max-width:360px}
+@media(max-width:900px){.pex-intake,.pex-top{grid-template-columns:1fr}.pex-stats{grid-template-columns:repeat(2,1fr)}.pex-head{display:block}.pex-safe{margin-top:10px}.pex-event{grid-template-columns:1fr}.pex-filter{margin-left:0}}
+</style>
+<div class="pex-head">
+  <div><h2>Proposal Execution Center</h2><p>Turn an approved proposal into one batch workflow across strategy, creative, search, SEO, social, video, audio, tracking, Ad Ops and reporting.</p></div>
+  <div class="pex-safe"><b>Approval protection:</b> SmartHub can research and generate internal drafts in the background. Publishing, scheduling, changing live campaigns and starting spend stop for explicit approval/handoff.</div>
+</div>
+
+<div class="pex-card">
+  <div class="pex-card-h"><h3>1 · Choose the job source</h3></div>
+  <div class="pex-card-b">
+    <div class="pex-intake">
+      <div><label>Client</label><input id="pexClient" placeholder="Monogram Homes"></div>
+      <div><label>Uploaded proposal</label><select id="pexProposal"><option value="">Enter a client, then load proposals</option></select></div>
+      <div style="display:flex;gap:7px"><button class="pex-btn alt" onclick="loadProposals()">Load</button><button class="pex-btn" id="analyzeBtn" onclick="analyzeProposal()">Analyze Proposal</button></div>
+    </div>
+    <div id="pexRunPicker" class="pex-muted" style="font-size:11.5px;margin-top:9px"></div>
+  </div>
+</div>
+
+<div id="workspace" style="display:none">
+  <div class="pex-top">
+    <div class="pex-card"><div class="pex-card-b">
+      <div class="pex-title" id="runTitle"></div><div class="pex-sub" id="runSub"></div>
+      <div class="pex-progress"><span id="progressBar" style="width:0"></span></div><div class="pex-sub" id="progressLabel"></div>
+      <div class="pex-actions"><button class="pex-btn" id="runBatchBtn" onclick="runBatch()">Run Batch</button><button class="pex-btn alt" onclick="pauseRun()">Pause</button><button class="pex-btn warn" onclick="retryFailed()">Retry Failed</button><button class="pex-btn alt" onclick="refreshRun()">Refresh</button></div>
+    </div></div>
+    <div class="pex-card"><div class="pex-card-h"><h3>Proposal analysis</h3></div><div class="pex-card-b"><div class="pex-analysis" id="analysisBox"></div></div></div>
+  </div>
+  <div class="pex-stats" id="stats"></div>
+
+  <div class="pex-card" id="inputsCard"><div class="pex-card-h"><h3>2 · Shared information needed</h3><span class="pex-muted" style="font-size:11px">Answer once — every downstream tool receives it.</span></div><div class="pex-card-b"><div id="inputFields"></div><div style="margin-top:11px"><button class="pex-btn" onclick="saveInputs()">Save Shared Inputs</button></div></div></div>
+
+  <div class="pex-card"><div class="pex-card-h"><h3>3 · Execution board</h3><div class="pex-filter" id="filters"></div></div><div class="pex-card-b"><div class="pex-board" id="taskBoard"></div></div></div>
+  <div class="pex-card"><div class="pex-card-h"><h3>Activity</h3></div><div class="pex-card-b"><div class="pex-events" id="events"></div></div></div>
+</div>
+<div class="pex-toast" id="toast"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+const qs=new URLSearchParams(location.search);let currentRun=null,currentEvents=[],filterState='all',pollTimer=null;
+const $=id=>document.getElementById(id);const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(msg){const n=$('toast');n.textContent=msg;n.style.display='block';clearTimeout(n._t);n._t=setTimeout(()=>n.style.display='none',3500)}
+async function json(url,opt={}){const r=await fetch(url,{credentials:'same-origin',...opt});let d={};try{d=await r.json()}catch(e){}if(!r.ok||d.ok===false)throw new Error(d.error||`Request failed (${r.status})`);return d}
+function post(url,body={}){return json(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}
+async function loadProposals(selectId){const client=$('pexClient').value.trim();if(!client){toast('Enter a client first.');return}const d=await json('/api/proposal-execution/proposals?client='+encodeURIComponent(client));const sel=$('pexProposal');sel.innerHTML='<option value="">Choose an uploaded proposal…</option>'+d.proposals.map(p=>`<option value="${esc(p.id)}">${esc(p.quote_number?p.quote_number+' · ':'')}${esc(p.title)}${p.date_sent?' · '+esc(p.date_sent):''}</option>`).join('');if(selectId)sel.value=selectId;const rs=await json('/api/proposal-execution/runs?client='+encodeURIComponent(client)+'&limit=8');$('pexRunPicker').innerHTML=rs.runs.length?'Existing runs: '+rs.runs.map(r=>`<a href="?run=${r.id}" style="margin-right:10px">#${r.id} ${esc(r.proposal_title)} · ${esc(r.state)}</a>`).join(''):'No execution runs for this client yet.'}
+async function analyzeProposal(){const client=$('pexClient').value.trim(),proposal=$('pexProposal').value;if(!client||!proposal){toast('Choose a client and proposal.');return}const b=$('analyzeBtn');b.disabled=true;b.textContent='Analyzing…';try{const d=await post('/api/proposal-execution/analyze',{client,proposal_id:proposal});currentRun=d.run;currentEvents=[];history.replaceState({},'',`?run=${d.run.id}`);render();await refreshRun();toast(d.created?'Execution plan created.':'That proposal version was already analyzed — reopened existing run.')}catch(e){toast(e.message)}finally{b.disabled=false;b.textContent='Analyze Proposal'}}
+async function openRun(id){const d=await json('/api/proposal-execution/run/'+id);currentRun=d.run;currentEvents=d.events||[];$('pexClient').value=currentRun.client;render();startPolling()}
+async function refreshRun(){if(!currentRun)return;try{const d=await json('/api/proposal-execution/run/'+currentRun.id);currentRun=d.run;currentEvents=d.events||[];render()}catch(e){toast(e.message)}}
+function render(){if(!currentRun)return;$('workspace').style.display='block';const r=currentRun,s=r.summary||{},c=s.counts||{};$('runTitle').textContent=`${r.client} — ${r.proposal_title||r.proposal_filename}`;$('runSub').textContent=`Execution #${r.id} · ${r.analysis.analysis_method||r.analysis.source||'proposal parser'} · ${r.state.replaceAll('_',' ')}`;$('progressBar').style.width=(s.progress||0)+'%';$('progressLabel').textContent=`${s.progress||0}% complete · ${s.task_count||0} tasks`;const stat=[['Needs Input',c.needs_input||0],['Running',(c.running||0)+(c.queued||0)],['Needs Approval',c.needs_approval||0],['Failed',c.failed||0],['Completed / Live',(c.completed||0)+(c.live||0)]];$('stats').innerHTML=stat.map(x=>`<div class="pex-stat"><b>${x[1]}</b><span>${x[0]}</span></div>`).join('');renderAnalysis();renderInputs();renderTasks();renderEvents();$('runBatchBtn').disabled=r.state==='running'&&!r.paused;startPolling()}
+function renderAnalysis(){const a=currentRun.analysis||{},chs=a.channels||[],bud=a.headline_budgets||{},facts=a.facts||{};$('analysisBox').innerHTML=`<div class="pex-channels">${chs.map(c=>`<span class="pex-chip">${esc(c.name||c.key)}${(c.budgets||[]).length?' · '+esc(c.budgets.join('/')):''}</span>`).join('')}</div>${Object.keys(bud).length?`<div><b>Headline budgets:</b> ${Object.entries(bud).map(([k,v])=>esc(k)+': '+esc(v)).join(' · ')}</div>`:''}${Object.values(facts).some(Boolean)?`<div><b>Detected campaign facts:</b> ${Object.entries(facts).filter(x=>x[1]).map(([k,v])=>esc(k)+': '+esc(v)).join(' · ')}</div>`:''}<div class="pex-muted">Detected from the uploaded proposal; review the task board before running.</div>`}
+function renderInputs(){const fields=currentRun.missing_inputs||[];const host=$('inputFields');if(!fields.length){host.innerHTML='<div class="pex-input-empty">All shared required inputs are resolved. The batch can continue.</div>';return}host.innerHTML='<div class="pex-input-grid">'+fields.map(f=>`<div class="pex-field"><label>${esc(f.label)}</label>${f.type==='textarea'?`<textarea rows="3" data-input="${esc(f.key)}">${esc(f.value||'')}</textarea>`:`<input type="${f.type==='url'?'url':'text'}" data-input="${esc(f.key)}" value="${esc(f.value||'')}">`}<small>${esc(f.help)} <span class="uses">Used by ${f.used_by.length} task${f.used_by.length===1?'':'s'}.</span></small></div>`).join('')+'</div>'}
+async function saveInputs(){if(!currentRun)return;const inputs={};document.querySelectorAll('[data-input]').forEach(el=>inputs[el.dataset.input]=el.value);try{const d=await post(`/api/proposal-execution/run/${currentRun.id}/inputs`,{inputs});currentRun=d.run;render();toast('Shared inputs saved.')}catch(e){toast(e.message)}}
+function stateLabel(s){return String(s||'').replaceAll('_',' ')}
+function renderTasks(){const tasks=currentRun.tasks||[],states=['all','needs_input','ready','queued','running','needs_approval','approved','failed','completed','live'];$('filters').innerHTML=states.map(s=>`<button class="${filterState===s?'on':''}" onclick="filterTasks('${s}')">${stateLabel(s)}</button>`).join('');const show=filterState==='all'?tasks:tasks.filter(t=>t.state===filterState);$('taskBoard').innerHTML=show.length?show.map(taskHtml).join(''):'<div class="pex-empty">No tasks in this view.</div>'}
+function filterTasks(s){filterState=s;renderTasks()}
+function taskHtml(t){const r=t.result||{},art=r.artifact_url?`<a href="${esc(r.artifact_url)}" target="_blank">Open output →</a>`:'';let actions='';if(t.state==='needs_approval')actions=`<button class="pex-btn" onclick="approveTask(${t.id})">Approve</button><button class="pex-btn warn" onclick="changeTask(${t.id})">Request Changes</button>`;if(['failed','changes_requested','needs_approval','approved'].includes(t.state))actions+=`<button class="pex-btn alt" onclick="rerunTask(${t.id})">Re-run</button>`;if(t.execution_mode==='handoff'&&t.state==='approved')actions+=`<button class="pex-btn alt" onclick="markTask(${t.id},'scheduled')">Mark Scheduled</button><button class="pex-btn" onclick="markTask(${t.id},'live')">Mark Live</button>`;if(['approved','scheduled','live'].includes(t.state))actions+=`<button class="pex-btn alt" onclick="markTask(${t.id},'completed')">Mark Complete</button>`;const payload=Object.keys(r).length?JSON.stringify(r,null,2):'';return `<div class="pex-task"><div class="pex-task-top"><div><h4>${esc(t.title)}</h4><div class="pex-task-meta">${esc(t.department)} · ${esc(t.adapter)} · ${esc(t.execution_mode)}</div></div><span class="pex-status ${esc(t.state)}">${esc(stateLabel(t.state))}</span></div>${t.dependencies.length?`<div class="pex-deps">Depends on: ${esc(t.dependencies.join(', '))}</div>`:''}${t.missing.length&&t.state==='needs_input'?`<div class="pex-error">Waiting for shared input: ${esc(t.missing.join(', '))}</div>`:''}${t.error?`<div class="pex-error">${esc(t.error)}</div>`:''}${payload?`<div class="pex-result">${art}<pre>${esc(payload)}</pre></div>`:''}<div class="pex-task-actions">${actions}</div></div>`}
+async function runBatch(){try{const d=await post(`/api/proposal-execution/run/${currentRun.id}/start`);currentRun=d.run;render();toast('Batch started. You can leave this page; queued work continues on the Hub scheduler.')}catch(e){toast(e.message)}}
+async function pauseRun(){if(!currentRun)return;try{const d=await post(`/api/proposal-execution/run/${currentRun.id}/pause`);currentRun=d.run;render();toast('Batch paused after any currently running task finishes.')}catch(e){toast(e.message)}}
+async function retryFailed(){if(!currentRun)return;try{const d=await post(`/api/proposal-execution/run/${currentRun.id}/retry-failed`);currentRun=d.run;render();toast('Failed tasks re-queued.')}catch(e){toast(e.message)}}
+async function approveTask(id){try{const d=await post(`/api/proposal-execution/task/${id}/approve`);currentRun=d.run;render();toast('Approved. Dependent work can continue.')}catch(e){toast(e.message)}}
+async function changeTask(id){const feedback=prompt('What should change?');if(!feedback)return;try{await post(`/api/proposal-execution/task/${id}/changes`,{feedback});await refreshRun();toast('Changes requested.')}catch(e){toast(e.message)}}
+async function rerunTask(id){try{await post(`/api/proposal-execution/task/${id}/rerun`);await refreshRun();toast('Task re-queued.')}catch(e){toast(e.message)}}
+async function markTask(id,state){try{await post(`/api/proposal-execution/task/${id}/mark`,{state});await refreshRun();toast('Task updated.')}catch(e){toast(e.message)}}
+function renderEvents(){const ev=currentEvents||[];$('events').innerHTML=ev.length?ev.slice(0,30).map(e=>`<div class="pex-event"><span class="pex-muted">${esc(String(e.created_at||'').replace('T',' ').slice(0,19))}</span><b>${esc(stateLabel(e.state))}</b><span>${esc(e.message)}${e.actor?' · '+esc(e.actor):''}</span></div>`).join(''):'<div class="pex-empty">No activity yet.</div>'}
+function startPolling(){clearInterval(pollTimer);if(currentRun&&['running','attention'].includes(currentRun.state))pollTimer=setInterval(refreshRun,10000)}
+(async function init(){const run=qs.get('run'),client=qs.get('client'),proposal=qs.get('proposal');if(client){$('pexClient').value=client;try{await loadProposals(proposal)}catch(e){toast(e.message)}}if(run){try{await openRun(run)}catch(e){toast(e.message)}}})();
+</script>
+{% endblock %}

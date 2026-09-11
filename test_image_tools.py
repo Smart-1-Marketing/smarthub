@@ -15,6 +15,13 @@ os.environ["HUB_DATA_DIR"] = _tmp.name
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_tmp.name, "test.db")
 os.environ["SECRET_KEY"] = "image-tools-test-secret"
 os.environ["AUDIT_LOG_PATH"] = os.path.join(_tmp.name, "audit.jsonl")
+# hub.config.settings is a frozen dataclass built once at import, so the key
+# hub.ai.image() actually reads has to be set before hub.ai is ever imported
+# (directly or via modules.image_creator) -- the same convention
+# test_ai_injection.py uses. Mocking modules.image_creator's own _settings()
+# no longer controls this: /api/ai/image is routed through hub.ai.image()
+# now, which reads hub.config.settings.openai_key rather than the caller's.
+os.environ["OPENAI_API_KEY"] = "sk-test-fixture-not-real"
 
 from PIL import Image
 from modules.image_optimizer import app as optimizer
@@ -136,7 +143,10 @@ class ProviderTests(unittest.TestCase):
             openai_image_model="test-image-model"))
         self.settings.start()
         self.addCleanup(self.settings.stop)
-        self.usage = patch("hub.ai.note_usage").start()
+        # /api/ai/image is routed through hub.ai.image() now, which records
+        # spend through hub.audit.log(..., ok=...) via hub.ai._record()
+        # rather than the note_usage() helper the old direct-call path used.
+        self.usage = patch("hub.audit.log").start()
         self.addCleanup(patch.stopall)
 
     def test_rejected_provider_requests_do_not_expose_bodies(self):
@@ -164,7 +174,7 @@ class ProviderTests(unittest.TestCase):
 
     def test_empty_or_malformed_image_response_is_failure(self):
         for payload in ({"data": []}, {"data": [None]}, {"data": [{}]}, []):
-            response = Mock(ok=True)
+            response = Mock(ok=True, status_code=200)
             response.json.return_value = payload
             with patch("requests.post", return_value=response):
                 r = self.client.post("/api/ai/image", json={"prompt": "test"})
@@ -173,7 +183,7 @@ class ProviderTests(unittest.TestCase):
 
     def test_successful_generation_is_usable_and_recorded(self):
         raw = png()
-        response = Mock(ok=True)
+        response = Mock(ok=True, status_code=200)
         response.json.return_value = {"data": [{"b64_json": base64.b64encode(raw).decode()}]}
         with patch("requests.post", return_value=response) as post:
             r = self.client.post("/api/ai/image", json={"prompt": "blue mug"})

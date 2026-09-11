@@ -18,20 +18,24 @@ import logging
 
 log = logging.getLogger(__name__)
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 
 _QA_GOOGLE_SCOPES = (
     "https://www.googleapis.com/auth/analytics.edit",
     "https://www.googleapis.com/auth/tagmanager.delete.containers",
+    # Google Finder already requests webmasters for Search Console. Keeping it
+    # here makes the dependency explicit for new/reconnected agency logins used
+    # by SEO Intelligence, including sitemap actions.
+    "https://www.googleapis.com/auth/webmasters",
 )
 
 
 def _install_qa_google_scopes():
-    """Make Google Finder request the permissions the QA delete buttons need.
+    """Make Google Finder request the permissions Hub Google tools need.
 
     Existing refresh tokens keep their old grants until that Google login is
-    reconnected; the QA screen detects that case and explains it. New/reconnected
+    reconnected; the screens detect that case and explain it. New/reconnected
     logins request these scopes alongside Google Finder's existing read scopes.
     """
     try:
@@ -44,11 +48,9 @@ def _install_qa_google_scopes():
 
 
 def register_google_access(app, create_tables=True):
-    """Attach Google Access and its internal QA screen.
+    """Attach Google Access, its QA screen, and shared SEO Intelligence.
 
-    Never raises; a bad DB must not take the Hub down. The inactive-account QA
-    blueprint shares the existing `/tools/google-access` namespace and reuses
-    the agency credentials already persisted by Google Finder.
+    Never raises; a bad DB or one optional tool must not take the Hub down.
     """
     from .app import admin_bp, public_bp
     from .qa_inactive import qa_bp
@@ -87,5 +89,15 @@ def register_google_access(app, create_tables=True):
             except Exception as exc:  # pragma: no cover
                 app.config["GOOGLE_ACCESS_DB_BOOT_ERROR"] = str(exc)
                 log.warning("google_access: create_all failed, continuing: %s", exc)
+
+    # SEO Intelligence shares the same Google connection lifecycle and is
+    # mounted here so the Hub app factory does not need another fragile manual
+    # registration entry. Failure is isolated like every other optional tool.
+    try:
+        from modules.seo_intelligence import register_seo_intelligence
+        register_seo_intelligence(app, create_tables=create_tables)
+    except Exception as exc:  # noqa: BLE001
+        app.config["SEO_INTELLIGENCE_BOOT_ERROR"] = str(exc)
+        log.warning("google_access: SEO Intelligence unavailable: %s", exc)
 
     return app

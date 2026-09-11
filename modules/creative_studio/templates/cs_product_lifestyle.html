@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Product Lifestyle — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>Product Lifestyle {{ help_dot('creative_studio.product_lifestyle') if help_dot is defined else '' }}</h2>
+  <p>Upload a product photo → the background is removed → placed into one of
+     twelve scenes. The real product, never regenerated -- four options,
+     none picked for you.</p>
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      <label>Product photo
+        <input type="file" id="plFile" accept="image/*" style="display:block;margin-top:4px;">
+      </label>
+      <label>Client (optional)
+        <input type="text" id="plClient" style="width:100%;padding:8px;margin-top:4px;">
+      </label>
+    </div>
+    <div style="margin-top:14px;">
+      <div style="font-weight:600;margin-bottom:6px;">Environment</div>
+      <div id="plEnvGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;">
+        {% for env in environments %}
+        <label style="border:1px solid var(--line-soft,#E2E8F0);border-radius:8px;padding:8px;cursor:pointer;">
+          <input type="radio" name="plEnv" value="{{ env.key }}"> {{ env.label }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+    <label style="display:block;margin-top:14px;">Describe the scene (optional)
+      <textarea id="plPrompt" rows="2" style="width:100%;padding:8px;margin-top:4px;"
+                placeholder="Any extra detail -- lighting, angle, mood"></textarea>
+    </label>
+    <div style="margin-top:14px;">
+      <button class="btn btn-primary" id="plGenerate">Generate 4 options</button>
+      <span id="plStatus" style="margin-left:8px;color:var(--muted,#64748B);font-size:12.5px;"></span>
+    </div>
+  </div>
+
+  <div class="card" id="plResultsCard" style="display:none;">
+    <h3 style="margin-top:0;">Options</h3>
+    <div id="plResults" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var genBtn = document.getElementById('plGenerate');
+  var status = document.getElementById('plStatus');
+  var resultsCard = document.getElementById('plResultsCard');
+  var results = document.getElementById('plResults');
+
+  function poll(jobId, projectId){
+    fetch('/creative-studio/api/jobs/' + jobId).then(function(r){ return r.json(); }).then(function(d){
+      var job = d && d.job;
+      if (!job) { status.textContent = 'Lost track of the job.'; genBtn.disabled = false; return; }
+      if (job.state === 'complete') {
+        status.textContent = 'Done.';
+        genBtn.disabled = false;
+        fetch('/creative-studio/api/projects/' + projectId + '/product-lifestyle/results')
+          .then(function(r){ return r.json(); })
+          .then(function(rd){
+            results.innerHTML = '';
+            (rd.assets || []).forEach(function(a){
+              var el = document.createElement('div');
+              el.innerHTML = '<img src="' + a.thumbnail_url + '" style="width:100%;border-radius:6px;">';
+              results.appendChild(el);
+            });
+            resultsCard.style.display = (rd.assets || []).length ? 'block' : 'none';
+          });
+      } else if (job.state === 'failed') {
+        status.textContent = job.error || 'Could not generate.';
+        genBtn.disabled = false;
+      } else {
+        status.textContent = job.stage || 'Working…';
+        setTimeout(function(){ poll(jobId, projectId); }, 1500);
+      }
+    });
+  }
+
+  genBtn.addEventListener('click', function(){
+    var file = document.getElementById('plFile').files[0];
+    var env = document.querySelector('input[name="plEnv"]:checked');
+    if (!file) { status.textContent = 'Choose a product photo.'; return; }
+    if (!env) { status.textContent = 'Choose an environment.'; return; }
+    var fd = new FormData();
+    fd.append('file', file);
+    fd.append('environment', env.value);
+    fd.append('client', document.getElementById('plClient').value.trim());
+    fd.append('prompt', document.getElementById('plPrompt').value.trim());
+    genBtn.disabled = true;
+    status.textContent = 'Uploading…';
+    fetch('/creative-studio/api/product-lifestyle', {method: 'POST', body: fd})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.ok) { status.textContent = d.error || 'Could not start.'; genBtn.disabled = false; return; }
+        poll(d.job.id, d.project_id);
+      });
+  });
+})();
+</script>
+{% endblock %}
