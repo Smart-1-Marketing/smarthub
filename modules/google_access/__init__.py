@@ -18,24 +18,31 @@ import logging
 
 log = logging.getLogger(__name__)
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 
 def register_google_access(app, create_tables=True):
-    """Attach both blueprints. Never raises; a bad DB must not take the Hub down."""
+    """Attach Google Access and its internal QA screen.
+
+    Never raises; a bad DB must not take the Hub down. The inactive-account QA
+    blueprint shares the existing `/tools/google-access` namespace and reuses
+    the agency credentials already persisted by Google Finder.
+    """
     from .app import admin_bp, public_bp
+    from .qa_inactive import qa_bp
     from .models import db
 
-    if "google_access_public" in app.blueprints:
-        return app
+    if "google_access_public" not in app.blueprints:
+        app.register_blueprint(public_bp)
+        app.register_blueprint(admin_bp)
 
-    app.register_blueprint(public_bp)
-    app.register_blueprint(admin_bp)
+        # Tell the Hub's AuthGuard this prefix is intentionally open.
+        exempt = app.config.setdefault("AUTH_EXEMPT_PREFIXES", [])
+        if "/connect" not in exempt:
+            exempt.append("/connect")
 
-    # Tell the Hub's AuthGuard this prefix is intentionally open.
-    exempt = app.config.setdefault("AUTH_EXEMPT_PREFIXES", [])
-    if "/connect" not in exempt:
-        exempt.append("/connect")
+    if "google_inactive_qa" not in app.blueprints:
+        app.register_blueprint(qa_bp)
 
     if create_tables:
         # Guarded, per the Scans post-mortem: a database slow to wake must not
