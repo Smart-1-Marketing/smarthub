@@ -35,7 +35,16 @@ def register_creative_studio(app):
     if STANDALONE:
         with app.app_context():
             db.create_all()
+            from .db import add_missing_columns
+            add_missing_columns()
             from .seed_templates import seed
             seed()
             from .seed_ai_tools import seed as seed_ai_tools
             seed_ai_tools()
+            from .seed_ai_tools import promote as promote_ai_tools
+            promote_ai_tools()
+            from .campaign_spec import migrate_cb_campaigns
+            migrate_cb_campaigns()
+    # else: the Hub calls db.add_missing_columns() and
+    # campaign_spec.migrate_cb_campaigns() itself, after its own shared
+    # create_all() -- see hub/__init__.py's Creative Studio section.

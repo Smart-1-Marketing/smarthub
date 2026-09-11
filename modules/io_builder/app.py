@@ -1381,37 +1381,29 @@ def _payload_geo(data):
 @app.post('/api/zipcodes-in-radius')
 @_rate_limited(_AI_RATE_MAX, _AI_RATE_WINDOW)
 def zipcodes_in_radius():
+    """The ZIP Codes a radius touches, measured rather than asked of a model.
+
+    Shared with the Proposal Builder through ``hub.zip_geo`` — this used to
+    ask a model to enumerate them, with a web-search tool attached, and it
+    would come back plausible and wrong by two orders of magnitude on an
+    ordinary small-town radius (2,985 ZIP Codes for a 10-mile radius that
+    holds about 22). A bundled ZIP centroid table and a distance measurement
+    answers the same question deterministically.
+    """
     data = request.get_json(force=True) or {}
     origin = str(data.get('origin') or '').strip()
     radius = str(data.get('radius') or '').strip()
-    if not origin or not radius:
-        return jsonify({'error': 'Origin city/ZIP and radius are required'}), 400
-    prompt = (
-        f'Find the complete list of United States ZIP Codes whose geographic polygon is fully or partially touched by a {radius}-mile radius '
-        f'centered on {origin}. Include a ZIP Code whenever any portion of that ZIP Code area intersects the radius, not only when its centroid is inside. '
-        'Use current authoritative geographic sources where possible. Return only five-digit ZIP Codes, comma-separated, sorted ascending, with no commentary. '
-        'Be exhaustive and do not intentionally omit any matching ZIP Code. If the exact boundary cannot be verified, include plausible boundary-touching ZIP Codes rather than omitting them.'
-    )
-    try:
-        # The one call here that genuinely has something to look up, and
-        # the only one that asks for live search -- which it now falls
-        # back without rather than losing the list to a model that will
-        # not take the tool.
-        text = _openai_response(prompt, max_output_tokens=12000,
-                                search=True, purpose='zip_radius')
-        zips = sorted(set(re.findall(r'\b\d{5}\b', text)))
-        if not zips:
-            return jsonify({'error': 'No ZIP Codes were returned'}), 502
-        return jsonify({
-            'zipcodes': ', '.join(zips),
-            'count': len(zips),
-            'warning': 'AI-assisted ZIP-radius results should be reviewed before trafficking because ZIP boundaries and radius intersections can change.'
-        })
-    except Exception as exc:
-        detail = ''
-        if getattr(exc, 'response', None) is not None:
-            detail = (exc.response.text or '')[:500]
-        return jsonify({'error': 'ZIP-radius lookup failed', 'detail': detail or str(exc)}), 502
+    from hub import zip_geo as _zip_geo
+    result = _zip_geo.lookup_radius(origin, radius)
+    if not result.get('ok'):
+        return jsonify({'error': result.get('error') or 'ZIP-radius lookup failed'}), \
+            400 if not origin or not radius else 502
+    zips = result['zipcodes']
+    return jsonify({
+        'zipcodes': ', '.join(zips),
+        'count': len(zips),
+        'warning': result['warning'],
+    })
 
 @app.post('/api/review-landing-page')
 @_rate_limited(_AI_RATE_MAX, _AI_RATE_WINDOW)

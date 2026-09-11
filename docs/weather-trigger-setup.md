@@ -1,6 +1,6 @@
 # Weather trigger setup — lead → landing pages → approved work order
 
-**Date:** 2026-09-07 · **Vertical for v1:** restaurant · **Status:** built (v1)
+**Date:** 2026-09-07 · **Verticals:** restaurant, hvac · **Status:** built (v1 + hvac)
 
 This is the design spec the module in `modules/weather_setup/` and the
 trigger vocabulary in `hub/weather_triggers.py` were built against. What
@@ -45,9 +45,10 @@ without needing a second template.
 
 `hub/weather_triggers.py` is the single source of truth — the same shape as
 `hub/lead_tags.py` (constants, not free text), read by the picker, the
-scheduler and the reporting line alike. Fourteen triggers ship for
+scheduler and the reporting line alike. Fourteen triggers shipped for
 restaurant v1, exactly as specified, each carrying its condition as data
-(`Trigger.rule`) rather than as a function nobody else can read.
+(`Trigger.rule`) rather than as a function nobody else can read. Thirteen
+more shipped for the second vertical, HVAC — §7 below.
 
 The month strip (`MONTHS`) orders the fourteen for browsing; **a chosen
 trigger evaluates all year**, not only in the month it was picked in —
@@ -183,13 +184,14 @@ skipped.
 ## 6. What shipped vs. what is still open
 
 **Shipped, real and tested** (`test_weather_triggers.py`,
-`test_weather_setup.py`): the trigger vocabulary and evaluator, the
-server-side cap, the campaign store, the copy guardrails, the four-source
-image picker with copy-on-select, the public wizard end to end over HTTP,
-approval's three side effects, work order numbering, and a scheduler job
-(`hub/scheduler.job_weather_triggers`, ticking every 30 minutes like
-`job_smartforecast_weather`) that evaluates every approved campaign's picks
-against a live snapshot and records whether each is active right now.
+`test_weather_setup.py`): the trigger vocabulary and evaluator for both
+verticals, the server-side cap, the campaign store, the vertical-aware copy
+guardrails, the four-source image picker with copy-on-select, the public
+wizard end to end over HTTP, approval's three side effects, work order
+numbering, and a scheduler job (`hub/scheduler.job_weather_triggers`,
+ticking every 30 minutes like `job_smartforecast_weather`) that evaluates
+every approved campaign's picks against a live snapshot and records
+whether each is active right now.
 
 **Open, and named rather than silently assumed:**
 
@@ -201,7 +203,69 @@ against a live snapshot and records whether each is active right now.
   and a scheduler that knows which triggers are live right now; it does not
   itself push spend to Google or Meta. That connection is a distinct piece
   of work for whoever picks up the work order.
-- **A second vertical (HVAC).** Everything except the trigger registry and
-  the copy prompts is vertical-agnostic already (`Trigger.vertical` is a
-  field, `triggers_for_vertical()` filters on it), so adding HVAC is
-  writing its own set of `Trigger` rows rather than new plumbing.
+
+---
+
+## 7. The second vertical (HVAC)
+
+Shipped. The claim two paragraphs above — "everything except the trigger
+registry and the copy prompts is vertical-agnostic already" — held exactly:
+no route, no store field, no evaluator rule and no wizard template needed
+to change shape to add it.
+
+**The registry.** Thirteen `Trigger` rows in `hub/weather_triggers.py`,
+`vertical="hvac"`, built from the same rule vocabulary the restaurant
+thirteen already exercise — `temp_min`/`temp_max`, `feels_like_max`,
+`heat_index_min`, `snow_in_min`, `cloud_percent_min` with a
+`consecutive_days` streak, `alert_required`, `once_per_season` with
+`temp_low_max`, and `months`. Nothing in `evaluate_trigger()` changed. Six
+are daily emergency/strain conditions escalating in a clear pair
+(`ac-overload`/`heat-index-strain` for cooling, `hard-freeze`/`deep-freeze`
+for heating, each pair naming which of the two is the tune-up ad and which
+is the emergency one), two are the shoulder-season maintenance push the
+whole vertical exists to sell (`spring-tune-up-day`, `fall-tune-up-day`),
+one is the once-per-season "the furnace gets tested for real" event
+(`first-hard-freeze` — the restaurant's `first-freeze` shape, its own id
+and its own carried season-state key so the two can never collide inside
+one campaign), and the rest cover wind chill, an early-season heat
+surprise, a mild winter break, a severe-weather power risk and heavy snow
+burying an outdoor unit.
+
+`MONTHS` stayed one flat table rather than splitting per vertical:
+`month_order()` already filters its ranked list down to
+`triggers_for_vertical(vertical)`, so an hvac id sitting in the same
+month's tuple as a restaurant id costs nothing — each vertical only ever
+sees its own ids, in the relative order they were written for that month.
+All thirteen hvac ids are listed in every month, exactly as the restaurant
+thirteen are.
+
+**The copy.** `modules/weather_setup/copy.py`'s house drafts and its model
+prompt both branch on `Trigger.vertical` now — `_house_draft_restaurant()`
+and `_house_draft_hvac()` are two separate templates per angle rather than
+one generic template with the business name swapped in, because a
+restaurant ad is an invitation ("come sit outside") and an HVAC ad is a
+warning or a reminder ("book this before it fails"), and a shared template
+answers a hard-freeze ad with something that reads as an invitation to eat
+somewhere. The storm-copy blocklist — no jokes, no urgency language
+inviting someone to be outside in a warned area — is checked by the
+trigger's `cadence == "alert_driven"` now rather than by the literal id
+`"storm-watch"`, because `storm-power-risk` carries the identical reasoning
+and would otherwise have shipped unchecked.
+
+**Starting a campaign.** `store.create()` already took a `vertical`
+keyword and had since before this vertical existed; nothing called it with
+anything but the default. `app.py`'s `api_start()` now reads `vertical`
+from the request body and `weather_setup_staff.html` gained a `<select>`
+for it, populated from `hub.weather_triggers.VERTICALS` /
+`VERTICAL_LABELS` rather than a hand-typed pair of options — the same
+reason `hub/qa_tasks.py`'s dropdown reads the Hub's own nav rather than
+restating it. An unrecognized vertical, from either the form or a crafted
+request, falls back to `"restaurant"` rather than creating a campaign that
+can validate no picks against anything: `store.create()` and `api_start()`
+both check against `VERTICALS` independently, because a route that trusted
+the form to have sent a real value is a route one crafted request away
+from a campaign nothing can be picked for.
+
+The public wizard needed no changes at all — it was already driven
+entirely by the server's catalog response, with no restaurant-specific
+copy anywhere in its template.

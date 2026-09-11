@@ -719,13 +719,12 @@ with hub_app.app_context():
           CsAiTool.query.count() >= 14, True)
     check("  ...script_generator is seeded live",
           CsAiTool.query.filter_by(key="script_generator").first().status, "live")
-    check("  ...product_lifestyle is seeded coming_soon",
-          CsAiTool.query.filter_by(key="product_lifestyle").first().status, "coming_soon")
+    # WO-CS11 turned the registry's last two coming_soon tiles live -- see
+    # that section below for the row-by-row assertions on what changed.
 
 r = client.get("/creative-studio/ai-tools")
 check("the AI Tools page renders", r.status_code, 200)
 check("  ...carrying a live tool's name", b"Script Generator" in r.data, True)
-check("  ...and a coming_soon tile", b"Coming soon" in r.data, True)
 
 r = client.get("/creative-studio/ai-tools?category=video")
 check("filtering by category narrows the page",
@@ -1319,6 +1318,1662 @@ try:
     check("a rate-limited comment POST answers 429", r.status_code, 429)
 finally:
     cs_review_routes._hub_leads.rate_limited = _orig_rate_limited
+
+# ---------------------------------------------------------------------------
+section("WO-CS7: elements_for() re-flows into each aspect's own safe zone")
+
+hook_16x9 = cs_layouts.elements_for("hook_fullbleed", "16:9",
+                                    {"headline": {"value": "Beat the heat"}})
+hook_9x16 = cs_layouts.elements_for("hook_fullbleed", "9:16",
+                                    {"headline": {"value": "Beat the heat"}})
+check("a headline draws at 16:9", any(e.get("text") == "Beat the heat" for e in hook_16x9), True)
+check("  ...and at 9:16, at a different position", any(e.get("text") == "Beat the heat" for e in hook_9x16), True)
+check("  ...the two are not the same composition -- re-flowed to the taller frame's own width",
+      [e.get("width") for e in hook_16x9] != [e.get("width") for e in hook_9x16], True)
+check("a layer with nothing typed in draws nothing",
+      cs_layouts.elements_for("hook_fullbleed", "16:9", {}), [
+          e for e in cs_layouts.elements_for("hook_fullbleed", "16:9", {})
+          if e.get("type") != "text"])
+
+check("every real layout's every supported aspect is clean against its own safe zone", all(
+    not cs_layouts.check_safe_zone(key, aspect, {ln: {"value": "x" * 6} for ln in cs_layouts.layers_for(key)},
+                                   logo_url="https://cdn.example.test/logo.png",
+                                   phone="555-1234", website="example.test")
+    for key in cs_layouts.LAYOUTS for aspect in cs_layouts.LAYOUTS[key]["aspect_ratios"]
+), True)
+
+check("an unrecognized aspect is reported by name, not passed silently",
+      bool(cs_layouts.check_safe_zone("hook_fullbleed", "21:9", {"headline": {"value": "x"}})), True)
+
+# A deliberately oversized headline pushed past the 9:16 side margin --
+# proving the checker actually fires rather than only ever returning [].
+_orig_variant_for = cs_layouts.variant_for
+cs_layouts.variant_for = lambda key, aspect: (
+    {"headline": {"x": "50%", "y": "50%", "width": "90%", "x_anchor": "50%"}}
+    if (key, aspect) == ("hook_fullbleed", "9:16") else _orig_variant_for(key, aspect))
+try:
+    forced = cs_layouts.check_safe_zone("hook_fullbleed", "9:16", {"headline": {"value": "x"}})
+    check("a headline placed inside 14/35 still crosses a too-wide side margin",
+          any("side margin" in f["reason"] for f in forced), True)
+finally:
+    cs_layouts.variant_for = _orig_variant_for
+
+check("a structural split-frame panel is never itself a safe-zone finding",
+      all(f["layer"] != "shape" for f in
+          cs_layouts.check_safe_zone("problem_split", "9:16", {"headline": {"value": "x"}})), True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS7: binder.bind_variation copies the parent's scenes, reframed")
+
+with hub_app.app_context():
+    from modules.commercial_builder.models import CommercialProject as CbProject7
+    from modules.commercial_builder.models import Scene as CbScene7
+    from modules.creative_studio.models import CsProject as CsProjectModel7
+    from modules.creative_studio.db import db as cs_db7
+
+    parent = CsProjectModel7.query.get(cs_project_id)
+    parent_cb = CbProject7.query.get(parent.cb_project_id)
+    parent_scene_count = parent_cb.scenes.count()
+    parent_version_count_before = CsProjectVersion.query.filter_by(project_id=cs_project_id).count()
+
+    variant_row = CsProjectModel7(
+        name="HVAC spring tune-up — 9:16", creative_type=parent.creative_type,
+        client_name=parent.client_name, template_id=parent.template_id,
+        template_version=parent.template_version, duration=parent.duration,
+        aspect_ratio="9:16", status="Draft",
+        parent_project_id=parent.id, variation_kind="aspect", created_by="Todd")
+    cs_db7.session.add(variant_row)
+    cs_db7.session.commit()
+
+    result = cs_binder.bind_variation(variant_row)
+    check("bind_variation succeeds against a real parent storyboard", result.get("ok"), True)
+
+    variant_row = CsProjectModel7.query.get(variant_row.id)
+    check("  ...and the variation remembers its own storyboard",
+          bool(variant_row.cb_project_id), True)
+    check("  ...a different storyboard than the parent's",
+          variant_row.cb_project_id != parent.cb_project_id, True)
+
+    variant_cb = CbProject7.query.get(variant_row.cb_project_id)
+    check("the copy carries the same number of scenes as the parent",
+          variant_cb.scenes.count(), parent_scene_count)
+    variant_scenes = variant_cb.scenes.order_by(CbScene7.order_index).all()
+    check("  ...every scene copied a text_overlay computed for 9:16",
+          all("text_overlay" in (s.asset_meta or {}) for s in variant_scenes), True)
+
+    check("bind_variation is idempotent -- already-bound is a no-op",
+          cs_binder.bind_variation(variant_row).get("cb_project_id"), variant_row.cb_project_id)
+    variant_cb_project_id = variant_row.cb_project_id
+
+    check("the parent's own version rows are untouched by creating a variation",
+          CsProjectVersion.query.filter_by(project_id=cs_project_id).count(),
+          parent_version_count_before)
+
+    orphan = CsProjectModel7(name="No parent", creative_type="video_commercial", status="Draft")
+    cs_db7.session.add(orphan)
+    cs_db7.session.commit()
+    orphan_result = cs_binder.bind_variation(orphan)
+    check("a variation with no parent_project_id is refused rather than guessed at",
+          orphan_result.get("ok"), False)
+    orphan_id = orphan.id
+
+# ---------------------------------------------------------------------------
+section("WO-CS7: a still preview never plays audio")
+
+with hub_app.app_context():
+    from modules.commercial_builder.models import Scene as CbScene7b
+    from modules.commercial_builder.services import creatomate_service as cs_cta
+
+    variant_cb2 = CbProject7.query.get(variant_cb_project_id)
+    scenes7 = [s.to_dict() for s in variant_cb2.scenes.order_by(CbScene7b.order_index).all()]
+    still_source = cs_cta.build_source(variant_cb2.to_dict(include_scenes=False), scenes7,
+                                       "9:16", still=True)
+    check("a still render asks for a jpg", still_source.get("output_format"), "jpg")
+    check("  ...and carries no audio elements",
+          any(e.get("type") == "audio" for e in still_source.get("elements", [])), False)
+
+    video_source = cs_cta.build_source(variant_cb2.to_dict(include_scenes=False), scenes7, "9:16")
+    check("the ordinary (non-still) render is unaffected -- no output_format override",
+          video_source.get("output_format") in (None, "mp4"), True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS7: the Create Variations API")
+
+_orig_cs7_submit = cs_cta.submit_render
+_orig_cs7_check = cs_cta.check_render
+cs_cta.submit_render = lambda source: {
+    "id": "prev_cs7", "status": "succeeded",
+    "url": "https://cdn.example.test/preview.jpg", "error": None}
+cs_cta.check_render = lambda rid: {
+    "id": rid, "status": "succeeded", "url": "https://cdn.example.test/preview.jpg", "error": None}
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/versions/1/variations",
+                json={"aspects": ["1:1", "4:5"], "link_image": True})
+check("creating variations from a real version succeeds", r.status_code, 200)
+body = r.get_json()
+check("  ...three rows created: two aspects and the link image", len(body["created"]), 3)
+check("  ...none refused (this layout is clean at every aspect)", body["refused"], [])
+
+created_kinds = sorted((c["project"]["variation_kind"], c["project"]["aspect_ratio"])
+                      for c in body["created"])
+check("  ...one aspect variation each and one link image",
+      created_kinds, [("aspect", "1:1"), ("aspect", "4:5"), ("link_image", "1200x628")])
+
+with hub_app.app_context():
+    for c in body["created"]:
+        row = CsProjectModel7.query.get(c["project"]["id"])
+        check(f"  ...variation {c['project']['aspect_ratio']} carries parent_project_id",
+              row.parent_project_id, cs_project_id)
+
+    check("the parent's own version rows are still untouched after creating variations",
+          CsProjectVersion.query.filter_by(project_id=cs_project_id).count(),
+          parent_version_count_before)
+
+r = client.get(f"/creative-studio/api/projects/{cs_project_id}/variations")
+check("listing variations succeeds", r.status_code, 200)
+check("  ...returns at least the three just created",
+      len(r.get_json()["variations"]) >= 3, True)
+
+# Advance every "variant" job the create call queued -- one tick each is
+# enough: the mocked submit_render already answers succeeded+url.
+for _ in body["created"]:
+    cs_jobs.job_sweep(hub_app)
+with hub_app.app_context():
+    for c in body["created"]:
+        job = CreativeJob.query.get(c["job"]["id"])
+        check(f"the variant job for {c['project']['aspect_ratio']} completes",
+              job.state, "complete")
+        row = CsProjectModel7.query.get(c["project"]["id"])
+        check(f"  ...and the project carries a preview_url", bool(row.preview_url), True)
+
+link_image_entry = next(c for c in body["created"] if c["project"]["variation_kind"] == "link_image")
+with hub_app.app_context():
+    link_cb = CbProject7.query.get(CsProjectModel7.query.get(link_image_entry["project"]["id"]).cb_project_id)
+    check("the link image's storyboard is a single scene (the end card alone)",
+          link_cb.scenes.count(), 1)
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/versions/1/variations",
+                json={"aspects": [], "link_image": False})
+check("asking for nothing is refused rather than silently doing nothing", r.status_code, 400)
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/versions/999/variations",
+                json={"aspects": ["1:1"]})
+check("a version number that does not exist 404s", r.status_code, 404)
+
+with hub_app.app_context():
+    no_storyboard = CsProjectModel7(name="Never opened", creative_type="video_commercial", status="Draft")
+    cs_db7.session.add(no_storyboard)
+    cs_db7.session.commit()
+    v_no_sb = CsProjectVersion(project_id=no_storyboard.id, version=1,
+                               render_url="https://cdn.example.test/x.mp4")
+    cs_db7.session.add(v_no_sb)
+    cs_db7.session.commit()
+    no_storyboard_id = no_storyboard.id
+
+r = client.post(f"/creative-studio/api/projects/{no_storyboard_id}/versions/1/variations",
+                json={"aspects": ["1:1"]})
+check("a project never opened in the Storyboard Editor refuses to create variations",
+      r.status_code, 400)
+
+# ---------------------------------------------------------------------------
+section("WO-CS7: a 9:16 variation with a genuine safe-zone violation is refused, never built")
+
+from modules.creative_studio import api as cs_api  # noqa: E402
+
+_orig_findings = cs_api._safe_zone_findings
+cs_api._safe_zone_findings = lambda project, aspect: (
+    [{"layer": "headline", "reason": "crosses the 6% side margin"}] if aspect == "9:16" else [])
+try:
+    with hub_app.app_context():
+        variation_count_before = CsProjectModel7.query.filter_by(parent_project_id=cs_project_id).count()
+    r = client.post(f"/creative-studio/api/projects/{cs_project_id}/versions/1/variations",
+                    json={"aspects": ["9:16", "1:1"]})
+    check("a mixed request still succeeds overall", r.status_code, 200)
+    body9 = r.get_json()
+    check("  ...the 9:16 aspect is refused", [x["aspect"] for x in body9["refused"]], ["9:16"])
+    check("  ...carrying the safe-zone finding", body9["refused"][0]["findings"][0]["reason"],
+          "crosses the 6% side margin")
+    check("  ...while 1:1 still builds", [c["project"]["aspect_ratio"] for c in body9["created"]], ["1:1"])
+    with hub_app.app_context():
+        check("no cs_projects row was created for the refused 9:16 variation",
+              CsProjectModel7.query.filter_by(parent_project_id=cs_project_id).count(),
+              variation_count_before + 1)
+finally:
+    cs_api._safe_zone_findings = _orig_findings
+
+cs_cta.submit_render = _orig_cs7_submit
+cs_cta.check_render = _orig_cs7_check
+
+# ---------------------------------------------------------------------------
+section("WO-CS7: the project detail page offers Create Variations only once a version exists")
+
+r = client.get(f"/creative-studio/projects/{cs_project_id}")
+check("the project page renders", r.status_code, 200)
+check("  ...carrying the Create Variations panel", b"Create Variations" in r.data, True)
+check("  ...with all four aspect checkboxes", b'value="9:16"' in r.data and b'value="4:5"' in r.data, True)
+
+r = client.get(f"/creative-studio/projects/{orphan_id}")
+check("a project with no rendered version yet gets no Create Variations panel",
+      b"Create Variations" not in r.data, True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: campaign_spec -- status derived, never stored")
+
+from modules.creative_studio import campaign_spec  # noqa: E402
+
+check("no assets is Empty, not Draft", campaign_spec.status_of([]), "Empty")
+check("one Draft asset reads Draft", campaign_spec.status_of(["Draft"]), "Draft")
+check("Draft beats Approved -- the campaign is only as far along as its "
+      "least-advanced asset", campaign_spec.status_of(["Draft", "Approved"]), "Draft")
+check("all Approved reads Approved", campaign_spec.status_of(["Approved", "Approved"]), "Approved")
+check("Changes Requested outranks everything", campaign_spec.status_of(
+    ["Client Review", "Changes Requested", "Approved"]), "Changes Requested")
+
+check("an asset with no offer typed of its own has not departed",
+      campaign_spec.asset_differs({}, "Campaign offer", "Campaign CTA"),
+      {"offer": False, "cta": False})
+check("an asset whose own offer matches the campaign's has not departed",
+      campaign_spec.asset_differs({"offer": "Campaign offer"}, "Campaign offer", ""),
+      {"offer": False, "cta": False})
+check("an asset whose own offer differs from the campaign's is flagged",
+      campaign_spec.asset_differs({"offer": "Something else"}, "Campaign offer", ""),
+      {"offer": True, "cta": False})
+
+check("the render estimate is one creatomate.render unit per asset",
+      campaign_spec.render_estimate(4), 2.0)
+check("a small batch needs no confirmation", campaign_spec.needs_confirmation(2.0), False)
+check("a batch over the threshold needs confirmation", campaign_spec.needs_confirmation(30.0), True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: creating a campaign -- nothing invented against the client book")
+
+r = client.post("/creative-studio/api/campaigns",
+                json={"name": "Fall Push", "client_name": "Some Business Nobody Has Heard Of"})
+check("a typed client that resolves to nobody is refused", r.status_code, 400)
+
+r = client.post("/creative-studio/api/campaigns", json={"name": "Generic Campaign"})
+check("a blank client (generic Smart 1 campaign) is allowed", r.status_code, 200)
+check("  ...and files with no client name", r.get_json()["campaign"]["client_name"], "")
+
+r = client.post("/creative-studio/api/campaigns", json={"name": ""})
+check("an unnamed campaign is refused", r.status_code, 400)
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: resolving a seed template by industry/duration/aspect/type")
+
+with hub_app.app_context():
+    exact_tmpl, exact = cs_binder.resolve_seed_template("hvac", 30, "16:9", "video_commercial")
+    check("an exact match returns the exact template", exact_tmpl.id if exact_tmpl else None, "hvac-30")
+    check("  ...and says so", exact, True)
+
+    general_tmpl, exact2 = cs_binder.resolve_seed_template("restaurant", 30, "9:16",
+                                                           "social_video")
+    check("no restaurant template at 9:16 falls back to the same shape in general",
+          general_tmpl.id if general_tmpl else None, "social-ugc-vertical-30")
+    check("  ...and says it was not an exact match", exact2, False)
+
+    none_tmpl, _exact3 = cs_binder.resolve_seed_template("hvac", 999, "16:9", "video_commercial")
+    check("no template fits a made-up duration", none_tmpl, None)
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: a real campaign, its assets, and the differs chip")
+
+with hub_app.app_context():
+    from modules.creative_studio.models import CsCampaign as CsCampaignModel8
+    from modules.creative_studio.models import CsCampaignAsset as CsCampaignAssetModel8
+    from modules.creative_studio.db import db as cs_db8
+
+    campaign = CsCampaignModel8(client_name="Acme Plumbing", name="Spring Push",
+                                offer="$79 seasonal tune-up", cta="Call today",
+                                created_by="Todd")
+    cs_db8.session.add(campaign)
+    cs_db8.session.commit()
+    campaign_id = campaign.id
+
+asset1, err1 = None, None
+with hub_app.app_context():
+    campaign = CsCampaignModel8.query.get(campaign_id)
+    asset1, err1 = cs_binder.create_campaign_asset(
+        campaign, industry="hvac", duration=30, aspect_ratio="16:9",
+        creative_type="video_commercial", channel="ctv", created_by="Todd")
+    check("adding an asset with a real seed template succeeds", err1, "")
+    check("  ...and joins the campaign", asset1.campaign_id, campaign_id)
+    asset1_project_id = asset1.project_id
+
+    with_no_template, err_no_tmpl = cs_binder.create_campaign_asset(
+        campaign, industry="hvac", duration=999, aspect_ratio="16:9",
+        creative_type="video_commercial", channel="social", created_by="Todd")
+    check("an asset with no matching seed template is refused",
+          with_no_template, None)
+    check("  ...with a readable reason", bool(err_no_tmpl), True)
+
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/assets",
+                json={"industry": "hvac", "duration": 15, "aspect_ratio": "16:9",
+                     "creative_type": "video_commercial", "channel": "social"})
+check("adding a second asset through the API succeeds", r.status_code, 200)
+asset2_project_id = r.get_json()["asset"]["project_id"]
+
+with hub_app.app_context():
+    p1 = CsProjectModel7.query.get(asset1_project_id)
+    p1.brief = {"offer": "A different offer entirely", "cta": campaign.cta}
+    cs_db8.session.commit()
+
+r = client.get(f"/creative-studio/api/campaigns/{campaign_id}")
+check("reading the campaign back succeeds", r.status_code, 200)
+row = r.get_json()["campaign"]
+check("  ...carrying both assets", len(row["assets"]), 2)
+differing = next(a for a in row["assets"] if a["project_id"] == asset1_project_id)
+check("  ...the edited asset's offer chip fires", differing["differs"]["offer"], True)
+untouched = next(a for a in row["assets"] if a["project_id"] == asset2_project_id)
+check("  ...the untouched asset's does not", untouched["differs"]["offer"], False)
+check("  ...status is Empty-to-Draft, i.e. Draft (every asset still a fresh Draft)",
+      row["status"], "Draft")
+
+r = client.get(f"/creative-studio/campaigns/{campaign_id}")
+check("the campaign detail page renders", r.status_code, 200)
+check("  ...naming the campaign", b"Spring Push" in r.data, True)
+check("  ...with the offer-differs chip visible", b"offer differs" in r.data, True)
+
+r = client.get("/creative-studio/campaigns")
+check("the campaigns list page renders", r.status_code, 200)
+check("  ...listing the campaign", b"Spring Push" in r.data, True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: generate all drafts -- one campaign-level call, every asset derived")
+
+from modules.creative_studio import campaign_generation  # noqa: E402
+
+_cs8_calls = []
+
+
+def _fake_chat_json(messages, *, module, purpose, **kw):
+    _cs8_calls.append((module, purpose))
+    return {"headline": "Beat the Ohio heat", "subheadline": "Local and licensed",
+            "body": "Same-day service", "offer": "$79 seasonal tune-up", "cta": "Call today"}
+
+
+from hub import ai as _hub_ai  # noqa: E402
+_orig_chat_json = _hub_ai.chat_json
+_hub_ai.chat_json = _fake_chat_json
+
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/generate-all")
+check("generate-all enqueues a job", r.status_code, 200)
+gen_job_id = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    job = CreativeJob.query.get(gen_job_id)
+    check("the campaign_draft job completes in one tick", job.state, "complete")
+    check("  ...exactly one OpenAI call for the whole campaign", len(_cs8_calls), 1)
+    check("  ...filed under this module and purpose",
+          _cs8_calls[0], ("creative_studio", "campaign_draft"))
+
+    campaign = CsCampaignModel8.query.get(campaign_id)
+    check("the campaign's own brief is written", campaign.brief.get("headline"),
+          "Beat the Ohio heat")
+
+    p1 = CsProjectModel7.query.get(asset1_project_id)
+    check("asset 1's own already-typed offer is kept -- a rep's answer beats a derived one",
+          p1.brief.get("offer"), "A different offer entirely")
+    check("  ...but its empty headline is filled from the campaign brief",
+          p1.brief.get("headline"), "Beat the Ohio heat")
+    check("  ...and its storyboard was auto-built", bool(p1.cb_project_id), True)
+
+    p2 = CsProjectModel7.query.get(asset2_project_id)
+    check("asset 2 had nothing typed, so its whole brief is derived",
+          p2.brief.get("offer"), "$79 seasonal tune-up")
+    check("  ...and its storyboard was auto-built too", bool(p2.cb_project_id), True)
+
+_hub_ai.chat_json = _orig_chat_json
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: batch render -- shared batch_id, one asset failing never cancels the rest")
+
+from modules.commercial_builder.services import creatomate_service as _cs8_cta
+from modules.commercial_builder.services import qc_service as _cs8_qc
+
+_orig_run_qc8 = _cs8_qc.run_qc
+_orig_submit8 = _cs8_cta.submit_render
+_orig_check8 = _cs8_cta.check_render
+_cs8_qc.run_qc = lambda *a, **k: {"_all_passed": True}
+_cs8_cta.submit_render = lambda source: {
+    "id": "rend_cs8", "status": "rendering", "url": None, "error": None}
+_cs8_cta.check_render = lambda rid: {
+    "id": rid, "status": "succeeded", "url": "https://cdn.example.test/cs8.mp4", "error": None}
+
+with hub_app.app_context():
+    unopened = CsProjectModel7(name="Never opened for batch", creative_type="video_commercial",
+                               client_name="Acme Plumbing", status="Draft")
+    cs_db8.session.add(unopened)
+    cs_db8.session.commit()
+    unopened_id = unopened.id
+    unopened_asset = CsCampaignAssetModel8(campaign_id=campaign_id, project_id=unopened_id,
+                                           channel="ott")
+    cs_db8.session.add(unopened_asset)
+    cs_db8.session.commit()
+
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/render",
+                json={"project_ids": [asset1_project_id, asset2_project_id, unopened_id]})
+check("a small batch (below the confirm threshold) renders without confirmation",
+      r.status_code, 200)
+batch_body = r.get_json()
+check("  ...two of three assets queued", len(batch_body["rendered"]), 2)
+check("  ...the unopened one refused, not silently dropped", len(batch_body["refused"]), 1)
+check("  ...naming the unopened project", batch_body["refused"][0]["project_id"], unopened_id)
+check("  ...every queued job shares one batch_id",
+      len({j["job"]["batch_id"] for j in batch_body["rendered"]}), 1)
+batch_id = batch_body["batch_id"]
+
+r = client.get(f"/creative-studio/api/campaigns/{campaign_id}/batch/{batch_id}")
+check("batch status answers before any tick", r.status_code, 200)
+check("  ...none done yet", r.get_json()["done"], 0)
+
+for _ in batch_body["rendered"]:
+    cs_jobs.job_sweep(hub_app)
+    cs_jobs.job_sweep(hub_app)
+
+r = client.get(f"/creative-studio/api/campaigns/{campaign_id}/batch/{batch_id}")
+check("both queued jobs complete", r.get_json()["done"], 2)
+
+r = client.get(f"/creative-studio/api/campaigns/{campaign_id}/batch/not-a-real-batch")
+check("a batch id nothing recognizes 404s", r.status_code, 404)
+
+# A batch above the threshold needs the campaign's own name typed back.
+os.environ["CS_BATCH_CONFIRM_USD"] = "0.10"
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/render",
+                json={"project_ids": [asset1_project_id]})
+check("above the (lowered) threshold, an unconfirmed batch is refused", r.status_code, 409)
+check("  ...naming the reason", r.get_json()["error"], "confirm_required")
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/render",
+                json={"project_ids": [asset1_project_id], "confirm": "not the campaign name"})
+check("a wrong typed confirmation is still refused", r.status_code, 409)
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/render",
+                json={"project_ids": [asset1_project_id], "confirm": "Spring Push"})
+check("typing the campaign's own name confirms it", r.status_code, 200)
+os.environ["CS_BATCH_CONFIRM_USD"] = "25"
+
+_cs8_qc.run_qc = _orig_run_qc8
+_cs8_cta.submit_render = _orig_submit8
+_cs8_cta.check_render = _orig_check8
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: send campaign for approval -- per-asset decisions, one round counter")
+
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/share")
+check("sending the campaign for approval succeeds", r.status_code, 200)
+campaign_share = r.get_json()["share"]
+check("  ...kind is campaign", campaign_share["kind"], "campaign")
+check("  ...round 1", campaign_share["round"], 1)
+campaign_token = campaign_share["token"]
+
+with hub_app.app_context():
+    p1 = CsProjectModel7.query.get(asset1_project_id)
+    p2 = CsProjectModel7.query.get(asset2_project_id)
+    check("every asset moves to Client Review", (p1.status, p2.status),
+          ("Client Review", "Client Review"))
+
+r = anon.get(f"/review/{campaign_token}")
+check("the client campaign review page renders with no session at all", r.status_code, 200)
+check("  ...no sidebar", b"s1hub-sidebar" not in r.data and b"hub-sidebar" not in r.data, True)
+check("  ...naming the first asset", b"Spring Push \xe2\x80\x94 Connected TV" in r.data, True)
+check("  ...and the second, independently", b"Spring Push \xe2\x80\x94 Social" in r.data, True)
+check("  ...carries the campaign name", b"Spring Push" in r.data, True)
+
+r = anon.post(f"/review/{campaign_token}/decide",
+              json={"outcome": "approved", "name": "Pat", "email": "pat@acmeplumbing.test"})
+check("deciding with no asset_project_id is refused -- a campaign decision "
+      "must say which asset it is about", r.status_code, 400)
+
+r = anon.post(f"/review/{campaign_token}/decide",
+              json={"outcome": "approved", "name": "Pat", "email": "pat@acmeplumbing.test",
+                   "asset_project_id": 999999})
+check("an asset_project_id not on this campaign is refused", r.status_code, 400)
+
+r = anon.post(f"/review/{campaign_token}/decide",
+              json={"outcome": "approved", "name": "Pat", "email": "pat@acmeplumbing.test",
+                   "asset_project_id": asset1_project_id})
+check("approving asset 1 succeeds", r.status_code, 200)
+
+r = anon.post(f"/review/{campaign_token}/decide",
+              json={"outcome": "changes_required", "name": "Pat", "email": "pat@acmeplumbing.test",
+                   "asset_project_id": asset2_project_id, "note": "Wrong phone number"})
+check("requesting changes on asset 2 succeeds independently", r.status_code, 200)
+
+with hub_app.app_context():
+    p1 = CsProjectModel7.query.get(asset1_project_id)
+    p2 = CsProjectModel7.query.get(asset2_project_id)
+    check("asset 1 is Approved", p1.status, "Approved")
+    check("  ...asset 2 is Changes Requested, independently", p2.status, "Changes Requested")
+
+    from modules.creative_studio.models import CsShareDecision as CsShareDecisionModel8
+    same_reviewer_rows = CsShareDecisionModel8.query.filter_by(
+        share_id=campaign_share["id"], reviewer_email="pat@acmeplumbing.test").all()
+    check("one reviewer answering about two assets leaves two rows, not one "
+          "overwriting the other", len(same_reviewer_rows), 2)
+
+# Answering again on the SAME asset replaces that answer rather than adding a row.
+r = anon.post(f"/review/{campaign_token}/decide",
+              json={"outcome": "approved", "name": "Pat", "email": "pat@acmeplumbing.test",
+                   "asset_project_id": asset2_project_id})
+check("correcting the same reviewer's answer on the same asset succeeds", r.status_code, 200)
+with hub_app.app_context():
+    rows = CsShareDecisionModel8.query.filter_by(
+        reviewer_email="pat@acmeplumbing.test", asset_project_id=asset2_project_id).all()
+    check("  ...and replaces it rather than adding a second row", len(rows), 1)
+    check("  ...reading the corrected outcome", rows[0].outcome, "approved")
+
+r = client.post(f"/creative-studio/api/campaigns/{campaign_id}/share")
+check("sending a second round succeeds", r.status_code, 200)
+check("  ...round 2", r.get_json()["share"]["round"], 2)
+
+r = anon.get(f"/review/{campaign_token}")
+check("round 1's now-revoked token answers 410, not a bare 404", r.status_code, 410)
+
+r = client.get(f"/creative-studio/api/campaigns/{campaign_id}/shares")
+check("listing campaign shares succeeds", r.status_code, 200)
+check("  ...both rounds present", len(r.get_json()["shares"]), 2)
+
+r = client.post("/creative-studio/api/campaigns/999999/share")
+check("sending a campaign that does not exist 404s", r.status_code, 404)
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: radio assets appear read-only, matched by exact client name")
+
+try:
+    from modules.radio_scripts.db import db as _rs_db
+    from modules.radio_scripts.models import RadioScriptSet
+    _radio_available = True
+except Exception:                                             # noqa: BLE001
+    _radio_available = False
+
+if _radio_available:
+    with hub_app.app_context():
+        rs = RadioScriptSet(client_name="Acme Plumbing", actor="Todd")
+        rs.brief_json = '{"market": "Columbus", "package": "Drive Time"}'
+        _rs_db.session.add(rs)
+        _rs_db.session.commit()
+
+    r = client.get(f"/creative-studio/campaigns/{campaign_id}")
+    check("the campaign page lists the exactly-matched radio set", r.status_code, 200)
+    check("  ...marked read-only", b"Read-only" in r.data, True)
+else:
+    print("  (skipped -- modules.radio_scripts not importable in this environment)")
+
+# ---------------------------------------------------------------------------
+section("WO-CS8: migrating a Commercial Builder Campaign row")
+
+with hub_app.app_context():
+    from modules.commercial_builder.models import Campaign as CbCampaignModel8
+    from modules.commercial_builder.models import CommercialProject as CbProjectModel8
+    from modules.commercial_builder.models import Client as CbClientModel8
+    from modules.commercial_builder.db import db as cb_db8
+
+    cb_client = CbClientModel8.query.filter_by(name="Acme Plumbing").first()
+    if cb_client is None:
+        cb_client = CbClientModel8(name="Acme Plumbing")
+        cb_db8.session.add(cb_client)
+        cb_db8.session.commit()
+
+    cb_campaign = CbCampaignModel8(client_id=cb_client.id, name="Legacy Multi-Length Build")
+    cb_db8.session.add(cb_campaign)
+    cb_db8.session.commit()
+
+    # A CB project this module has never heard of -- must not be migrated in.
+    cb_db8.session.add(CbProjectModel8(client_id=cb_client.id, campaign_id=cb_campaign.id,
+                                       title="Untouched by Studio", length_seconds=30,
+                                       commercial_type="stock_vo", status="draft"))
+    # A CB project Creative Studio HAS bound -- but NOT already a member of
+    # some other cs_campaign (a project belongs to at most one). Reuse the
+    # WO-CS7 project's own storyboard, which has a cb_project_id and has
+    # never been added to any campaign.
+    standalone = CsProjectModel7.query.get(cs_project_id)
+    linked_cb_project = CbProjectModel8.query.get(standalone.cb_project_id)
+    linked_cb_project.campaign_id = cb_campaign.id
+    cb_db8.session.commit()
+    cb_campaign_id = cb_campaign.id
+
+    migrated = campaign_spec.migrate_cb_campaigns(actor="system")
+    check("migrating finds the one legacy campaign with a bound project", migrated, 1)
+
+    new_row = CsCampaignModel8.query.filter_by(cb_campaign_id=cb_campaign_id).first()
+    check("  ...creates a cs_campaigns row for it", new_row is not None, True)
+    check("  ...naming it after the CB campaign", new_row.name, "Legacy Multi-Length Build")
+    linked_assets = CsCampaignAssetModel8.query.filter_by(campaign_id=new_row.id).all()
+    check("  ...joining only the ONE project Studio actually bound "
+          "(never the untouched sibling)", len(linked_assets), 1)
+    check("  ...that project is the one Studio knows", linked_assets[0].project_id, cs_project_id)
+
+    migrated_again = campaign_spec.migrate_cb_campaigns(actor="system")
+    check("running the migration again is a no-op", migrated_again, 0)
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: industry packs -- which industries have a weather angle")
+
+check("hvac is weather-ready", config.industry_pack("hvac")["weather_ready"], True)
+check("general is not -- nothing invented for a business with no angle written",
+      config.industry_pack("general")["weather_ready"], False)
+check("an unknown industry falls back to general's (not ready)",
+      config.industry_pack("not-a-real-industry")["weather_ready"], False)
+check("marine suppresses cold/snow/severe", config.industry_pack("marine")["suppress"],
+      ("cold", "snow", "severe"))
+check("hvac's pack covers all seven conditions",
+      set(config.industry_pack("hvac")["weather_copy"]), set(config.WEATHER_CONDITIONS))
+check("marine's pack covers only the four it does not suppress",
+      set(config.industry_pack("marine")["weather_copy"]),
+      set(config.WEATHER_CONDITIONS) - {"cold", "snow", "severe"})
+
+with hub_app.app_context():
+    check("a project bound to the hvac-30 template reads as hvac",
+          cs_binder.project_industry(CsProjectModel7.query.get(cs_project_id)), "hvac")
+    check("a project with no template reads as general",
+          cs_binder.project_industry(CsProjectModel7.query.get(generic_id)), "general")
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: generate_weather_variants -- severe never carries an offer")
+
+from modules.creative_studio import campaign_generation as cs_gen  # noqa: E402
+
+
+def _fake_weather_chat_json(messages, *, module, purpose, **kw):
+    return {
+        "hot": {"headline": "Beat the heat", "offer": "$79 tune-up", "cta": "Call today"},
+        "severe": {"headline": "Stay safe", "offer": "$50 off if you call now!",
+                  "cta": "Call anytime"},
+    }
+
+
+with hub_app.app_context():
+    _orig_chat_json2 = _hub_ai.chat_json
+    _hub_ai.chat_json = _fake_weather_chat_json
+    try:
+        project9 = CsProjectModel7.query.get(cs_project_id)
+        variants = cs_gen.generate_weather_variants(
+            project9, {"weather_copy": {"hot": "x", "severe": "y"}})
+    finally:
+        _hub_ai.chat_json = _orig_chat_json2
+
+check("a normal condition keeps its offer", variants["hot"]["offer"], "$79 tune-up")
+check("severe's offer is blanked regardless of what the model returned",
+      variants["severe"]["offer"], "")
+check("  ...but its headline and cta survive", variants["severe"]["headline"], "Stay safe")
+
+check("a pack with no weather_copy at all asks for nothing",
+      cs_gen.generate_weather_variants(project9, {}), {})
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: Create Weather Set -- refused for an industry with no angle")
+
+r = client.post(f"/creative-studio/api/projects/{generic_id}/weather-set")
+check("a project with no weather-ready industry is refused, readably", r.status_code, 400)
+check("  ...naming which industry has none", "general" in r.get_json()["error"], True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: Create Weather Set -- the real flow, on a real hvac project")
+
+from modules.creative_studio.models import CsWeatherSet  # noqa: E402
+
+_orig_chat_json3 = _hub_ai.chat_json
+_hub_ai.chat_json = _fake_weather_chat_json
+
+from hub import stock_search as _hub_stock  # noqa: E402
+_orig_stock_search = _hub_stock.search
+_hub_stock.search = lambda queries, **kw: {"results": [
+    {"full": "https://cdn.example.test/weather-bg.jpg", "preview": "", "thumb": ""}]}
+
+
+def _fake_hvac_chat_json(messages, *, module, purpose, **kw):
+    return {c: {"headline": f"{c} headline", "offer": f"{c} offer", "cta": f"{c} cta"}
+           for c in config.WEATHER_CONDITIONS}
+
+
+_hub_ai.chat_json = _fake_hvac_chat_json
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/weather-set")
+check("creating a weather set on a real hvac project succeeds", r.status_code, 200)
+weather_job_id = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    job = CreativeJob.query.get(weather_job_id)
+    check("the weather_set job completes in one tick", job.state, "complete")
+
+    rows = CsWeatherSet.query.filter_by(project_id=cs_project_id).order_by(
+        CsWeatherSet.condition).all()
+    check("all seven conditions were written -- hvac suppresses none",
+          sorted(r2.condition for r2 in rows), sorted(config.WEATHER_CONDITIONS))
+    severe_row = next(r2 for r2 in rows if r2.condition == "severe")
+    check("severe's row carries no offer, from the runner too, not only the generator",
+          severe_row.offer, "")
+    hot_row = next(r2 for r2 in rows if r2.condition == "hot")
+    check("  ...an ordinary condition keeps its offer", hot_row.offer, "hot offer")
+    check("  ...and carries a background image (mocked stock search)",
+          bool(hot_row.weather_image_url), True)
+    check("  ...filed as a tagged media asset",
+          CsMediaAsset.query.filter_by(id=hot_row.media_asset_id).first().tags,
+          ["weather", "hot"])
+
+r = client.get(f"/creative-studio/api/projects/{cs_project_id}/weather-set")
+check("listing the weather set succeeds", r.status_code, 200)
+check("  ...returns all seven", len(r.get_json()["conditions"]), 7)
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: a rep can edit, and severe still refuses an offer at the edit route too")
+
+r = client.put(f"/creative-studio/api/projects/{cs_project_id}/weather-set/normal",
+               json={"offer": "$99 seasonal special", "cta": "Book now"})
+check("editing an ordinary condition succeeds", r.status_code, 200)
+check("  ...and reads back", r.get_json()["condition"]["offer"], "$99 seasonal special")
+
+r = client.put(f"/creative-studio/api/projects/{cs_project_id}/weather-set/severe",
+               json={"offer": "$50 off"})
+check("a rep typing an offer into severe is refused, not silently accepted", r.status_code, 400)
+
+r = client.put(f"/creative-studio/api/projects/{cs_project_id}/weather-set/not-a-condition",
+               json={"offer": "x"})
+check("editing a condition that was never generated 404s", r.status_code, 404)
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: approving a condition builds its variation, never renders it")
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/weather-set/normal/approve")
+check("approving 'normal' succeeds", r.status_code, 200)
+normal_condition = r.get_json()["condition"]
+check("  ...and now carries a variant project", bool(normal_condition["variant_project_id"]), True)
+check("  ...and reads as Approved", normal_condition["status"], "Approved")
+weather_variant_id = normal_condition["variant_project_id"]
+
+with hub_app.app_context():
+    variant = CsProjectModel7.query.get(weather_variant_id)
+    check("the variant is its own project, parented to the hvac project",
+          variant.parent_project_id, cs_project_id)
+    check("  ...kind is weather", variant.variation_kind, "weather")
+    check("  ...and it has a real storyboard -- nothing here renders yet",
+          bool(variant.cb_project_id), True)
+    check("  ...no version has been created -- approving is not rendering",
+          variant.versions.count(), 0)
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/weather-set/normal/approve")
+check("approving the same condition again is a no-op, not a second variant",
+      r.status_code, 200)
+with hub_app.app_context():
+    same_check = CsWeatherSet.query.filter_by(project_id=cs_project_id, condition="normal").first()
+    check("  ...the variant_project_id did not change",
+          same_check.variant_project_id, weather_variant_id)
+
+with hub_app.app_context():
+    # A condition never generated cannot be approved.
+    fresh = CsProjectModel7(name="Blank weather host", creative_type="video_commercial",
+                            client_name="Acme Plumbing", status="Draft")
+    cs_db8.session.add(fresh)
+    cs_db8.session.commit()
+    fresh_id = fresh.id
+r = client.post(f"/creative-studio/api/projects/{fresh_id}/weather-set/normal/approve")
+check("approving a condition that was never created 404s", r.status_code, 404)
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: the weather manifest -- token-gated, approved versions only")
+
+r = client.get(f"/creative-studio/api/weather-manifest/{cs_project_id}")
+check("the manifest with no token at all is refused", r.status_code, 403)
+
+r = client.get(f"/creative-studio/api/weather-manifest/{cs_project_id}",
+               query_string={"token": "not-a-real-token"})
+check("a bogus token is refused", r.status_code, 403)
+
+r = client.get(f"/creative-studio/api/projects/{cs_project_id}/weather-manifest-token")
+check("minting a manifest token succeeds", r.status_code, 200)
+manifest_token = r.get_json()["token"]
+
+r = client.get(f"/creative-studio/api/weather-manifest/{cs_project_id}",
+               query_string={"token": manifest_token})
+check("a real token for this project succeeds", r.status_code, 200)
+check("  ...but the manifest is empty -- 'normal' is approved but not yet rendered",
+      r.get_json()["manifest"], {})
+
+r = client.get(f"/creative-studio/api/weather-manifest/{generic_id}",
+               query_string={"token": manifest_token})
+check("a token minted for one project does not work on another", r.status_code, 403)
+
+# Render and approve the weather variant, the ordinary way -- then it should
+# reach the manifest.
+_orig_run_qc9 = _cs8_qc.run_qc
+_orig_submit9 = _cs8_cta.submit_render
+_orig_check9 = _cs8_cta.check_render
+_cs8_qc.run_qc = lambda *a, **k: {"_all_passed": True}
+_cs8_cta.submit_render = lambda source: {
+    "id": "rend_cs9", "status": "rendering", "url": None, "error": None}
+_cs8_cta.check_render = lambda rid: {
+    "id": rid, "status": "succeeded", "url": "https://cdn.example.test/normal-weather.mp4",
+    "error": None}
+
+r = client.post(f"/creative-studio/api/projects/{weather_variant_id}/render",
+                json={"format": "16:9"})
+check("rendering the weather variant succeeds", r.status_code, 200)
+weather_render_job_id = r.get_json()["job"]["id"]
+cs_jobs.job_sweep(hub_app)
+cs_jobs.job_sweep(hub_app)
+with hub_app.app_context():
+    rjob = CreativeJob.query.get(weather_render_job_id)
+    check("the render completes", rjob.state, "complete")
+
+r = client.post(f"/creative-studio/api/projects/{weather_variant_id}/versions/1/approve")
+check("approving the rendered weather variant succeeds", r.status_code, 200)
+
+_cs8_qc.run_qc = _orig_run_qc9
+_cs8_cta.submit_render = _orig_submit9
+_cs8_cta.check_render = _orig_check9
+
+r = client.get(f"/creative-studio/api/weather-manifest/{cs_project_id}",
+               query_string={"token": manifest_token})
+check("now the manifest carries 'normal'", "normal" in r.get_json()["manifest"], True)
+entry = r.get_json()["manifest"]["normal"]
+check("  ...with its rendered video", entry["video_url"], "https://cdn.example.test/normal-weather.mp4")
+check("  ...its background image", bool(entry["image_url"]), True)
+check("  ...and its headline/cta", entry["headline"], "normal headline")
+check("every other approved-but-not-rendered or never-approved condition is "
+      "absent from the manifest", set(r.get_json()["manifest"]), {"normal"})
+
+_hub_ai.chat_json = _orig_chat_json3
+_hub_stock.search = _orig_stock_search
+
+# ---------------------------------------------------------------------------
+section("WO-CS9: a suppressing industry never generates its suppressed conditions")
+
+with hub_app.app_context():
+    marine_tmpl = CsTemplate(id="marine-test-30", name="Marine test", industry="marine",
+                             duration=30, aspect_ratio="16:9",
+                             creative_type="video_commercial", status="published", version=1,
+                             created_by="Todd")
+    cs_db8.session.add(marine_tmpl)
+    cs_db8.session.commit()
+
+    marine_project = CsProjectModel7(
+        name="Marine weather host", creative_type="video_commercial",
+        client_name="Acme Plumbing", template_id="marine-test-30", template_version=1,
+        duration=30, aspect_ratio="16:9", status="Draft", created_by="Todd")
+    cs_db8.session.add(marine_project)
+    cs_db8.session.commit()
+    marine_project_id = marine_project.id
+
+    check("the marine project reads its own industry", cs_binder.project_industry(
+        CsProjectModel7.query.get(marine_project_id)), "marine")
+
+_hub_ai.chat_json = _fake_hvac_chat_json
+_hub_stock.search = lambda queries, **kw: {"results": []}
+
+r = client.post(f"/creative-studio/api/projects/{marine_project_id}/weather-set")
+check("creating a weather set for a suppressing industry succeeds", r.status_code, 200)
+marine_job_id = r.get_json()["job"]["id"]
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    marine_rows = CsWeatherSet.query.filter_by(project_id=marine_project_id).all()
+    check("only the four unsuppressed conditions were generated",
+          sorted(r2.condition for r2 in marine_rows), sorted(["hot", "rain", "humidity", "normal"]))
+    check("cold, snow and severe were never written for marine",
+          any(r2.condition in ("cold", "snow", "severe") for r2 in marine_rows), False)
+    check("no image asset was filed when stock search found nothing",
+          all(not r2.weather_image_url for r2 in marine_rows), True)
+
+_hub_ai.chat_json = _orig_chat_json
+
+# ---------------------------------------------------------------------------
+section("WO-CS10: the archetype recommender ranks by pack default + platform fit")
+
+from modules.creative_studio import recommender as cs_recommender  # noqa: E402
+
+hvac_ranked = cs_recommender.rank_archetypes("hvac", "ctv")
+check("hvac + ctv returns three archetypes", len(hvac_ranked), 3)
+check("  ...every entry carries a key, a label and a reason",
+      all({"key", "label", "reasons"} <= set(r.keys()) for r in hvac_ranked), True)
+check("  ...problem_solution leads -- hvac's own pack default AND a ctv fit",
+      hvac_ranked[0]["key"], "problem_solution")
+
+general_ranked = cs_recommender.rank_archetypes("general", "social")
+check("an industry with no pack still returns three (falls back through "
+      "the full archetype list)", len(general_ranked), 3)
+
+check("an unknown platform still ranks on the pack alone, no crash",
+      len(cs_recommender.rank_archetypes("hvac", "not-a-real-platform")), 3)
+
+# ---------------------------------------------------------------------------
+section("WO-CS10: generate_concepts with archetype_keys -- 3 structures, not 3 paraphrases")
+
+from modules.commercial_builder import generation as _cb_generation  # noqa: E402
+from modules.commercial_builder.services import openai_service as _cb_openai  # noqa: E402
+
+mock_concepts_default = _cb_openai.generate_concepts(
+    {"what_advertising": "a spring tune-up"}, {"industry": "hvac"}, "stock_vo")
+check("with no archetype_keys, the ordinary single-archetype path runs "
+      "(unchanged default) and still returns 3", len(mock_concepts_default), 3)
+
+three_keys = ["problem_solution", "testimonial", "vignette"]
+mock_concepts_multi = _cb_openai.generate_concepts(
+    {"what_advertising": "a spring tune-up"}, {"industry": "hvac"}, "stock_vo",
+    archetype_keys=three_keys)
+check("with 3 archetype_keys, exactly 3 concepts come back -- one per key",
+      len(mock_concepts_multi), 3)
+check("  ...and each concept's title names its OWN archetype's label, not "
+      "one shared label repeated three times",
+      len({c["title"] for c in mock_concepts_multi}), 3)
+
+check("an unknown archetype key is dropped rather than sent to the model",
+      len(_cb_openai.generate_concepts(
+          {"what_advertising": "x"}, {"industry": "hvac"}, "stock_vo",
+          archetype_keys=["not_a_real_archetype"])), 3)
+# Dropped down to zero real keys -- falls through to the ordinary single-
+# archetype path, which is what makes the fallback above still return 3.
+
+# ---------------------------------------------------------------------------
+section("WO-CS10: run_concepts threads archetype_keys through, and the "
+       "storyboard job seeds it from the recommender")
+
+with hub_app.app_context():
+    from modules.commercial_builder.client_link import ensure_client as _cs10_ensure_client
+
+    # No template_id -- the AI Concepts/Script path, the ONLY shape the
+    # recommender applies to. A template-bound project's scenes already say
+    # what each one is for and never reaches `generate/storyboard` at all.
+    rec_project = CsProjectModel7(
+        name="Recommender seeding test", creative_type="video_commercial",
+        client_name="Acme Plumbing", status="Draft", created_by="Todd")
+    rec_project.brief = {"what_advertising": "spring tune-up special"}
+    cs_db8.session.add(rec_project)
+    cs_db8.session.commit()
+    rec_project_id = rec_project.id
+
+r = client.post(f"/creative-studio/api/projects/{rec_project_id}/generate/storyboard")
+check("enqueuing concepts for the recommender-seeding project succeeds", r.status_code, 200)
+rec_job_id = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    rec_job = CreativeJob.query.get(rec_job_id)
+    check("the storyboard job still completes with the recommender wired in",
+          rec_job.state, "complete")
+    check("  ...and carries 3 concepts", len(rec_job.output.get("concepts") or []), 3)
+    check("  ...naming the archetypes it recommended",
+          len(rec_job.output.get("recommended_archetypes") or []), 3)
+    check("  ...and a compliance scan, even with nothing to flag",
+          "findings" in (rec_job.output.get("compliance") or {}), True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS10: the compliance scanner -- reused regimes, plus superlatives "
+       "and unnamed-competitor language")
+
+from modules.creative_studio import compliance_ext as cs_compliance  # noqa: E402
+
+clean = cs_compliance.scan(brief={"what_advertising": "an HVAC tune-up",
+                                  "offer": "Book online today"})
+check("clean copy raises nothing", clean["findings"], [])
+check("  ...and still names the two regimes this module does not model",
+      set(clean["not_modeled"].keys()), {"eeoc", "fair_housing"})
+
+superlative = cs_compliance.scan(brief={"offer": "We are the best in town, guaranteed."})
+ids = {f["id"] for f in superlative["findings"]}
+check("an unqualified superlative is flagged", "superlative" in ids, True)
+sup_finding = next(f for f in superlative["findings"] if f["id"] == "superlative")
+check("  ...quoting the actual phrase as evidence",
+      "best" in sup_finding["evidence"].lower(), True)
+check("  ...and it is advisory (addressed is None, never a pass/fail verdict)",
+      sup_finding["addressed"], None)
+
+competitor = cs_compliance.scan(brief={"offer": "Unlike the other guys, we show up on time."})
+ids = {f["id"] for f in competitor["findings"]}
+check("unnamed-competitor language is flagged", "unnamed_competitor" in ids, True)
+
+regz = cs_compliance.scan(brief={"offer": "$79/month with 0% financing"},
+                          client={"industry": "hvac"})
+regz_ids = {f["regime"] for f in regz["findings"]}
+check("Reg Z trigger terms are still caught -- the reused compliance_spec regime",
+      "reg_z" in regz_ids, True)
+
+check("a scanning failure never raises -- swapped in a broken commercial_builder "
+      "import path and it still returns a dict",
+      isinstance(cs_compliance.scan(brief=None, client=None), dict), True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS10: the spot library lists approved, top-level spots only")
+
+from modules.creative_studio import library as cs_library  # noqa: E402
+from modules.creative_studio import brand_ext as cs_brand_ext10  # noqa: E402
+
+with hub_app.app_context():
+    from modules.creative_studio.db import db as cs_db10
+
+    lib_project = CsProjectModel6(name="Library-visible spot", creative_type="video_commercial",
+                                  client_name="Library Test Client", status="Draft")
+    cs_db10.session.add(lib_project)
+    cs_db10.session.commit()
+    lib_bind = cs_binder3.bind_for_generation(lib_project)
+    check("binding the library-visible project succeeds", lib_bind.get("ok"), True)
+    lib_project_id = lib_project.id
+
+    v1 = CsProjectVersion(project_id=lib_project_id, version=1,
+                          render_url="https://cdn.example.test/lib-v1.mp4",
+                          thumbnail_url="https://cdn.example.test/lib-v1.jpg", created_by="Todd")
+    cs_db10.session.add(v1)
+    cs_db10.session.commit()
+
+r = client.post(f"/creative-studio/api/projects/{lib_project_id}/versions/1/approve")
+check("approving the library-visible project succeeds", r.status_code, 200)
+
+with hub_app.app_context():
+    spots = cs_library.approved_spots()
+    check("the approved spot appears in the library",
+          any(s["id"] == lib_project_id for s in spots), True)
+    row = next(s for s in spots if s["id"] == lib_project_id)
+    check("  ...carrying its client, render and thumbnail",
+          (row["client_name"], row["render_url"], row["thumbnail_url"]),
+          ("Library Test Client", "https://cdn.example.test/lib-v1.mp4",
+           "https://cdn.example.test/lib-v1.jpg"))
+
+r = client.post("/creative-studio/api/library/opt-out",
+                json={"client": "Library Test Client", "opt_out": True})
+check("a client can opt their spots out of the library", r.status_code, 200)
+
+with hub_app.app_context():
+    spots = cs_library.approved_spots()
+    check("the opted-out client's spot no longer appears",
+          any(s["id"] == lib_project_id for s in spots), False)
+
+r = client.post("/creative-studio/api/library/opt-out",
+                json={"client": "Library Test Client", "opt_out": False})
+check("opting back in restores it", r.status_code, 200)
+with hub_app.app_context():
+    spots = cs_library.approved_spots()
+    check("  ...the spot is visible again",
+          any(s["id"] == lib_project_id for s in spots), True)
+
+with hub_app.app_context():
+    weather_variant_row = CsProjectModel7.query.get(weather_variant_id)
+    weather_variant_row.status = "Approved"
+    cs_db10.session.commit()
+    spots = cs_library.approved_spots()
+    check("an approved WEATHER VARIANT (variation_kind set) never appears "
+          "in the library -- only top-level approved spots do",
+          any(s["id"] == weather_variant_id for s in spots), False)
+
+r = client.get("/creative-studio/library")
+check("the library page renders with no session at all", r.status_code, 200)
+r = client.get("/creative-studio/api/library?industry=hvac")
+check("the library JSON API filters by industry", r.status_code, 200)
+
+# ---------------------------------------------------------------------------
+section("WO-CS10: Use as template -- abstracting an approved, template-bound spot")
+
+with hub_app.app_context():
+    tmpl_source_project = CsProjectModel7(
+        name="Template-bound approved spot", creative_type="video_commercial",
+        client_name="Acme Plumbing", template_id="hvac-30", template_version=1,
+        duration=30, aspect_ratio="16:9", status="Draft", created_by="Todd")
+    cs_db10.session.add(tmpl_source_project)
+    cs_db10.session.commit()
+    tmpl_source_id = tmpl_source_project.id
+
+r = client.post(f"/creative-studio/api/projects/{tmpl_source_id}/open")
+check("opening the template-bound source project succeeds", r.status_code, 200)
+
+with hub_app.app_context():
+    v1 = CsProjectVersion(project_id=tmpl_source_id, version=1,
+                          render_url="https://cdn.example.test/tmpl-source.mp4", created_by="Todd")
+    cs_db10.session.add(v1)
+    cs_db10.session.commit()
+
+r = client.post(f"/creative-studio/api/projects/{tmpl_source_id}/versions/1/approve")
+check("approving the template-bound source spot succeeds", r.status_code, 200)
+
+r = client.post(f"/creative-studio/api/projects/{tmpl_source_id}/library/abstract")
+check("enqueuing 'Use as template' succeeds", r.status_code, 200)
+abstract_job_id = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    from modules.creative_studio.models import CsTemplateScene  # noqa: E402
+
+    abstract_job = CreativeJob.query.get(abstract_job_id)
+    check("the library_abstract job completes in one tick", abstract_job.state, "complete")
+    new_template_id = abstract_job.output["template_id"]
+
+    new_tmpl = CsTemplate.query.get(new_template_id)
+    check("the new template is marked source=custom", new_tmpl.source, "custom")
+    check("  ...draft, never published automatically", new_tmpl.status, "draft")
+    check("  ...carries hvac-30's own industry", new_tmpl.industry, "hvac")
+
+    source_tmpl = CsTemplate.query.get("hvac-30")
+    check("  ...and the same number of scenes as the original (a straight "
+          "copy -- the original template's scenes were already "
+          "{{variable}}-abstracted)",
+          new_tmpl.scenes.count(), source_tmpl.scenes.count())
+    check("  ...every layout_key copied across unchanged",
+          [s.layout_key for s in new_tmpl.scenes.order_by(CsTemplateScene.position).all()],
+          [s.layout_key for s in source_tmpl.scenes.order_by(CsTemplateScene.position).all()])
+    check("  ...and the same variables, with their required flags intact",
+          sorted((v.name, v.required) for v in new_tmpl.variables.all()),
+          sorted((v.name, v.required) for v in source_tmpl.variables.all()))
+
+r = client.post("/creative-studio/api/projects/999999/library/abstract")
+check("abstracting a project that does not exist 404s", r.status_code, 404)
+
+with hub_app.app_context():
+    still_draft = CsProjectModel7(name="Still a draft", creative_type="video_commercial",
+                                  client_name="Acme Plumbing", status="Draft", created_by="Todd")
+    cs_db10.session.add(still_draft)
+    cs_db10.session.commit()
+    still_draft_id = still_draft.id
+
+r = client.post(f"/creative-studio/api/projects/{still_draft_id}/library/abstract")
+check("a project that is not Approved is refused, not silently abstracted",
+      r.status_code, 400)
+
+# ---------------------------------------------------------------------------
+section("WO-CS10: Use as template -- abstracting an approved, AI-scripted spot "
+       "(client strings turned back into {{variables}})")
+
+with hub_app.app_context():
+    from modules.commercial_builder.models import Client as CbClient10
+    from modules.commercial_builder import template_bind as cb_template_bind10
+
+    ai_client = _cs10_ensure_client("Turnback Test Plumbing", "")
+    ai_client.phone = "(555) 987-6543"
+    ai_client.website = "turnbacktestplumbing.com"
+    cs_db10.session.commit()
+
+    ai_cb_project = cb_template_bind10.build_from_scenes(
+        client_id=ai_client.id, client_name=ai_client.name, title="AI-scripted source",
+        length_seconds=15, platform="both", formats=["16:9"], commercial_type="stock_vo",
+        scenes=[
+            {"start": 0, "end": 8,
+             "narration": "Turnback Test Plumbing is here when you need us.",
+             "visual_description": "A technician at a client's front door.",
+             "is_cta": False, "asset_url": "", "asset_type": "stock",
+             "asset_source": "pexels", "asset_thumb_url": "", "asset_meta": {}},
+            {"start": 8, "end": 15,
+             "narration": "Call (555) 987-6543 today for a free estimate.",
+             "visual_description": "", "is_cta": True, "asset_url": "",
+             "asset_type": "stock", "asset_source": "pexels",
+             "asset_thumb_url": "", "asset_meta": {}},
+        ])
+
+    ai_source_project = CsProjectModel7(
+        name="AI-scripted approved spot", creative_type="video_commercial",
+        client_name="Turnback Test Plumbing", cb_project_id=ai_cb_project.id,
+        duration=15, aspect_ratio="16:9", status="Draft", created_by="Todd")
+    cs_db10.session.add(ai_source_project)
+    cs_db10.session.commit()
+
+    v1 = CsProjectVersion(project_id=ai_source_project.id, version=1,
+                          render_url="https://cdn.example.test/ai-source.mp4", created_by="Todd")
+    cs_db10.session.add(v1)
+    cs_db10.session.commit()
+    ai_source_id = ai_source_project.id
+
+r = client.post(f"/creative-studio/api/projects/{ai_source_id}/versions/1/approve")
+check("approving the AI-scripted source spot succeeds", r.status_code, 200)
+
+r = client.post(f"/creative-studio/api/projects/{ai_source_id}/library/abstract")
+check("enqueuing 'Use as template' for the AI-scripted spot succeeds", r.status_code, 200)
+ai_abstract_job_id = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    ai_abstract_job = CreativeJob.query.get(ai_abstract_job_id)
+    check("the AI-scripted abstraction job completes", ai_abstract_job.state, "complete")
+    ai_new_template_id = ai_abstract_job.output["template_id"]
+
+    ai_new_tmpl = CsTemplate.query.get(ai_new_template_id)
+    check("it is marked source=custom too", ai_new_tmpl.source, "custom")
+    all_headlines = " ".join(
+        (s.layers or {}).get("headline", "") for s in ai_new_tmpl.scenes.all())
+    check("the client's own name is turned back into {{company_name}}",
+          "{{company_name}}" in all_headlines, True)
+    check("  ...and the client's own name string is nowhere left in the copy",
+          "Turnback Test Plumbing" in all_headlines, False)
+    check("  ...the phone number is turned back into {{phone}}",
+          "{{phone}}" in all_headlines, True)
+    check("  ...and the literal number is gone",
+          "(555) 987-6543" in all_headlines, False)
+    var_names = {v.name for v in ai_new_tmpl.variables.all()}
+    check("  ...company_name and phone are declared as real variables on "
+          "the new template", {"company_name", "phone"} <= var_names, True)
+    check("  ...every scene's background stays a slot:video placeholder "
+          "-- no client footage crosses into a shared template",
+          all((s.layers or {}).get("background") == "slot:video"
+              for s in ai_new_tmpl.scenes.all()), True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS10: Use as reference attaches a 'make it like this' note, words only")
+
+with hub_app.app_context():
+    ref_target = CsProjectModel7(name="A fresh project to reference from",
+                                 creative_type="video_commercial",
+                                 client_name="Acme Plumbing", status="Draft")
+    cs_db10.session.add(ref_target)
+    cs_db10.session.commit()
+    ref_target_id = ref_target.id
+
+r = client.post(f"/creative-studio/api/projects/{lib_project_id}/library/reference",
+                json={"new_project_id": ref_target_id})
+check("attaching a reference succeeds", r.status_code, 200)
+check("  ...and the target project's brief now carries it",
+      "reference" in r.get_json()["project"]["brief"], True)
+check("  ...naming the source spot", r.get_json()["project"]["brief"]["reference"]["project_id"],
+      lib_project_id)
+
+r = client.post(f"/creative-studio/api/projects/{lib_project_id}/library/reference",
+                json={"new_project_id": 999999})
+check("referencing into a project that does not exist is refused", r.status_code, 400)
+
+r = client.post(f"/creative-studio/api/projects/{ref_target_id}/library/reference",
+                json={"new_project_id": ref_target_id})
+check("a non-approved project cannot be used as a reference", r.status_code, 400)
+
+# ---------------------------------------------------------------------------
+section("WO-CS10: a gated template blocks render until legal_line is filled "
+       "in or marked not applicable")
+
+with hub_app.app_context():
+    gated_tmpl = CsTemplate(id="gated-legal-test", name="Gated legal test",
+                            industry="general", duration=15, aspect_ratio="16:9",
+                            creative_type="video_commercial", status="published",
+                            version=1, source="seed", created_by="Todd")
+    cs_db10.session.add(gated_tmpl)
+    cs_db10.session.commit()
+    scene = CsTemplateScene(template_id=gated_tmpl.id, position=1, default_duration=15,
+                            layout_key="hook_fullbleed")
+    scene.layers = {"headline": "{{headline}}", "background": "slot:video"}
+    cs_db10.session.add(scene)
+    cs_db10.session.add(CsTemplateVariable(
+        template_id=gated_tmpl.id, name="legal_line", source="manual",
+        default="", required=True))
+    cs_db10.session.commit()
+
+    check("this template needs a legal_line, read from the template rather "
+          "than stored on the project",
+          cs_binder.project_needs_legal_line(
+              CsProjectModel7(template_id=gated_tmpl.id)), True)
+    check("an ordinary template does not",
+          cs_binder.project_needs_legal_line(
+              CsProjectModel7(template_id="hvac-30")), False)
+    check("a project with no template at all does not", cs_binder.project_needs_legal_line(
+        CsProjectModel7()), False)
+
+r = client.post("/creative-studio/api/projects",
+                json={"name": "Gated legal render test", "template_id": "gated-legal-test"})
+gated_project_id = r.get_json()["project"]["id"]
+r = client.post(f"/creative-studio/api/projects/{gated_project_id}/open")
+check("opening the gated project succeeds", r.status_code, 200)
+
+r = client.post(f"/creative-studio/api/projects/{gated_project_id}/render")
+check("render is refused -- the legal_line has not been filled in", r.status_code, 409)
+check("  ...naming the requirement in the refusal",
+      "legal line" in r.get_json()["error"].lower(), True)
+
+r = client.post(f"/creative-studio/api/projects/{gated_project_id}/legal-line/not-applicable")
+check("marking legal_line not applicable succeeds", r.status_code, 200)
+check("  ...recorded against who marked it",
+      r.get_json()["project"]["legal_line_na_by"] != "", True)
+check("  ...and the flag itself is set", r.get_json()["project"]["legal_line_na"], True)
+
+r = client.post(f"/creative-studio/api/projects/{gated_project_id}/legal-line/not-applicable")
+check("marking it a second time is a harmless no-op", r.status_code, 200)
+
+from modules.commercial_builder.services import qc_service as _cs10_qc  # noqa: E402
+from modules.commercial_builder.services import creatomate_service as _cs10_cta  # noqa: E402
+
+_orig_run_qc10 = _cs10_qc.run_qc
+_orig_submit10 = _cs10_cta.submit_render
+_orig_check10 = _cs10_cta.check_render
+_cs10_qc.run_qc = lambda *a, **k: {"_all_passed": True}
+_cs10_cta.submit_render = lambda source: {
+    "id": "rend_cs10", "status": "rendering", "url": None, "error": None}
+_cs10_cta.check_render = lambda rid: {
+    "id": rid, "status": "succeeded", "url": "https://cdn.example.test/cs10.mp4", "error": None}
+
+r = client.post(f"/creative-studio/api/projects/{gated_project_id}/render")
+check("render proceeds once legal_line is marked not applicable", r.status_code, 200)
+check("  ...and the render response still carries a compliance scan",
+      "compliance" in r.get_json(), True)
+
+with hub_app.app_context():
+    # A fresh gated project, this time filling the field in rather than
+    # marking it N/A -- the OTHER way the gate opens.
+    r2 = client.post("/creative-studio/api/projects",
+                     json={"name": "Gated, filled in", "template_id": "gated-legal-test"})
+    filled_gated_id = r2.get_json()["project"]["id"]
+client.post(f"/creative-studio/api/projects/{filled_gated_id}/open")
+r = client.post(f"/creative-studio/api/projects/{filled_gated_id}/variables",
+                json={"name": "legal_line", "value": "Offer ends June 30. See store for details."})
+check("filling in legal_line directly succeeds", r.status_code, 200)
+r = client.post(f"/creative-studio/api/projects/{filled_gated_id}/render")
+check("render proceeds once legal_line is actually filled in -- the other "
+      "way the gate opens, with no not-applicable mark needed", r.status_code, 200)
+
+r = client.post(f"/creative-studio/api/projects/{gated_project_id}/legal-line/not-applicable")
+with hub_app.app_context():
+    ungated = CsProjectModel7.query.get(rec_project_id)
+r = client.post(f"/creative-studio/api/projects/{ungated.id}/legal-line/not-applicable")
+check("marking not-applicable on a project with no legal_line requirement "
+      "is refused", r.status_code, 400)
+
+_cs10_qc.run_qc = _orig_run_qc10
+_cs10_cta.submit_render = _orig_submit10
+_cs10_cta.check_render = _orig_check10
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: environments and the per-length item cap are data")
+
+check("twelve environments are seeded", len(config.ENVIRONMENTS), 12)
+check("  ...each with a key, a label and a prompt",
+      all({"key", "label", "prompt"} <= set(e.keys()) for e in config.ENVIRONMENTS), True)
+check("a real environment resolves", config.environment_by_key("studio_white") is not None, True)
+check("an unknown one does not", config.environment_by_key("not-a-real-one"), None)
+
+check(":15 caps at 4 items", config.pdf_scene_cap(15), 4)
+check(":30 caps at 8 items", config.pdf_scene_cap(30), 8)
+check("an unknown duration falls back to the largest cap",
+      config.pdf_scene_cap(999), max(config.PDF_ITEM_CAPS.values()))
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: the two Coming Soon tiles are live now, via data not code")
+
+with hub_app.app_context():
+    from modules.creative_studio.models import CsAiTool as CsAiToolModel11
+    from modules.creative_studio import seed_ai_tools as cs_seed_ai_tools
+
+    pl_row = CsAiToolModel11.query.filter_by(key="product_lifestyle").first()
+    check("product_lifestyle promoted to live", pl_row.status, "live")
+    check("  ...with a real route", pl_row.route, "/creative-studio/product-lifestyle")
+    pdf_row = CsAiToolModel11.query.filter_by(key="pdf_to_video").first()
+    check("pdf_to_video promoted to live", pdf_row.status, "live")
+    check("  ...with a real route", pdf_row.route, "/creative-studio/pdf-to-video")
+
+    check("promote() is idempotent -- nothing left to promote",
+          cs_seed_ai_tools.promote(), 0)
+
+r = client.get("/creative-studio/ai-tools")
+check("no coming_soon tile is left on the page", b"Coming soon" in r.data, False)
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: hub.ai.image_edit -- the real product as an image input")
+
+import requests as _cs11_requests  # noqa: E402
+
+
+class _FakeResp:
+    def __init__(self, status_code=200, content=b"", json_data=None):
+        self.status_code = status_code
+        self.content = content
+        self._json = json_data or {}
+
+    def json(self):
+        return self._json
+
+
+_orig_requests_post = _cs11_requests.post
+_orig_requests_get = _cs11_requests.get
+_orig_ai_ready = _hub_ai.ready
+_hub_ai.ready = lambda: True
+
+import base64  # noqa: E402
+_fake_b64 = base64.b64encode(b"fake-png-bytes").decode()
+
+
+def _fake_images_edits_post(url, headers=None, files=None, data=None, timeout=None):
+    check("image_edit posts to the /images/edits endpoint", url.endswith("/images/edits"), True)
+    check("  ...as multipart, carrying the product photo", "image" in (files or {}), True)
+    n = int((data or {}).get("n") or 1)
+    return _FakeResp(200, json_data={"data": [{"b64_json": _fake_b64} for _ in range(n)]})
+
+
+_cs11_requests.post = _fake_images_edits_post
+
+with hub_app.app_context():
+    edited = _hub_ai.image_edit("a product on a table", b"raw product bytes",
+                                module="creative_studio", purpose="product_lifestyle", n=4)
+    check("image_edit returns one bytes object per option", len(edited), 4)
+    check("  ...decoded from base64", edited[0], b"fake-png-bytes")
+
+_cs11_requests.post = lambda *a, **k: _FakeResp(500)
+with hub_app.app_context():
+    try:
+        _hub_ai.image_edit("x", b"y", module="creative_studio", purpose="product_lifestyle")
+        raised = False
+    except _hub_ai.AIUnavailable:
+        raised = True
+check("a refused edits call raises AIUnavailable rather than returning nothing", raised, True)
+
+_cs11_requests.post = _orig_requests_post
+_cs11_requests.get = _orig_requests_get
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: Product Lifestyle -- background removal, then 4 options, none picked")
+
+from hub import storage as _hub_storage  # noqa: E402
+
+_orig_bg_url = _hub_storage.background_removed_url
+_orig_pdf_page_url = _hub_storage.pdf_page_url
+
+_hub_storage.background_removed_url = lambda public_id: (
+    "https://cdn.example.test/bg-removed.png" if public_id else "")
+_cs11_requests.get = lambda url, **kw: _FakeResp(200, content=b"cutout-bytes")
+_cs11_requests.post = _fake_images_edits_post
+
+r = client.post("/creative-studio/api/product-lifestyle",
+                data={"client": "Acme Plumbing", "environment": "studio_white",
+                      "prompt": "top down angle",
+                      "file": (BytesIO(b"a real-enough jpeg"), "widget.jpg")},
+                content_type="multipart/form-data")
+check("starting a product lifestyle generation succeeds", r.status_code, 200)
+pl_job_id = r.get_json()["job"]["id"]
+pl_project_id = r.get_json()["project_id"]
+
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    pl_job = CreativeJob.query.get(pl_job_id)
+    check("the product_lifestyle job completes in one tick", pl_job.state, "complete")
+    check("  ...and reports 4 asset ids", len(pl_job.output.get("asset_ids") or []), 4)
+
+r = client.get(f"/creative-studio/api/projects/{pl_project_id}/product-lifestyle/results")
+check("the results route lists the 4 options", len(r.get_json()["assets"]), 4)
+first_asset = r.get_json()["assets"][0]
+check("  ...tagged product_lifestyle + the environment",
+      first_asset["tags"], ["product_lifestyle", "studio_white"])
+check("  ...filed as source=openai, never as an upload",
+      first_asset["source"], "openai")
+
+r = client.post("/creative-studio/api/product-lifestyle",
+                data={"environment": "not-a-real-environment",
+                      "file": (BytesIO(b"x"), "widget.jpg")},
+                content_type="multipart/form-data")
+check("an unknown environment is refused", r.status_code, 400)
+
+r = client.post("/creative-studio/api/product-lifestyle", data={"environment": "studio_white"})
+check("no file is refused", r.status_code, 400)
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: background removal failing ends the job failed, no "
+       "generation attempted")
+
+_generate_calls = []
+_cs11_requests.post = lambda *a, **k: _generate_calls.append(1) or _FakeResp(200)
+_cs11_requests.get = lambda url, **kw: _FakeResp(500)  # the account cannot do this
+
+r = client.post("/creative-studio/api/product-lifestyle",
+                data={"environment": "summer",
+                      "file": (BytesIO(b"y"), "widget2.jpg")},
+                content_type="multipart/form-data")
+bg_fail_job_id = r.get_json()["job"]["id"]
+
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    bg_fail_job = CreativeJob.query.get(bg_fail_job_id)
+    check("the job ends failed with a readable error", bg_fail_job.state, "failed")
+    check("  ...naming background removal, not a stack trace",
+          "background" in (bg_fail_job.error or "").lower(), True)
+check("  ...and no generation was ever attempted", len(_generate_calls), 0)
+
+_hub_storage.background_removed_url = _orig_bg_url
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: PDF -> Video -- extraction, confirm, and the per-length cap")
+
+_hub_storage.pdf_page_url = lambda public_id, page=1: (
+    "https://cdn.example.test/pdf-page-1.jpg" if public_id else "")
+
+import json as _json_module  # noqa: E402
+
+_extraction_payload = _json_module.dumps({
+    "headline": "Summer Menu Specials",
+    "items": [{"name": f"Item {i}", "price": f"${i}.99", "description": "A menu item."}
+              for i in range(1, 13)],
+    "dates": "June 1 - August 31", "address": "123 Main St", "offer": "Kids eat free",
+})
+
+
+def _fake_vision(prompt, image_urls, *, module, purpose, **kw):
+    check("vision is handed the rasterised page URL, not raw PDF bytes",
+          image_urls, ["https://cdn.example.test/pdf-page-1.jpg"])
+    return _extraction_payload
+
+
+_orig_vision = _hub_ai.vision
+_hub_ai.vision = _fake_vision
+
+r = client.post("/creative-studio/api/pdf-to-video",
+                data={"client": "Acme Plumbing", "duration": "30",
+                      "file": (BytesIO(b"%PDF-1.4 fake pdf bytes"), "menu.pdf")},
+                content_type="multipart/form-data")
+check("starting a PDF extraction succeeds", r.status_code, 200)
+pdf_job_id = r.get_json()["job"]["id"]
+pdf_project_id = r.get_json()["project_id"]
+
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    pdf_job = CreativeJob.query.get(pdf_job_id)
+    check("the pdf job completes in one tick", pdf_job.state, "complete")
+    extraction = pdf_job.output["extraction"]
+    check("  ...all twelve items are kept on the extraction (the cap is "
+          "applied at BUILD time, not extraction time)", len(extraction["items"]), 12)
+    check("  ...every price starts unconfirmed", all(
+        not i["price_confirmed"] for i in extraction["items"]), True)
+    check("  ...naming the offer, dates and address it read",
+          (extraction["offer"], extraction["dates"], extraction["address"]),
+          ("Kids eat free", "June 1 - August 31", "123 Main St"))
+
+    pdf_project = CsProjectModel7.query.get(pdf_project_id)
+    check("the extraction is stored on the project's own brief",
+          pdf_project.brief["pdf_extraction"]["headline"], "Summer Menu Specials")
+
+    from modules.creative_studio.models import CsMediaAsset as CsMediaAssetModel11
+    pdf_media = CsMediaAssetModel11.query.filter_by(
+        project_id=pdf_project_id, asset_type="document").first()
+    check("the uploaded PDF itself is filed as a document media asset",
+          pdf_media is not None, True)
+    check("  ...source=upload, not generated", pdf_media.source, "upload")
+
+r = client.post(f"/creative-studio/api/projects/{pdf_project_id}/pdf/confirm-prices")
+check("confirming prices succeeds", r.status_code, 200)
+check("  ...and every item is now confirmed",
+      all(i["price_confirmed"] for i in r.get_json()["extraction"]["items"]), True)
+
+r = client.post(f"/creative-studio/api/projects/{pdf_project_id}/pdf/build-storyboard")
+check("building the storyboard from a :30 project succeeds", r.status_code, 200)
+check("  ...using at most 8 of the 12 extracted items", r.get_json()["scenes_used"], 8)
+check("  ...and says how many were available", r.get_json()["scenes_available"], 12)
+
+with hub_app.app_context():
+    from modules.commercial_builder.models import (CommercialProject as CbProject11,
+                                                    Scene as CbScene11)
+    built_cb = CbProject11.query.get(
+        CsProjectModel7.query.get(pdf_project_id).cb_project_id)
+    scenes = built_cb.scenes.order_by(CbScene11.order_index).all()
+    check("exactly 8 scenes were built", len(scenes), 8)
+    check("  ...every one using the offer_card layout (montage_grid does "
+          "not exist here, so each item becomes its own offer_card scene)",
+          all((s.asset_meta or {}).get("layout_key") == "offer_card" for s in scenes), True)
+    check("  ...the first scene's headline is the first item's own name",
+          (scenes[0].asset_meta["layers"]["headline"]["value"]), "Item 1")
+
+r = client.post(f"/creative-studio/api/projects/{pdf_project_id}/pdf/build-storyboard")
+check("building again on an already-bound project is a no-op, not a "
+      "second set of scenes", r.status_code, 200)
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: the :15 cap is 4, and building with nothing extracted is refused")
+
+with hub_app.app_context():
+    short_project = CsProjectModel7(name="Short PDF spot", creative_type="video_commercial",
+                                    client_name="Acme Plumbing", duration=15, status="Draft",
+                                    created_by="Todd")
+    cs_db10.session.add(short_project)
+    cs_db10.session.commit()
+    short_project_id = short_project.id
+
+r = client.post(f"/creative-studio/api/projects/{short_project_id}/pdf/build-storyboard")
+check("building with nothing extracted yet is refused, readably", r.status_code, 400)
+
+_extraction_payload_short = _json_module.dumps({
+    "headline": "Flash Sale", "items": [
+        {"name": f"Item {i}", "price": f"${i}", "description": ""} for i in range(1, 7)],
+    "dates": "", "address": "", "offer": "",
+})
+_hub_ai.vision = lambda *a, **k: _extraction_payload_short
+
+r = client.post("/creative-studio/api/pdf-to-video",
+                data={"duration": "15", "file": (BytesIO(b"%PDF-1.4"), "flash.pdf")},
+                content_type="multipart/form-data")
+short_pdf_project_id = r.get_json()["project_id"]
+cs_jobs.job_sweep(hub_app)
+
+r = client.post(f"/creative-studio/api/projects/{short_pdf_project_id}/pdf/build-storyboard")
+check("a :15 project caps at 4 of the 6 items it extracted", r.get_json()["scenes_used"], 4)
+
+# ---------------------------------------------------------------------------
+section("WO-CS11: a vision failure ends the pdf job failed, and invents nothing")
+
+
+def _failing_vision(*a, **k):
+    raise RuntimeError("simulated vision outage")
+
+
+_hub_ai.vision = _failing_vision
+
+with hub_app.app_context():
+    vision_fail_project = CsProjectModel7(name="Vision outage test",
+                                          creative_type="video_commercial",
+                                          client_name="Acme Plumbing", duration=15,
+                                          status="Draft", created_by="Todd")
+    cs_db10.session.add(vision_fail_project)
+    cs_db10.session.commit()
+    vision_fail_id = vision_fail_project.id
+
+with hub_app.app_context():
+    vf_job = cs_jobs.enqueue("pdf", project_id=vision_fail_id, client_name="Acme Plumbing",
+                             payload={"public_id": "some/fake/public_id"}, created_by="Todd")
+    vf_job_id = vf_job.id
+cs_jobs.job_sweep(hub_app)
+
+with hub_app.app_context():
+    vf_job_row = CreativeJob.query.get(vf_job_id)
+    check("a vision outage ends the job failed", vf_job_row.state, "failed")
+    reread = CsProjectModel7.query.get(vision_fail_id)
+    check("  ...and nothing was invented onto the project's brief",
+          "pdf_extraction" in (reread.brief or {}), False)
+
+_hub_ai.vision = _orig_vision
+_hub_ai.ready = _orig_ai_ready
+_hub_storage.pdf_page_url = _orig_pdf_page_url
+_cs11_requests.post = _orig_requests_post
+_cs11_requests.get = _orig_requests_get
 
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)

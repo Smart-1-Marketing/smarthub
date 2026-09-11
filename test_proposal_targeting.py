@@ -771,7 +771,13 @@ _harness = (
                                "function areaZipsAll(", "function areaZips(",
                                "function areaComplete(", "function syncLegacyGeo(",
                                "function currentArea(", "function setArea("))
-    + "function saveSoon(){}function saveNow(){}function renderStep(){}\n"
+    # syncNext() and drawAreaMissing() read #nextBtn / #areaMissing, which do
+    # not exist in this harness -- setArea() calls both on every field write
+    # (so the Save button and its warning line update live rather than only
+    # on a full renderStep()), and a lifted setArea() with no stub for either
+    # is a ReferenceError on the very first keystroke.
+    + "function saveSoon(){}function saveNow(){}function renderStep(){}"
+      "function syncNext(){}function drawAreaMissing(){}\n"
     + "var S={targetAreas:[],geo:'',geoType:'',radius:0};\n"
     + "function enterStep(){" + _seed + "}\n"
     + "function pressBack(){" + _back + " return false;}\n"
@@ -976,36 +982,30 @@ finally:
         os.environ["OPENAI_API_KEY"] = _real_key
 
 # ---------------------------------------------------------------------------
-section("the ZIP lookup says which thing went wrong")
+section("the ZIP lookup is measured, not asked of a model")
 # ---------------------------------------------------------------------------
-_ZIP_ASKED = {}
+# This used to hand a model a web-search tool and ask it to enumerate every
+# ZIP Code a radius touches -- which came back plausible and wrong by two
+# orders of magnitude on an ordinary small-town radius (2,985 ZIP Codes for a
+# 10-mile radius that holds about 22). It reads a bundled centroid table and
+# measures the distance now, so the expected answer is computed the same way
+# the route computes it -- against the real, shipped data file -- rather than
+# hand-typed here as a second copy that could silently drift from it.
+from hub import zip_geo as _zip_geo
 
-
-def _zip_ai(prompt, max_output_tokens=6000, search=False):
-    _ZIP_ASKED["search"] = search
-    return "46032, 46033, 46074"
-
-
-builder._openai_response = _zip_ai
+_expected = _zip_geo.zips_within_radius(39.9784, -86.1180, 10)  # Carmel, IN
 _z = api("post", "/sales/builder/api/zipcodes-in-radius",
          json={"origin": "Carmel, IN", "radius": 10})
-check("the ZIP lookup returns the list", _z["count"] == 3, _z)
-check("and is the one call that asks for live search", _ZIP_ASKED["search"] is True)
+check("the ZIP lookup returns the measured list",
+      _z["count"] == len(_expected) and len(_expected) > 0, _z)
+check("and it is centroid distance, not a model", "AI" not in _z["warning"], _z)
 
-
-def _no_zips(prompt, max_output_tokens=6000, search=False):
-    return "I was unable to look that up."
-
-
-builder._openai_response = _no_zips
 _zz = http.post("/sales/builder/api/zipcodes-in-radius",
-                json={"origin": "Carmel, IN", "radius": 10})
-check("an empty answer names the origin and the radius it was asked about",
-      "Carmel, IN" in _zz.get_json()["error"] and "10" in _zz.get_json()["error"],
-      _zz.get_json())
+                json={"origin": "Nowheresville, ZZ", "radius": 10})
+check("an origin the geocoder cannot place names the origin",
+      "Nowheresville" in _zz.get_json()["error"], _zz.get_json())
 check("and offers the way round it rather than only reporting failure",
       "by hand" in _zz.get_json()["error"], _zz.get_json())
-builder._openai_response = _real_ai
 
 # ---------------------------------------------------------------------------
 section("the step rail: fourteen steps down the side, forward gated")

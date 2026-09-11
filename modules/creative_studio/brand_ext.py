@@ -42,6 +42,10 @@ _LIST_FIELDS = (
     "services", "products", "promotions", "disclaimers", "legal",
     "certifications", "locations",
 )
+# WO-CS10 item 5's "library_opt_out flag on the brand record" -- a business
+# decision typed once, exactly the shape every other field in this file
+# already is, not a fact Brandfetch or a scan could ever answer.
+_BOOL_FIELDS = ("library_opt_out",)
 
 
 def _key(client: str) -> str:
@@ -72,6 +76,8 @@ def get(client: str) -> dict:
         out[f] = [str(x) for x in v] if isinstance(v, list) else []
     pron = row.get("pronunciation_dict")
     out["pronunciation_dict"] = pron if isinstance(pron, dict) else {}
+    for f in _BOOL_FIELDS:
+        out[f] = bool(row.get(f))
     out["updated_at"] = str(row.get("updated_at") or "")
     out["updated_by"] = str(row.get("updated_by") or "")
     return out
@@ -106,11 +112,25 @@ def save(client: str, fields: dict, actor: str = "") -> dict:
         if isinstance(pron, dict):
             row["pronunciation_dict"] = {
                 str(k)[:80]: str(v)[:120] for k, v in pron.items() if str(k).strip()}
+    for f in _BOOL_FIELDS:
+        if f in fields:
+            row[f] = bool(fields.get(f))
 
     row["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     row["updated_by"] = str(actor or "")[:120]
     jsonstore.write_json(_path(client), row)
     return {"ok": True, **get(client)}
+
+
+def is_opted_out(client: str) -> bool:
+    """Read alone, for the library's exclusion filter -- pulling the whole
+    overlay (and, through `kit()`, a Brandfetch-merged record) per client on
+    every library listing would be the "eight calls on a page load"
+    `services/provider_check.py` refuses; this is one small local read."""
+    if not str(client or "").strip():
+        return False
+    row = jsonstore.read_json(_path(client), default=None)
+    return bool(isinstance(row, dict) and row.get("library_opt_out"))
 
 
 def kit(client: str, domain: str = "") -> dict:

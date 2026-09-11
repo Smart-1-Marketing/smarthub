@@ -120,7 +120,35 @@ async function clearCustomerComments(){
   try{const d=await api('/api/projects/'+P.id+'/comments/clear',{method:'POST',body:'{}'});P=d.project;$('customerComments').textContent='Previous comments cleared; approval decisions kept.';}
   catch(e){$('shareResult').textContent=e.message;}
 }
+function renderCustomerAudio(){
+  $('customerAudioBox').innerHTML=slotsOf().map(slot=>{
+    const voice=(P.spots||[]).find(s=>s.slot===slot),mix=mixOf(slot),bed=bedOf(slot);
+    if(!voice?.audio_url)return '';
+    const player=(label,url,seconds,measured)=>`<p><b>${label}</b></p><div class="clip"><audio controls preload="none" src="${esc(url)}"></audio>${timingBadge(seconds,slotSeconds(slot),measured)}</div>`;
+    return `<div class="slot"><h3>${esc(slotName(slot))}</h3>`+
+      (mix?.audio_url?player(bed?'Final advertising audio — With music':'Final advertising audio',mix.audio_url,mix.seconds,mix.measured):bed?'<p class="hint">Music selected. The combined track will be saved when you prepare the customer link.</p>':'')+
+      player(bed?'Voice only — alternate':'Voice only',voice.audio_url,voice.measured_seconds,voice.measured)+'</div>';
+  }).join('');
+}
+let preparingCustomerAudio=false;
 async function createReviewLink(){
-  try{const d=await api('/api/projects/'+P.id+'/share',{method:'POST',body:JSON.stringify({enabled:true,headline:$('shareHeadline').value,intro:$('shareIntro').value})});P.share=d.share;$('shareResult').replaceChildren();const link=document.createElement('a');link.href=d.share_url;link.target='_blank';link.rel='noopener';link.textContent='Open customer review';$('shareResult').append(link);}
-  catch(e){$('shareResult').textContent=e.message;}
+  if(preparingCustomerAudio)return;
+  preparingCustomerAudio=true;$('createReviewLink').disabled=true;
+  try{
+    $('shareResult').textContent='Preparing customer audio…';
+    await volumeSave;
+    const latest=await api('/api/projects/'+P.id);P=latest.project;
+    discardMixes();
+    if(!MIXCFG)await loadMixConfig();
+    for(const slot of slotsOf()){
+      if(!bedOf(slot)||(P.spots||[]).every(s=>s.slot!==slot||!s.audio_url))continue;
+      if(mixOf(slot)?.audio_url&&mixOf(slot).level===selectedMixLevel().label)continue;
+      $('shareResult').textContent='Saving the '+slotName(slot)+' voice and music track…';
+      if(!RENDERED[slot]&&!await makeMix(slot))throw new Error('The '+slotName(slot)+' mix could not be rendered. Open step 6 to check the audio and try again.');
+      if(!await fileMix(slot,false))throw new Error('The '+slotName(slot)+' mix could not be saved. Open step 6 to resolve the mix findings before sending the customer link.');
+    }
+    const d=await api('/api/projects/'+P.id+'/share',{method:'POST',body:JSON.stringify({enabled:true,require_mixes:true,headline:$('shareHeadline').value,intro:$('shareIntro').value})});
+    P.share=d.share;$('shareResult').replaceChildren();const link=document.createElement('a');link.href=d.share_url;link.target='_blank';link.rel='noopener';link.textContent='Open customer review';$('shareResult').append(link);
+  }catch(e){$('shareResult').textContent=e.message;}
+  finally{renderCustomerAudio();preparingCustomerAudio=false;$('createReviewLink').disabled=false;}
 }

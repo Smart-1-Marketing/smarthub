@@ -193,9 +193,9 @@
           + '"></audio>'
         : '<p class="who">Script only for now — the voice-over comes next.</p>';
       if(s.mixed && s.has_bed && s.voice_audio_url){
-        player = '<p>With music · '+esc(s.audio_seconds == null ? '' : s.audio_seconds+'s')+'</p>'+player
-          + '<a href="'+esc(audioSrc(s.audio_url))+'" download>Download with music</a>'
-          + '<p>Without music · '+esc(s.voice_audio_seconds == null ? '' : s.voice_audio_seconds+'s')+'</p>'
+        player = '<p><b>Final advertising audio — With music</b> · '+esc(s.audio_seconds == null ? '' : s.audio_seconds+'s')+'</p>'+player
+          + '<a href="'+esc(audioSrc(s.audio_url))+'" download>Download final advertising audio</a>'
+          + '<p>Voice-only alternate · '+esc(s.voice_audio_seconds == null ? '' : s.voice_audio_seconds+'s')+'</p>'
           + '<audio controls preload="none" src="'+esc(audioSrc(s.voice_audio_url))+'"></audio>'
           + '<a href="'+esc(audioSrc(s.voice_audio_url))+'" download>Download without music</a>';
       }

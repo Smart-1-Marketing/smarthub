@@ -1073,12 +1073,27 @@ def _plain(v) -> str:
     return re.sub(r"<[^>]+>", " ", str(v or "")).strip()
 
 
-def list_tickets(client: str, website: str = "", limit: int = 25) -> list[dict]:
-    """Tickets whose client/website field mentions this client (or domain)."""
+def list_tickets(client: str | list[str], website: str = "",
+                 limit: int = 25) -> list[dict]:
+    """Tickets whose client/website field mentions this client (or domain).
+
+    `client` is usually one name — the client Client 360 is showing. A
+    grouped client (`hub/client_groups.py`) is more than one Knack "Client
+    Organization" name, and a ticket for one location of a multi-location
+    client is routinely filed under that location's own name rather than the
+    umbrella one a group's parent is opened under — so a lookup by that name
+    alone misses it, silently: an empty ticket list looks exactly like a
+    client with no tickets. The caller passes every name in the group, and an
+    ungrouped client's single name behaves exactly as it always has.
+    """
     m = field_map()
+    names = [str(c).strip() for c in
+             (client if isinstance(client, (list, tuple)) else [client])
+             if str(c or "").strip()]
     rules = []
     if m["client"]:
-        rules.append({"field": m["client"], "operator": "contains", "value": client})
+        for name in names:
+            rules.append({"field": m["client"], "operator": "contains", "value": name})
     dom = str(website or "").replace("https://", "").replace("http://", "").split("/")[0]
     if m["website"] and dom:
         rules.append({"field": m["website"], "operator": "contains", "value": dom})

@@ -597,10 +597,26 @@ def create_hub_app() -> Flask:
         from . import suite_map
         body = request.get_json(silent=True) or {}
         client = str(body.get("client") or "")
-        out = suite_map.unlink(client)
+        out = suite_map.unlink(client, str(body.get("location_id") or ""))
         if out.get("ok"):
             audit.log("hub", "suite_location_unlinked", actor=current_user(),
                       client=client)
+        return jsonify(out)
+
+    @app.route("/api/suite/primary", methods=["POST"])
+    def api_suite_primary():
+        """Which of a client's several sub-accounts token_for() and the
+        Social Planner push use by default -- see hub/suite_map.py."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "")
+        out = suite_map.set_primary(client, str(body.get("location_id") or ""))
+        if out.get("ok"):
+            audit.log("hub", "suite_location_primary_set", actor=current_user(),
+                      client=client, detail=str(body.get("location_id") or ""))
         return jsonify(out)
 
     @app.route("/api/backup")
@@ -2935,6 +2951,8 @@ def create_hub_app() -> Flask:
             direction=str(body.get("direction") or "trust"),
             goal=str(body.get("goal") or ""), offer=str(body.get("offer") or ""),
             promoting=str(body.get("promoting") or ""),
+            reviews=str(body.get("reviews") or ""),
+            ga4_id=str(body.get("ga4_id") or ""),
             actor=current_user() or ""))
 
     @app.route("/api/landing/goals")
@@ -4141,6 +4159,27 @@ def create_hub_app() -> Flask:
         from . import ads_status
         return jsonify(ads_status.scoreboard())
 
+    @app.route("/api/client/suite-locations")
+    def api_client_suite_locations():
+        """Every Smart 1 Suite sub-account actually recorded for this client
+        -- hub/suite_map.py -- for Client 360's Suite Account card.
+
+        Under `/api/client/` so the card reads inside the Suite frame too.
+        This is deliberately not `/api/client/links`, which is a lighter,
+        display-only "these look like they might be this client's" list a
+        rep can attach several of without any of it reaching token_for() or
+        the Social Planner push -- the disconnect the card used to have. This
+        is the mapping those actually read, with which one is primary.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        name = (request.args.get("name") or "").strip()
+        if not name:
+            return jsonify({"locations": []})
+        return jsonify({"locations": suite_map.client_locations(name)})
+
     # ------------- attached Google accounts (shared: SEO page + Client 360)
     @app.route("/api/client/links")
     def api_client_links():
@@ -4284,14 +4323,19 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        from . import knack_api
+        from . import knack_api, client_groups
         name = (request.args.get("name") or "").strip()
         website = (request.args.get("website") or "").strip()
         if not knack_api.configured():
             return jsonify({"configured": False, "tickets": []})
+        # A grouped client reads across the whole group, the way the work log
+        # and the invoices do: a ticket for one location of a multi-location
+        # client is routinely filed under that location's own name.
+        names = client_groups.member_names(name, request.args.get("url", "")) \
+            or [name]
         try:
             return jsonify({"configured": True,
-                            "tickets": knack_api.list_tickets(name, website)})
+                            "tickets": knack_api.list_tickets(names, website)})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-tickets", exc, path=request.path,
                                  actor=current_user() or "")
@@ -5645,6 +5689,15 @@ def create_hub_app() -> Flask:
             return jsonify({"error": "Not found"}), 404
         return jsonify({"ok": True, "proposal": hit,
                         "proposals": proposals.list_proposals(client)})
+
+    @app.route("/api/client/proposals/document/<proposal_id>")
+    def api_client_proposals_document(proposal_id):
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import proposals
+        return proposals.document_response(
+            (request.args.get("client") or "").strip(), proposal_id)
 
     @app.route("/api/client/proposals/file/<path:name>")
     def api_client_proposals_file(name):
@@ -7308,6 +7361,21 @@ def create_hub_app() -> Flask:
     except Exception:  # noqa: BLE001
         pass
 
+    # cs_projects grew three columns after WO-CS1 shipped (WO-CS7) --
+    # create_all() above creates missing TABLES and never ALTERs an
+    # existing one, so this is the one place that adds them on the live
+    # Postgres. Guarded like every boot step here: a database that cannot
+    # be altered right now must not take the Hub down.
+    try:
+        from modules.creative_studio.db import add_missing_columns as _cs_add_columns
+        with app.app_context():
+            _cs_add_columns()
+    except Exception as _cs_col_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_col_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # Seed Creative Studio's first 12 templates, now that cs_templates exists.
     # Idempotent (skips any id already present) and guarded like every other
     # boot step: a seed that cannot run leaves the gallery emptier than it
@@ -7332,6 +7400,35 @@ def create_hub_app() -> Flask:
     except Exception as _cs_ai_seed_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _cs_ai_seed_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # WO-CS11: flip a row already stored as coming_soon to live once its
+    # tool exists -- "via data, not code," seed_ai_tools.promote()'s own
+    # words. seed() above only ever inserts what is missing, so on a
+    # database seeded before this order shipped, changing _ROWS alone
+    # would not move product_lifestyle/pdf_to_video off coming_soon.
+    try:
+        from modules.creative_studio.seed_ai_tools import promote as _promote_cs_ai_tools
+        with app.app_context():
+            _promote_cs_ai_tools()
+    except Exception as _cs_ai_promote_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_ai_promote_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Bring in every Commercial Builder Campaign row Creative Studio has a
+    # project bound to -- WO-CS8 item 1. Idempotent on cb_campaign_id, and
+    # guarded the same way: a migration that cannot run this boot leaves a
+    # campaign unmigrated for the next one, not the Hub down.
+    try:
+        from modules.creative_studio.campaign_spec import migrate_cb_campaigns as _cs_migrate_campaigns
+        with app.app_context():
+            _cs_migrate_campaigns()
+    except Exception as _cs_campaign_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_campaign_exc)
         except Exception:  # noqa: BLE001
             pass
 

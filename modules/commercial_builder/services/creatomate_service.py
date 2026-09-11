@@ -26,6 +26,17 @@ BASE_URL = "https://api.creatomate.com/v1"
 
 _FORMAT_DIMS = {f["id"]: (f["width"], f["height"]) for f in OUTPUT_FORMATS}
 
+# Sizes Creative Studio's own aspect variations need (WO-CS7) that are not
+# in `OUTPUT_FORMATS` -- that table drives the Commercial Builder's own
+# format picker and its `/render` route's validation (`routes/render.py`'s
+# `known = {f["id"] for f in OUTPUT_FORMATS}`), neither of which a
+# CS-bound project ever reaches: Creative Studio's own render job calls
+# `build_source` directly. Adding entries here rather than to
+# `OUTPUT_FORMATS` keeps the Commercial Builder's own dropdown showing only
+# the three formats its own spec sells. "1200x628" is not a video ratio at
+# all -- the static link-image frame -- and is here for the same reason.
+_EXTRA_FORMAT_DIMS = {"4:5": (1080, 1350), "1200x628": (1200, 628)}
+
 # Track numbers are layers, and elements sharing a track play SEQUENTIALLY
 # rather than stacking — which is why the scenes all share track 1 and
 # everything that has to sit on top of them gets a track of its own. Named
@@ -82,14 +93,21 @@ def _headers():
     return {"Authorization": f"Bearer {_api_key()}", "Content-Type": "application/json"}
 
 
-def build_source(project_dict, scenes, format_id, voice_track_url=None, music_track_url=None):
+def build_source(project_dict, scenes, format_id, voice_track_url=None, music_track_url=None,
+                 *, still=False):
     """
     Builds a Creatomate render `source` document.
 
     project_dict: CommercialProject.to_dict()
     scenes: list of Scene.to_dict(), already ordered with resolved asset_url
+
+    ``still=True`` builds a single-frame image render instead of a video --
+    WO-CS7's per-variant preview and its static 1200x628 link image. No
+    audio elements, `output_format` swapped to a still image format;
+    everything about how a scene's own background and overlay are chosen is
+    identical, so a preview can never show something the video would not.
     """
-    width, height = _FORMAT_DIMS.get(format_id, (1920, 1080))
+    width, height = _FORMAT_DIMS.get(format_id) or _EXTRA_FORMAT_DIMS.get(format_id, (1920, 1080))
     music = project_dict.get("music") or {}
     music_level = music.get("level", "Medium")
     # One reading of the pair, shared with qc_service through config.ducked_db
@@ -104,20 +122,41 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
 
     video_elements = []
     for scene in scenes:
+        meta = scene.get("asset_meta") or {}
+        cs_overlay = meta.get("text_overlay") or []
         el_type = _element_type(scene)
-        element = {
-            "id": f"scene_{scene['id']}",
-            "track": TRACK_SCENES,
-            "time": scene["start"],
-            "duration": round(scene["end"] - scene["start"], 2),
-            "type": el_type,
-        }
-        if el_type in ("video", "image") and scene.get("asset_url"):
-            element["source"] = scene["asset_url"]
-            element["fit"] = "cover"
-        if el_type == "video":
-            element["volume"] = "100%" if scene.get("asset_type") == "spokesperson" else "0%"
-        if scene.get("is_cta"):
+        if not scene.get("asset_url") and meta.get("background_fill") and el_type == "image":
+            # A layout with no background slot (`offer_card`, `logo_reveal`)
+            # has no asset to fill this element with -- an "image" element
+            # with no `source` is what every one of those rendered as
+            # before this scene carried its own colour to sit on.
+            element = {
+                "id": f"scene_{scene['id']}", "track": TRACK_SCENES,
+                "time": scene["start"], "duration": round(scene["end"] - scene["start"], 2),
+                "type": "shape", "fill_color": meta["background_fill"],
+            }
+        else:
+            element = {
+                "id": f"scene_{scene['id']}",
+                "track": TRACK_SCENES,
+                "time": scene["start"],
+                "duration": round(scene["end"] - scene["start"], 2),
+                "type": el_type,
+            }
+            if el_type in ("video", "image") and scene.get("asset_url"):
+                element["source"] = scene["asset_url"]
+                element["fit"] = "cover"
+            if el_type == "video":
+                element["volume"] = "100%" if scene.get("asset_type") == "spokesperson" else "0%"
+        if cs_overlay:
+            # Creative Studio's own composition, computed once at bind time
+            # from its own layout + aspect vocabulary (WO-CS7) -- this
+            # scene supplies its complete overlay, so the CTA-dict path
+            # below is never reached for it. A scene with no `text_overlay`
+            # (every scene the Commercial Builder's own script pipeline
+            # writes) is untouched: this is additive, not a replacement.
+            element["overlay"] = {"type": "composition", "elements": cs_overlay}
+        elif scene.get("is_cta"):
             element["overlay"] = {
                 "type": "composition",
                 "elements": _cta_overlay_elements(cta, project_dict, scene, platform),
@@ -152,6 +191,13 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
             "width": f"{LOGO_PERSISTENCE_RULES['size_pct']}%", "x": x, "y": y,
             "x_anchor": "50%", "y_anchor": "50%",
         })
+
+    if still:
+        # A still needs none of it: no voice, no bed, no sfx, and no scene
+        # past the first is ever seen, so the frame is exactly what the
+        # video's opening instant would show.
+        return {"output_format": "jpg", "width": width, "height": height,
+               "elements": video_elements}
 
     audio_elements = []
     if music.get("voice_mode") == "scenes" or (not voice_track_url and any(

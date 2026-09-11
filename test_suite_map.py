@@ -65,6 +65,55 @@ check("and it is gone",
       suite_map.recorded_location("Icon Solar")["state"], suite_map.NOT_CONNECTED)
 
 
+# ------------------------------------- a multi-location client holds several
+section("A client may hold several locations, not just one")
+
+# Healthy Pets: one Knack client record, several storefronts, several Suite
+# sub-accounts -- what used to be refused as "ambiguous" for ever.
+check("the first location a client is given", suite_map.link(
+    "Healthy Pets", "loc-hp-carmel", "todd")["ok"], True)
+check("becomes primary automatically",
+      suite_map.client_locations("Healthy Pets")[0]["primary"], True)
+
+check("a second location for the same client is accepted, not refused",
+      suite_map.link("Healthy Pets", "loc-hp-fishers", "todd")["ok"], True)
+locs = suite_map.client_locations("Healthy Pets")
+check("both are on file", {l["location_id"] for l in locs},
+      {"loc-hp-carmel", "loc-hp-fishers"})
+check("primary is still the first one, unchanged by attaching a second",
+      next(l for l in locs if l["primary"])["location_id"], "loc-hp-carmel")
+
+found = suite_map.recorded_location("Healthy Pets")
+check("a single-target reader gets the primary, never 'ambiguous'",
+      found["state"], suite_map.CONNECTED)
+check("and it is the primary one", found["location_id"], "loc-hp-carmel")
+check("with the rest named for a caller that wants to show them",
+      found["others"], ["loc-hp-fishers"])
+
+check("changing primary is its own act, not a side effect of attaching",
+      suite_map.set_primary("Healthy Pets", "loc-hp-fishers")["ok"], True)
+check("and it takes", suite_map.recorded_location("Healthy Pets")["location_id"],
+      "loc-hp-fishers")
+check("setting a location that isn't recorded is refused",
+      suite_map.set_primary("Healthy Pets", "loc-nope")["ok"], False)
+
+check("a second client cannot claim a location the first already holds",
+      suite_map.link("Some Other Clinic", "loc-hp-carmel", "todd")["ok"], False)
+
+check("removing one location leaves the other",
+      suite_map.unlink("Healthy Pets", "loc-hp-carmel")["ok"], True)
+locs = suite_map.client_locations("Healthy Pets")
+check("one remains", [l["location_id"] for l in locs], ["loc-hp-fishers"])
+check("and it is primary, since somebody has to be",
+      locs[0]["primary"], True)
+
+check("unlinking with no location_id clears everything, the old single-account way",
+      suite_map.unlink("Healthy Pets")["ok"], True)
+check("nothing is left", suite_map.client_locations("Healthy Pets"), [])
+check("a client nobody has ever recorded is not measured as connected",
+      suite_map.recorded_location("Healthy Pets")["state"], suite_map.NOT_CONNECTED)
+
+
 # --------------------------------------------------- one reader, two stores
 section("suite_accounts is the one reader, and it consults both")
 
@@ -126,8 +175,6 @@ LOCATIONS = [
 ]
 
 import hub.clients_registry as _reg                           # noqa: E402
-_sa.location_for = lambda name, url="": {                     # type: ignore[assignment]
-    "state": "not_connected", "location_id": ""}
 _reg.all_clients = lambda refresh=False: list(CLIENTS)        # type: ignore[assignment]
 suite_map.fetch_locations = lambda: (list(LOCATIONS), "")     # type: ignore[assignment]
 
@@ -221,9 +268,12 @@ check("the page redirects a stranger to the login",
       anon.get("/tools/suite-match").status_code, 302)
 check("the recorded list refuses a stranger",
       anon.get("/api/suite/map").status_code, 401)
-for path in ("/api/suite/proposals", "/api/suite/link", "/api/suite/unlink"):
+for path in ("/api/suite/proposals", "/api/suite/link", "/api/suite/unlink",
+             "/api/suite/primary"):
     check(f"{path} refuses a stranger's write",
           anon.post(path, json={}).status_code, 401)
+check("and Client 360's read of it refuses a stranger too",
+      anon.get("/api/client/suite-locations?name=Acme").status_code, 401)
 
 signed = APP.test_client()
 signed.set_cookie(auth.COOKIE_NAME, auth.issue_cookie_value("Tester"))
@@ -282,6 +332,26 @@ check("and the pairing is gone",
 check("unlinking a client with none says so, rather than reporting success",
       signed.post("/api/suite/unlink",
                   json={"client": "Nobody At All"}).get_json()["ok"], False)
+
+# Client 360's Suite Account card, and its "make primary" control -- the
+# fix for the disconnect where attaching there never reached this store.
+signed.post("/api/suite/link", json={"client": "Healthy Pets",
+                                     "location_id": "loc-hp-a"})
+signed.post("/api/suite/link", json={"client": "Healthy Pets",
+                                     "location_id": "loc-hp-b"})
+c360 = signed.get("/api/client/suite-locations?name=Healthy Pets").get_json()
+check("Client 360 reads both locations",
+      {l["location_id"] for l in c360["locations"]},
+      {"loc-hp-a", "loc-hp-b"})
+check("and it is the same store the automated readers use",
+      next(l["primary"] for l in c360["locations"]
+          if l["location_id"] == "loc-hp-a"), True)
+
+pri = signed.post("/api/suite/primary",
+                  json={"client": "Healthy Pets", "location_id": "loc-hp-b"}).get_json()
+check("the route sets which one is primary", pri["ok"], True)
+check("and it reaches the reader every caller goes through",
+      _sa.location_for("Healthy Pets")["location_id"], "loc-hp-b")
 
 
 shutil.rmtree(TMP, ignore_errors=True)
