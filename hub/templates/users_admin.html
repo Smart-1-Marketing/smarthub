@@ -9,7 +9,10 @@
         details the company census carried. Signed in as {{ account.email }}
         ({{ account.role.replace('_',' ') }}).</p>
     </div>
-    <button class="um-btn" onclick="load()">Refresh</button>
+    <div class="um-head-acts">
+      <button class="um-btn primary" onclick="openAdd()">+ Add user</button>
+      <button class="um-btn" onclick="load()">Refresh</button>
+    </div>
   </div>
 
   <div id="umPending"></div>
@@ -61,6 +64,30 @@
   </div>
 </div>
 
+<div id="umAddModal" class="um-modal" hidden>
+  <div class="um-modal-box">
+    <h3>Add a user</h3>
+    <p class="um-sub">Starts active right away &mdash; nobody needs to approve
+      someone you added yourself. They&rsquo;re made to replace the password
+      set here at their first sign-in.</p>
+    <input id="umAddEmail" placeholder="name@smart1marketing.com" autocomplete="off">
+    <input id="umAddName" placeholder="Full name" autocomplete="off">
+    <label id="umAddRoleWrap" hidden>Role
+      <select id="umAddRole">
+        <option value="member">General Access</option>
+        <option value="admin">Admin</option>
+      </select>
+    </label>
+    <input id="umAddPw" placeholder="Leave blank and the Hub generates a starting password"
+           autocomplete="off">
+    <p class="um-warn" id="umAddErr" hidden></p>
+    <div class="um-modal-actions">
+      <button class="um-btn primary" onclick="submitAdd()">Add user</button>
+      <button class="um-btn" onclick="closeAdd()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div id="umPwModal" class="um-modal" hidden>
   <div class="um-modal-box">
     <h3>Set a password</h3>
@@ -89,6 +116,8 @@
 .um-sub{margin:0;color:#64748b;font-size:13px;line-height:1.5}
 .um-btn{margin-left:auto;background:#fff;border:1px solid #d7dfe8;border-radius:8px;
   padding:8px 14px;font:600 13px system-ui;cursor:pointer;white-space:nowrap}
+.um-head-acts{margin-left:auto;display:flex;gap:8px;flex-shrink:0}
+.um-head-acts .um-btn{margin-left:0}
 .um-btn.primary{background:#1769AA;border-color:#1769AA;color:#fff}
 .um-btn.good{background:#147d52;border-color:#147d52;color:#fff}
 .um-btn.bad{background:#fff;border-color:#f3b8b3;color:#b42318}
@@ -137,6 +166,10 @@
 .um-modal-box h3{margin:0 0 4px;color:#0d2340}
 .um-modal-box input{width:100%;margin-top:14px;padding:10px;border:1px solid #cfd7df;
   border-radius:8px;font:12.5px ui-monospace,monospace}
+.um-modal-box label{display:block;margin-top:14px;font:600 11px system-ui;
+  color:#64748b;text-transform:uppercase;letter-spacing:.03em}
+.um-modal-box select{width:100%;margin-top:6px;padding:9px 10px;border:1px solid #cfd7df;
+  border-radius:8px;font:13px system-ui;background:#fff}
 .um-modal-actions{display:flex;gap:8px;margin-top:14px}
 .um-modal-actions .um-btn{margin-left:0;flex:1}
 .um-warn{color:#b42318;font-size:12px;margin:12px 0 0;text-align:center}
@@ -275,6 +308,42 @@ function submitPw(useDefault){
   closePw();
   if(id==null) return;
   post(id, useDefault===true?'default-password':'set-password', {password:v});
+}
+
+function openAdd(){
+  document.getElementById('umAddEmail').value='';
+  document.getElementById('umAddName').value='';
+  document.getElementById('umAddPw').value='';
+  document.getElementById('umAddRoleWrap').hidden=!MESUPER;
+  document.getElementById('umAddRole').value='member';
+  document.getElementById('umAddErr').hidden=true;
+  document.getElementById('umAddModal').hidden=false;
+  document.getElementById('umAddEmail').focus();
+}
+function closeAdd(){ document.getElementById('umAddModal').hidden=true; }
+function submitAdd(){
+  var email=document.getElementById('umAddEmail').value.trim();
+  var name=document.getElementById('umAddName').value.trim();
+  var role=MESUPER?document.getElementById('umAddRole').value:'member';
+  var pw=document.getElementById('umAddPw').value;
+  var err=document.getElementById('umAddErr');
+  if(!email||!name){
+    err.textContent='An email and a name are both needed.'; err.hidden=false; return;
+  }
+  err.hidden=true;
+  fetch('/api/users',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:email,name:name,role:role,password:pw})})
+  .then(function(r){return r.json();})
+  .then(function(d){
+    if(d.error){ err.textContent=d.error; err.hidden=false; return; }
+    closeAdd();
+    showOnce('Account created',
+      (d.user?d.user.email:'They')+' can sign in with this once, and the Hub '+
+      'will make them replace it. Nothing stores it — lose it and set another.',
+      d.password);
+    load();
+  }).catch(function(){ err.textContent='That did not go through.'; err.hidden=false; });
 }
 
 function showOnce(title,sub,value){

@@ -467,6 +467,55 @@ check("and points at the same page a locked-out person would find",
       'href="/forgot"' in _panel, True)
 
 
+# ------------------------------------------------------- adding an account
+section("Adding a user from the panel")
+
+_super_client = settled("todd@smart1marketing.com", "a-super-long-phrase")
+
+_added = _admin_client.post("/api/users", json={
+    "email": "newhire@smart1marketing.com", "name": "New Hire"}).get_json()
+check("an admin can add one", _added.get("ok"), True)
+check("it starts active, not pending", _added["user"]["status"], "active")
+check("General Access by default", _added["user"]["role"], "member")
+check("a password is generated when none is typed",
+      _added.get("generated"), True)
+check("long enough to satisfy the policy they replace it with",
+      len(_added.get("password", "")) >= 12, True)
+check("and they are made to replace it", _added["user"]["must_change_password"], True)
+check("they can actually sign in with it",
+      signed_in("newhire@smart1marketing.com", _added["password"])
+      .get("/", follow_redirects=False).status_code, 302)
+
+check("adding the same address again is refused, not silently merged",
+      _admin_client.post("/api/users", json={
+          "email": "newhire@smart1marketing.com", "name": "Dupe"}).status_code, 400)
+
+check("a typed starting password is used as given", _admin_client.post(
+    "/api/users", json={"email": "second-hire@smart1marketing.com",
+                        "name": "Second Hire", "password": "a-typed-starting-phrase"}
+).get_json().get("generated"), False)
+
+check("a plain admin can only ever create General Access", _admin_client.post(
+    "/api/users", json={"email": "third-hire@smart1marketing.com",
+                        "name": "Third Hire", "role": "admin"}).status_code, 403)
+check("a super admin can create an admin",
+      _super_client.post("/api/users", json={
+          "email": "fourth-hire@smart1marketing.com", "name": "Fourth Hire",
+          "role": "admin"}).get_json()["user"]["role"], "admin")
+
+check("General Access cannot add anyone",
+      _general.post("/api/users", json={
+          "email": "should-not-exist@smart1marketing.com", "name": "Nope"}
+      ).status_code, 403)
+check("...and nothing was created",
+      "should-not-exist@smart1marketing.com" in json.dumps(
+          _admin_client.get("/api/users").get_json()), False)
+
+check("a bad address is refused rather than stored",
+      _admin_client.post("/api/users", json={
+          "email": "not-an-address", "name": "Whoever"}).status_code, 400)
+
+
 # ------------------------------------------------------ forgot password
 section("Forgotten passwords name a person, not a form")
 
