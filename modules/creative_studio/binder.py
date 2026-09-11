@@ -122,7 +122,6 @@ def _scene_specs(template: CsTemplate, resolved: dict) -> list[dict]:
             elif isinstance(raw, str) and raw:
                 layer_vals[key] = {"value": raw, "source": "template"}
         meta = layouts.layout(tscene.layout_key) or {}
-        aspect = "16:9"  # resolved by the caller against the project below
         out.append({
             "layout_key": tscene.layout_key,
             "default_duration": tscene.default_duration,

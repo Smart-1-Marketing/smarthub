@@ -1477,7 +1477,7 @@ check("  ...returns at least the three just created",
 
 # Advance every "variant" job the create call queued -- one tick each is
 # enough: the mocked submit_render already answers succeeded+url.
-for c in body["created"]:
+for _ in body["created"]:
     cs_jobs.job_sweep(hub_app)
 with hub_app.app_context():
     for c in body["created"]:
