@@ -274,4 +274,17 @@ def download_attachment(response_id):
 
 def register_qa_tasks(app):
     app.register_blueprint(bp)
+    # Proposal Execution is another staff workflow backed by the same shared
+    # database. Register it here so its models exist before create_all() later
+    # in the Hub factory, and so the feature can be shipped without creating a
+    # second scheduler or a second login boundary.
+    try:
+        from .proposal_execution_routes import register_proposal_execution
+        register_proposal_execution(app)
+    except Exception as exc:                              # noqa: BLE001
+        try:
+            from . import errors
+            errors.log_exception("proposal_execution", exc)
+        except Exception:                                # noqa: BLE001
+            pass
     return app
