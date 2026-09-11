@@ -346,7 +346,7 @@ section("The review spec module is not shadowed by the routes module")
 # doing `from . import review` binds `review` on the package, so a sibling's
 # `from . import review` can silently resolve to the routes module instead
 # of review_spec. Confirmed the two stay distinct here.
-import modules.radio_scripts as rs_pkg                                  # noqa: E402
+from modules import radio_scripts as rs_pkg                             # noqa: E402
 check("the package's own `review` name is the routes module",
       hasattr(rs_pkg.review, "attach"), True)
 check("review_spec is reachable under its own name, not shadowed",
