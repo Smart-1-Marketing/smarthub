@@ -566,6 +566,45 @@ _whole = ad_assets.batch()
 check("the files behind every client are counted, not the clients",
       _whole["counts"]["copied"], 3)
 
+# Why, not just how many. A real whole-book dry run came back "0 copied,
+# 49 failed" across 18 clients, with the cause computed inside migrate() per
+# client and thrown away by the batch -- the wall of identical `refused` rows
+# this module already undid one layer down, reintroduced one layer up.
+_refuse = ad_assets.drive_files.files_for
+
+
+def _all_refused(token, url):
+    raise ad_assets.drive_files.DriveRefused(
+        "refused", "Drive refused this file (HTTP 403).")
+
+
+ad_assets.drive_files.files_for = _all_refused
+_why = ad_assets.batch()
+ad_assets.drive_files.files_for = _refuse
+check("the failures are tallied by reason across the book",
+      _why.get("reasons"), {"refused": 3})
+check("and each client's row says which reason it hit",
+      sorted(r.get("reason", "") for r in _why.get("results") or []),
+      ["refused", "refused"])
+# Two clients, three links: the row filed under `organization` is Riverside's
+# too, so a per-client reason is not a per-link count.
+# The book-wide reading is migrate()'s own rule, not a second wording of it.
+check("a book that authenticated and failed on everything says so once",
+      "All 3 Drive link(s) were refused by Google"
+      in (_why.get("verdict") or {}).get("detail", ""), True)
+check("and names the login it read as",
+      "adops@smart1marketing.com"
+      in (_why.get("verdict") or {}).get("detail", ""), True)
+
+# Which book this ran over. A stale export and a live read are different sets
+# of clients, and "18 of 18" is a complete sweep of whichever one answered.
+check("the run names the product source it read",
+      _whole.get("source"), "knack")
+check("and how old that reading is", _whole.get("age_minutes"), 3)
+# The other half: one client's own lookup showing more links than the whole
+# book found is two readings of one question, and only the count shows it.
+check("and how many Drive links the whole book holds", _whole.get("links"), 3)
+
 # One client's failure is not the book's. Without this a single bad folder
 # costs every client after it in the alphabet, and the run reports a total
 # that stopped early as though it were the answer.
