@@ -50,6 +50,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import secrets
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
@@ -62,6 +63,8 @@ from .catalog import (DEFAULT_SLOTS, DURATIONS, SLOT_KEYS, TONES,
                       structure_for, tone_by_id)
 
 from hub import radio_share
+from hub import radio_delivery as delivery
+from . import music_library
 from hub import script_contents
 
 try:
@@ -463,7 +466,12 @@ def api_script_edit(pid):
     scripts[slot] = _decorate(slot, text,
                               row.get("pronunciations") or [])
     scripts[slot]["notes"] = notes
-    row = store.update(pid, {"scripts": scripts})
+    changes = {"scripts": scripts}
+    if text != ((row.get("scripts") or {}).get(slot) or {}).get("script"):
+        changes.update(spots=[s for s in row.get("spots", []) if s.get("slot") != slot],
+                       mixes={k:v for k,v in (row.get("mixes") or {}).items() if k != slot},
+                       decisions={k:v for k,v in (row.get("decisions") or {}).items() if k != slot})
+    row = store.update(pid, changes)
     store.add_version(pid, "hand-edit", {"slot": slot, "scripts": scripts}, actor())
     return jsonify({"ok": True, "project": row, "qc": _qc(row)})
 
@@ -626,6 +634,124 @@ def api_voice_account():
 
 
 # ------------------------------------------------------------------ renders
+@app.route("/api/projects/<pid>/voice", methods=["POST"])
+def api_voice_settings(pid):
+    try:
+        row = need(pid)
+        chosen = delivery.settings(body(), row.get("voice"))
+        if not chosen.get("voice_id"):
+            return fail("Choose a voice first.")
+        from hub.customer_voices import ensure_usable, LibraryError
+        try:
+            ensure_usable(chosen["voice_id"])
+        except LibraryError as exc:
+            return fail(str(exc))
+        row = store.update(pid, {"voice": chosen})
+        return jsonify(ok=True, project=row)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    except ValueError as exc:
+        return fail(str(exc))
+
+
+@app.route("/api/projects/<pid>/voice/preview", methods=["POST"])
+def api_voice_preview(pid):
+    try:
+        row = need(pid)
+        if _limiter.hit("voice_preview", client_ip(), 12, 600):
+            return fail("Wait a moment before generating another sample.", 429)
+        chosen = delivery.settings(body(), row.get("voice"))
+        text = str(body().get("text") or "").strip()
+        if not chosen.get("voice_id") or not 1 <= len(text) <= 500:
+            return fail("Choose a voice and enter sample text (1–500 characters).")
+        delivery.validate_tags(text, chosen["model_id"])
+        spoken = speech.normalize_for_speech(text, row.get("pronunciations") or [])["spoken"]
+        out = voices.render_audio(chosen["voice_id"], spoken,
+                                  chosen.get("energy") or "conversational",
+                                  speed=chosen["speed"], **delivery.render_options(chosen))
+        return jsonify(ok=True, audio_base64=base64.b64encode(out["audio"]).decode(),
+                       seconds=out.get("seconds"), measured=out.get("measured", False))
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    except (ValueError, voices.VoiceError) as exc:
+        return fail(str(exc))
+
+
+@app.route("/api/projects/<pid>/mix-settings", methods=["POST"])
+def api_mix_settings(pid):
+    try:
+        need(pid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    spec, error = _need_spec()
+    if not spec:
+        return fail(error, 503)
+    level = body().get("level")
+    if level not in {r["label"] for r in spec.bed_levels()["levels"]}:
+        return fail("Choose a bed volume from the slider.")
+    return jsonify(ok=True, project=store.update(pid, {"mix_level": level}))
+
+
+@app.route("/api/music-library")
+def api_music_library():
+    query = request.args.get("q", "").lower().strip()
+    return jsonify(ok=True, tracks=[r for r in music_library.tracks() if query in r.get("name", "").lower()])
+
+
+@app.route("/api/projects/<pid>/music-library/<track_id>/apply", methods=["POST"])
+def api_music_apply(pid, track_id):
+    try:
+        row = need(pid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    track = next((r for r in music_library.tracks() if r["id"] == track_id), None)
+    if not track:
+        return fail("That saved track no longer exists.", 404)
+    return apply_bed(row, track, body().get("slot"))
+
+
+@app.route("/api/projects/<pid>/bed/reuse", methods=["POST"])
+def api_bed_reuse(pid):
+    try:
+        row = need(pid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    bed = _bed_for(row, body().get("source"))
+    if not bed:
+        return fail("Choose a bed to reuse first.")
+    return apply_bed(row, bed, None)
+
+
+def apply_bed(row, bed, only):
+    eligible = list(slots_of(row))
+    if only and only not in eligible:
+        return fail("That spot is not in this project.", 404)
+    seconds = bed.get("seconds")
+    targets = [k for k in eligible if (not only or k == only) and
+               (bed.get("measured") or bed.get("estimated")) and seconds is not None and seconds >= duration_by_key(k)["seconds"]]
+    if not targets:
+        return fail("This bed is too short or its duration is unknown. Choose a WAV or MP3 track long enough for the spot.")
+    beds = _beds(row)
+    for slot in targets:
+        beds[slot] = dict(bed, slot=slot)
+    mixes = {k:v for k,v in (row.get("mixes") or {}).items() if k not in targets}
+    return jsonify(ok=True, applied=targets, project=store.update(row["id"], {"beds": beds, "mixes": mixes}))
+
+
+@app.route("/api/projects/<pid>/comments/clear", methods=["POST"])
+def api_clear_comments(pid):
+    try:
+        row = need(pid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    archive = list(row.get("feedback_archive") or [])
+    if row.get("feedback"):
+        archive.append({"at": store.now(), "actor": actor(), "feedback": row["feedback"]})
+    row = store.update(pid, {"feedback": [], "feedback_archive": archive})
+    log("comments_cleared", project=pid)
+    return jsonify(ok=True, project=row)
+
+
 @app.route("/api/projects/<pid>/render", methods=["POST"])
 def api_render(pid):
     try:
@@ -639,7 +765,7 @@ def api_render(pid):
     script = (row.get("scripts") or {}).get(slot) or {}
     if not script.get("spoken"):
         return fail("Write the script before recording it.")
-    voice_id = (data.get("voice_id") or "").strip()
+    voice_id = (data.get("voice_id") or (row.get("voice") or {}).get("voice_id") or "").strip()
     if not voice_id:
         return fail("Assign a voice to this spot first.")
     # ElevenLabs bills the character, so a read with a fact wrong in it is
@@ -652,9 +778,13 @@ def api_render(pid):
             panel["checks"][key]["message"] for key in stopped), 422)
 
     try:
+        chosen = delivery.settings(data, row.get("voice"))
+        delivery.validate_tags(script["spoken"], chosen["model_id"])
         out = voices.render_audio(voice_id, script["spoken"],
-                                  (row.get("voice_want") or {}).get("energy")
-                                  or "conversational")
+                                  (row.get("voice_want") or {}).get("energy") or "conversational",
+                                  speed=chosen["speed"], **delivery.render_options(chosen))
+    except ValueError as exc:
+        return fail(str(exc))
     except voices.VoiceError as exc:
         log("render_failed", project=pid, slot=slot,
             detail="Radio recording failed. Open the builder to retry.")
@@ -668,14 +798,16 @@ def api_render(pid):
 
     spots = [s for s in (row.get("spots") or []) if s.get("slot") != slot]
     spots.append({"slot": slot, "seconds": seconds, "voice_id": voice_id,
-                  "voice_name": data.get("voice_name") or "",
+                  "voice_name": data.get("voice_name") or chosen.get("name") or "",
+                  "voice_settings": chosen,
                   "audio_url": asset["url"], "public_id": asset["public_id"],
                   "store": asset["store"], "measured_seconds": out.get("seconds"),
                   "measured": out.get("measured", False), "grade": grade,
                   "script": script["script"], "spoken": script["spoken"],
                   "approved": False, "at": store.now()})
     spots.sort(key=lambda s: s["seconds"])
-    row = store.update(pid, {"spots": spots, "status": "recorded"})
+    row = store.update(pid, {"spots": spots, "status": "recorded",
+                             "mixes": {k:v for k,v in (row.get("mixes") or {}).items() if k != slot}})
     store.add_version(pid, "render", {"slot": slot, "voice_id": voice_id,
                                       "grade": grade}, actor())
     log("project.render", project=pid, slot=slot, status=grade.get("status"))
@@ -968,7 +1100,7 @@ def api_bed_compose(pid):
                     "to save.", 502)
 
     asset = upload_asset(out["audio_bytes"], store.cloud_folder(row),
-                         f"bed-{slot}", "audio", overwrite=True)
+                         f"bed-{slot}-{secrets.token_urlsafe(8)}", "audio")
     bed = {"kind": "composed", "prompt": prompt, "mood": mood,
            "audio_url": asset["url"], "public_id": asset["public_id"],
            "store": asset["store"], "slot": slot,
@@ -976,6 +1108,9 @@ def api_bed_compose(pid):
            "measured": out.get("seconds") is not None,
            "requested_seconds": out.get("requested_seconds"),
            "bytes": out.get("bytes"), "at": store.now()}
+    bed["name"] = str(data.get("save_name") or "Composed bed").strip()[:80]
+    if data.get("save_library"):
+        music_library.save(bed["name"], out["audio_bytes"], bed, upload_asset)
     beds = _beds(row)
     beds[slot] = bed
     # A new bed invalidates the mix that was made from the old one: a mix is a
@@ -1006,13 +1141,20 @@ def api_bed_upload(pid):
     except ValueError as exc:
         return fail(str(exc))
 
-    asset = upload_asset(data, store.cloud_folder(row), f"bed-{slot}-own", "audio",
-                         overwrite=True)
+    asset = upload_asset(data, store.cloud_folder(row), f"bed-{slot}-own-{secrets.token_urlsafe(8)}", "audio")
     length = _measured(data, filename)
+    if length.get("seconds") is None and radio_spec:
+        seconds = radio_spec.mp3_seconds(data)
+        if seconds is not None:
+            length.update(seconds=seconds, estimated=True,
+                          measure_note="MP3 duration estimated from its frames.")
     bed = {"kind": "upload", "prompt": "", "filename": filename,
            "mimetype": mimetype, "audio_url": asset["url"],
            "public_id": asset["public_id"], "store": asset["store"],
            "slot": slot, "bytes": len(data), "at": store.now(), **length}
+    bed["name"] = str(request.form.get("save_name") or filename).strip()[:80]
+    if request.form.get("save_library") == "1":
+        music_library.save(bed["name"], data, bed, upload_asset)
     beds = _beds(row)
     beds[slot] = bed
     mixes = {k: v for k, v in (row.get("mixes") or {}).items() if k != slot}
@@ -1378,7 +1520,11 @@ def _client_units(row: dict) -> list[dict]:
                       "length_label": duration.get("label") or slot,
                       "script": script.get("script", ""),
                       "audio_url": audio_url,
-                      "mixed": bool(mix)})
+                      "mixed": bool(mix),
+                      "has_bed": bool(_bed_for(row, slot)),
+                      "audio_seconds": (mix or {}).get("seconds") if mix else (spot or {}).get("measured_seconds"),
+                      "voice_audio_url": (spot or {}).get("audio_url") or "",
+                      "voice_audio_seconds": (spot or {}).get("measured_seconds")})
     return units
 
 

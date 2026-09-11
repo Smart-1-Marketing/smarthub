@@ -381,16 +381,13 @@ AUDIO_EXTS = ("mp3", "wav", "m4a", "ogg", "webm")
 
 def store_asset(project: dict, spot: dict, role: str, data: bytes,
                 ext: str = "mp3") -> dict:
-    """One of a spot's own audio assets — its bed, or its finished mix.
+    """Keep beds immutable because other spots can reuse them; replace mixes.
 
-    Deliberately **deterministic and overwriting**, where `store_audio()` below
-    is random and not. A bed and a mix name a role on one spot, so re-composing
-    or re-mixing lands on the asset the last attempt wrote: with overwrite off,
-    Cloudinary keeps the old bytes while the store records the new measured
-    length, and the file a client is sent and the duration filed against it
-    disagree. That is a failure this Hub has already had to undo once, on the
-    module next door.
+    A mix belongs to one spot. A reused bed can belong to several, so replacing
+    its source must leave the previous bytes available to the other spots.
     """
+    if role == "bed":
+        role = f"bed-{secrets.token_urlsafe(8)}"
     scope = "spec" if (project.get("scope") != "client") else slugify(
         project.get("client") or project.get("company"))
     public_id = (f"{folder()}/{scope}/{slugify(project.get('company'))}"
