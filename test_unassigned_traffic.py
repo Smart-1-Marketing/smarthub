@@ -1,12 +1,13 @@
 """Offline tests for the Unassigned Traffic Resolver.
 
-No Google calls. These assert the diagnostic rules and math separately from
-OAuth/Data API plumbing so a wording/UI change cannot hide attribution drift.
+No Google calls. These assert the diagnostic rules and the distinction between
+GA4's exact Unassigned total and the capped diagnostic detail table.
 Run: python3 test_unassigned_traffic.py
 """
 from modules.unassigned_traffic.app import diagnose_row, summarize
 
 passed = failed = 0
+
 
 def check(label, got, want):
     global passed, failed
@@ -16,6 +17,7 @@ def check(label, got, want):
     else:
         failed += 1
         print("  FAIL ", label, "got", repr(got), "want", repr(want))
+
 
 check("missing attribution",
       diagnose_row({"source": "(not set)", "medium": "(not set)", "sessions": 8})["issue"],
@@ -37,14 +39,27 @@ check("paid missing campaign",
       diagnose_row({"source": "google", "medium": "cpc", "campaign": "", "sessions": 11})["issue"],
       "paid_missing_campaign")
 
-out = summarize([
+rows = [
     {"source": "x", "medium": "weird", "sessions": "20"},
     {"source": "", "medium": "", "sessions": "5"},
-], 100)
-check("unassigned total", out["unassigned_sessions"], 25)
+]
+out = summarize(rows, 100)
+check("detail sum can be the total", out["unassigned_sessions"], 25)
 check("unassigned rate", out["unassigned_rate"], 25.0)
 check("rows largest first", out["rows"][0]["sessions"], 20)
-check("historical warning", "not rewritten" in out["note"], True)
+check("full coverage", out["diagnostic_coverage_pct"], 100.0)
+check("full coverage is not limited", out["detail_limited"], False)
+
+# The Data API totals query can say 40 sessions while the capped detail table
+# only contains the largest 25. The headline must stay 40, not silently become
+# the sum of the visible rows.
+capped = summarize(rows, 100, unassigned_sessions=40)
+check("GA4 exact total wins over detail sum", capped["unassigned_sessions"], 40)
+check("rate uses exact total", capped["unassigned_rate"], 40.0)
+check("diagnosed rows remain honest", capped["diagnosed_sessions"], 25)
+check("coverage names the gap", capped["diagnostic_coverage_pct"], 62.5)
+check("capped detail is labelled", capped["detail_limited"], True)
+check("historical warning", "not rewritten" in capped["note"], True)
 
 print(f"\n{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)
