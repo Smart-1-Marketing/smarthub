@@ -100,35 +100,63 @@ def staff_index():
 
 @bp_staff.route("/api/start", methods=["POST"])
 def api_start():
-    body = request.get_json(silent=True) or {}
-    client = str(body.get("client") or "").strip()[:200]
-    if not client:
-        return jsonify({"ok": False, "error": "A business name is required."}), 400
-    lead_id = str(body.get("lead_id") or "").strip()[:60]
-    zip_code = str(body.get("zip_code") or "").strip()[:12]
-    mode = "guided" if body.get("mode") != "self" else "self"
+    """Start a campaign, and never answer with anything but JSON.
 
-    lead = None
-    if lead_id:
-        try:
-            from hub import leads
-            lead = leads.get(lead_id)
-        except Exception:                                  # noqa: BLE001
-            lead = None
-        if lead and not zip_code:
-            zip_code = str((lead.get("fields") or {}).get("zip") or "").strip()[:12]
-
-    row = store.create(client=client, lead_id=lead_id, created_by=_actor(),
-                       mode=mode, zip_code=zip_code)
-    if zip_code:
-        _refresh_station(row["token"], zip_code)
-
+    This module is a blueprint on the hub app, which installs no blanket
+    exception handler of its own (only `wsgi.py`'s dispatcher-mounted
+    modules get one, via `_install_error_reporter`). So an exception that
+    escapes this function reaches the rep as Flask's stock HTML 500 page --
+    not JSON -- and `weather_setup_staff.html`'s `fetch().then(r =>
+    r.json())` rejects on it, showing "Could not reach the server" for what
+    was actually a server-side fault. The outer try/except is the safety
+    net for anything below that is not already guarded; `store.create()`
+    returning `None` on a write failure (rather than raising) is the one
+    gap it was closing when this was found.
+    """
     try:
-        from hub import config
-        public_url = config.public_base_origin().rstrip("/") + f"/wx/{row['token']}"
-    except Exception:                                      # noqa: BLE001
-        public_url = f"/wx/{row['token']}"
-    return jsonify({"ok": True, "token": row["token"], "public_url": public_url})
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "").strip()[:200]
+        if not client:
+            return jsonify({"ok": False, "error": "A business name is required."}), 400
+        lead_id = str(body.get("lead_id") or "").strip()[:60]
+        zip_code = str(body.get("zip_code") or "").strip()[:12]
+        mode = "guided" if body.get("mode") != "self" else "self"
+
+        lead = None
+        if lead_id:
+            try:
+                from hub import leads
+                lead = leads.get(lead_id)
+            except Exception:                                  # noqa: BLE001
+                lead = None
+            if lead and not zip_code:
+                zip_code = str((lead.get("fields") or {}).get("zip") or "").strip()[:12]
+
+        row = store.create(client=client, lead_id=lead_id, created_by=_actor(),
+                           mode=mode, zip_code=zip_code)
+        if row is None:
+            return jsonify({"ok": False, "error": (
+                "Could not save the campaign. Nothing was charged or sent — "
+                "try again in a moment, and check /status if it keeps "
+                "happening.")}), 503
+        if zip_code:
+            _refresh_station(row["token"], zip_code)
+
+        try:
+            from hub import config
+            public_url = config.public_base_origin().rstrip("/") + f"/wx/{row['token']}"
+        except Exception:                                      # noqa: BLE001
+            public_url = f"/wx/{row['token']}"
+        return jsonify({"ok": True, "token": row["token"], "public_url": public_url})
+    except Exception as exc:                                   # noqa: BLE001
+        try:
+            from hub import errors
+            errors.log_exception("weather_setup", exc, path=request.path)
+        except Exception:                                      # noqa: BLE001
+            pass
+        return jsonify({"ok": False, "error": (
+            "Something went wrong at our end starting this campaign. "
+            "Nothing was sent to the client.")}), 500
 
 
 def _refresh_station(token: str, zip_code: str) -> None:

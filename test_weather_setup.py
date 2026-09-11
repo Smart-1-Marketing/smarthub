@@ -373,5 +373,72 @@ resp = staff_client.post("/tools/weather-setup/api/start", json={"client": "Nope
 check("the staff start route refuses an unauthenticated request", resp.status_code, 401)
 
 
+# ---------------------------------------------------------------------------
+section("A write failure answers JSON, never Flask's stock HTML 500 page")
+# ---------------------------------------------------------------------------
+# store.create() was the one function in this file that did not honour its
+# own module's "nothing here may raise" rule -- a jsonstore.write_json()
+# failure (a full disk, a permission problem) propagated straight through
+# api_start(), which this blueprint-on-the-hub-app module has no blanket
+# exception handler to catch (only wsgi.py's dispatcher-mounted modules get
+# one). The rep saw "Could not reach the server" for what was a server-side
+# write failure, because fetch().then(r => r.json()) rejects on an HTML
+# body. Reproduced end to end here, not just at the unit level, because the
+# whole point is what the *response* looks like to that fetch call.
+
+import hub.auth as _auth                                     # noqa: E402
+
+_orig_write_json = wx_store.jsonstore.write_json
+
+
+def _boom(*_a, **_k):
+    raise OSError(28, "No space left on device")
+
+
+wx_store.jsonstore.write_json = _boom
+try:
+    check("create() returns None rather than raising",
+         wx_store.create(client="Disk Full Diner"), None)
+finally:
+    wx_store.jsonstore.write_json = _orig_write_json
+
+staff_client.set_cookie(_auth.COOKIE_NAME, _auth.issue_cookie_value("Todd"),
+                        domain="localhost")
+
+wx_store.jsonstore.write_json = _boom
+try:
+    resp = staff_client.post("/tools/weather-setup/api/start",
+                             json={"client": "Disk Full Diner"})
+    check("api/start answers 503, not a crash", resp.status_code, 503)
+    check("...as JSON, so the browser's fetch().json() does not reject",
+         resp.headers.get("Content-Type", "").startswith("application/json"), True)
+    check("...saying nothing was sent, not the network-error message",
+         "reach the server" in (resp.get_json() or {}).get("error", ""), False)
+finally:
+    wx_store.jsonstore.write_json = _orig_write_json
+
+# Any OTHER exception in the route -- not only the one gap above -- must
+# answer the same way, because the safety net is the outer try/except in
+# api_start() and the fix must not depend on remembering to guard the next
+# call added to this function too.
+_orig_create = wx_store.create
+
+
+def _explode(**_k):
+    raise RuntimeError("something unrelated broke")
+
+
+from modules.weather_setup import app as wx_app               # noqa: E402
+wx_app.store.create = _explode
+try:
+    resp = staff_client.post("/tools/weather-setup/api/start",
+                             json={"client": "Anything"})
+    check("an unrelated exception is still caught", resp.status_code, 500)
+    check("...and still answers as JSON",
+         resp.headers.get("Content-Type", "").startswith("application/json"), True)
+finally:
+    wx_app.store.create = _orig_create
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
