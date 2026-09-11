@@ -2269,6 +2269,16 @@ REGISTRY: list[Help] = [
        "out with clients (sent, nothing back yet). A round past four is "
        "flagged for a change-order conversation rather than refused -- the "
        "client is still served."),
+
+    # ---------------- Creative Studio (WO-CS7: aspect variations) ----------
+    _h("creative_studio.variations", "Preview before you render",
+       "Pick a size and this builds the same scenes, same footage, same "
+       "resolved text -- re-flowed into that size's own safe area -- and "
+       "renders a single still frame first. Nothing queues a video until "
+       "you choose to render a variation, so checking a size costs nothing. "
+       "A 9:16 whose text would sit under a platform's own UI is refused "
+       "rather than built; every other size is built and named if it is "
+       "tight."),
 ]
 
 _BY_KEY = {h.key: h for h in REGISTRY}

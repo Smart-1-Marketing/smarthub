@@ -35,7 +35,11 @@ def register_creative_studio(app):
     if STANDALONE:
         with app.app_context():
             db.create_all()
+            from .db import add_missing_columns
+            add_missing_columns()
             from .seed_templates import seed
             seed()
             from .seed_ai_tools import seed as seed_ai_tools
             seed_ai_tools()
+    # else: the Hub calls db.add_missing_columns() itself, after its own
+    # shared create_all() -- see hub/__init__.py's Creative Studio section.

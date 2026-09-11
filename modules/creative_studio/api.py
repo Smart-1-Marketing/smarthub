@@ -431,6 +431,136 @@ def api_approve_version(project_id, version_number):          # noqa: ANN202
                     "version": version.as_dict()})
 
 
+# --------------------------------------------------------------- variations
+
+# The blocking rule WO-CS7 states: "A 9:16 variant with text outside
+# 14/35/6 fails; a 1:1 whose CTA sits in the bottom 12% warns." 9:16's
+# numbers are a platform's own UI overlay (`layouts.SAFE_ZONES`'s own note),
+# so text placed there is not merely tight, it is covered; every other
+# aspect's margin is a house legibility inset and stays advisory.
+_BLOCKING_SAFE_ZONE_ASPECTS = ("9:16",)
+
+
+def _scene_layout_specs(project):
+    """(layout_key, layer_values, chrome) for every scene of this project's
+    bound storyboard that carries a Creative Studio layout -- a scene the
+    script pipeline wrote (no `layout_key`) contributes nothing, the same
+    "this is not this work order's to touch" rule `binder.bind_variation()`
+    applies to reframing."""
+    from modules.commercial_builder.models import CommercialProject as CbProject
+    from modules.commercial_builder.models import Scene as CbScene
+    if not project.cb_project_id:
+        return []
+    cb_project = CbProject.query.get(project.cb_project_id)
+    if cb_project is None:
+        return []
+    out = []
+    for scene in cb_project.scenes.order_by(CbScene.order_index).all():
+        meta = scene.asset_meta or {}
+        layout_key = meta.get("layout_key")
+        if layout_key:
+            out.append((layout_key, meta.get("layers") or {}, meta.get("chrome") or {}))
+    return out
+
+
+def _safe_zone_findings(project, aspect: str) -> list[dict]:
+    findings = []
+    for layout_key, layer_values, chrome in _scene_layout_specs(project):
+        findings.extend(layouts.check_safe_zone(
+            layout_key, aspect, layer_values,
+            logo_url=chrome.get("logo_url", ""), phone=chrome.get("phone", ""),
+            website=chrome.get("website", "")))
+    return findings
+
+
+@bp.get("/api/projects/<int:project_id>/variations")
+def api_list_variations(project_id):                          # noqa: ANN202
+    """Every variation ever created from this project, newest first -- the
+    panel below the version row reads this to draw preview thumbnails and
+    poll the jobs still building them."""
+    project = CsProject.query.get_or_404(project_id)
+    rows = (CsProject.query.filter_by(parent_project_id=project.id)
+           .order_by(CsProject.created_at.desc()).all())
+    return jsonify({"ok": True, "variations": [p.as_dict() for p in rows]})
+
+
+@bp.post("/api/projects/<int:project_id>/versions/<int:version_number>/variations")
+def api_create_variations(project_id, version_number):        # noqa: ANN202
+    """Create Variations -- WO-CS7 item 2. One new `cs_projects` row per
+    requested aspect (plus the static link image), each queued for a
+    single-frame preview -- kind="variant" -- rather than a video render:
+    "Preview all" happens before "Render selected" ever spends a Creatomate
+    video call, the whole reason a preview render exists as its own,
+    cheaper thing.
+
+    `version_number` is read to require a real version exists (there is
+    nothing to make a variation FROM before a first render), but a
+    variation is built from the parent's CURRENT storyboard, not a frozen
+    copy of that one render -- the same distinction `bind()` already draws
+    between "the template as it stood" and "the template as it now reads."
+    """
+    project = CsProject.query.get_or_404(project_id)
+    CsProjectVersion.query.filter_by(
+        project_id=project.id, version=version_number).first_or_404()
+    if not project.cb_project_id:
+        return jsonify({"ok": False, "error": "Open this project in the "
+                        "Storyboard Editor before creating variations."}), 400
+
+    data = request.get_json(silent=True) or {}
+    aspects = [a for a in (data.get("aspects") or [])
+              if a in ("16:9", "9:16", "1:1", "4:5")]
+    link_image = bool(data.get("link_image"))
+    if not aspects and not link_image:
+        return jsonify({"ok": False, "error": "Pick at least one size."}), 400
+
+    created, refused = [], []
+    for aspect in aspects:
+        findings = _safe_zone_findings(project, aspect)
+        if findings and aspect in _BLOCKING_SAFE_ZONE_ASPECTS:
+            refused.append({"aspect": aspect, "findings": findings})
+            continue
+        child = CsProject(
+            client_name=project.client_name, name=f"{project.name} — {aspect}",
+            creative_type=project.creative_type, template_id=project.template_id,
+            template_version=project.template_version, duration=project.duration,
+            aspect_ratio=aspect, status="Draft",
+            parent_project_id=project.id, variation_kind="aspect",
+            created_by=_actor())
+        db.session.add(child)
+        db.session.commit()
+        job = jobs.enqueue("variant", project_id=child.id, client_name=project.client_name,
+                           created_by=_actor())
+        created.append({"project": child.as_dict(), "job": job.as_dict(),
+                        "safe_zone_warnings": findings})
+
+    if link_image:
+        child = CsProject(
+            client_name=project.client_name, name=f"{project.name} — link image",
+            creative_type=project.creative_type, template_id=project.template_id,
+            template_version=project.template_version, duration=0,
+            aspect_ratio="1200x628", status="Draft",
+            parent_project_id=project.id, variation_kind="link_image",
+            created_by=_actor())
+        db.session.add(child)
+        db.session.commit()
+        job = jobs.enqueue("variant", project_id=child.id, client_name=project.client_name,
+                           created_by=_actor())
+        created.append({"project": child.as_dict(), "job": job.as_dict(),
+                        "safe_zone_warnings": []})
+
+    if created:
+        try:
+            from hub import audit
+            audit.log("creative_studio", "variations_created", actor=_actor(),
+                      client=project.client_name or None,
+                      detail=f"{len(created)} variation(s) from V{version_number}",
+                      project=project.id)
+        except Exception:                                    # noqa: BLE001
+            pass
+
+    return jsonify({"ok": True, "created": created, "refused": refused})
+
+
 @bp.get("/api/projects/<int:project_id>/usage-summary")
 def api_project_usage_summary(project_id):                    # noqa: ANN202
     """The credit meter's own read: running estimated cost for this project

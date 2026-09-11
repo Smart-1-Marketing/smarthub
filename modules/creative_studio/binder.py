@@ -26,7 +26,7 @@ storyboard out from under whatever a rep has since done to it.
 from __future__ import annotations
 
 from . import layouts, resolver
-from .models import CsTemplate, CsTemplateScene
+from .models import CsProject, CsTemplate, CsTemplateScene
 
 # A cs_template's `creative_type` says what kind of deliverable this is; a
 # CommercialProject's `platform` says which screen it plays on, and the two
@@ -58,11 +58,38 @@ def _client_domain(client_name: str) -> str:
         return ""
 
 
+def _project_chrome(resolved: dict) -> dict:
+    """The three values every layout may draw that are the *project's*, not
+    any one scene's -- a logo, a phone number, a website. Read straight off
+    the already-resolved variable table (`resolver.resolve()`'s own
+    priority order), so a project with no ``logo``/``phone``/``website``
+    variable on its template simply contributes nothing here, the same
+    "absent, not invented" rule every reader of this table follows."""
+    return {
+        "logo_url": (resolved.get("logo") or {}).get("value") or "",
+        "phone": (resolved.get("phone") or {}).get("value") or "",
+        "website": (resolved.get("website") or {}).get("value") or "",
+    }
+
+
 def _scene_specs(template: CsTemplate, resolved: dict) -> list[dict]:
     """One dict per template scene, in position order, with every text layer
     resolved and every background slot left for the editor's own scene
     actions to fill -- WO-CS3's "keep every existing scene action" rule.
+
+    WO-CS7 adds two computed fields per scene, both read by
+    `modules.commercial_builder.template_bind.build_from_template` as an
+    opaque passthrough onto `Scene.asset_meta` -- neither function there
+    needs to know a layout exists. `text_overlay` is this scene's own
+    Creatomate elements at THIS project's aspect ratio, from
+    `layouts.elements_for()`: before this, only the end-card scene ever
+    drew anything, and even that read an empty `CommercialProject.cta`
+    nothing populated -- every other layout rendered as bare footage.
+    `background_fill` is the flat colour a layout with no background slot
+    (`offer_card`, `logo_reveal`) sits on, since a background-less scene
+    otherwise becomes an image element with no `source` at all.
     """
+    chrome = _project_chrome(resolved)
     out = []
     for tscene in template.scenes.order_by(CsTemplateScene.position):
         allowed = set(layouts.layers_for(tscene.layout_key))
@@ -101,8 +128,31 @@ def _scene_specs(template: CsTemplate, resolved: dict) -> list[dict]:
             "layers": layer_vals,
             "label": meta.get("label", tscene.layout_key),
             "needs_background": needs_background,
+            "background_fill": "" if meta.get("slots") else "#12151c",
+            "_chrome": chrome,   # consumed by build() below, never written to CB
         })
     return out
+
+
+def _attach_text_overlays(scenes: list[dict], aspect: str) -> None:
+    """Compute `text_overlay` for every scene spec, now that the project's
+    chosen aspect ratio is known -- `_scene_specs()` runs before `bind()`
+    picks a format, so this is the one place both are in hand at once.
+
+    `chrome` (the project's logo/phone/website) rides onto the scene spec
+    too, not only consumed here -- `bind_variation()` recomputes
+    `text_overlay` for a NEW aspect from a scene it copied, and it must not
+    have to re-run variable resolution to do it: every value it needs is
+    already sitting in this scene's own resolved data, the same "same
+    resolved variables" WO-CS7 asks for.
+    """
+    for spec in scenes:
+        chrome = spec.pop("_chrome", {})
+        spec["chrome"] = chrome
+        spec["text_overlay"] = layouts.elements_for(
+            spec["layout_key"], aspect, spec.get("layers") or {},
+            logo_url=chrome.get("logo_url", ""), phone=chrome.get("phone", ""),
+            website=chrome.get("website", ""))
 
 
 def _ensure_client_row(project):
@@ -166,6 +216,7 @@ def bind(project) -> dict:
 
     resolved = resolver.resolve(template, project, client=project.client_name, domain=domain)
     scenes = _scene_specs(template, resolved)
+    _attach_text_overlays(scenes, fmt)
 
     try:
         cb_project = cb_template_bind.build_from_template(
@@ -240,6 +291,114 @@ def bind_for_generation(project) -> dict:
         audit.log("creative_studio", "project_opened_in_editor", actor=project.created_by or "",
                   client=project.client_name or None, project=project.name,
                   template=None, cb_project_id=cb_project.id)
+    except Exception:                                     # noqa: BLE001
+        pass
+
+    return {"ok": True, "cb_project_id": cb_project.id}
+
+
+def bind_variation(project) -> dict:
+    """Build a variation's own storyboard by copying its parent's, scene
+    for scene -- WO-CS7. "Create Variations" re-renders the same scenes,
+    same resolved variables, same footage, at a new aspect: this is the
+    function that makes that literally true rather than a description of
+    intent, because it reads the PARENT's already-bound scenes rather than
+    resolving the template a second time.
+
+    Requires `project.parent_project_id` (set by the caller before this
+    runs, alongside `variation_kind`). Idempotent like `bind()`: a project
+    that already has a `cb_project_id` returns it rather than rebuilding.
+    """
+    if project.cb_project_id:
+        return {"ok": True, "cb_project_id": project.cb_project_id}
+    if not project.parent_project_id:
+        return {"ok": False, "error": "This project has no parent to copy from."}
+
+    parent = CsProject.query.get(project.parent_project_id)
+    if parent is None or not parent.cb_project_id:
+        return {"ok": False, "error": "The source project has no storyboard to copy."}
+
+    try:
+        from modules.commercial_builder import template_bind as cb_template_bind
+        from modules.commercial_builder.models import (CommercialProject as CbProject,
+                                                        Scene as CbScene)
+    except Exception as exc:                              # noqa: BLE001
+        return {"ok": False, "error": f"The Commercial Builder is not available ({exc})."}
+
+    cb_parent = CbProject.query.get(parent.cb_project_id)
+    if cb_parent is None:
+        return {"ok": False, "error": "The source storyboard no longer exists."}
+
+    cb_client, error = _ensure_client_row(project)
+    if error:
+        return {"ok": False, "error": error}
+
+    from .reframe import looks_like_video, reframe_background
+
+    target = project.aspect_ratio
+    width, height = layouts.ASPECT_DIMS.get(target, (1920, 1080))
+
+    source_scenes = list(cb_parent.scenes.order_by(CbScene.order_index).all())
+    if project.variation_kind == "link_image":
+        # The static link/display frame is a still of the end card alone,
+        # never the whole storyboard -- WO-CS7's own words. A template with
+        # no end_card scene at all still gets something rather than an
+        # empty render: its last scene, whatever that is.
+        end_cards = [s for s in source_scenes if s.is_cta]
+        source_scenes = end_cards or source_scenes[-1:]
+
+    new_scenes = []
+    cursor = 0.0
+    for scene in source_scenes:
+        meta = dict(scene.asset_meta or {})
+        layout_key = meta.get("layout_key") or ""
+        layer_values = meta.get("layers") or {}
+        chrome = meta.get("chrome") or {}
+        asset_url = scene.asset_url or ""
+        if asset_url and layout_key:
+            # Only a background this module itself understands the shape
+            # of gets reframed -- a scene the script pipeline wrote (no
+            # layout_key) is not this work order's to touch.
+            asset_url = reframe_background(
+                asset_url, width, height,
+                resource_type="video" if looks_like_video(asset_url, meta) else "image")
+        new_meta = dict(meta)
+        new_meta["text_overlay"] = (
+            layouts.elements_for(layout_key, target, layer_values,
+                                 logo_url=chrome.get("logo_url", ""),
+                                 phone=chrome.get("phone", ""),
+                                 website=chrome.get("website", ""))
+            if layout_key else [])
+        duration = round(float(scene.end or 0) - float(scene.start or 0), 2)
+        new_scenes.append({
+            "start": round(cursor, 2), "end": round(cursor + duration, 2),
+            "narration": scene.narration or "", "visual_description": scene.visual_description or "",
+            "is_cta": bool(scene.is_cta), "asset_url": asset_url,
+            "asset_type": scene.asset_type or "", "asset_source": scene.asset_source or "",
+            "asset_thumb_url": scene.asset_thumb_url or "", "asset_meta": new_meta,
+        })
+        cursor += duration
+
+    length = max(1, round(cursor)) if project.variation_kind != "link_image" else 1
+
+    try:
+        cb_project = cb_template_bind.build_from_scenes(
+            client_id=cb_client.id, client_name=cb_client.name, title=project.name,
+            length_seconds=length, platform=cb_parent.platform, formats=[target],
+            commercial_type=cb_parent.commercial_type, scenes=new_scenes)
+    except Exception as exc:                              # noqa: BLE001
+        return {"ok": False, "error": f"Could not build the variation's storyboard ({exc})."}
+
+    from .db import db
+    project.cb_project_id = cb_project.id
+    project.duration = length
+    db.session.commit()
+
+    try:
+        from hub import audit
+        audit.log("creative_studio", "variation_bound", actor=project.created_by or "",
+                  client=project.client_name or None, project=project.name,
+                  detail=f"{project.variation_kind} of #{parent.id} at {target}")
     except Exception:                                     # noqa: BLE001
         pass
 

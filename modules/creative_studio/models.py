@@ -97,6 +97,27 @@ class CsProject(db.Model):
     # remembers which row it handed the work to.
     cb_project_id = db.Column(db.Integer)
 
+    # WO-CS7. A soft reference, not a real ForeignKey, for the same reason
+    # `template_id` above is a string rather than one: a variation must
+    # survive its parent project being archived. "" / NULL means an
+    # ordinary project; a variation always names its parent. `variation_kind`
+    # is `""` (ordinary), `"aspect"` (a resized copy) or `"link_image"` (the
+    # static 1200x628 end-card frame) -- `"cutdown"`, `"weather"` and
+    # `"offer"` are WO-CS7/9's own vocabulary and are named here so a later
+    # sprint's rows need no schema change, not because this work order
+    # writes any of them. Both are added columns on an existing table --
+    # `create_all()` creates missing tables and never alters one, so these
+    # are only real on Postgres once `_add_missing_columns()` in this
+    # module's `db.py` has run; a fresh database gets them from this
+    # declaration directly.
+    parent_project_id = db.Column(db.Integer, index=True)
+    variation_kind = db.Column(db.String(20), default="")
+    # A single-frame Creatomate still, filed here rather than as a
+    # `CsProjectVersion` -- a preview is not a delivered render (WO-CS5's
+    # own rule for what a version means), and a variation's own real video
+    # still earns its version the ordinary way once somebody renders it.
+    preview_url = db.Column(db.String(1000), default="")
+
     created_by = db.Column(db.String(120), default="")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -119,6 +140,9 @@ class CsProject(db.Model):
             "status": self.status, "brief": self.brief,
             "variable_overrides": self.resolved_vars,
             "cb_project_id": self.cb_project_id,
+            "parent_project_id": self.parent_project_id,
+            "variation_kind": self.variation_kind or "",
+            "preview_url": self.preview_url or "",
             "created_by": self.created_by or "",
             "created_at": self.created_at.isoformat() if self.created_at else "",
             "updated_at": self.updated_at.isoformat() if self.updated_at else "",

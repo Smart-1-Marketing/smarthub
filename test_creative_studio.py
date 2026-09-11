@@ -1320,6 +1320,243 @@ try:
 finally:
     cs_review_routes._hub_leads.rate_limited = _orig_rate_limited
 
+# ---------------------------------------------------------------------------
+section("WO-CS7: elements_for() re-flows into each aspect's own safe zone")
+
+hook_16x9 = cs_layouts.elements_for("hook_fullbleed", "16:9",
+                                    {"headline": {"value": "Beat the heat"}})
+hook_9x16 = cs_layouts.elements_for("hook_fullbleed", "9:16",
+                                    {"headline": {"value": "Beat the heat"}})
+check("a headline draws at 16:9", any(e.get("text") == "Beat the heat" for e in hook_16x9), True)
+check("  ...and at 9:16, at a different position", any(e.get("text") == "Beat the heat" for e in hook_9x16), True)
+check("  ...the two are not the same composition -- re-flowed to the taller frame's own width",
+      [e.get("width") for e in hook_16x9] != [e.get("width") for e in hook_9x16], True)
+check("a layer with nothing typed in draws nothing",
+      cs_layouts.elements_for("hook_fullbleed", "16:9", {}), [
+          e for e in cs_layouts.elements_for("hook_fullbleed", "16:9", {})
+          if e.get("type") != "text"])
+
+check("every real layout's every supported aspect is clean against its own safe zone", all(
+    not cs_layouts.check_safe_zone(key, aspect, {ln: {"value": "x" * 6} for ln in cs_layouts.layers_for(key)},
+                                   logo_url="https://cdn.example.test/logo.png",
+                                   phone="555-1234", website="example.test")
+    for key in cs_layouts.LAYOUTS for aspect in cs_layouts.LAYOUTS[key]["aspect_ratios"]
+), True)
+
+check("an unrecognized aspect is reported by name, not passed silently",
+      bool(cs_layouts.check_safe_zone("hook_fullbleed", "21:9", {"headline": {"value": "x"}})), True)
+
+# A deliberately oversized headline pushed past the 9:16 side margin --
+# proving the checker actually fires rather than only ever returning [].
+_orig_variant_for = cs_layouts.variant_for
+cs_layouts.variant_for = lambda key, aspect: (
+    {"headline": {"x": "50%", "y": "50%", "width": "90%", "x_anchor": "50%"}}
+    if (key, aspect) == ("hook_fullbleed", "9:16") else _orig_variant_for(key, aspect))
+try:
+    forced = cs_layouts.check_safe_zone("hook_fullbleed", "9:16", {"headline": {"value": "x"}})
+    check("a headline placed inside 14/35 still crosses a too-wide side margin",
+          any("side margin" in f["reason"] for f in forced), True)
+finally:
+    cs_layouts.variant_for = _orig_variant_for
+
+check("a structural split-frame panel is never itself a safe-zone finding",
+      all(f["layer"] != "shape" for f in
+          cs_layouts.check_safe_zone("problem_split", "9:16", {"headline": {"value": "x"}})), True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS7: binder.bind_variation copies the parent's scenes, reframed")
+
+with hub_app.app_context():
+    from modules.commercial_builder.models import CommercialProject as CbProject7
+    from modules.commercial_builder.models import Scene as CbScene7
+    from modules.creative_studio.models import CsProject as CsProjectModel7
+    from modules.creative_studio.db import db as cs_db7
+
+    parent = CsProjectModel7.query.get(cs_project_id)
+    parent_cb = CbProject7.query.get(parent.cb_project_id)
+    parent_scene_count = parent_cb.scenes.count()
+    parent_version_count_before = CsProjectVersion.query.filter_by(project_id=cs_project_id).count()
+
+    variant_row = CsProjectModel7(
+        name="HVAC spring tune-up — 9:16", creative_type=parent.creative_type,
+        client_name=parent.client_name, template_id=parent.template_id,
+        template_version=parent.template_version, duration=parent.duration,
+        aspect_ratio="9:16", status="Draft",
+        parent_project_id=parent.id, variation_kind="aspect", created_by="Todd")
+    cs_db7.session.add(variant_row)
+    cs_db7.session.commit()
+
+    result = cs_binder.bind_variation(variant_row)
+    check("bind_variation succeeds against a real parent storyboard", result.get("ok"), True)
+
+    variant_row = CsProjectModel7.query.get(variant_row.id)
+    check("  ...and the variation remembers its own storyboard",
+          bool(variant_row.cb_project_id), True)
+    check("  ...a different storyboard than the parent's",
+          variant_row.cb_project_id != parent.cb_project_id, True)
+
+    variant_cb = CbProject7.query.get(variant_row.cb_project_id)
+    check("the copy carries the same number of scenes as the parent",
+          variant_cb.scenes.count(), parent_scene_count)
+    variant_scenes = variant_cb.scenes.order_by(CbScene7.order_index).all()
+    check("  ...every scene copied a text_overlay computed for 9:16",
+          all("text_overlay" in (s.asset_meta or {}) for s in variant_scenes), True)
+
+    check("bind_variation is idempotent -- already-bound is a no-op",
+          cs_binder.bind_variation(variant_row).get("cb_project_id"), variant_row.cb_project_id)
+    variant_cb_project_id = variant_row.cb_project_id
+
+    check("the parent's own version rows are untouched by creating a variation",
+          CsProjectVersion.query.filter_by(project_id=cs_project_id).count(),
+          parent_version_count_before)
+
+    orphan = CsProjectModel7(name="No parent", creative_type="video_commercial", status="Draft")
+    cs_db7.session.add(orphan)
+    cs_db7.session.commit()
+    orphan_result = cs_binder.bind_variation(orphan)
+    check("a variation with no parent_project_id is refused rather than guessed at",
+          orphan_result.get("ok"), False)
+    orphan_id = orphan.id
+
+# ---------------------------------------------------------------------------
+section("WO-CS7: a still preview never plays audio")
+
+with hub_app.app_context():
+    from modules.commercial_builder.models import Scene as CbScene7b
+    from modules.commercial_builder.services import creatomate_service as cs_cta
+
+    variant_cb2 = CbProject7.query.get(variant_cb_project_id)
+    scenes7 = [s.to_dict() for s in variant_cb2.scenes.order_by(CbScene7b.order_index).all()]
+    still_source = cs_cta.build_source(variant_cb2.to_dict(include_scenes=False), scenes7,
+                                       "9:16", still=True)
+    check("a still render asks for a jpg", still_source.get("output_format"), "jpg")
+    check("  ...and carries no audio elements",
+          any(e.get("type") == "audio" for e in still_source.get("elements", [])), False)
+
+    video_source = cs_cta.build_source(variant_cb2.to_dict(include_scenes=False), scenes7, "9:16")
+    check("the ordinary (non-still) render is unaffected -- no output_format override",
+          video_source.get("output_format") in (None, "mp4"), True)
+
+# ---------------------------------------------------------------------------
+section("WO-CS7: the Create Variations API")
+
+_orig_cs7_submit = cs_cta.submit_render
+_orig_cs7_check = cs_cta.check_render
+cs_cta.submit_render = lambda source: {
+    "id": "prev_cs7", "status": "succeeded",
+    "url": "https://cdn.example.test/preview.jpg", "error": None}
+cs_cta.check_render = lambda rid: {
+    "id": rid, "status": "succeeded", "url": "https://cdn.example.test/preview.jpg", "error": None}
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/versions/1/variations",
+                json={"aspects": ["1:1", "4:5"], "link_image": True})
+check("creating variations from a real version succeeds", r.status_code, 200)
+body = r.get_json()
+check("  ...three rows created: two aspects and the link image", len(body["created"]), 3)
+check("  ...none refused (this layout is clean at every aspect)", body["refused"], [])
+
+created_kinds = sorted((c["project"]["variation_kind"], c["project"]["aspect_ratio"])
+                      for c in body["created"])
+check("  ...one aspect variation each and one link image",
+      created_kinds, [("aspect", "1:1"), ("aspect", "4:5"), ("link_image", "1200x628")])
+
+with hub_app.app_context():
+    for c in body["created"]:
+        row = CsProjectModel7.query.get(c["project"]["id"])
+        check(f"  ...variation {c['project']['aspect_ratio']} carries parent_project_id",
+              row.parent_project_id, cs_project_id)
+
+    check("the parent's own version rows are still untouched after creating variations",
+          CsProjectVersion.query.filter_by(project_id=cs_project_id).count(),
+          parent_version_count_before)
+
+r = client.get(f"/creative-studio/api/projects/{cs_project_id}/variations")
+check("listing variations succeeds", r.status_code, 200)
+check("  ...returns at least the three just created",
+      len(r.get_json()["variations"]) >= 3, True)
+
+# Advance every "variant" job the create call queued -- one tick each is
+# enough: the mocked submit_render already answers succeeded+url.
+for _ in body["created"]:
+    cs_jobs.job_sweep(hub_app)
+with hub_app.app_context():
+    for c in body["created"]:
+        job = CreativeJob.query.get(c["job"]["id"])
+        check(f"the variant job for {c['project']['aspect_ratio']} completes",
+              job.state, "complete")
+        row = CsProjectModel7.query.get(c["project"]["id"])
+        check(f"  ...and the project carries a preview_url", bool(row.preview_url), True)
+
+link_image_entry = next(c for c in body["created"] if c["project"]["variation_kind"] == "link_image")
+with hub_app.app_context():
+    link_cb = CbProject7.query.get(CsProjectModel7.query.get(link_image_entry["project"]["id"]).cb_project_id)
+    check("the link image's storyboard is a single scene (the end card alone)",
+          link_cb.scenes.count(), 1)
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/versions/1/variations",
+                json={"aspects": [], "link_image": False})
+check("asking for nothing is refused rather than silently doing nothing", r.status_code, 400)
+
+r = client.post(f"/creative-studio/api/projects/{cs_project_id}/versions/999/variations",
+                json={"aspects": ["1:1"]})
+check("a version number that does not exist 404s", r.status_code, 404)
+
+with hub_app.app_context():
+    no_storyboard = CsProjectModel7(name="Never opened", creative_type="video_commercial", status="Draft")
+    cs_db7.session.add(no_storyboard)
+    cs_db7.session.commit()
+    v_no_sb = CsProjectVersion(project_id=no_storyboard.id, version=1,
+                               render_url="https://cdn.example.test/x.mp4")
+    cs_db7.session.add(v_no_sb)
+    cs_db7.session.commit()
+    no_storyboard_id = no_storyboard.id
+
+r = client.post(f"/creative-studio/api/projects/{no_storyboard_id}/versions/1/variations",
+                json={"aspects": ["1:1"]})
+check("a project never opened in the Storyboard Editor refuses to create variations",
+      r.status_code, 400)
+
+# ---------------------------------------------------------------------------
+section("WO-CS7: a 9:16 variation with a genuine safe-zone violation is refused, never built")
+
+from modules.creative_studio import api as cs_api  # noqa: E402
+
+_orig_findings = cs_api._safe_zone_findings
+cs_api._safe_zone_findings = lambda project, aspect: (
+    [{"layer": "headline", "reason": "crosses the 6% side margin"}] if aspect == "9:16" else [])
+try:
+    with hub_app.app_context():
+        variation_count_before = CsProjectModel7.query.filter_by(parent_project_id=cs_project_id).count()
+    r = client.post(f"/creative-studio/api/projects/{cs_project_id}/versions/1/variations",
+                    json={"aspects": ["9:16", "1:1"]})
+    check("a mixed request still succeeds overall", r.status_code, 200)
+    body9 = r.get_json()
+    check("  ...the 9:16 aspect is refused", [x["aspect"] for x in body9["refused"]], ["9:16"])
+    check("  ...carrying the safe-zone finding", body9["refused"][0]["findings"][0]["reason"],
+          "crosses the 6% side margin")
+    check("  ...while 1:1 still builds", [c["project"]["aspect_ratio"] for c in body9["created"]], ["1:1"])
+    with hub_app.app_context():
+        check("no cs_projects row was created for the refused 9:16 variation",
+              CsProjectModel7.query.filter_by(parent_project_id=cs_project_id).count(),
+              variation_count_before + 1)
+finally:
+    cs_api._safe_zone_findings = _orig_findings
+
+cs_cta.submit_render = _orig_cs7_submit
+cs_cta.check_render = _orig_cs7_check
+
+# ---------------------------------------------------------------------------
+section("WO-CS7: the project detail page offers Create Variations only once a version exists")
+
+r = client.get(f"/creative-studio/projects/{cs_project_id}")
+check("the project page renders", r.status_code, 200)
+check("  ...carrying the Create Variations panel", b"Create Variations" in r.data, True)
+check("  ...with all four aspect checkboxes", b'value="9:16"' in r.data and b'value="4:5"' in r.data, True)
+
+r = client.get(f"/creative-studio/projects/{orphan_id}")
+check("a project with no rendered version yet gets no Create Variations panel",
+      b"Create Variations" not in r.data, True)
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)
