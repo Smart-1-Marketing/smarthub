@@ -37,6 +37,11 @@ WORK_KINDS = {
     "bg_remover":           ("Cut-out produced", "Background Remover"),
     "scans":                ("Site audit", "Site Scans"),
     "seo":                  ("Schema / FAQ", "SEO"),
+    # Its own name rather than folded into `seo`: what this module files
+    # is a change made inside the client's own Google Search Console --
+    # a sitemap submitted or withdrawn -- and reading as schema work on
+    # their record would say we wrote something we did not.
+    "seo_intelligence":     ("Search Console change", "SEO Intelligence"),
     "proposals":            ("Proposal", "Proposals"),
     "proposal_builder":     ("Proposal generated", "Proposal Builder"),
     "sales_builder":        ("Quote", "Sales Builder"),
