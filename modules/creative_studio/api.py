@@ -15,11 +15,11 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, render_template, request, url_for
 
-from . import binder, brand_ext, config, jobs, layouts, resolver, usage
+from . import binder, brand_ext, campaign_spec, config, jobs, layouts, resolver, usage
 from .db import db
-from .models import (CreativeJob, CsAiTool, CsMediaAsset, CsProject, CsProjectVersion,
-                     CsShare, CsTemplate, CsTemplateScene,
-                     CsTemplateVariable, CsUsageLog)
+from .models import (CreativeJob, CsAiTool, CsCampaign, CsCampaignAsset, CsMediaAsset,
+                     CsProject, CsProjectVersion, CsShare, CsShareDecision, CsTemplate,
+                     CsTemplateScene, CsTemplateVariable, CsUsageLog)
 
 bp = Blueprint("creative_studio", __name__, url_prefix="/creative-studio",
               template_folder="templates")
@@ -559,6 +559,341 @@ def api_create_variations(project_id, version_number):        # noqa: ANN202
             pass
 
     return jsonify({"ok": True, "created": created, "refused": refused})
+
+
+# --------------------------------------------------------------- WO-CS8: campaigns
+
+@bp.get("/campaigns")
+def campaigns_page():                                        # noqa: ANN202
+    rows = CsCampaign.query.order_by(CsCampaign.created_at.desc()).limit(200).all()
+    out = []
+    for row in rows:
+        d = row.as_dict()
+        d["status"] = campaign_spec.status_of(
+            [CsProject.query.get(a.project_id).status
+             for a in row.assets.all() if CsProject.query.get(a.project_id)])
+        out.append(d)
+    return render_template("cs_campaigns.html", title="Campaigns", campaigns=out)
+
+
+@bp.post("/api/campaigns")
+def api_create_campaign():                                    # noqa: ANN202
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Name the campaign."}), 400
+
+    client = str(data.get("client_name") or "").strip()
+    if client:
+        try:
+            from hub.clients_registry import find_client
+            hit = find_client(client)
+        except Exception:                                    # noqa: BLE001
+            hit = None
+        if not hit:
+            return jsonify({"ok": False, "error": "That is not a client on "
+                            "file. Leave it blank for a generic Smart 1 "
+                            "asset, or pick one from the list."}), 400
+        client = hit.get("name") or client
+
+    def _date(key):
+        raw = str(data.get(key) or "").strip()
+        if not raw:
+            return None
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+
+    campaign = CsCampaign(
+        client_name=client, name=name[:300],
+        start=_date("start"), end=_date("end"),
+        offer=str(data.get("offer") or "").strip(),
+        cta=str(data.get("cta") or "").strip()[:300],
+        created_by=_actor())
+    db.session.add(campaign)
+    db.session.commit()
+
+    try:
+        from hub import audit
+        audit.log("creative_studio", "campaign_created", actor=_actor(),
+                  client=client or None, project=campaign.name)
+    except Exception:                                        # noqa: BLE001
+        pass
+
+    return jsonify({"ok": True, "campaign": campaign.as_dict()})
+
+
+def _radio_assets_for(campaign) -> list[dict]:
+    """Radio script sets belonging to this campaign's client, read-only --
+    WO-CS8 item 6. Matched EXACTLY, never a substring: `hub.client_key`'s
+    own rule, applied here because `RadioScriptSet.client_name` is a bare
+    string with no id of its own to join on, the same shape this file's own
+    `client_name` is."""
+    if not campaign.client_name:
+        return []
+    try:
+        from hub.client_key import same_client
+        from modules.radio_scripts.models import RadioScriptSet
+    except Exception:                                        # noqa: BLE001
+        return []
+    out = []
+    try:
+        rows = RadioScriptSet.query.order_by(RadioScriptSet.created_at.desc()).limit(500).all()
+    except Exception:                                        # noqa: BLE001
+        return []
+    for row in rows:
+        if same_client(campaign.client_name, "", row.client_name or "", ""):
+            out.append(row.to_dict(full=False))
+    return out
+
+
+def _asset_row(asset, campaign) -> dict:
+    project = CsProject.query.get(asset.project_id)
+    row = asset.as_dict()
+    if project is None:
+        row["project"] = None
+        return row
+    row["project"] = project.as_dict()
+    row["differs"] = campaign_spec.asset_differs(project.brief, campaign.offer, campaign.cta)
+    return row
+
+
+@bp.get("/campaigns/<int:campaign_id>")
+def campaign_detail(campaign_id):                             # noqa: ANN202
+    campaign = CsCampaign.query.get_or_404(campaign_id)
+    assets = [_asset_row(a, campaign) for a in campaign.assets.all()]
+    status = campaign_spec.status_of([a["project"]["status"] for a in assets if a["project"]])
+    return render_template(
+        "cs_campaign_detail.html", title=campaign.name,
+        campaign=campaign.as_dict(), status=status, assets=assets,
+        radio_assets=_radio_assets_for(campaign),
+        channels=config.CHANNELS, channel_labels=config.CHANNEL_LABELS,
+        confirm_threshold=config.batch_confirm_threshold_usd())
+
+
+@bp.get("/api/campaigns/<int:campaign_id>")
+def api_get_campaign(campaign_id):                            # noqa: ANN202
+    campaign = CsCampaign.query.get_or_404(campaign_id)
+    assets = [_asset_row(a, campaign) for a in campaign.assets.all()]
+    status = campaign_spec.status_of([a["project"]["status"] for a in assets if a["project"]])
+    row = campaign.as_dict()
+    row["status"] = status
+    row["assets"] = assets
+    return jsonify({"ok": True, "campaign": row})
+
+
+@bp.post("/api/campaigns/<int:campaign_id>/assets")
+def api_add_campaign_asset(campaign_id):                      # noqa: ANN202
+    """Add one asset -- WO-CS8 item 2. Resolves a seed template for the
+    channel asked for and creates the project it becomes; nothing renders
+    and no model is called here."""
+    campaign = CsCampaign.query.get_or_404(campaign_id)
+    data = request.get_json(silent=True) or {}
+
+    channel = str(data.get("channel") or "").strip()
+    if channel and channel not in config.CHANNELS:
+        return jsonify({"ok": False, "error": "Unknown channel."}), 400
+
+    try:
+        duration = int(data.get("duration") or 30)
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Duration must be a number of seconds."}), 400
+
+    industry = str(data.get("industry") or "general").strip() or "general"
+    aspect_ratio = str(data.get("aspect_ratio") or "16:9").strip()
+    creative_type = str(data.get("creative_type") or "video_commercial").strip()
+    role = str(data.get("role") or "").strip()[:40]
+
+    asset, error = binder.create_campaign_asset(
+        campaign, industry=industry, duration=duration, aspect_ratio=aspect_ratio,
+        creative_type=creative_type, channel=channel, role=role, created_by=_actor())
+    if asset is None:
+        return jsonify({"ok": False, "error": error}), 400
+    return jsonify({"ok": True, "asset": _asset_row(asset, campaign)})
+
+
+@bp.post("/api/campaigns/<int:campaign_id>/generate-all")
+def api_generate_all_drafts(campaign_id):                     # noqa: ANN202
+    """"Generate all drafts" -- WO-CS8 item 3. ONE campaign-level script
+    call; every asset's own brief is derived from it and its storyboard
+    auto-built, with no further model call. Queued -- writing a whole
+    campaign's brief and binding several storyboards is not request-speed
+    work, house rule 4."""
+    campaign = CsCampaign.query.get_or_404(campaign_id)
+    if campaign.assets.count() == 0:
+        return jsonify({"ok": False, "error": "Add at least one asset "
+                        "before generating drafts."}), 400
+    job = jobs.enqueue("campaign_draft", client_name=campaign.client_name,
+                       payload={"campaign_id": campaign.id}, created_by=_actor())
+    return jsonify({"ok": True, "job": job.as_dict()})
+
+
+@bp.post("/api/campaigns/<int:campaign_id>/render")
+def api_batch_render(campaign_id):                            # noqa: ANN202
+    """Batch render -- WO-CS8 item 4. One render job per project id,
+    sharing a `batch_id`; a QC failure on one asset is reported and skipped
+    rather than cancelling the rest, the same "one asset failing never
+    cancels the rest" rule the work order states outright.
+
+    Above `config.batch_confirm_threshold_usd()`, the campaign's own name
+    has to be typed back -- the rule `modules/image_picker` and
+    `modules/suite_panel` already use for a press that costs real money and
+    cannot be undone by clicking again: a checkbox is agreed to without
+    reading, a name has to be read to be typed.
+    """
+    from modules.commercial_builder.models import Client as CbClient
+    from modules.commercial_builder.models import CommercialProject as CbProject
+    from modules.commercial_builder.models import Scene as CbScene
+    from modules.commercial_builder.services import qc_service
+
+    campaign = CsCampaign.query.get_or_404(campaign_id)
+    data = request.get_json(silent=True) or {}
+    requested_ids = [int(pid) for pid in (data.get("project_ids") or [])
+                     if str(pid).isdigit()]
+    campaign_project_ids = {a.project_id for a in campaign.assets.all()}
+    project_ids = [pid for pid in requested_ids if pid in campaign_project_ids]
+    if not project_ids:
+        return jsonify({"ok": False, "error": "Pick at least one asset "
+                        "on this campaign to render."}), 400
+
+    estimate = campaign_spec.render_estimate(len(project_ids))
+    if campaign_spec.needs_confirmation(estimate):
+        typed = str(data.get("confirm") or "").strip()
+        if typed != campaign.name:
+            return jsonify({
+                "ok": False, "error": "confirm_required",
+                "estimate_usd": estimate,
+                "message": f"This batch is estimated at ${estimate:.2f}. "
+                          f"Type the campaign's name, \"{campaign.name}\", to render it.",
+            }), 409
+
+    batch_id = secrets.token_hex(8)
+    rendered, refused = [], []
+    for project_id in project_ids:
+        project = CsProject.query.get(project_id)
+        if project is None or not project.cb_project_id:
+            refused.append({"project_id": project_id,
+                            "error": "Open this project in the Storyboard Editor first."})
+            continue
+        try:
+            cb_project = CbProject.query.get(project.cb_project_id)
+            cb_client = CbClient.query.get(cb_project.client_id) if cb_project else None
+        except Exception as exc:                              # noqa: BLE001
+            refused.append({"project_id": project_id, "error": type(exc).__name__})
+            continue
+        if cb_project is None or cb_client is None:
+            refused.append({"project_id": project_id,
+                            "error": "This project's storyboard no longer exists."})
+            continue
+        scenes = [s.to_dict() for s in cb_project.scenes.order_by(CbScene.order_index).all()]
+        qc = qc_service.run_qc(cb_project.to_dict(include_scenes=False), cb_client.to_dict(), scenes)
+        if not qc.get("_all_passed"):
+            refused.append({"project_id": project_id,
+                            "error": "QC checks failed.", "qc_results": qc})
+            continue
+        fmt = (cb_project.formats or ["16:9"])[0]
+        job = jobs.enqueue("render", project_id=project.id, client_name=project.client_name,
+                           payload={"format": fmt, "batch_id": batch_id}, created_by=_actor())
+        job.batch_id = batch_id
+        db.session.commit()
+        rendered.append({"project_id": project_id, "job": job.as_dict()})
+
+    if rendered:
+        try:
+            from hub import audit
+            audit.log("creative_studio", "campaign_batch_render", actor=_actor(),
+                      client=campaign.client_name or None, project=campaign.name,
+                      detail=f"{campaign.name}: {len(rendered)} of {len(project_ids)} "
+                            f"assets queued (batch {batch_id})")
+        except Exception:                                     # noqa: BLE001
+            pass
+
+    return jsonify({"ok": True, "batch_id": batch_id, "estimate_usd": estimate,
+                    "rendered": rendered, "refused": refused})
+
+
+@bp.get("/api/campaigns/<int:campaign_id>/batch/<batch_id>")
+def api_batch_status(campaign_id, batch_id):                  # noqa: ANN202
+    campaign = CsCampaign.query.get_or_404(campaign_id)
+    jobs_rows = CreativeJob.query.filter_by(batch_id=batch_id).order_by(CreativeJob.id).all()
+    if not jobs_rows:
+        return jsonify({"ok": False, "error": "No batch with that id on this campaign."}), 404
+    done = sum(1 for j in jobs_rows if j.state == "complete")
+    failed = sum(1 for j in jobs_rows if j.state == "failed")
+    return jsonify({"ok": True, "batch_id": batch_id, "total": len(jobs_rows),
+                    "done": done, "failed": failed,
+                    "jobs": [j.as_dict() for j in jobs_rows]})
+
+
+@bp.get("/api/campaigns/<int:campaign_id>/shares")
+def api_list_campaign_shares(campaign_id):                    # noqa: ANN202
+    from modules.commercial_builder import review_spec
+    shares = (CsShare.query.filter_by(kind="campaign", subject_id=campaign_id)
+             .order_by(CsShare.round_no.desc(), CsShare.id.desc()).all())
+    rows = []
+    for share in shares:
+        row = share.to_dict()
+        row["url"] = _share_url(share.token)
+        row["round_state"] = review_spec.round_state(share.round_no)
+        rows.append(row)
+    return jsonify({"ok": True, "shares": rows,
+                    "next_round": review_spec.round_state(len(rows) + 1)})
+
+
+@bp.post("/api/campaigns/<int:campaign_id>/share")
+def api_send_campaign_for_approval(campaign_id):              # noqa: ANN202
+    """Send the whole campaign for approval -- WO-CS8 item 5. One
+    `kind="campaign"` share whose `subject_id` is the campaign, covering
+    every asset that has something to show; per-asset decisions are what
+    `CsShareDecision.asset_project_id` (added for exactly this) is for. The
+    round counter and cap are `CsShare`'s own, read from
+    `modules.commercial_builder.review_spec` exactly as a single version's
+    review already does -- one rule, never a second copy of it for a
+    campaign."""
+    from modules.commercial_builder import review_spec
+    campaign = CsCampaign.query.get_or_404(campaign_id)
+    assets = campaign.assets.all()
+    if not assets:
+        return jsonify({"ok": False, "error": "Add at least one asset "
+                        "before sending this campaign for approval."}), 400
+    body = request.get_json(silent=True) or {}
+
+    previous = CsShare.query.filter_by(kind="campaign", subject_id=campaign.id).all()
+    round_no = len(previous) + 1
+    for old in previous:
+        old.revoked = True
+
+    # A share row still needs a project_id -- a representative one, never
+    # read as the subject for this kind. `CsShare`'s own docstring says why
+    # `kind` + `subject_id` exist: so a second kind added later needs no
+    # second table, not so `project_id` stops meaning anything.
+    share = CsShare(token=secrets.token_urlsafe(24), kind="campaign",
+                    subject_id=campaign.id, project_id=assets[0].project_id,
+                    round_no=round_no, created_by=_actor(),
+                    message=str(body.get("message") or "").strip()[:2000])
+    db.session.add(share)
+    for a in assets:
+        p = CsProject.query.get(a.project_id)
+        if p is not None:
+            p.status = "Client Review"
+    db.session.commit()
+
+    state = review_spec.round_state(round_no)
+    if state["over"]:
+        _log_review("creative_review_rounds_exceeded", campaign,
+                    detail=f"Round {round_no} on {campaign.name}")
+    _log_review("creative_review_sent", campaign,
+               detail=f"{state['label']} · {campaign.name} ({len(assets)} assets)")
+
+    row = share.to_dict()
+    row["url"] = _share_url(share.token)
+    row["round_state"] = state
+    row["delivery"] = _deliver_review(
+        campaign, share, row["url"],
+        name=str(body.get("reviewer_name") or "").strip()[:200],
+        email=str(body.get("reviewer_email") or "").strip()[:200])
+    return jsonify({"ok": True, "share": row})
 
 
 @bp.get("/api/projects/<int:project_id>/usage-summary")

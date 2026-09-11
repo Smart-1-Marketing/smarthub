@@ -120,6 +120,7 @@ _ITEMS = [
     ("_seccs", "", "", "Creative Studio"),
     ("cs_dashboard", "/creative-studio/", "&#127912;", "Create"),
     ("cs_projects", "/creative-studio/projects", "&#128196;", "Projects"),
+    ("cs_campaigns", "/creative-studio/campaigns", "&#128188;", "Campaigns"),
     ("cs_templates", "/creative-studio/templates", "&#128209;", "Templates"),
     ("cs_ai_tools", "/creative-studio/ai-tools", "&#129302;", "AI Tools"),
     ("cs_brand_kits", "/creative-studio/brand-kits", "&#127912;", "Brand Kits"),

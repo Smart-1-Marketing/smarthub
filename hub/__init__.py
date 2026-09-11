@@ -7350,6 +7350,20 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # Bring in every Commercial Builder Campaign row Creative Studio has a
+    # project bound to -- WO-CS8 item 1. Idempotent on cb_campaign_id, and
+    # guarded the same way: a migration that cannot run this boot leaves a
+    # campaign unmigrated for the next one, not the Hub down.
+    try:
+        from modules.creative_studio.campaign_spec import migrate_cb_campaigns as _cs_migrate_campaigns
+        with app.app_context():
+            _cs_migrate_campaigns()
+    except Exception as _cs_campaign_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_campaign_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # Refill the persistent disk from the database if this is a *new* disk.
     # JSON files on /var/data are outside the database backup and do not
     # survive the disk being recreated, so hub/jsonstore.py mirrors the ones
