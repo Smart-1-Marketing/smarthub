@@ -21,6 +21,28 @@ log = logging.getLogger(__name__)
 __version__ = "1.1.0"
 
 
+_QA_GOOGLE_SCOPES = (
+    "https://www.googleapis.com/auth/analytics.edit",
+    "https://www.googleapis.com/auth/tagmanager.delete.containers",
+)
+
+
+def _install_qa_google_scopes():
+    """Make Google Finder request the permissions the QA delete buttons need.
+
+    Existing refresh tokens keep their old grants until that Google login is
+    reconnected; the QA screen detects that case and explains it. New/reconnected
+    logins request these scopes alongside Google Finder's existing read scopes.
+    """
+    try:
+        from modules.google_finder import app as gf
+        for scope in _QA_GOOGLE_SCOPES:
+            if scope not in gf.SCOPES:
+                gf.SCOPES.append(scope)
+    except Exception as exc:  # noqa: BLE001 -- never make Hub startup depend on this
+        log.warning("google_access: could not extend Google Finder scopes: %s", exc)
+
+
 def register_google_access(app, create_tables=True):
     """Attach Google Access and its internal QA screen.
 
@@ -31,6 +53,8 @@ def register_google_access(app, create_tables=True):
     from .app import admin_bp, public_bp
     from .qa_inactive import qa_bp
     from .models import db
+
+    _install_qa_google_scopes()
 
     if "google_access_public" not in app.blueprints:
         app.register_blueprint(public_bp)
