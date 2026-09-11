@@ -196,10 +196,12 @@ finally:
 
 
 # ---------------------------------------------------------------------------
-section("The four AI buttons, against a model that will not take the tool")
+section("The two AI buttons, against a model that will not take the tool")
 # ---------------------------------------------------------------------------
-# The landing review fetches the page, so it is exercised in its own section
-# below: here are the three that only ask the model.
+# The landing review fetches the page (its own section below) and the ZIP
+# lookup measures a radius against a bundled centroid table rather than
+# asking a model at all (also its own section below) -- here are the two
+# that only ask the model.
 ASKED = []
 
 
@@ -216,13 +218,6 @@ desc_source.source_context = lambda urls: 'Verified fixture business: local serv
 _real_ai = io._openai_response
 io._openai_response = stub_ai
 try:
-    z = client.post("/api/zipcodes-in-radius",
-                    json={"origin": "Carmel, IN", "radius": "10"}).get_json()
-    check("the ZIP lookup returns the list", z.get("count"), 3)
-    check("and is the one call in this module that asks for live search",
-          [a["search"] for a in ASKED if a["purpose"] == "zip_radius"], [True])
-
-    ASKED.clear()
     d = client.post("/api/generate-business-description",
                     json={"urls": ["https://acme.example"]}).get_json()
     check("the business description comes back", bool(d.get("description")))
@@ -235,18 +230,56 @@ try:
     check("and does not ask for search", ASKED[0]["search"], False)
 
     # Every call in this module used to be filed under "business_description",
-    # so the usage page could not tell a billed ZIP lookup from a billed
-    # landing-page review.
+    # so the usage page could not tell a billed landing-page review from
+    # anything else.
     ASKED.clear()
-    client.post("/api/zipcodes-in-radius", json={"origin": "Carmel, IN", "radius": "5"})
     client.post("/api/generate-business-description", json={"urls": ["https://a.example"]})
     client.post("/api/media-mix-recommendation", json={"client": "Acme"})
     check("each button files its spend under its own purpose",
           sorted(a["purpose"] for a in ASKED),
-          ["business_description", "media_mix", "zip_radius"])
+          ["business_description", "media_mix"])
 finally:
     io._openai_response = _real_ai
     desc_source.source_context = _real_desc_source
+
+
+# ---------------------------------------------------------------------------
+section("The ZIP lookup is measured against a centroid table, not a model")
+# ---------------------------------------------------------------------------
+# This used to hand a model a web-search tool and ask it to enumerate every
+# ZIP Code a radius touches, which came back plausible and wrong by two
+# orders of magnitude on an ordinary small-town radius (2,985 ZIP Codes for a
+# 10-mile radius that holds about 22). Both providers are stubbed the way
+# test_proposal_targeting.py stubs them for the map, so nothing here depends
+# on somebody else's API.
+from hub import target_map as tmap                                 # noqa: E402
+from hub import zip_geo                                            # noqa: E402
+
+_CARMEL_IN = (39.9784, -86.1180)
+_real_city_lookup = tmap._city_lookup
+_real_zip_lookup = tmap._zip_lookup
+tmap._city_lookup = lambda name, state: (
+    {"lat": _CARMEL_IN[0], "lon": _CARMEL_IN[1], "label": "Carmel, IN",
+     "source": "place name"} if name.strip().lower() == "carmel" else None)
+tmap._zip_lookup = lambda zipcode: None
+try:
+    ASKED.clear()
+    io._openai_response = stub_ai   # must never be called for this route
+    z = client.post("/api/zipcodes-in-radius",
+                    json={"origin": "Carmel, IN", "radius": "10"}).get_json()
+    _expected = zip_geo.zips_within_radius(_CARMEL_IN[0], _CARMEL_IN[1], 10)
+    check("the ZIP lookup returns the measured list",
+          z.get("count") == len(_expected) and len(_expected) > 0, True)
+    check("and never asks the model at all", ASKED, [])
+
+    zz = client.post("/api/zipcodes-in-radius",
+                     json={"origin": "Nowheresville", "radius": "10"}).get_json()
+    check("an origin the geocoder cannot place names the origin",
+          "Nowheresville" in zz.get("error", ""), True)
+finally:
+    io._openai_response = _real_ai
+    tmap._city_lookup = _real_city_lookup
+    tmap._zip_lookup = _real_zip_lookup
 
 
 # ---------------------------------------------------------------------------
@@ -260,8 +293,7 @@ def cut_short(prompt, max_output_tokens=6000, search=False, purpose="io_builder"
 io._openai_response = cut_short
 desc_source.source_context = lambda urls: 'Verified fixture business: local services.'
 try:
-    for path, body in (("/api/zipcodes-in-radius", {"origin": "Carmel, IN", "radius": "10"}),
-                       ("/api/generate-business-description", {"urls": ["https://a.example"]}),
+    for path, body in (("/api/generate-business-description", {"urls": ["https://a.example"]}),
                        ("/api/media-mix-recommendation", {"client": "Acme"})):
         r = client.post(path, json=body)
         check(f"{path} refuses rather than answering emptily", r.status_code, 502)
