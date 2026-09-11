@@ -164,8 +164,20 @@ def update_trigger_state(token: str, trigger_id: str, *, active: bool | None,
 
 
 def create(*, client: str, vertical: str = "restaurant", lead_id: str = "",
-          created_by: str = "", mode: str = "guided", zip_code: str = "") -> dict:
-    """A brand-new campaign, draft status, no picks yet."""
+          created_by: str = "", mode: str = "guided", zip_code: str = "") -> dict | None:
+    """A brand-new campaign, draft status, no picks yet.
+
+    None on a write failure rather than letting `jsonstore.write_json()`
+    raise through -- this function was the one place in the module that did
+    not honour the module's own "nothing here may raise" rule. A raised
+    exception here reaches `api_start()` unguarded, which has no exception
+    handler of its own (this module is a blueprint on the hub app, and the
+    hub app -- unlike a dispatcher-mounted one -- installs no blanket
+    `@app.errorhandler` at all), so it surfaced as Flask's stock HTML 500
+    page: not JSON, so `fetch().then(r => r.json())` in
+    `weather_setup_staff.html` rejected and the rep saw "Could not reach the
+    server" for what was actually a disk write failing on our end.
+    """
     token = new_token()
     row = {
         "token": token,
@@ -188,7 +200,15 @@ def create(*, client: str, vertical: str = "restaurant", lead_id: str = "",
         "work_order": "",
         "revision": 1,
     }
-    jsonstore.write_json(_path(token), row)
+    try:
+        jsonstore.write_json(_path(token), row)
+    except Exception as exc:                                  # noqa: BLE001
+        try:
+            from hub import errors
+            errors.log_exception("weather_setup", exc, path=_path(token))
+        except Exception:                                     # noqa: BLE001
+            pass
+        return None
     return row
 
 
