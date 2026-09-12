@@ -21,7 +21,7 @@
 <main>
   <div class="head">
     <div>
-      <h1>Inactive Google Accounts QA</h1>
+      <h1>Inactive Google Accounts QA {{ help_dot('google_access.cleanup.progress') if help_dot is defined else '' }} {{ help_dot('google_access.cleanup.delete') if help_dot is defined else '' }} </h1>
       <p>Find GA4 properties with no events or sessions in the last {{ window_days }} days, plus GTM containers that can be safely tied to the same inactivity signal. GTM has no traffic-reporting API, so uncertain containers stay in Needs Review instead of being guessed inactive.</p>
     </div>
     <div class="actions">

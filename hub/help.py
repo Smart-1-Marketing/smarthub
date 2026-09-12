@@ -2209,11 +2209,12 @@ REGISTRY: list[Help] = [
        "render on it. Status follows the vocabulary the whole pipeline uses: "
        "Draft, Rendering, Internal Review, Client Review, Changes Requested, "
        "Approved, Archived."),
-    _h("creative_studio.project_detail", "A record, not yet the editor",
-       "The scene-by-scene editor and the queued Creatomate render ship in "
-       "later work orders. This page exists now so nothing about a project "
-       "-- who started it, what it is for, which client it is filed under "
-       "-- is lost while those land."),
+    _h("creative_studio.project_detail", "Open the Storyboard Editor and review a version",
+       "Choose a template, then use Open in Storyboard Editor or Continue in Storyboard Editor. "
+       "Review the resolved variables and fill missing required values. AI Generation queues concepts "
+       "before a script; scene images need a scene from the editor. Render a version in the editor. "
+       "When its finished render appears under Versions, use Send for Approval for that version.",
+       link="/creative-studio/projects", link_text="Open projects"),
     _h("creative_studio.brand_kits", "Find a client's brand record",
        "Logos and colors come from Brandfetch and the client's last site "
        "scan; the business facts below them -- services, promotions, "
@@ -2309,6 +2310,40 @@ REGISTRY: list[Help] = [
        "A 9:16 whose text would sit under a platform's own UI is refused "
        "rather than built; every other size is built and named if it is "
        "tight."),
+    # Scheduled maintenance: verified against main on September 12, 2026.
+    _h('radio_promo.delivery.final_mix', 'Save the final radio music mix before sharing',
+       'Choose the voice and music bed for each spot length, then Render the mix. Listen to the preview and use Save mix for customer. A browser preview or download alone does not save the customer version. If the voice or music changes, render and save the mix again. Delivery and sharing use the saved final mix; advertising audio is also filed in the client assets. Read any timing or audio findings before saving.',
+       link='/tools/radio-promo/', link_text="Open tool"),
+    _h('hub.qa_tasks.delegation', 'Taking over a QA task as a delegate',
+       'A configured delegate may claim an open task assigned to the person they cover. Claiming changes the assignee and records the handoff in the task thread. Being able to see the team board does not grant permission to claim every task. Ask an administrator to configure delegation if you are covering someone and cannot claim their task.',
+       link='/qa-tasks', link_text="Open tool"),
+    _h('hub.users.add', 'Add a Hub user',
+       'An administrator can open Users and choose Add user, enter the name and email, and create a General Access account. Only a super admin can create higher access roles. Supply a password or let the Hub generate one. The created account is active; copy the password when it is shown because that response displays it only once.',
+       link='/diagnostics/users', link_text="Open tool"),
+    _h('google_access.cleanup.progress', 'Read an incomplete Google cleanup scan',
+       'Open Inactive Google Accounts QA and use Run fresh scan. Results appear as connected accounts are scanned, so partial results do not mean the scan is complete. Tag Manager calls are paced to respect Google limits. If scanning fails, read the error and retry; do not treat an account that could not be read as inactive.',
+       link='/tools/google-access/qa-inactive/', link_text="Open tool"),
+    _h('google_access.cleanup.delete', 'Review inactivity before deleting a Google resource',
+       'GA4 inactivity is based on measured events and sessions during the displayed window. GTM has no traffic-reporting API: containers without enough evidence stay in Needs Review. Verify the connected account and resource before confirming deletion. GA4 deletion moves a property to the Analytics trash; GTM container deletion is permanent. Use the scan evidence rather than assuming every old resource is unused.',
+       link='/tools/google-access/qa-inactive/', link_text="Open tool"),
+    _h('seo_intelligence.overview.evidence', 'Use Search Console evidence in SEO Intelligence',
+       'Open SEO Intelligence for client snapshots and the agency Action Queue. Recommendations use weekly Search Console evidence and 28-day comparisons. A connected Google account needs access to the property and may need reconnection to grant Search Console access. Review the evidence behind a recommendation before creating another page, especially when existing pages compete for the same queries. Record completed actions so later snapshots can measure outcomes.',
+       link='/seo/intelligence/', link_text="Open tool"),
+    _h('proposal_execution.overview.approval', 'Take an approved proposal into execution',
+       'In Proposal Execution Center, choose the client, load an uploaded proposal and select Analyze Proposal. Review the analysis and required inputs before starting the run. Research and internal drafts can run in the background. Publishing, scheduling, changes to live campaigns and starting spend require explicit approval or a handoff. Open task outputs before approving them; Request Changes or Re-run when they need correction. Marking a handoff scheduled or live records its state, rather than performing the external work.',
+       link='/proposal-execution', link_text="Open tool"),
+    _h('hub.client360.links', 'Keep multiple client links and proposal files',
+       'Client 360 can retain multiple links for a platform and multiple Smart 1 Suite sub-accounts for one client. Check the specific destination before opening or disconnecting a link. Uploaded proposal PDFs keep their original filenames, making the intended file easier to identify when several proposals are on the client record.',
+       link='/client360', link_text="Open tool"),
+    _h('hub.account.notifications', 'Account menu and QA notifications',
+       'Use the initials circle in the upper-right corner to open the account dropdown and Log out. The notification bell includes radio, video and display processing plus personal QA assignments and updates on tasks you raised. Task links open the QA record; due dates and overdue status help prioritize it. New activity can become unread even if the task status is unchanged. Help is available beside the bell rather than in the main sidebar.',
+       link='/help', link_text="Open tool"),
+    _h('landing_ads.prospects.import', 'Preview a prospect import before activating outreach',
+       'In Industry Prospect Builder, upload the list and choose Preview & clean list. Review usable contacts before choosing the GHL sub-account and tags. Leave Activate outreach after import off while checking the first import. Enabling it adds the trigger tag and may start a GHL workflow. Read the imported and failed counts; a partially completed contact may still need its tags retried.', link='/tools/landing-ads/prospects', link_text="Open tool"),
+    _h('weather_setup.verticals.choose', 'Choose the weather campaign industry',
+       'Weather Trigger Setup supports Restaurant, HVAC, and Retail / Home Goods campaigns. Choose the matching industry when starting a campaign: it determines the available triggers and draft copy. Review the resulting offer and seasonal language before publishing; changing the industry is more than changing the business name.', link='/tools/weather-setup', link_text="Open tool"),
+    _h('fan_radio.voice.settings', 'Apply Fan Radio voice settings to future recordings',
+       'Use Voice settings to choose the voice mode and style strength, then generate a voice sample if needed. Samples use the voice-generation allowance. Save voice settings to all scripts to use them on future recordings. Existing clips do not change until you re-record them. Open the library to continue a saved project rather than creating a duplicate.', link='/tools/fan-radio/', link_text="Open tool"),
 ]
 
 _BY_KEY = {h.key: h for h in REGISTRY}
