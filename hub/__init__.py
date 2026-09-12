@@ -3552,6 +3552,67 @@ def create_hub_app() -> Flask:
         return render_template("client360.html", user=current_user(), modules=MODULES,
                                active="c360", q=request.args.get("q", ""))
 
+    def _ask_role(user=None, account=None):
+        """Role for Ask SmartHub, preserving the shared-password admin rule."""
+        account = current_account() if account is None else account
+        if account is not None:
+            return account.role
+        user = _hub_user() if user is None else user
+        # Google and demo sessions carry a signed role even when they do not
+        # yet have a password-account row. A legacy/shared session carries no
+        # rich identity and remains Admin, matching hub/access.py.
+        if user is not None and getattr(user, "via", "password") in ("google", "demo"):
+            return getattr(user, "role", "member")
+        return "admin"
+
+    @app.route("/ask-smarthub")
+    def ask_smarthub_page():
+        gate = _require_page()
+        if gate:
+            return gate
+        user = _hub_user()
+        account = current_account()
+        return render_template(
+            "ask_smarthub.html", user=current_user(), active="ask_smarthub",
+            role=_ask_role(user, account),
+            initial_client=(request.args.get("client") or "").strip()[:180],
+            context_path=(request.args.get("context_path") or "").strip()[:240],
+        )
+
+    @app.route("/api/ask-smarthub", methods=["POST"])
+    def ask_smarthub_api():
+        gate = _require_api()
+        if gate:
+            return gate
+        user = _hub_user()
+        if getattr(user, "is_demo", False):
+            return jsonify({"error": "Ask SmartHub is disabled in demo mode because it uses live data and AI credits."}), 403
+        account = current_account()
+        role = _ask_role(user, account)
+        actor = (getattr(account, "email", "") or getattr(user, "email", "")
+                 or current_user() or "Shared login")
+        body = request.get_json(silent=True) or {}
+        try:
+            from . import ask_smarthub
+            result = ask_smarthub.ask(
+                body.get("question", ""), role=role, actor=actor,
+                context=body.get("context"), history=body.get("history"))
+            return jsonify(result)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+        except RuntimeError as exc:
+            text = str(exc)
+            if text.startswith("RATE_LIMIT:"):
+                wait = int(text.partition(":")[2] or 60)
+                return jsonify({"error": "Too many questions. Please try again later."}), 429, {
+                    "Retry-After": str(wait)}
+            raise
+        except Exception as exc:  # provider detail is logged, never shown
+            errors.log_exception("ask_smarthub", exc, actor=actor)
+            return jsonify({"error": "Ask SmartHub is unavailable right now. Please try again shortly."}), 503
+
     @app.route("/client-links/<share_token>")
     def client_links(share_token):
         """A deliberately chrome-free page a customer can keep and reopen."""
@@ -6956,7 +7017,8 @@ def create_hub_app() -> Flask:
                          # blueprint (paint-animation) has to be able to
                          # tell somebody who wandered into another
                          # (Commercial Builder) that it finished.
-                         b'<script defer src="/hub-job-notify.js"></script>')
+                         b'<script defer src="/hub-job-notify.js"></script>'
+                         b'<script defer src="/assets/ask-smarthub-widget.js?v=ask-v1"></script>')
             # The third code path. hub/templates/base.html links these for the
             # Hub's own pages and wsgi.py's HubBar injects them into the twenty
             # dispatcher-mounted modules -- and a blueprint registered on the

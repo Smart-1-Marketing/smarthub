@@ -39,6 +39,15 @@ GA4 reports can run only against a property already mapped to that client in
 the durable Google index; an unknown or ambiguous property is refused. Google
 login/token material and internal Suite delivery identifiers are never returned.
 
+## Ask SmartHub
+
+The Hub application exposes a read-only natural-language workspace at
+`/ask-smarthub` and a floating drawer across authenticated staff pages. Its
+server-side planner can select only from the V2 allowlist above. Account roles
+are re-read on every request; QuickBooks reads are limited to admins, demo mode
+is blocked from spending AI credits, and every question plus underlying tool
+call is written to the activity log.
+
 Resources:
 
 - `smarthub://capabilities`
