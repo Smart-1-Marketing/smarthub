@@ -4323,23 +4323,111 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        from . import knack_api, client_groups
+        from . import knack_api, client_groups, ticket_links
         name = (request.args.get("name") or "").strip()
         website = (request.args.get("website") or "").strip()
         if not knack_api.configured():
             return jsonify({"configured": False, "tickets": []})
         # A grouped client reads across the whole group, the way the work log
         # and the invoices do: a ticket for one location of a multi-location
-        # client is routinely filed under that location's own name.
-        names = client_groups.member_names(name, request.args.get("url", "")) \
-            or [name]
+        # client is routinely filed under that location's own name. A name a
+        # rep has confirmed with the "find a match" or "search" tool on this
+        # card rides along the same way — it is why the lookup can find a
+        # ticket filed under a name none of the group's own aliases predict.
+        linked = ticket_links.linked_orgs(name)
+        names = (client_groups.member_names(name, request.args.get("url", ""))
+                 or [name]) + linked
         try:
             return jsonify({"configured": True,
-                            "tickets": knack_api.list_tickets(names, website)})
+                            "tickets": knack_api.list_tickets(names, website),
+                            "linked": linked})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-tickets", exc, path=request.path,
                                  actor=current_user() or "")
-            return jsonify({"configured": True, "tickets": [], "error": str(exc)})
+            return jsonify({"configured": True, "tickets": [], "error": str(exc),
+                            "linked": linked})
+
+    @app.route("/api/client/tickets/suggest")
+    def api_client_tickets_suggest():
+        """Fuzzy candidates for a client whose known aliases found nothing.
+
+        Behind a button, never the automatic ticket fetch: this is a real
+        Knack pull of the ticket object, and a suggestion is a suggestion —
+        `link()` is what a rep presses to confirm one, never this route.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_api, ticket_links
+        name = (request.args.get("name") or "").strip()
+        if not knack_api.configured():
+            return jsonify({"configured": False, "candidates": []})
+        if not name:
+            return jsonify({"configured": True, "candidates": [],
+                            "error": "No client name was given."})
+        try:
+            return jsonify({"configured": True,
+                            "candidates": ticket_links.suggest_for(name)})
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("knack-tickets", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"configured": True, "candidates": [],
+                            "error": str(exc)})
+
+    @app.route("/api/client/tickets/search")
+    def api_client_tickets_search():
+        """Every ticket "Client Organization" containing the typed text.
+
+        For a rep who already has a rough idea what the ticket was filed
+        under and wants to find it directly, rather than wait on a fuzzy
+        score against the client's own name.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_api, ticket_links
+        q = (request.args.get("q") or "").strip()
+        if not knack_api.configured():
+            return jsonify({"configured": False, "results": []})
+        if not q:
+            return jsonify({"configured": True, "results": [],
+                            "error": "Type something to search for."})
+        try:
+            return jsonify({"configured": True,
+                            "results": ticket_links.search(q)})
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("knack-tickets", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"configured": True, "results": [], "error": str(exc)})
+
+    @app.route("/api/client/tickets/link", methods=["POST"])
+    def api_client_tickets_link():
+        """Confirm that a ticket "Client Organization" string is this client's.
+
+        Additive and Hub-side only — nothing is written to Knack, and nothing
+        is applied without this press. Reversed by
+        ``/api/client/tickets/unlink``.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import ticket_links
+        body = request.get_json(silent=True) or {}
+        out = ticket_links.link(str(body.get("name") or ""),
+                                 str(body.get("org") or ""),
+                                 actor=current_user() or "")
+        return jsonify(out)
+
+    @app.route("/api/client/tickets/unlink", methods=["POST"])
+    def api_client_tickets_unlink():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import ticket_links
+        body = request.get_json(silent=True) or {}
+        out = ticket_links.unlink(str(body.get("name") or ""),
+                                   str(body.get("org") or ""))
+        return jsonify(out)
 
     @app.route("/api/client/requests/triage", methods=["POST"])
     def api_client_request_triage():
