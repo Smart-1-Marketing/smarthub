@@ -824,7 +824,14 @@ def job_qa_task_vision(app) -> dict:
         return qa_tasks.describe_image_backlog()
 
 
+def job_ai_comparisons(app) -> dict:
+    from hub import ai_comparison_queue
+    return ai_comparison_queue.kick(app)
+
+
 JOBS = {
+    "ai_comparisons":   (1, job_ai_comparisons,
+                          "Start one budget-reserved model comparison in its own worker."),
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
     "clear_stuck_scans": (15, job_clear_stuck_scans,
