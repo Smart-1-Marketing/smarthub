@@ -755,5 +755,54 @@ check("the campaign it started actually carries the pest_control vertical",
      wx_store.get(pest_started_token)["vertical"], "pest_control")
 
 
+# ---------------------------------------------------------------------------
+section("Moving Company: the ninth vertical, end to end")
+# ---------------------------------------------------------------------------
+
+moving_row = wx_store.create(client="Reliable Movers", vertical="moving", zip_code="46032")
+check("a moving campaign records its vertical", moving_row["vertical"], "moving")
+
+result = wx_store.save_picks(moving_row["token"], ["storm-reschedule-alert", "perfect-moving-day"])
+check("moving picks against moving triggers are accepted", result["ok"], True)
+
+result = wx_store.save_picks(moving_row["token"], ["termite-swarm-season"])
+check("a pest_control trigger id is refused on a moving campaign", result["ok"], False)
+
+result = wx_store.save_picks(moving_row["token"], ["spring-roof-inspection"])
+check("a roofing trigger id is refused on a moving campaign", result["ok"], False)
+
+moving_drafts = wx_copy.generate_drafts("cold-snap-moving-advisory", "Reliable Movers")
+check("moving drafts fall back to the house source with no AI key",
+     moving_drafts["source"], "house")
+check("moving house copy is written as an advisory, not a dining invitation",
+     any("plan ahead" in (d["headline"] + d["primary_text"]).lower()
+         or "get ahead of it" in (d["headline"] + d["primary_text"]).lower()
+         or "ready when you are" in (d["headline"] + d["primary_text"]).lower()
+         for d in moving_drafts["drafts"]), True)
+check("moving house copy never talks about sitting down to eat",
+     any("table" in (d["headline"] + d["primary_text"]).lower()
+         for d in moving_drafts["drafts"]), False)
+check("moving house copy never talks about pests or termites",
+     any("pest" in (d["headline"] + d["primary_text"]).lower()
+         or "termite" in (d["headline"] + d["primary_text"]).lower()
+         for d in moving_drafts["drafts"]), False)
+
+booking_drafts = wx_copy.generate_drafts("spring-moving-season", "Reliable Movers")
+check("moving's own booking-tagged rows read as an invitation to book, not just an advisory",
+     any("book it" in (d["headline"] + d["primary_text"]).lower()
+         for d in booking_drafts["drafts"]), True)
+
+storm_moving_drafts = wx_copy.generate_drafts("storm-reschedule-alert", "Reliable Movers")
+check("the alert-driven storm blocklist covers moving's own alert trigger too",
+     storm_moving_drafts["source"] in ("house", "ai"), True)
+
+resp = staff_client.post("/tools/weather-setup/api/start",
+                         json={"client": "Summit Moving & Storage", "vertical": "moving"})
+check("api/start accepts the moving vertical and starts the campaign", resp.status_code, 200)
+moving_started_token = resp.get_json()["token"]
+check("the campaign it started actually carries the moving vertical",
+     wx_store.get(moving_started_token)["vertical"], "moving")
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
