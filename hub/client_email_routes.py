@@ -8,14 +8,14 @@ install(bp)
 @bp.get('/client-email')
 def page():
     from hub import current_user
-    return render_template('client_email.html', client=request.args.get('client', '')[:200], user=current_user())
+    return render_template('client_email.html', client=request.args.get('client', '')[:200], domain=request.args.get('domain', '')[:300], user=current_user())
 
 @bp.get('/api/client-email/state')
 def state():
     try:
-        saved = email.lookup(request.args.get('client'))
+        saved = email.lookup(request.args.get('client'), request.args.get('domain', ''))
         try:
-            result = email.summary(request.args.get('client'))
+            result = email.summary(request.args.get('client'), request.args.get('domain', ''))
         except email.EmailError as exc:
             result = {'linked': False, 'error': str(exc), 'messages': []}
         result['revision'] = saved.get('revision') if saved else None
@@ -43,9 +43,9 @@ def link():
     try:
         from hub import current_user
         if body.get('unlink') is True:
-            email.unlink(body.get('client'), body.get('revision'))
+            email.unlink(body.get('client'), body.get('revision'), body.get('domain', ''))
             return jsonify(ok=True)
-        row = email.link(body.get('client'), body.get('contact_id'), body.get('revision'), str(current_user() or ''))
+        row = email.link(body.get('client'), body.get('contact_id'), body.get('revision'), str(current_user() or ''), domain=body.get('domain', ''))
         return jsonify(ok=True, revision=row['revision'])
     except email.EmailError as exc:
         return jsonify(error=str(exc)), 409

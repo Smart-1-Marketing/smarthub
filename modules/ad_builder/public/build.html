@@ -4396,7 +4396,7 @@
     }
 
     var emailLink=$('clientEmailLink');
-    if(emailLink){var entry=(window.__campaignList||[]).find(function(c){return c.requestId===state.requestId;});var client=entry&&entry.client;emailLink.style.display=window.S1_BASE&&client?'':'none';if(client)emailLink.href=location.origin+'/client-email?client='+encodeURIComponent(client);}
+    if(emailLink){var entry=(window.__campaignList||[]).find(function(c){return c.requestId===state.requestId;});var client=entry&&entry.client;emailLink.style.display=window.S1_BASE&&client?'':'none';if(client)emailLink.href=location.origin+'/client-email?client='+encodeURIComponent(client)+'&domain='+encodeURIComponent(entry.domain||(state.doc&&state.doc.campaign.brand.domain)||'');}
     var proofBtn = $('proofLink');
     if (proofBtn && state.rendered) { proofBtn.href = proofUrl(); proofBtn.style.display = ''; }
   }

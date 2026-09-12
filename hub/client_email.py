@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 import requests
 from . import ghl_contacts, jsonstore
+from .client_key import domain_key
 
 class EmailError(ValueError):
     pass
@@ -35,6 +36,18 @@ def _path():
 
 def _name(value):
     return re.sub(r'\s+', ' ', str(value or '').strip()).casefold()
+
+def _domain(value):
+    value = str(value or '').strip()
+    if value and (len(value) > 300 or not domain_key(value)):
+        raise EmailError('Open this client from Client 360 with a valid website.')
+    return value
+
+def _matches(row, client, domain):
+    left, right = domain_key(row.get('domain') or ''), domain_key(domain)
+    if left and right:
+        return left == right
+    return _name(row.get('client')) == _name(client)
 
 def _client(value):
     value = str(value or '').strip()
@@ -90,11 +103,12 @@ def _contact(contact_id):
             'name': str(raw.get('name') or raw.get('contactName') or ' '.join(filter(None, [raw.get('firstName'), raw.get('lastName')]))),
             'company': str(raw.get('companyName') or '')}
 
-def lookup(client):
+def lookup(client, domain=""):
     client = _client(client)
-    rows = [r for r in _store()['links'] if _name(r.get('client')) == _name(client)]
+    domain = _domain(domain)
+    rows = [r for r in _store()['links'] if _matches(r, client, domain)]
     if len(rows) > 1:
-        raise EmailError('Several contact links exist for this client. Resolve the duplicate links before continuing.')
+        raise EmailError('This name matches several client contact links. Open the client with its website from Client 360.')
     return rows[0] if rows else None
 
 def search(term):
@@ -109,41 +123,45 @@ def search(term):
              'email': r.get('email') or '', 'company': r.get('companyName') or ''}
             for r in data['contacts'] if r.get('id') and r.get('locationId', location) == location]
 
-def link(client, contact_id, revision=None, actor=''):
+def link(client, contact_id, revision=None, actor='', domain=''):
     client = _client(client)
+    domain = _domain(domain)
     contact = _contact(contact_id)
-    row = dict(contact, client=client, revision=str(uuid.uuid4()), linked_by=actor,
+    row = dict(contact, client=client, domain=domain, revision=str(uuid.uuid4()), linked_by=actor,
                linked_at=datetime.now(timezone.utc).isoformat())
     def mutate(data):
         if not isinstance(data, dict) or not isinstance(data.get('links'), list):
             raise EmailError('Contact links are unreadable. Nothing changed.')
-        existing = [r for r in data['links'] if _name(r.get('client')) == _name(client)]
+        existing = [r for r in data['links'] if _matches(r, client, domain)]
         if len(existing) > 1 or (existing[0]['revision'] if existing else None) != revision:
             raise EmailError('The client contact link changed in another session. Refresh before choosing again.')
-        if any(r.get('id') == contact['id'] and r.get('location_id') == contact['location_id'] and _name(r.get('client')) != _name(client) for r in data['links']):
+        if any(r.get('id') == contact['id'] and r.get('location_id') == contact['location_id'] and not _matches(r, client, domain) for r in data['links']):
             raise EmailError('That contact is already linked to another client. Choose the correct contact before continuing.')
-        data['links'] = [r for r in data['links'] if _name(r.get('client')) != _name(client)] + [row]
+        data['links'] = [r for r in data['links'] if not _matches(r, client, domain)] + [row]
         return data
     jsonstore.update_json(_path(), mutate, default={'links': []}, durable=True)
     return row
 
-def unlink(client, revision):
+def unlink(client, revision, domain=""):
     client = _client(client)
+    domain = _domain(domain)
     def mutate(data):
         if not isinstance(data, dict) or not isinstance(data.get('links'), list):
             raise EmailError('Contact links are unreadable. Nothing changed.')
-        rows = [r for r in data['links'] if _name(r.get('client')) == _name(client)]
+        rows = [r for r in data['links'] if _matches(r, client, domain)]
         if len(rows) != 1 or rows[0]['revision'] != revision:
             raise EmailError('The contact link changed. Refresh before unlinking.')
-        data['links'] = [r for r in data['links'] if _name(r.get('client')) != _name(client)]
+        data['links'] = [r for r in data['links'] if not _matches(r, client, domain)]
         return data
     jsonstore.update_json(_path(), mutate, default={'links': []}, durable=True)
 
 
-def summary(client):
-    saved = lookup(client)
+def summary(client, domain=""):
+    saved = lookup(client, domain)
     if not saved:
         return {'linked': False, 'messages': []}
+    if domain_key(domain) and not domain_key(saved.get('domain') or ''):
+        raise EmailError('Verify this contact for the client’s website by linking it again.')
     if saved['location_id'] != _location():
         raise EmailError('Smart 1’s configured account changed. Verify this client’s contact link again.')
     contact = _contact(saved['id'])

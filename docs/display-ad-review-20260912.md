@@ -17,7 +17,7 @@ Abandoned approval renders expire after the cache retention period. Referenced a
 
 This uses Smart 1's existing GHL token and location configuration, not the client's own subaccount mapping. Contact, conversation and message read permissions are required. The Hub never sends an email from the linking or refresh buttons. Unlinking removes only the Hub association and keeps GHL's emails. Changed email addresses or a changed Smart 1 location require re-verification. No real client contact has been linked or emailed during development.
 
-GHL remains the source of the messages and their IDs. The Hub persists the explicitly selected client/contact/location association through its durable JSON store. Recent email views are limited to the latest 20 messages returned by GHL. Live account access and a real recipient still need verification.
+Client website identifies the client when available; ambiguous name-only matches are refused. GHL remains the source of the messages and their IDs. The Hub persists the explicitly selected client/contact/location association through its durable JSON store. Recent email views are limited to the latest 20 messages returned by GHL. Live account access and a real recipient still need verification.
 
 ## Validation and remaining configuration
 

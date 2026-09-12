@@ -331,8 +331,8 @@ function pick(i){
 }
 
 
-function loadClientEmailSummary(client,generation){
-  fetch('/api/client-email/state?client='+encodeURIComponent(client)).then(function(r){if(!r.ok)throw Error('Email contact could not be loaded.');return r.json();}).then(function(b){
+function loadClientEmailSummary(client,generation,domain){
+  fetch('/api/client-email/state?client='+encodeURIComponent(client)+'&domain='+encodeURIComponent(domain||'')).then(function(r){if(!r.ok)throw Error('Email contact could not be loaded.');return r.json();}).then(function(b){
     if(generation!==c360Generation)return;var box=document.getElementById('c360EmailSummary');if(!box)return;
     if(b.error){box.textContent='Client email: '+b.error;return;}
     box.textContent=b.linked?'Email contact: '+b.contact.name+' · '+b.contact.email+' · '+b.messages.length+' recent emails available.':'No email contact linked yet. Use Email client & history to select the client’s contact in Smart 1’s GHL account.';
@@ -343,7 +343,9 @@ function loadClientEmailSummary(client,generation){
 function render(g,q){
   c360Generation++;
   const emailGeneration=c360Generation;
-  setTimeout(function(){loadClientEmailSummary(g.client||q,emailGeneration);},0);
+  const emailWebsite=(g.websites||[])[0]||{};
+  const emailDomain=emailWebsite.domain||emailWebsite.liveUrl||'';
+  setTimeout(function(){loadClientEmailSummary(g.client||q,emailGeneration,emailDomain);},0);
   window.__trafficStarted=null;
   const name=g.client||q;
   window.CURRENT_CLIENT = name;
@@ -395,7 +397,7 @@ function render(g,q){
      card. The group button keeps the s1-acc-group class because
      loadGroup() and S1GroupLabel() address it by that name. */
   head+='<div class="c360-actions">'
-    +'<a class="ce-client-link" href="/client-email?client='+encodeURIComponent(name)+'">Email client &amp; history</a>'
+    +'<a class="ce-client-link" href="/client-email?client='+encodeURIComponent(name)+'&domain='+encodeURIComponent(emailDomain)+'">Email client &amp; history</a>'
     +'<button type="button" onclick="ioStart(\'new\')">New IO</button>'
     +'<button type="button" onclick="ioStart(\'renewal\')">Renew IO</button>'
     +'<button type="button" onclick="ioStart(\'proposal\')">IO from proposal</button>'

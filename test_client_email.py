@@ -26,6 +26,17 @@ class ClientEmailTest(unittest.TestCase):
         email.link('Renamed Example','contactA')
     def test_html_email_is_plain_text_and_scripts_are_omitted(self):
         self.assertEqual(email._plain('<p>Hello &amp; welcome</p><script>bad()</script>'), 'Hello & welcome')
+    def test_same_name_clients_are_separate_by_website(self):
+        email.link('Example','contactA',domain='one.test')
+        self.contact.update(id='contactB',email='second@example.test')
+        email.link('Example','contactB',domain='two.test')
+        self.assertEqual(email.lookup('Example','one.test')['id'],'contactA')
+        self.assertEqual(email.lookup('Example','two.test')['id'],'contactB')
+        self.assertEqual(email.lookup('Renamed Example','https://www.one.test/path')['id'],'contactA')
+        with self.assertRaises(email.EmailError):email.lookup('Example')
+    def test_name_only_legacy_link_requires_website_reverification(self):
+        email.link('Example','contactA')
+        with self.assertRaises(email.EmailError):email.summary('Example','one.test')
     def test_no_link_means_no_guessed_recipient(self):
         self.assertFalse(email.summary('Example')['linked']);email._get.assert_not_called()
     def test_explicit_link_and_history_keep_contact_and_message_ids(self):
