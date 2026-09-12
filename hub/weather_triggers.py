@@ -171,6 +171,41 @@ daily rows do, and `heavy-rain-dilution`/`evaporation-watch` are the two
 water-chemistry rows for rain diluting chemicals and heat evaporating the
 water level, each escalating past the ordinary chlorine-burn-off condition
 rather than duplicating it.
+
+## The seventh vertical
+
+Roofing & Exterior, and the claim held a sixth time: thirteen more rows,
+still the same rule vocabulary, still no change to `evaluate_trigger()`,
+`store.py`, `app.py` or the staff template. The psychology is a service
+reminder like HVAC's, built almost entirely around damage inspection rather
+than an appliance under strain — a roof does not fail on a comfortable day,
+so nearly every row names the specific risk a weather condition puts a
+shingle, a seal or a structure under and the inspection that heads it off.
+`high-wind-shingle-risk` and `wind-damage-inspection` are an escalating
+wind pair, the same shape as HVAC's `ac-overload`/`heat-index-strain` and
+auto's `battery-cold-test`/`deep-freeze-auto`. `wind-driven-rain` is the one
+row here that combines two conditions in a single rule (`wind_mph_min` and
+`precip_prob_min` together) rather than one — the same multi-condition
+shape the restaurant vertical's `patio-day` already uses — because wind and
+rain together find a failing flashing seal that either alone rarely does.
+`ice-dam-risk` is its own daily row rather than an escalation of anything:
+a freeze-thaw band, not a hard freeze, is what actually melts and refreezes
+snow at the eave. `first-freeze-roofing` is the once-per-season event —
+check gutters and flashing before the freeze finds them — with its own
+season-state key so it cannot collide with any of the other six verticals'
+first-freeze rows inside one campaign's carried state, even though all
+seven share the literal `once_per_season: "cold"` value: `trigger_state` is
+stored per-pick, keyed on `trigger_id`, in `store.py`, so none of them
+actually share a state dict. `deep-freeze-roofing` escalates past it for a
+genuinely extreme cold snap, the way HVAC's `deep-freeze` escalates past
+`hard-freeze`. `spring-roof-inspection` and `fall-roof-inspection` are the
+two shoulder-season pushes the vertical leans on hardest, and
+`gutter-cleaning-season` is a third, narrower fall push the way retail's
+`fall-clearance-day` sits alongside its own shoulder-season pair.
+`snow-load-roof`, `heavy-rain-leak-check` and `heat-wave-shingle-stress`
+round the book out: a single heavy snowfall for structural risk, a heavy
+rain for the leak it reveals, and sustained heat for the shingle damage it
+causes on its own, needing no storm alert behind any of them.
 """
 from __future__ import annotations
 
@@ -182,10 +217,11 @@ from datetime import date
 # auction. Enforced here, not merely disabled in the picker.
 MAX_TRIGGERS = 3
 
-VERTICALS = ("restaurant", "hvac", "retail", "auto", "landscaping", "pool_spa")
+VERTICALS = ("restaurant", "hvac", "retail", "auto", "landscaping", "pool_spa", "roofing")
 VERTICAL_LABELS = {"restaurant": "Restaurant", "hvac": "HVAC / Home Comfort",
                    "retail": "Retail / Home Goods", "auto": "Auto Repair / Service",
-                   "landscaping": "Landscaping / Lawn Care", "pool_spa": "Pool & Spa Service"}
+                   "landscaping": "Landscaping / Lawn Care", "pool_spa": "Pool & Spa Service",
+                   "roofing": "Roofing & Exterior"}
 
 
 @dataclass(frozen=True)
@@ -989,6 +1025,140 @@ TRIGGERS: dict[str, Trigger] = {
         windows=(("09:00", "20:00"),),
         cadence="daily", tags=("chemical", "relief"),
     ),
+    # -- Roofing & Exterior -----------------------------------------------
+    "storm-damage-inspection": Trigger(
+        id="storm-damage-inspection", name="Storm Damage Inspection", vertical="roofing",
+        reason="A severe weather alert is when hail and falling debris "
+               "actually damage a roof — an inspection ad for the day "
+               "after, never an invitation to be up on it during the storm.",
+        condition_label="NWS severe weather alert issued",
+        rule={"alert_required": True},
+        cadence="alert_driven", tags=("inspection", "safety"),
+    ),
+    "high-wind-shingle-risk": Trigger(
+        id="high-wind-shingle-risk", name="High Wind Shingle Risk", vertical="roofing",
+        reason="Sustained wind past a certain point is what actually lifts "
+               "a marginal shingle short of tearing it off outright — a "
+               "check-it-before-it-fails ad, not an emergency one.",
+        condition_label="sustained wind ≥ 40 mph",
+        rule={"wind_mph_min": 40.0},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("inspection", "maintenance"),
+    ),
+    "wind-damage-inspection": Trigger(
+        id="wind-damage-inspection", name="Wind Damage Inspection", vertical="roofing",
+        reason="Past a certain point, wind stops being a shingle risk and "
+               "starts being the reason shingles are actually missing — "
+               "the escalation past high-wind-shingle-risk into a real "
+               "damage inspection.",
+        condition_label="sustained wind ≥ 55 mph",
+        rule={"wind_mph_min": 55.0},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("inspection", "emergency"),
+    ),
+    "wind-driven-rain": Trigger(
+        id="wind-driven-rain", name="Wind-Driven Rain", vertical="roofing",
+        reason="Wind and rain together are what actually find a failing "
+               "flashing seal or a lifted shingle edge — either alone "
+               "rarely does — so this is the leak-check ad the two "
+               "conditions stacked together earn on their own.",
+        condition_label="wind ≥ 25 mph and ≥ 60% chance of rain",
+        rule={"wind_mph_min": 25.0, "precip_prob_min": 60.0},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("inspection", "maintenance"),
+    ),
+    "ice-dam-risk": Trigger(
+        id="ice-dam-risk", name="Ice Dam Risk", vertical="roofing",
+        reason="A freeze-thaw band in the dead of winter is exactly when "
+               "attic heat melts snow on the roof that then refreezes at "
+               "the eave — the ice-dam window, and the ad for gutter and "
+               "insulation work that heads it off.",
+        condition_label="20–34°F, December–March",
+        rule={"temp_min": 20.0, "temp_max": 34.0, "months": (12, 1, 2, 3)},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("inspection", "seasonal"),
+    ),
+    "first-freeze-roofing": Trigger(
+        id="first-freeze-roofing", name="First Freeze", vertical="roofing",
+        reason="The first hard freeze of the season is when gutters and "
+               "flashing left unchecked over fall get tested for real — a "
+               "book-it-now ad before the freeze, not a leak after it.",
+        condition_label="first low ≤ 32°F of the season",
+        rule={"temp_low_max": 32.0, "once_per_season": "cold"},
+        cadence="once_per_season", tags=("event", "inspection"),
+    ),
+    "deep-freeze-roofing": Trigger(
+        id="deep-freeze-roofing", name="Deep Freeze", vertical="roofing",
+        reason="Below zero is where an already-failing seal or a pipe run "
+               "under a poorly insulated roofline actually bursts — the "
+               "emergency-repair ad, not the check-up one.",
+        condition_label="high ≤ 0°F",
+        rule={"temp_max": 0.0},
+        cadence="daily", tags=("emergency", "inspection"),
+    ),
+    "snow-load-roof": Trigger(
+        id="snow-load-roof", name="Snow Load Risk", vertical="roofing",
+        reason="A heavy single-storm snowfall is what actually stresses a "
+               "roof's structure — the day the load is on it, not a "
+               "forecast of one.",
+        condition_label="snowfall ≥ 6 in / 24h",
+        rule={"snow_in_min": 6.0},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("inspection", "safety"),
+    ),
+    "spring-roof-inspection": Trigger(
+        id="spring-roof-inspection", name="Spring Roof Inspection", vertical="roofing",
+        reason="The first comfortable, dry stretch of spring is when a "
+               "roof that spent winter under snow and ice is finally safe "
+               "to actually get up on and check.",
+        condition_label="55–75°F and dry, March–May",
+        rule={"temp_min": 55.0, "temp_max": 75.0, "precip_prob_max": 20.0,
+              "months": (3, 4, 5)},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("inspection", "seasonal"),
+    ),
+    "fall-roof-inspection": Trigger(
+        id="fall-roof-inspection", name="Fall Roof Inspection", vertical="roofing",
+        reason="The same logic in reverse — a mild, dry fall stretch is "
+               "the window to catch a problem before the first freeze "
+               "makes the appointment book slam shut.",
+        condition_label="50–70°F and dry, September–October",
+        rule={"temp_min": 50.0, "temp_max": 70.0, "precip_prob_max": 20.0,
+              "months": (9, 10)},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("inspection", "seasonal"),
+    ),
+    "gutter-cleaning-season": Trigger(
+        id="gutter-cleaning-season", name="Gutter Cleaning Season", vertical="roofing",
+        reason="A run of cool, dry fall days is when leaves are actually "
+               "down and gutters are worth clearing — before the first "
+               "hard freeze turns a clogged gutter into an ice dam.",
+        condition_label="40–60°F and dry, October–November",
+        rule={"temp_min": 40.0, "temp_max": 60.0, "precip_prob_max": 20.0,
+              "months": (10, 11)},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("maintenance", "seasonal"),
+    ),
+    "heavy-rain-leak-check": Trigger(
+        id="heavy-rain-leak-check", name="Heavy Rain Leak Check", vertical="roofing",
+        reason="A soaking rain is what actually reveals a leak that has "
+               "been sitting there dry and invisible — the check-it call "
+               "for the day after, not the day of.",
+        condition_label="≥ 70% chance of rain",
+        rule={"precip_prob_min": 70.0},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("inspection", "maintenance"),
+    ),
+    "heat-wave-shingle-stress": Trigger(
+        id="heat-wave-shingle-stress", name="Heat Wave Shingle Stress", vertical="roofing",
+        reason="Genuine, sustained heat is what actually blisters and "
+               "warps aging shingles — a check-it-before-it-blisters-"
+               "further ad, not an emergency one.",
+        condition_label="high ≥ 95°F",
+        rule={"temp_min": 95.0},
+        windows=(("09:00", "19:00"),),
+        cadence="daily", tags=("inspection", "relief"),
+    ),
 }
 
 # Ordering for the month strip: which triggers a rep browsing that month is
@@ -1011,6 +1181,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "deep-freeze-auto", "snow-tire-day", "storm-driving-prep", "first-freeze-auto", "wiper-blade-season", "pothole-season", "spring-service-day", "fall-service-day", "ac-check-early", "heat-index-auto",
             "first-freeze-landscaping", "first-snow-landscaping", "storm-cleanup", "high-wind-debris", "mosquito-surge", "spring-green-up-day", "dry-spell-watering", "drought-stress", "heavy-rain-growth-spurt", "fall-leaf-peak", "spring-fertilize-window", "fall-fertilize-window", "heat-wave-lawn-stress",
             "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "pool-opening-day", "chlorine-burn-off", "algae-bloom-risk", "heavy-rain-dilution", "evaporation-watch", "heat-wave-pool-surge", "pool-closing-day",
+            "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
             ),
     "Feb": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "evening-cooldown", "heat-index",
@@ -1027,6 +1198,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "deep-freeze-auto", "pothole-season", "snow-tire-day", "storm-driving-prep", "first-freeze-auto", "wiper-blade-season", "spring-service-day", "fall-service-day", "ac-check-early", "heat-index-auto",
             "first-freeze-landscaping", "first-snow-landscaping", "storm-cleanup", "high-wind-debris", "mosquito-surge", "spring-green-up-day", "spring-fertilize-window", "dry-spell-watering", "drought-stress", "heavy-rain-growth-spurt", "fall-leaf-peak", "fall-fertilize-window", "heat-wave-lawn-stress",
             "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "pool-opening-day", "chlorine-burn-off", "algae-bloom-risk", "heavy-rain-dilution", "evaporation-watch", "heat-wave-pool-surge", "pool-closing-day",
+            "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
             ),
     "Mar": ("warm-break", "crisp-day", "rain-delay", "cold-snap", "gray-streak",
             "wind-chill", "storm-watch", "patio-day", "evening-cooldown",
@@ -1043,6 +1215,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "spring-service-day", "pothole-season", "wiper-blade-season", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "storm-driving-prep", "ac-check-early", "fall-service-day", "snow-tire-day", "deep-freeze-auto", "first-freeze-auto", "heat-index-auto",
             "spring-green-up-day", "spring-fertilize-window", "heavy-rain-growth-spurt", "storm-cleanup", "high-wind-debris", "mosquito-surge", "dry-spell-watering", "drought-stress", "first-freeze-landscaping", "first-snow-landscaping", "fall-leaf-peak", "fall-fertilize-window", "heat-wave-lawn-stress",
             "pool-opening-day", "spa-season-open", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "chlorine-burn-off", "hard-freeze-pool", "first-freeze-pool", "deep-freeze-pool", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "pool-closing-day",
+            "ice-dam-risk", "spring-roof-inspection", "wind-driven-rain", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "heavy-rain-leak-check", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
             ),
     "Apr": ("crisp-day", "patio-day", "rain-delay", "gray-streak", "storm-watch",
             "evening-cooldown", "warm-break", "heat-index", "heat-wave",
@@ -1059,6 +1232,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "spring-service-day", "pothole-season", "ac-check-early", "wiper-blade-season", "storm-driving-prep", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "fall-service-day", "snow-tire-day", "deep-freeze-auto", "first-freeze-auto", "heat-index-auto",
             "spring-green-up-day", "spring-fertilize-window", "heavy-rain-growth-spurt", "storm-cleanup", "high-wind-debris", "mosquito-surge", "dry-spell-watering", "drought-stress", "first-freeze-landscaping", "first-snow-landscaping", "fall-leaf-peak", "fall-fertilize-window", "heat-wave-lawn-stress",
             "pool-opening-day", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "chlorine-burn-off", "spa-season-open", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "pool-closing-day",
+            "spring-roof-inspection", "wind-driven-rain", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "heavy-rain-leak-check", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
             ),
     "May": ("patio-day", "crisp-day", "rain-delay", "storm-watch",
             "evening-cooldown", "heat-index", "heat-wave", "gray-streak",
@@ -1076,6 +1250,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "spring-service-day", "ac-check-early", "wiper-blade-season", "storm-driving-prep", "heat-index-auto", "pothole-season", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "fall-service-day", "snow-tire-day", "deep-freeze-auto", "first-freeze-auto",
             "spring-green-up-day", "dry-spell-watering", "heavy-rain-growth-spurt", "mosquito-surge", "storm-cleanup", "high-wind-debris", "drought-stress", "heat-wave-lawn-stress", "spring-fertilize-window", "first-freeze-landscaping", "first-snow-landscaping", "fall-leaf-peak", "fall-fertilize-window",
             "pool-opening-day", "chlorine-burn-off", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "spa-season-open", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "pool-closing-day",
+            "spring-roof-inspection", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "heat-wave-shingle-stress", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season",
             ),
     "Jun": ("patio-day", "heat-wave", "heat-index", "rain-delay",
             "storm-watch", "evening-cooldown", "crisp-day", "gray-streak",
@@ -1093,6 +1268,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "ac-check-early", "heat-index-auto", "wiper-blade-season", "storm-driving-prep", "spring-service-day", "fall-service-day", "pothole-season", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "snow-tire-day", "deep-freeze-auto", "first-freeze-auto",
             "dry-spell-watering", "drought-stress", "heat-wave-lawn-stress", "mosquito-surge", "heavy-rain-growth-spurt", "storm-cleanup", "high-wind-debris", "spring-green-up-day", "spring-fertilize-window", "first-freeze-landscaping", "first-snow-landscaping", "fall-leaf-peak", "fall-fertilize-window",
             "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "pool-opening-day", "spa-season-open", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "pool-closing-day",
+            "heat-wave-shingle-stress", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season",
             ),
     "Jul": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "evening-cooldown", "crisp-day", "gray-streak",
@@ -1110,6 +1286,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "heat-index-auto", "ac-check-early", "storm-driving-prep", "wiper-blade-season", "spring-service-day", "fall-service-day", "pothole-season", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "snow-tire-day", "deep-freeze-auto", "first-freeze-auto",
             "dry-spell-watering", "drought-stress", "heat-wave-lawn-stress", "mosquito-surge", "heavy-rain-growth-spurt", "storm-cleanup", "high-wind-debris", "spring-green-up-day", "spring-fertilize-window", "first-freeze-landscaping", "first-snow-landscaping", "fall-leaf-peak", "fall-fertilize-window",
             "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "pool-opening-day", "spa-season-open", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "pool-closing-day",
+            "heat-wave-shingle-stress", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season",
             ),
     "Aug": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "first-cool-night", "evening-cooldown", "crisp-day",
@@ -1127,6 +1304,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "heat-index-auto", "ac-check-early", "storm-driving-prep", "wiper-blade-season", "fall-service-day", "spring-service-day", "pothole-season", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "snow-tire-day", "deep-freeze-auto", "first-freeze-auto",
             "dry-spell-watering", "drought-stress", "heat-wave-lawn-stress", "mosquito-surge", "heavy-rain-growth-spurt", "storm-cleanup", "high-wind-debris", "fall-fertilize-window", "spring-green-up-day", "spring-fertilize-window", "first-freeze-landscaping", "first-snow-landscaping", "fall-leaf-peak",
             "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "pool-closing-day", "pool-opening-day", "spa-season-open", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool",
+            "heat-wave-shingle-stress", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "fall-roof-inspection", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "gutter-cleaning-season",
             ),
     "Sep": ("patio-day", "first-cool-night", "rain-delay", "crisp-day",
             "evening-cooldown", "heat-index", "heat-wave", "storm-watch",
@@ -1144,6 +1322,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "fall-service-day", "first-freeze-auto", "heat-index-auto", "ac-check-early", "storm-driving-prep", "wiper-blade-season", "pothole-season", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "snow-tire-day", "deep-freeze-auto", "spring-service-day",
             "fall-fertilize-window", "fall-leaf-peak", "dry-spell-watering", "heavy-rain-growth-spurt", "storm-cleanup", "high-wind-debris", "mosquito-surge", "drought-stress", "heat-wave-lawn-stress", "spring-green-up-day", "spring-fertilize-window", "first-freeze-landscaping", "first-snow-landscaping",
             "pool-closing-day", "chlorine-burn-off", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "spa-season-open", "pool-opening-day", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool",
+            "fall-roof-inspection", "gutter-cleaning-season", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "heat-wave-shingle-stress", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof",
             ),
     "Oct": ("crisp-day", "first-cool-night", "first-freeze", "evening-cooldown",
             "rain-delay", "warm-break", "gray-streak", "storm-watch",
@@ -1161,6 +1340,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "fall-service-day", "first-freeze-auto", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "wiper-blade-season", "storm-driving-prep", "pothole-season", "snow-tire-day", "deep-freeze-auto", "heat-index-auto", "ac-check-early", "spring-service-day",
             "fall-leaf-peak", "fall-fertilize-window", "first-freeze-landscaping", "storm-cleanup", "high-wind-debris", "heavy-rain-growth-spurt", "first-snow-landscaping", "mosquito-surge", "dry-spell-watering", "drought-stress", "heat-wave-lawn-stress", "spring-green-up-day", "spring-fertilize-window",
             "pool-closing-day", "first-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "heavy-rain-dilution", "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "pool-opening-day", "hard-freeze-pool", "deep-freeze-pool",
+            "fall-roof-inspection", "gutter-cleaning-season", "first-freeze-roofing", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "snow-load-roof", "ice-dam-risk", "deep-freeze-roofing", "spring-roof-inspection", "heat-wave-shingle-stress",
             ),
     "Nov": ("first-freeze", "cold-snap", "gray-streak", "warm-break",
             "crisp-day", "wind-chill", "storm-watch", "snow-day",
@@ -1179,6 +1359,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "first-freeze-auto", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "fall-service-day", "snow-tire-day", "storm-driving-prep", "deep-freeze-auto", "wiper-blade-season", "pothole-season", "heat-index-auto", "ac-check-early", "spring-service-day",
             "fall-leaf-peak", "first-freeze-landscaping", "first-snow-landscaping", "storm-cleanup", "high-wind-debris", "heavy-rain-growth-spurt", "fall-fertilize-window", "mosquito-surge", "dry-spell-watering", "drought-stress", "heat-wave-lawn-stress", "spring-green-up-day", "spring-fertilize-window",
             "pool-closing-day", "first-freeze-pool", "hard-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "heavy-rain-dilution", "pool-opening-day", "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "deep-freeze-pool",
+            "gutter-cleaning-season", "fall-roof-inspection", "first-freeze-roofing", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "snow-load-roof", "heavy-rain-leak-check", "ice-dam-risk", "deep-freeze-roofing", "spring-roof-inspection", "heat-wave-shingle-stress",
             ),
     "Dec": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "rain-delay", "evening-cooldown",
@@ -1196,6 +1377,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "deep-freeze-auto", "first-freeze-auto", "snow-tire-day", "storm-driving-prep", "wiper-blade-season", "fall-service-day", "pothole-season", "heat-index-auto", "ac-check-early", "spring-service-day",
             "first-freeze-landscaping", "first-snow-landscaping", "storm-cleanup", "high-wind-debris", "fall-leaf-peak", "mosquito-surge", "dry-spell-watering", "drought-stress", "heavy-rain-growth-spurt", "fall-fertilize-window", "heat-wave-lawn-stress", "spring-green-up-day", "spring-fertilize-window",
             "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "pool-closing-day", "pool-opening-day", "chlorine-burn-off", "algae-bloom-risk", "heavy-rain-dilution", "evaporation-watch", "heat-wave-pool-surge",
+            "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "gutter-cleaning-season", "fall-roof-inspection", "heavy-rain-leak-check", "spring-roof-inspection", "heat-wave-shingle-stress",
             ),
 }
 
