@@ -1962,6 +1962,15 @@
         '<input type="range" id="bgZoom" min="100" max="300" step="5" value="' +
           Math.round(zoom * 100) + '">' +
       '</div>' +
+      '<div class="bgsuggest" style="margin:8px 0 2px">' +
+        '<button type="button" class="btn ghost" id="bgSuggestBtn">Suggest crop' +
+          help('Asks Cloudinary\u2019s own subject detection for a better framing, ' +
+               'computed once against the largest size this family builds and ' +
+               'offered to the whole set. Nothing changes until you press Use it.') +
+        '</button>' +
+        '<div id="bgSuggestNote" style="font-size:11px;color:var(--ink-2);' +
+          'line-height:1.4;margin-top:6px"></div>' +
+      '</div>' +
       '<details class="advanced"><summary>Advanced \u2014 type the numbers</summary>' +
         '<div class="bsrow">' +
           '<label>Across (-1 left \u2026 1 right)' +
@@ -2052,7 +2061,91 @@
       '</details>';
   }
 
+  /* The largest size the current family actually builds -- one suggestion
+     computed against one canvas, offered to the whole size set, rather than a
+     different framing per size that would read as eight crops of eight
+     photos rather than one ad in eight sizes. Falls back to the size on
+     screen if the family's own list is not there yet. */
+  function referenceCanvas() {
+    var t = (state.templates || []).filter(function (x) {
+      return x.id === concept().layoutFamily;
+    })[0];
+    var sizes = (t && t.sizes && t.sizes.length) ? t.sizes : [state.size];
+    var best = null;
+    sizes.forEach(function (sz) {
+      var parts = String(sz).split('x');
+      var w = Number(parts[0]), h = Number(parts[1]);
+      if (!isFinite(w) || !isFinite(h) || w <= 0 || h <= 0) return;
+      if (!best || w * h > best.w * best.h) best = { w: w, h: h, size: sz };
+    });
+    return best;
+  }
+
+  function setSuggestNote(text) {
+    var note = $('bgSuggestNote');
+    if (note) note.textContent = text;
+  }
+
+  /* A suggestion is shown, never applied. Use it writes the offset/zoom onto
+     the concept exactly as the pad and the slider would, then redraws the
+     panel so the arrows and the number show where it landed -- the same
+     confirmation a manual nudge gets. Dismiss leaves the concept untouched. */
+  function showSuggestion(d, ref) {
+    var note = $('bgSuggestNote');
+    if (!note) return;
+    note.innerHTML =
+      'Cloudinary’s subject detection suggests a different crop — computed ' +
+      'against ' + ref.w + '×' + ref.h + ', ' + Math.round(d.confidence * 100) +
+      '% confidence.<br>' +
+      '<button type="button" class="btn primary" id="bgSuggestUse"' +
+        ' style="margin:6px 6px 0 0">Use it</button>' +
+      '<button type="button" class="btn ghost" id="bgSuggestDismiss"' +
+        ' style="margin-top:6px">Dismiss</button>';
+    var use = $('bgSuggestUse');
+    if (use) use.addEventListener('click', function () {
+      var c = concept();
+      c.backgroundOffset = { x: d.offset.x, y: d.offset.y };
+      c.backgroundZoom = d.zoom;
+      delete c.backgroundPosition;
+      state.dirty = true;
+      drawControls();
+      preview();
+    });
+    var dismiss = $('bgSuggestDismiss');
+    if (dismiss) dismiss.addEventListener('click', function () { note.textContent = ''; });
+  }
+
   function wireBackgroundAdjust() {
+    var suggestBtn = $('bgSuggestBtn');
+    if (suggestBtn) suggestBtn.addEventListener('click', function () {
+      var ref = referenceCanvas();
+      var src = concept().backgroundImageSource;
+      if (!ref) { setSuggestNote('No size to suggest a crop for yet.'); return; }
+      if (!src) {
+        setSuggestNote('No suggestion available for this picture.');
+        return;
+      }
+      var was = suggestBtn.textContent;
+      suggestBtn.disabled = true;
+      suggestBtn.textContent = 'Asking Cloudinary…';
+      post('/api/background/suggest-crop', { url: src, targetW: ref.w, targetH: ref.h })
+        .then(function (d) {
+          suggestBtn.disabled = false;
+          suggestBtn.textContent = was;
+          if (!d || !d.ok) {
+            setSuggestNote('No suggestion available' +
+              (d && d.reason ? ' (' + d.reason + ').' : '.'));
+            return;
+          }
+          showSuggestion(d, ref);
+        })
+        .catch(function () {
+          suggestBtn.disabled = false;
+          suggestBtn.textContent = was;
+          setSuggestNote('Could not reach Cloudinary for a suggestion.');
+        });
+    });
+
     var slider = $('bgOpacity');
     if (slider) slider.addEventListener('input', function () {
       var pct = Number(this.value);
@@ -3202,6 +3295,12 @@
           return;
         }
         concept().backgroundImage = d.path;
+        // The picked URL, kept alongside the local file the renderer draws
+        // from. "Suggest crop" needs Cloudinary's own address for the
+        // picture -- the download above already threw that away -- and
+        // whether this is one is exactly what the suggest route checks, so
+        // nothing here has to guess ahead of it.
+        concept().backgroundImageSource = url;
         state.dirty = true;
         // Redraw: the crop grid and the overlay controls only exist while
         // there is a picture, and they are what somebody reaches for next.

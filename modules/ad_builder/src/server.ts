@@ -43,6 +43,7 @@ import { searchPixabay, generateHero } from './imagery';
 import { reworkLogo } from './logo-tools';
 import { resolveAsset } from './assets';
 import { fitImageToBudget } from './image-budget';
+import { suggestCrop } from './smart-crop';
 import { getPlatform, getTemplate } from './registry';
 import {
   ANIMATION_RULES,
@@ -370,6 +371,7 @@ const server = http.createServer(async (req, res) => {
     // which is internal and reaches them through the Hub proxy with the admin
     // token attached -- so there is no reason to leave the work open.
     route === 'POST /api/background/apply' ||
+    route === 'POST /api/background/suggest-crop' ||
     route === 'POST /api/logo/apply' ||
     route === 'POST /api/palette/variants' ||
     // Uploads into our own Cloudinary account. Staff only, for the reason the
@@ -1838,6 +1840,33 @@ const server = http.createServer(async (req, res) => {
           error: `That image could not be prepared (${e?.message ?? e}).`,
         }, cors);
       }
+    }
+
+    /* A suggested crop, from Cloudinary's own subject detection.
+     *
+     * `source` is the URL the chooser picked *before* it was downloaded to a
+     * local file -- `POST /api/background/apply`'s own body carries the same
+     * value, and the build screen keeps it on the concept for exactly this.
+     * `targetW`/`targetH` name one reference canvas, chosen client-side (the
+     * largest size in the campaign's own size set): one suggestion for the
+     * whole set, offered once, rather than a different framing per size that
+     * would read as eight different crops of eight different photos.
+     *
+     * This never applies anything -- it answers with a suggestion the build
+     * screen previews, and only writes into `backgroundOffset`/`backgroundZoom`
+     * once a person presses Use it. And it never fails loudly: a background
+     * that is not a Cloudinary asset, or a correlation with nothing worth
+     * showing, comes back `{ ok: false, reason }` rather than a 4xx or 5xx --
+     * today's centred placement is a perfectly good answer to fall back to.
+     */
+    if (route === 'POST /api/background/suggest-crop') {
+      const cors = corsHeaders(req.headers.origin);
+      const body = JSON.parse(await readBody(req, 4_000)) as
+        { url?: string; targetW?: number; targetH?: number };
+      const url = String(body.url ?? '').trim();
+      if (!url) return json(res, 200, { ok: false, reason: 'no picture to suggest a crop for' }, cors);
+      const result = await suggestCrop(url, Number(body.targetW), Number(body.targetH));
+      return json(res, 200, result, cors);
     }
 
     /* Replace the client's logo from inside the editor.
