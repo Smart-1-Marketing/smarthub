@@ -1969,6 +1969,13 @@ jobs:
       - name: SmartForecast lifecycle, storage and embed tests
         run: python3 test_smartforecast.py
 
+      # The five self-contained partner pages: LINKS resolves under the
+      # served /partner/ prefix (the top nav and cross-links all read it,
+      # not only the one page where a 404 was reported), and a mailto that
+      # can fire silently keeps a visible address beside it.
+      - name: Partner pages cross-links and fallbacks
+        run: python3 test_partner_pages.py
+
       # Weather Trigger Setup's own vocabulary: the cap enforced server-side,
       # the month ordering, and evaluate_trigger() answering "not measured"
       # rather than a guessed verdict when a snapshot cannot answer a rule.

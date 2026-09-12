@@ -334,8 +334,32 @@
     bar.className = "s1-c360-back";
     bar.setAttribute("data-for", name);
     var a = document.createElement("a");
+    // The href is the fallback -- a middle-click, a right-click "open in a
+    // new tab", and the no-prior-entry case handled in the click listener
+    // below all still need a real destination, not just a history pop.
     a.href = C360_PATH + "?q=" + encodeURIComponent(name);
     a.textContent = "\u2190 Back to " + name;
+    a.onclick = function (e) {
+      // A plain left-click can use the browser's own "back" instead of
+      // re-running the search Client 360 already ran once. That matters
+      // because a fresh navigation to the same URL is not the same page:
+      // scroll position and anything expanded on Client 360 survive an
+      // actual history pop and do not survive a reload of it.
+      //
+      // Only when there is somewhere to go back TO. A link opened in a new
+      // tab, or a page reached straight from a bookmark or a reload, has no
+      // same-origin entry before it in this tab's history -- popping there
+      // would leave the tab on about:blank or send it wherever this Hub was
+      // opened from, neither of which is "back to the client". The href
+      // above is exactly right for those and is left to fire normally.
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey ||
+          e.shiftKey || e.altKey) return;
+      if (history.length > 1 && document.referrer &&
+          document.referrer.indexOf(location.origin) === 0) {
+        e.preventDefault();
+        history.back();
+      }
+    };
     var x = document.createElement("button");
     x.type = "button";
     x.className = "s1-c360-x";
