@@ -330,18 +330,19 @@ def image_edit(prompt: str, image_bytes: bytes, *, module: str, purpose: str,
         if resp.status_code >= 400:
             raise AIUnavailable(f"OpenAI returned HTTP {resp.status_code}.")
         data = resp.json()
-        _record(module, purpose, model, data.get("usage", {}),
-               int((time.time() - started) * 1000), True)
         import base64
         out = []
         for item in (data.get("data") or []):
             b64 = item.get("b64_json") or ""
             if b64:
-                out.append(base64.b64decode(b64))
-        if not out:
-            raise AIUnavailable("No image came back.")
+                out.append(base64.b64decode(b64, validate=True))
+        if len(out) != n or any(not raw for raw in out):
+            raise AIUnavailable("The AI service did not return all requested images.")
+        _record(module, purpose, model, data.get("usage", {}),
+               int((time.time() - started) * 1000), True)
         return out
-    except AIUnavailable:
+    except AIUnavailable as exc:
+        _record(module, purpose, model, {}, int((time.time() - started) * 1000), False, type(exc).__name__)
         raise
     except Exception as exc:                # noqa: BLE001
         _record(module, purpose, model, {}, int((time.time() - started) * 1000), False, type(exc).__name__)
