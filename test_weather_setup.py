@@ -804,5 +804,48 @@ check("the campaign it started actually carries the moving vertical",
      wx_store.get(moving_started_token)["vertical"], "moving")
 
 
+section("Tree Service: the tenth vertical, end to end")
+# ---------------------------------------------------------------------------
+
+tree_row = wx_store.create(client="Green Acres Tree Care", vertical="tree_service", zip_code="46032")
+check("a tree_service campaign records its vertical", tree_row["vertical"], "tree_service")
+
+result = wx_store.save_picks(tree_row["token"], ["high-wind-limb-risk", "spring-pruning-season"])
+check("tree_service picks against tree_service triggers are accepted", result["ok"], True)
+
+result = wx_store.save_picks(tree_row["token"], ["perfect-moving-day"])
+check("a moving trigger id is refused on a tree_service campaign", result["ok"], False)
+
+result = wx_store.save_picks(tree_row["token"], ["termite-swarm-season"])
+check("a pest_control trigger id is refused on a tree_service campaign", result["ok"], False)
+
+tree_drafts = wx_copy.generate_drafts("high-wind-limb-risk", "Green Acres Tree Care")
+check("tree_service drafts fall back to the house source with no AI key",
+     tree_drafts["source"], "house")
+check("tree_service house copy names getting it checked before it comes down",
+     any("comes down" in (d["headline"] + d["primary_text"]).lower()
+         or "get ahead of it" in (d["headline"] + d["primary_text"]).lower()
+         or "ready when you are" in (d["headline"] + d["primary_text"]).lower()
+         for d in tree_drafts["drafts"]), True)
+check("tree_service house copy never talks about sitting down to eat",
+     any("table" in (d["headline"] + d["primary_text"]).lower()
+         for d in tree_drafts["drafts"]), False)
+check("tree_service house copy never talks about moving or termites",
+     any("move" in (d["headline"] + d["primary_text"]).lower()
+         or "termite" in (d["headline"] + d["primary_text"]).lower()
+         for d in tree_drafts["drafts"]), False)
+
+storm_tree_drafts = wx_copy.generate_drafts("storm-damage-tree-removal", "Green Acres Tree Care")
+check("the alert-driven storm blocklist covers tree_service's own alert trigger too",
+     storm_tree_drafts["source"] in ("house", "ai"), True)
+
+resp = staff_client.post("/tools/weather-setup/api/start",
+                         json={"client": "Timberline Tree Service", "vertical": "tree_service"})
+check("api/start accepts the tree_service vertical and starts the campaign", resp.status_code, 200)
+tree_started_token = resp.get_json()["token"]
+check("the campaign it started actually carries the tree_service vertical",
+     wx_store.get(tree_started_token)["vertical"], "tree_service")
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
