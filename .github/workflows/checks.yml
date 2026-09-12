@@ -1012,6 +1012,27 @@ jobs:
             echo "test_proposal_share.py not on this branch — nothing to run."
           fi
 
+      - name: Proposal Execution Center — supersede rather than duplicate
+        # create_run() only caught an identical re-upload; a revised proposal
+        # (new file, same engagement) built a second run beside one already
+        # in progress, with its own thirty tasks and its own notifications,
+        # while the old run's approved work sat unreferenced. Asserts the
+        # open-run conflict (matched on the stored proposal id or a
+        # normalised title), the 409 the route answers for it, and that
+        # superseding carries shared inputs and any task already approved,
+        # handed off or completed across untouched -- but only where the
+        # channel it was built for is unchanged; a channel the new proposal
+        # actually revised starts fresh, with an event naming what moved.
+        # Guarded like the steps around it so this workflow stays mergeable
+        # on a branch that predates the file. Nothing in it reaches a third
+        # party: the proposal store is a fixture.
+        run: |
+          if [ -f test_proposal_execution_supersede.py ]; then
+            python test_proposal_execution_supersede.py
+          else
+            echo "test_proposal_execution_supersede.py not on this branch — nothing to run."
+          fi
+
       - name: Short.io link masking — the slug, reuse, conflicts, opens
         # hub/short_links.py masks a client-facing link under s1report.co and
         # counts opens through Short.io. Nothing in it reaches the network:

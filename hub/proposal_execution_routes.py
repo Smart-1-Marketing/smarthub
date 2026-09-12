@@ -108,8 +108,10 @@ def analyze():
     try:
         run, created = pe.create_run(
             body.get("client"), body.get("proposal_id"), owner=owner, actor=owner,
-            force=bool(body.get("force")))
+            force=bool(body.get("force")), supersede=bool(body.get("supersede")))
         return jsonify(ok=True, created=created, run=run.as_dict(full=True))
+    except pe.ProposalRunConflict as exc:
+        return jsonify(ok=False, error=str(exc), **exc.payload()), 409
     except Exception as exc:  # noqa: BLE001
         return _error(exc)
 
