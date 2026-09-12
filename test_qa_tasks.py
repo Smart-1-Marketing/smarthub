@@ -309,6 +309,92 @@ with app.app_context():
     check_true("a task already claimed is not claimed a second time",
                all(d["task"] != for_autoclaim.id for d in again["details"]))
 
+    print("\n-- reading a screenshot for somebody --")
+    from hub import ai as hub_ai
+
+    def stub_vision(prompt, urls, **kw):
+        stub_vision.calls.append((prompt, tuple(urls)))
+        return "The dashboard shows a stat labeled 'Unhooked: 4' with no tooltip."
+    stub_vision.calls = []
+    hub_ai.vision = stub_vision
+    hub_ai.ready = lambda: True
+
+    # Assigned to the bystander rather than boss -- boss's queue is asserted
+    # empty two sections down, and these would otherwise sit there unanswered.
+    no_image = qa_tasks.create(
+        target_key="other", target_other="Dashboard",
+        instructions="Something about a stat, no idea what it's from.",
+        assigned_to_email=other.email, due_on="",
+        actor_email=rev.email, actor_name=rev.name)
+    result = qa_tasks.describe_images(no_image.id)
+    check("a task with no image link is skipped",
+          result.get("skipped"), "no image link in the instructions")
+
+    with_image = qa_tasks.create(
+        target_key="other", target_other="Dashboard",
+        instructions=("Unsure of this stat: "
+                     "https://www.awesomescreenshot.com/image/63309254?key=abc "
+                     "and see also https://example.com/chart.png."),
+        assigned_to_email=other.email, due_on="",
+        actor_email=rev.email, actor_name=rev.name)
+    result = qa_tasks.describe_images(with_image.id)
+    check("both image links are read", result.get("described"), 2)
+    check_true("the model was actually asked",
+               len(stub_vision.calls) == 1 and len(stub_vision.calls[0][1]) == 2)
+    thread = qa_tasks.get(with_image.id, viewer_email=other.email)["responses"]
+    vision_posts = [r for r in thread if r["kind"] == "vision"]
+    check("the reading is posted into the thread", len(vision_posts), 1)
+    check_true("...naming Yoda as the author",
+               vision_posts[0]["author_name"] == "Smart 1 Hub Yoda")
+    check_true("...and carrying what the model actually said",
+               "Unhooked: 4" in vision_posts[0]["body"])
+
+    again = qa_tasks.describe_images(with_image.id)
+    check("a task already described is not described twice",
+          again.get("skipped"), "already described")
+    check("...and the model is not asked again", len(stub_vision.calls), 1)
+
+    def fail_vision(prompt, urls, **kw):
+        raise hub_ai.AIUnavailable("OPENAI_API_KEY is not set.")
+    hub_ai.vision = fail_vision
+    unavailable = qa_tasks.create(
+        target_key="other", target_other="Dashboard",
+        instructions="See https://example.com/broken.png",
+        assigned_to_email=other.email, due_on="",
+        actor_email=rev.email, actor_name=rev.name)
+    result = qa_tasks.describe_images(unavailable.id)
+    check_true("an AI outage is reported rather than raised",
+               "vision unavailable" in (result.get("skipped") or ""))
+    check("...and nothing is posted", len(qa_tasks.get(
+        unavailable.id, viewer_email=other.email)["responses"]), 0)
+    hub_ai.vision = stub_vision
+
+    print("\n-- the scheduler's sweep, bounded --")
+    stub_vision.calls = []
+    # A second undescribed task, more recently touched than the one above --
+    # with the limit at 1, this is the one the first pass reaches, and
+    # `unavailable` (whose earlier attempt raised and posted nothing) is what
+    # the limit leaves behind for the next sweep to pick up.
+    second_pending = qa_tasks.create(
+        target_key="other", target_other="Dashboard",
+        instructions="Another one: https://example.com/second.png",
+        assigned_to_email=other.email, due_on="",
+        actor_email=rev.email, actor_name=rev.name)
+    swept = qa_tasks.describe_image_backlog(limit=1, budget_seconds=90)
+    check("the sweep stops at its own limit", swept["described"], 1)
+    check("...and only one model call was made", len(stub_vision.calls), 1)
+    check_true("...leaving the earlier failure undescribed for now",
+               not qa_tasks.QaResponse.query.filter_by(
+                   task_id=unavailable.id, kind=qa_tasks.VISION).first())
+    # Running it again picks up exactly what the limit left behind.
+    swept = qa_tasks.describe_image_backlog(limit=5, budget_seconds=90)
+    check("a second sweep clears what the first left over",
+          swept["described"], 1)
+    check_true("...and now the earlier failure has been described too",
+               qa_tasks.QaResponse.query.filter_by(
+                   task_id=unavailable.id, kind=qa_tasks.VISION).first()
+               is not None)
+
     print("\n-- the two queues --")
     mine = qa_tasks.for_person(rev.email)
     check_true("the reviewer's list is measured", mine["measured"])

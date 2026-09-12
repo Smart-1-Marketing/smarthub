@@ -66,6 +66,7 @@ from __future__ import annotations
 import datetime as _dt
 import os
 import re
+import time as _time
 from functools import lru_cache
 
 from sqlalchemy import (Column, Date, DateTime, Integer, LargeBinary, String,
@@ -101,6 +102,10 @@ OWNER_STATES = (ANSWERED,)
 # already names as the obvious next addition -- a "claim" is a reassignment
 # recorded where the answer will be, not a reply and not a request.
 CLAIM = "claim"
+
+# A fourth: an automatic read of a screenshot linked in the task's own
+# instructions -- see describe_images() below.
+VISION = "vision"
 
 
 def _now() -> _dt.datetime:
@@ -725,6 +730,109 @@ def autoclaim() -> dict:
                             "from": from_email})
     return {"claimed": len(claimed), "failed": len(failed),
             "details": claimed[:20], "errors": failed[:20]}
+
+
+# ---------------------------------------------------------------------------
+# Reading a screenshot for someone
+# ---------------------------------------------------------------------------
+
+# A bare image URL, or the one screenshot host actually in use on tasks
+# raised against this Hub -- its share links carry no file extension, so the
+# first pattern alone would miss every one of them.
+_IMAGE_URL_RE = re.compile(r"https?://\S+\.(?:png|jpe?g|gif|webp)(?:\?\S*)?", re.I)
+_SCREENSHOT_HOST_RE = re.compile(
+    r"https?://(?:www\.)?awesomescreenshot\.com/image/\S+", re.I)
+
+
+def _image_urls(text: str) -> list[str]:
+    text = text or ""
+    found = set(_IMAGE_URL_RE.findall(text)) | set(_SCREENSHOT_HOST_RE.findall(text))
+    # Trailing punctuation a sentence puts after a bare URL is not part of it.
+    cleaned = {u.rstrip(").,;:!?") for u in found}
+    return sorted(cleaned)[:4]
+
+
+def describe_images(task_id: int) -> dict:
+    """Read every image link in one task's own instructions and post what a
+    model sees into its thread -- so a human, or Yoda's own next pass, never
+    has to open the screenshot host to know what a task is actually about.
+
+    Runs from the scheduler (see job_qa_task_vision in hub/scheduler.py),
+    never from a request: a vision call has no useful ceiling on how long it
+    takes, and posting one from inside claim() -- the obvious first place to
+    put it -- would hold up both a delegate's click on the claim button and
+    every other job sharing the scheduler's one thread.
+
+    Idempotent by construction: a task already carrying a `kind=VISION`
+    response is skipped, so a repeat sweep costs nothing and nothing is
+    described twice. The image itself is never fetched here either --
+    `hub.ai.vision()` hands the URL straight to OpenAI, which fetches it
+    server-side, so a screenshot host blocked from wherever the Hub happens
+    to be reached from makes no difference to this call.
+    """
+    task = QaTask.query.get(int(task_id))
+    if task is None:
+        return {"skipped": "not found"}
+    urls = _image_urls(task.instructions)
+    if not urls:
+        return {"skipped": "no image link in the instructions"}
+    if QaResponse.query.filter_by(task_id=task.id, kind=VISION).first():
+        return {"skipped": "already described"}
+
+    from hub import ai
+    try:
+        text = ai.vision(
+            "This is a screenshot attached to an internal QA report about a "
+            "web application called Smart 1 Hub. Describe exactly what is "
+            "shown -- any error message, label, broken control, or "
+            "annotation (an arrow, a circle, highlighted text) pointing at "
+            "something specific. Quote visible text exactly rather than "
+            "paraphrasing it. If more than one image was given, describe "
+            "each in turn, numbered.",
+            urls, module="qa_tasks", purpose="screenshot_read")
+    except ai.AIUnavailable as exc:
+        return {"skipped": f"vision unavailable ({exc})"}
+
+    now = _now()
+    db.session.add(QaResponse(
+        task_id=task.id, author_email="", author_name="Smart 1 Hub Yoda",
+        kind=VISION, body=text.strip()[:8000], created_at=now))
+    task.last_activity_at = now
+    db.session.commit()
+    _log("described_images", task=task.id, target=task.target_label,
+        images=len(urls))
+    return {"described": len(urls)}
+
+
+def describe_image_backlog(limit: int = 5, budget_seconds: int = 90) -> dict:
+    """Sweep open tasks for an undescribed screenshot, bounded on both count
+    and wall clock -- the same two-axis budget job_index_video_backlog and
+    job_describe_client_uploads use, and for the same reason: a vision call
+    has no ceiling on how long it takes and this shares one thread with
+    every other scheduled job.
+    """
+    started = _time.time()
+    described = skipped = 0
+    try:
+        candidates = (QaTask.query.filter(QaTask.status != COMPLETE)
+                     .order_by(QaTask.last_activity_at.desc()).limit(200).all())
+    except Exception as exc:                            # noqa: BLE001
+        _warn("describe_image_backlog could not read the table", exc)
+        return {"described": 0, "skipped": 0,
+                "error": "the QA task list could not be read"}
+    for task in candidates:
+        if described >= limit or (_time.time() - started) > budget_seconds:
+            break
+        if not _image_urls(task.instructions):
+            continue
+        if QaResponse.query.filter_by(task_id=task.id, kind=VISION).first():
+            continue
+        result = describe_images(task.id)
+        if result.get("described"):
+            described += 1
+        else:
+            skipped += 1
+    return {"described": described, "skipped": skipped}
 
 
 def mark_seen(task_id: int, *, actor_email: str) -> bool:
