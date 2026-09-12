@@ -240,6 +240,16 @@ class FinishingTests(unittest.TestCase):
         self.assertEqual(data["known_cost_usd"], .012)
         self.assertEqual(data["providers"][0]["unpriced"], 1)
 
+    def test_image_cost_is_attributed_once_across_both_existing_meters(self):
+        from hub import ai, quotas
+        from types import SimpleNamespace
+        with usage.scope(self.project.id), patch.object(ai, "settings", SimpleNamespace(ai_usage_log=True)), patch.object(ai.audit, "log"):
+            ai._record("commercial_builder", "still", "gpt-image-1", {}, 30, True)
+            quotas.record_image(module="commercial_builder", model="gpt-image-1")
+        rows = ProductionUsage.query.all()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].cost_usd, quotas.IMAGE_PRICING.get("gpt-image-1"))
+
     def test_full_narration_reuses_exact_take_until_explicit_regeneration(self):
         from modules.commercial_builder.services import elevenlabs_service, cloudinary_service
         with patch.object(elevenlabs_service, "generate_voiceover", side_effect=lambda **kw: {"audio_bytes": b"synthetic-audio", "duration_estimate": 4}) as voice, \

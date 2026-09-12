@@ -73,7 +73,9 @@ def _record(module: str, purpose: str, model: str, usage: dict,
               tokens_in=tin, tokens_out=tout,
               est_cost=estimate_cost(model, tin, tout),
               ms=ms, ok=ok, error=(error or None))
-    if module == "commercial_builder":
+    # Commercial stills also call quotas.record_image, which owns their
+    # per-image unit/rate. Attribute that one row, not both meter signals.
+    if module == "commercial_builder" and purpose != "still":
         from modules.commercial_builder.usage import record as record_project_usage
         record_project_usage("openai", operation=purpose, units=tin + tout,
                              cost=estimate_cost(model, tin, tout) if ok or tin + tout else None, ok=ok)
