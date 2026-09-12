@@ -271,4 +271,10 @@ def register_proposal_execution(app):
     # `modules.creative_studio.db.add_missing_columns` pattern, since this
     # function runs before create_all() and with no app context of its own.
     pe.install_scheduler_bridge()
+    # WO-2: real-tool adapters. Importing hub.proposal_adapters is what
+    # switches a task from a text `brief` to the real module it describes --
+    # each one calls register_adapter() at import, so this line is the whole
+    # of what a new adapter under hub/proposal_adapters/ needs from here.
+    from hub import proposal_adapters
+    proposal_adapters.register_all()
     return app

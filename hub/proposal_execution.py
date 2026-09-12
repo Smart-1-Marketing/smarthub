@@ -323,7 +323,7 @@ def build_task_specs(analysis):
     channels = {c.get("key"): c for c in analysis.get("channels", []) if isinstance(c, dict)}
     specs = [
         _task("campaign_foundation", "Campaign foundation & messaging", "Strategy", needs=("landing_url", "primary_cta", "conversion_goal")),
-        _task("tracking_plan", "Tracking & conversion plan", "Analytics", depends=("campaign_foundation",), needs=("landing_url", "conversion_goal")),
+        _task("tracking_plan", "Tracking & conversion plan", "Analytics", adapter="utm", depends=("campaign_foundation",), needs=("landing_url", "conversion_goal")),
         _task("budget_calendar", "Budget & flight calendar", "Strategy"),
         _task("reporting_plan", "Cross-channel reporting plan", "Reporting", depends=("tracking_plan",)),
     ]

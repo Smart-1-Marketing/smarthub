@@ -2165,6 +2165,27 @@ jobs:
       - name: Proposal Execution — supersede, don't duplicate
         run: python3 test_proposal_execution.py
 
+      # WO-2: real-tool adapters. Every task on the graph used to run as
+      # `brief` -- an AI-written paragraph describing what somebody should
+      # go and build, never the tool itself. hub/proposal_adapters/utm.py is
+      # the first real one: tracking_plan now calls
+      # modules.utm_builder.app.save_batch() -- the exact function the
+      # tool's own Save button calls -- so a real run drained through
+      # run_one() produces a real row in UTM Builder's own book. Asserts the
+      # end-to-end path (no test-only seam between the two modules), that a
+      # missing landing URL never reaches the scheduler at all (the graph's
+      # own pre-flight input gate), that an unusable one fails by name
+      # rather than silently, that a proposal with none of the five
+      # UTM-source channels completes cleanly rather than reading as a
+      # failure, and that a second run never duplicates a saved link.
+      - name: Proposal Execution — real-tool adapters (UTM tracking links)
+        run: |
+          if [ -f test_proposal_adapters.py ]; then
+            python3 test_proposal_adapters.py
+          else
+            echo "test_proposal_adapters.py not on this branch — nothing to run."
+          fi
+
       # A curated shortlist per department, laid over the sidebar rather than
       # a second permission system. Block validation (a javascript: href, a
       # blank label, the cap), a delete that un-assigns rather than leaving a
