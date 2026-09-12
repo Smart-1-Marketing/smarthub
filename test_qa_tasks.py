@@ -282,6 +282,33 @@ with app.app_context():
         check_true("a completed task cannot be claimed",
                    "nothing to pick up" in str(exc))
 
+    print("\n-- autoclaim, the scheduler's half --")
+    del os.environ["QA_TASK_DELEGATES"]
+    result = qa_tasks.autoclaim()
+    check("autoclaim is off with no delegates named",
+          result.get("skipped"), "QA_TASK_DELEGATES is not set")
+
+    os.environ["QA_TASK_DELEGATES"] = f"{yoda.email}:{boss.email}"
+    for_autoclaim = qa_tasks.create(
+        target_key="other", target_other="Client 360 forms card",
+        instructions="Check it against a client with a Suite sub-account.",
+        assigned_to_email=boss.email, due_on="",
+        actor_email=rev.email, actor_name=rev.name)
+    result = qa_tasks.autoclaim()
+    check_true("it claims what a delegate stands in for",
+               any(d["task"] == for_autoclaim.id for d in result["details"]))
+    db.session.refresh(for_autoclaim)
+    check("...and the task now belongs to the delegate",
+          for_autoclaim.assigned_to_email, yoda.email)
+    thread = qa_tasks.get(for_autoclaim.id, viewer_email=yoda.email)["responses"]
+    check_true("...with the handoff posted into its thread",
+               any(r["kind"] == "claim" and boss.name in r["body"]
+                   for r in thread))
+
+    again = qa_tasks.autoclaim()
+    check_true("a task already claimed is not claimed a second time",
+               all(d["task"] != for_autoclaim.id for d in again["details"]))
+
     print("\n-- the two queues --")
     mine = qa_tasks.for_person(rev.email)
     check_true("the reviewer's list is measured", mine["measured"])

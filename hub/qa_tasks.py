@@ -660,6 +660,73 @@ def claim(task_id: int, *, actor_email: str, actor_name: str) -> QaTask:
     return task
 
 
+def _display_name(email: str) -> str:
+    """Best-effort name for a delegate account, for the claim note's byline.
+
+    Falls back to the address itself rather than raising -- a scheduler job
+    with no account table to read must still be able to post the claim.
+    """
+    try:
+        from hub.users import User
+        row = User.query.filter_by(email=(email or "").strip().lower()).first()
+        if row and row.name:
+            return row.name
+    except Exception:                                   # noqa: BLE001
+        pass
+    return email
+
+
+def autoclaim() -> dict:
+    """Claim, for each delegate `QA_TASK_DELEGATES` names, every task still
+    open for somebody they stand in for.
+
+    This is `claim()` run from the scheduler rather than from a request --
+    the in-process half of "anything assigned to Todd, Yoda picks up",
+    alongside `tools/yoda_qa.py pickup`, which does the identical thing over
+    HTTP for an account that has to reach the Hub from outside it. Both read
+    the same `QA_TASK_DELEGATES` mapping and go through the same `claim()`,
+    so there is one rule for who may pick up whose work rather than two.
+
+    Off by construction until that variable names a delegate, the same as
+    `claim()` itself -- an empty mapping means nothing runs, never a guess at
+    who should stand in for whom.
+
+    Safe to run on a schedule and to run twice: a task claimed on the last
+    tick is no longer assigned to its old owner, so the next tick's query
+    will not find it again. Each claim is independent, so one that fails --
+    the task moved on between the query and the write, or the mapping names
+    an account that has since been deactivated -- is recorded and does not
+    cost the rest of the sweep.
+    """
+    mapping = _delegates()
+    if not mapping:
+        return {"skipped": "QA_TASK_DELEGATES is not set"}
+
+    claimed, failed = [], []
+    for delegate, principals in mapping.items():
+        try:
+            rows = (QaTask.query
+                    .filter(QaTask.assigned_to_email.in_(principals))
+                    .filter(QaTask.status.in_(ASSIGNEE_STATES))
+                    .all())
+        except Exception as exc:                        # noqa: BLE001
+            failed.append({"delegate": delegate, "error": type(exc).__name__})
+            continue
+        name = _display_name(delegate)
+        for task in rows:
+            from_email = task.assigned_to_email
+            try:
+                claim(task.id, actor_email=delegate, actor_name=name)
+            except QaTaskError as exc:
+                failed.append({"task": task.id, "delegate": delegate,
+                              "error": str(exc)})
+                continue
+            claimed.append({"task": task.id, "delegate": delegate,
+                            "from": from_email})
+    return {"claimed": len(claimed), "failed": len(failed),
+            "details": claimed[:20], "errors": failed[:20]}
+
+
 def mark_seen(task_id: int, *, actor_email: str) -> bool:
     """Record that this person has now looked at the task.
 
