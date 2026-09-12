@@ -430,6 +430,13 @@ def generate_script(project_id):
 def set_music(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     data = request.get_json(force=True) or {}
+    if not isinstance(data, dict):
+        return jsonify(ok=False, error="Send music and voice settings as an object."), 400
+    if "voice_id" in data and (not isinstance(data["voice_id"], str) or not 1 <= len(data["voice_id"]) <= 120):
+        return jsonify(ok=False, error="Choose a valid narration voice."), 400
+    if "pronunciation_dict" in data and (not isinstance(data["pronunciation_dict"], dict) or len(data["pronunciation_dict"]) > 200
+            or any(not isinstance(k, str) or not isinstance(v, str) or len(k) > 120 or len(v) > 300 for k, v in data["pronunciation_dict"].items())):
+        return jsonify(ok=False, error="Enter up to 200 pronunciation pairs."), 400
     # Merged, not replaced.
     #
     # This used to assign a fresh two-key dict, which quietly wiped
@@ -439,8 +446,22 @@ def set_music(project_id):
     # the finished commercial came back silent with nothing reading as an
     # error anywhere.
     music = dict(project.music or {})
-    music["mood"] = data.get("mood")
-    music["level"] = data.get("level", "Medium")
+    music["mood"] = data.get("mood", music.get("mood"))
+    music["level"] = data.get("level", music.get("level", "Medium"))
+    changed = {key for key in ("voice_id", "pronunciation_dict") if key in data and data[key] != music.get(key)}
+    for key in ("voice_id", "pronunciation_dict"):
+        if key in data:
+            music[key] = data[key]
+    if changed:
+        if music.get("voice_track_url") or music.get("voice_mode") == "scenes":
+            music["voice_track_stale"] = True
+        for scene in project.scenes.all():
+            meta = dict(scene.asset_meta or {})
+            if meta.get("voiceover"):
+                meta["voiceover"] = {**meta["voiceover"], "stale": True}
+            if "pronunciation_dict" in changed and (meta.get("heygen_job") or meta.get("spokesperson_url")):
+                meta["presenter_stale"] = True
+            scene.asset_meta = meta
     project.music = music
     db.session.commit()
     return jsonify({"ok": True, "music": project.music})

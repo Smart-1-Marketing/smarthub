@@ -206,6 +206,36 @@ class FinishingTests(unittest.TestCase):
         self.assertEqual(self.project.music["pronunciation_dict"], self.client.pronunciation_dict)
         self.assertEqual(self.project.brief["brand_preset_id"], pid)
 
+    def test_identical_preset_keeps_existing_presenter_valid(self):
+        self.scene.asset_meta = {"avatar_id": "saved-avatar", "heygen_job": {"status": "completed", "voice_id": "saved-voice", "voice_provider": "heygen"}, "spokesperson_url": "https://example.test/paid.mp4"}
+        db.session.commit()
+        response = self.http.post(self.base + "/brand-presets", json={"name": "Same casting", "approve": True})
+        pid = response.get_json()["preset"]["id"]
+        self.assertEqual(response.get_json()["preset"]["snapshot"]["music"]["voice_id"], self.client.preferred_voiceover_id)
+        self.assertEqual(self.http.post(f"{self.base}/brand-presets/{pid}/apply", json={}).status_code, 200)
+        self.assertFalse(self.scene.asset_meta.get("presenter_stale"))
+        self.assertFalse(self.project.music.get("voice_track_stale"))
+
+    def test_project_voice_edit_preserves_music_and_invalidates_paid_speech(self):
+        self.project.music = {"voice_id": "old", "voice_track_url": "https://example.test/old.mp3", "mood": "Happy", "level": "Low"}
+        db.session.commit()
+        response = self.http.put(self.base + "/music", json={"voice_id": "new"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.project.music["mood"], "Happy")
+        self.assertEqual(self.project.music["level"], "Low")
+        self.assertTrue(self.project.music["voice_track_stale"])
+
+    def test_heygen_native_voice_uses_project_pronunciation(self):
+        from modules.commercial_builder.services import heygen_service
+        self.project.music = {"pronunciation_dict": {"Test": "Tess-t"}}
+        db.session.commit()
+        with patch.object(heygen_service, "is_live", return_value=True), patch.object(heygen_service, "voice_available", return_value=True), \
+             patch.object(heygen_service, "generate_spokesperson_clip", return_value={"status": "processing", "job_id": "saved-id"}) as call:
+            response = self.http.post(self.scene_url + "/spokesperson", json={"avatar_id": "avatar", "voice_id": "voice", "voice_provider": "heygen", "over_footage": False})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Tess-t Business", call.call_args.args[1])
+        self.assertIn("Test Business", self.scene.narration)
+
     def test_preset_cannot_change_approved_project(self):
         pid = self.http.post(self.base + "/brand-presets", json={"name": "Approved", "approve": True}).get_json()["preset"]["id"]
         self.approve_source()

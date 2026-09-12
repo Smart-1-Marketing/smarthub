@@ -136,10 +136,13 @@ def save_preset(project_id):
             casting.append({"scene": scene.order_index, "avatar_id": meta.get("avatar_id") or job.get("avatar_id"),
                             "voice_id": job.get("voice_id"), "voice_provider": job.get("voice_provider", "heygen"),
                             "over_footage": bool(meta.get("spokesperson_over_footage"))})
-    profile = project.client.to_dict()
+    profile = deepcopy((project.brief or {}).get("approved_brand") or project.client.to_dict())
     music = project.music or {}
+    profile["pronunciation_dict"] = music.get("pronunciation_dict", profile.get("pronunciation_dict") or {})
+    music_settings = {k: music[k] for k in ("mood", "level", "pronunciation_dict") if k in music}
+    music_settings["voice_id"] = music.get("voice_id") or ((music.get("voice_take") or {}).get("result") or {}).get("voice_id") or project.client.preferred_voiceover_id
     snapshot = {"brand": profile, "brand_key": fingerprint(profile), "cta": deepcopy(project.cta or {}),
-                "casting": casting, "music": {k: music[k] for k in ("voice_id", "mood", "level", "pronunciation_dict") if k in music}}
+                "casting": casting, "music": music_settings}
     preset = BrandPreset(client_id=project.client_id, source_project_id=project.id, name=name.strip(),
                          approved_by=_actor() or "Internal user", snapshot=snapshot)
     db.session.add(preset)
@@ -164,7 +167,9 @@ def apply_preset(project_id, preset_id):
         casting = next((c for c in snapshot["casting"] if c["scene"] == scene.order_index), None)
         if casting:
             meta["casting_preset"] = deepcopy(casting)
-            if job and any(job.get(k) != casting.get(k) for k in ("avatar_id", "voice_id", "voice_provider")):
+            current = {**job, "avatar_id": meta.get("avatar_id") or job.get("avatar_id"),
+                       "voice_provider": job.get("voice_provider", "heygen"), "over_footage": bool(meta.get("spokesperson_over_footage"))}
+            if job and any(current.get(k) != casting.get(k) for k in ("avatar_id", "voice_id", "voice_provider", "over_footage")):
                 meta["presenter_stale"] = True
             scene.asset_meta = meta
     brief = dict(project.brief or {})
@@ -175,14 +180,19 @@ def apply_preset(project_id, preset_id):
     project.cta = deepcopy(snapshot["cta"])
     music = dict(project.music or {})
     settings = {**snapshot["music"], "pronunciation_dict": snapshot["brand"].get("pronunciation_dict") or {}}
-    changed_voice = any(music.get(k) != settings.get(k) for k in ("voice_id", "pronunciation_dict"))
+    current_voice = music.get("voice_id") or ((music.get("voice_take") or {}).get("result") or {}).get("voice_id") or project.client.preferred_voiceover_id
+    changed_pronunciation = music.get("pronunciation_dict", project.client.pronunciation_dict or {}) != settings["pronunciation_dict"]
+    changed_voice = current_voice != settings.get("voice_id") or changed_pronunciation
     music.update(settings)
     if changed_voice:
-        music["voice_track_stale"] = True
+        if music.get("voice_track_url") or music.get("voice_mode") == "scenes":
+            music["voice_track_stale"] = True
         for scene in project.scenes.all():
             meta = dict(scene.asset_meta or {})
             if meta.get("voiceover"):
                 meta["voiceover"] = {**meta["voiceover"], "stale": True}
+            if changed_pronunciation and has_presenter(scene.to_dict()):
+                meta["presenter_stale"] = True
             scene.asset_meta = meta
     project.music, project.status = music, "draft"
     db.session.commit()
