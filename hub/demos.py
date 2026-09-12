@@ -70,6 +70,23 @@ class Scenario:
 
 
 SCENARIOS: list[Scenario] = [
+    Scenario(key="creative_studio.render_review", module="creative_studio",
+        title="Open a storyboard and send a rendered version for review",
+        goal="Understand the path from a template-backed project to a version-specific approval.",
+        minutes=5, path="/creative-studio/projects", steps=[
+            Step("Choose a project with a template", "Open the project and check its template and required variables.", "A project without a template cannot open the Storyboard Editor."),
+            Step("Continue in the Storyboard Editor", "Use Open in Storyboard Editor or Continue in Storyboard Editor to review scenes and copy.", "Generating a script is separate from rendering the finished video."),
+            Step("Review the finished version", "Render from the editor, then find its completed output under Versions on the project.", "Wait for the render to finish before sending it for approval."),
+            Step("Send the chosen version for approval", "Use Send for Approval on the version you want reviewed.", "The review belongs to that version, so check its output first.")]),
+    Scenario(key="google_access.cleanup_review", module="google_access",
+        title="Review an inactive Google account scan",
+        goal="Separate measured inactivity from missing evidence before deciding what to clean up.",
+        minutes=4, path="/tools/google-access/qa-inactive/", steps=[
+            Step("Start a fresh scan", "Open Inactive Google Accounts QA and use Run fresh scan.", "Existing results may describe an earlier scan."),
+            Step("Wait for complete evidence", "Read the progress and partial results while connected accounts are scanned.", "A paused, partial or failed scan is not evidence that unseen resources are inactive."),
+            Step("Check the resource and account", "Review the inactivity evidence for each GA4 property or GTM container.", "GTM has no traffic-reporting API; uncertain containers remain in Needs Review."),
+            Step("Decide before confirming", "Confirm the specific resource only when its evidence justifies cleanup.", "GA4 goes to the Analytics trash; GTM container deletion is permanent. This walkthrough does not delete anything.")]),
+
 
     # ------------------------------------------------------------------
     Scenario(
@@ -1492,6 +1509,9 @@ SCENARIOS: list[Scenario] = [
                  "one line before committing the whole spot — regenerating "
                  "audio costs credits.",
                  action="look", selector="[data-demo='rp-voice']"),
+            Step("Render and save the final music mix",
+                 "Choose the bed, Render the mix, listen, then use Save mix for customer.",
+                 "A preview or download is not the saved customer version. Re-render and save after changing the voice or music.", action="look"),
             Step("Save it to the library",
                  "So the next spot for this client starts from something.",
                  "Most spots are a variation on the last one. The library is "

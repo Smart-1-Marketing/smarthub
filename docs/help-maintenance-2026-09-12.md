@@ -1,0 +1,9 @@
+# Help Center maintenance — September 12, 2026
+
+Reviewed merged changes from the September 8 Help Center release through 81012b2 (Add user). Existing help already covered Ad Assets batch operations and Creative Studio campaigns, versions, media library and aspect variations. Source files for those entries were retained. The tutorial source hub/partner_pages/learning-library.html has no changes since the last verified library; its 18 recorded lesson links are retained.
+
+This update adds 12 articles: saved radio music mixes, QA delegation, adding users, partial Google cleanup scans, cleanup decisions, SEO Intelligence, Proposal Execution, multiple client links, account/notifications, prospect imports, weather industry selection and Fan Radio voice settings. The stale Creative Studio project article now describes the shipped Storyboard Editor. New walkthroughs explain Studio version review and Google cleanup; the existing radio walkthrough now includes saving the final music mix.
+
+Evidence: hub/users_routes.py and users_admin.html; hub/qa_tasks.py; modules/google_access/qa_inactive.py and qa_inactive.html; modules/creative_studio/templates/cs_project_detail.html; modules/radio_promo/templates/index.html and app.py; modules/fan_radio/templates/index.html; modules/seo_intelligence/README.md; hub/proposal_execution_routes.py and proposal_execution.html; modules/landing_ads/prospect_builder.py and prospect_builder.html; docs/weather-trigger-setup.md; merged Client 360 and proposal-file changes. Infrastructure, test-only fixes, report-only scripts and layout repairs do not require new user guidance.
+
+Scope: Help registry, walkthrough content and release metadata only. Account controls, notifications, question logging, support form and sidebar behavior are preserved. Last-successful review state is recorded locally only after the live deployment is verified.
