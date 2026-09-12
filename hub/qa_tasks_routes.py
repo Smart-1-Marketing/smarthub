@@ -143,6 +143,18 @@ def api_summary():
     })
 
 
+@bp.route("/api/qa-tasks/log")
+def api_activity_log():
+    """Question, solution, when -- the whole team's, not just mine."""
+    return jsonify(qa_tasks.activity_log())
+
+
+@bp.route("/api/qa-tasks/delegate-status")
+def api_delegate_status():
+    """How much a stand-in like Yoda is carrying, for the dashboard card."""
+    return jsonify(qa_tasks.delegate_status())
+
+
 @bp.route("/api/qa-tasks/<int:task_id>")
 def api_task(task_id):
     email, _name = _who()
