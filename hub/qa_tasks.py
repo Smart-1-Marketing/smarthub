@@ -98,6 +98,10 @@ STATUS_LABEL = {
 ASSIGNEE_STATES = (OPEN, NEEDS_MORE)
 OWNER_STATES = (ANSWERED,)
 
+# The assignee's answer -- named here too, alongside the kinds added after
+# it, because activity_log() below has to pick it out from among them.
+REPLY = "reply"
+
 # A response nobody has to act on, the third `kind` the module docstring
 # already names as the obvious next addition -- a "claim" is a reassignment
 # recorded where the answer will be, not a reply and not a request.
@@ -526,7 +530,7 @@ def respond(task_id: int, *, body: str, actor_email: str, actor_name: str,
         # which happens, because the owner is sometimes also the assignee —
         # is a reply too, and only an owner who is NOT the assignee is asking
         # for more.
-        kind="reply" if is_assignee else "request",
+        kind=REPLY if is_assignee else "request",
         body=body,
         file_name=(file_name or "")[:255], file_type=(file_type or "")[:120],
         file_size=len(file_bytes) if file_bytes else 0,
@@ -973,6 +977,93 @@ def board(limit: int = 300) -> dict:
         return {"measured": False, "error": "the QA task list could not be read",
                 "tasks": []}
     out["tasks"] = [t.as_dict() for t in rows]
+    return out
+
+
+def activity_log(limit: int = 100) -> dict:
+    """Question, solution, and when -- across the whole team, not just mine.
+
+    "Mine", "Everyone" and "Completed" all answer a version of *what is
+    outstanding*; none of them answers *what has been solved and how*, which
+    is the question this exists for. It reads the same `reply` responses
+    `respond()` already writes rather than a second record of the same fact
+    -- the drift `hub/storage.py` exists to stop, wearing a log. A task can
+    still read `answered` here rather than `complete`: solving it and Todd
+    ticking it off on the review are two different moments, and this is the
+    first one.
+
+    Only `REPLY` counts as a solution. A `vision` post describes a screenshot
+    and nothing more -- counting it here would log a task as solved the
+    moment somebody merely looked at the picture.
+    """
+    from hub import dates
+    out = {"measured": True, "error": "", "rows": []}
+    try:
+        replies = (QaResponse.query.filter(QaResponse.kind == REPLY)
+                   .order_by(QaResponse.created_at.desc()).limit(limit * 3).all())
+    except Exception as exc:                            # noqa: BLE001
+        _warn("activity_log could not read the table", exc)
+        return {"measured": False,
+                "error": "the QA task list could not be read", "rows": []}
+    seen: set[int] = set()
+    rows: list[dict] = []
+    for r in replies:
+        if r.task_id in seen:
+            continue
+        seen.add(r.task_id)
+        task = QaTask.query.get(r.task_id)
+        if task is None:
+            continue
+        status = task.status or OPEN
+        rows.append({
+            "task_id": task.id,
+            "target_label": task.target_label or "(not named)",
+            "question": (task.instructions or "")[:400],
+            "solution": (r.body or "")[:2000],
+            "solved_by": r.author_name or r.author_email or "",
+            "solved_at": _iso(r.created_at),
+            "solved_on_pretty": dates.fmt(r.created_at),
+            "status": status,
+            "status_label": STATUS_LABEL.get(status, status),
+        })
+        if len(rows) >= limit:
+            break
+    out["rows"] = rows
+    return out
+
+
+def delegate_status() -> dict:
+    """How much work a stand-in is carrying right now, and how much they
+    cleared today.
+
+    Scoped to whoever `QA_TASK_DELEGATES` names, not every assignee -- this
+    answers "how much is Yoda carrying", which the dashboard's own QA tasks
+    card cannot, since after `autoclaim()` reassigns a task away from Todd it
+    drops out of his own queue entirely. `configured` is False with nothing
+    measured when no delegate is named, so a deployment that has never turned
+    delegation on sees nothing rather than a permanent zero on its dashboard.
+    """
+    delegates = set(_delegates().keys())
+    out = {"measured": True, "error": "", "configured": bool(delegates),
+           "in_progress": 0, "resolved_today": 0}
+    if not delegates:
+        return out
+    try:
+        out["in_progress"] = QaTask.query.filter(
+            QaTask.assigned_to_email.in_(delegates),
+            QaTask.status.in_(ASSIGNEE_STATES)).count()
+        since = _now().replace(hour=0, minute=0, second=0, microsecond=0)
+        out["resolved_today"] = (
+            QaResponse.query.filter(
+                QaResponse.kind == REPLY,
+                QaResponse.author_email.in_(delegates),
+                QaResponse.created_at >= since)
+            .count())
+    except Exception as exc:                            # noqa: BLE001
+        _warn("delegate_status could not read the table", exc)
+        return {"measured": False, "configured": bool(delegates),
+                "error": "the QA task list could not be read",
+                "in_progress": 0, "resolved_today": 0}
     return out
 
 

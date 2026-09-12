@@ -440,6 +440,61 @@ with app.app_context():
     check_true("...and holds only open work",
                all(t["status"] != qa_tasks.COMPLETE for t in board["tasks"]))
 
+    print("\n-- question, solution, when --")
+    # `with_image` was answered by nobody in this file -- only described.
+    # Give the log something real to find: the reviewer answers one of their
+    # own outstanding tasks.
+    solved = qa_tasks.create(
+        target_key="other", target_other="The rate card",
+        instructions="The 'Learn more' button 404s.",
+        assigned_to_email=rev.email, due_on="",
+        actor_email=boss.email, actor_name=boss.name)
+    qa_tasks.respond(solved.id, body="Fixed the cross-link in PR #503.",
+                     actor_email=rev.email, actor_name=rev.name)
+    log = qa_tasks.activity_log()
+    check_true("it is measured", log["measured"])
+    row = next((r for r in log["rows"] if r["task_id"] == solved.id), None)
+    check_true("the solved task is on it", row is not None)
+    check("...with the question", row["question"], "The 'Learn more' button 404s.")
+    check("...and the solution",
+          row["solution"], "Fixed the cross-link in PR #503.")
+    check("...naming who solved it", row["solved_by"], rev.name)
+    check_true("...and when", bool(row["solved_on_pretty"]))
+    check("...and the task's current status", row["status"], qa_tasks.ANSWERED)
+
+    # A screenshot read is not a solution: describing the picture is not the
+    # same as fixing anything, and the log must not read one as the other.
+    check_true("a vision-only task is not on the log",
+               all(r["task_id"] != with_image.id for r in log["rows"]))
+
+    # Answering it again keeps the task on the log exactly once, at its
+    # latest reply.
+    qa_tasks.respond(solved.id, body="Actually, PR #504.",
+                     actor_email=rev.email, actor_name=rev.name)
+    log = qa_tasks.activity_log()
+    matches = [r for r in log["rows"] if r["task_id"] == solved.id]
+    check("a re-answered task appears once", len(matches), 1)
+    check("...at its latest answer", matches[0]["solution"], "Actually, PR #504.")
+
+    print("\n-- how much a stand-in is carrying --")
+    del os.environ["QA_TASK_DELEGATES"]
+    off = qa_tasks.delegate_status()
+    check("delegation off reads as not configured", off["configured"], False)
+    check("...and measured, not a permanent zero", off["measured"], True)
+
+    os.environ["QA_TASK_DELEGATES"] = f"{yoda.email}:{boss.email}"
+    # `for_autoclaim` is still sitting with Yoda, unanswered -- that alone is
+    # "in progress". Answering the *other* claimed task is what "resolved
+    # today" has to find.
+    qa_tasks.respond(claimed.id, body="Fixed the back link.",
+                     actor_email=yoda.email, actor_name=yoda.name)
+    status = qa_tasks.delegate_status()
+    check_true("it is configured once a delegate is named", status["configured"])
+    check_true("it counts what the delegate is still carrying",
+               status["in_progress"] >= 1)
+    check_true("...and what they answered today",
+               status["resolved_today"] >= 1)
+
     print("\n-- one sentence, every screen --")
     line = qa_tasks.summary_line({"to_do": 2, "overdue": 1, "waiting_on_you": 1})
     check_true("it names both queues",
@@ -457,7 +512,8 @@ print("\n-- the login gate --")
 # hub app has no blanket gate: this repo has paid for that four times.
 client = app.test_client()
 for path in ("/qa-tasks", "/api/qa-tasks", "/api/qa-tasks/board",
-             "/api/qa-tasks/summary", "/api/qa-tasks/new"):
+             "/api/qa-tasks/summary", "/api/qa-tasks/new",
+             "/api/qa-tasks/log", "/api/qa-tasks/delegate-status"):
     resp = client.get(path)
     check(f"{path} refuses a stranger", resp.status_code in (301, 302, 401), True)
 resp = client.post("/api/qa-tasks", json={})
