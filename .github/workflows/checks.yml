@@ -124,6 +124,8 @@ jobs:
       - name: Image tool orientation, compression and provider failures
         run: |
           python test_image_tools.py
+          python test_background_providers.py
+          node test_background_ui.js
           node test_image_optimizer_ui.js
 
       - name: JavaScript syntax

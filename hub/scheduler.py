@@ -829,9 +829,18 @@ def job_industry_prospect_sync(app):
     return scheduled_step(app)
 
 
+def job_commercial_recovery(app) -> dict:
+    """Continue saved commercial jobs after the browser closes."""
+    with app.app_context():
+        from modules.commercial_builder.recovery import recover_pending
+        return recover_pending()
+
+
 JOBS = {
     "industry_prospect_sync": (1, job_industry_prospect_sync,
                                "Advance the opt-in GHL to Apollo suppression sync."),
+    "commercial_recovery": (1, job_commercial_recovery,
+                            "Check saved commercials and retry storing presenter clips."),
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
     "clear_stuck_scans": (15, job_clear_stuck_scans,

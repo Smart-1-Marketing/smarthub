@@ -3,6 +3,15 @@
    see smart1-hub-v1.6.0-handoff.md re: Fabric.js being vendored for the
    same reason). System font stack keeps this fast and dependency-free. */
 
+.cb-production [hidden]{display:none!important;}
+.cb-production{margin:16px 0;padding:16px;border:1px solid var(--cb-border);border-radius:10px;background:var(--cb-surface);}
+.cb-production-summary{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:center;}
+.cb-production summary{cursor:pointer;padding:8px 0;font-weight:600;}
+.cb-production summary:focus-visible{outline:2px solid var(--cb-primary);outline-offset:3px;}
+.cb-take{border-top:1px solid var(--cb-border);padding:8px 0;}
+.cb-take-comparison{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:16px;margin:12px 0;}
+.cb-take pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;background:var(--cb-bg);padding:12px;}
+.cb-take audio,.cb-take video{display:block;max-width:100%;width:100%;margin:8px 0;max-height:260px;}
 :root{
   --cb-bg:#f5f6f8;
   --cb-surface:#ffffff;

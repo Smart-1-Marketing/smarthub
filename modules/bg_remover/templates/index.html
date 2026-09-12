@@ -65,15 +65,7 @@
 <div class="wrap s1d-page">
   <a class="back" href="/tools">&larr; Tools</a>
   <h1>Background Remover</h1>
-  <p class="sub">Drop in photos and get transparent PNG cut-outs back. Resize before the cut to control
-    cost and after it to control the file you keep. Finished cut-outs can be saved to the client gallery against
-    a client, ready to drop onto a canvas in the Image Creator.</p>
-
-  {% if not configured %}
-  <div class="alert"><b>remove.bg isn't configured.</b>
-    <div class="hint">Set <code>REMOVE_BG_API_KEY</code> in the environment and redeploy.
-      Uploads and resizing still work; the cut-out step is disabled.</div></div>
-  {% endif %}
+  <p class="sub">Remove a background for a transparent cutout, or describe a new scene with AI. Save the result to the client gallery and reuse it in Image Creator.</p>
 
   <div class="card">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -87,6 +79,13 @@
     </div>
     <input type="file" id="files" data-demo="cutout-file" accept="image/jpeg,image/png,image/webp" multiple hidden>
 
+    <label class="f" for="imageUrl" style="margin-top:12px">Or use a saved image link</label>
+    <input type="url" id="imageUrl" placeholder="Paste an image link from the Hub gallery">
+    <div id="promptRow" hidden style="margin-top:12px">
+      <label class="f" for="prompt">Describe the new background</label>
+      <textarea id="prompt" maxlength="2000" rows="3" style="width:100%" placeholder="A warm kitchen counter with soft morning light"></textarea>
+      <div class="hint">AI can change small details. Check faces, product labels and logos before using the result.</div>
+    </div>
     <div class="grid" style="margin-top:16px">
       <div>
         <label class="f">Resize before cutting {{ help_dot('bg_remover.upload.credits') if help_dot is defined else '' }}</label>
@@ -95,16 +94,15 @@
           <option value="{{ key }}"{% if key == 'auto' %} selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
-        <div class="hint">Smaller input costs less and runs faster.</div>
+        <div class="hint">Smaller images upload faster. Service charges may still apply.</div>
       </div>
       <div>
-        <label class="f">Cut-out resolution</label>
-        <select id="quality" data-demo="cutout-quality">
-          <option value="preview">Preview — 0.25 MP (free)</option>
-          <option value="auto" selected>Auto — best available (1 credit)</option>
-          <option value="full">Full resolution (1 credit)</option>
+        <label class="f" for="mode">What would you like to do?</label>
+        <select id="mode" data-demo="cutout-quality">
+          <option value="cutout">Remove background</option>
+          <option value="replace">Replace background with AI</option>
         </select>
-        <div class="hint">Preview is free but small — good for checking the cut.</div>
+        <div class="hint" id="modeHint"></div>
       </div>
       <div>
         <label class="f">Resize the result {{ help_dot('bg_remover.upload.white_bg') if help_dot is defined else '' }}</label>
@@ -125,7 +123,7 @@
         <div class="droplist" id="clientDrop" style="display:none"></div>
       </div>
       <div style="display:flex;align-items:flex-end">
-        <button class="btn" id="go" {% if not configured %}disabled{% endif %}>Remove backgrounds</button>
+        <button class="btn" id="go" >Remove backgrounds</button>
         <span class="msg" id="msg"></span>
       </div>
     </div>
@@ -133,7 +131,7 @@
 
   <div class="card" id="resultCard" style="display:none">
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-      <h2 style="margin:0">Cut-outs</h2>
+      <h2 style="margin:0">Results</h2>
       <span class="msg" id="resultMeta"></span>
       <div style="margin-left:auto;display:flex;gap:7px">
         <button class="btn sec sm" id="dlAll">&#8681; Download all</button>
@@ -152,19 +150,21 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const CLOUD = {{ 'true' if cloud else 'false' }};
 const CONFIGURED = {{ 'true' if configured else 'false' }};
+const AI_CONFIGURED = {{ 'true' if ai_configured else 'false' }};
 let picked = [], results = [], chosenClient = null;
 const kb = n => n ? Math.round(n/1024).toLocaleString()+' KB' : '';
 
-/* ---------- credits ---------- */
-if(CONFIGURED){
-  fetch('api/account').then(r=>r.json()).then(d => {
-    if(d.error){ $('credits').textContent = 'Credit check failed: '+d.error; return; }
-    const total = d.total ?? 0;
-    $('credits').innerHTML = 'remove.bg credits: <b>'+total+'</b>'
-      + (d.free_calls ? ' · '+d.free_calls+' free preview calls left' : '');
-    if(total <= 3) $('credits').innerHTML += ' — running low';
-  }).catch(()=>{});
+function updateMode(){
+  const editing = $('mode').value === 'replace';
+  const ready = editing ? AI_CONFIGURED : CONFIGURED;
+  $('promptRow').hidden = !editing;
+  $('modeHint').textContent = editing ? 'Create a new scene around your subject.' : 'Keep the subject and make the background transparent. For best results, use the original photo without a border.';
+  $('credits').textContent = ready ? (editing ? 'AI editing · usage charges apply' : 'AI cutout · usage charges apply') : 'This image service is not connected. Ask an administrator to check it.';
+  $('go').textContent = editing ? 'Replace backgrounds' : 'Remove backgrounds';
+  $('go').disabled = !ready;
 }
+$('mode').onchange = updateMode;
+updateMode();
 
 /* ---------- file picking ---------- */
 const drop = $('drop'), files = $('files');
@@ -216,29 +216,37 @@ async function searchClients(){
 
 /* ---------- run ---------- */
 $('go').onclick = async () => {
-  if(!picked.length){ $('msg').className='msg err'; $('msg').textContent='Choose at least one image.'; return; }
-  const fd = new FormData();
-  picked.forEach(f => fd.append('images', f));
-  fd.append('pre_resize', $('preResize').value);
-  fd.append('post_resize', $('postResize').value);
-  fd.append('quality', $('quality').value);
-  $('go').disabled = true; $('msg').className='msg';
-  $('msg').textContent = 'Cutting '+picked.length+' image'+(picked.length>1?'s':'')+'…';
+  const url = $('imageUrl').value.trim(), mode = $('mode').value;
+  const prompt = $('prompt').value.trim();
+  if(!picked.length && !url){ $('msg').className='msg err'; $('msg').textContent='Choose at least one image.'; return; }
+  if(mode === 'replace' && !prompt){ $('msg').className='msg err'; $('msg').textContent='Describe the new background.'; return; }
+  if(picked.length + (url ? 1 : 0) > 10){ $('msg').className='msg err'; $('msg').textContent='Up to 10 images at a time, including the saved link.'; return; }
+  const jobs = [...picked.map(file=>({file})), ...(url ? [{url}] : [])];
+  const errors = []; let calls = 0;
+  results = [];
+  $('go').disabled = true; $('mode').disabled = true; $('msg').className='msg';
   try{
-    const d = await fetch('api/remove', {method:'POST', body:fd}).then(r=>r.json());
-    $('go').disabled = false;
-    if(d.error){ $('msg').className='msg err'; $('msg').textContent = d.error; return; }
-    results = d.results||[];
+    // One image per request so a large batch cannot time out the web worker.
+    for(const [i,job] of jobs.entries()){
+      $('msg').textContent = 'Processing image '+(i+1)+' of '+jobs.length+'…';
+      const fd = new FormData();
+      if(job.file) fd.append('images',job.file);
+      if(job.url) fd.append('image_url',job.url);
+      fd.append('pre_resize', $('preResize').value);
+      fd.append('post_resize', $('postResize').value);
+      fd.append('mode',mode); fd.append('prompt',prompt);
+      try{
+        const d = await fetch('api/remove', {method:'POST', body:fd}).then(r=>r.json());
+        if(d.error) errors.push(d.error);
+        else { results.push(...(d.results||[])); calls += d.provider_calls||0; errors.push(...(d.errors||[])); }
+      }catch(e){ errors.push('The image request was interrupted. Please try again.'); }
+      render();
+      $('resultCard').style.display='block';
+      $('resultMeta').textContent = results.length+' done · '+calls+' processed by the service · '+results.filter(r=>r.cached).length+' reused';
+      $('errors').innerHTML = errors.length ? '<div class="warn">'+errors.map(esc).join('<br>')+'</div>' : '';
+    }
     $('msg').textContent = '';
-    $('resultMeta').textContent = results.length+' done · '+(d.credits_used||0)+' credit'
-      +((d.credits_used||0)===1?'':'s')+' used'
-      +(d.preview_calls ? ' · '+d.preview_calls+' free preview'+(d.preview_calls===1?'':'s') : '');
-    $('errors').innerHTML = (d.errors||[]).length
-      ? '<div class="warn">'+d.errors.map(esc).join('<br>')+'</div>' : '';
-    render();
-    $('resultCard').style.display='block';
-    $('resultCard').scrollIntoView({behavior:'smooth', block:'start'});
-  }catch(e){ $('go').disabled=false; $('msg').className='msg err'; $('msg').textContent='Failed: '+e; }
+  }finally{ $('mode').disabled=false; updateMode(); }
 };
 
 function render(){
@@ -246,7 +254,7 @@ function render(){
     <div class="res">
       <div class="ph"><img src="${r.image}" alt=""></div>
       <div class="b">
-        <div class="nm">${esc(r.name)}${r.cached?' <span class="cached">cached</span>':r.preview?' <span class="cached">free preview</span>':''}</div>
+        <div class="nm">${esc(r.name)}${r.cached?' <span class="cached">cached</span>':''}</div>
         <div class="meta">${esc(r.original_name)}</div>
         <div class="meta">${kb(r.original_bytes)} → ${kb(r.bytes)}${
           r.dimensions ? ' · '+r.dimensions[0]+'×'+r.dimensions[1] : ''}</div>
@@ -272,7 +280,7 @@ async function saveOne(i, btn){
   btn.disabled = true; note.className='msg'; note.textContent='Saving…';
   try{
     const d = await fetch('api/save', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({image:r.image, name:r.name.replace(/\.png$/,''),
+      body: JSON.stringify({image:r.image, name:r.name.replace(/\.png$/,''), mode:r.mode,
         client: chosenClient ? chosenClient.name : $('client').value.trim()})}).then(x=>x.json());
     btn.disabled = false;
     if(d.error){ note.className='msg err'; note.textContent = d.error; return; }
