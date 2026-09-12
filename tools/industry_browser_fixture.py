@@ -19,13 +19,13 @@ def serve():
     @app.get('/test-parent/<page_id>')
     def parent(page_id):
         from flask import render_template_string
-        return render_template_string('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><script src="/industry/widget/{{ page_id }}/embed.js"></script>',page_id=page_id)
+        return render_template_string('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><script src="/industry/widget/{{ page_id }}/embed.js"></script></body></html>',page_id=page_id)
 
     @app.post('/api/leads/capture')
     def lead_fixture():
         return jsonify(ok=True,lead_id='browser-fixture')
 
-    app.run(host='127.0.0.1',port=8767,use_reloader=False)
+    app.run(host='127.0.0.1',port=8773,use_reloader=False)
 
 
 if __name__=='__main__': serve()
