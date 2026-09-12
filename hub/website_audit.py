@@ -524,7 +524,35 @@ def headline(report: dict, meta: dict) -> dict:
 # site at all, so a visitor who leaves cannot be brought back" is the thing
 # that was measured, with the product as the consequence. The second survives
 # being read out to the client; the first is what a rep gets argued with over.
-
+#
+# `sells` used to be a generic bucket ("Retargeting", "Website work", "SEO
+# images") invented for this table alone, so it named nothing a rep could
+# actually quote — the finding was checkable and the product it pointed at
+# was not. Every entry below is either a product Smart 1 sells:
+#
+# * **on the rate card** (`hub/rate_card.py`, `hub/data/rate_card.json`) —
+#   named exactly as the card spells it, so a rep can look it up and quote
+#   it: "Local Business Boost", "Website Retargeting", "Pay Per Click",
+#   "Social Media Management", "Google Analytics Consultation". These are
+#   the SEARCH ENGINE OPTIMIZATION, RETARGETING, SEARCH ENGINE MARKETING /
+#   PAY PER CLICK and SOCIAL MEDIA MANAGEMENT categories, respectively.
+# * **or one of the company's own named platforms** — Smart 1 Suite (the
+#   GoHighLevel white label; it is what actually supplies a chat widget, a
+#   booking calendar and missed-call text-back) or Smart 1 Sites (the
+#   Simvoly white label; a rebuild is a page, not a rate-card line, so the
+#   platform is named rather than a page-count tier nobody has quoted yet).
+#
+# Two findings share one product on purpose: "no analytics" and "still on
+# Universal Analytics" are the same fix (Google Analytics Consultation) --
+# one is an installation and the other is a migration, but the card has no
+# separate line for either, so naming two different products would be
+# inventing a distinction the card does not make. Likewise "schema is
+# missing" and "images carry no alt text" both point at the umbrella
+# Search Engine Optimization product: the card has no separate "Schema" or
+# "SEO Images" line — those are work SEO already includes, not upsells with
+# their own price. Reviews being thin sells the same Local Business Boost
+# line as an unclaimed listing, because that product's own description on
+# the card is "inclusive of Google Review Generation".
 OPPORTUNITIES = [
     {"key": "no_retargeting",
      "when": lambda g: _b(g("retargeting.has_facebook_pixel")) is False
@@ -532,50 +560,57 @@ OPPORTUNITIES = [
      "finding": "No retargeting pixel of any kind is on the site.",
      "means": "Every visitor who leaves without acting is gone for good — "
               "there is nothing to bring them back with.",
-     "sells": "Retargeting"},
+     "sells": "Website Retargeting"},
     {"key": "no_analytics",
      "when": lambda g: _b(g("analytics.has_analytics")) is False,
      "finding": "No analytics tag was found.",
      "means": "Nothing running to this site can be measured, so the first "
               "campaign would be reporting on itself.",
-     "sells": "Analytics setup"},
+     "sells": "Google Analytics Consultation"},
     {"key": "universal_ga",
      "when": lambda g: _b(g("analytics.uses_universal_ga")) is True,
      "finding": "The site is still on Universal Analytics.",
      "means": "Universal Analytics stopped collecting in 2023, so whatever "
               "the client is reading is not this year's traffic.",
-     "sells": "GA4 migration"},
+     "sells": "Google Analytics Consultation"},
     {"key": "gbp_missing",
      "when": lambda g: _b(g("google_business_profile.is_listing_found")) is False,
      "finding": "No Google Business Profile was found.",
      "means": "They are absent from the map pack, which is where a local "
               "search decides who gets the call.",
-     "sells": "Local listings"},
+     "sells": "Local Business Boost"},
     {"key": "gbp_unclaimed",
      "when": lambda g: (_b(g("google_business_profile.is_listing_found")) is True
                         and _b(g("google_business_profile.is_listing_claimed")) is False),
      "finding": "Their Google listing is unclaimed.",
      "means": "Anybody can edit it, including the hours and the phone number.",
-     "sells": "Local listings"},
+     "sells": "Local Business Boost"},
     {"key": "not_ai_ready",
      "when": lambda g: _b(g("ai_readiness.is_ai_optimised")) is False,
      "finding": "The site is not readable by the AI assistants.",
      "means": "ChatGPT, Gemini and Perplexity answer the questions customers "
               "used to type into Google, and this business is not in those "
               "answers.",
-     "sells": "AI search optimization"},
+     # AI/AEO readiness has no rate-card line of its own -- it is part of
+     # what the Search Engine Optimization product delivers (schema, page
+     # structure, the llms.txt work in hub/llms_txt.py), so naming a
+     # separate "AI search optimization" product would be a line nobody
+     # could actually put on a quote.
+     "sells": "Search Engine Optimization"},
     {"key": "no_paid_search",
      "when": lambda g: _b(g("paid_search.has_adwords_spend")) is False,
      "finding": "They are not running paid search.",
      "means": "Every search for what they sell goes to somebody who is.",
-     "sells": "Paid search"},
+     "sells": "Pay Per Click"},
     {"key": "no_booking",
      "when": lambda g: (_b(g("booking_widget.has_booking_widget")) is False
                         and _n(g("click_to_contact.tel_links_found_count")) == 0),
      "finding": "There is no booking tool and no click-to-call link.",
      "means": "A visitor on a phone has no way to act without typing a number "
               "out, which is where most of them stop.",
-     "sells": "Website work"},
+     # A booking calendar and missed-call text-back are Suite features, not
+     # a rate-card product -- the fix is the platform, not a media buy.
+     "sells": "Smart 1 Suite"},
     {"key": "no_chat",
      "when": lambda g: _b(g("live_chat.has_live_chat")) is False,
      "finding": "No chat widget on the site.",
@@ -585,30 +620,35 @@ OPPORTUNITIES = [
      "when": lambda g: _b(g("mobile.is_mobile")) is False,
      "finding": "The site is not mobile optimized.",
      "means": "Most of the traffic any campaign buys arrives on a phone.",
-     "sells": "Website work"},
+     # A rebuild is a WEB DEVELOPMENT line, but which one (WordPress,
+     # Smart 1 Site 2-5 pages, 6-25, ecommerce...) is a scoping question
+     # nobody has answered yet -- naming a page-count tier here would be a
+     # number invented before anyone has looked at the site. The platform
+     # is the honest answer; the tier is decided at quoting time.
+     "sells": "Smart 1 Sites"},
     {"key": "alt_text",
      "when": lambda g: (_n(g("alternative_text.images_no_alt_count")) or 0) > 0,
      "finding": "Images on the site carry no alt text.",
      "means": "Search engines and screen readers can see nothing in them.",
-     "sells": "SEO images"},
+     "sells": "Search Engine Optimization"},
     {"key": "no_schema",
      "when": lambda g: (_n(g("structured_data.count_missing_schema_items")) or 0) > 0,
      "finding": "Schema markup is missing from the site.",
      "means": "It is what tells a search engine what the business is, and it "
               "is what the AI assistants read first.",
-     "sells": "Schema"},
+     "sells": "Search Engine Optimization"},
     {"key": "reviews_thin",
      "when": lambda g: (_n(g("google_business_profile.review_count")) is not None
                         and (_n(g("google_business_profile.review_count")) or 0) < 20),
      "finding": "Under 20 Google reviews.",
      "means": "Reviews are the last thing read before a local customer picks, "
               "and this is below where that comparison is usually won.",
-     "sells": "Reputation"},
+     "sells": "Local Business Boost"},
     {"key": "social_quiet",
      "when": lambda g: (_n(g("facebook_page.days_since_last_post")) or 0) > 60,
      "finding": "Their Facebook page has not been posted to in over two months.",
      "means": "A prospect who checks finds a page that looks abandoned.",
-     "sells": "Social planner"},
+     "sells": "Social Media Management"},
 ]
 
 
