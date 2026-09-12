@@ -50,10 +50,11 @@ def timeline(project_id):
         meta = s["asset_meta"]
         voice = meta.get("heygen_job") if has_presenter(s) else meta.get("voiceover")
         duration = (voice or {}).get("duration")
-        overlay = next((e.get("overlay", {}) for e in source["elements"] if e.get("id") == f"scene_{s['id']}"), {})
+        group = next((e for e in source["elements"] if e.get("id") == f"scene_group_{s['id']}"), {})
+        overlay = (group.get("elements") or [])[1:]  # first child is the scene background
         rows.append({**{k: s[k] for k in ("id", "start", "end", "narration", "is_cta", "locked", "asset_url", "asset_type", "asset_thumb_url")},
                      "media_type": creatomate_service._element_type(s),
-                     "speech_seconds": duration, "overlays": overlay.get("elements", []),
+                     "speech_seconds": duration, "overlays": overlay,
                      "has_presenter": has_presenter(s)})
     return jsonify(ok=True, scenes=rows, duration=project.length_seconds, format=fmt,
         extras=[e for e in source["elements"] if e.get("id") == "logo_bug" or str(e.get("id", "")).startswith("presenter_")],

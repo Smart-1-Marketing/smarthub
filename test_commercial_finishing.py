@@ -40,6 +40,16 @@ class FinishingTests(unittest.TestCase):
         self.assertEqual(data["safe_insets"]["bottom"], 20)
         self.assertIsNone(data["scenes"][0]["speech_seconds"])
 
+    def test_timeline_end_card_matches_renderer_composition(self):
+        self.scene.is_cta = True
+        self.project.cta = {"captions_enabled": True, "headline": "A clear call to action"}
+        db.session.commit()
+        response = self.http.get(self.base + "/timeline").get_json()
+        source = creatomate_service.build_source(self.project.to_dict(False), [self.scene.to_dict()], "16:9")
+        group = next(e for e in source["elements"] if e.get("id") == f"scene_group_{self.scene.id}")
+        self.assertEqual(response["scenes"][0]["overlays"], group["elements"][1:])
+        self.assertIn("A clear call to action", [e.get("text") for e in response["scenes"][0]["overlays"]])
+
     def test_caption_boolean_validation(self):
         self.assertEqual(self.http.post(self.base + "/timeline-settings", json={"captions_enabled": "false"}).status_code, 400)
         self.assertEqual(self.http.post(self.base + "/timeline-settings", json={"captions_enabled": True}).status_code, 200)
