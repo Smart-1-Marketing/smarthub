@@ -27,14 +27,16 @@ alike, the same shape `hub/proposal_spec.client_safe()` and
 **The angle is written to the vertical, not to a swapped-in name.** A
 restaurant ad invites ("come sit outside"), an HVAC ad warns or reminds
 ("book this before it fails"), a retail ad is a purchase trigger ("stock
-up before it's gone"). One generic house template with the business name
-dropped in would answer a hard-freeze ad with "The weather's right for
-Acme Heating & Air" — grammatical, and wrong for what the ad is for — so
-`_house_draft_restaurant()`, `_house_draft_hvac()` and
-`_house_draft_retail()` are three separate templates per angle, and
-`_house_draft()` dispatches on `Trigger.vertical` rather than guessing
-from the trigger's tags. The model prompt carries the same split, through
-`_PROMPT_CONTEXT`.
+up before it's gone"), and an auto-service ad names the specific system a
+condition puts under strain ("get your battery checked before it strands
+you"). One generic house template with the business name dropped in would
+answer a hard-freeze ad with "The weather's right for Acme Heating & Air"
+— grammatical, and wrong for what the ad is for — so
+`_house_draft_restaurant()`, `_house_draft_hvac()`,
+`_house_draft_retail()` and `_house_draft_auto()` are four separate
+templates per angle, and `_house_draft()` dispatches on `Trigger.vertical`
+rather than guessing from the trigger's tags. The model prompt carries the
+same split, through `_PROMPT_CONTEXT`.
 """
 from __future__ import annotations
 
@@ -121,14 +123,32 @@ def _house_draft_retail(trig, name: str, angle: str) -> tuple[str, str]:
     return by_angle.get(angle, by_angle["Direct"])
 
 
+def _house_draft_auto(trig, name: str, angle: str) -> tuple[str, str]:
+    # Between HVAC's warning and retail's stock-up call: a car does not
+    # fail on a comfortable day, so the copy names the specific system a
+    # condition puts under strain rather than inviting anyone anywhere.
+    urgent = any(t in _URGENT_TAGS for t in trig.tags)
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has appointments today."),
+        "Comfort": ((f"Don't get stranded, {name}" if urgent
+                    else f"Get ahead of it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Schedule your visit today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
 _HOUSE_DRAFT_BY_VERTICAL = {
     "restaurant": _house_draft_restaurant,
     "hvac": _house_draft_hvac,
     "retail": _house_draft_retail,
+    "auto": _house_draft_auto,
 }
 
 _FALLBACK_NAME = {"restaurant": "your table", "hvac": "your business",
-                  "retail": "your store"}
+                  "retail": "your store", "auto": "your shop"}
 
 
 def _house_draft(trigger_id: str, client_name: str, angle: str) -> dict:
@@ -191,6 +211,7 @@ _PROMPT_CONTEXT = {
     "restaurant": {"noun": "restaurant", "notes_label": "Menu or voice notes"},
     "hvac": {"noun": "HVAC / home comfort company", "notes_label": "Service notes"},
     "retail": {"noun": "retail / home goods store", "notes_label": "Inventory or promo notes"},
+    "auto": {"noun": "auto repair / service shop", "notes_label": "Service notes"},
 }
 
 

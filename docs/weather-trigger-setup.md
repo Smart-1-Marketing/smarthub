@@ -1,6 +1,6 @@
 # Weather trigger setup — lead → landing pages → approved work order
 
-**Date:** 2026-09-07 · **Verticals:** restaurant, hvac, retail · **Status:** built (v1 + hvac + retail)
+**Date:** 2026-09-07 · **Verticals:** restaurant, hvac, retail, auto · **Status:** built (v1 + hvac + retail + auto)
 
 This is the design spec the module in `modules/weather_setup/` and the
 trigger vocabulary in `hub/weather_triggers.py` were built against. What
@@ -309,6 +309,58 @@ the rest ("New for your home"). `_PROMPT_CONTEXT["retail"]` gives the model
 prompt a "retail / home goods store" noun and an "Inventory or promo notes"
 label, and `_FALLBACK_NAME["retail"]` is "your store" where a restaurant
 falls back to "your table" and HVAC to "your business".
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 9. The fourth vertical (Auto Repair / Service)
+
+Shipped the same way a third time: thirteen more rows, still the same rule
+vocabulary, still no change to `evaluate_trigger()`, `store.py`, `app.py` or
+the staff template. Three verticals of precedent already proved the plumbing
+generalizes; the fourth confirms it rather than testing it again.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="auto"`. The psychology
+is closer to HVAC's service reminder than retail's stock-up call, because the
+thing being sold is mostly a check-up rather than a purchase — but it is a
+narrower, colder-weather-leaning one: a shop's business is disproportionately
+battery, tires and AC. `battery-cold-test`/`deep-freeze-auto`/`cold-snap-auto`
+are an escalating cold-weather ladder, each with its own threshold, so a
+20°F day and a below-zero day do not compete for the same ad. `first-freeze-auto`
+is the once-per-season event — the day a battery that coasted through fall
+gets tested for real — with its own season-state key so it cannot collide
+with restaurant's `first-freeze`, HVAC's `first-hard-freeze` or retail's
+`first-frost-shop` inside one campaign's carried state, even though all four
+share the literal `once_per_season: "cold"` value: `trigger_state` is stored
+per-pick, keyed on `trigger_id`, in `store.py`, so the four never actually
+share a state dict. `ac-check-early`/`heat-index-auto` are the summer half —
+an early-season 85°F day or a genuinely humid one, the moment a cabin AC that
+was low on refrigerant all winter gets caught out. `spring-service-day` and
+`fall-service-day` are the two shoulder-season maintenance pushes, mirroring
+each other in reverse. `wiper-blade-season`, `pothole-season` and
+`snow-tire-day` are weather-specific parts triggers rather than temperature
+bands. `storm-driving-prep` is the alert-driven row: a get-it-checked-before-
+the-next-one call, never an invitation to be on the road during this one — and
+it is caught by the same `cadence == "alert_driven"` blocklist check the other
+three verticals' alert rows already exercise, with no per-id special-casing
+needed.
+
+`MONTHS` gained the same treatment as the prior two verticals: all thirteen
+auto ids listed in every month's tuple, in month-appropriate priority order,
+alongside the restaurant, hvac and retail ids already there. `month_order()`
+filters to `triggers_for_vertical(vertical)`, so nothing about a shared flat
+table costs a vertical anything.
+
+**The copy.** `_house_draft_auto()` is a fourth per-angle template in
+`modules/weather_setup/copy.py`, dispatched the same way as the other three —
+by `Trigger.vertical`, not by a swapped-in name. Its urgency framing leans on
+"before it fails" / "don't get stranded" for battery- and emergency-tagged
+triggers, and a "get it checked" service-reminder note for the maintenance
+and seasonal ones. `_PROMPT_CONTEXT["auto"]` gives the model prompt an
+"auto repair / service shop" noun and a "Service notes" label, and
+`_FALLBACK_NAME["auto"]` is "your shop" where retail falls back to "your
+store" and HVAC to "your business".
 
 **Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
 already drive the dropdown and the fallback-to-`"restaurant"` guard in both

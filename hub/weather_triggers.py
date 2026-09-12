@@ -95,6 +95,30 @@ season they are *for* rather than left for a rep to infer from the month
 strip. `storm-prep` is the alert-driven row, and its own `reason` says what
 keeps it from reading as fear-mongering: it is a stock-up call for
 flashlights and batteries, not an invitation to be outside in the alert.
+
+## The fourth vertical
+
+Auto Repair / Service, and the claim held a third time: thirteen more rows,
+still the same rule vocabulary, still no change to `evaluate_trigger()`. The
+psychology sits between HVAC's warning and retail's stock-up call — a car
+does not fail on a comfortable day, so nearly every row here names the
+specific system a weather condition puts under strain and the appointment
+that heads it off. `battery-cold-test` and `deep-freeze-auto` are the
+cold-weather pair: a battery that starts fine at 40°F fails at 10°F, so the
+first is the test-it-before-it-strands-you ad and the second is the
+emergency one, escalating the way `hard-freeze`/`deep-freeze` do for HVAC.
+`ac-check-early` and `heat-index-auto` are the same shape for a cabin AC and
+a cooling system under real load. `first-freeze-auto` is the once-per-season
+event — a coolant and battery check before the first hard freeze finds a
+weak one, with its own season-state key so it cannot collide with
+restaurant's `first-freeze`, HVAC's `first-hard-freeze` or retail's
+`first-frost-shop` inside one campaign's carried state. `pothole-season` and
+`wiper-blade-season` are the two shoulder-season pushes this vertical leans
+on hardest, named for the season they are *for* rather than left for a rep
+to infer from the month strip. `storm-driving-prep` is the alert-driven
+row, and its own `reason` says what keeps it from reading as an invitation
+to be on the road in the alert: it is a get-your-wipers-and-tires-checked-
+before-the-next-one ad, not a call to drive through this one.
 """
 from __future__ import annotations
 
@@ -106,9 +130,9 @@ from datetime import date
 # auction. Enforced here, not merely disabled in the picker.
 MAX_TRIGGERS = 3
 
-VERTICALS = ("restaurant", "hvac", "retail")
+VERTICALS = ("restaurant", "hvac", "retail", "auto")
 VERTICAL_LABELS = {"restaurant": "Restaurant", "hvac": "HVAC / Home Comfort",
-                   "retail": "Retail / Home Goods"}
+                   "retail": "Retail / Home Goods", "auto": "Auto Repair / Service"}
 
 
 @dataclass(frozen=True)
@@ -519,6 +543,137 @@ TRIGGERS: dict[str, Trigger] = {
         windows=(("09:00", "19:00"),),
         cadence="daily", tags=("relief", "stock-up"),
     ),
+    # -- Auto Repair / Service -------------------------------------------
+    "battery-cold-test": Trigger(
+        id="battery-cold-test", name="Battery Cold Test", vertical="auto",
+        reason="A battery that starts fine at 40°F can fail outright at "
+               "10°F — the day a free test catches a weak one before it "
+               "strands somebody.",
+        condition_label="high ≤ 20°F",
+        rule={"temp_max": 20.0},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("battery", "maintenance"),
+    ),
+    "deep-freeze-auto": Trigger(
+        id="deep-freeze-auto", name="Deep Freeze", vertical="auto",
+        reason="Below zero is where a marginal battery actually dies — "
+               "the tow-and-jump-start ad, not the tune-up one.",
+        condition_label="high ≤ 0°F",
+        rule={"temp_max": 0.0},
+        cadence="daily", tags=("battery", "emergency"),
+    ),
+    "first-freeze-auto": Trigger(
+        id="first-freeze-auto", name="First Freeze", vertical="auto",
+        reason="The first hard freeze of the season is when a battery and "
+               "coolant system that coasted through fall gets tested for "
+               "real — a check-it-now ad before it fails on a cold "
+               "morning, not a tow bill after.",
+        condition_label="first low ≤ 32°F of the season",
+        rule={"temp_low_max": 32.0, "once_per_season": "cold"},
+        cadence="once_per_season", tags=("event", "battery"),
+    ),
+    "ac-check-early": Trigger(
+        id="ac-check-early", name="Early AC Check", vertical="auto",
+        reason="An 85°+ day arriving before summer has properly started "
+               "is exactly when a cabin AC that was low on refrigerant "
+               "all winter gets caught out.",
+        condition_label="high ≥ 85°F, April–June",
+        rule={"temp_min": 85.0, "months": (4, 5, 6)},
+        windows=(("09:00", "19:00"),),
+        cadence="daily", tags=("cooling", "seasonal"),
+    ),
+    "heat-index-auto": Trigger(
+        id="heat-index-auto", name="Heat Index Strain", vertical="auto",
+        reason="Humidity stacked on heat is what actually strains a "
+               "cabin AC compressor on a long drive, not the number on "
+               "the thermometer.",
+        condition_label="heat index ≥ 100°F",
+        rule={"heat_index_min": 100.0},
+        windows=(("09:00", "20:00"),),
+        cadence="daily", tags=("cooling", "relief"),
+    ),
+    "spring-service-day": Trigger(
+        id="spring-service-day", name="Spring Service Day", vertical="auto",
+        reason="The first comfortable stretch of spring is when people "
+               "finally think about the AC and the tires they ignored "
+               "all winter — sell the check-up before the first heat "
+               "wave finds the problem for them.",
+        condition_label="65–80°F and dry, March–May",
+        rule={"temp_min": 65.0, "temp_max": 80.0, "precip_prob_max": 20.0,
+              "months": (3, 4, 5)},
+        windows=(("09:00", "19:00"),),
+        cadence="daily", tags=("maintenance", "seasonal"),
+    ),
+    "fall-service-day": Trigger(
+        id="fall-service-day", name="Fall Service Day", vertical="auto",
+        reason="The same logic in reverse — a mild fall day is the "
+               "moment to get the battery and coolant checked before the "
+               "first cold snap makes the appointment book slam shut.",
+        condition_label="50–70°F and dry, September–November",
+        rule={"temp_min": 50.0, "temp_max": 70.0, "precip_prob_max": 20.0,
+              "months": (9, 10, 11)},
+        windows=(("09:00", "18:00"),),
+        cadence="daily", tags=("maintenance", "seasonal"),
+    ),
+    "wiper-blade-season": Trigger(
+        id="wiper-blade-season", name="Wiper Blade Weather", vertical="auto",
+        reason="A heavy-rain forecast is when a streaking, worn wiper "
+               "blade stops being a minor annoyance and starts being a "
+               "visibility problem — the day it actually gets replaced.",
+        condition_label="≥ 70% chance of rain",
+        rule={"precip_prob_min": 70.0},
+        windows=(("07:00", "19:00"),),
+        cadence="daily", tags=("wipers", "safety"),
+    ),
+    "pothole-season": Trigger(
+        id="pothole-season", name="Pothole Season", vertical="auto",
+        reason="The freeze-thaw stretch that opens potholes is also when "
+               "an alignment check and a tire inspection actually get "
+               "booked, before a bent rim turns into a bigger bill.",
+        condition_label="35–55°F, February–April",
+        rule={"temp_min": 35.0, "temp_max": 55.0, "months": (2, 3, 4)},
+        windows=(("09:00", "19:00"),),
+        cadence="daily", tags=("tires", "seasonal"),
+    ),
+    "snow-tire-day": Trigger(
+        id="snow-tire-day", name="Snow Tire Day", vertical="auto",
+        reason="The day it's actually snowing is the day somebody finds "
+               "out their tires are bald — a swap-or-check ad, not a "
+               "warning.",
+        condition_label="snowfall ≥ 2 in / 24h",
+        rule={"snow_in_min": 2.0},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("tires", "seasonal"),
+    ),
+    "cold-snap-auto": Trigger(
+        id="cold-snap-auto", name="Cold Snap", vertical="auto",
+        reason="Hard cold is when tire pressure drops enough to trip a "
+               "warning light and a marginal battery starts to struggle "
+               "— a check-it-now ad rather than the emergency one.",
+        condition_label="high ≤ 25°F",
+        rule={"temp_max": 25.0},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("battery", "maintenance"),
+    ),
+    "wind-chill-auto": Trigger(
+        id="wind-chill-auto", name="Wind Chill", vertical="auto",
+        reason="Feels-like, not the thermometer — the day a weak "
+               "battery and a thin oil viscosity both get exposed on "
+               "the first cold start.",
+        condition_label="feels-like ≤ 10°F",
+        rule={"feels_like_max": 10.0},
+        windows=(("07:00", "20:00"),),
+        cadence="daily", tags=("battery", "maintenance"),
+    ),
+    "storm-driving-prep": Trigger(
+        id="storm-driving-prep", name="Storm Driving Prep", vertical="auto",
+        reason="A severe weather alert is when wipers, tires and brakes "
+               "actually matter — a get-it-checked-before-the-next-one "
+               "ad, never an invitation to be on the road in this one.",
+        condition_label="NWS severe weather alert issued",
+        rule={"alert_required": True},
+        cadence="alert_driven", tags=("safety", "tires"),
+    ),
 }
 
 # Ordering for the month strip: which triggers a rep browsing that month is
@@ -537,7 +692,9 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "snow-gear-day", "wind-advisory", "gray-streak-retail",
             "storm-prep", "fall-clearance-day", "patio-season-open",
             "heat-wave-cooling", "heat-index-retail", "first-frost-shop",
-            "rain-day-indoor"),
+            "rain-day-indoor",
+            "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "deep-freeze-auto", "snow-tire-day", "storm-driving-prep", "first-freeze-auto", "wiper-blade-season", "pothole-season", "spring-service-day", "fall-service-day", "ac-check-early", "heat-index-auto",
+            ),
     "Feb": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "evening-cooldown", "heat-index",
             "heat-wave", "patio-day", "rain-delay", "first-freeze", "first-cool-night",
@@ -549,7 +706,9 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "snow-gear-day", "wind-advisory", "gray-streak-retail",
             "storm-prep", "fall-clearance-day", "patio-season-open",
             "heat-wave-cooling", "heat-index-retail", "first-frost-shop",
-            "rain-day-indoor"),
+            "rain-day-indoor",
+            "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "deep-freeze-auto", "pothole-season", "snow-tire-day", "storm-driving-prep", "first-freeze-auto", "wiper-blade-season", "spring-service-day", "fall-service-day", "ac-check-early", "heat-index-auto",
+            ),
     "Mar": ("warm-break", "crisp-day", "rain-delay", "cold-snap", "gray-streak",
             "wind-chill", "storm-watch", "patio-day", "evening-cooldown",
             "heat-index", "heat-wave", "snow-day", "first-freeze", "first-cool-night",
@@ -561,7 +720,9 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "wind-advisory", "gray-streak-retail", "storm-prep",
             "fall-clearance-day", "snow-gear-day", "deep-freeze-retail",
             "heat-wave-cooling", "heat-index-retail", "first-frost-shop",
-            "rain-day-indoor"),
+            "rain-day-indoor",
+            "spring-service-day", "pothole-season", "wiper-blade-season", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "storm-driving-prep", "ac-check-early", "fall-service-day", "snow-tire-day", "deep-freeze-auto", "first-freeze-auto", "heat-index-auto",
+            ),
     "Apr": ("crisp-day", "patio-day", "rain-delay", "gray-streak", "storm-watch",
             "evening-cooldown", "warm-break", "heat-index", "heat-wave",
             "cold-snap", "wind-chill", "snow-day", "first-freeze", "first-cool-night",
@@ -573,7 +734,9 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "gray-streak-retail", "rain-day-indoor", "fall-clearance-day",
             "first-warm-weekend", "heat-wave-cooling", "heat-index-retail",
             "cold-snap-retail", "snow-gear-day", "deep-freeze-retail",
-            "first-frost-shop"),
+            "first-frost-shop",
+            "spring-service-day", "pothole-season", "ac-check-early", "wiper-blade-season", "storm-driving-prep", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "fall-service-day", "snow-tire-day", "deep-freeze-auto", "first-freeze-auto", "heat-index-auto",
+            ),
     "May": ("patio-day", "crisp-day", "rain-delay", "storm-watch",
             "evening-cooldown", "heat-index", "heat-wave", "gray-streak",
             "warm-break", "cold-snap", "wind-chill", "snow-day",
@@ -586,7 +749,9 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "rain-day-indoor", "heat-wave-cooling", "heat-index-retail",
             "gray-streak-retail", "fall-clearance-day", "first-warm-weekend",
             "cold-snap-retail", "snow-gear-day", "deep-freeze-retail",
-            "first-frost-shop"),
+            "first-frost-shop",
+            "spring-service-day", "ac-check-early", "wiper-blade-season", "storm-driving-prep", "heat-index-auto", "pothole-season", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "fall-service-day", "snow-tire-day", "deep-freeze-auto", "first-freeze-auto",
+            ),
     "Jun": ("patio-day", "heat-wave", "heat-index", "rain-delay",
             "storm-watch", "evening-cooldown", "crisp-day", "gray-streak",
             "warm-break", "cold-snap", "wind-chill", "snow-day",
@@ -599,7 +764,9 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "storm-prep", "wind-advisory", "rain-day-indoor",
             "gray-streak-retail", "fall-clearance-day", "first-warm-weekend",
             "cold-snap-retail", "snow-gear-day", "deep-freeze-retail",
-            "first-frost-shop"),
+            "first-frost-shop",
+            "ac-check-early", "heat-index-auto", "wiper-blade-season", "storm-driving-prep", "spring-service-day", "fall-service-day", "pothole-season", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "snow-tire-day", "deep-freeze-auto", "first-freeze-auto",
+            ),
     "Jul": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "evening-cooldown", "crisp-day", "gray-streak",
             "warm-break", "cold-snap", "wind-chill", "snow-day",
@@ -612,7 +779,9 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "patio-season-open", "wind-advisory", "rain-day-indoor",
             "gray-streak-retail", "fall-clearance-day", "first-warm-weekend",
             "cold-snap-retail", "snow-gear-day", "deep-freeze-retail",
-            "first-frost-shop"),
+            "first-frost-shop",
+            "heat-index-auto", "ac-check-early", "storm-driving-prep", "wiper-blade-season", "spring-service-day", "fall-service-day", "pothole-season", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "snow-tire-day", "deep-freeze-auto", "first-freeze-auto",
+            ),
     "Aug": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "first-cool-night", "evening-cooldown", "crisp-day",
             "gray-streak", "warm-break", "cold-snap", "wind-chill", "snow-day",
@@ -625,7 +794,9 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "patio-season-open", "wind-advisory", "rain-day-indoor",
             "fall-clearance-day", "gray-streak-retail", "first-warm-weekend",
             "cold-snap-retail", "snow-gear-day", "deep-freeze-retail",
-            "first-frost-shop"),
+            "first-frost-shop",
+            "heat-index-auto", "ac-check-early", "storm-driving-prep", "wiper-blade-season", "fall-service-day", "spring-service-day", "pothole-season", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "snow-tire-day", "deep-freeze-auto", "first-freeze-auto",
+            ),
     "Sep": ("patio-day", "first-cool-night", "rain-delay", "crisp-day",
             "evening-cooldown", "heat-index", "heat-wave", "storm-watch",
             "gray-streak", "warm-break", "cold-snap", "wind-chill",
@@ -638,7 +809,9 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "storm-prep", "wind-advisory", "rain-day-indoor",
             "gray-streak-retail", "first-frost-shop", "patio-season-open",
             "first-warm-weekend", "cold-snap-retail", "snow-gear-day",
-            "deep-freeze-retail"),
+            "deep-freeze-retail",
+            "fall-service-day", "first-freeze-auto", "heat-index-auto", "ac-check-early", "storm-driving-prep", "wiper-blade-season", "pothole-season", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "snow-tire-day", "deep-freeze-auto", "spring-service-day",
+            ),
     "Oct": ("crisp-day", "first-cool-night", "first-freeze", "evening-cooldown",
             "rain-delay", "warm-break", "gray-streak", "storm-watch",
             "cold-snap", "wind-chill", "patio-day", "heat-index",
@@ -651,7 +824,9 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "storm-prep", "rain-day-indoor", "gray-streak-retail",
             "cold-snap-retail", "snow-gear-day", "deep-freeze-retail",
             "heat-wave-cooling", "heat-index-retail", "patio-season-open",
-            "first-warm-weekend"),
+            "first-warm-weekend",
+            "fall-service-day", "first-freeze-auto", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "wiper-blade-season", "storm-driving-prep", "pothole-season", "snow-tire-day", "deep-freeze-auto", "heat-index-auto", "ac-check-early", "spring-service-day",
+            ),
     "Nov": ("first-freeze", "cold-snap", "gray-streak", "warm-break",
             "crisp-day", "wind-chill", "storm-watch", "snow-day",
             "rain-delay", "evening-cooldown", "patio-day", "heat-index",
@@ -665,7 +840,9 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "wind-advisory", "gray-streak-retail", "storm-prep",
             "snow-gear-day", "deep-freeze-retail", "first-warm-weekend",
             "rain-day-indoor", "heat-wave-cooling", "heat-index-retail",
-            "patio-season-open"),
+            "patio-season-open",
+            "first-freeze-auto", "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "fall-service-day", "snow-tire-day", "storm-driving-prep", "deep-freeze-auto", "wiper-blade-season", "pothole-season", "heat-index-auto", "ac-check-early", "spring-service-day",
+            ),
     "Dec": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "rain-delay", "evening-cooldown",
             "heat-index", "heat-wave", "patio-day", "first-freeze",
@@ -678,7 +855,9 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "first-warm-weekend", "wind-advisory", "gray-streak-retail",
             "storm-prep", "first-frost-shop", "fall-clearance-day",
             "rain-day-indoor", "heat-wave-cooling", "heat-index-retail",
-            "patio-season-open"),
+            "patio-season-open",
+            "cold-snap-auto", "wind-chill-auto", "battery-cold-test", "deep-freeze-auto", "first-freeze-auto", "snow-tire-day", "storm-driving-prep", "wiper-blade-season", "fall-service-day", "pothole-season", "heat-index-auto", "ac-check-early", "spring-service-day",
+            ),
 }
 
 MONTH_ABBR = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
