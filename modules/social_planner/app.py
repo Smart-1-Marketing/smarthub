@@ -248,6 +248,14 @@ def _fail(message: str, status: int = 400):
     return jsonify({"ok": False, "error": message}), status
 
 
+def _blocking_message(slots: list[dict]) -> str:
+    affected = [s for s in slots if any(f.get("level") == "block" for f in s.get("flags", []))]
+    reasons = list(dict.fromkeys(f["message"] for s in affected
+                               for f in s.get("flags", []) if f.get("level") == "block"))
+    return (f"{len(affected)} post(s) need attention. " + " ".join(reasons[:3])
+            + " Review the flagged posts and fix these issues before continuing.")
+
+
 def _str(value, limit: int = 4000) -> str:
     return str(value if value is not None else "")[:limit]
 
@@ -679,9 +687,10 @@ def api_batch(batch_id: str):
     if not batch:
         return _fail("That plan no longer exists.", 404)
     social_plan.validate_batch(batch)
-    return jsonify({"ok": True, "batch": batch,
-                    "context": _client_context(batch.get("client", ""),
-                                               batch.get("url", ""))})
+    # Saved copy is available without waiting on external client research.
+    context = None if request.args.get("context") == "0" else _client_context(
+        batch.get("client", ""), batch.get("url", ""))
+    return jsonify({"ok": True, "batch": batch, "context": context})
 
 
 @app.route("/api/batches/<batch_id>", methods=["PUT"])
@@ -764,9 +773,7 @@ def api_batch_status(batch_id: str):
         return _fail("Unknown status.")
     counts = social_plan.validate_batch(batch)
     if wanted == "approved" and counts["block"]:
-        return _fail(f"{counts['block']} post(s) still have a blocking flag. "
-                     "Those are the ones that could publish something the "
-                     "client never authorized.")
+        return _fail(_blocking_message(batch["slots"]))
     if wanted == "approved":
         empty = sum(not s.get("copy", "").strip() for s in batch.get("slots", []))
         if empty or not batch.get("slots"):
@@ -1305,9 +1312,7 @@ def api_push(batch_id: str):
         return _fail("That post is already in Social Planner. Pushing it again "
                      "would post it twice — edit it there instead.", 409)
     if [f for f in (slot.get("flags") or []) if f.get("level") == "block"]:
-        return _fail("That post still has a blocking flag on it. Those are the "
-                     "ones that could publish something the client never "
-                     "authorized.")
+        return _fail(_blocking_message([slot]))
 
     result = suite_client.push(batch, slot, batch.get("client", ""),
                                batch.get("url", ""))

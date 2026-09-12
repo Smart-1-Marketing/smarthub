@@ -114,6 +114,9 @@
   <nav class="steps" aria-label="Plan progress" id="steps"></nav>
   <p id="wizardMsg" role="status" class="hint"></p>
   <p id="saveNotice" role="status" class="hint"></p>
+  <p id="openNotice" role="status" class="hint"></p>
+  <button id="retryOpen" class="btn sec sm" hidden>Retry opening plan</button>
+  <p id="contextNotice" role="status" class="hint"></p>
   <button class="btn sec sm" id="retrySave" hidden>Retry saving this post</button>
 
   {# The queue is the other half of the same tool and it needs a way in from
@@ -857,10 +860,15 @@ $("saved").addEventListener("click", function(ev){
 });
 function openBatch(id){
   if(unsavedPost && !confirm('Reopen the saved plan and discard the unsaved edit? Copy any text you want to keep first.'))return;
+  $("openNotice").textContent='Opening your saved plan…';
+  $("openNotice").scrollIntoView({block:'nearest'});
+  $("retryOpen").hidden=true;
+  $("retryOpen").onclick=function(){openBatch(id);};
+  var controller=new AbortController();
+  var timeout=setTimeout(function(){controller.abort();},20000);
   lockUI(true);
-  api("batches/" + id).then(function(d){
-    lockUI(false);
-    if (!d.ok) { say("planmsg", d.error, "err"); return; }
+  api("batches/" + id + "?context=0", {signal:controller.signal}).then(function(d){
+    if (!d.ok) { throw new Error(d.error || 'Could not open this plan.'); }
     state.batch = d.batch;
     unsavedPost=null;$("retrySave").hidden=true;$("saveNotice").textContent='';
     state.context = d.context;
@@ -885,7 +893,28 @@ function openBatch(id){
     $("phone").value = (d.batch.brief || {}).phone || "";
     $("avoid").value = (d.batch.brief || {}).avoid || "";
     showPlan();
-  });
+    $("openNotice").textContent='Saved plan opened.';
+    refreshOpenContext(state.batch);
+  }).catch(function(error){
+    $("openNotice").textContent=error.message+' Your saved plan has not changed. Retry opening it.';
+    $("retryOpen").hidden=false;
+  }).finally(function(){clearTimeout(timeout);lockUI(false);});
+}
+
+var openContextRequest=0;
+function refreshOpenContext(batch){
+  var requestId=++openContextRequest;
+  var controller=new AbortController();
+  var timeout=setTimeout(function(){controller.abort();},30000);
+  state.contextLoading=true;
+  $("contextNotice").textContent='Refreshing client details and photo library. You can review and edit your plan now.';
+  api('context?client='+encodeURIComponent(batch.client)+'&url='+encodeURIComponent(batch.url || ''),{signal:controller.signal}).then(function(d){
+    if(requestId!==openContextRequest || !state.batch || state.batch.id!==batch.id || state.client!==batch.client)return;
+    state.contextLoading=false;
+    if(d.ok){state.context=d.context;renderContext(d.context);}
+    $("contextNotice").textContent=d.ok ? '' : 'Client details and library could not refresh. Your saved posts are available. Reopen the plan to retry.';
+    if(stepIndex===3 && document.querySelector('[data-source="gallery"][aria-pressed="true"]'))photoSource('gallery');
+  }).finally(function(){clearTimeout(timeout);});
 }
 
 // ---------------------------------------------------------------- boot
@@ -1058,7 +1087,7 @@ function photoSource(source){
     $("searchPhotos").onclick=search; search();
   } else if(source==='gallery'){
     var pool=((state.context && state.context.gallery)||[]).map(function(p){return Object.assign({},p,{source:'gallery'});});
-    $("photoMsg").textContent=pool.length ? 'Choose a photo from the client library.' : 'No photos in this client library yet. Upload a new one.';
+    $("photoMsg").textContent=state.contextLoading ? 'Loading the client library…' : !state.context ? 'Client library is unavailable. Reopen the plan to retry, or choose another photo source.' : pool.length ? 'Choose a photo from the client library.' : 'No photos in this client library yet. Upload a new one.';
     drawPhotos(pool,token);
   } else if(source==='uploaded'){
     $("photoTools").innerHTML='<label class="f" for="photoUpload">Upload a photo (up to 12 MB)</label><input id="photoUpload" type="file" accept="image/png,image/jpeg,image/webp">';
