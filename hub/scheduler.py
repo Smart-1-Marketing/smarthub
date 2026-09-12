@@ -824,7 +824,14 @@ def job_qa_task_vision(app) -> dict:
         return qa_tasks.describe_image_backlog()
 
 
+def job_industry_prospect_sync(app):
+    from hub.industry_prospects import scheduled_step
+    return scheduled_step(app)
+
+
 JOBS = {
+    "industry_prospect_sync": (1, job_industry_prospect_sync,
+                               "Advance the opt-in GHL to Apollo suppression sync."),
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
     "clear_stuck_scans": (15, job_clear_stuck_scans,
