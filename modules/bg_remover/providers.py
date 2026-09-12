@@ -132,6 +132,7 @@ def cloud_cutout(data: bytes) -> bytes:
                 from hub import quotas
                 quotas.record_asset(module="bg_remover", kind="background_removal", detail=digest)
                 return result
+        raise BackgroundError("The cutout is still processing. Please try again shortly.")
     except BackgroundError:
         raise
     except Exception as exc:
