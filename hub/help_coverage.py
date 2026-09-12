@@ -196,6 +196,13 @@ CLIENT_FACING: dict[str, str] = {
     # test_ads_explainer.py already holds the public estimate to.
     "/tools/ads-grader/": "a lead magnet a prospect connects their own "
                           "Google Ads account to",
+    # The accounting-partner audit tool -- tiled for staff to find and test,
+    # served end to end to somebody with no Hub account. It is also not
+    # Python: a second Node process proxied whole (hub/marketing_audit_proxy.py),
+    # so there is no Jinja environment on it for help_dot() to register into
+    # even if a bubble belonged on a page a partner reads.
+    "/tools/marketing-audit/": "the accounting-partner lead form a partner "
+                               "fills in, with no staff screen anywhere in it",
 }
 
 
