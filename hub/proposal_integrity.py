@@ -49,13 +49,14 @@ def package_readiness(state):
     for package in state.get('packages') or []:
         for line in package.get('lines') or []:
             try:
-                amount = float(line.get('amt') or 0)
+                amount = float(line.get('amt', line.get('dollars')) or 0)
             except (TypeError, ValueError):
                 amount = float('nan')
             if not math.isfinite(amount) or amount <= 0:
                 problems.append('Rebuild packages with positive, finite prices.')
                 continue
-            minimum = rate_card.minimum_for(line.get('name'), line.get('cat'))
+            label = line.get('name') or line.get('product')
+            minimum = rate_card.minimum_for(label, line.get('cat') or line.get('category'))
             if 0 < amount < minimum and not line.get('consulting'):
-                problems.append(f"{package.get('name', 'Package')}: {line.get('name')} is below its IO minimum. Rebuild the packages.")
+                problems.append(f"{package.get('name', 'Package')}: {label} is below its IO minimum. Rebuild the packages.")
     return list(dict.fromkeys(problems))

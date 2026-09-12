@@ -31,6 +31,14 @@ class HandoffTests(unittest.TestCase):
             r=self.client.get(f"/api/quotes/{q['id']}/{extension}")
             self.assertEqual(r.status_code,422,r.get_data(as_text=True)[:500])
             self.assertIn('Rebuild',r.json['error'])
+    def test_legacy_package_prices_remain_exportable(self):
+        self.state['packages']=[{'name':'Accelerated','lines':[{'product':'Connected TV - Targeted','dollars':9000}]}]
+        q=self.quote()
+        with patch.object(builder,'build_proposal_pdf',return_value=(b'%PDF-QA','QA')):
+            self.assertEqual(self.client.get(f"/api/quotes/{q['id']}/pdf").status_code,200)
+        self.state['packages'][0]['lines'][0]['dollars']=100
+        q=self.quote()
+        self.assertEqual(self.client.get(f"/api/quotes/{q['id']}/pdf").status_code,422)
     def test_pdf_archive_has_direct_download(self):
         q=self.quote()
         with patch.object(builder,'build_proposal_pdf',return_value=(b'%PDF-QA','QA')):
