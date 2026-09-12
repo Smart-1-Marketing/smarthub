@@ -1215,6 +1215,24 @@ jobs:
             echo "test_google_inactive_qa_progress.py not on this branch — nothing to run."
           fi
 
+      - name: Google Access inactive-accounts scan resource-cache tests
+        # A GA4 property or GTM container checked within RESOURCE_STALE_HOURS
+        # is read back from google_inactive_qa_resource_cache.json rather than
+        # re-checked live -- the same property/container is never asked about
+        # twice in one staleness window. A cached GTM container's verdict is
+        # still recomputed against the current scan's GA4 findings even when
+        # its own live-tags fetch is skipped, so a linked property coming back
+        # to life is reflected without either side needing a fresh call.
+        # full=True bypasses the cache entirely. Offline; nothing reaches
+        # Google. Guarded like the steps around it so this workflow stays
+        # mergeable on a branch that predates it.
+        run: |
+          if [ -f test_google_inactive_qa_cache.py ]; then
+            python test_google_inactive_qa_cache.py
+          else
+            echo "test_google_inactive_qa_cache.py not on this branch — nothing to run."
+          fi
+
       - name: Blog taxonomy, guardrail and CMS publish tests
         # The blog section's approved-topic list, the never-mention check and
         # what the two CMS panels are handed. Guarded like the steps above so

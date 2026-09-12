@@ -14,6 +14,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 from urllib.parse import quote
 
@@ -31,6 +32,28 @@ qa_bp = Blueprint(
 
 WINDOW_DAYS = 60
 CACHE_SECONDS = 600
+# A GA4 property or GTM container checked within this window is not checked
+# again on the next scan -- its classification is read out of
+# google_inactive_qa_resource_cache.json instead of spending an
+# `_ga_activity`/`_ga_measurement_ids`/`_live_tags` call on a resource whose
+# answer cannot have changed in the last few hours. That is the whole of
+# "held in a table so we don't have to perform the same scan over and over":
+# a resource already known active or inactive costs nothing further until
+# this window has passed, whatever traffic it carries -- there is no cheaper
+# way to learn a property's own 60-day activity than to ask for it once, so
+# the saving is in not asking twice, not in guessing which ones to skip.
+# `full=1` on the start route bypasses this per-resource cache entirely
+# (a genuine from-scratch recheck); the ordinary "Update scan" press does not.
+RESOURCE_STALE_HOURS = 24
+# GA4's Data/Admin APIs carry no per-user throttle the way Tag Manager does
+# (this file's own gtm_get() docstring says so), so properties are checked
+# several at a time rather than one after another. GTM stays paced through
+# Google Finder's shared, adaptive gtm_get() regardless of how many workers
+# call it -- its own lock serializes the actual HTTP to stay under Tag
+# Manager's limit, so a worker pool here only lets one container's
+# classification run while another's network call is still waiting its turn.
+GA4_WORKERS = 6
+GTM_WORKERS = 4
 _GA_RE = re.compile(r"\bG-[A-Z0-9]{4,}\b", re.I)
 _CACHE: dict[str, Any] = {"at": 0.0, "payload": None}
 _LOCK = threading.Lock()
@@ -72,6 +95,32 @@ def _progress_path() -> str:
 
 def _result_path() -> str:
     return _path("google_inactive_qa_last_result.json")
+
+
+def _resource_cache_path() -> str:
+    return _path("google_inactive_qa_resource_cache.json")
+
+
+def _resource_cache() -> dict:
+    data = jsonstore.read_json(_resource_cache_path(), default={})
+    return data if isinstance(data, dict) else {}
+
+
+def _save_resource_cache(data: dict) -> None:
+    jsonstore.write_json(_resource_cache_path(), data)
+
+
+def _cache_fresh(entry: dict | None, cutoff_iso: str) -> bool:
+    """Whether a cached resource is still within RESOURCE_STALE_HOURS.
+
+    Timestamps are ISO-8601 UTC with a fixed `timespec="seconds"`, the same
+    shape _audit() already writes, so a plain string comparison sorts
+    correctly without parsing either side back into a datetime.
+    """
+    if not entry:
+        return False
+    checked = str(entry.get("checked_at") or "")
+    return bool(checked) and checked >= cutoff_iso
 
 
 def _progress_read() -> dict:
@@ -330,101 +379,257 @@ def _http_reason(exc: requests.HTTPError) -> str:
     return f"HTTP {status}" + (f": {msg}" if msg else "")
 
 
-def _scan_login(login: str, refresh: str, on_stage=None) -> tuple[list[dict], list[dict], list[dict]]:
-    def _stage(text: str) -> None:
-        if on_stage:
+def _scan_login(login: str, refresh: str, on_progress=None, resource_cache: dict | None = None,
+                 new_cache: dict | None = None, full: bool = False,
+                 cutoff_iso: str = "") -> tuple[list[dict], list[dict], list[dict]]:
+    """Classify one login's GA4 properties and GTM containers.
+
+    `resource_cache` is the whole cache as it stood before this scan (shared
+    read-only across every login this run); `new_cache` is the cache this
+    run is building and is mutated in place with only what this login's own
+    discovery calls actually found, so a resource deleted in Google since
+    the last scan drops out rather than lingering forever.
+
+    `on_progress(login, status, text, **extra)` is called once per resource
+    classified -- `status` is "inactive"/"review"/"active" so the caller can
+    keep a running count, or None for a stage announcement with nothing
+    classified yet (e.g. "Listing Tag Manager accounts").
+    """
+    resource_cache = resource_cache if resource_cache is not None else {}
+    if new_cache is None:
+        new_cache = {}
+    now_iso = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
+    def _progress(status: str | None, text: str, **extra) -> None:
+        if on_progress:
             try:
-                on_stage(login, text)
+                on_progress(login, status, text, **extra)
             except Exception:                              # noqa: BLE001
                 pass
 
     gf = _finder()
     token = gf.refresh_access_token(login, refresh)
     inactive, review, active = [], [], []
+    buckets = {"inactive": inactive, "review": review, "active": active}
     by_mid: dict[str, list[dict]] = {}
 
-    _stage("Reading GA4 properties")
-    for prop in _ga_properties(token):
-        base = {"kind": "GA4", "login": login, "account": prop["account"],
+    def _emit(status: str, row: dict) -> dict:
+        row = {**row, "status": status}
+        buckets[status].append(row)
+        return row
+
+    # -- GA4 properties -----------------------------------------------
+    _progress(None, "Listing GA4 properties")
+    properties = _ga_properties(token)
+    total_ga4 = len(properties)
+
+    def _ga_base(prop: dict) -> dict:
+        return {"kind": "GA4", "login": login, "account": prop["account"],
                 "account_id": prop["account_id"], "name": prop["name"],
                 "resource": prop["property_id"], "public_id": ""}
+
+    # A resource never seen before, or one whose last known answer was
+    # "inactive"/"review", goes to the front of the queue that still has to
+    # make a live call; one already known active last time goes to the
+    # back. With a bounded worker pool that is what "bump an obviously
+    # active site down the queue" actually buys: the calls spent this run
+    # are spent on the properties this tool exists to find, not reconfirming
+    # ones nobody is asking about. A property that answers active for the
+    # first time is not skipped -- there is no cheaper way to learn a
+    # property's own 60-day activity than to ask for it once -- but every
+    # scan after that one, within RESOURCE_STALE_HOURS, costs it nothing.
+    cached_ga4, fresh_ga4 = [], []
+    for prop in properties:
+        entry = resource_cache.get(_skip_key("GA4", login, prop["property_id"]))
+        if not full and _cache_fresh(entry, cutoff_iso):
+            cached_ga4.append((prop, entry))
+        else:
+            fresh_ga4.append((prop, (entry or {}).get("status")))
+    fresh_ga4.sort(key=lambda pair: 0 if pair[1] != "active" else 1)
+
+    ga4_done = 0
+
+    def _place_ga4(prop: dict, row: dict, status: str, mids: set[str], cache_it: bool) -> None:
+        nonlocal ga4_done
+        ga4_done += 1
+        row = _emit(status, row)
+        if status != "review":
+            for mid in mids:
+                by_mid.setdefault(mid, []).append(row)
+        if cache_it and status != "review":
+            new_cache[_skip_key("GA4", login, prop["property_id"])] = {
+                **row, "measurement_ids": sorted(mids), "checked_at": now_iso,
+            }
+        _progress(status, f"GA4 property {ga4_done} of {total_ga4}: {row['name']}",
+                  resource_index=ga4_done, resource_total=total_ga4, resource_kind="GA4")
+
+    if cached_ga4:
+        _progress(None, f"GA4 properties: {len(cached_ga4)} checked recently, "
+                         f"{len(fresh_ga4)} to check", resource_total=total_ga4)
+    for prop, entry in cached_ga4:
+        status = entry.get("status") or "review"
+        row = {**_ga_base(prop), "events": entry.get("events"), "sessions": entry.get("sessions"),
+               "reason": entry.get("reason") or ""}
+        _place_ga4(prop, row, status, set(entry.get("measurement_ids") or []), cache_it=False)
+        new_cache[_skip_key("GA4", login, prop["property_id"])] = entry
+
+    def _fetch_ga4(prop: dict):
+        base = _ga_base(prop)
         try:
             a = _ga_activity(token, prop["property_id"])
         except requests.HTTPError as exc:
-            review.append({**base, "status": "review", "events": None, "sessions": None,
-                           "reason": "Could not read GA4 activity — " + _http_reason(exc)})
-            continue
-        dead = a["events"] == 0 and a["sessions"] == 0
-        row = {**base, **a, "status": "inactive" if dead else "active",
-               "reason": (f"0 events and 0 sessions in the last {WINDOW_DAYS} days"
-                          if dead else "Activity detected")}
-        (inactive if dead else active).append(row)
-        for mid in _ga_measurement_ids(token, prop["property_id"]):
-            by_mid.setdefault(mid, []).append(row)
+            return prop, base, None, None, set(), _http_reason(exc)
+        mids = _ga_measurement_ids(token, prop["property_id"])
+        return prop, base, a["events"], a["sessions"], mids, ""
 
-    _stage("Listing Tag Manager accounts")
+    if fresh_ga4:
+        props_only = [p for p, _ in fresh_ga4]
+        with ThreadPoolExecutor(max_workers=min(GA4_WORKERS, len(props_only))) as pool:
+            futures = [pool.submit(_fetch_ga4, p) for p in props_only]
+            for fut in as_completed(futures):
+                prop, base, events, sessions, mids, error = fut.result()
+                if error:
+                    row = {**base, "events": None, "sessions": None,
+                           "reason": "Could not read GA4 activity — " + error}
+                    _place_ga4(prop, row, "review", set(), cache_it=True)
+                    continue
+                dead = events == 0 and sessions == 0
+                row = {**base, "events": events, "sessions": sessions,
+                       "reason": (f"0 events and 0 sessions in the last {WINDOW_DAYS} days"
+                                  if dead else "Activity detected")}
+                _place_ga4(prop, row, "inactive" if dead else "active", mids, cache_it=True)
+
+    # -- GTM accounts and containers -----------------------------------
+    _progress(None, "Listing Tag Manager accounts")
     try:
         accounts = _gtm_accounts(token)
     except requests.HTTPError as exc:
-        review.append({"kind": "GTM", "login": login, "account": "Tag Manager",
-                       "account_id": "", "name": "Could not list GTM accounts", "resource": "",
-                       "public_id": "", "status": "review", "events": None, "sessions": None,
-                       "reason": _http_reason(exc)})
+        _emit("review", {"kind": "GTM", "login": login, "account": "Tag Manager",
+                          "account_id": "", "name": "Could not list GTM accounts", "resource": "",
+                          "public_id": "", "events": None, "sessions": None,
+                          "reason": _http_reason(exc)})
         return inactive, review, active
 
+    containers_all: list[dict] = []
     for idx, acc in enumerate(accounts):
         aid = str(acc.get("accountId") or acc.get("path") or "").split("/")[-1]
         aname = acc.get("name") or aid or "Tag Manager"
         if not aid:
             continue
-        _stage(f"Tag Manager account {idx + 1} of {len(accounts)}: {aname}")
+        _progress(None, f"Tag Manager account {idx + 1} of {len(accounts)}: {aname}")
         try:
             containers = _gtm_containers(token, aid)
         except requests.HTTPError as exc:
-            review.append({"kind": "GTM", "login": login, "account": aname,
-                           "account_id": aid, "name": "Could not list containers", "resource": "",
-                           "public_id": "", "status": "review", "events": None, "sessions": None,
-                           "reason": _http_reason(exc)})
+            _emit("review", {"kind": "GTM", "login": login, "account": aname,
+                              "account_id": aid, "name": "Could not list containers", "resource": "",
+                              "public_id": "", "events": None, "sessions": None,
+                              "reason": _http_reason(exc)})
             continue
-
         for c in containers:
             cid = str(c.get("containerId") or "")
-            if not cid:
-                continue
-            base = {"kind": "GTM", "login": login, "account": aname,
-                    "account_id": aid, "name": c.get("name") or cid, "resource": cid,
-                    "public_id": c.get("publicId") or "", "events": None, "sessions": None}
-            try:
-                tags, why_no_live = _live_tags(token, aid, cid)
-            except requests.HTTPError as exc:
-                review.append({**base, "status": "review",
-                               "reason": "Could not inspect live container — " + _http_reason(exc)})
-                continue
-            if why_no_live or not tags:
-                inactive.append({**base, "status": "inactive",
-                                 "reason": why_no_live or "Published container has no tags"})
-                continue
+            if cid:
+                containers_all.append({"account_id": aid, "account": aname, "container_id": cid,
+                                        "name": c.get("name") or cid, "public_id": c.get("publicId") or ""})
 
-            mids = set().union(*(_measurement_ids(tag) for tag in tags)) if tags else set()
-            if not mids:
-                review.append({**base, "status": "review",
-                               "reason": "Live tags exist, but no GA4 measurement ID can be resolved"})
-                continue
-            linked = [r for mid in mids for r in by_mid.get(mid, [])]
-            linked = list({r["resource"]: r for r in linked}.values())
-            if not linked:
-                review.append({**base, "status": "review",
-                               "reason": "GA4 ID found, but its property is not visible to this login"})
-            elif all(r["status"] == "inactive" for r in linked):
-                inactive.append({**base, "status": "inactive",
-                                 "events": sum(r.get("events") or 0 for r in linked),
-                                 "sessions": sum(r.get("sessions") or 0 for r in linked),
-                                 "reason": "Linked GA4 property/properties have no activity for 60 days"})
-            elif any(r["status"] == "active" for r in linked):
-                active.append({**base, "status": "active", "reason": "Linked GA4 activity detected"})
-            else:
-                review.append({**base, "status": "review",
-                               "reason": "Linked GA4 activity could not be measured"})
+    total_gtm = len(containers_all)
+
+    def _gtm_base(c: dict) -> dict:
+        return {"kind": "GTM", "login": login, "account": c["account"], "account_id": c["account_id"],
+                "name": c["name"], "resource": c["container_id"], "public_id": c["public_id"],
+                "events": None, "sessions": None}
+
+    def _classify_gtm(c: dict, has_tags: bool, mids: set[str], why_no_live: str) -> tuple[dict, str]:
+        base = _gtm_base(c)
+        if why_no_live or not has_tags:
+            return {**base, "reason": why_no_live or "Published container has no tags"}, "inactive"
+        if not mids:
+            return ({**base, "reason": "Live tags exist, but no GA4 measurement ID can be resolved"},
+                    "review")
+        linked = [r for mid in mids for r in by_mid.get(mid, [])]
+        linked = list({r["resource"]: r for r in linked}.values())
+        if not linked:
+            return ({**base, "reason": "GA4 ID found, but its property is not visible to this login"},
+                    "review")
+        if all(r["status"] == "inactive" for r in linked):
+            return ({**base, "events": sum(r.get("events") or 0 for r in linked),
+                     "sessions": sum(r.get("sessions") or 0 for r in linked),
+                     "reason": "Linked GA4 property/properties have no activity for 60 days"},
+                    "inactive")
+        if any(r["status"] == "active" for r in linked):
+            # This is the "GTM firing recently needs no further check" case:
+            # its own live tags already resolved to a GA4 property this scan
+            # already knows is active, whether that property was checked
+            # fresh a moment ago or read back from cache -- no further Tag
+            # Manager call happens for a container once it lands here.
+            return {**base, "reason": "Linked GA4 activity detected"}, "active"
+        return {**base, "reason": "Linked GA4 activity could not be measured"}, "review"
+
+    cached_gtm, fresh_gtm = [], []
+    for c in containers_all:
+        entry = resource_cache.get(_skip_key("GTM", login, c["container_id"]))
+        if not full and _cache_fresh(entry, cutoff_iso):
+            cached_gtm.append((c, entry))
+        else:
+            fresh_gtm.append((c, (entry or {}).get("status")))
+    fresh_gtm.sort(key=lambda pair: 0 if pair[1] != "active" else 1)
+
+    gtm_done = 0
+
+    def _place_gtm(c: dict, has_tags: bool | None, mids: set[str] | None, why_no_live: str | None,
+                   error: str = "", cache_it: bool = True) -> None:
+        nonlocal gtm_done
+        gtm_done += 1
+        if error:
+            row = {**_gtm_base(c), "name": "Could not inspect live container",
+                   "reason": "Could not inspect live container — " + error}
+            _emit("review", row)
+            status = "review"
+        else:
+            row, status = _classify_gtm(c, bool(has_tags), mids or set(), why_no_live or "")
+            _emit(status, row)
+            if cache_it:
+                # checked_at marks when Google was last actually asked about
+                # this container's live tags, not when its verdict was last
+                # recomputed -- the two are different, and stamping "now"
+                # here on a cache-hit replay would reset the staleness clock
+                # every time it was reused, so a container found active
+                # once would never be asked about again.
+                new_cache[_skip_key("GTM", login, c["container_id"])] = {
+                    "has_tags": bool(has_tags), "measurement_ids": sorted(mids or set()),
+                    "why_no_live": why_no_live or "", "checked_at": now_iso,
+                }
+        _progress(status, f"Tag Manager container {gtm_done} of {total_gtm}: {c['name']}",
+                  resource_index=gtm_done, resource_total=total_gtm, resource_kind="GTM")
+
+    if cached_gtm:
+        _progress(None, f"Tag Manager containers: {len(cached_gtm)} checked recently, "
+                         f"{len(fresh_gtm)} to check", resource_total=total_gtm)
+    for c, entry in cached_gtm:
+        # A cached container's *verdict* is always recomputed against the
+        # by_mid map this scan just built, never replayed from the cache --
+        # only the live-tags call itself is skipped. A property that was
+        # inactive last week and has since come back to life must not leave
+        # a container reading a week-old "inactive" it was never asked
+        # about again.
+        _place_gtm(c, entry.get("has_tags", False), set(entry.get("measurement_ids") or []),
+                   entry.get("why_no_live") or "", cache_it=False)
+        new_cache[_skip_key("GTM", login, c["container_id"])] = entry
+
+    def _fetch_gtm(c: dict):
+        try:
+            tags, why_no_live = _live_tags(token, c["account_id"], c["container_id"])
+        except requests.HTTPError as exc:
+            return c, None, None, None, _http_reason(exc)
+        mids = set().union(*(_measurement_ids(tag) for tag in tags)) if tags else set()
+        return c, bool(tags), mids, why_no_live, ""
+
+    if fresh_gtm:
+        containers_only = [c for c, _ in fresh_gtm]
+        with ThreadPoolExecutor(max_workers=min(GTM_WORKERS, len(containers_only))) as pool:
+            futures = [pool.submit(_fetch_gtm, c) for c in containers_only]
+            for fut in as_completed(futures):
+                c, has_tags, mids, why_no_live, error = fut.result()
+                _place_gtm(c, has_tags, mids, why_no_live, error=error)
 
     return inactive, review, active
 
@@ -437,25 +642,47 @@ def _dedupe(rows: list[dict]) -> list[dict]:
     return list(out.values())
 
 
-def _run_scan() -> dict:
+def _run_scan(full: bool = False) -> dict:
     """The scan body, run on a background thread so the page can poll live
     progress instead of staring at a static "Scanning..." for however long
     this account's Tag Manager throttling makes it take.
+
+    `full=True` (the "Full rescan" control, not the everyday "Update scan"
+    press) ignores the per-resource cache entirely -- every property and
+    container is checked live again, the way every scan used to work.
     """
+    old_cache = _resource_cache()
+    new_cache: dict = {}
+    now = dt.datetime.now(dt.timezone.utc)
+    cutoff_iso = (now - dt.timedelta(hours=RESOURCE_STALE_HOURS)).isoformat(timespec="seconds")
+
     gf = _finder()
     accounts, source_error = gf.connected_accounts_result()
     inactive, review, active = [], [], []
     errors = []
     _progress_write({
         "running": True, "done": False, "error": None,
-        "started_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        "started_at": now.isoformat(timespec="seconds"),
         "total_logins": len(accounts), "completed_logins": 0,
         "current_login": "", "current_stage": "",
+        "resource_index": 0, "resource_total": 0, "resource_kind": "",
         "inactive_count": 0, "review_count": 0, "active_count": 0,
     })
 
-    def _stage(login: str, text: str) -> None:
-        _progress_update(current_login=login, current_stage=text)
+    # Logins are scanned one at a time on this single background thread, so
+    # only this thread ever calls _on_progress -- the lock is defensive
+    # (and doubles as the write serializer for _progress_update) rather than
+    # something a race actually depends on today.
+    totals_lock = threading.Lock()
+    totals = {"inactive": 0, "review": 0, "active": 0}
+
+    def _on_progress(login: str, status: str | None, text: str, **extra) -> None:
+        with totals_lock:
+            if status:
+                totals[status] = totals.get(status, 0) + 1
+            _progress_update(current_login=login, current_stage=text,
+                              inactive_count=totals["inactive"], review_count=totals["review"],
+                              active_count=totals["active"], **extra)
 
     for i, account in enumerate(accounts):
         login = account.get("email") or ""
@@ -466,13 +693,20 @@ def _run_scan() -> dict:
                            "reason": "Google login requires reconnection"})
         else:
             try:
-                dead, unsure, alive = _scan_login(login, account["refresh_token"], on_stage=_stage)
+                dead, unsure, alive = _scan_login(
+                    login, account["refresh_token"], on_progress=_on_progress,
+                    resource_cache=old_cache, new_cache=new_cache, full=full, cutoff_iso=cutoff_iso)
                 inactive += dead; review += unsure; active += alive
             except Exception as exc:
                 errors.append(f"{login}: {type(exc).__name__}: {exc}")
+        with totals_lock:
+            totals["inactive"], totals["review"], totals["active"] = len(inactive), len(review), len(active)
         _progress_update(completed_logins=i + 1, current_login="", current_stage="",
-                          inactive_count=len(inactive), review_count=len(review),
-                          active_count=len(active))
+                          resource_index=0, resource_total=0, resource_kind="",
+                          inactive_count=totals["inactive"], review_count=totals["review"],
+                          active_count=totals["active"])
+
+    _save_resource_cache(new_cache)
 
     inactive, review, active = map(_dedupe, (inactive, review, active))
     skip_data = _skips()
@@ -502,13 +736,21 @@ def _run_scan() -> dict:
     return payload
 
 
-def start_scan_async(force: bool) -> dict:
+def start_scan_async(force: bool, full: bool = False) -> dict:
     """Kick off a scan on a background thread, or say why one did not start.
 
     Checked cross-worker through the shared progress file rather than a
     module-level flag -- this Hub runs two gunicorn workers, and a start
     request from one browser tab can land on either regardless of which one
     a poll later lands on.
+
+    `force` only means "start a pass now even if the last one finished
+    recently" -- the everyday "Update scan" press. It does not by itself
+    touch the per-resource cache; `full` is the separate "Full rescan"
+    control that ignores it, because the two questions ("is it worth
+    running a pass right now" and "should already-known resources be
+    reconfirmed") are not the same question and conflating them would make
+    every ordinary press pay for a from-scratch recheck.
     """
     global _SCAN_THREAD
     with _SCAN_THREAD_LOCK:
@@ -530,7 +772,7 @@ def start_scan_async(force: bool) -> dict:
         def _runner():
             with app_obj.app_context():
                 try:
-                    _run_scan()
+                    _run_scan(full=full)
                 except Exception as exc:                    # noqa: BLE001
                     _progress_update(running=False, done=True,
                                       error=f"{type(exc).__name__}: {exc}")
@@ -570,15 +812,20 @@ def api_scan():
                 _CACHE.update(at=time.time(), payload=payload)
     if payload is None:
         return jsonify(ok=False, pending=True,
-                        error="No scan has completed yet. Press Run fresh scan.")
+                        error="No scan has completed yet. Press Update scan.")
     return jsonify(payload)
+
+
+def _truthy(value) -> bool:
+    return str(value or "").lower() in ("1", "true", "yes")
 
 
 @qa_bp.route("/api/scan/start", methods=["POST"])
 @require_login
 def api_scan_start():
-    force = str(request.args.get("force") or "").lower() in ("1", "true", "yes")
-    return jsonify(start_scan_async(force=force))
+    force = _truthy(request.args.get("force"))
+    full = _truthy(request.args.get("full"))
+    return jsonify(start_scan_async(force=force, full=full))
 
 
 @qa_bp.route("/api/scan/progress")

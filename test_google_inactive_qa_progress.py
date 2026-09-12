@@ -92,9 +92,9 @@ class _FakeFinder:
 _SCAN_DELAY = 0.35
 
 
-def _fake_scan_login(login, refresh, on_stage=None):
-    if on_stage:
-        on_stage(login, "Reading GA4 properties")
+def _fake_scan_login(login, refresh, on_progress=None, **_ignored):
+    if on_progress:
+        on_progress(login, None, "Listing GA4 properties")
     time.sleep(_SCAN_DELAY)
     inactive = [{"kind": "GA4", "login": login, "account": "Acme",
                  "account_id": "1", "name": "acme.com", "resource": f"{login}-p1",
@@ -105,6 +105,9 @@ def _fake_scan_login(login, refresh, on_stage=None):
                "account_id": "1", "name": "acme-live.com", "resource": f"{login}-p2",
                "public_id": "", "events": 12, "sessions": 4,
                "status": "active", "reason": "Activity detected"}]
+    if on_progress:
+        on_progress(login, "inactive", "GA4 property 1 of 2: acme.com")
+        on_progress(login, "active", "GA4 property 2 of 2: acme-live.com")
     return inactive, review, active
 
 
