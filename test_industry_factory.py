@@ -1,5 +1,4 @@
 """Factory configuration, real HTTP routing, lead delivery and queue integration."""
-import json
 import os
 import tempfile
 import unittest
@@ -12,9 +11,9 @@ for key in ("OPENAI_API_KEY", "GHL_PRIVATE_TOKEN", "SMART1SUITE_PRIVATE_TOKEN"):
     os.environ.pop(key, None)
 
 from hub import auth, industry_config
-from hub.industry_factory import IndustryPage, QA, metadata
+from hub.industry_factory import QA
 from hub.extensions import db
-from hub.creative_jobs import CreativeJob, enqueue_for_lead, run_one
+from hub.creative_jobs import CreativeJob, enqueue_for_lead
 from wsgi import application
 from werkzeug.test import Client
 

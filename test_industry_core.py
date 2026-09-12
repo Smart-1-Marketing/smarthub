@@ -1,5 +1,4 @@
 """Fast factory tests without booting unrelated vertical applications."""
-import json
 import os
 import tempfile
 import unittest
@@ -12,9 +11,9 @@ os.environ["HUB_DATA_DIR"] = TMP.name
 os.environ["DATABASE_URL"] = "sqlite:///" + TMP.name.replace("\\", "/") + "/db.sqlite3"
 os.environ["SECRET_KEY"] = "industry-core-test"
 from hub.extensions import db
-from hub.industry_factory import bp, IndustryPage, QA, resolve_capture
+from hub.industry_factory import bp, QA, resolve_capture
 from hub.industry_config import load_pack, selection, triggers
-from hub import creative_jobs, auth
+from hub import creative_jobs
 
 
 class CoreTests(unittest.TestCase):
