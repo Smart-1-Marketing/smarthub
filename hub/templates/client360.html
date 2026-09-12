@@ -330,8 +330,20 @@ function pick(i){
   render(groups[i],$('q').value.trim());
 }
 
+
+function loadClientEmailSummary(client,generation){
+  fetch('/api/client-email/state?client='+encodeURIComponent(client)).then(function(r){if(!r.ok)throw Error('Email contact could not be loaded.');return r.json();}).then(function(b){
+    if(generation!==c360Generation)return;var box=document.getElementById('c360EmailSummary');if(!box)return;
+    if(b.error){box.textContent='Client email: '+b.error;return;}
+    box.textContent=b.linked?'Email contact: '+b.contact.name+' · '+b.contact.email+' · '+b.messages.length+' recent emails available.':'No email contact linked yet. Use Email client & history to select the client’s contact in Smart 1’s GHL account.';
+    if(b.linked&&b.messages.length){var recent=document.createElement('p');recent.textContent='Latest: '+b.messages[0].subject+' · '+b.messages[0].at+' · '+b.messages[0].status;box.appendChild(recent);}
+  }).catch(function(e){if(generation===c360Generation){var box=document.getElementById('c360EmailSummary');if(box)box.textContent=e.message;}});
+}
+
 function render(g,q){
   c360Generation++;
+  const emailGeneration=c360Generation;
+  setTimeout(function(){loadClientEmailSummary(g.client||q,emailGeneration);},0);
   window.__trafficStarted=null;
   const name=g.client||q;
   window.CURRENT_CLIENT = name;
@@ -383,6 +395,7 @@ function render(g,q){
      card. The group button keeps the s1-acc-group class because
      loadGroup() and S1GroupLabel() address it by that name. */
   head+='<div class="c360-actions">'
+    +'<a class="ce-client-link" href="/client-email?client='+encodeURIComponent(name)+'">Email client &amp; history</a>'
     +'<button type="button" onclick="ioStart(\'new\')">New IO</button>'
     +'<button type="button" onclick="ioStart(\'renewal\')">Renew IO</button>'
     +'<button type="button" onclick="ioStart(\'proposal\')">IO from proposal</button>'
@@ -391,6 +404,7 @@ function render(g,q){
     +'</div>';
 
   let html=head
+    +'<div id="c360EmailSummary" role="status" style="margin:12px 0">Loading linked email contact…</div>'
     +'<div class="c360-health" id="c360Health" hidden></div>'
     +'<div class="c360-work" data-s1-workspace="1">'
     +'<nav class="c360-rail" id="c360Rail" aria-label="Record sections"></nav>'

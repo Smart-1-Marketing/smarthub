@@ -21,6 +21,9 @@ import { validateCampaign } from './validate';
 import { enqueue, getJob, listJobs, startWorkerLoop, recoverJobs, startWatchdog } from './jobs';
 import { renderPreview, renderAnimatedPreview, renderOne } from './render';
 import { CampaignConflict, campaignRevision, artworkFingerprint, readCampaign, saveCampaignDocument } from './campaign-state';
+import { captureVersion, versions, changes } from './history';
+import { beginReview, readReview, approveReview, fileUrl } from './review-set';
+import { copySmokeTest } from './ai-health';
 import { buildCampaign, type Submission } from './intake';
 import { loadPlatforms, loadTemplates, acceptPlatforms, renderableSizes } from './registry';
 import { carriedInto, needsReview, styleForSize } from './carry';
@@ -78,6 +81,7 @@ const BUILD_STAMP: { builtAt?: string; node?: string } = (() => {
 /** Base URL for links inside notifications. Set on Render to the public host. */
 const PUBLIC_URL = (process.env.PUBLIC_URL ?? `http://localhost:${PORT}`).replace(/\/$/, '');
 const projects = new ProjectStore(OUT);
+let lastCopySmoke = 0;
 const presets = new PresetStore(OUT);
 function newRequestIdFor(): string {
   // Same alphabet and entropy as intake ids: unguessable, no confusable chars.
@@ -278,7 +282,7 @@ async function recordDecision(
     // in this response; staff get it in the notification.
     try {
       const out = await deliverProject(project, { outDir: OUT, conceptId: opts.concept });
-      project.status = 'complete';
+      project.status = out.skipped.length ? 'approved' : 'complete';
       project.delivered = project.delivered ?? [];
       project.delivered.push({ at, zipUrl: out.zipUrl, fileCount: out.fileCount });
       project.notes.push(
@@ -295,7 +299,7 @@ async function recordDecision(
         },
         OUT,
       );
-      return { code: 200, body: { status: 'complete', recordedAt: at, by: who || 'client',
+      return { code: 200, body: { status: project.status, recordedAt: at, by: who || 'client',
                                   downloadUrl: out.zipUrl, fileCount: out.fileCount,
                                   skipped: out.skipped } };
     } catch (e: any) {
@@ -345,6 +349,9 @@ const server = http.createServer(async (req, res) => {
    * default to public, so anything sensitive must be added here deliberately.
    */
   const isInternal =
+    route === 'POST /api/preview' ||
+    route === 'POST /api/preview' ||
+    url.pathname === '/review' ||
     url.pathname === '/build' ||
     url.pathname === '/build.html' ||
     url.pathname === '/projects' ||
@@ -946,15 +953,62 @@ const server = http.createServer(async (req, res) => {
       return res.end(withBase(req, html));
     }
 
+    if (route === 'POST /api/diagnostics/copy-smoke') {
+      if (Date.now() - lastCopySmoke < 300_000) return json(res, 429, { error: 'Wait five minutes before another paid copy test.' });
+      lastCopySmoke = Date.now();
+      const result = await copySmokeTest();
+      return json(res, result.ok ? 200 : 422, result);
+    }
+    if (route === 'GET /review') {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return res.end(withBase(req, fs.readFileSync(path.join(PUBLIC, 'review.html'), 'utf8')));
+    }
+    const reviewMatch = url.pathname.match(/^\/api\/project\/([\w.-]+)\/(review-set|bulk-approve|versions|replacement)(?:\/([a-f0-9-]+))?$/);
+    if (reviewMatch) {
+      const project = projects.get(reviewMatch[1]);
+      if (!project) return json(res, 404, { error: 'No such project' });
+      const [, , action, id] = reviewMatch;
+      const file = path.join(OUT, 'campaigns', project.requestId + '.json');
+      if (action === 'review-set' && req.method === 'POST') return json(res, 202, { id: beginReview(OUT, ROOT, project) });
+      if (action === 'review-set' && req.method === 'GET' && id) return json(res, 200, readReview(OUT, id, project.projectId));
+      if (action === 'bulk-approve' && req.method === 'POST') {
+        const body = JSON.parse(await readBody(req, 20_000));
+        return json(res, 200, approveReview(OUT, ROOT, projects, project, body.id, body.revision, req.headers['x-s1-user'] as string));
+      }
+      if (action === 'versions' && req.method === 'GET') {
+        const current = readCampaign(file); captureVersion(file, current, campaignRevision(current));
+        const list = versions(file);
+        const a = list.find(v => v.revision === url.searchParams.get('before'));
+        const b = list.find(v => v.revision === url.searchParams.get('after'));
+        const captured: any[] = [];
+        const reviewsDir = path.join(OUT, 'reviews');
+        if (fs.existsSync(reviewsDir)) for (const name of fs.readdirSync(reviewsDir)) {
+          try { const r = readReview(OUT, name, project.projectId); if (r.status === 'ready') captured.push(r); } catch { /* other project or interrupted capture */ }
+        }
+        return json(res, 200, { requestId: project.requestId, versions: list.map(v => ({ revision: v.revision, savedAt: v.savedAt })),
+          changes: a && b ? changes(a.doc, b.doc) : [],
+          before: captured.filter(r => r.revision === a?.revision).sort((x,y) => y.createdAt.localeCompare(x.createdAt))[0],
+          after: captured.filter(r => r.revision === b?.revision).sort((x,y) => y.createdAt.localeCompare(x.createdAt))[0] });
+      }
+      if (action === 'replacement' && req.method === 'GET') {
+        const o = project.overrides?.find(o => o.conceptId === url.searchParams.get('concept') && o.size === url.searchParams.get('size') && o.platform === url.searchParams.get('platform'));
+        if (!o) return json(res, 200, { replacement: null });
+        const bytes = fs.readFileSync(o.file); const meta = await sharp(bytes).metadata();
+        return json(res, 200, { replacement: { image: fileUrl(OUT, o.file), name: o.originalName, width: meta.width, height: meta.height } });
+      }
+      return json(res, 405, { error: 'Unsupported review action' });
+    }
+
     /* ------------------------------------------------------------- delivery */
     const deliverMatch = url.pathname.match(/^\/api\/project\/([\w.-]+)\/deliver$/);
     if (deliverMatch && req.method === 'POST') {
       const project = projects.get(deliverMatch[1]);
       if (!project) return json(res, 404, { error: 'No such project' });
       const body = JSON.parse((await readBody(req, 20_000)) || '{}') as
-        { concept?: string; record?: boolean };
+        { concept?: string; record?: boolean; mode?: 'draft' | 'final' };
       try {
-        const out = await deliverProject(project, { outDir: OUT, conceptId: body.concept });
+        if (body.mode !== 'draft' && body.mode !== 'final') return json(res, 400, { error: 'Choose Download draft or Deliver approved files.' });
+        const out = await deliverProject(project, { outDir: OUT, conceptId: body.concept, mode: body.mode });
         // Packaging and delivering are two different events, and the build
         // screen's "Download the full ZIP" is the first without the second:
         // somebody wants the files in their hands. Recording it would set the
@@ -963,8 +1017,8 @@ const server = http.createServer(async (req, res) => {
         // campaign having been handed over. The zip is byte-for-byte the same
         // either way -- one description of what a package is, two things you
         // can do with it.
-        if (body.record === false) return json(res, 200, { ...out, recorded: false });
-        project.status = 'complete';
+        if (body.record === false || body.mode === 'draft') return json(res, 200, { ...out, recorded: false, mode: body.mode });
+        project.status = out.skipped.length ? 'approved' : 'complete';
         project.delivered = project.delivered ?? [];
         project.delivered.push({ at: new Date().toISOString(), zipUrl: out.zipUrl, fileCount: out.fileCount });
         project.notes.push(
@@ -1181,6 +1235,10 @@ const server = http.createServer(async (req, res) => {
         projects.save(project);
         return json(res, 200, { approvals: project.approvals });
       }
+      for (let i = platforms.length - 1; i >= 0; i--) {
+        if (getPlatform(platforms[i]).sizes[size as SizeKey]?.enabled === false) platforms.splice(i, 1);
+      }
+      if (!platforms.includes(platform)) return json(res, 422, { error: 'This placement is disabled pending platform verification.' });
       const revision = campaignRevision(doc);
       if (body.revision !== revision) throw new CampaignConflict('Save the latest campaign before approving this size.');
       const records = [];
@@ -2199,7 +2257,7 @@ const server = http.createServer(async (req, res) => {
       // this buy.
       const platformSizes: Record<string, string[]> = {};
       for (const [id, cfg] of loadPlatforms()) {
-        platformSizes[id] = Object.keys(cfg.sizes);
+        platformSizes[id] = Object.keys(cfg.sizes).filter(size => cfg.sizes[size as SizeKey]?.enabled !== false);
       }
       // The families the renderer actually has. Sent so the editor can offer a
       // list rather than a text box: an unknown name falls back to Montserrat
@@ -2624,6 +2682,13 @@ const server = http.createServer(async (req, res) => {
         return json(res, 400, { error: 'Provide a campaign and a concept' });
       }
       try {
+        const project = campaign.requestId ? projects.byRequest(campaign.requestId) : null;
+        const override = project?.overrides?.find(o => o.conceptId === concept.conceptId && o.size === (body.size ?? '300x250') && o.platform === (body.platform ?? 'google'));
+        if (override) {
+          const bytes = fs.readFileSync(override.file); const meta = await sharp(bytes).metadata();
+          return json(res, 200, { image: `data:image/${meta.format};base64,${bytes.toString('base64')}`, width: meta.width, height: meta.height,
+            status: 'warn', replacement: true, qa: [{ check: 'manual-artwork-review', status: 'warn', detail: `Previewing the actual replacement: ${override.originalName}. Review this file before approving; generated design edits will not change the replacement.` }] });
+        }
         const out = await renderPreview({
           brand: campaign.brand,
           concept,

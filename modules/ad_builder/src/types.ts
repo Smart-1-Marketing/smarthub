@@ -267,6 +267,8 @@ export interface TemplateSpec {
 /* --------------------------------------------------------------- platform */
 
 export interface PlatformSizeRule {
+  /** Retained for old records, but unavailable for new rendering or delivery. */
+  enabled?: boolean;
   w: number;
   h: number;
   /** Max bytes for the delivered file. */

@@ -67,6 +67,7 @@ export async function renderOne(opts: RenderOneOptions): Promise<RenderResult> {
     throw new Error(`Template ${template.id} has no layout for ${size}`);
   }
   const rule = getPlatform(platform).sizes[size];
+  if (rule?.enabled === false) throw new Error(`${platform}/${size} is disabled pending verified platform specifications.`);
   if (!rule) {
     throw new Error(`Platform ${platform} does not define ${size}`);
   }

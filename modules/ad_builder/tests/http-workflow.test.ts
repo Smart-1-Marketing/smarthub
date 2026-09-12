@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import sharp from 'sharp';
 import { ProjectStore } from '../src/projects';
 
-test('HTTP workflow: save conflicts, approval locks, render, download and placeholder rejection', { timeout: 240_000 }, async t => {
+test('HTTP workflow: save conflicts, approval locks, render, download and placeholder rejection', { timeout: 420_000 }, async t => {
   const root = path.resolve(__dirname, '..');
   const out = fs.mkdtempSync(path.join(os.tmpdir(), 'ad-http-'));
   const logo = path.join(out, 'logo.png');
@@ -80,16 +80,53 @@ test('HTTP workflow: save conflicts, approval locks, render, download and placeh
   const renderedFile = manifest.entries[0].localFile;
   const originalBytes = fs.readFileSync(renderedFile);
   fs.appendFileSync(renderedFile, 'changed-after-approval');
-  result = await api(`/api/project/${project.projectId}/deliver`, 'POST', { concept: 'A', record: false });
+  result = await api(`/api/project/${project.projectId}/deliver`, 'POST', { concept: 'A', record: false, mode: 'final' });
   assert.notEqual(result.status, 200, 'altered artwork must not be delivered on an old approval');
   fs.writeFileSync(renderedFile, originalBytes);
-  result = await api(`/api/project/${project.projectId}/deliver`, 'POST', { concept: 'A', record: false });
+  result = await api(`/api/project/${project.projectId}/deliver`, 'POST', { concept: 'A', record: false, mode: 'final' });
   assert.equal(result.status, 200, JSON.stringify(result.body));
   assert.equal(result.body.fileCount, 1);
+  assert.ok(result.body.skipped.some((s: any) => s.size === 'google/728x90'));
   const zip = await fetch(base + result.body.zipUrl, { headers: { 'x-admin-token': token } });
   assert.equal(zip.status, 200);
   assert.equal(Buffer.from(await zip.arrayBuffer()).subarray(0, 2).toString(), 'PK');
   await api(`/api/project/${project.projectId}/approve-size`, 'POST', { ...approve, approved: false });
+  assert.equal((await api(`/api/project/${project.projectId}/deliver`, 'POST', { concept: 'A' })).status, 400);
+  assert.notEqual((await api(`/api/project/${project.projectId}/deliver`, 'POST', { concept: 'A', mode: 'final' })).status, 200);
+  const draft = await api(`/api/project/${project.projectId}/deliver`, 'POST', { concept: 'A', mode: 'draft' });
+  assert.equal(draft.status, 200, JSON.stringify(draft.body));
+  assert.match(draft.body.zipUrl, /DRAFT_/);
+  const history = await api(`/api/project/${project.projectId}/versions`);
+  assert.equal(history.status, 200);
+  assert.ok(history.body.versions.length >= 2);
+  const comparison = await api(`/api/project/${project.projectId}/versions?before=${history.body.versions[1].revision}&after=${history.body.versions[0].revision}`);
+  assert.ok(comparison.body.changes.some((c: any) => c.path === 'campaign.campaignName'));
+  const replacement = await sharp({ create: { width: 300, height: 250, channels: 3, background: '#dc2626' } }).png().toBuffer();
+  const upload = await api(`/api/project/${project.projectId}/override`, 'POST', { ...approve, filename: 'manual.png', dataBase64: replacement.toString('base64') });
+  assert.equal(upload.status, 200, JSON.stringify(upload.body));
+  const preview = await api('/api/preview', 'POST', { campaign: doc.campaign, conceptId: 'A', platform: 'google', size: '300x250' });
+  assert.equal(preview.status, 200, JSON.stringify(preview.body));
+  assert.equal(preview.body.replacement, true);
+  assert.equal(preview.body.image.split(',')[1], replacement.toString('base64'));
+  const start = await api(`/api/project/${project.projectId}/review-set`, 'POST', {});
+  assert.equal(start.status, 202, JSON.stringify(start.body));
+  let sheet: any;
+  for (let i = 0; i < 1200; i++) {
+    sheet = (await api(`/api/project/${project.projectId}/review-set/${start.body.id}`)).body;
+    if (sheet.status !== 'building') break;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.equal(sheet.status, 'ready', JSON.stringify(sheet));
+  assert.equal(sheet.cells.length, 11);
+  assert.equal(sheet.cells.find((c: any) => c.size === '300x250').status, 'warn');
+  const bulk = await api(`/api/project/${project.projectId}/bulk-approve`, 'POST', { id: sheet.id, revision: sheet.revision });
+  assert.equal(bulk.status, 200, JSON.stringify(bulk.body));
+  assert.ok(bulk.body.skipped.includes('A/300x250'));
+  assert.ok(bulk.body.approved.length > 0);
+  assert.ok(!bulk.body.approvals.some((a: any) => a.size === '300x250'));
+  for (const cell of sheet.cells) await api(`/api/project/${project.projectId}/approve-size`, 'POST', { conceptId: 'A', platform: cell.platform, size: cell.size, approved: false });
+  assert.equal((await api(`/api/project/${project.projectId}/override`, 'POST', { ...approve, remove: true })).status, 200);
+
   doc = (await api('/api/campaign/QA-HTTP')).body;
   const placeholder = path.join(out, 'placeholder-landscape.png'); fs.copyFileSync(logo, placeholder);
   doc.campaign.concepts[0].backgroundImage = placeholder;
@@ -100,7 +137,7 @@ test('HTTP workflow: save conflicts, approval locks, render, download and placeh
   assert.ok(result.body.findings.some((f: any) => f.check === 'placeholder-artwork'));
   manifest.entries[0].qaStatus = 'pass';
   fs.writeFileSync(manifestFile, JSON.stringify(manifest));
-  result = await api(`/api/project/${project.projectId}/deliver`, 'POST', { concept: 'A', record: false });
+  result = await api(`/api/project/${project.projectId}/deliver`, 'POST', { concept: 'A', record: false, mode: 'final' });
   assert.notEqual(result.status, 200, 'a legacy green manifest does not make placeholders deliverable');
   assert.match(result.body.error, /Nothing deliverable/);
 });

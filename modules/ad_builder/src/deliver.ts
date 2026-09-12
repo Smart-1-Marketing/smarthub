@@ -45,12 +45,15 @@ import { createHash } from 'node:crypto';
 import { artworkFingerprint, readCampaign } from './campaign-state';
 import { placeholderFindings } from './asset-quality';
 import type { SizeKey } from './types';
+import { getPlatform, getTemplate } from './registry';
 import type { Manifest, ManifestEntry } from './manifest';
 import type { AnimationRecord, Project } from './projects';
 import { slug } from './cloudinary';
 
 export interface DeliverOptions {
   outDir: string;
+  /** Final packages require a current sign-off for every included platform. */
+  mode?: 'draft' | 'final';
   /** Concept to deliver. Defaults to the one recorded at approval. */
   conceptId?: string;
 }
@@ -281,8 +284,26 @@ export async function deliverProject(
 
   const shipped: { entry: ManifestEntry; overridden: boolean; finalFile: string }[] = [];
   const skipped: { size: string; reason: string }[] = [];
+  const sourceFile = path.join(opts.outDir, 'campaigns', `${project.requestId}.json`);
+  if (fs.existsSync(sourceFile)) {
+    const source = readCampaign(sourceFile);
+    const selected = source.campaign.concepts.find(c => c.conceptId === concept);
+    if (selected) for (const platform of source.platforms ?? ['google']) {
+      for (const [size, rule] of Object.entries(getPlatform(platform).sizes)) {
+        if (rule.enabled === false || !getTemplate(selected.layoutFamily).sizes[size as SizeKey]) continue;
+        if (!entries.some(e => e.size === size && (e.platforms ?? [e.platform]).includes(platform))) {
+          skipped.push({ size: `${platform}/${size}`, reason: 'Not in the latest render. Render the complete set before final delivery.' });
+        }
+      }
+    }
+  }
+
 
   for (const e of entries) {
+    if ((e.platforms ?? [e.platform]).some(p => getPlatform(p).sizes[e.size as SizeKey]?.enabled === false)) {
+      skipped.push({ size: `${e.platform}/${e.size}`, reason: 'This placement is disabled pending verified platform specifications.' });
+      continue;
+    }
     const override = overrides.find(
       (o) => o.conceptId === concept && o.size === e.size && o.platform === e.platform,
     );
@@ -298,6 +319,10 @@ export async function deliverProject(
       }
     }
     const signed = (project.approvals ?? []).filter(a => a.conceptId === concept && a.size === e.size && (e.platforms ?? [e.platform]).includes(a.platform));
+    if (opts.mode !== 'draft' && (e.platforms ?? [e.platform]).some(p => !signed.some(a => a.platform === p))) {
+      skipped.push({ size: `${e.platform}/${e.size}`, reason: 'Not approved on every included platform. Review and approve this size before final delivery.' });
+      continue;
+    }
     if (signed.length) {
       const campaignFile = path.join(opts.outDir, 'campaigns', `${project.requestId}.json`);
       const assetRoot = fs.existsSync(path.join(__dirname, '..', 'public')) ? path.resolve(__dirname, '..') : path.resolve(__dirname, '..', '..');
@@ -348,7 +373,7 @@ export async function deliverProject(
 
   const deliveriesDir = path.join(opts.outDir, 'deliveries');
   fs.mkdirSync(deliveriesDir, { recursive: true });
-  const zipName = `${clientSlug}_${slug(project.campaignName)}_${concept}_${Date.now().toString(36)}.zip`;
+  const zipName = `${opts.mode === 'draft' ? 'DRAFT_' : ''}${clientSlug}_${slug(project.campaignName)}_${concept}_${Date.now().toString(36)}.zip`;
   const zipFile = path.join(deliveriesDir, zipName);
 
   const root = `${clientSlug}-${slug(project.campaignName)}`;
@@ -372,7 +397,7 @@ export async function deliverProject(
   }
   zipEntries.push({
     name: `${root}/README.txt`,
-    data: Buffer.from(readme(project, concept, clientSlug, shipped, skipped, animated), 'utf8'),
+    data: Buffer.from((opts.mode === 'draft' ? 'DRAFT — FOR REVIEW ONLY. NOT APPROVED FOR PLACEMENT.\n\n' : '') + readme(project, concept, clientSlug, shipped, skipped, animated), 'utf8'),
   });
   zipEntries.push({
     name: `${root}/campaign-manifest.json`,
