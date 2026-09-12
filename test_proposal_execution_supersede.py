@@ -64,8 +64,9 @@ from werkzeug.test import Client as HttpClient                          # noqa: 
 from wsgi import application, hub_app                                   # noqa: E402
 from hub import auth, proposal_execution as pe                          # noqa: E402
 from hub.extensions import db                                           # noqa: E402
-import hub                                                              # noqa: E402
 import hub.proposals as proposals_module                                # noqa: E402
+
+hub = sys.modules["hub"]  # already imported above; avoid a second `import hub`
 
 with hub_app.app_context():
     db.create_all()
