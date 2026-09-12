@@ -4,12 +4,20 @@ on:
   pull_request:
     paths:
       - 'mcp_gateway/**'
+      - 'hub/ask_smarthub.py'
+      - 'hub/static/ask-smarthub-widget.js'
+      - 'hub/templates/ask_smarthub.html'
+      - 'test_ask_smarthub.py'
       - '.github/workflows/mcp-gateway.yml'
   push:
     branches:
       - main
     paths:
       - 'mcp_gateway/**'
+      - 'hub/ask_smarthub.py'
+      - 'hub/static/ask-smarthub-widget.js'
+      - 'hub/templates/ask_smarthub.html'
+      - 'test_ask_smarthub.py'
       - '.github/workflows/mcp-gateway.yml'
 
 jobs:
@@ -35,6 +43,8 @@ jobs:
           mcp_gateway/v2_tools.py
           mcp_gateway/test_server.py
           mcp_gateway/test_v2.py
+          hub/ask_smarthub.py
+          test_ask_smarthub.py
       - name: Import V1 gateway
         env:
           MCP_API_TOKEN: ci-test-token-not-for-production
@@ -69,3 +79,8 @@ jobs:
           MCP_API_TOKEN: ci-test-token-not-for-production
           HUB_DATA_DIR: /tmp/smarthub-mcp-ci
         run: python -m unittest mcp_gateway.test_v2 -v
+      - name: Test Ask SmartHub role and tool boundary
+        env:
+          MCP_API_TOKEN: ci-test-token-not-for-production
+          HUB_DATA_DIR: /tmp/smarthub-mcp-ci
+        run: python -m unittest test_ask_smarthub -v
