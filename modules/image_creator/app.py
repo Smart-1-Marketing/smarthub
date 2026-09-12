@@ -426,7 +426,7 @@ def api_ai_image():
 
 # =====================================================================
 # Logo background removal — reuses the Hub's existing Background Remover
-# tool (remove.bg) instead of duplicating it, so a logo upload doesn't need
+# tool (Cloudinary) instead of duplicating it, so a logo upload doesn't need
 # a separate trip out of the editor. §19 of the dev outline.
 # =====================================================================
 @app.route("/api/logos/remove-background", methods=["POST"])
@@ -441,7 +441,7 @@ def api_logo_remove_background():
     except Exception as exc:                          # noqa: BLE001
         return jsonify({"error": f"Background Remover isn't available: {exc}"}), 503
     if not bg_remover.configured():
-        return jsonify({"error": "REMOVE_BG_API_KEY isn't set, so background removal is off."}), 503
+        return jsonify({"error": "Cloudinary is not connected, so background removal is off."}), 503
     try:
         _, b64 = data_url.split(",", 1)
         raw = _b64.b64decode(b64)
@@ -450,11 +450,11 @@ def api_logo_remove_background():
     if len(raw) > bg_remover.MAX_BYTES:
         return jsonify({"error": "That logo is too large for background removal."}), 400
     try:
-        png = bg_remover.call_remove_bg(raw)
+        png = bg_remover.providers.cloud_cutout(bg_remover.providers.normalize(raw))
     except RuntimeError as exc:
         return jsonify({"error": str(exc)}), 502
     except Exception as exc:                          # noqa: BLE001
-        return jsonify({"error": f"Background removal failed: {exc}"}), 502
+        return jsonify({"error": "Background removal could not be completed. Please try again later."}), 502
     _log("logo_bg_removed")
     return jsonify({"image": "data:image/png;base64," + _b64.b64encode(png).decode()})
 
