@@ -87,6 +87,9 @@ def _install_login_guard(bp):
 
 
 def create_blueprint():
+    from . import history
+    from .routes import production
+    history.install()
     bp = Blueprint(
         "commercial_builder", __name__,
         url_prefix="/tools/commercial-builder",
@@ -110,6 +113,7 @@ def create_blueprint():
     bp.register_blueprint(voice_capture.bp)
     bp.register_blueprint(suite.bp)
     bp.register_blueprint(vox.bp)
+    bp.register_blueprint(production.bp)
     return bp
 
 

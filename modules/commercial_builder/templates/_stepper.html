@@ -19,3 +19,22 @@
     {% if not loop.last %}<span class="cb-step-arrow">›</span>{% endif %}
   {% endfor %}
 </div>
+{% if project and project.id %}
+<section class="cb-production" data-project="{{ project.id }}" aria-label="Production status">
+  <div class="cb-production-summary">
+    <div><strong data-production-label role="status">Checking production status…</strong>
+      <p data-production-counts></p></div>
+    <a data-production-action hidden></a>
+  </div>
+  <ul data-production-issues hidden></ul>
+  <p data-production-recovery></p>
+  <details data-take-history>
+    <summary>Script and take history</summary>
+    <p>Saved script edits, narration and presenter takes appear here as you work. Save any open edits before restoring. Older media may need new timing or narration checks.</p>
+    <p data-history-message role="status"></p>
+    <div data-history-list></div>
+    <button type="button" class="cb-btn cb-btn-sm" data-history-more hidden>Show older takes</button>
+    <button type="button" class="cb-btn cb-btn-sm" data-history-refresh>Refresh history</button>
+  </details>
+</section>
+{% endif %}

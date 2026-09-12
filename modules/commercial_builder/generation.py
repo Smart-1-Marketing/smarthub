@@ -344,23 +344,28 @@ def poll_render_job(job) -> None:
     `routes/render.py`'s own poll route and Creative Studio's "render" job
     runner both call this rather than each reading Creatomate/HyperFrames
     status their own way."""
-    from .models import CommercialProject
+    from .models import CommercialProject, RenderJob
     from .services import creatomate_service
     from hub import hyperframes
 
     if job.status in ("succeeded", "failed"):
         return
+    observed_status, provider_id = job.status, job.provider_render_id
     project = CommercialProject.query.get(job.project_id)
     vox = bool(project) and renders_through_hyperframes(project)
     if vox:
-        state = hyperframes.status(job.provider_render_id)
-        job.status = _job_status(state)
-        job.output_url = state.get("url") or job.output_url
-        job.error = state.get("error")
+        state = hyperframes.status(provider_id)
+        changes = {"status": _job_status(state), "error": state.get("error")}
     else:
-        status = creatomate_service.check_render(job.provider_render_id)
-        if not status.get("retryable"):
-            job.status = status.get("status") or job.status
-        job.output_url = status.get("url") or job.output_url
-        job.error = status.get("error")
+        state = creatomate_service.check_render(provider_id)
+        changes = {"error": state.get("error")}
+        if not state.get("retryable") and state.get("status"):
+            changes["status"] = state["status"]
+    if state.get("url"):
+        changes["output_url"] = state["url"]
+    # Browser polls and the recovery worker can overlap. Apply only to the
+    # state we actually checked, never over a newer completion or replacement.
+    RenderJob.query.filter_by(id=job.id, provider_render_id=provider_id,
+                              status=observed_status).update(changes, synchronize_session=False)
     db.session.commit()
+    db.session.refresh(job)
