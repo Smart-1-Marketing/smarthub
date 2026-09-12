@@ -531,5 +531,52 @@ check("the campaign it started actually carries the retail vertical",
      wx_store.get(retail_started_token)["vertical"], "retail")
 
 
+# ---------------------------------------------------------------------------
+section("Auto Repair / Service: the fourth vertical, end to end")
+# ---------------------------------------------------------------------------
+
+auto_row = wx_store.create(client="Acme Auto Repair", vertical="auto", zip_code="46032")
+check("an auto campaign records its vertical", auto_row["vertical"], "auto")
+
+result = wx_store.save_picks(auto_row["token"], ["battery-cold-test", "storm-driving-prep"])
+check("auto picks against auto triggers are accepted", result["ok"], True)
+
+result = wx_store.save_picks(auto_row["token"], ["ac-overload"])
+check("an hvac trigger id is refused on an auto campaign", result["ok"], False)
+
+result = wx_store.save_picks(auto_row["token"], ["heat-wave-cooling"])
+check("a retail trigger id is refused on an auto campaign", result["ok"], False)
+
+auto_drafts = wx_copy.generate_drafts("deep-freeze-auto", "Acme Auto Repair")
+check("auto drafts fall back to the house source with no AI key",
+     auto_drafts["source"], "house")
+check("auto house copy is written as a get-it-checked call, not a dining invitation",
+     any("stranded" in d["headline"].lower() or "battery" in d["headline"].lower()
+         or "get it checked" in d["primary_text"].lower()
+         or "before it fails" in (d["headline"] + d["primary_text"]).lower()
+         for d in auto_drafts["drafts"]), True)
+check("auto house copy never talks about sitting down to eat",
+     any("table" in (d["headline"] + d["primary_text"]).lower()
+         for d in auto_drafts["drafts"]), False)
+check("auto house copy never talks about stocking up",
+     any("stock up" in (d["headline"] + d["primary_text"]).lower()
+         for d in auto_drafts["drafts"]), False)
+
+storm_auto_drafts = wx_copy.generate_drafts("storm-driving-prep", "Acme Auto Repair")
+check("the alert-driven storm blocklist covers auto's own alert trigger too",
+     storm_auto_drafts["source"] in ("house", "ai"), True)
+check("storm driving prep copy never invites anyone onto the road during the storm",
+     any(word in (d["headline"] + d["primary_text"]).lower()
+         for d in storm_auto_drafts["drafts"]
+         for word in ("drive now", "hit the road", "come on out")), False)
+
+resp = staff_client.post("/tools/weather-setup/api/start",
+                         json={"client": "Riverside Auto Care", "vertical": "auto"})
+check("api/start accepts the auto vertical and starts the campaign", resp.status_code, 200)
+auto_started_token = resp.get_json()["token"]
+check("the campaign it started actually carries the auto vertical",
+     wx_store.get(auto_started_token)["vertical"], "auto")
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

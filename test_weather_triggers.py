@@ -36,11 +36,12 @@ from hub import weather_triggers as wt                    # noqa: E402
 
 
 section("The vocabulary")
-check("three verticals", set(wt.VERTICALS), {"restaurant", "hvac", "retail"})
+check("four verticals", set(wt.VERTICALS), {"restaurant", "hvac", "retail", "auto"})
 check("fourteen restaurant triggers", len(wt.triggers_for_vertical("restaurant")), 14)
 check("thirteen hvac triggers", len(wt.triggers_for_vertical("hvac")), 13)
 check("thirteen retail triggers", len(wt.triggers_for_vertical("retail")), 13)
-check("every trigger is one of the three verticals",
+check("thirteen auto triggers", len(wt.triggers_for_vertical("auto")), 13)
+check("every trigger is one of the four verticals",
      all(t.vertical in wt.VERTICALS for t in wt.TRIGGERS.values()), True)
 check("no trigger id is shared across verticals",
      len(wt.TRIGGERS), sum(len(wt.triggers_for_vertical(v)) for v in wt.VERTICALS))
@@ -58,17 +59,27 @@ check("hvac's Jul order leads with the emergency-cooling pair",
 check("retail's Jul order leads with the cooling stock-up pair",
      wt.month_order("retail", "Jul")[:3],
      ["heat-wave-cooling", "heat-index-retail", "storm-prep"])
+check("auto's Jul order leads with the cabin-AC pair",
+     wt.month_order("auto", "Jul")[:3],
+     ["heat-index-auto", "ac-check-early", "storm-driving-prep"])
 check("unknown month falls back to the registry order, restaurant",
      set(wt.month_order("restaurant", "Nope")), set(wt.triggers_for_vertical("restaurant")))
 check("unknown month falls back to the registry order, hvac",
      set(wt.month_order("hvac", "Nope")), set(wt.triggers_for_vertical("hvac")))
 check("unknown month falls back to the registry order, retail",
      set(wt.month_order("retail", "Nope")), set(wt.triggers_for_vertical("retail")))
+check("unknown month falls back to the registry order, auto",
+     set(wt.month_order("auto", "Nope")), set(wt.triggers_for_vertical("auto")))
 check("hvac's month order never leaks restaurant's ids",
      bool(set(wt.month_order("hvac", "Jan")) & set(wt.triggers_for_vertical("restaurant"))), False)
 check("retail's month order never leaks either other vertical's ids",
      bool(set(wt.month_order("retail", "Jan")) &
          (set(wt.triggers_for_vertical("restaurant")) | set(wt.triggers_for_vertical("hvac")))),
+     False)
+check("auto's month order never leaks any other vertical's ids",
+     bool(set(wt.month_order("auto", "Jan")) &
+         (set(wt.triggers_for_vertical("restaurant")) | set(wt.triggers_for_vertical("hvac")) |
+          set(wt.triggers_for_vertical("retail")))),
      False)
 
 
@@ -102,6 +113,16 @@ ok, err = wt.validate_picks(["storm-prep", "ac-overload"], "retail")
 check("an hvac id is not a recognized retail trigger", ok, False)
 ok, err = wt.validate_picks(["heat-wave-cooling", "patio-day"])
 check("a retail id is not a recognized restaurant trigger", ok, False)
+ok, err = wt.validate_picks(["storm-driving-prep", "battery-cold-test"], "auto")
+check("two auto picks: ok", ok, True)
+ok, err = wt.validate_picks(["storm-driving-prep", "patio-day"], "auto")
+check("a restaurant id is not a recognized auto trigger", ok, False)
+ok, err = wt.validate_picks(["storm-driving-prep", "ac-overload"], "auto")
+check("an hvac id is not a recognized auto trigger", ok, False)
+ok, err = wt.validate_picks(["storm-driving-prep", "heat-wave-cooling"], "auto")
+check("a retail id is not a recognized auto trigger", ok, False)
+ok, err = wt.validate_picks(["battery-cold-test", "patio-day"])
+check("an auto id is not a recognized restaurant trigger", ok, False)
 
 
 section("Plain range rules")
@@ -326,6 +347,81 @@ check("first-warm-weekend is outside its months in June", r["active"], False)
 r3 = wt.evaluate_trigger("first-frost-shop", {"forecast_low": 20}, {},
                          today=date(2026, 11, 2))
 check("first-frost-shop has its own, separate state and fires", r3["active"], True)
+
+
+section("Auto Repair / Service — the fourth vertical, same rule vocabulary")
+r = wt.evaluate_trigger("battery-cold-test", {"temperature": 15})
+check("battery-cold-test fires at 15F", r["active"], True)
+r = wt.evaluate_trigger("battery-cold-test", {"temperature": 25})
+check("battery-cold-test does not fire at 25F", r["active"], False)
+
+r = wt.evaluate_trigger("cold-snap-auto", {"temperature": 20})
+check("cold-snap-auto fires at 20F", r["active"], True)
+r = wt.evaluate_trigger("deep-freeze-auto", {"temperature": 20})
+check("deep-freeze-auto does not fire at 20F -- it escalates past cold-snap-auto", r["active"], False)
+r = wt.evaluate_trigger("deep-freeze-auto", {"temperature": -5})
+check("deep-freeze-auto fires below 0F", r["active"], True)
+
+r = wt.evaluate_trigger("wind-chill-auto", {"feels_like": 5})
+check("wind-chill-auto fires at feels-like 5F", r["active"], True)
+r = wt.evaluate_trigger("wind-chill-auto", {"feels_like": 20})
+check("wind-chill-auto does not fire at feels-like 20F", r["active"], False)
+
+r = wt.evaluate_trigger("heat-index-auto", {"temperature": 101, "humidity": 60})
+check("heat-index-auto fires on hot + humid", r["active"], True)
+r = wt.evaluate_trigger("heat-index-auto", {"temperature": 101})
+check("heat-index-auto with no humidity is not measured", r["measured"], False)
+
+r = wt.evaluate_trigger("ac-check-early",
+                        {"temperature": 88}, today=date(2026, 5, 1))
+check("ac-check-early fires on an 88F day in May", r["active"], True)
+r = wt.evaluate_trigger("ac-check-early",
+                        {"temperature": 88}, today=date(2026, 9, 1))
+check("ac-check-early is outside its months in September", r["active"], False)
+
+r = wt.evaluate_trigger("spring-service-day",
+                        {"temperature": 72, "rain_probability": 5},
+                        today=date(2026, 4, 1))
+check("spring-service-day fires on a mild dry April day", r["active"], True)
+r = wt.evaluate_trigger("fall-service-day",
+                        {"temperature": 60, "rain_probability": 10},
+                        today=date(2026, 10, 1))
+check("fall-service-day fires on a mild dry October day", r["active"], True)
+
+r = wt.evaluate_trigger("wiper-blade-season", {"rain_probability": 80})
+check("wiper-blade-season fires at 80% chance of rain", r["active"], True)
+r = wt.evaluate_trigger("wiper-blade-season", {"rain_probability": 30})
+check("wiper-blade-season does not fire at 30% chance of rain", r["active"], False)
+
+r = wt.evaluate_trigger("pothole-season",
+                        {"temperature": 45}, today=date(2026, 3, 1))
+check("pothole-season fires on a 45F day in March", r["active"], True)
+
+r = wt.evaluate_trigger("snow-tire-day", {"snow_inches": 3})
+check("snow-tire-day fires at 3in", r["active"], True)
+r = wt.evaluate_trigger("snow-tire-day", {"snow_inches": 0.5})
+check("snow-tire-day does not fire at 0.5in", r["active"], False)
+
+r = wt.evaluate_trigger("storm-driving-prep", {"official_alerts": ["Ice Storm Warning"]})
+check("storm-driving-prep fires on a real alert", r["active"], True)
+r = wt.evaluate_trigger("storm-driving-prep", {"official_alerts": []})
+check("storm-driving-prep does not fire with no alert", r["active"], False)
+
+state = {}
+r = wt.evaluate_trigger("first-freeze-auto", {"forecast_low": 25}, state,
+                        today=date(2026, 11, 1))
+check("first-freeze-auto fires the first time it is cold enough", r["active"], True)
+r = wt.evaluate_trigger("first-freeze-auto", {"forecast_low": 20}, r["state"],
+                        today=date(2026, 11, 10))
+check("first-freeze-auto does not fire again the same season", r["active"], False)
+
+# All four once-per-season triggers -- restaurant's first-freeze, hvac's
+# first-hard-freeze, retail's first-frost-shop and auto's first-freeze-auto --
+# key their season state on the rule's own once_per_season value ("cold"),
+# not on the trigger id. None may see any of the other three's carried state.
+r4 = wt.evaluate_trigger("first-freeze-auto", {"forecast_low": 20}, {},
+                         today=date(2026, 11, 2))
+check("first-freeze-auto has its own, separate state and fires", r4["active"], True)
 
 
 print(f"\n{_passed} passed, {_failed} failed")
