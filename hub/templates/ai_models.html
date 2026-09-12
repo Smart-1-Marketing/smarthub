@@ -22,6 +22,7 @@
       <td>{{ row.status }}<br><small>{{ row.reason }}</small></td>
     </tr>{% endfor %}</tbody>
   </table></div>
+  {% include "ai_comparisons.html" %}
   <h2>Record a review</h2>
   <p>Compare the same briefs. Check required wording, offer accuracy, actual voice duration, brand fidelity, errors, cost and speed. Include sample references and compatibility results. A model being listed is not proof that it works with a builder.</p>
   <form id="model-review-form" style="display:grid;gap:12px;max-width:700px">
