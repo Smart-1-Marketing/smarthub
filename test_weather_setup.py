@@ -578,5 +578,93 @@ check("the campaign it started actually carries the auto vertical",
      wx_store.get(auto_started_token)["vertical"], "auto")
 
 
+# ---------------------------------------------------------------------------
+section("Landscaping / Lawn Care: the fifth vertical, end to end")
+# ---------------------------------------------------------------------------
+
+landscaping_row = wx_store.create(client="Green Acres Landscaping", vertical="landscaping",
+                                  zip_code="46032")
+check("a landscaping campaign records its vertical", landscaping_row["vertical"], "landscaping")
+
+result = wx_store.save_picks(landscaping_row["token"], ["storm-cleanup", "spring-green-up-day"])
+check("landscaping picks against landscaping triggers are accepted", result["ok"], True)
+
+result = wx_store.save_picks(landscaping_row["token"], ["ac-overload"])
+check("an hvac trigger id is refused on a landscaping campaign", result["ok"], False)
+
+result = wx_store.save_picks(landscaping_row["token"], ["battery-cold-test"])
+check("an auto trigger id is refused on a landscaping campaign", result["ok"], False)
+
+landscaping_drafts = wx_copy.generate_drafts("drought-stress", "Green Acres Landscaping")
+check("landscaping drafts fall back to the house source with no AI key",
+     landscaping_drafts["source"], "house")
+check("landscaping house copy is written as a service reminder, not a dining invitation",
+     any("book" in (d["headline"] + d["primary_text"]).lower()
+         or "get it checked" in (d["headline"] + d["primary_text"]).lower()
+         or "get ahead of it" in (d["headline"] + d["primary_text"]).lower()
+         for d in landscaping_drafts["drafts"]), True)
+check("landscaping house copy never talks about sitting down to eat",
+     any("table" in (d["headline"] + d["primary_text"]).lower()
+         for d in landscaping_drafts["drafts"]), False)
+check("landscaping house copy never talks about batteries or auto parts",
+     any("battery" in (d["headline"] + d["primary_text"]).lower()
+         for d in landscaping_drafts["drafts"]), False)
+
+storm_landscaping_drafts = wx_copy.generate_drafts("storm-cleanup", "Green Acres Landscaping")
+check("the alert-driven storm blocklist covers landscaping's own alert trigger too",
+     storm_landscaping_drafts["source"] in ("house", "ai"), True)
+
+resp = staff_client.post("/tools/weather-setup/api/start",
+                         json={"client": "Sunrise Lawn Care", "vertical": "landscaping"})
+check("api/start accepts the landscaping vertical and starts the campaign", resp.status_code, 200)
+landscaping_started_token = resp.get_json()["token"]
+check("the campaign it started actually carries the landscaping vertical",
+     wx_store.get(landscaping_started_token)["vertical"], "landscaping")
+
+
+# ---------------------------------------------------------------------------
+section("Pool & Spa Service: the sixth vertical, end to end")
+# ---------------------------------------------------------------------------
+
+pool_row = wx_store.create(client="Crystal Clear Pools", vertical="pool_spa", zip_code="46032")
+check("a pool_spa campaign records its vertical", pool_row["vertical"], "pool_spa")
+
+result = wx_store.save_picks(pool_row["token"], ["storm-debris-cleanup", "pool-opening-day"])
+check("pool_spa picks against pool_spa triggers are accepted", result["ok"], True)
+
+result = wx_store.save_picks(pool_row["token"], ["spring-green-up-day"])
+check("a landscaping trigger id is refused on a pool_spa campaign", result["ok"], False)
+
+result = wx_store.save_picks(pool_row["token"], ["heat-wave-cooling"])
+check("a retail trigger id is refused on a pool_spa campaign", result["ok"], False)
+
+pool_drafts = wx_copy.generate_drafts("algae-bloom-risk", "Crystal Clear Pools")
+check("pool_spa drafts fall back to the house source with no AI key",
+     pool_drafts["source"], "house")
+check("pool_spa house copy is written as a service reminder, not a dining invitation",
+     any("out of balance" in (d["headline"] + d["primary_text"]).lower()
+         or "get ahead of it" in (d["headline"] + d["primary_text"]).lower()
+         or "ready when you are" in (d["headline"] + d["primary_text"]).lower()
+         for d in pool_drafts["drafts"]), True)
+check("pool_spa house copy never talks about sitting down to eat",
+     any("table" in (d["headline"] + d["primary_text"]).lower()
+         for d in pool_drafts["drafts"]), False)
+check("pool_spa house copy never talks about lawns or mowing",
+     any("lawn" in (d["headline"] + d["primary_text"]).lower()
+         or "mow" in (d["headline"] + d["primary_text"]).lower()
+         for d in pool_drafts["drafts"]), False)
+
+storm_pool_drafts = wx_copy.generate_drafts("storm-debris-cleanup", "Crystal Clear Pools")
+check("the alert-driven storm blocklist covers pool_spa's own alert trigger too",
+     storm_pool_drafts["source"] in ("house", "ai"), True)
+
+resp = staff_client.post("/tools/weather-setup/api/start",
+                         json={"client": "Blue Wave Pool Service", "vertical": "pool_spa"})
+check("api/start accepts the pool_spa vertical and starts the campaign", resp.status_code, 200)
+pool_started_token = resp.get_json()["token"]
+check("the campaign it started actually carries the pool_spa vertical",
+     wx_store.get(pool_started_token)["vertical"], "pool_spa")
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
