@@ -40,6 +40,8 @@ table.qa-t{width:100%;border-collapse:collapse;font-size:13.5px}
 table.qa-t th{position:sticky;top:0;background:#f8fafc;text-align:left;padding:10px 14px;
   font-size:11.5px;text-transform:uppercase;letter-spacing:.6px;color:#64748b;
   border-bottom:1px solid #e2e8f0;white-space:nowrap}
+table.qa-t th.qa-th-sort{cursor:pointer;user-select:none}
+table.qa-t th.qa-th-sort:hover{color:#2563eb}
 table.qa-t td{padding:9px 14px;border-bottom:1px solid #eef2f7;color:#1e293b;vertical-align:top}
 table.qa-t tr:hover td{background:#f8fafc}
 table.qa-t td a{color:#2563eb;text-decoration:none;font-weight:600}
@@ -124,6 +126,7 @@ button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
   var note = document.getElementById('qaNote');
   var csvBtn = document.getElementById('qaCsv');
   var data = null;
+  var sortCol = -1, sortDir = 1;
 
   function esc(s){var d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
   /* esc() goes through textContent, which does not escape either kind of
@@ -437,6 +440,51 @@ button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
   }
   /* ---- end cannot-look decision ---- */
 
+  /* A column value to sort on. Reuses the same cell shapes cellHtml() reads
+     rather than a second reading of what a cell means -- a pill, an action
+     button or a "muted" placeholder all fall back to their own .text, and a
+     number spelled with a $ or a % still sorts as a number rather than as a
+     string starting with a punctuation mark. */
+  function sortValue(c){
+    var s = (c && typeof c === 'object') ? (c.text != null ? c.text : '') : c;
+    s = String(s == null ? '' : s).replace(/^[▼▲]\s*/, '').trim();
+    var n = parseFloat(s.replace(/[$,%]/g, ''));
+    return (!isNaN(n) && /^-?[\d.,$%\s]+$/.test(s)) ? n : s.toLowerCase();
+  }
+
+  /* Sorting within the report's own bands, never across them. The bands ARE
+     the report on most of these screens -- "audited and sellable" ahead of
+     "never audited" is the finding, not an artifact of whatever order the
+     rows happened to build in -- so a click on a header reorders the rows
+     inside whichever band they are already in and leaves the bands
+     themselves exactly where they were. A report with no bands at all just
+     sorts its one segment. */
+  function sortByColumn(idx){
+    if(!data || !data.rows || !data.rows.length) return;
+    sortDir = (sortCol === idx) ? -sortDir : 1;
+    sortCol = idx;
+    var rows = data.rows, styles = data.row_styles || [];
+    var newRows = [], newStyles = [], seg = [], segStyles = [];
+    function flush(){
+      var order = seg.map(function(_, i){ return i; });
+      order.sort(function(a, b){
+        var va = sortValue(seg[a][idx]), vb = sortValue(seg[b][idx]);
+        if(va < vb) return -1 * sortDir;
+        if(va > vb) return 1 * sortDir;
+        return 0;
+      });
+      order.forEach(function(i){ newRows.push(seg[i]); newStyles.push(segStyles[i]); });
+      seg = []; segStyles = [];
+    }
+    rows.forEach(function(r, i){
+      if(isGroupRow(r)){ flush(); newRows.push(r); newStyles.push(styles[i]); }
+      else { seg.push(r); segStyles.push(styles[i]); }
+    });
+    flush();
+    data.rows = newRows; data.row_styles = newStyles;
+    render(data);
+  }
+
   function render(d){
     data = d;
     note.textContent = d.note || '';
@@ -523,7 +571,10 @@ button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
     }
     var styles = d.row_styles || [];
     var h = '<table class="qa-t"><thead><tr>';
-    d.columns.forEach(function(c){ h += '<th>'+esc(c)+'</th>'; });
+    d.columns.forEach(function(c, i){
+      var arrow = sortCol === i ? (sortDir > 0 ? ' ▲' : ' ▼') : '';
+      h += '<th class="qa-th-sort" data-col="'+i+'" title="Click to sort">'+esc(c)+arrow+'</th>';
+    });
     h += '</tr></thead><tbody>';
     d.rows.forEach(function(row, i){
       var cls = styles[i] ? ' class="qa-row-'+styles[i]+'"' : '';
@@ -538,6 +589,9 @@ button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
         return '<option value="'+esc(p)+'">';}).join('')+'</datalist>';
     }
     wrap.innerHTML = h;
+    wrap.querySelectorAll('th.qa-th-sort').forEach(function(th){
+      th.onclick = function(){ sortByColumn(parseInt(th.dataset.col, 10)); };
+    });
     wrap.querySelectorAll('.qa-ghlstatus').forEach(function(sel){
       sel.onchange = function(){
         var msg = sel.parentElement.querySelector('.qa-stage-msg');

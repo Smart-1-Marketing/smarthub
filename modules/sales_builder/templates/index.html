@@ -4320,8 +4320,19 @@ function auditFound(){
    +'</div><div class="note" style="margin-top:4px">'+esc(AUDIT.discovery_note||'')+'</div></div>';
  }
  if((AUDIT.opportunities||[]).length){
-  h+='<div style="margin-top:12px"><b>What the audit says we could fix</b><div class="note" style="margin-top:4px">'
-   +AUDIT.opportunities.slice(0,6).map(o=>esc(o.finding)).join(' ')+'</div></div>';
+  /* Same reading the sell-to-clients QA report (/qa/sell-to-clients) makes
+     of this audit, so a rep quoting a prospect sees the same product a rep
+     re-quoting an existing client would see -- the finding survives being
+     read out to them, and the product it points at is named beside it
+     rather than left for the rep to guess or re-derive from memory. Nothing
+     is added to the quote by arriving here: it is read, same as the
+     discovery answers above it, and stays a suggestion until a line for it
+     is added to the media plan by hand. */
+  h+='<div style="margin-top:12px"><b>What the audit says we could sell them</b>'
+   +AUDIT.opportunities.slice(0,8).map(o=>
+     `<div class="note" style="margin-top:4px">${esc(o.finding)}`
+     +(o.sells?` <b style="color:var(--navy)">→ ${esc(o.sells)}</b>`:'')+`</div>`).join('')
+   +'</div>';
  }
  return h;}
 
