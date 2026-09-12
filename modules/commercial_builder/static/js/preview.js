@@ -40,21 +40,7 @@
       list.textContent = error.message || "Checks could not run. Try again.";
       return;
     }
-    list.innerHTML = "";
-    let blocking = 0;
-    Object.entries(qc_results).forEach(([key, result]) => {
-      if (key === "_all_passed" || !QC_LABELS[key]) return;
-      const level = result.level || (result.passed ? "pass" : "fail");
-      const tone = level === "pass" ? "pass" : level;
-      const mark = level === "pass" ? "✓" : (level === "warn" ? "!" : "✕");
-      if (level === "fail") blocking += 1;
-      const item = CB.el(`<div class="cb-qc-item">
-        <div class="cb-qc-icon ${tone}">${mark}</div>
-        <div class="cb-qc-text"><strong>${QC_LABELS[key]}</strong>
-        <span>${CB.escapeHtml(result.message)}</span></div>
-      </div>`);
-      list.appendChild(item);
-    });
+    const blocking = CB.renderChecks(list, qc_results, QC_LABELS);
     if (qc_results._all_passed && !(qc_results._warnings || []).length) {
       CB.toast("All checks passed — ready to render.");
     } else if (!blocking) {
