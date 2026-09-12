@@ -26,11 +26,13 @@
     </div>
     <div class="actions">
       <a class="btn" href="/qa">Back to QA</a>
-      <button id="refresh" class="primary">Run fresh scan</button>
+      <button id="fullRescan" class="small ghost" title="Re-check every property and container live, ignoring anything checked recently">Full rescan</button>
+      <button id="refresh" class="primary">Update scan</button>
     </div>
   </div>
 
   <div id="message" class="banner"></div>
+  <p id="lastScanLine" class="muted" style="margin:-8px 0 4px"></p>
   <div class="stats">
     <div class="stat"><b id="inactiveCount">—</b><span>Inactive candidates</span></div>
     <div class="stat"><b id="reviewCount">—</b><span>Needs review</span></div>
@@ -90,6 +92,7 @@ function rowInactive(r){return `<tr><td>${typePill(r.kind)}</td><td>${esc(r.logi
 function rowReview(r){return `<tr><td>${typePill(r.kind)}</td><td>${esc(r.login)}</td><td>${esc(r.account)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.resource)}</td><td class="reason">${esc(r.reason)}</td></tr>`}
 function rowSkipped(r){const s=r.skip||{};return `<tr class="skipped-row"><td>${typePill(r.kind)}</td><td>${esc(r.login)}</td><td>${esc(r.account)}</td><td><b>${esc(r.name)}</b></td><td>${esc(s.reason||'—')}<small>${esc(s.by||'')} ${s.at?esc(s.at.slice(0,10)):''}</small></td><td><button class="small" data-unskip='${encodeURIComponent(JSON.stringify(r))}'>Un-skip</button></td></tr>`}
 function render(data){state=data;$('#inactiveCount').textContent=data.inactive.length;$('#reviewCount').textContent=data.review.length;$('#activeCount').textContent=data.active_count;$('#loginCount').textContent=data.connected_logins;$('#skippedCount').textContent=`(${data.skipped.length})`;$('#scanTime').textContent=data.scanned_at?`Scanned ${new Date(data.scanned_at).toLocaleString()}`:'';
+ $('#lastScanLine').textContent=data.scanned_at?`Last scanned ${new Date(data.scanned_at).toLocaleString()} — properties and containers checked in the last 24h are read back from that scan rather than re-checked. Use Full rescan to ignore that and check everything live.`:'';
  $('#inactiveBody').innerHTML=data.inactive.length?data.inactive.map(rowInactive).join(''):'<tr><td colspan="9" class="empty">No inactive GA4 properties or defensible inactive GTM containers found.</td></tr>';
  $('#reviewBody').innerHTML=data.review.length?data.review.map(rowReview).join(''):'<tr><td colspan="6" class="empty">Nothing needs manual review.</td></tr>';
  $('#skippedBody').innerHTML=data.skipped.length?data.skipped.map(rowSkipped).join(''):'<tr><td colspan="6" class="empty">Nothing skipped.</td></tr>';
@@ -97,7 +100,7 @@ function render(data){state=data;$('#inactiveCount').textContent=data.inactive.l
 function bind(){document.querySelectorAll('[data-skip]').forEach(b=>b.onclick=()=>openSkip(JSON.parse(decodeURIComponent(b.dataset.skip))));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>openDelete(JSON.parse(decodeURIComponent(b.dataset.delete))));document.querySelectorAll('[data-unskip]').forEach(b=>b.onclick=()=>unskip(JSON.parse(decodeURIComponent(b.dataset.unskip))))}
 let pollTimer=null;
 function stopPolling(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
-function setScanningUI(on){$('#refresh').disabled=on;$('#refresh').innerHTML=on?'<span class="spinner"></span>Scanning':'Run fresh scan'}
+function setScanningUI(on){$('#refresh').disabled=on;$('#fullRescan').disabled=on;$('#refresh').innerHTML=on?'<span class="spinner"></span>Scanning':'Update scan'}
 
 // The scan is minutes, not seconds, and slower still on a day this
 // account's Tag Manager quota is already stretched -- it paces itself
@@ -105,7 +108,10 @@ function setScanningUI(on){$('#refresh').disabled=on;$('#refresh').innerHTML=on?
 // request left the page with nothing to show but a static "Scanning..."
 // for however long that took, indistinguishable from a hung request. It
 // runs on a background thread now, and this polls a progress endpoint
-// rather than holding one long fetch open.
+// rather than holding one long fetch open. Most of a scan's calls are now
+// resource-level cache hits that cost nothing, so the stage line names the
+// actual property or container being freshly checked -- that is the only
+// part of a scan slow enough for the count of it to matter.
 function renderProgress(p){
   setScanningUI(true);
   const done=(p.completed_logins||0), total=(p.total_logins||0);
@@ -114,7 +120,13 @@ function renderProgress(p){
   $('#activeCount').textContent=n(p.active_count);
   $('#loginCount').textContent=total?`${done} / ${total}`:'—';
   $('#scanTime').textContent=`Scanning… ${done} of ${total} Google logins`;
-  const stage=p.current_login?`${esc(p.current_login)}${p.current_stage?' — '+esc(p.current_stage):''}`:'Starting…';
+  let stage=p.current_login?esc(p.current_login):'Starting…';
+  if(p.current_login&&p.current_stage)stage+=' — '+esc(p.current_stage);
+  if(p.resource_total){
+    const pct=Math.round(100*(p.resource_index||0)/p.resource_total);
+    stage+=` <small class="muted">(${p.resource_index||0} of ${p.resource_total}${p.resource_kind?' '+esc(p.resource_kind):''} — ${pct}%)</small>`;
+  }
+  $('#lastScanLine').textContent='';
   $('#inactiveBody').innerHTML=`<tr><td colspan="9" class="empty"><span class="spinner"></span>${stage}<br><small class="muted">${n(p.inactive_count)} inactive · ${n(p.review_count)} needs review · ${n(p.active_count)} active found so far</small></td></tr>`;
   $('#reviewBody').innerHTML='<tr><td colspan="6" class="empty">Waiting for scan…</td></tr>';
   const g=p.gtm_pace;
@@ -129,7 +141,7 @@ async function loadCached(){
     const r=await fetch('api/scan',{headers:{Accept:'application/json'}});
     const d=await r.json();
     if(d.pending){
-      $('#inactiveBody').innerHTML='<tr><td colspan="9" class="empty">No scan has completed yet. Press Run fresh scan.</td></tr>';
+      $('#inactiveBody').innerHTML='<tr><td colspan="9" class="empty">No scan has completed yet. Press Update scan.</td></tr>';
       $('#reviewBody').innerHTML='<tr><td colspan="6" class="empty">Waiting for scan…</td></tr>';
       return;
     }
@@ -145,16 +157,16 @@ async function pollProgress(){
     if(p.result){render(p.result);return}
     if(p.error){
       show('Scan failed: '+p.error);
-      $('#inactiveBody').innerHTML='<tr><td colspan="9" class="empty">Scan failed. Use Run fresh scan to retry.</td></tr>';
+      $('#inactiveBody').innerHTML='<tr><td colspan="9" class="empty">Scan failed. Use Update scan to retry.</td></tr>';
       return;
     }
     await loadCached();
   }catch(e){stopPolling();setScanningUI(false);show(e.message)}
 }
 function startPolling(){stopPolling();pollProgress();pollTimer=setInterval(pollProgress,1500)}
-async function startFreshScan(){
+async function startScan(full){
   setScanningUI(true);show('');
-  try{await fetch('api/scan/start?force=1',{method:'POST'})}catch(e){/* the poll below reports the real state either way */}
+  try{await fetch(`api/scan/start?force=1${full?'&full=1':''}`,{method:'POST'})}catch(e){/* the poll below reports the real state either way */}
   startPolling();
 }
 async function init(){
@@ -166,11 +178,13 @@ async function init(){
   await loadCached();
 }
 function openSkip(r){selected=r;$('#skipName').textContent=`${r.kind}: ${r.name}`;$('#skipReason').value='';$('#skipDialog').showModal()}
-$('#skipForm').addEventListener('submit',async e=>{e.preventDefault();if(!selected)return;const b=$('#confirmSkip');b.disabled=true;try{const r=await fetch('api/skip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selected,reason:$('#skipReason').value})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not skip');$('#skipDialog').close();await startFreshScan()}catch(e){show(e.message)}finally{b.disabled=false}});
+$('#skipForm').addEventListener('submit',async e=>{e.preventDefault();if(!selected)return;const b=$('#confirmSkip');b.disabled=true;try{const r=await fetch('api/skip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selected,reason:$('#skipReason').value})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not skip');$('#skipDialog').close();await startScan(false)}catch(e){show(e.message)}finally{b.disabled=false}});
 function openDelete(r){selected=r;$('#deleteName').textContent=r.name;$('#deleteConfirm').value='';$('#deleteTitle').textContent=r.kind==='GA4'?'Move GA4 property to trash?':'Delete GTM container?';$('#deleteWarning').textContent=r.kind==='GA4'?'Google Analytics deletion moves the property to the Analytics trash can. The connected login must have Analytics Edit permission.':'This permanently deletes the GTM container through Google Tag Manager. Verify the account and container name before continuing.';$('#deleteDialog').showModal()}
-$('#deleteForm').addEventListener('submit',async e=>{e.preventDefault();if(!selected)return;const b=$('#confirmDelete');b.disabled=true;try{const r=await fetch('api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selected,confirm:$('#deleteConfirm').value})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Delete failed');$('#deleteDialog').close();show(d.message||'Deleted');await startFreshScan()}catch(e){show(e.message)}finally{b.disabled=false}});
-async function unskip(r){try{const res=await fetch('api/unskip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(r)});const d=await res.json();if(!res.ok)throw new Error(d.error||'Could not un-skip');await startFreshScan()}catch(e){show(e.message)}}
-$('#refresh').onclick=()=>startFreshScan();init();
+$('#deleteForm').addEventListener('submit',async e=>{e.preventDefault();if(!selected)return;const b=$('#confirmDelete');b.disabled=true;try{const r=await fetch('api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selected,confirm:$('#deleteConfirm').value})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Delete failed');$('#deleteDialog').close();show(d.message||'Deleted');await startScan(false)}catch(e){show(e.message)}finally{b.disabled=false}});
+async function unskip(r){try{const res=await fetch('api/unskip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(r)});const d=await res.json();if(!res.ok)throw new Error(d.error||'Could not un-skip');await startScan(false)}catch(e){show(e.message)}}
+$('#refresh').onclick=()=>startScan(false);
+$('#fullRescan').onclick=()=>{if(confirm('Re-check every GA4 property and GTM container live, ignoring anything checked in the last 24h? This is slower and spends more of the day\'s Google API quota.'))startScan(true)};
+init();
 </script>
 </body>
 </html>
