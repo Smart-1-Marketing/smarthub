@@ -312,9 +312,11 @@
 
   /* ----------------------------------------------------------- one task */
   function post(t) {
-    var mine = t.kind === 'request';
+    var label = t.kind === 'request' ? ' asked for more information'
+      : t.kind === 'claim' ? ' picked this up'
+      : t.kind === 'vision' ? ' read the screenshot' : ' answered';
     return '<div class="qat-post"><div class="qat-post-h">'
-      + esc(t.author_name) + (mine ? ' asked for more information' : ' answered')
+      + esc(t.author_name) + label
       + ' <span class="muted" style="font-weight:400">' + esc(t.created_on_pretty)
       + '</span></div>'
       + (t.body ? '<div class="qat-post-b">' + esc(t.body) + '</div>' : '')

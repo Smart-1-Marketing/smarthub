@@ -802,6 +802,28 @@ def job_qa_task_autoclaim(app) -> dict:
         return qa_tasks.autoclaim()
 
 
+def job_qa_task_vision(app) -> dict:
+    """Read the screenshot linked in a QA task's own instructions and post
+    what a model sees into its thread.
+
+    Bounded the way job_index_video_backlog and job_describe_client_uploads
+    are: a vision call is billed and has no useful ceiling on how long it
+    takes, and this thread is shared with every other job. Skipped entirely
+    with no OpenAI key configured -- not an error and not silence, the
+    job_index_video_backlog rule: an unconfigured Hub would otherwise write
+    an identical "unavailable" line into the activity log every ten minutes
+    for ever.
+    """
+    try:
+        from hub import ai, qa_tasks
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    if not ai.ready():
+        return {"skipped": "OPENAI_API_KEY is not set"}
+    with app.app_context():
+        return qa_tasks.describe_image_backlog()
+
+
 JOBS = {
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
@@ -849,6 +871,8 @@ JOBS = {
     "qa_task_autoclaim": (10, job_qa_task_autoclaim,
                           "Claim QA tasks for whoever QA_TASK_DELEGATES names "
                           "as standing in."),
+    "qa_task_vision":    (10, job_qa_task_vision,
+                          "Read screenshots linked in QA task instructions."),
 }
 
 
