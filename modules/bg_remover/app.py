@@ -342,6 +342,8 @@ def api_account():
 # =====================================================================
 @app.route("/api/remove", methods=["POST"])
 def api_remove():
+    if "quality" in request.form and "mode" not in request.form:
+        return jsonify({"error": "The background options have changed. Refresh this page before processing an image."}), 400
     uploads = [f for f in request.files.getlist("images") if f and f.filename]
     image_url = (request.form.get("image_url") or "").strip()
     if not uploads and not image_url:

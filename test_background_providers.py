@@ -104,6 +104,9 @@ class WorkflowTests(unittest.TestCase):
 
     def test_modes_prompt_and_invalid_file_fail_before_paid_call(self):
         with patch.object(p,"cloud_cutout") as call:
+            legacy = self.send(quality="preview")
+            self.assertEqual(legacy.status_code,400)
+            self.assertIn("Refresh",legacy.json["error"])
             self.assertEqual(self.send(mode="wrong").status_code,400)
             self.assertEqual(self.send(mode="replace").status_code,400)
             r=self.client.post("/api/remove",data={"images":(io.BytesIO(b"bad"),"test.png")})
