@@ -37,7 +37,7 @@
   <div class="pex-card-h"><h3>1 · Choose the job source</h3></div>
   <div class="pex-card-b">
     <div class="pex-intake">
-      <div><label>Client</label><input id="pexClient" placeholder="Monogram Homes"></div>
+      <div><label>Client</label><input id="pexClient" list="pexClientList" autocomplete="off" placeholder="Monogram Homes" oninput="suggestClients()"><datalist id="pexClientList"></datalist></div>
       <div><label>Uploaded proposal</label><select id="pexProposal"><option value="">Enter a client, then load proposals</option></select></div>
       <div style="display:flex;gap:7px"><button class="pex-btn alt" onclick="loadProposals()">Load</button><button class="pex-btn" id="analyzeBtn" onclick="analyzeProposal()">Analyze Proposal</button></div>
     </div>
@@ -70,6 +70,8 @@ const $=id=>document.getElementById(id);const esc=s=>String(s??'').replace(/[&<>
 function toast(msg){const n=$('toast');n.textContent=msg;n.style.display='block';clearTimeout(n._t);n._t=setTimeout(()=>n.style.display='none',3500)}
 async function json(url,opt={}){const r=await fetch(url,{credentials:'same-origin',...opt});let d={};try{d=await r.json()}catch(e){}if(!r.ok||d.ok===false)throw new Error(d.error||`Request failed (${r.status})`);return d}
 function post(url,body={}){return json(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}
+let clientSearchTimer=null;
+function suggestClients(){clearTimeout(clientSearchTimer);const term=$('pexClient').value.trim();if(term.length<2)return;clientSearchTimer=setTimeout(async()=>{try{const d=await json('/api/clients/search?q='+encodeURIComponent(term)+'&limit=12');$('pexClientList').innerHTML=(d.clients||[]).map(c=>`<option value="${esc(c.name||'')}">`).join('')}catch(e){}},180)}
 async function loadProposals(selectId){const client=$('pexClient').value.trim();if(!client){toast('Enter a client first.');return}const d=await json('/api/proposal-execution/proposals?client='+encodeURIComponent(client));const sel=$('pexProposal');sel.innerHTML='<option value="">Choose an uploaded proposal…</option>'+d.proposals.map(p=>`<option value="${esc(p.id)}">${esc(p.quote_number?p.quote_number+' · ':'')}${esc(p.title)}${p.date_sent?' · '+esc(p.date_sent):''}</option>`).join('');if(selectId)sel.value=selectId;const rs=await json('/api/proposal-execution/runs?client='+encodeURIComponent(client)+'&limit=8');$('pexRunPicker').innerHTML=rs.runs.length?'Existing runs: '+rs.runs.map(r=>`<a href="?run=${r.id}" style="margin-right:10px">#${r.id} ${esc(r.proposal_title)} · ${esc(r.state)}</a>`).join(''):'No execution runs for this client yet.'}
 async function analyzeProposal(){const client=$('pexClient').value.trim(),proposal=$('pexProposal').value;if(!client||!proposal){toast('Choose a client and proposal.');return}const b=$('analyzeBtn');b.disabled=true;b.textContent='Analyzing…';try{const d=await post('/api/proposal-execution/analyze',{client,proposal_id:proposal});currentRun=d.run;currentEvents=[];history.replaceState({},'',`?run=${d.run.id}`);render();await refreshRun();toast(d.created?'Execution plan created.':'That proposal version was already analyzed — reopened existing run.')}catch(e){toast(e.message)}finally{b.disabled=false;b.textContent='Analyze Proposal'}}
 async function openRun(id){const d=await json('/api/proposal-execution/run/'+id);currentRun=d.run;currentEvents=d.events||[];$('pexClient').value=currentRun.client;render();startPolling()}
