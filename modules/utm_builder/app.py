@@ -176,10 +176,20 @@ def actor_name() -> str:
     return request.environ.get("s1hub.user") or "Unknown"
 
 
-def _log(event: str, **extra):
+def _log(event: str, actor: str | None = None, **extra):
+    """`actor` is read from the live request only when the caller has one.
+
+    `save_batch()` is called from the Proposal Execution scheduler with no
+    Flask request in flight, and `actor_name()` reading `request.environ`
+    outside one raises -- caught by the `except Exception` below, which is
+    exactly the silent-swallow shape this Hub keeps having to undo: the
+    caller believes it logged and nothing was ever written. An explicit
+    actor is used as given; only a route calling this with none supplied
+    reads the request.
+    """
     if hub_audit is not None:
         try:
-            hub_audit.log("utm", event, actor=actor_name(), **extra)
+            hub_audit.log("utm", event, actor=actor if actor is not None else actor_name(), **extra)
         except Exception:                             # noqa: BLE001
             pass
 
@@ -199,7 +209,8 @@ def _version() -> str:
 def index():
     return render_template("index.html", version=_version(), vocab=load_vocab(),
                            client=request.args.get("client", ""),
-                           url=request.args.get("url", ""))
+                           url=request.args.get("url", ""),
+                           q=request.args.get("q", ""))
 
 
 @app.route("/health")
@@ -296,18 +307,22 @@ def api_links():
                     "shown": len(rows[:limit]), "total": len(all_rows)})
 
 
-@app.route("/api/links", methods=["POST"])
-def api_save_links():
-    """Save a built batch against a client and product."""
-    body = request.get_json(silent=True) or {}
-    incoming = body.get("links") or []
-    if not incoming:
-        return jsonify({"error": "Nothing to save."}), 400
+def save_batch(client: str, product: str, label: str, base_url: str,
+              incoming: list[dict], client_slug: str = "", *, actor: str) -> dict:
+    """Save a built batch against a client and product, and log who did it.
 
-    client = str(body.get("client") or "").strip()[:200]
-    product = str(body.get("product") or "").strip()[:200]
-    label = str(body.get("label") or "").strip()[:200]
-    base_url = str(body.get("url") or "").strip()[:600]
+    The one place a batch of built links is turned into rows on disk. The
+    route below and the Proposal Execution `tracking_plan` adapter both call
+    this rather than each writing its own version of the id shape, the
+    de-dupe against what is already saved, and the activity-log event --
+    which is exactly the drift `hub/storage.py` exists to stop one tool over.
+    `actor` is required rather than defaulted to `actor_name()`, because that
+    reads the Flask request and the adapter runs with no request in flight.
+    """
+    client = str(client or "").strip()[:200]
+    product = str(product or "").strip()[:200]
+    label = str(label or "").strip()[:200]
+    base_url = str(base_url or "").strip()[:600]
     now = _dt.datetime.now()
 
     rows = load_links()
@@ -326,12 +341,12 @@ def api_save_links():
             "url": url,
             "base_url": base_url,
             "client": client,
-            "client_slug": str(body.get("client_slug") or "")[:120],
+            "client_slug": str(link.get("client_slug") or client_slug or "")[:120],
             "product": product,
             "label": label,
             "created": now.strftime("%Y-%m-%d %H:%M"),
             "created_date": now.date().isoformat(),
-            "created_by": actor_name(),
+            "created_by": actor,
         }
         for f in UTM_FIELDS:
             record[f] = str(link.get(f) or "")
@@ -350,10 +365,25 @@ def api_save_links():
         # different key. Unfiled links carry no client rather than the word
         # "unfiled", or the record for a client actually called that would
         # collect everybody's.
-        _log("links_saved", client=client or None, count=len(saved),
+        _log("links_saved", client=client or None, actor=actor, count=len(saved),
              campaign=saved[0].get("utm_campaign", ""))
-    return jsonify({"ok": True, "saved": len(saved), "skipped": skipped,
-                    "dropped": dropped, "max_links": MAX_LINKS,
+    return {"saved": saved, "skipped": skipped, "dropped": dropped}
+
+
+@app.route("/api/links", methods=["POST"])
+def api_save_links():
+    """Save a built batch against a client and product."""
+    body = request.get_json(silent=True) or {}
+    incoming = body.get("links") or []
+    if not incoming:
+        return jsonify({"error": "Nothing to save."}), 400
+
+    result = save_batch(body.get("client") or "", body.get("product") or "",
+                        body.get("label") or "", body.get("url") or "",
+                        incoming, body.get("client_slug") or "",
+                        actor=actor_name())
+    return jsonify({"ok": True, "saved": len(result["saved"]), "skipped": result["skipped"],
+                    "dropped": result["dropped"], "max_links": MAX_LINKS,
                     "links": load_links()[:300]})
 
 
