@@ -1,0 +1,71 @@
+name: MCP gateway
+
+on:
+  pull_request:
+    paths:
+      - 'mcp_gateway/**'
+      - '.github/workflows/mcp-gateway.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'mcp_gateway/**'
+      - '.github/workflows/mcp-gateway.yml'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            mcp_gateway/requirements.txt
+      - name: Install gateway dependencies
+        run: pip install -r mcp_gateway/requirements.txt
+      - name: Compile gateway
+        run: >-
+          python -m py_compile
+          mcp_gateway/server.py
+          mcp_gateway/server_v2.py
+          mcp_gateway/v2_tools.py
+          mcp_gateway/test_server.py
+          mcp_gateway/test_v2.py
+      - name: Import V1 gateway
+        env:
+          MCP_API_TOKEN: ci-test-token-not-for-production
+          HUB_DATA_DIR: /tmp/smarthub-mcp-ci
+        run: |
+          python - <<'PY'
+          from mcp_gateway.server import SERVER_NAME, app, mcp
+          assert SERVER_NAME == 'SmartHub MCP'
+          assert app is not None
+          assert mcp is not None
+          print('SmartHub MCP V1 gateway import OK')
+          PY
+      - name: Import V2 gateway
+        env:
+          MCP_API_TOKEN: ci-test-token-not-for-production
+          HUB_DATA_DIR: /tmp/smarthub-mcp-ci
+        run: |
+          python - <<'PY'
+          from mcp_gateway.server_v2 import SERVER_NAME, app, mcp
+          assert SERVER_NAME == 'SmartHub MCP'
+          assert app is not None
+          assert mcp is not None
+          print('SmartHub MCP V2 gateway import OK')
+          PY
+      - name: Test V1 identity and security boundary
+        env:
+          MCP_API_TOKEN: ci-test-token-not-for-production
+          HUB_DATA_DIR: /tmp/smarthub-mcp-ci
+        run: python -m unittest mcp_gateway.test_server -v
+      - name: Test V2 identity and connector boundary
+        env:
+          MCP_API_TOKEN: ci-test-token-not-for-production
+          HUB_DATA_DIR: /tmp/smarthub-mcp-ci
+        run: python -m unittest mcp_gateway.test_v2 -v
