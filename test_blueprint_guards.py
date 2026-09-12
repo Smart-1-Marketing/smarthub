@@ -280,6 +280,11 @@ def _allowed_write(path: str) -> bool:
 # must not quietly cover a parameterized route added under the same prefix
 # later.
 PUBLIC_DYNAMIC: dict[str, str] = {
+    "/industry/p/<page_id>": "a published industry page for prospects; drafts return 404",
+    "/industry/p/<page_id>/report": "the published page's printable planning guide",
+    "/industry/widget/<page_id>": "the published opportunity widget on a client's website",
+    "/industry/widget/<page_id>/embed": "the published widget's iframe alias",
+    "/industry/widget/<page_id>/embed.js": "the shared loader for that public widget",
     "/tools/commercial-builder/review/voice/<token>": "client recording page authorized by a random, expiring capture token; no staff login required",
     # --- files, rather than answers about anybody ---
     "/static/<path:filename>": "the hub app's own stylesheets and scripts, "

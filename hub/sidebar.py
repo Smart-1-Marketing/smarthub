@@ -112,6 +112,7 @@ _ITEMS = [
     ("industry_prospects", "/sales/industry-prospects", "&#128269;", "Industry Prospects"),
     ("leads", "/sales/leads", "&#128229;", "Leads"),
     ("landing", "/sales/landing", "&#128187;", "Landing Pages"),
+    ("industry_factory", "/sales/industry-factory", "&#127968;", "Industry Factory"),
     # Creative Studio is the front door over the tools below it -- a client
     # picker, a project record and a template layer, not a replacement for
     # any one of them. It is its own section rather than folded into
