@@ -43,8 +43,36 @@ RUN_RUNNING = "running"
 RUN_PAUSED = "paused"
 RUN_ATTENTION = "attention"
 RUN_COMPLETED = "completed"
+RUN_SUPERSEDED = "superseded"
 MAX_ATTEMPTS = 3
 STALE_RUNNING_MINUTES = 10
+# What a superseding run is allowed to carry forward from the run it
+# replaces. Deliberately just the two states the work order names —
+# APPROVED and COMPLETED/LIVE, meaning "a human already signed off on this
+# exact channel payload" — and not SCHEDULED, because `_revalidate_run`'s own
+# skip set does not protect that state and would flip it back on the very
+# analysis that carried it over.
+CARRY_STATES = (APPROVED, COMPLETED, LIVE)
+
+
+class ProposalRunConflict(Exception):
+    """Analyzing this proposal would create a second, parallel run for a
+    client that already has one open.
+
+    Two runs racing for one client is the exact failure this work order
+    exists to close: a second PDF for the same client used to spawn a
+    second run with none of the first one's saved inputs or approved work,
+    and nothing anywhere said the two were now competing accounts of one
+    campaign. Raised instead of silently creating one, so the route can
+    answer 409 and a person decides — open the run already in flight, or
+    supersede it and carry the approved work and shared inputs forward.
+    """
+
+    def __init__(self, previous_run):
+        self.previous_run = previous_run
+        super().__init__(
+            f"{previous_run.client} already has an open execution run "
+            f"(#{previous_run.id}, {previous_run.state}).")
 
 
 def _now():
@@ -77,6 +105,7 @@ class ProposalExecutionRun(db.Model):
     context_json = db.Column(db.Text, default="{}")
     inputs_json = db.Column(db.Text, default="{}")
     previous_run_id = db.Column(db.Integer, nullable=True)
+    superseded_by_run_id = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=_now, index=True)
     updated_at = db.Column(db.DateTime, default=_now, onupdate=_now)
 
@@ -90,6 +119,7 @@ class ProposalExecutionRun(db.Model):
             "proposal_title": self.proposal_title, "proposal_filename": self.proposal_filename,
             "source_hash": self.source_hash, "state": self.state, "owner": self.owner,
             "paused": bool(self.paused), "previous_run_id": self.previous_run_id,
+            "superseded_by_run_id": self.superseded_by_run_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -411,29 +441,65 @@ def create_run(client, proposal_id, *, owner="", actor="", force=False):
             return existing, False
     previous = (ProposalExecutionRun.query.filter_by(client=client)
                 .order_by(ProposalExecutionRun.id.desc()).first())
+    # A second proposal for a client that already has one open must not
+    # silently spawn a second, parallel run of its own -- that is precisely
+    # the failure this run is a fix for. `force` is the explicit "supersede
+    # it" press; without it, hand the conflict back rather than deciding.
+    conflict = previous is not None and previous.state not in (RUN_COMPLETED, RUN_SUPERSEDED)
+    if conflict and not force:
+        raise ProposalRunConflict(previous)
+    supersedes = previous if conflict else None
     analysis, method = analyze_text(text, client)
     analysis["analysis_method"] = method
     context_data = _client_context(client)
+    carried_inputs = _initial_inputs(context_data, analysis)
+    if supersedes:
+        # A shared answer somebody already typed for this client is the
+        # better source than whatever the analyzer re-derives from a new
+        # document -- the overlay rule `hub/client_urls.py` already works to.
+        carried_inputs.update({k: v for k, v in supersedes.inputs().items() if _resolved(v)})
     run = ProposalExecutionRun(client=client, proposal_id=str(rec.get("id") or proposal_id),
                                proposal_title=rec.get("title") or rec.get("filename") or "Proposal",
                                proposal_filename=rec.get("filename") or "", source_hash=source_hash,
                                state=RUN_DRAFT, owner=owner,
                                previous_run_id=previous.id if previous else None,
                                analysis_json=_dumps(analysis), context_json=_dumps(context_data),
-                               inputs_json=_dumps(_initial_inputs(context_data, analysis)))
+                               inputs_json=_dumps(carried_inputs))
     db.session.add(run)
     db.session.flush()
-    for spec in build_task_specs(analysis):
+    prior_by_key = {t.task_key: t for t in tasks_for_run(supersedes.id)} if supersedes else {}
+    specs = build_task_specs(analysis)
+    for spec in specs:
+        state, result_json = DRAFT, "{}"
+        prior_task = prior_by_key.get(spec["key"])
+        # Carry a task forward only when the work it would do has not
+        # changed (the same fingerprint) and a human already signed off on
+        # it -- a task whose payload changed must not inherit an approval
+        # nobody has actually re-read against the new document.
+        if (prior_task is not None and prior_task.fingerprint == spec["fingerprint"]
+                and prior_task.state in CARRY_STATES):
+            state, result_json = prior_task.state, (prior_task.result_json or "{}")
         row = ProposalExecutionTask(run_id=run.id, task_key=spec["key"], title=spec["title"],
                                     department=spec["department"], task_type=spec["task_type"],
                                     adapter=spec["adapter"], execution_mode=spec["mode"],
-                                    state=DRAFT, dependencies_json=_dumps(spec["depends"]),
+                                    state=state, dependencies_json=_dumps(spec["depends"]),
                                     missing_json=_dumps(spec["needs"]), payload_json=_dumps(spec["payload"]),
-                                    fingerprint=spec["fingerprint"])
+                                    result_json=result_json, fingerprint=spec["fingerprint"])
         db.session.add(row)
+    if supersedes:
+        supersedes.state = RUN_SUPERSEDED
+        supersedes.superseded_by_run_id = run.id
     db.session.commit()
     _revalidate_run(run)
-    _event(run.id, run.state, f"Analyzed proposal and created {len(build_task_specs(analysis))} execution tasks.", actor=actor)
+    carried = sum(1 for s in specs if prior_by_key.get(s["key"]) is not None
+                  and prior_by_key[s["key"]].fingerprint == s["fingerprint"]
+                  and prior_by_key[s["key"]].state in CARRY_STATES)
+    note = f"Analyzed proposal and created {len(specs)} execution tasks."
+    if supersedes:
+        note += f" Superseded run #{supersedes.id}; carried {carried} approved/completed task(s) forward."
+    _event(run.id, run.state, note, actor=actor)
+    if supersedes:
+        _event(supersedes.id, RUN_SUPERSEDED, f"Superseded by execution run #{run.id}.", actor=actor)
     return run, True
 
 
@@ -749,6 +815,37 @@ def proposal_choices(client):
             for r in proposals.list_proposals(client) if r.get("kind") != "link"]
 
 
+def add_missing_columns() -> None:
+    """A live Postgres never gains a column from `create_all()` alone once
+    the table already exists -- the `modules/scans` rule, one table over.
+    `superseded_by_run_id` is the one column this module has ever added to
+    a table already live in production; called at blueprint registration
+    so it runs before the first request that might need it.
+
+    Never raises: a database that is not up yet must not take the whole
+    registration down over one ALTER, and a worker raced by its sibling
+    into the same statement simply finds the column already there.
+    """
+    from sqlalchemy import inspect as _inspect, text as _text
+    try:
+        inspector = _inspect(db.engine)
+    except Exception:                                    # noqa: BLE001
+        return
+    try:
+        have = {c["name"] for c in inspector.get_columns(ProposalExecutionRun.__tablename__)}
+    except Exception:                                    # noqa: BLE001
+        return
+    if "superseded_by_run_id" in have:
+        return
+    try:
+        with db.engine.begin() as conn:
+            conn.execute(_text(
+                f"ALTER TABLE {ProposalExecutionRun.__tablename__} "
+                "ADD COLUMN superseded_by_run_id INTEGER"))
+    except Exception:                                    # noqa: BLE001
+        pass                                              # raced by the other worker
+
+
 def install_scheduler_bridge():
     """Kept as a no-op so nothing that calls it has to change.
 
@@ -774,9 +871,10 @@ def install_scheduler_bridge():
 
 
 __all__ = ["ProposalExecutionRun", "ProposalExecutionTask", "ProposalExecutionEvent",
-           "create_run", "get_run", "list_runs", "tasks_for_run", "proposal_choices",
-           "update_inputs", "start_run", "pause_run", "retry_failed", "run_one",
+           "ProposalRunConflict", "create_run", "get_run", "list_runs", "tasks_for_run",
+           "proposal_choices", "update_inputs", "start_run", "pause_run", "retry_failed", "run_one",
            "approve_task", "request_changes", "rerun_task", "mark_task", "events_for_run",
            "missing_input_manifest", "summary", "adapters", "build_task_specs", "analyze_text",
-           "install_scheduler_bridge", "NEEDS_INPUT", "RUNNING", "NEEDS_APPROVAL", "FAILED",
-           "COMPLETED", "LIVE", "SCHEDULED", "APPROVED", "CANCELLED"]
+           "install_scheduler_bridge", "add_missing_columns",
+           "NEEDS_INPUT", "RUNNING", "NEEDS_APPROVAL", "FAILED",
+           "COMPLETED", "LIVE", "SCHEDULED", "APPROVED", "CANCELLED", "RUN_SUPERSEDED"]
