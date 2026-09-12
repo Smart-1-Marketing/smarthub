@@ -92,6 +92,20 @@ if command -v npm >/dev/null 2>&1 && [ -f modules/ad_builder/package.json ]; the
   fi
 fi
 
+# --- 3b. Marketing Efficiency Audit (best effort — the other module that is
+# not Python). Plain Express, no TypeScript and no build step, so this is the
+# whole of what it needs; test_marketing_audit.py is the pure-Python
+# substitute the way test_display_ads.py is for the ad builder.
+if command -v npm >/dev/null 2>&1 && [ -f modules/marketing_audit/package.json ]; then
+  if [ -d modules/marketing_audit/node_modules ]; then
+    say "Marketing audit dependencies already present."
+  else
+    say "Installing marketing audit dependencies…"
+    (cd modules/marketing_audit && npm install --silent --no-audit --no-fund) \
+      || say "WARN: npm install failed; test_marketing_audit.py still covers this module."
+  fi
+fi
+
 # --- 4. HeyGen skills (best effort — agent tooling, not Hub code) ---------
 # https://github.com/heygen-com/skills, installed per that repo's
 # INSTALL_FOR_AGENTS.md. These are agent-facing skills for making avatars and

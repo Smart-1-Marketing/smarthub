@@ -190,6 +190,16 @@ PUBLIC: dict[str, str] = {
                            "is a prefix rather than a route list",
     "/scans/embed.js": "the resizer a client's website loads beside an "
                        "embedded scan widget",
+    "/tools/marketing-audit*": "the whole Marketing Efficiency Audit -- the "
+                               "accounting-partner lead form. An accounting "
+                               "or bookkeeping partner running it has no Hub "
+                               "account and never should need one, and there "
+                               "is no staff-only screen anywhere in the tool "
+                               "(hub/marketing_audit_proxy.py), which is why "
+                               "this is a prefix rather than a route list, "
+                               "the same shape as the Ads Grader above. The "
+                               "bare prefix (no trailing slash) is only a "
+                               "redirect to the one it serves from",
 }
 
 
@@ -238,6 +248,10 @@ PUBLIC_WRITES: dict[str, str] = {
                         "that a tour step was shown and carries no client "
                         "data",
     "/api/help/tour-event": "the same, for the help layer",
+    "/tools/marketing-audit/": "the proxy's own root, which accepts every "
+                               "method because it forwards to the Node "
+                               "process behind it -- see the "
+                               "/tools/marketing-audit* entry above",
 }
 
 
@@ -384,6 +398,9 @@ PUBLIC_DYNAMIC: dict[str, str] = {
                     "opens with a lead's unguessable token and no Hub "
                     "account at all -- the page itself and its own read "
                     "APIs (campaign state, stock search, their gallery)",
+    "/tools/marketing-audit/<path:path>": "every asset and read route of the "
+        "Marketing Efficiency Audit, proxied whole to the Node process "
+        "behind it -- see the /tools/marketing-audit* entry in PUBLIC",
 }
 
 
@@ -470,6 +487,10 @@ PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
                     "approving, and requesting a change. Every write is "
                     "scoped to the token in the URL, the same shape "
                     "/scans/api/w/<slug>/* already uses",
+    "/tools/marketing-audit/<path:path>": "the same tool's writes -- the "
+        "results gate, the lead delivery, the AI analysis, the website scan "
+        "and the PDF report -- proxied whole for the reason PUBLIC_DYNAMIC's "
+        "matching entry gives",
 }
 
 

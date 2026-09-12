@@ -59,6 +59,21 @@ the OAuth panel on `/diagnostics` before retiring anything.
 | `/recruitment-digital-marketing-gameplan` | `https://smart1.agency/land/recruit/embed` | `recruit` |
 | *(no page yet)* | `https://smart1.agency/land/hvac/embed` | `hvac` |
 | `/ims` and the four calculator pages — see §5 | *(in `docs/smart1marketing-calculator-embeds.md`)* | `calculators` |
+| `/accounting-partner-program` | `https://smart1.agency/tools/marketing-audit/?embed=1` | `marketing_audit` |
+
+**The audit tool is a different runtime, not a different rule.** It runs as
+its own Node process in the Hub's container (`hub/marketing_audit_proxy.py`,
+`modules/marketing_audit`) rather than as a mounted Flask module, but the
+prefix is public end to end the same way `/land/<tool>` is, and it carries the
+same reporter script for auto-height, injected by its own `public/embed.js`
+loader:
+
+    <div id="smart1-audit"></div>
+    <script src="https://smart1.agency/tools/marketing-audit/embed.js" data-target="#smart1-audit"></script>
+
+or the plain-iframe form above with a generous fixed height, if the page
+strips script tags. See `modules/marketing_audit/README.md` for the loader's
+optional attributes.
 
 **Why boat and restaurant carry `?embed=1` and the others do not.** Those two
 tools have their own switch that hides their hero, so the host page does not
