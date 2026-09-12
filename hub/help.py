@@ -802,10 +802,10 @@ REGISTRY: list[Help] = [
        "Completed results are cached briefly so ordinary retries can reuse them. "
        "Use the original photo without a border for cleaner cutouts.", step=1,
        selector="[data-tour='credit-balance']"),
-    _h("bg_remover.upload.white_bg", "Try the free option first",
-       "For a logo on a plain white background, 'Remove white background' runs "
-       "in your browser, costs nothing, and is usually as good. Save the paid "
-       "AI removal for photographs and complicated edges.", step=2,
+    _h("bg_remover.upload.white_bg", "Choose the size you need",
+       "Resize the finished image for its destination. Cutouts keep their "
+       "transparency. Changing only this size can reuse a recently completed "
+       "result without another background-processing call.", step=2,
        selector="[data-tour='white-bg']"),
 
     # ---------------- UTM Builder ----------------
