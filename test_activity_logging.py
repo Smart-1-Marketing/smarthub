@@ -277,8 +277,10 @@ for mod in WAS_SILENT:
     else:
         check(f"{mod} calls its logger", module_logs(mod), True)
 
-check("calculators and hf_render_service are the ones declared rather than wired",
-      sorted(audit.NO_ACTIVITY), ["calculators", "hf_render_service"])
+check("calculators, hf_render_service and marketing_audit are the ones "
+      "declared rather than wired",
+      sorted(audit.NO_ACTIVITY),
+      ["calculators", "hf_render_service", "marketing_audit"])
 
 # Its dangling binding is gone rather than wired. Asserted through the AST,
 # not the text -- the replacement comment explains the trap by quoting
