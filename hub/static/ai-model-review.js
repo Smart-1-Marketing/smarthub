@@ -18,8 +18,17 @@
   });
   const queueForm = document.getElementById('comparison-queue-form');
   if (queueForm) {
-    // Keep the ID after a network failure, so a retry cannot buy a second pair.
-    const requestId = crypto.randomUUID();
+    // Keep an unacknowledged request across reloads as well as network retries.
+    const pendingKey = 'ai-comparison-pending';
+    try {
+      const pending = JSON.parse(sessionStorage.getItem(pendingKey) || 'null');
+      if (pending?.body) {
+        for (const name of ['profile', 'candidate', 'brief', 'budget_usd']) {
+          queueForm.elements[name].value = pending.body[name];
+        }
+        document.getElementById('queue-message').textContent = 'A previous submission was not confirmed. Check recent jobs or resubmit to recover its status.';
+      }
+    } catch (_) { /* Submission below reports unavailable browser storage. */ }
     queueForm.addEventListener('submit', async event => {
       event.preventDefault();
       const button = queueForm.querySelector('button');
@@ -28,15 +37,23 @@
       button.disabled = true;
       status.textContent = 'Reserving budget and queuing…';
       try {
+        const body = {profile: data.get('profile'), candidate: data.get('candidate'),
+          brief: data.get('brief'), budget_usd: data.get('budget_usd'),
+          active_model: queueForm.elements.profile.selectedOptions[0].dataset.model,
+          confirm_spend: queueForm.elements.confirm_spend.checked};
+        const fingerprint = JSON.stringify(body);
+        let pending = JSON.parse(sessionStorage.getItem(pendingKey) || 'null');
+        if (!pending || pending.fingerprint !== fingerprint) {
+          pending = {id: crypto.randomUUID(), fingerprint, body};
+        }
+        sessionStorage.setItem(pendingKey, JSON.stringify(pending));
         const response = await fetch('/api/diagnostics/ai-models/jobs', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({profile: data.get('profile'), candidate: data.get('candidate'),
-            brief: data.get('brief'), budget_usd: data.get('budget_usd'), request_id: requestId,
-            active_model: queueForm.elements.profile.selectedOptions[0].dataset.model,
-            confirm_spend: queueForm.elements.confirm_spend.checked})
+          body: JSON.stringify({...body, request_id: pending.id})
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || 'Could not queue comparison.');
+        sessionStorage.removeItem(pendingKey);
         location.reload();
       } catch (error) { status.textContent = error.message; }
       finally { button.disabled = false; }
