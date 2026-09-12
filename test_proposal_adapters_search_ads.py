@@ -98,7 +98,7 @@ def _new_run(client=CLIENT, text=TEXT):
     real_list = proposals_module.list_proposals
     proposals_module.list_proposals = lambda c, backfill=True: (
         list(_RECORDS.values()) if c == client else [])
-    import hub as hub_mod
+    hub_mod = sys.modules["hub"]
     hub_mod._proposal_text_for = lambda c, filename: text
     try:
         run, _created = pe.create_run(client, "prop-1", owner="rep@example.com",
