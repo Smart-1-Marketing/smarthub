@@ -1,0 +1,55 @@
+<section aria-labelledby="comparison-title" style="margin:32px 0">
+  <h2 id="comparison-title">Compare writing models</h2>
+  <p>Use the same fixed brief and request settings for both models. Paste the spoken scripts and reference the original results. Saving costs no generation credits. This tool records evidence; it does not generate samples.</p>
+  <p>Upload the final voice reads as PCM WAV files, up to 4 MB each. The server measures duration and retains a file fingerprint; audio files are not retained. Listen for pronunciation, accuracy and natural delivery before scoring.</p>
+  <form id="model-comparison-form" style="display:grid;gap:16px">
+    <label>Writing tool <select name="profile" required>{% for row in review.profiles if row.profile.endswith('.text') %}<option value="{{ row.profile }}" data-model="{{ row.model }}">{{ row.label }} · {{ row.model }}</option>{% endfor %}</select></label>
+    <label>Candidate model ID <input name="candidate" maxlength="120" required></label>
+    <label>Test brief <select name="brief" required>{% for key, brief in briefs.items() %}<option value="{{ key }}">{{ brief.label }}</option>{% endfor %}</select></label>
+    {% for key, brief in briefs.items() %}<div data-comparison-brief="{{ key }}" {% if not loop.first %}hidden{% endif %}>
+      <p><strong>Use this exact prompt for both samples:</strong></p>
+      <p style="white-space:pre-wrap;user-select:all">{{ brief.prompt }}</p>
+      <p>Maximum final duration: {{ brief.seconds }} seconds. Required wording: {{ brief.required|join(' · ') }}.</p>
+    </div>{% endfor %}
+    <label>Shared prompt version and request settings <textarea name="settings" required minlength="20" maxlength="4000" rows="3" style="width:100%" placeholder="Record prompt version, endpoint, reasoning/temperature settings, voice and speed used for both samples."></textarea></label>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:20px">
+    {% for side, label in [('active', 'Current model'), ('proposed', 'Candidate model')] %}
+      <fieldset style="min-width:0;display:grid;gap:12px"><legend>{{ label }}</legend>
+        <label>Spoken script <textarea name="{{ side }}_script" required maxlength="12000" rows="8" style="width:100%"></textarea></label>
+        <label>Original result reference <input name="{{ side }}_reference" required maxlength="1000" placeholder="Project, run ID or saved sample location"></label>
+        <label>Voice read <input name="{{ side }}_wav" type="file" accept=".wav,audio/wav"></label>
+        <label>Human quality <select name="{{ side }}_quality" required><option value="">Choose a score</option><option value="1">1 — unusable</option><option value="2">2 — major revision</option><option value="3">3 — usable with edits</option><option value="4">4 — strong</option><option value="5">5 — excellent</option></select></label>
+        <label>Builder request compatibility <select name="{{ side }}_compatibility"><option value="untested">Not tested</option><option value="pass">Passed</option><option value="fail">Failed</option></select></label>
+        <label>Listening review <select name="{{ side }}_delivery"><option value="untested">Not reviewed</option><option value="pass">Accurate and natural</option><option value="fail">Needs correction</option></select></label>
+        <label>Generation latency in seconds (optional) <input name="{{ side }}_latency_seconds" type="number" min="0" max="3600" step="any"></label>
+        <label>Reported generation cost in USD (optional) <input name="{{ side }}_reported_cost_usd" type="number" min="0" max="1000" step="any"></label>
+        <label>Evidence and scoring notes <textarea name="{{ side }}_notes" required minlength="20" maxlength="4000" rows="3" style="width:100%"></textarea></label>
+      </fieldset>
+    {% endfor %}
+    </div>
+    <p>Required-phrase checks are literal and do not establish factual accuracy. Cost, speed, compatibility and quality are supplied by the reviewer. Blank measurements remain unknown.</p>
+    <button type="submit">Save comparison and assess evidence</button>
+    <p id="comparison-message" role="status" aria-live="polite"></p>
+  </form>
+  <h3>Saved comparisons</h3>
+  {% for row in comparisons %}<details style="margin:16px 0;padding:12px;border:1px solid #ccc">
+    <summary>{{ row.profile }} · {{ row.active_model }} vs {{ row.candidate }} · {{ row.suggestion }}</summary>
+    <p>{{ row.reason }}</p><p>{{ row.at }} · {{ row.actor }} · Reference: {{ row.id }}</p>
+    <p>{{ row.brief.label }} · {{ row.brief_id }} · {{ row.rubric_version }}</p>
+    <p style="white-space:pre-wrap">Shared settings: {{ row.settings }}</p>
+    <div style="overflow-x:auto"><table cellpadding="10" style="width:100%;text-align:left"><caption>Saved sample evidence</caption>
+      <thead><tr><th scope="col">Check</th><th scope="col">{{ row.active_model }}</th><th scope="col">{{ row.candidate }}</th></tr></thead>
+      <tbody>
+      <tr><th scope="row">Human quality</th><td>{{ row.active.quality }}/5</td><td>{{ row.proposed.quality }}/5</td></tr>
+      {% for field, title in [('compatibility','Compatibility'), ('delivery','Listening review'), ('reference','Sample reference'), ('notes','Human review notes'), ('script','Spoken script')] %}
+      <tr><th scope="row">{{ title }}</th>{% for sample in [row.active, row.proposed] %}<td style="white-space:pre-wrap">{{ sample[field] }}</td>{% endfor %}</tr>
+      {% endfor %}
+      <tr><th scope="row">Required wording missing</th>{% for sample in [row.active, row.proposed] %}<td>{{ sample.missing|join(', ') or 'None' }}</td>{% endfor %}</tr>
+      <tr><th scope="row">Obsolete wording found</th>{% for sample in [row.active, row.proposed] %}<td>{{ sample.forbidden|join(', ') or 'None' }}</td>{% endfor %}</tr>
+      <tr><th scope="row">Measured duration</th>{% for sample in [row.active, row.proposed] %}<td>{% if sample.audio %}{{ sample.audio.seconds }} seconds · {{ 'Within slot' if sample.within_slot else 'Over slot' }}<br><small>SHA-256: {{ sample.audio.sha256 }}</small>{% else %}Not measured{% endif %}</td>{% endfor %}</tr>
+      <tr><th scope="row">Reported latency</th>{% for sample in [row.active, row.proposed] %}<td>{{ sample.latency_seconds if sample.latency_seconds is not none else 'Unknown' }}</td>{% endfor %}</tr>
+      <tr><th scope="row">Reported cost (USD)</th>{% for sample in [row.active, row.proposed] %}<td>{{ sample.reported_cost_usd if sample.reported_cost_usd is not none else 'Unknown' }}</td>{% endfor %}</tr>
+      </tbody></table></div>
+    <p>{{ row.provenance }}. No production settings were changed.</p>
+  </details>{% else %}<p>No comparisons saved yet.</p>{% endfor %}
+</section>
