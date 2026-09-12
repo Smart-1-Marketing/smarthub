@@ -335,7 +335,7 @@ def build_task_specs(analysis):
     if "paid_search" in channels:
         c = channels["paid_search"]
         specs += [_task("paid_search_plan", "Paid Search campaign structure", "Search", depends=("campaign_foundation",), needs=("landing_url", "target_geography", "conversion_goal"), channel=c),
-                  _task("paid_search_ads", "Paid Search ad copy & extensions", "Search", depends=("paid_search_plan",), needs=("primary_cta",), channel=c),
+                  _task("paid_search_ads", "Paid Search ad copy & extensions", "Search", "search_ads", "approval", ("paid_search_plan",), needs=("primary_cta",), channel=c),
                   _task("paid_search_activation", "Paid Search launch packet", "Ad Ops", "launch_packet", "handoff", ("paid_search_ads", "tracking_plan"), channel=c, task_type="activation")]
     if "seo_ai" in channels:
         c = channels["seo_ai"]
