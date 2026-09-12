@@ -2208,6 +2208,25 @@ jobs:
             echo "test_proposal_adapters.py not on this branch — nothing to run."
           fi
 
+      # WO-2, Adapter A: hub/ad_copy.py, the work order's own pointer, is the
+      # Knack Ad Copy Request ticket form rather than RSA generation --
+      # calling it would only be the brief adapter's failure wearing a
+      # different form. paid_search_ads calls modules.ads_builder.campaign_ai
+      # instead, the real generator /tools/ads uses: a real Proposal row with
+      # real headlines/descriptions/keywords, filed as a link proposal on the
+      # client's own record. approval mode, like radio_scripts -- this is
+      # AI-drafted copy a person reads before it reaches Google, never
+      # something that publishes itself. OpenAI and the landing-page fetch
+      # are stubbed, the way test_ads_module.py and test_gpt_ads.py already
+      # stub them; nothing here makes a real network call.
+      - name: Proposal Execution — real-tool adapters (Paid Search ad copy)
+        run: |
+          if [ -f test_proposal_adapters_search_ads.py ]; then
+            python3 test_proposal_adapters_search_ads.py
+          else
+            echo "test_proposal_adapters_search_ads.py not on this branch — nothing to run."
+          fi
+
       # A curated shortlist per department, laid over the sidebar rather than
       # a second permission system. Block validation (a javascript: href, a
       # blank label, the cap), a delete that un-assigns rather than leaving a
