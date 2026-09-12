@@ -7161,6 +7161,7 @@ def create_hub_app() -> Flask:
         # builder is still usable without attach, and attach still
         # explains itself if the renderer is down.
         ("Display Ad Builder links", "hub.ad_builder_link", "register", "/tools/display-ads"),
+        ("Client email", "hub.client_email_routes", "register", "/client-email"),
         # The accounting-partner Marketing Efficiency Audit — a third Node
         # process in this container, same shape as the two above. Unlike
         # them, the whole prefix is public: see hub/marketing_audit_proxy.py.

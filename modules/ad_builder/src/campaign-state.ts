@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Campaign, SizeKey } from './types';
 import type { Project } from './projects';
 import { getTemplate, getPlatform } from './registry';
+import { captureVersion } from './history';
 
 export interface CampaignDocument { campaign: Campaign; platforms?: string[]; [key: string]: any }
 export interface ArtworkKey { conceptId: string; platform: string; size: string }
@@ -64,10 +65,12 @@ export function saveCampaignDocument(file: string, next: CampaignDocument, revis
   }
   // Browser-only response metadata must not become the stored source of truth.
   const stored = { ...current, campaign: next.campaign, platforms: next.platforms ?? current.platforms };
+  captureVersion(file, current, campaignRevision(current));
   const temp = `${file}.${randomUUID()}.tmp`;
   try {
     fs.writeFileSync(temp, JSON.stringify(stored, null, 2));
     fs.renameSync(temp, file);
+    captureVersion(file, stored, campaignRevision(stored));
   } finally { if (fs.existsSync(temp)) fs.unlinkSync(temp); }
   return campaignRevision(stored);
 }

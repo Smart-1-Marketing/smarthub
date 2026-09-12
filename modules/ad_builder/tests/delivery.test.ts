@@ -114,7 +114,7 @@ function fixture() {
 
 async function deliver() {
   const { outDir, project } = fixture();
-  const result = await deliverProject(project, { outDir });
+  const result = await deliverProject(project, { outDir, mode: 'draft' });
   const files = readZip(fs.readFileSync(result.zipFile));
   const manifestName = Object.keys(files).find((n) => n.endsWith('campaign-manifest.json'))!;
   return { result, files, manifest: JSON.parse(files[manifestName].toString('utf8')) };
