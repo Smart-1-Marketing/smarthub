@@ -666,5 +666,49 @@ check("the campaign it started actually carries the pool_spa vertical",
      wx_store.get(pool_started_token)["vertical"], "pool_spa")
 
 
+# ---------------------------------------------------------------------------
+section("Roofing & Exterior: the seventh vertical, end to end")
+# ---------------------------------------------------------------------------
+
+roofing_row = wx_store.create(client="Summit Roofing Co", vertical="roofing", zip_code="46032")
+check("a roofing campaign records its vertical", roofing_row["vertical"], "roofing")
+
+result = wx_store.save_picks(roofing_row["token"], ["storm-damage-inspection", "spring-roof-inspection"])
+check("roofing picks against roofing triggers are accepted", result["ok"], True)
+
+result = wx_store.save_picks(roofing_row["token"], ["pool-opening-day"])
+check("a pool_spa trigger id is refused on a roofing campaign", result["ok"], False)
+
+result = wx_store.save_picks(roofing_row["token"], ["spring-green-up-day"])
+check("a landscaping trigger id is refused on a roofing campaign", result["ok"], False)
+
+roofing_drafts = wx_copy.generate_drafts("wind-damage-inspection", "Summit Roofing Co")
+check("roofing drafts fall back to the house source with no AI key",
+     roofing_drafts["source"], "house")
+check("roofing house copy is written as a service reminder, not a dining invitation",
+     any("bigger repair" in (d["headline"] + d["primary_text"]).lower()
+         or "get ahead of it" in (d["headline"] + d["primary_text"]).lower()
+         or "ready when you are" in (d["headline"] + d["primary_text"]).lower()
+         for d in roofing_drafts["drafts"]), True)
+check("roofing house copy never talks about sitting down to eat",
+     any("table" in (d["headline"] + d["primary_text"]).lower()
+         for d in roofing_drafts["drafts"]), False)
+check("roofing house copy never talks about pools or chlorine",
+     any("pool" in (d["headline"] + d["primary_text"]).lower()
+         or "chlorine" in (d["headline"] + d["primary_text"]).lower()
+         for d in roofing_drafts["drafts"]), False)
+
+storm_roofing_drafts = wx_copy.generate_drafts("storm-damage-inspection", "Summit Roofing Co")
+check("the alert-driven storm blocklist covers roofing's own alert trigger too",
+     storm_roofing_drafts["source"] in ("house", "ai"), True)
+
+resp = staff_client.post("/tools/weather-setup/api/start",
+                         json={"client": "Peak Roofing & Exteriors", "vertical": "roofing"})
+check("api/start accepts the roofing vertical and starts the campaign", resp.status_code, 200)
+roofing_started_token = resp.get_json()["token"]
+check("the campaign it started actually carries the roofing vertical",
+     wx_store.get(roofing_started_token)["vertical"], "roofing")
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

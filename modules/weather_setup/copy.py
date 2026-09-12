@@ -30,14 +30,16 @@ restaurant ad invites ("come sit outside"), an HVAC ad warns or reminds
 up before it's gone"), an auto-service ad names the specific system a
 condition puts under strain ("get your battery checked before it strands
 you"), a landscaping ad is a service reminder like HVAC's but keyed to the
-season's task ("book your spring cleanup"), and a pool/spa ad is the same
+season's task ("book your spring cleanup"), a pool/spa ad is the same
 shape again but keyed to chemical balance and opening/closing rather than
-an appliance. One generic house template with the business name dropped in
-would answer a hard-freeze ad with "The weather's right for Acme Heating &
-Air" — grammatical, and wrong for what the ad is for — so
+an appliance, and a roofing ad names the specific risk a condition puts a
+roof under ("get your roof checked before wind damage becomes a leak").
+One generic house template with the business name dropped in would answer
+a hard-freeze ad with "The weather's right for Acme Heating & Air" —
+grammatical, and wrong for what the ad is for — so
 `_house_draft_restaurant()`, `_house_draft_hvac()`, `_house_draft_retail()`,
-`_house_draft_auto()`, `_house_draft_landscaping()` and
-`_house_draft_pool_spa()` are six separate templates per angle, and
+`_house_draft_auto()`, `_house_draft_landscaping()`, `_house_draft_pool_spa()`
+and `_house_draft_roofing()` are seven separate templates per angle, and
 `_house_draft()` dispatches on `Trigger.vertical` rather than guessing from
 the trigger's tags. The model prompt carries the same split, through
 `_PROMPT_CONTEXT`.
@@ -177,6 +179,23 @@ def _house_draft_pool_spa(trig, name: str, angle: str) -> tuple[str, str]:
     return by_angle.get(angle, by_angle["Direct"])
 
 
+def _house_draft_roofing(trig, name: str, angle: str) -> tuple[str, str]:
+    # Almost entirely a damage-inspection reminder: a roof does not fail on
+    # a comfortable day, so the copy names the specific risk a condition
+    # puts a shingle, a seal or a structure under.
+    urgent = any(t in _URGENT_TAGS for t in trig.tags) or trig.cadence == "alert_driven"
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has appointments today."),
+        "Comfort": ((f"Get it checked before it's a bigger repair, {name}" if urgent
+                    else f"Get ahead of it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Schedule your visit today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
 _HOUSE_DRAFT_BY_VERTICAL = {
     "restaurant": _house_draft_restaurant,
     "hvac": _house_draft_hvac,
@@ -184,11 +203,13 @@ _HOUSE_DRAFT_BY_VERTICAL = {
     "auto": _house_draft_auto,
     "landscaping": _house_draft_landscaping,
     "pool_spa": _house_draft_pool_spa,
+    "roofing": _house_draft_roofing,
 }
 
 _FALLBACK_NAME = {"restaurant": "your table", "hvac": "your business",
                   "retail": "your store", "auto": "your shop",
-                  "landscaping": "your business", "pool_spa": "your business"}
+                  "landscaping": "your business", "pool_spa": "your business",
+                  "roofing": "your business"}
 
 
 def _house_draft(trigger_id: str, client_name: str, angle: str) -> dict:
@@ -254,6 +275,7 @@ _PROMPT_CONTEXT = {
     "auto": {"noun": "auto repair / service shop", "notes_label": "Service notes"},
     "landscaping": {"noun": "landscaping / lawn care company", "notes_label": "Service notes"},
     "pool_spa": {"noun": "pool & spa service company", "notes_label": "Service notes"},
+    "roofing": {"noun": "roofing & exterior company", "notes_label": "Service notes"},
 }
 
 

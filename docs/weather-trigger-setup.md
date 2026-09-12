@@ -1,6 +1,6 @@
 # Weather trigger setup — lead → landing pages → approved work order
 
-**Date:** 2026-09-07 · **Verticals:** restaurant, hvac, retail, auto, landscaping, pool_spa · **Status:** built (v1 + hvac + retail + auto + landscaping + pool_spa)
+**Date:** 2026-09-07 · **Verticals:** restaurant, hvac, retail, auto, landscaping, pool_spa, roofing · **Status:** built (v1 + hvac + retail + auto + landscaping + pool_spa + roofing)
 
 This is the design spec the module in `modules/weather_setup/` and the
 trigger vocabulary in `hub/weather_triggers.py` were built against. What
@@ -461,6 +461,69 @@ ahead of it" for the ordinary seasonal ones. `_PROMPT_CONTEXT["pool_spa"]`
 gives the model prompt a "pool & spa service company" noun and a "Service
 notes" label, and `_FALLBACK_NAME["pool_spa"]` is "your business", the same
 choice as landscaping's.
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 12. The seventh vertical (Roofing & Exterior)
+
+Shipped the same way a sixth time: thirteen more rows, still the same rule
+vocabulary, still no change to `evaluate_trigger()`, `store.py`, `app.py` or
+the staff template. Six verticals of precedent already proved the plumbing
+generalizes; the seventh confirms it rather than testing it again.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="roofing"`. The
+psychology is a service reminder like HVAC's, built almost entirely around
+damage inspection rather than an appliance under strain — a roof does not
+fail on a comfortable day, so nearly every row names the specific risk a
+condition puts a shingle, a seal or a structure under.
+`high-wind-shingle-risk`/`wind-damage-inspection` are an escalating wind
+pair, the same shape as HVAC's `ac-overload`/`heat-index-strain`.
+`wind-driven-rain` is the one row here combining two conditions in a single
+rule (`wind_mph_min` and `precip_prob_min` together) — the same
+multi-condition shape restaurant's `patio-day` already uses — because wind
+and rain together find a failing flashing seal that either alone rarely
+does. `ice-dam-risk` is its own daily row rather than an escalation of
+anything: a freeze-thaw band, not a hard freeze, is what melts and refreezes
+snow at the eave. `first-freeze-roofing` is the once-per-season event —
+check gutters and flashing before the freeze finds them — with its own
+season-state key so it cannot collide with any of the other six verticals'
+first-freeze rows inside one campaign's carried state, for the same
+per-pick, per-`trigger_id` reason the other six hold.
+`deep-freeze-roofing` escalates past it for a genuinely extreme cold snap,
+the way HVAC's `deep-freeze` escalates past `hard-freeze`.
+`spring-roof-inspection` and `fall-roof-inspection` are the two
+shoulder-season pushes the vertical leans on hardest, and
+`gutter-cleaning-season` is a third, narrower fall push the way retail's
+`fall-clearance-day` sits alongside its own shoulder-season pair.
+`snow-load-roof`, `heavy-rain-leak-check` and `heat-wave-shingle-stress`
+round the book out: a single heavy snowfall for structural risk, a heavy
+rain for the leak it reveals, and sustained heat for the shingle damage it
+causes on its own, needing no storm alert behind any of them.
+
+`MONTHS` gained the same treatment as the prior five verticals: all
+thirteen roofing ids listed in every month's tuple, in month-appropriate
+priority order, alongside the restaurant, hvac, retail, auto, landscaping
+and pool_spa ids already there.
+
+**The copy.** `_house_draft_roofing()` is a seventh per-angle template in
+`modules/weather_setup/copy.py`, dispatched the same way as the other
+six — by `Trigger.vertical`, not by a swapped-in name. Its framing leans on
+"get it checked before it's a bigger repair" for urgent/alert-driven
+triggers and "get ahead of it" for the ordinary seasonal ones.
+`_PROMPT_CONTEXT["roofing"]` gives the model prompt a "roofing & exterior
+company" noun and a "Service notes" label, and `_FALLBACK_NAME["roofing"]`
+is "your business", the same choice as landscaping's and pool_spa's.
+
+One thing this vertical's `reason` copy had to avoid that the others did
+not raise: `storm-damage-inspection`'s first draft described a "free-
+inspection ad", and `_OFFER_RE` in `copy.py` — the guardrail that flags a
+draft carrying a price, a discount or the word "free" for review before
+launch — matched it, since that `reason` text is quoted verbatim into the
+house draft's primary text. Worded as "an inspection ad" instead, which
+says the same thing without tripping a guardrail built to catch a real
+promotional offer.
 
 **Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
 already drive the dropdown and the fallback-to-`"restaurant"` guard in both
