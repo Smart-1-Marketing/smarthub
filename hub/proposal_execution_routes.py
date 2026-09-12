@@ -110,6 +110,9 @@ def analyze():
             body.get("client"), body.get("proposal_id"), owner=owner, actor=owner,
             force=bool(body.get("force")))
         return jsonify(ok=True, created=created, run=run.as_dict(full=True))
+    except pe.ProposalRunConflict as exc:
+        return jsonify(ok=False, conflict=True, error=str(exc),
+                       previous_run=exc.previous_run.as_dict(full=True)), 409
     except Exception as exc:  # noqa: BLE001
         return _error(exc)
 
@@ -263,5 +266,9 @@ def register_proposal_execution(app):
     app.register_blueprint(bp)
     _install_nav_entry()
     _install_client360_entry(app)
+    # The late column (`superseded_by_run_id`) is added in hub/__init__.py
+    # after create_all(), inside its own app context -- the
+    # `modules.creative_studio.db.add_missing_columns` pattern, since this
+    # function runs before create_all() and with no app context of its own.
     pe.install_scheduler_bridge()
     return app
