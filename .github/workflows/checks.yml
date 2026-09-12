@@ -1105,7 +1105,6 @@ jobs:
         run: |
           if [ -f test_gpt_ads.py ]; then
             python test_gpt_ads.py
-            node test_gpt_ads_ui.cjs
           else
             echo "test_gpt_ads.py not on this branch — nothing to run."
           fi

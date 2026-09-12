@@ -650,6 +650,14 @@ check("an unknown id is a 404 everywhere",
 
 requests.get = _real_get
 
+import subprocess
+node = shutil.which("node")
+check("Node is available for GPT builder UI regressions", bool(node))
+if node:
+    ui = subprocess.run([node, "test_gpt_ads_ui.cjs"], capture_output=True,
+                        text=True, timeout=30)
+    check("GPT builder UI regressions", ui.returncode == 0, ui.stdout + ui.stderr)
+
 # ---------------------------------------------------------------------------
 print("\n" + "-" * 60)
 print(f"{PASS} passed, {FAIL} failed")
