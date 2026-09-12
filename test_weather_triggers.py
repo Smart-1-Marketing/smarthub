@@ -36,9 +36,9 @@ from hub import weather_triggers as wt                    # noqa: E402
 
 
 section("The vocabulary")
-check("eight verticals", set(wt.VERTICALS),
+check("nine verticals", set(wt.VERTICALS),
      {"restaurant", "hvac", "retail", "auto", "landscaping", "pool_spa", "roofing",
-      "pest_control"})
+      "pest_control", "moving"})
 check("fourteen restaurant triggers", len(wt.triggers_for_vertical("restaurant")), 14)
 check("thirteen hvac triggers", len(wt.triggers_for_vertical("hvac")), 13)
 check("thirteen retail triggers", len(wt.triggers_for_vertical("retail")), 13)
@@ -47,7 +47,8 @@ check("thirteen landscaping triggers", len(wt.triggers_for_vertical("landscaping
 check("thirteen pool_spa triggers", len(wt.triggers_for_vertical("pool_spa")), 13)
 check("thirteen roofing triggers", len(wt.triggers_for_vertical("roofing")), 13)
 check("thirteen pest_control triggers", len(wt.triggers_for_vertical("pest_control")), 13)
-check("every trigger is one of the eight verticals",
+check("thirteen moving triggers", len(wt.triggers_for_vertical("moving")), 13)
+check("every trigger is one of the nine verticals",
      all(t.vertical in wt.VERTICALS for t in wt.TRIGGERS.values()), True)
 check("no trigger id is shared across verticals",
      len(wt.TRIGGERS), sum(len(wt.triggers_for_vertical(v)) for v in wt.VERTICALS))
@@ -80,6 +81,9 @@ check("roofing's Jul order leads with the heat-shingle row",
 check("pest_control's Jul order leads with the wasp/flea/mosquito pushes",
      wt.month_order("pest_control", "Jul")[:3],
      ["wasp-hornet-season", "flea-tick-season", "mosquito-pressure"])
+check("moving's Jul order leads with the heat pair",
+     wt.month_order("moving", "Jul")[:3],
+     ["heat-wave-moving-advisory", "humidity-heat-index-moving", "perfect-moving-day"])
 check("unknown month falls back to the registry order, restaurant",
      set(wt.month_order("restaurant", "Nope")), set(wt.triggers_for_vertical("restaurant")))
 check("unknown month falls back to the registry order, hvac",
@@ -122,6 +126,11 @@ check("unknown month falls back to the registry order, pest_control",
 _OTHER_SEVEN = (_OTHER_SIX | set(wt.triggers_for_vertical("roofing")))
 check("pest_control's month order never leaks any other vertical's ids",
      bool(set(wt.month_order("pest_control", "Jan")) & _OTHER_SEVEN), False)
+check("unknown month falls back to the registry order, moving",
+     set(wt.month_order("moving", "Nope")), set(wt.triggers_for_vertical("moving")))
+_OTHER_EIGHT = (_OTHER_SEVEN | set(wt.triggers_for_vertical("pest_control")))
+check("moving's month order never leaks any other vertical's ids",
+     bool(set(wt.month_order("moving", "Jan")) & _OTHER_EIGHT), False)
 
 
 section("The cap is enforced server-side, not only in the picker")
@@ -196,6 +205,14 @@ ok, err = wt.validate_picks(["storm-pest-disruption", "spring-roof-inspection"],
 check("a roofing id is not a recognized pest_control trigger", ok, False)
 ok, err = wt.validate_picks(["termite-swarm-season", "patio-day"])
 check("a pest_control id is not a recognized restaurant trigger", ok, False)
+ok, err = wt.validate_picks(["storm-reschedule-alert", "perfect-moving-day"], "moving")
+check("two moving picks: ok", ok, True)
+ok, err = wt.validate_picks(["storm-reschedule-alert", "patio-day"], "moving")
+check("a restaurant id is not a recognized moving trigger", ok, False)
+ok, err = wt.validate_picks(["storm-reschedule-alert", "termite-swarm-season"], "moving")
+check("a pest_control id is not a recognized moving trigger", ok, False)
+ok, err = wt.validate_picks(["perfect-moving-day", "patio-day"])
+check("a moving id is not a recognized restaurant trigger", ok, False)
 
 
 section("Plain range rules")
@@ -809,6 +826,79 @@ check("wet-week-mosquito-watch with no cloud data is not measured", r["measured"
 r8 = wt.evaluate_trigger("rodent-cold-intrusion", {"forecast_low": 20}, {},
                          today=date(2026, 11, 2))
 check("rodent-cold-intrusion has its own, separate state and fires", r8["active"], True)
+
+
+section("Moving Company — the ninth vertical, same rule vocabulary")
+r = wt.evaluate_trigger("perfect-moving-day",
+                        {"temperature": 70, "rain_probability": 0, "wind_mph": 8})
+check("perfect-moving-day matches a calm 70F dry day", r["active"], True)
+r = wt.evaluate_trigger("perfect-moving-day",
+                        {"temperature": 90, "rain_probability": 0, "wind_mph": 8})
+check("perfect-moving-day refuses a 90F day", r["active"], False)
+
+r = wt.evaluate_trigger("heat-wave-moving-advisory", {"temperature": 92})
+check("heat-wave-moving-advisory fires at 92F", r["active"], True)
+r = wt.evaluate_trigger("humidity-heat-index-moving", {"temperature": 92, "humidity": 65})
+check("humidity-heat-index-moving fires on hot + humid", r["active"], True)
+r = wt.evaluate_trigger("humidity-heat-index-moving", {"temperature": 92})
+check("humidity-heat-index-moving with no humidity is not measured", r["measured"], False)
+
+r = wt.evaluate_trigger("cold-snap-moving-advisory", {"temperature": 20})
+check("cold-snap-moving-advisory fires at 20F", r["active"], True)
+r = wt.evaluate_trigger("deep-freeze-moving-emergency", {"temperature": 20})
+check("deep-freeze-moving-emergency does not fire at 20F -- it escalates past cold-snap-moving-advisory",
+     r["active"], False)
+r = wt.evaluate_trigger("deep-freeze-moving-emergency", {"temperature": -5})
+check("deep-freeze-moving-emergency fires below 0F", r["active"], True)
+
+r = wt.evaluate_trigger("wind-chill-moving-advisory", {"feels_like": 5})
+check("wind-chill-moving-advisory fires at feels-like 5F", r["active"], True)
+r = wt.evaluate_trigger("wind-chill-moving-advisory", {"feels_like": 20})
+check("wind-chill-moving-advisory does not fire at feels-like 20F", r["active"], False)
+
+r = wt.evaluate_trigger("storm-reschedule-alert", {"official_alerts": ["Tornado Warning"]})
+check("storm-reschedule-alert fires on a real alert", r["active"], True)
+r = wt.evaluate_trigger("storm-reschedule-alert", {"official_alerts": []})
+check("storm-reschedule-alert does not fire with no alert", r["active"], False)
+
+r = wt.evaluate_trigger("rain-day-moving-prep", {"rain_probability": 80})
+check("rain-day-moving-prep fires at 80% chance of rain", r["active"], True)
+r = wt.evaluate_trigger("rain-day-moving-prep", {"rain_probability": 30})
+check("rain-day-moving-prep does not fire at 30% chance of rain", r["active"], False)
+
+r = wt.evaluate_trigger("high-wind-loading-risk", {"wind_mph": 35})
+check("high-wind-loading-risk fires at 35 mph", r["active"], True)
+r = wt.evaluate_trigger("high-wind-loading-risk", {"wind_mph": 15})
+check("high-wind-loading-risk does not fire at 15 mph", r["active"], False)
+
+state = {}
+r = wt.evaluate_trigger("first-freeze-moving", {"forecast_low": 25}, state,
+                        today=date(2026, 11, 1))
+check("first-freeze-moving fires the first time it is cold enough", r["active"], True)
+r = wt.evaluate_trigger("first-freeze-moving", {"forecast_low": 20}, r["state"],
+                        today=date(2026, 11, 10))
+check("first-freeze-moving does not fire again the same season", r["active"], False)
+
+r = wt.evaluate_trigger("spring-moving-season",
+                        {"temperature": 68, "rain_probability": 5},
+                        today=date(2026, 4, 1))
+check("spring-moving-season fires on a mild dry April day", r["active"], True)
+r = wt.evaluate_trigger("fall-moving-season",
+                        {"temperature": 62, "rain_probability": 10},
+                        today=date(2026, 9, 15))
+check("fall-moving-season fires on a mild dry September day", r["active"], True)
+
+r = wt.evaluate_trigger("snow-day-moving-risk", {"snow_inches": 3})
+check("snow-day-moving-risk fires at 3in", r["active"], True)
+r = wt.evaluate_trigger("snow-day-moving-risk", {"snow_inches": 0.5})
+check("snow-day-moving-risk does not fire at 0.5in", r["active"], False)
+
+# All nine once-per-season "cold" triggers across every vertical carry
+# separate state, keyed on the campaign's own trigger_id in store.py, not on
+# the shared rule value they all use ("cold").
+r9 = wt.evaluate_trigger("first-freeze-moving", {"forecast_low": 20}, {},
+                         today=date(2026, 11, 2))
+check("first-freeze-moving has its own, separate state and fires", r9["active"], True)
 
 
 print(f"\n{_passed} passed, {_failed} failed")

@@ -1,6 +1,6 @@
 # Weather trigger setup — lead → landing pages → approved work order
 
-**Date:** 2026-09-07 · **Verticals:** restaurant, hvac, retail, auto, landscaping, pool_spa, roofing, pest_control · **Status:** built (v1 + hvac + retail + auto + landscaping + pool_spa + roofing + pest_control)
+**Date:** 2026-09-07 · **Verticals:** restaurant, hvac, retail, auto, landscaping, pool_spa, roofing, pest_control, moving · **Status:** built (v1 + hvac + retail + auto + landscaping + pool_spa + roofing + pest_control + moving)
 
 This is the design spec the module in `modules/weather_setup/` and the
 trigger vocabulary in `hub/weather_triggers.py` were built against. What
@@ -588,6 +588,70 @@ landscaping's, pool_spa's and roofing's. None of the thirteen `reason`
 strings tripped `_OFFER_RE` or `_PROMISE_RE` — checked directly against
 every trigger's generated house draft — so no rewording was needed this
 time, unlike roofing's "free-inspection" lesson.
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 14. The ninth vertical (Moving Company)
+
+Shipped the same way an eighth time: thirteen more rows, still the same
+rule vocabulary, still no change to `evaluate_trigger()`, `store.py`,
+`app.py` or the staff template. Eight verticals of precedent already
+proved the plumbing generalizes; the ninth confirms it rather than
+testing it again.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="moving"`. The
+psychology is unlike any of the other eight: weather here does not sell a
+repair or a treatment, it decides whether moving day itself goes
+smoothly, so most rows are an advisory about the day already booked
+rather than a reason to book a new one. `perfect-moving-day` is the one
+purely aspirational row and the multi-condition shape restaurant's
+`patio-day` already uses — comfortable, dry and calm, the day nobody
+hesitates to load a truck. Heat and cold each get an escalating pair:
+`heat-wave-moving-advisory`/`humidity-heat-index-moving` for crew safety
+in extreme heat, and `cold-snap-moving-advisory`/`deep-freeze-moving-
+emergency` for belongings and a crew that cannot stay outside long in
+extreme cold, with `wind-chill-moving-advisory` as a third,
+feels-like-based angle on the same cold rather than a fourth step in the
+ladder. `storm-reschedule-alert` is the alert-driven row, and unlike
+every other vertical's version it argues for moving the appointment
+itself rather than merely inspecting or treating something afterward.
+`rain-day-moving-prep` and `high-wind-loading-risk` are two more
+advisories for a move already scheduled — tarps and covered trucks for
+one, a plan for carrying awkward furniture for the other.
+`first-freeze-moving` is the once-per-season event — plants, wine and
+electronics need special handling once the freeze arrives — with its own
+season-state key so it cannot collide with any of the other eight
+verticals' first-freeze rows inside one campaign's carried state, for the
+same per-pick, per-`trigger_id` reason the other eight hold.
+`spring-moving-season` and `fall-moving-season` are the two
+shoulder-season pushes the vertical leans on hardest, the one place this
+vertical does sell a new booking rather than advise on an existing one.
+`snow-day-moving-risk` rounds the book out as the one weather condition
+that is both an advisory and a reason to reconsider the schedule at once.
+
+`MONTHS` gained the same treatment as the prior seven verticals: all
+thirteen moving ids listed in every month's tuple, in month-appropriate
+priority order, alongside the restaurant, hvac, retail, auto, landscaping,
+pool_spa, roofing and pest_control ids already there.
+
+**The copy.** `_house_draft_moving()` is a ninth per-angle template in
+`modules/weather_setup/copy.py`, dispatched the same way as the other
+eight — by `Trigger.vertical`, not by a swapped-in name. It is the one
+house-draft function that reads a fourth signal beyond the urgent/alert
+tags every other vertical's draft checks: a `"booking"` tag marks a row
+that is actually trying to fill the calendar rather than advise on a move
+already scheduled, so only those rows read as an invitation ("book it
+before the calendar fills up") — everything else reads as a plan-ahead or
+get-ahead-of-it advisory, whatever its urgency. `_PROMPT_CONTEXT["moving"]`
+gives the model prompt a "moving company" noun and a "Move notes" label
+(the one vertical whose notes label is not "Service notes"), and
+`_FALLBACK_NAME["moving"]` is "your business", the same choice as
+landscaping's, pool_spa's, roofing's and pest_control's. None of the
+thirteen `reason` strings tripped `_OFFER_RE` or `_PROMISE_RE` — checked
+directly against every trigger's generated house draft, the same way
+pest_control's were.
 
 **Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
 already drive the dropdown and the fallback-to-`"restaurant"` guard in both

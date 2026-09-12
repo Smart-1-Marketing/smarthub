@@ -244,6 +244,44 @@ other service-reminder vertical's pair. `heat-wave-pest-activity` and
 and roaches indoors on its own, and a storm alert knocking a nest loose or
 flooding a colony out, caught by the same `cadence == "alert_driven"`
 blocklist check every other vertical's alert row already exercises.
+
+## The ninth vertical
+
+Moving Company, and the claim held an eighth time: thirteen more rows,
+still the same rule vocabulary, still no change to `evaluate_trigger()`,
+`store.py`, `app.py` or the staff template. The psychology is unlike any
+of the other eight: weather here does not sell a repair or a treatment, it
+decides whether moving day itself goes smoothly, so most rows are an
+advisory about the day already booked rather than a reason to book a new
+one. `perfect-moving-day` is the one purely aspirational row and the
+multi-condition shape restaurant's `patio-day` already uses — comfortable,
+dry and calm, the day nobody hesitates to load a truck. Heat and cold each
+get an escalating pair: `heat-wave-moving-advisory`/`humidity-heat-index-
+moving` for crew safety in extreme heat, and `cold-snap-moving-
+advisory`/`deep-freeze-moving-emergency` for belongings and a crew that
+cannot stay outside long in extreme cold, with `wind-chill-moving-
+advisory` as a third, feels-like-based angle on the same cold rather than
+a fourth step in the ladder. `storm-reschedule-alert` is the alert-driven
+row, and unlike every other vertical's version it argues for moving the
+appointment itself rather than merely inspecting or treating something
+afterward. `rain-day-moving-prep` and `high-wind-loading-risk` are two
+more advisories for a move already scheduled — tarps and covered trucks
+for one, a plan for carrying awkward furniture for the other.
+`first-freeze-moving` is the once-per-season event — plants, wine and
+electronics need special handling once the freeze arrives — with its own
+season-state key so it cannot collide with any of the other eight
+verticals' first-freeze rows inside one campaign's carried state, for the
+same per-pick, per-`trigger_id` reason the other eight hold.
+`spring-moving-season` and `fall-moving-season` are the two
+shoulder-season pushes the vertical leans on hardest, the one place this
+vertical does sell a new booking rather than advise on an existing one.
+`snow-day-moving-risk` rounds the book out as the one weather condition
+that is both an advisory and a reason to reconsider the schedule at once.
+
+`MONTHS` gained the same treatment as the prior seven verticals: all
+thirteen moving ids listed in every month's tuple, in month-appropriate
+priority order, alongside the restaurant, hvac, retail, auto, landscaping,
+pool_spa, roofing and pest_control ids already there.
 """
 from __future__ import annotations
 
@@ -256,11 +294,12 @@ from datetime import date
 MAX_TRIGGERS = 3
 
 VERTICALS = ("restaurant", "hvac", "retail", "auto", "landscaping", "pool_spa", "roofing",
-            "pest_control")
+            "pest_control", "moving")
 VERTICAL_LABELS = {"restaurant": "Restaurant", "hvac": "HVAC / Home Comfort",
                    "retail": "Retail / Home Goods", "auto": "Auto Repair / Service",
                    "landscaping": "Landscaping / Lawn Care", "pool_spa": "Pool & Spa Service",
-                   "roofing": "Roofing & Exterior", "pest_control": "Pest Control"}
+                   "roofing": "Roofing & Exterior", "pest_control": "Pest Control",
+                   "moving": "Moving Company"}
 
 
 @dataclass(frozen=True)
@@ -1338,6 +1377,142 @@ TRIGGERS: dict[str, Trigger] = {
         windows=(("08:00", "19:00"),),
         cadence="daily", tags=("treatment", "seasonal"),
     ),
+    # -- Moving Company -----------------------------------------------------
+    "perfect-moving-day": Trigger(
+        id="perfect-moving-day", name="Perfect Moving Day", vertical="moving",
+        reason="Comfortable, dry and calm is the single highest-lift "
+               "condition a move can happen in — nobody hesitates to book "
+               "the truck on a day like this.",
+        condition_label="60–80°F · 0% precip · wind < 12 mph",
+        rule={"temp_min": 60.0, "temp_max": 80.0, "precip_prob_max": 0.0,
+              "wind_mph_max": 12.0},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("booking",),
+    ),
+    "heat-wave-moving-advisory": Trigger(
+        id="heat-wave-moving-advisory", name="Heat Wave Moving Advisory", vertical="moving",
+        reason="Genuine heat is when loading a truck actually turns into a "
+               "safety issue — the early-start, extra-water ad, not a "
+               "reason to cancel.",
+        condition_label="high ≥ 90°F",
+        rule={"temp_min": 90.0},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("advisory", "safety"),
+    ),
+    "humidity-heat-index-moving": Trigger(
+        id="humidity-heat-index-moving", name="Humidity Heat Index", vertical="moving",
+        reason="Humidity stacked on heat is what actually exhausts a crew "
+               "faster than the thermometer suggests — the escalation "
+               "past ordinary heat-wave-moving-advisory into a real "
+               "hydration risk.",
+        condition_label="heat index ≥ 100°F",
+        rule={"heat_index_min": 100.0},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("advisory", "safety"),
+    ),
+    "cold-snap-moving-advisory": Trigger(
+        id="cold-snap-moving-advisory", name="Cold Snap Moving Advisory", vertical="moving",
+        reason="A hard cold snap is when belongings and electronics left "
+               "on a truck too long actually take damage — a "
+               "protect-your-move ad, not a reason to reschedule outright.",
+        condition_label="high ≤ 25°F",
+        rule={"temp_max": 25.0},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("advisory", "safety"),
+    ),
+    "deep-freeze-moving-emergency": Trigger(
+        id="deep-freeze-moving-emergency", name="Deep Freeze Moving Emergency", vertical="moving",
+        reason="Below zero is where a move genuinely risks frozen pipes, "
+               "cracked electronics and a crew that cannot stay outside "
+               "long — the reschedule-or-reinforce ad, not the ordinary "
+               "advisory.",
+        condition_label="high ≤ 0°F",
+        rule={"temp_max": 0.0},
+        cadence="daily", tags=("advisory", "emergency"),
+    ),
+    "wind-chill-moving-advisory": Trigger(
+        id="wind-chill-moving-advisory", name="Wind Chill Moving Advisory", vertical="moving",
+        reason="Feels-like, not the thermometer — the day a crew carrying "
+               "furniture down an exposed driveway actually feels the "
+               "cold hardest.",
+        condition_label="feels-like ≤ 10°F",
+        rule={"feels_like_max": 10.0},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("advisory", "safety"),
+    ),
+    "storm-reschedule-alert": Trigger(
+        id="storm-reschedule-alert", name="Storm Reschedule Alert", vertical="moving",
+        reason="A severe weather alert is when a scheduled move actually "
+               "needs to move — a proactive-reschedule ad for the day "
+               "before, never an invitation to load a truck in the storm "
+               "itself.",
+        condition_label="NWS severe weather alert issued",
+        rule={"alert_required": True},
+        cadence="alert_driven", tags=("safety", "booking"),
+    ),
+    "rain-day-moving-prep": Trigger(
+        id="rain-day-moving-prep", name="Rain Day Moving Prep", vertical="moving",
+        reason="A soaked moving day is when tarps, covered trucks and "
+               "floor protection actually matter — the prep-ahead ad, not "
+               "a reason to call the whole thing off.",
+        condition_label="≥ 70% chance of rain",
+        rule={"precip_prob_min": 70.0},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("booking", "advisory"),
+    ),
+    "high-wind-loading-risk": Trigger(
+        id="high-wind-loading-risk", name="High Wind Loading Risk", vertical="moving",
+        reason="Sustained wind is what actually makes a wide dresser or a "
+               "mattress on a ramp genuinely dangerous to carry — a "
+               "plan-around-it ad, not an ordinary advisory.",
+        condition_label="sustained wind ≥ 30 mph",
+        rule={"wind_mph_min": 30.0},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("advisory", "safety"),
+    ),
+    "first-freeze-moving": Trigger(
+        id="first-freeze-moving", name="First Freeze", vertical="moving",
+        reason="The first hard freeze of the season is the day plants, "
+               "wine and sensitive electronics left for a move actually "
+               "need special handling — a plan-ahead ad before the "
+               "freeze, not a damage claim after.",
+        condition_label="first low ≤ 32°F of the season",
+        rule={"temp_low_max": 32.0, "once_per_season": "cold"},
+        cadence="once_per_season", tags=("event", "advisory"),
+    ),
+    "spring-moving-season": Trigger(
+        id="spring-moving-season", name="Spring Moving Season", vertical="moving",
+        reason="The first comfortable, dry stretch of spring is when "
+               "moving season actually opens — the booking push for the "
+               "weeks the calendar fills up first.",
+        condition_label="60–78°F and dry, March–May",
+        rule={"temp_min": 60.0, "temp_max": 78.0, "precip_prob_max": 20.0,
+              "months": (3, 4, 5)},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("booking", "seasonal"),
+    ),
+    "fall-moving-season": Trigger(
+        id="fall-moving-season", name="Fall Moving Season", vertical="moving",
+        reason="The same logic in reverse — a mild, dry fall stretch is "
+               "the last comfortable booking window before winter makes "
+               "scheduling harder.",
+        condition_label="55–75°F and dry, September–October",
+        rule={"temp_min": 55.0, "temp_max": 75.0, "precip_prob_max": 20.0,
+              "months": (9, 10)},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("booking", "seasonal"),
+    ),
+    "snow-day-moving-risk": Trigger(
+        id="snow-day-moving-risk", name="Snow Day Moving Risk", vertical="moving",
+        reason="Real snowfall is when a scheduled move actually becomes a "
+               "safety and scheduling risk on the driveway and the "
+               "road — the reschedule-or-plan-around-it ad for the day "
+               "it lands.",
+        condition_label="snowfall ≥ 2 in / 24h",
+        rule={"snow_in_min": 2.0},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("advisory", "booking"),
+    ),
 }
 
 # Ordering for the month strip: which triggers a rep browsing that month is
@@ -1362,6 +1537,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "pool-opening-day", "chlorine-burn-off", "algae-bloom-risk", "heavy-rain-dilution", "evaporation-watch", "heat-wave-pool-surge", "pool-closing-day",
             "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
             "rodent-cold-intrusion", "deep-freeze-rodent-surge", "storm-pest-disruption", "spider-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
+            "cold-snap-moving-advisory", "deep-freeze-moving-emergency", "wind-chill-moving-advisory", "snow-day-moving-risk", "storm-reschedule-alert", "high-wind-loading-risk", "first-freeze-moving", "rain-day-moving-prep", "perfect-moving-day", "spring-moving-season", "fall-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
             ),
     "Feb": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "evening-cooldown", "heat-index",
@@ -1380,6 +1556,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "pool-opening-day", "chlorine-burn-off", "algae-bloom-risk", "heavy-rain-dilution", "evaporation-watch", "heat-wave-pool-surge", "pool-closing-day",
             "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
             "rodent-cold-intrusion", "deep-freeze-rodent-surge", "storm-pest-disruption", "spider-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
+            "cold-snap-moving-advisory", "deep-freeze-moving-emergency", "wind-chill-moving-advisory", "snow-day-moving-risk", "storm-reschedule-alert", "high-wind-loading-risk", "first-freeze-moving", "rain-day-moving-prep", "perfect-moving-day", "spring-moving-season", "fall-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
             ),
     "Mar": ("warm-break", "crisp-day", "rain-delay", "cold-snap", "gray-streak",
             "wind-chill", "storm-watch", "patio-day", "evening-cooldown",
@@ -1398,6 +1575,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "pool-opening-day", "spa-season-open", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "chlorine-burn-off", "hard-freeze-pool", "first-freeze-pool", "deep-freeze-pool", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "pool-closing-day",
             "ice-dam-risk", "spring-roof-inspection", "wind-driven-rain", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "heavy-rain-leak-check", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
             "termite-swarm-season", "spring-pest-inspection", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "flea-tick-season", "wasp-hornet-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
+            "spring-moving-season", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "wind-chill-moving-advisory", "cold-snap-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk", "fall-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
             ),
     "Apr": ("crisp-day", "patio-day", "rain-delay", "gray-streak", "storm-watch",
             "evening-cooldown", "warm-break", "heat-index", "heat-wave",
@@ -1416,6 +1594,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "pool-opening-day", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "chlorine-burn-off", "spa-season-open", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "pool-closing-day",
             "spring-roof-inspection", "wind-driven-rain", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "heavy-rain-leak-check", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
             "termite-swarm-season", "spring-pest-inspection", "ant-invasion-after-rain", "wet-week-mosquito-watch", "flea-tick-season", "storm-pest-disruption", "wasp-hornet-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
+            "spring-moving-season", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk", "fall-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
             ),
     "May": ("patio-day", "crisp-day", "rain-delay", "storm-watch",
             "evening-cooldown", "heat-index", "heat-wave", "gray-streak",
@@ -1435,6 +1614,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "pool-opening-day", "chlorine-burn-off", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "spa-season-open", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "pool-closing-day",
             "spring-roof-inspection", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "heat-wave-shingle-stress", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season",
             "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "mosquito-pressure", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "fall-pest-inspection", "heat-wave-pest-activity",
+            "spring-moving-season", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "heat-wave-moving-advisory", "humidity-heat-index-moving", "fall-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
             ),
     "Jun": ("patio-day", "heat-wave", "heat-index", "rain-delay",
             "storm-watch", "evening-cooldown", "crisp-day", "gray-streak",
@@ -1454,6 +1634,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "pool-opening-day", "spa-season-open", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "pool-closing-day",
             "heat-wave-shingle-stress", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season",
             "wasp-hornet-season", "flea-tick-season", "mosquito-pressure", "heat-wave-pest-activity", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "spring-pest-inspection", "fall-pest-inspection",
+            "heat-wave-moving-advisory", "humidity-heat-index-moving", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "spring-moving-season", "fall-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
             ),
     "Jul": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "evening-cooldown", "crisp-day", "gray-streak",
@@ -1473,6 +1654,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "pool-opening-day", "spa-season-open", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "pool-closing-day",
             "heat-wave-shingle-stress", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season",
             "wasp-hornet-season", "flea-tick-season", "mosquito-pressure", "heat-wave-pest-activity", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "spring-pest-inspection", "fall-pest-inspection",
+            "heat-wave-moving-advisory", "humidity-heat-index-moving", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "spring-moving-season", "fall-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
             ),
     "Aug": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "first-cool-night", "evening-cooldown", "crisp-day",
@@ -1492,6 +1674,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "pool-closing-day", "pool-opening-day", "spa-season-open", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool",
             "heat-wave-shingle-stress", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "fall-roof-inspection", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "gutter-cleaning-season",
             "wasp-hornet-season", "flea-tick-season", "mosquito-pressure", "heat-wave-pest-activity", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "fall-pest-inspection", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "spring-pest-inspection",
+            "heat-wave-moving-advisory", "humidity-heat-index-moving", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "fall-moving-season", "spring-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
             ),
     "Sep": ("patio-day", "first-cool-night", "rain-delay", "crisp-day",
             "evening-cooldown", "heat-index", "heat-wave", "storm-watch",
@@ -1511,6 +1694,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "pool-closing-day", "chlorine-burn-off", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "spa-season-open", "pool-opening-day", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool",
             "fall-roof-inspection", "gutter-cleaning-season", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "heat-wave-shingle-stress", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof",
             "fall-pest-inspection", "spider-season", "flea-tick-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "mosquito-pressure", "heat-wave-pest-activity", "wasp-hornet-season", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spring-pest-inspection",
+            "fall-moving-season", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "heat-wave-moving-advisory", "humidity-heat-index-moving", "spring-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
             ),
     "Oct": ("crisp-day", "first-cool-night", "first-freeze", "evening-cooldown",
             "rain-delay", "warm-break", "gray-streak", "storm-watch",
@@ -1530,6 +1714,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "pool-closing-day", "first-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "heavy-rain-dilution", "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "pool-opening-day", "hard-freeze-pool", "deep-freeze-pool",
             "fall-roof-inspection", "gutter-cleaning-season", "first-freeze-roofing", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "snow-load-roof", "ice-dam-risk", "deep-freeze-roofing", "spring-roof-inspection", "heat-wave-shingle-stress",
             "fall-pest-inspection", "spider-season", "rodent-cold-intrusion", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "deep-freeze-rodent-surge", "flea-tick-season", "termite-swarm-season", "wasp-hornet-season", "spring-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
+            "fall-moving-season", "perfect-moving-day", "first-freeze-moving", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "snow-day-moving-risk", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "deep-freeze-moving-emergency", "spring-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
             ),
     "Nov": ("first-freeze", "cold-snap", "gray-streak", "warm-break",
             "crisp-day", "wind-chill", "storm-watch", "snow-day",
@@ -1550,6 +1735,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "pool-closing-day", "first-freeze-pool", "hard-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "heavy-rain-dilution", "pool-opening-day", "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "deep-freeze-pool",
             "gutter-cleaning-season", "fall-roof-inspection", "first-freeze-roofing", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "snow-load-roof", "heavy-rain-leak-check", "ice-dam-risk", "deep-freeze-roofing", "spring-roof-inspection", "heat-wave-shingle-stress",
             "rodent-cold-intrusion", "spider-season", "fall-pest-inspection", "deep-freeze-rodent-surge", "storm-pest-disruption", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
+            "fall-moving-season", "first-freeze-moving", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "storm-reschedule-alert", "high-wind-loading-risk", "snow-day-moving-risk", "deep-freeze-moving-emergency", "rain-day-moving-prep", "perfect-moving-day", "spring-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
             ),
     "Dec": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "rain-delay", "evening-cooldown",
@@ -1569,6 +1755,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "pool-closing-day", "pool-opening-day", "chlorine-burn-off", "algae-bloom-risk", "heavy-rain-dilution", "evaporation-watch", "heat-wave-pool-surge",
             "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "gutter-cleaning-season", "fall-roof-inspection", "heavy-rain-leak-check", "spring-roof-inspection", "heat-wave-shingle-stress",
             "rodent-cold-intrusion", "deep-freeze-rodent-surge", "storm-pest-disruption", "spider-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
+            "cold-snap-moving-advisory", "deep-freeze-moving-emergency", "wind-chill-moving-advisory", "snow-day-moving-risk", "storm-reschedule-alert", "high-wind-loading-risk", "first-freeze-moving", "rain-day-moving-prep", "fall-moving-season", "perfect-moving-day", "spring-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
             ),
 }
 
