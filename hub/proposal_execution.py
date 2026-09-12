@@ -360,8 +360,8 @@ def build_task_specs(analysis):
                   _task("youtube_ads_activation", "YouTube Ads launch packet", "Ad Ops", "launch_packet", "handoff", ("youtube_ads_creative", "tracking_plan"), channel=c, task_type="activation")]
     if "social" in channels:
         c = channels["social"]
-        specs += [_task("social_calendar", "Monthly social content calendar", "Social", depends=("campaign_foundation",), channel=c),
-                  _task("social_posts", "Social post copy & asset briefs", "Social", depends=("social_calendar",), channel=c),
+        specs += [_task("social_calendar", "Monthly social content calendar", "Social", "social_plan", "approval", ("campaign_foundation",), channel=c),
+                  _task("social_posts", "Social post copy & asset briefs", "Social", "social_plan_posts", "approval", ("social_calendar",), channel=c),
                   _task("social_schedule", "Social scheduling packet", "Social", "launch_packet", "handoff", ("social_posts",), channel=c, task_type="scheduling")]
     if "youtube_video" in channels:
         c = channels["youtube_video"]
