@@ -205,6 +205,8 @@ CLIENT_FACING: dict[str, str] = {
 # record, and `demo` is the walkthrough layer's own copy. Named here so
 # `stray_prefixes()` can tell them from a prefix that has drifted.
 NOT_A_TOOL: dict[str, str] = {
+    "proposal_execution": "Proposal Execution Center, reached through its sidebar entry and proposal handoff",
+    "seo_intelligence": "SEO Intelligence client overview and agency action queue, reached from the SEO navigation",
     "hub": "the dashboard and Client 360 -- the Hub itself, not a tool tile",
     "qa": "the QA report index, reached from its own page",
     "client_health": "My Clients, reached from the nav and the QA index "

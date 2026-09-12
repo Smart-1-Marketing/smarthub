@@ -81,7 +81,7 @@
 <body data-module="radio_promo">
 <div class="wrap s1d-page">
   <a class="back" href="/tools">&larr; Tools</a>
-  <h1>Radio Ad Creator</h1>
+  <h1>Radio Ad Creator {{ help_dot('radio_promo.delivery.final_mix') if help_dot is defined else '' }} </h1>
   <p class="sub">Streaming-radio commercials written to the clock, cast and recorded.
      Write one on <b>spec</b> to win the business, or attach it to a client and it files
      under their name, shows on their record, and can be pushed to the Suite.</p>

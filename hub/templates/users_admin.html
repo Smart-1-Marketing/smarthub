@@ -4,7 +4,7 @@
   <p class="um-crumb"><a href="/diagnostics">Diagnostics</a> / Users</p>
   <div class="um-head">
     <div>
-      <h1>Users</h1>
+      <h1>Users {{ help_dot('hub.users.add') if help_dot is defined else '' }} </h1>
       <p class="um-sub">Everyone with a Hub login, what they can see, and the
         details the company census carried. Signed in as {{ account.email }}
         ({{ account.role.replace('_',' ') }}).</p>

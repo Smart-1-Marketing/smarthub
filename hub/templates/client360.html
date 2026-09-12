@@ -90,7 +90,7 @@
   .c360-proposals-table td:empty{display:none}
 }
 </style>
-<div class="page-head"><h2>Client 360 {{ help_dot('hub.client360.header') if help_dot is defined else '' }}</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
+<div class="page-head"><h2>Client 360 {{ help_dot('hub.client360.header') if help_dot is defined else '' }} {{ help_dot('hub.client360.links') if help_dot is defined else '' }} </h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
 
 <form class="c360-search" onsubmit="run();return false" hidden>
   <input id="q" data-demo="client-search" placeholder="Type a client name or domain…" value="{{ q or '' }}" autofocus>
