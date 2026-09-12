@@ -257,6 +257,12 @@ _responses["https://gone.example/offer"] = FakeResponse(
 result = spec.check_landing_page("https://live.example/offer")
 check("a live page with a viewport is reachable and mobile",
       result["checked"] and result["ok"] and result["mobile"] is True, result)
+_responses["https://locked.example"] = FakeResponse(200, MOBILE_PAGE, "https://locked.example/login?next=/")
+check("login redirect is blocked", not spec.check_landing_page("https://locked.example")["ok"])
+_responses["https://form.example"] = FakeResponse(200, '<title>Sign in</title><input type="password">', "https://form.example")
+check("login form is blocked", not spec.check_landing_page("https://form.example")["ok"])
+_responses["https://public.example"] = FakeResponse(200, MOBILE_PAGE + '<input type="password">', "https://public.example")
+check("public page with account widget is not automatically blocked", spec.check_landing_page("https://public.example")["ok"])
 result = spec.check_landing_page("https://desktop.example/offer")
 check("a page with no viewport is reported as probably not mobile-friendly",
       result["ok"] and result["mobile"] is False, result)
@@ -405,7 +411,7 @@ check("a 1024 square attaches", square.get("ok") and square["ad"]["image"]["url"
 check("with its real pixels recorded, not what a form said",
       square["ad"]["image"]["width"] == 1024 and square["ad"]["image"]["height"] == 1024)
 image_section = [s for s in square["readiness"]["sections"] if s["key"] == "image"][0]
-check("and the image deliverable goes complete", image_section["state"] == "ok",
+check("image requires visual approval", image_section["state"] == "block",
       image_section)
 
 tiny = client.post("/api/ads/image/upload", data={
@@ -413,7 +419,7 @@ tiny = client.post("/api/ads/image/upload", data={
     content_type="multipart/form-data").get_json()
 tiny_section = [s for s in tiny["readiness"]["sections"] if s["key"] == "image"][0]
 check("a 200px square attaches but is flagged as soft",
-      tiny.get("ok") and tiny_section["state"] == "warn", tiny_section)
+      tiny.get("ok") and any(f["code"] == "image_soft" for f in tiny_section["flags"]), tiny_section)
 
 # Put the good one back for the export assertions below.
 client.post("/api/ads/image/upload", data={
@@ -440,6 +446,18 @@ client.post("/api/ads/landing/check", json={"id": pack_id})
 client.post("/api/ads/save", json={"id": pack_id,
                                    "landing": {"url": "https://live.example/offer"}})
 client.post("/api/ads/landing/check", json={"id": pack_id})
+
+def approve_current_image():
+    image = mod.load_pack(pack_id)["image"]
+    return client.post("/api/ads/save", json={"id": pack_id,
+        "image_approved": True, "image_approval_url": image["url"]}).get_json()
+
+stale = client.post("/api/ads/save", json={"id": pack_id,
+    "image_approved": True, "image_approval_url": "https://wrong.example/image"}).get_json()
+check("stale image approval is ignored", not stale["ad"]["image"].get("visual_approved"))
+check("unapproved image blocks readiness", not stale["readiness"]["ready"])
+approved = approve_current_image()
+check("approval is stored for the current image", approved["ad"]["image"]["visual_approved"])
 
 # ---- readiness and the status gate ----
 state = client.post("/api/ads/load", json={"id": pack_id}).get_json()["readiness"]
@@ -540,6 +558,8 @@ client.post("/api/ads/image/upload", data={
 
 
 # ---------------------------------------------------------------------------
+check("replacing an image clears approval", not mod.load_pack(pack_id)["image"].get("visual_approved"))
+approve_current_image()
 section("The handoff pack")
 # ---------------------------------------------------------------------------
 r = client.post("/api/export.zip", data={"id": pack_id})
@@ -629,6 +649,14 @@ check("an unknown id is a 404 everywhere",
 
 
 requests.get = _real_get
+
+import subprocess
+node = shutil.which("node")
+check("Node is available for GPT builder UI regressions", bool(node))
+if node:
+    ui = subprocess.run([node, "test_gpt_ads_ui.cjs"], capture_output=True,
+                        text=True, timeout=30)
+    check("GPT builder UI regressions", ui.returncode == 0, ui.stdout + ui.stderr)
 
 # ---------------------------------------------------------------------------
 print("\n" + "-" * 60)

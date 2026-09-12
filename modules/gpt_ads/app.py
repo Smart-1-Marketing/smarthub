@@ -523,6 +523,13 @@ def api_save():
     if "image_alt" in data and pack.get("image", {}).get("url"):
         pack["image"]["alt"] = _str(data["image_alt"], 500)
 
+    image = pack.get("image") or {}
+    if "image_approved" in data and image.get("url"):
+        if data.get("image_approval_url") == image["url"]:
+            image["visual_approved"] = data["image_approved"] is True
+            image["reviewed_by"] = actor_name() if image["visual_approved"] else ""
+            image["reviewed_at"] = _now() if image["visual_approved"] else ""
+
     save_pack(pack)
     return _ok(pack)
 
@@ -591,7 +598,9 @@ def api_copy():
         return _fail(f"Couldn't write those options ({type(exc).__name__}). "
                      "The rest of the pack is unaffected — try again.", 502)
 
-    options = [o for o in (result.get("options") or []) if str(o).strip()]
+    options = [o.get("text", o.get("label", "")) if isinstance(o, dict) else o
+               for o in (result.get("options") or [])]
+    options = [o for o in options if str(o).strip()]
     if not options:
         return _fail("The model returned no options. Try again.", 502)
     if kind == "ctas":
