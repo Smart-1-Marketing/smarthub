@@ -383,6 +383,10 @@ with app.app_context():
     swept = qa_tasks.describe_image_backlog(limit=1, budget_seconds=90)
     check("the sweep stops at its own limit", swept["described"], 1)
     check("...and only one model call was made", len(stub_vision.calls), 1)
+    check_true("...and it was the more recently touched of the two",
+               qa_tasks.QaResponse.query.filter_by(
+                   task_id=second_pending.id, kind=qa_tasks.VISION).first()
+               is not None)
     check_true("...leaving the earlier failure undescribed for now",
                not qa_tasks.QaResponse.query.filter_by(
                    task_id=unavailable.id, kind=qa_tasks.VISION).first())
