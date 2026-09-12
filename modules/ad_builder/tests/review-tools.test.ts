@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ProjectStore } from '../src/projects';
 import { artworkFingerprint, campaignRevision, saveCampaignDocument } from '../src/campaign-state';
-import { captureVersion, versions, changes } from '../src/history';
+import { captureVersion, versions, changes, comparisonVersions, resolveVersion } from '../src/history';
 import { approveReview, fileHash } from '../src/review-set';
 import { sweep } from '../src/retention';
 
@@ -56,4 +56,13 @@ test('bulk approval refuses newly added copy warnings and a sheet from older rev
   fs.writeFileSync(path.join(f.dir,'review.json'),JSON.stringify({...f.review,qaVersion:'older-release'}));
   assert.throws(()=>approveReview(f.out,f.out,f.store,f.project,f.review.id,f.review.revision),/review checks changed/);
   assert.equal(f.store.get(f.project.projectId)?.approvals?.length??0,0);
+});
+
+
+test('comparison keeps distinct artwork captures even when campaign JSON did not change',()=>{
+  const saved=[{revision:'same-source',savedAt:'2026-09-10',doc:{campaign:'unchanged'}}];
+  const captured=[{id:'old',revision:'same-source',createdAt:'2026-09-11',cells:[{image:'old.png'}]}, {id:'new',revision:'same-source',createdAt:'2026-09-12',cells:[{image:'new.png'}]}];
+  assert.deepEqual(comparisonVersions(saved,captured).map(v=>v.id),['new','old']);
+  assert.equal(resolveVersion(saved,captured,'old').review.cells[0].image,'old.png');
+  assert.equal(resolveVersion(saved,captured,'new').review.cells[0].image,'new.png');
 });

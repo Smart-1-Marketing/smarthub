@@ -32,3 +32,18 @@ export function changes(before: any, after: any, at = ''): { path: string; befor
   }
   return [{ path: at, before: before ?? null, after: after ?? null }];
 }
+
+
+export function comparisonVersions(saved: any[], captured: any[]): any[] {
+  return saved.flatMap(v => {
+    const sheets = captured.filter(r => r.revision === v.revision);
+    return sheets.length ? sheets.map(r => ({ id: r.id, revision: r.revision, savedAt: r.createdAt, kind: 'Captured sheet' }))
+      : [{ id: v.revision, revision: v.revision, savedAt: v.savedAt, kind: 'Saved campaign' }];
+  }).sort((a,b) => b.savedAt.localeCompare(a.savedAt));
+}
+export function resolveVersion(saved: any[], captured: any[], key: string | null) {
+  const exact = captured.find(r => r.id === key);
+  const version = saved.find(v => v.revision === (exact?.revision ?? key));
+  const review = exact ?? captured.filter(r => r.revision === version?.revision).sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return { doc: version?.doc, review };
+}

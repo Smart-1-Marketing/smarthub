@@ -21,7 +21,7 @@ import { validateCampaign } from './validate';
 import { enqueue, getJob, listJobs, startWorkerLoop, recoverJobs, startWatchdog } from './jobs';
 import { renderPreview, renderAnimatedPreview, renderOne } from './render';
 import { CampaignConflict, campaignRevision, artworkFingerprint, readCampaign, saveCampaignDocument } from './campaign-state';
-import { captureVersion, versions, changes } from './history';
+import { captureVersion, versions, changes, comparisonVersions, resolveVersion } from './history';
 import { beginReview, readReview, approveReview, fileUrl } from './review-set';
 import { copySmokeTest } from './ai-health';
 import { buildCampaign, type Submission } from './intake';
@@ -978,17 +978,16 @@ const server = http.createServer(async (req, res) => {
       if (action === 'versions' && req.method === 'GET') {
         const current = readCampaign(file); captureVersion(file, current, campaignRevision(current));
         const list = versions(file);
-        const a = list.find(v => v.revision === url.searchParams.get('before'));
-        const b = list.find(v => v.revision === url.searchParams.get('after'));
         const captured: any[] = [];
         const reviewsDir = path.join(OUT, 'reviews');
         if (fs.existsSync(reviewsDir)) for (const name of fs.readdirSync(reviewsDir)) {
           try { const r = readReview(OUT, name, project.projectId); if (r.status === 'ready') captured.push(r); } catch { /* other project or interrupted capture */ }
         }
-        return json(res, 200, { requestId: project.requestId, versions: list.map(v => ({ revision: v.revision, savedAt: v.savedAt })),
-          changes: a && b ? changes(a.doc, b.doc) : [],
-          before: captured.filter(r => r.revision === a?.revision).sort((x,y) => y.createdAt.localeCompare(x.createdAt))[0],
-          after: captured.filter(r => r.revision === b?.revision).sort((x,y) => y.createdAt.localeCompare(x.createdAt))[0] });
+        const a = resolveVersion(list, captured, url.searchParams.get('before'));
+        const b = resolveVersion(list, captured, url.searchParams.get('after'));
+        return json(res, 200, { requestId: project.requestId, client: project.client, projectName: project.projectName, versions: comparisonVersions(list, captured),
+          changes: a.doc && b.doc ? changes(a.doc, b.doc) : [],
+          before: a.review, after: b.review });
       }
       if (action === 'replacement' && req.method === 'GET') {
         const o = project.overrides?.find(o => o.conceptId === url.searchParams.get('concept') && o.size === url.searchParams.get('size') && o.platform === url.searchParams.get('platform'));
