@@ -58,13 +58,14 @@ def section(title):
 
 
 import wsgi                                                          # noqa: E402
-from wsgi import hub_app                                             # noqa: E402
 from hub import proposal_execution as pe                             # noqa: E402
 from hub.extensions import db                                        # noqa: E402
 import hub.proposals as proposals_mod                                # noqa: E402
 import hub as hub_pkg                                                # noqa: E402
+import hub.auth as auth                                              # noqa: E402
 from werkzeug.test import Client as WSGIClient                       # noqa: E402
-from hub import auth                                                 # noqa: E402
+
+hub_app = wsgi.hub_app
 
 CLIENT = "Monogram Homes"
 _FIXTURES = {
