@@ -7485,6 +7485,20 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # Proposal Execution's supersede-not-duplicate run (WO-1) added a column
+    # after the table was already live in production -- create_all() above
+    # creates missing tables and never ALTERs an existing one, the exact
+    # `cs_projects` reason above, one table over.
+    try:
+        from .proposal_execution import add_missing_columns as _pe_add_columns
+        with app.app_context():
+            _pe_add_columns()
+    except Exception as _pe_col_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _pe_col_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # Seed Creative Studio's first 12 templates, now that cs_templates exists.
     # Idempotent (skips any id already present) and guarded like every other
     # boot step: a seed that cannot run leaves the gallery emptier than it

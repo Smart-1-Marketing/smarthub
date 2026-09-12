@@ -2151,6 +2151,18 @@ jobs:
       - name: A QA review asked for, answered and closed
         run: python3 test_qa_tasks.py
 
+      # A second proposal for a client that already has one execution run
+      # open used to spawn a second, parallel run rather than recognizing
+      # the first is being replaced -- no carried inputs, no carried
+      # approvals, and nothing anywhere saying the two were now competing
+      # accounts of one campaign. Asserts the conflict is raised rather than
+      # silently duplicated, the 409 the route answers instead of a generic
+      # 500, and that superseding carries an approved/completed task with an
+      # unchanged payload -- and the shared inputs already answered --
+      # forward onto the run that replaces it.
+      - name: Proposal Execution — supersede, don't duplicate
+        run: python3 test_proposal_execution.py
+
       # A curated shortlist per department, laid over the sidebar rather than
       # a second permission system. Block validation (a javascript: href, a
       # blank label, the cap), a delete that un-assigns rather than leaving a
