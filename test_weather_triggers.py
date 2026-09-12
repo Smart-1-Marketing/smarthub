@@ -36,9 +36,9 @@ from hub import weather_triggers as wt                    # noqa: E402
 
 
 section("The vocabulary")
-check("nine verticals", set(wt.VERTICALS),
+check("ten verticals", set(wt.VERTICALS),
      {"restaurant", "hvac", "retail", "auto", "landscaping", "pool_spa", "roofing",
-      "pest_control", "moving"})
+      "pest_control", "moving", "tree_service"})
 check("fourteen restaurant triggers", len(wt.triggers_for_vertical("restaurant")), 14)
 check("thirteen hvac triggers", len(wt.triggers_for_vertical("hvac")), 13)
 check("thirteen retail triggers", len(wt.triggers_for_vertical("retail")), 13)
@@ -48,7 +48,8 @@ check("thirteen pool_spa triggers", len(wt.triggers_for_vertical("pool_spa")), 1
 check("thirteen roofing triggers", len(wt.triggers_for_vertical("roofing")), 13)
 check("thirteen pest_control triggers", len(wt.triggers_for_vertical("pest_control")), 13)
 check("thirteen moving triggers", len(wt.triggers_for_vertical("moving")), 13)
-check("every trigger is one of the nine verticals",
+check("thirteen tree_service triggers", len(wt.triggers_for_vertical("tree_service")), 13)
+check("every trigger is one of the ten verticals",
      all(t.vertical in wt.VERTICALS for t in wt.TRIGGERS.values()), True)
 check("no trigger id is shared across verticals",
      len(wt.TRIGGERS), sum(len(wt.triggers_for_vertical(v)) for v in wt.VERTICALS))
@@ -84,6 +85,9 @@ check("pest_control's Jul order leads with the wasp/flea/mosquito pushes",
 check("moving's Jul order leads with the heat pair",
      wt.month_order("moving", "Jul")[:3],
      ["heat-wave-moving-advisory", "humidity-heat-index-moving", "perfect-moving-day"])
+check("tree_service's Jul order leads with the heat pair",
+     wt.month_order("tree_service", "Jul")[:3],
+     ["heat-wave-tree-stress", "heat-index-canopy-stress", "storm-damage-tree-removal"])
 check("unknown month falls back to the registry order, restaurant",
      set(wt.month_order("restaurant", "Nope")), set(wt.triggers_for_vertical("restaurant")))
 check("unknown month falls back to the registry order, hvac",
@@ -131,6 +135,11 @@ check("unknown month falls back to the registry order, moving",
 _OTHER_EIGHT = (_OTHER_SEVEN | set(wt.triggers_for_vertical("pest_control")))
 check("moving's month order never leaks any other vertical's ids",
      bool(set(wt.month_order("moving", "Jan")) & _OTHER_EIGHT), False)
+check("unknown month falls back to the registry order, tree_service",
+     set(wt.month_order("tree_service", "Nope")), set(wt.triggers_for_vertical("tree_service")))
+_OTHER_NINE = (_OTHER_EIGHT | set(wt.triggers_for_vertical("moving")))
+check("tree_service's month order never leaks any other vertical's ids",
+     bool(set(wt.month_order("tree_service", "Jan")) & _OTHER_NINE), False)
 
 
 section("The cap is enforced server-side, not only in the picker")
@@ -213,6 +222,14 @@ ok, err = wt.validate_picks(["storm-reschedule-alert", "termite-swarm-season"], 
 check("a pest_control id is not a recognized moving trigger", ok, False)
 ok, err = wt.validate_picks(["perfect-moving-day", "patio-day"])
 check("a moving id is not a recognized restaurant trigger", ok, False)
+ok, err = wt.validate_picks(["high-wind-limb-risk", "spring-pruning-season"], "tree_service")
+check("two tree_service picks: ok", ok, True)
+ok, err = wt.validate_picks(["high-wind-limb-risk", "patio-day"], "tree_service")
+check("a restaurant id is not a recognized tree_service trigger", ok, False)
+ok, err = wt.validate_picks(["high-wind-limb-risk", "perfect-moving-day"], "tree_service")
+check("a moving id is not a recognized tree_service trigger", ok, False)
+ok, err = wt.validate_picks(["spring-pruning-season", "patio-day"])
+check("a tree_service id is not a recognized restaurant trigger", ok, False)
 
 
 section("Plain range rules")
@@ -899,6 +916,88 @@ check("snow-day-moving-risk does not fire at 0.5in", r["active"], False)
 r9 = wt.evaluate_trigger("first-freeze-moving", {"forecast_low": 20}, {},
                          today=date(2026, 11, 2))
 check("first-freeze-moving has its own, separate state and fires", r9["active"], True)
+
+
+section("Tree Service — the tenth vertical, same rule vocabulary")
+r = wt.evaluate_trigger("storm-damage-tree-removal", {"official_alerts": ["Severe Thunderstorm Warning"]})
+check("storm-damage-tree-removal fires on a real alert", r["active"], True)
+r = wt.evaluate_trigger("storm-damage-tree-removal", {"official_alerts": []})
+check("storm-damage-tree-removal does not fire with no alert", r["active"], False)
+
+r = wt.evaluate_trigger("high-wind-limb-risk", {"wind_mph": 40})
+check("high-wind-limb-risk fires at 40 mph", r["active"], True)
+r = wt.evaluate_trigger("high-wind-limb-risk", {"wind_mph": 20})
+check("high-wind-limb-risk does not fire at 20 mph", r["active"], False)
+r = wt.evaluate_trigger("wind-damage-tree-inspection", {"wind_mph": 40})
+check("wind-damage-tree-inspection does not fire at 40 mph -- it escalates past high-wind-limb-risk",
+     r["active"], False)
+r = wt.evaluate_trigger("wind-damage-tree-inspection", {"wind_mph": 60})
+check("wind-damage-tree-inspection fires at 60 mph", r["active"], True)
+
+r = wt.evaluate_trigger("ice-storm-limb-risk", {"temperature": 31}, today=date(2026, 1, 10))
+check("ice-storm-limb-risk fires in the freeze-thaw band in January", r["active"], True)
+r = wt.evaluate_trigger("ice-storm-limb-risk", {"temperature": 31}, today=date(2026, 7, 10))
+check("ice-storm-limb-risk does not fire in July -- outside its active months", r["active"], False)
+r = wt.evaluate_trigger("ice-storm-limb-risk", {"temperature": 20}, today=date(2026, 1, 10))
+check("ice-storm-limb-risk does not fire below the freeze-thaw band", r["active"], False)
+
+r = wt.evaluate_trigger("heavy-snow-limb-load", {"snow_inches": 8})
+check("heavy-snow-limb-load fires at 8in", r["active"], True)
+r = wt.evaluate_trigger("heavy-snow-limb-load", {"snow_inches": 2})
+check("heavy-snow-limb-load does not fire at 2in", r["active"], False)
+
+state = {}
+r = wt.evaluate_trigger("first-freeze-tree-service", {"forecast_low": 25}, state,
+                        today=date(2026, 11, 1))
+check("first-freeze-tree-service fires the first time it is cold enough", r["active"], True)
+r = wt.evaluate_trigger("first-freeze-tree-service", {"forecast_low": 20}, r["state"],
+                        today=date(2026, 11, 10))
+check("first-freeze-tree-service does not fire again the same season", r["active"], False)
+
+r = wt.evaluate_trigger("deep-freeze-young-tree-risk", {"temperature": 10})
+check("deep-freeze-young-tree-risk does not fire at 10F", r["active"], False)
+r = wt.evaluate_trigger("deep-freeze-young-tree-risk", {"temperature": -5})
+check("deep-freeze-young-tree-risk fires below 0F", r["active"], True)
+
+r = wt.evaluate_trigger("heat-wave-tree-stress", {"temperature": 99})
+check("heat-wave-tree-stress fires at 99F", r["active"], True)
+r = wt.evaluate_trigger("heat-index-canopy-stress", {"temperature": 99, "humidity": 70})
+check("heat-index-canopy-stress fires on hot + humid", r["active"], True)
+r = wt.evaluate_trigger("heat-index-canopy-stress", {"temperature": 99})
+check("heat-index-canopy-stress with no humidity is not measured", r["measured"], False)
+
+r = wt.evaluate_trigger("spring-pruning-season",
+                        {"temperature": 60, "rain_probability": 5},
+                        today=date(2026, 4, 1))
+check("spring-pruning-season fires on a mild dry April day", r["active"], True)
+r = wt.evaluate_trigger("spring-pruning-season",
+                        {"temperature": 60, "rain_probability": 5},
+                        today=date(2026, 7, 1))
+check("spring-pruning-season does not fire in July -- outside its active months", r["active"], False)
+r = wt.evaluate_trigger("fall-pruning-season",
+                        {"temperature": 55, "rain_probability": 10},
+                        today=date(2026, 9, 15))
+check("fall-pruning-season fires on a mild dry September day", r["active"], True)
+
+r = wt.evaluate_trigger("heavy-rain-tree-tip-risk", {"rain_probability": 80})
+check("heavy-rain-tree-tip-risk fires at 80% chance of rain", r["active"], True)
+r = wt.evaluate_trigger("heavy-rain-tree-tip-risk", {"rain_probability": 30})
+check("heavy-rain-tree-tip-risk does not fire at 30% chance of rain", r["active"], False)
+
+state = {}
+for cloud in (85, 85, 85):
+    r = wt.evaluate_trigger("canopy-disease-risk", {"cloud_percent": cloud}, state)
+    state = r["state"]
+check("canopy-disease-risk fires on the third consecutive overcast day", r["active"], True)
+r = wt.evaluate_trigger("canopy-disease-risk", {"cloud_percent": None})
+check("canopy-disease-risk with no cloud data is not measured", r["measured"], False)
+
+# All ten once-per-season "cold" triggers across every vertical carry
+# separate state, keyed on the campaign's own trigger_id in store.py, not on
+# the shared rule value they all use ("cold").
+r10 = wt.evaluate_trigger("first-freeze-tree-service", {"forecast_low": 20}, {},
+                          today=date(2026, 11, 2))
+check("first-freeze-tree-service has its own, separate state and fires", r10["active"], True)
 
 
 print(f"\n{_passed} passed, {_failed} failed")

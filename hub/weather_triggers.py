@@ -282,6 +282,54 @@ that is both an advisory and a reason to reconsider the schedule at once.
 thirteen moving ids listed in every month's tuple, in month-appropriate
 priority order, alongside the restaurant, hvac, retail, auto, landscaping,
 pool_spa, roofing and pest_control ids already there.
+
+## The tenth vertical
+
+Tree Service, and the claim held a ninth time: thirteen more rows, still
+the same rule vocabulary, still no change to `evaluate_trigger()`,
+`store.py`, `app.py` or the staff template. The psychology sits closest to
+roofing's — a tree does not fail on a comfortable day, so nearly every row
+names the specific hazard a weather condition puts a limb, a trunk or a
+root system under and the inspection or pruning call that heads it off.
+`high-wind-limb-risk` and `wind-damage-tree-inspection` are an escalating
+wind pair, the same shape as roofing's `high-wind-shingle-risk`/
+`wind-damage-inspection`. `ice-storm-limb-risk` is its own daily row rather
+than an escalation of anything — a freeze-thaw band, not a hard freeze, is
+what actually coats a limb in ice heavy enough to bring it down, the same
+reading roofing's `ice-dam-risk` gives a shingle. `heavy-snow-limb-load`
+rounds out the mechanical-failure trio: a load, not a temperature, snapping
+a branch under its own weight. `first-freeze-tree-service` is the
+once-per-season event — the healthiest window of the year to prune opens
+the day the sap stops running — with its own season-state key so it cannot
+collide with any of the other nine verticals' first-freeze rows inside one
+campaign's carried state, for the same per-pick, per-`trigger_id` reason
+the other nine hold. `deep-freeze-young-tree-risk` is not an escalation of
+the once-per-season event but its own emergency angle: genuinely extreme
+cold is when a young or recently transplanted tree takes damage a mature
+one shrugs off. `heat-wave-tree-stress` and `heat-index-canopy-stress` are
+a second escalating pair for the opposite season, the same shape HVAC's
+`ac-overload`/`heat-index-strain` already uses — sustained heat stressing
+a tree already weakened by drought or poor soil, then humidity stacked on
+heat actually scorching the canopy. `spring-pruning-season` and
+`fall-pruning-season` are the two shoulder-season pushes the vertical
+leans on hardest, named for the season each is *for* rather than left for
+a rep to infer from the month strip — both sit inside the same
+dormant-season pruning window `first-freeze-tree-service` opens, just
+without needing a hard freeze to argue for the cut.
+`heavy-rain-tree-tip-risk` and `canopy-disease-risk` round the book out: a
+soil-saturating rain that sets up a tip-over risk in the wind that
+follows it, and a run of overcast, humid days that lets fungal disease
+take hold — the same `cloud_percent_min`/`consecutive_days` shape
+restaurant's `gray-streak` and landscaping's `mosquito-surge` already use.
+`storm-damage-tree-removal` is the alert-driven row, caught by the same
+`cadence == "alert_driven"` blocklist check every other vertical's alert
+row already exercises.
+
+`MONTHS` gained the same treatment as the prior eight verticals: all
+thirteen tree_service ids listed in every month's tuple, in
+month-appropriate priority order, alongside the restaurant, hvac, retail,
+auto, landscaping, pool_spa, roofing, pest_control and moving ids already
+there.
 """
 from __future__ import annotations
 
@@ -294,12 +342,12 @@ from datetime import date
 MAX_TRIGGERS = 3
 
 VERTICALS = ("restaurant", "hvac", "retail", "auto", "landscaping", "pool_spa", "roofing",
-            "pest_control", "moving")
+            "pest_control", "moving", "tree_service")
 VERTICAL_LABELS = {"restaurant": "Restaurant", "hvac": "HVAC / Home Comfort",
                    "retail": "Retail / Home Goods", "auto": "Auto Repair / Service",
                    "landscaping": "Landscaping / Lawn Care", "pool_spa": "Pool & Spa Service",
                    "roofing": "Roofing & Exterior", "pest_control": "Pest Control",
-                   "moving": "Moving Company"}
+                   "moving": "Moving Company", "tree_service": "Tree Service"}
 
 
 @dataclass(frozen=True)
@@ -1513,6 +1561,139 @@ TRIGGERS: dict[str, Trigger] = {
         windows=(("07:00", "18:00"),),
         cadence="daily", tags=("advisory", "booking"),
     ),
+
+    # -- Tree Service -----------------------------------------------------
+    "storm-damage-tree-removal": Trigger(
+        id="storm-damage-tree-removal", name="Storm Damage Tree Removal", vertical="tree_service",
+        reason="A severe weather alert is when a cracked limb or a leaning "
+               "tree becomes tomorrow's emergency call — an inspection "
+               "ad for the day after, never an invitation to be outside "
+               "in it.",
+        condition_label="NWS severe weather alert issued",
+        rule={"alert_required": True},
+        cadence="alert_driven", tags=("safety", "emergency"),
+    ),
+    "high-wind-limb-risk": Trigger(
+        id="high-wind-limb-risk", name="High Wind Limb Risk", vertical="tree_service",
+        reason="Sustained wind is what actually snaps a weak or overgrown "
+               "limb before it falls on a roof or a car — the inspection "
+               "ad before it comes down.",
+        condition_label="wind ≥ 35 mph",
+        rule={"wind_mph_min": 35.0},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("safety", "inspection"),
+    ),
+    "wind-damage-tree-inspection": Trigger(
+        id="wind-damage-tree-inspection", name="Wind Damage Tree Inspection", vertical="tree_service",
+        reason="Past this, even a healthy limb is at real risk — the "
+               "emergency-inspection ad, not the routine one.",
+        condition_label="wind ≥ 50 mph",
+        rule={"wind_mph_min": 50.0},
+        cadence="daily", tags=("safety", "emergency"),
+    ),
+    "ice-storm-limb-risk": Trigger(
+        id="ice-storm-limb-risk", name="Ice Storm Limb Risk", vertical="tree_service",
+        reason="A freeze-thaw band, not a hard freeze, is what actually "
+               "coats a limb in ice heavy enough to bring it down — the "
+               "same risk roofing's ice-dam trigger names for a roof, "
+               "named here for a tree.",
+        condition_label="28–34°F, December–March",
+        rule={"temp_min": 28.0, "temp_max": 34.0, "months": (12, 1, 2, 3)},
+        windows=(("07:00", "19:00"),),
+        cadence="daily", tags=("safety", "inspection"),
+    ),
+    "heavy-snow-limb-load": Trigger(
+        id="heavy-snow-limb-load", name="Heavy Snow Limb Load", vertical="tree_service",
+        reason="Heavy, wet snow is what actually loads a branch past its "
+               "breaking point — an ad about catching a hazard before it "
+               "drops on a roof or a driveway.",
+        condition_label="snowfall ≥ 6 in / 24h",
+        rule={"snow_in_min": 6.0},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("safety", "inspection"),
+    ),
+    "first-freeze-tree-service": Trigger(
+        id="first-freeze-tree-service", name="First Freeze", vertical="tree_service",
+        reason="The first hard freeze of the season is when dormant-season "
+               "pruning actually opens — the healthiest time of year to "
+               "cut, before the sap runs again.",
+        condition_label="first low ≤ 32°F of the season",
+        rule={"temp_low_max": 32.0, "once_per_season": "cold"},
+        cadence="once_per_season", tags=("event", "seasonal"),
+    ),
+    "deep-freeze-young-tree-risk": Trigger(
+        id="deep-freeze-young-tree-risk", name="Deep Freeze Young Tree Risk", vertical="tree_service",
+        reason="Genuinely extreme cold is when a young or recently "
+               "transplanted tree actually takes damage a mature one "
+               "shrugs off — the check-on-it-now ad, not the pruning one.",
+        condition_label="high ≤ 0°F",
+        rule={"temp_max": 0.0},
+        cadence="daily", tags=("emergency", "seasonal"),
+    ),
+    "heat-wave-tree-stress": Trigger(
+        id="heat-wave-tree-stress", name="Heat Wave Tree Stress", vertical="tree_service",
+        reason="Sustained heat is when a tree already stressed by drought "
+               "or poor soil actually starts to decline — the deep-root "
+               "treatment ad before the canopy shows it.",
+        condition_label="high ≥ 98°F",
+        rule={"temp_min": 98.0},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("stress", "seasonal"),
+    ),
+    "heat-index-canopy-stress": Trigger(
+        id="heat-index-canopy-stress", name="Heat Index Canopy Stress", vertical="tree_service",
+        reason="Humidity stacked on heat is what actually scorches a "
+               "canopy, not the number on the thermometer — the "
+               "escalation past ordinary heat stress.",
+        condition_label="heat index ≥ 105°F",
+        rule={"heat_index_min": 105.0},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("stress", "seasonal"),
+    ),
+    "spring-pruning-season": Trigger(
+        id="spring-pruning-season", name="Spring Pruning Season", vertical="tree_service",
+        reason="The first comfortable, dry stretch of spring is the last "
+               "of the dormant-season pruning window before leaf-out "
+               "makes the cut riskier for the tree.",
+        condition_label="50–70°F and dry, March–May",
+        rule={"temp_min": 50.0, "temp_max": 70.0, "precip_prob_max": 20.0,
+              "months": (3, 4, 5)},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("maintenance", "seasonal"),
+    ),
+    "fall-pruning-season": Trigger(
+        id="fall-pruning-season", name="Fall Pruning Season", vertical="tree_service",
+        reason="A mild, dry fall stretch is when dormant-season pruning "
+               "opens again after leaf-drop — the same logic in reverse, "
+               "before winter makes the schedule harder.",
+        condition_label="45–65°F and dry, September–November",
+        rule={"temp_min": 45.0, "temp_max": 65.0, "precip_prob_max": 20.0,
+              "months": (9, 10, 11)},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("maintenance", "seasonal"),
+    ),
+    "heavy-rain-tree-tip-risk": Trigger(
+        id="heavy-rain-tree-tip-risk", name="Heavy Rain Tree Tip Risk", vertical="tree_service",
+        reason="Saturated soil after a heavy rain is what actually lets a "
+               "large tree tip over in the wind that follows — an "
+               "inspection ad for root stability, not the storm-damage "
+               "one.",
+        condition_label="≥ 70% chance of rain",
+        rule={"precip_prob_min": 70.0},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("safety", "inspection"),
+    ),
+    "canopy-disease-risk": Trigger(
+        id="canopy-disease-risk", name="Canopy Disease Risk", vertical="tree_service",
+        reason="Several overcast, humid days in a row is what actually "
+               "lets fungal disease take hold in a canopy — the same run "
+               "of gray days restaurant's gray-streak and landscaping's "
+               "mosquito-surge already read, named here for tree health.",
+        condition_label="cloud cover ≥ 80% for 3 consecutive days",
+        rule={"cloud_percent_min": 80.0, "consecutive_days": 3},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("disease", "inspection"),
+    ),
 }
 
 # Ordering for the month strip: which triggers a rep browsing that month is
@@ -1538,7 +1719,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
             "rodent-cold-intrusion", "deep-freeze-rodent-surge", "storm-pest-disruption", "spider-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             "cold-snap-moving-advisory", "deep-freeze-moving-emergency", "wind-chill-moving-advisory", "snow-day-moving-risk", "storm-reschedule-alert", "high-wind-loading-risk", "first-freeze-moving", "rain-day-moving-prep", "perfect-moving-day", "spring-moving-season", "fall-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
-            ),
+                        "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "fall-pruning-season", "spring-pruning-season", "heat-wave-tree-stress", "heat-index-canopy-stress",
+),
     "Feb": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "evening-cooldown", "heat-index",
             "heat-wave", "patio-day", "rain-delay", "first-freeze", "first-cool-night",
@@ -1557,7 +1739,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
             "rodent-cold-intrusion", "deep-freeze-rodent-surge", "storm-pest-disruption", "spider-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             "cold-snap-moving-advisory", "deep-freeze-moving-emergency", "wind-chill-moving-advisory", "snow-day-moving-risk", "storm-reschedule-alert", "high-wind-loading-risk", "first-freeze-moving", "rain-day-moving-prep", "perfect-moving-day", "spring-moving-season", "fall-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
-            ),
+                        "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "fall-pruning-season", "spring-pruning-season", "heat-wave-tree-stress", "heat-index-canopy-stress",
+),
     "Mar": ("warm-break", "crisp-day", "rain-delay", "cold-snap", "gray-streak",
             "wind-chill", "storm-watch", "patio-day", "evening-cooldown",
             "heat-index", "heat-wave", "snow-day", "first-freeze", "first-cool-night",
@@ -1576,7 +1759,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "ice-dam-risk", "spring-roof-inspection", "wind-driven-rain", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "heavy-rain-leak-check", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
             "termite-swarm-season", "spring-pest-inspection", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "flea-tick-season", "wasp-hornet-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             "spring-moving-season", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "wind-chill-moving-advisory", "cold-snap-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk", "fall-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
-            ),
+                        "spring-pruning-season", "ice-storm-limb-risk", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "fall-pruning-season", "canopy-disease-risk", "heat-wave-tree-stress", "heat-index-canopy-stress",
+),
     "Apr": ("crisp-day", "patio-day", "rain-delay", "gray-streak", "storm-watch",
             "evening-cooldown", "warm-break", "heat-index", "heat-wave",
             "cold-snap", "wind-chill", "snow-day", "first-freeze", "first-cool-night",
@@ -1595,7 +1779,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "spring-roof-inspection", "wind-driven-rain", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "heavy-rain-leak-check", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
             "termite-swarm-season", "spring-pest-inspection", "ant-invasion-after-rain", "wet-week-mosquito-watch", "flea-tick-season", "storm-pest-disruption", "wasp-hornet-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             "spring-moving-season", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk", "fall-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
-            ),
+                        "spring-pruning-season", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "fall-pruning-season", "canopy-disease-risk", "heat-wave-tree-stress", "heat-index-canopy-stress",
+),
     "May": ("patio-day", "crisp-day", "rain-delay", "storm-watch",
             "evening-cooldown", "heat-index", "heat-wave", "gray-streak",
             "warm-break", "cold-snap", "wind-chill", "snow-day",
@@ -1615,7 +1800,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "spring-roof-inspection", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "heat-wave-shingle-stress", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season",
             "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "mosquito-pressure", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "fall-pest-inspection", "heat-wave-pest-activity",
             "spring-moving-season", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "heat-wave-moving-advisory", "humidity-heat-index-moving", "fall-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
-            ),
+                        "spring-pruning-season", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "heat-wave-tree-stress", "heat-index-canopy-stress", "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "fall-pruning-season",
+),
     "Jun": ("patio-day", "heat-wave", "heat-index", "rain-delay",
             "storm-watch", "evening-cooldown", "crisp-day", "gray-streak",
             "warm-break", "cold-snap", "wind-chill", "snow-day",
@@ -1635,7 +1821,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "heat-wave-shingle-stress", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season",
             "wasp-hornet-season", "flea-tick-season", "mosquito-pressure", "heat-wave-pest-activity", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "spring-pest-inspection", "fall-pest-inspection",
             "heat-wave-moving-advisory", "humidity-heat-index-moving", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "spring-moving-season", "fall-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
-            ),
+                        "heat-wave-tree-stress", "heat-index-canopy-stress", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "spring-pruning-season", "fall-pruning-season", "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load",
+),
     "Jul": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "evening-cooldown", "crisp-day", "gray-streak",
             "warm-break", "cold-snap", "wind-chill", "snow-day",
@@ -1655,7 +1842,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "heat-wave-shingle-stress", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season",
             "wasp-hornet-season", "flea-tick-season", "mosquito-pressure", "heat-wave-pest-activity", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "spring-pest-inspection", "fall-pest-inspection",
             "heat-wave-moving-advisory", "humidity-heat-index-moving", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "spring-moving-season", "fall-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
-            ),
+                        "heat-wave-tree-stress", "heat-index-canopy-stress", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "spring-pruning-season", "fall-pruning-season", "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load",
+),
     "Aug": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "first-cool-night", "evening-cooldown", "crisp-day",
             "gray-streak", "warm-break", "cold-snap", "wind-chill", "snow-day",
@@ -1675,7 +1863,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "heat-wave-shingle-stress", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "fall-roof-inspection", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "gutter-cleaning-season",
             "wasp-hornet-season", "flea-tick-season", "mosquito-pressure", "heat-wave-pest-activity", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "fall-pest-inspection", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "spring-pest-inspection",
             "heat-wave-moving-advisory", "humidity-heat-index-moving", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "fall-moving-season", "spring-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
-            ),
+                        "heat-wave-tree-stress", "heat-index-canopy-stress", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "fall-pruning-season", "spring-pruning-season", "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load",
+),
     "Sep": ("patio-day", "first-cool-night", "rain-delay", "crisp-day",
             "evening-cooldown", "heat-index", "heat-wave", "storm-watch",
             "gray-streak", "warm-break", "cold-snap", "wind-chill",
@@ -1695,7 +1884,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "fall-roof-inspection", "gutter-cleaning-season", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "heat-wave-shingle-stress", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof",
             "fall-pest-inspection", "spider-season", "flea-tick-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "mosquito-pressure", "heat-wave-pest-activity", "wasp-hornet-season", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spring-pest-inspection",
             "fall-moving-season", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "heat-wave-moving-advisory", "humidity-heat-index-moving", "spring-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
-            ),
+                        "fall-pruning-season", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "heat-wave-tree-stress", "heat-index-canopy-stress", "first-freeze-tree-service", "ice-storm-limb-risk", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "spring-pruning-season",
+),
     "Oct": ("crisp-day", "first-cool-night", "first-freeze", "evening-cooldown",
             "rain-delay", "warm-break", "gray-streak", "storm-watch",
             "cold-snap", "wind-chill", "patio-day", "heat-index",
@@ -1715,7 +1905,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "fall-roof-inspection", "gutter-cleaning-season", "first-freeze-roofing", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "snow-load-roof", "ice-dam-risk", "deep-freeze-roofing", "spring-roof-inspection", "heat-wave-shingle-stress",
             "fall-pest-inspection", "spider-season", "rodent-cold-intrusion", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "deep-freeze-rodent-surge", "flea-tick-season", "termite-swarm-season", "wasp-hornet-season", "spring-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             "fall-moving-season", "perfect-moving-day", "first-freeze-moving", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "snow-day-moving-risk", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "deep-freeze-moving-emergency", "spring-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
-            ),
+                        "fall-pruning-season", "first-freeze-tree-service", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "ice-storm-limb-risk", "canopy-disease-risk", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "heat-wave-tree-stress", "heat-index-canopy-stress", "spring-pruning-season",
+),
     "Nov": ("first-freeze", "cold-snap", "gray-streak", "warm-break",
             "crisp-day", "wind-chill", "storm-watch", "snow-day",
             "rain-delay", "evening-cooldown", "patio-day", "heat-index",
@@ -1736,7 +1927,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "gutter-cleaning-season", "fall-roof-inspection", "first-freeze-roofing", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "snow-load-roof", "heavy-rain-leak-check", "ice-dam-risk", "deep-freeze-roofing", "spring-roof-inspection", "heat-wave-shingle-stress",
             "rodent-cold-intrusion", "spider-season", "fall-pest-inspection", "deep-freeze-rodent-surge", "storm-pest-disruption", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             "fall-moving-season", "first-freeze-moving", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "storm-reschedule-alert", "high-wind-loading-risk", "snow-day-moving-risk", "deep-freeze-moving-emergency", "rain-day-moving-prep", "perfect-moving-day", "spring-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
-            ),
+                        "first-freeze-tree-service", "fall-pruning-season", "ice-storm-limb-risk", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-snow-limb-load", "deep-freeze-young-tree-risk", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "heat-wave-tree-stress", "heat-index-canopy-stress", "spring-pruning-season",
+),
     "Dec": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "rain-delay", "evening-cooldown",
             "heat-index", "heat-wave", "patio-day", "first-freeze",
@@ -1756,7 +1948,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "gutter-cleaning-season", "fall-roof-inspection", "heavy-rain-leak-check", "spring-roof-inspection", "heat-wave-shingle-stress",
             "rodent-cold-intrusion", "deep-freeze-rodent-surge", "storm-pest-disruption", "spider-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             "cold-snap-moving-advisory", "deep-freeze-moving-emergency", "wind-chill-moving-advisory", "snow-day-moving-risk", "storm-reschedule-alert", "high-wind-loading-risk", "first-freeze-moving", "rain-day-moving-prep", "fall-moving-season", "perfect-moving-day", "spring-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
-            ),
+                        "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "fall-pruning-season", "spring-pruning-season", "heat-wave-tree-stress", "heat-index-canopy-stress",
+),
 }
 
 MONTH_ABBR = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
