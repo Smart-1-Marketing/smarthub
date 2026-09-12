@@ -779,6 +779,29 @@ def job_creative_jobs_sweep(app) -> dict:
         return out
 
 
+def job_qa_task_autoclaim(app) -> dict:
+    """Claim QA tasks on behalf of whoever `QA_TASK_DELEGATES` names as a
+    delegate, for whoever it names as their principal.
+
+    In-process rather than over HTTP: `tools/yoda_qa.py pickup` does the
+    identical thing (same mapping, same `qa_tasks.claim()`) for an account
+    that has to reach the live Hub from outside it. Run here under the leader
+    lock, the pickup happens on a schedule with no outbound call at all --
+    nothing external to run, nothing that can be blocked by a network policy
+    between wherever a script runs and this one.
+
+    Ten minutes: cheap (one query per delegate plus a write per claimed
+    task, no provider call), so there is no reason to make somebody wait an
+    hour to see a task move off their desk.
+    """
+    try:
+        from hub import qa_tasks
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        return qa_tasks.autoclaim()
+
+
 JOBS = {
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
@@ -823,6 +846,9 @@ JOBS = {
                           "concept/script/image generation)."),
     "creative_jobs":     (1, job_creative_jobs_sweep,
                           "Run one queued lead-triggered creative job (radio scripts)."),
+    "qa_task_autoclaim": (10, job_qa_task_autoclaim,
+                          "Claim QA tasks for whoever QA_TASK_DELEGATES names "
+                          "as standing in."),
 }
 
 
