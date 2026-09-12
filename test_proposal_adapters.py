@@ -58,11 +58,19 @@ def section(title):
 from wsgi import application, hub_app                                   # noqa: E402
 from hub.extensions import db                                           # noqa: E402
 from hub import proposal_execution as pe                                # noqa: E402
-from hub import proposal_execution_routes as pe_routes                  # noqa: E402, F401 -- imports hub.proposal_adapters
+from hub import proposal_execution_routes as pe_routes                  # noqa: E402
 from modules.utm_builder import app as utm_app                          # noqa: E402
 import hub.proposals as proposals_module                                # noqa: E402
 
 hub = sys.modules["hub"]
+# The `wsgi` import above already booted the composed app, which calls
+# register_proposal_execution(app) -- the thing that imports
+# hub.proposal_adapters and registers the utm adapter. Checked here rather
+# than importing the routes module purely for a side effect nothing
+# verifies.
+assert pe_routes.bp is not None
+assert "utm" in {a["key"] for a in pe.adapters()}, \
+    "the composed app's boot should have registered the utm adapter"
 
 with hub_app.app_context():
     db.create_all()

@@ -101,10 +101,10 @@ def run(run, task):
         "links": [f"{row['channel']}: {row['url']}" for row in to_build + already_saved],
         "saved": len(result["saved"]), "already_saved": len(already_saved),
         "artifact_url": f"/tools/utm?q={quote(run.client)}",
-        "qa": ["Confirm each destination URL is correct before the link goes "
-               "into any ad platform.",
-               "Confirm the UTM source/medium spelling matches what Analytics "
-               "already reports for this client."],
+        "qa": [("Confirm each destination URL is correct before the link goes "
+                "into any ad platform."),
+               ("Confirm the UTM source/medium spelling matches what Analytics "
+                "already reports for this client.")],
     }
 
 
