@@ -6736,6 +6736,15 @@ def create_hub_app() -> Flask:
             add("Display Ad Builder", "warn",
                 f"Could not be checked: {_ab_exc}")
 
+        # --- Marketing Efficiency Audit (third process in this container) ---
+        try:
+            from hub import marketing_audit_proxy
+            ma = marketing_audit_proxy.status()
+            add("Marketing Efficiency Audit", "ok" if ma.get("ok") else "warn", ma.get("detail", ""))
+        except Exception as _ma_exc:  # noqa: BLE001
+            add("Marketing Efficiency Audit", "warn",
+                f"Could not be checked: {_ma_exc}")
+
         # --- Video background library ---
         # Asked of the library itself rather than inferred from the two keys it
         # needs, for the reason the tool's own status card exists: an empty
@@ -6894,6 +6903,14 @@ def create_hub_app() -> Flask:
                   # has a high-severity check for exactly that, and it caught
                   # this one before it shipped.
                   "/suite-app",
+                  # The Marketing Efficiency Audit -- an accounting or
+                  # bookkeeping partner running this has no Hub account and
+                  # never should need one, so the staff sidebar, help layer
+                  # and feedback tab must not arrive on it. The whole prefix,
+                  # not a sub-path: unlike the Display Ad Builder this tool
+                  # has no staff-only area at all -- see
+                  # hub/marketing_audit_proxy.py.
+                  "/tools/marketing-audit/",
                   # The display-ad proof. A client opens this to approve or
                   # send back a set of banners, so it must not arrive wearing
                   # the staff sidebar, the help layer and a feedback tab --
@@ -7144,6 +7161,10 @@ def create_hub_app() -> Flask:
         # builder is still usable without attach, and attach still
         # explains itself if the renderer is down.
         ("Display Ad Builder links", "hub.ad_builder_link", "register", "/tools/display-ads"),
+        # The accounting-partner Marketing Efficiency Audit — a third Node
+        # process in this container, same shape as the two above. Unlike
+        # them, the whole prefix is public: see hub/marketing_audit_proxy.py.
+        ("Marketing Efficiency Audit", "hub.marketing_audit_proxy", "register", "/tools/marketing-audit"),
     ):
         try:
             _m = __import__(_mod, fromlist=[_fn])

@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
-# Start the Hub, the Display Ad Builder and hf-render-service in one
-# container.
+# Start the Hub, the Display Ad Builder, hf-render-service and the
+# Marketing Efficiency Audit in one container.
 #
 # The Hub is the service Render health-checks and the only thing bound to the
 # public port. The ad builder listens on loopback only, and Flask proxies
 # /tools/display-ads/* to it — so it is reachable through the Hub login and not
-# otherwise reachable at all. hf-render-service listens on loopback too, and is
-# not proxied at all: hub/hyperframes.py talks to it server-to-server, over
-# HF_RENDER_SERVICE_URL, exactly the way it would talk to a hosted API — there
-# is no browser-facing route on it to proxy.
+# otherwise reachable at all. The Marketing Efficiency Audit listens on
+# loopback the same way, proxied at /tools/marketing-audit/* -- with the whole
+# prefix public, since the visitor is an accounting or bookkeeping partner
+# with no Hub account (see hub/marketing_audit_proxy.py). hf-render-service
+# listens on loopback too, and is not proxied at all: hub/hyperframes.py talks
+# to it server-to-server, over HF_RENDER_SERVICE_URL, exactly the way it would
+# talk to a hosted API — there is no browser-facing route on it to proxy.
 #
-# Why a script rather than three CMDs: a container has one PID 1, and if that
+# Why a script rather than four CMDs: a container has one PID 1, and if that
 # is gunicorn then a crashed renderer leaves the Hub up and quietly broken —
 # every ad request 502s and every paint animation reports "not configured" and
-# nothing says why. Here both renderers are supervised: if either dies it is
+# nothing says why. Here every renderer is supervised: if one dies it is
 # restarted, and if it cannot stay up the log says so on every attempt rather
 # than once at boot.
 set -uo pipefail
@@ -23,6 +26,15 @@ AD_DIR=/app/modules/ad_builder
 
 HF_RENDER_PORT="${HF_RENDER_PORT:-8792}"
 HF_RENDER_DIR=/app/modules/hf_render_service
+
+MARKETING_AUDIT_PORT="${MARKETING_AUDIT_PORT:-8793}"
+MARKETING_AUDIT_DIR=/app/modules/marketing_audit
+
+# The Hub's own bind port, captured before anything below reassigns $PORT for
+# a child process's environment. This is how the audit tool reaches the Hub's
+# /api/leads/capture over loopback -- server-to-server, the same container,
+# never through the public internet.
+HUB_PORT="${PORT:-8000}"
 
 # The two processes named the same secret differently, and nothing bridged
 # them: the Hub reads ADBUILDER_ADMIN_TOKEN (hub/ad_builder_proxy.py) and
@@ -196,6 +208,59 @@ if [ -f "$HF_RENDER_DIR/dist/src/server.js" ]; then
   ) &
 else
   echo "[hf-render] dist/src/server.js is missing — the build did not run. The rest of the Hub will start normally."
+fi
+
+# Where the audit tool posts captured leads: the Hub's own /api/leads/capture,
+# over loopback, on the port this script captured as HUB_PORT before PORT was
+# reassigned for any child process below. An explicitly-set HUB_BASE_URL still
+# wins, for a deployment that has split this out to its own Render service.
+if [ -z "${HUB_BASE_URL:-}" ]; then
+  export HUB_BASE_URL="http://127.0.0.1:${HUB_PORT}"
+fi
+# The shared secret hub/leads.py already reads from every standalone landing
+# app's egress address (LEADS_SOURCE_TOKEN) -- this process posts from its own
+# server too, so without it every partner's lead would share one address and
+# trip the Hub's per-visitor rate limit within the hour.
+if [ -z "${HUB_LEADS_SOURCE_TOKEN:-}" ] && [ -n "${LEADS_SOURCE_TOKEN:-}" ]; then
+  export HUB_LEADS_SOURCE_TOKEN="${LEADS_SOURCE_TOKEN}"
+fi
+# Who may iframe the audit. Unset, the tool's own default is "*" -- fine while
+# testing, wrong once this is live on the marketing site, because it would
+# also let anyone else's page frame the lead form. Named here rather than
+# left to be discovered the way EMBED_ALLOWED_ORIGINS was for the standalone
+# build.
+export EMBED_ALLOWED_ORIGINS="${EMBED_ALLOWED_ORIGINS:-https://smart1marketing.com https://www.smart1marketing.com}"
+
+start_marketing_audit() {
+  # Loopback only, same reasoning as the two renderers above.
+  cd "$MARKETING_AUDIT_DIR" || return 1
+  # PUBLIC_BASE_URL is set ONLY in this child process's own environment, never
+  # exported into the script's global environment: the Hub's own Python code
+  # reads that exact name (hub/config.py's public_base_origin(), every OAuth
+  # redirect it builds) and appending this tool's own prefix onto it here
+  # would corrupt every one of those for the Hub itself -- the audit tool
+  # only ever uses its own PUBLIC_BASE_URL as a fallback link for a
+  # locally-stored PDF (Cloudinary is the normal path and needs none of
+  # this; see cloudinary.js and the README's "Where PDFs are stored").
+  PORT="$MARKETING_AUDIT_PORT" HOST=127.0.0.1 \
+    PUBLIC_BASE_URL="${PUBLIC_BASE_URL:+${PUBLIC_BASE_URL%/}/tools/marketing-audit}" \
+    node server.js
+}
+
+if [ -f "$MARKETING_AUDIT_DIR/server.js" ]; then
+  (
+    attempt=0
+    while true; do
+      attempt=$((attempt + 1))
+      echo "[marketing-audit] starting on 127.0.0.1:${MARKETING_AUDIT_PORT} (attempt ${attempt})"
+      start_marketing_audit
+      code=$?
+      echo "[marketing-audit] exited with ${code} — the Marketing Efficiency Audit is unavailable until it restarts"
+      sleep 5
+    done
+  ) &
+else
+  echo "[marketing-audit] server.js is missing — npm install did not run. The rest of the Hub will start normally."
 fi
 
 # --threads only takes effect under the gthread worker class -- gunicorn's

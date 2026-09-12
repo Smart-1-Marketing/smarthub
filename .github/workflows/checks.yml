@@ -283,6 +283,25 @@ jobs:
             echo "test_display_ads.py not on this branch — nothing to run."
           fi
 
+      - name: Marketing Efficiency Audit tests
+        # The accounting-partner lead form: the other module that is not
+        # Python. Asserts what a runtime test of either half would need the
+        # Node process running to notice -- every asset and fetch call
+        # written relative rather than root-absolute (the trap that would
+        # have silently pointed the whole tool at the Hub's own root once it
+        # was mounted under /tools/marketing-audit/), that
+        # hub/marketing_audit_proxy.py's blueprint is actually registered,
+        # and that lead delivery goes through hub/leads.py's one route and
+        # nowhere else. Guarded like the steps around it so this workflow
+        # stays mergeable on a branch that predates the file. Reads files
+        # only — no database, no network.
+        run: |
+          if [ -f test_marketing_audit.py ]; then
+            python test_marketing_audit.py
+          else
+            echo "test_marketing_audit.py not on this branch — nothing to run."
+          fi
+
       - name: Ads estimate and client review tests
         # The campaign estimate a CLIENT reads: reachable without a Hub login,
         # carrying no staff chrome, one document shared with the internal
