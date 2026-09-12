@@ -10,6 +10,9 @@
 </div>
 
 <div class="s1d-page">
+  <p>These totals cover Creative Studio only. Commercial Builder calls are recorded in
+    <a href="/diagnostics">Diagnostics — monthly provider usage</a>.
+    Provider invoices remain the authority for actual charges.</p>
   <div class="card">
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;">
       <div>
@@ -31,7 +34,8 @@
       <div>
         <div style="font-size:11px;color:var(--muted,#64748B);text-transform:uppercase;letter-spacing:.03em">Estimated API cost</div>
         <div style="font-size:22px;font-weight:700">
-          {% if tiles.measured %}${{ '%.2f'|format(tiles.estimated_cost) }}
+          {% if not tiles.total_generations %}<span class="pill warn">No usage recorded</span>
+          {% elif tiles.measured %}${{ '%.2f'|format(tiles.estimated_cost) }}
           {% else %}<span class="pill warn">not measured</span>{% endif %}
         </div>
       </div>
