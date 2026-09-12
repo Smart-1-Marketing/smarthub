@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>IO Builder — Smart 1 Hub</title>
 <style>
+.io-confirm-dialog::backdrop{background:rgba(20,40,75,.4)}
+.io-confirm-dialog p{line-height:1.5}
+.io-confirm-dialog button{font:inherit;font-weight:600;min-height:44px;padding:10px 16px;border:1px solid #cbd5e1;border-radius:8px;background:white;color:#14284b;cursor:pointer}
+.io-confirm-dialog button:last-child{background:#178653;color:white;border-color:#178653}
+.io-confirm-dialog button:focus-visible{outline:3px solid #1f63ae;outline-offset:3px}
 :root{
  --navy:#14284b;--blue:#1f63ae;--sky:#eaf2fa;--line:#d5dee9;--text:#1d2a3a;
  --muted:#66758a;--green:#178653;--gold:#e5a323;--white:#fff;--bg:#f3f6f9
@@ -842,7 +847,7 @@ function baseFlow(){
   {key:"selected",q:"Choose all products needed from this category, then choose Continue.",multi:true,dynamicOptions:()=>productsForCategory(state.currentCategory)},
   {key:"moreCategory",q:"Would you like to add products from another category?",options:["Yes","No"]},
   {key:"primaryConversion",q:"What is the primary conversion the campaign should track?",options:conversionOptions},
-  {key:"secondaryConversions",q:"Which secondary conversions should also be tracked? Select all that apply, then choose Continue.",multi:true,options:conversionOptions},
+  {key:"secondaryConversions",q:"Which secondary conversions should also be tracked? Select any that apply, or choose Continue for none.",multi:true,allowEmpty:true,options:conversionOptions},
   {key:"ga4",q:"Is GA4 installed and accessible?",options:["Yes","No","Unknown"]},
   {key:"gtm",q:"Is Google Tag Manager installed and accessible?",options:["Yes","No","Unknown"]},
   {key:"callTracking",q:"Is call tracking required?",options:["Yes","No","Unknown"]},
@@ -1552,10 +1557,8 @@ function showMultiOptions(q,opts){
  messages.scrollTop=messages.scrollHeight;
 }
 function completeMultiQuestion(q){
- /* Every other multi-select needs at least one answer. This one does not: a
-    proposal whose products are all going somewhere else is a real answer, and
-    refusing it would leave the rep unticking nine of ten and then stuck. */
- if(q.key!=="proposalKeep"&&selectedCountFor(q)<1){addMsg("Please select at least one option before continuing.");return}
+ /* Product rosters and explicitly optional questions can have no selections. */
+ if(q.key!=="proposalKeep"&&!q.allowEmpty&&selectedCountFor(q)<1){addMsg("Please select at least one option before continuing.");return}
  document.querySelectorAll(".multi-panel").forEach(x=>x.remove());
  if(q.key==="proposalKeep")finishRoster();
  index++;render();ask();
@@ -4290,6 +4293,44 @@ async function ensurePdfForSuite(kind){
   return url;
 }
 
+// A page dialog keeps review visible and keyboard-accessible in embedded browsers.
+// Text content deliberately remains plain text: campaign answers are not markup.
+let _ioConfirmActive=false;
+function confirmIOReview(message, confirmLabel="Generate PDFs and submit"){
+ if(_ioConfirmActive)return Promise.resolve(false);
+ _ioConfirmActive=true;
+ return new Promise(resolve=>{
+  const previousFocus=document.activeElement;
+  const dialog=document.createElement("dialog");
+  dialog.className="io-confirm-dialog";
+  dialog.setAttribute("aria-labelledby","io-confirm-title");
+  dialog.setAttribute("aria-describedby","io-confirm-details");
+  const title=document.createElement("h2");
+  title.id="io-confirm-title";title.textContent="Review insertion order";
+  const details=document.createElement("p");
+  details.id="io-confirm-details";details.textContent=message;
+  details.style.whiteSpace="pre-wrap";details.style.overflowWrap="anywhere";
+  const actions=document.createElement("div");
+  actions.style.display="flex";actions.style.gap="12px";actions.style.flexWrap="wrap";
+  const cancel=document.createElement("button");cancel.type="button";cancel.textContent="Keep editing";
+  const accept=document.createElement("button");accept.type="button";accept.textContent=confirmLabel;
+  actions.append(cancel,accept);dialog.append(title,details,actions);
+  Object.assign(dialog.style,{width:"min(620px, calc(100vw - 32px))",maxHeight:"calc(100dvh - 32px)",overflow:"auto",boxSizing:"border-box",border:"1px solid #cbd5e1",borderRadius:"12px",padding:"24px",color:"#14284b",background:"white"});
+  let settled=false;
+  function finish(accepted){
+   if(settled)return;settled=true;_ioConfirmActive=false;
+   dialog.close();dialog.remove();
+   if(previousFocus&&previousFocus.isConnected)previousFocus.focus();
+   resolve(accepted);
+  }
+  cancel.addEventListener("click",()=>finish(false));
+  accept.addEventListener("click",()=>finish(true));
+  dialog.addEventListener("cancel",event=>{event.preventDefault();finish(false);});
+  document.body.appendChild(dialog);
+  dialog.showModal();cancel.focus();
+ });
+}
+
 let _ioSubmitting=false;
 async function submitCompletedIO(){
   const status=document.getElementById("submitStatus");
@@ -4298,12 +4339,12 @@ async function submitCompletedIO(){
     status.textContent=message;
     status.className=`submit-status show ${type||""}`;
   };
-  if(_ioSubmitting){return;}
+  if(_ioSubmitting||_ioConfirmActive){return;}
   const missing=submissionMissing();
   if(missing.length){setStatus("Before submitting, add: "+missing.join(", ")+".","error");return;}
   calculateGuardrails(true);                 // refresh final-review warnings
   if(state.submission&&state.submission.status==="submitted"){
-    if(!window.confirm("This IO was already submitted to Smart 1 Suite. Submit it again?"))return;
+    if(!await confirmIOReview("This IO was already submitted to Smart 1 Suite. Submit it again?","Review resubmission"))return;
   }
   // Review-before-submit summary (#8)
   {
@@ -4321,8 +4362,8 @@ async function submitCompletedIO(){
      `Geography: ${state.geo||"—"}\n`+
      `Products:\n${prod||"  (none selected)"}\n`+
      `Monthly: ${money(monthly)}   •   Campaign total: ${money(campaign)}\n\n`+
-     "Click OK to generate the PDFs and send. Cancel to keep editing.";
-   if(!window.confirm(summary))return;
+     "Submitting generates both PDFs and sends this order to Smart 1 Suite. Keep editing to make changes.";
+   if(!await confirmIOReview(summary))return;
   }
   // Guardrail hard-block with explicit override (#19)
   {
@@ -4332,7 +4373,7 @@ async function submitCompletedIO(){
    });
    if(hard.length){
     const list=hard.map(w=>"• "+((w&&w.message)||w)).join("\n");
-    if(!window.confirm("These issues were flagged and normally block submission:\n\n"+list+"\n\nSubmit anyway (override)?"))return;
+    if(!await confirmIOReview("These issues were flagged and normally block submission:\n\n"+list+"\n\nSubmit anyway (override)?","Override and submit"))return;
    }
   }
   _ioSubmitting=true;
