@@ -40,16 +40,21 @@ rodents looking for a way in"). A moving-company ad is different again:
 most of its rows are an advisory about a move already booked rather than a
 reason to book a new one ("get an early start before the heat makes
 loading harder"), with only its own shoulder-season and perfect-day rows
-reading as an invitation to book at all. One generic house template with
-the business name dropped in would answer a hard-freeze ad with "The
-weather's right for Acme Heating & Air" — grammatical, and wrong for what
-the ad is for — so `_house_draft_restaurant()`, `_house_draft_hvac()`,
-`_house_draft_retail()`, `_house_draft_auto()`, `_house_draft_landscaping()`,
+reading as an invitation to book at all. A tree-service ad is closest to
+roofing's shape — a tree does not fail on a comfortable day, so the copy
+names the specific hazard a condition puts a limb, a trunk or a root
+system under and the inspection or pruning call that heads it off. One
+generic house template with the business name dropped in would answer a
+hard-freeze ad with "The weather's right for Acme Heating & Air" —
+grammatical, and wrong for what the ad is for — so
+`_house_draft_restaurant()`, `_house_draft_hvac()`, `_house_draft_retail()`,
+`_house_draft_auto()`, `_house_draft_landscaping()`,
 `_house_draft_pool_spa()`, `_house_draft_roofing()`,
-`_house_draft_pest_control()` and `_house_draft_moving()` are nine separate
-templates per angle, and `_house_draft()` dispatches on `Trigger.vertical`
-rather than guessing from the trigger's tags. The model prompt carries the
-same split, through `_PROMPT_CONTEXT`.
+`_house_draft_pest_control()`, `_house_draft_moving()` and
+`_house_draft_tree_service()` are ten separate templates per angle, and
+`_house_draft()` dispatches on `Trigger.vertical` rather than guessing from
+the trigger's tags. The model prompt carries the same split, through
+`_PROMPT_CONTEXT`.
 """
 from __future__ import annotations
 
@@ -239,6 +244,23 @@ def _house_draft_moving(trig, name: str, angle: str) -> tuple[str, str]:
     return by_angle.get(angle, by_angle["Direct"])
 
 
+def _house_draft_tree_service(trig, name: str, angle: str) -> tuple[str, str]:
+    # Closest to roofing's shape: a tree does not fail on a comfortable
+    # day, so the copy names the specific hazard a condition puts a limb,
+    # a trunk or a root system under.
+    urgent = any(t in _URGENT_TAGS for t in trig.tags) or trig.cadence == "alert_driven"
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has appointments today."),
+        "Comfort": ((f"Get it checked before it comes down, {name}" if urgent
+                    else f"Get ahead of it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Schedule your visit today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
 _HOUSE_DRAFT_BY_VERTICAL = {
     "restaurant": _house_draft_restaurant,
     "hvac": _house_draft_hvac,
@@ -249,13 +271,14 @@ _HOUSE_DRAFT_BY_VERTICAL = {
     "roofing": _house_draft_roofing,
     "pest_control": _house_draft_pest_control,
     "moving": _house_draft_moving,
+    "tree_service": _house_draft_tree_service,
 }
 
 _FALLBACK_NAME = {"restaurant": "your table", "hvac": "your business",
                   "retail": "your store", "auto": "your shop",
                   "landscaping": "your business", "pool_spa": "your business",
                   "roofing": "your business", "pest_control": "your business",
-                  "moving": "your business"}
+                  "moving": "your business", "tree_service": "your business"}
 
 
 def _house_draft(trigger_id: str, client_name: str, angle: str) -> dict:
@@ -324,6 +347,7 @@ _PROMPT_CONTEXT = {
     "roofing": {"noun": "roofing & exterior company", "notes_label": "Service notes"},
     "pest_control": {"noun": "pest control company", "notes_label": "Service notes"},
     "moving": {"noun": "moving company", "notes_label": "Move notes"},
+    "tree_service": {"noun": "tree service company", "notes_label": "Service notes"},
 }
 
 

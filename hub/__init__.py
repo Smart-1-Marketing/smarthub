@@ -7170,6 +7170,7 @@ def create_hub_app() -> Flask:
         # builder is still usable without attach, and attach still
         # explains itself if the renderer is down.
         ("Display Ad Builder links", "hub.ad_builder_link", "register", "/tools/display-ads"),
+        ("Client email", "hub.client_email_routes", "register", "/client-email"),
         # The accounting-partner Marketing Efficiency Audit — a third Node
         # process in this container, same shape as the two above. Unlike
         # them, the whole prefix is public: see hub/marketing_audit_proxy.py.
@@ -7392,6 +7393,10 @@ def create_hub_app() -> Flask:
             errors.log_exception("hub", _sc_exc)
         except Exception:  # noqa: BLE001
             pass
+
+    # ---------------- Industry Prospect Builder ----------------
+    from .industry_prospect_routes import register_industry_prospects
+    register_industry_prospects(app)
 
     # ---------------- Prospect 360 ----------------
     # The record a scanned business gets before it is a client. Blueprint, so

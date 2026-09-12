@@ -715,7 +715,10 @@ section("Severity is the server's answer, not each screen's")
 for js_file in ("blueprint.js", "preview.js"):
     text = (ROOT / "modules/commercial_builder/static/js" / js_file).read_text()
     check(f"{js_file} keeps no advisory list of its own", "ADVISORY = new Set" in text, False)
-    check(f"{js_file} reads the level off the result", "result.level" in text, True)
+    check(f"{js_file} uses the shared severity renderer", "CB.renderChecks(list," in text, True)
+shared_checks = (ROOT / "modules/commercial_builder/static/js/common.js").read_text()
+check("the shared renderer keeps no advisory list", "ADVISORY = new Set" in shared_checks, False)
+check("the shared renderer reads the server's level", "const level = result.level ||" in shared_checks, True)
 qc_lv = post_json(MOUNT + f"/api/projects/{pid}/qc").get_json()["qc_results"]
 levels = {v.get("level") for k, v in qc_lv.items()
           if not k.startswith("_") and isinstance(v, dict)}

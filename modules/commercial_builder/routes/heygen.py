@@ -64,6 +64,8 @@ def _job_of(scene):
 
 def _claim(scene, meta, expected):
     """Reserve a scene atomically before making a paid provider request."""
+    from ..history import preserve_presenter
+    preserve_presenter(db.session, scene)
     count = Scene.query.filter(Scene.id == scene.id, Scene.asset_meta_json == expected).update(
         {Scene.asset_meta_json: json.dumps(meta)}, synchronize_session=False)
     db.session.commit()

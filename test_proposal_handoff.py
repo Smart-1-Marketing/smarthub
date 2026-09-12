@@ -24,6 +24,29 @@ class HandoffTests(unittest.TestCase):
         for path in ['share','deliver','conversion-check']:
             r=self.client.post(f"/api/quotes/{q['id']}/{path}",json={'revision':q['revision'],'updated_at':q['updated_at']})
             self.assertEqual(r.status_code,422,(path,r.get_data(as_text=True)[:500]))
+    def test_invalid_alternative_blocks_both_exports(self):
+        self.state['packages']=[{'name':'Recommended','lines':[{'name':'Programmatic Campaign with Retargeting','cat':'DATA TARGETED DISPLAY','amt':300}]}]
+        q=self.quote()
+        for extension in ['pdf','docx']:
+            r=self.client.get(f"/api/quotes/{q['id']}/{extension}")
+            self.assertEqual(r.status_code,422,r.get_data(as_text=True)[:500])
+            self.assertIn('Rebuild',r.json['error'])
+    def test_legacy_package_prices_remain_exportable(self):
+        self.state['packages']=[{'name':'Accelerated','lines':[{'product':'Connected TV - Targeted','dollars':9000}]}]
+        q=self.quote()
+        with patch.object(builder,'build_proposal_pdf',return_value=(b'%PDF-QA','QA')):
+            self.assertEqual(self.client.get(f"/api/quotes/{q['id']}/pdf").status_code,200)
+        self.state['packages'][0]['lines'][0]['dollars']=100
+        q=self.quote()
+        self.assertEqual(self.client.get(f"/api/quotes/{q['id']}/pdf").status_code,422)
+    def test_pdf_archive_has_direct_download(self):
+        q=self.quote()
+        with patch.object(builder,'build_proposal_pdf',return_value=(b'%PDF-QA','QA')):
+            self.assertEqual(self.client.get(f"/api/quotes/{q['id']}/pdf").status_code,200)
+        r=self.client.get(f"/api/quotes/{q['id']}/pdf/archived?download=1")
+        self.assertEqual(r.status_code,200)
+        self.assertTrue(r.headers['Content-Disposition'].startswith('attachment'))
+        self.assertEqual(r.data,b'%PDF-QA')
     def test_conversion_rejects_stale_version(self):
         q=self.quote()
         r=self.client.post(f"/api/quotes/{q['id']}/conversion-check",json={'revision':q['revision']-1})

@@ -1,0 +1,36 @@
+<section aria-labelledby="queue-title" style="margin:32px 0">
+  <h2 id="queue-title">Generate comparison scripts</h2>
+  {% if queue.error %}<p role="alert">{{ queue.error }}</p>{% else %}
+  <p>Generate one script from the current model and one from a candidate using the same fixed brief. This is a paid text-only test. It does not generate audio or change a production model.</p>
+  <p>{{ queue.month }} allowance: ${{ '%.2f'|format(queue.monthly_usd) }} · Committed reservations: ${{ '%.6f'|format(queue.committed_usd) }}.
+    Reservations use maximum token counts and remain committed after a job starts, including failures. They are not actual billed totals.</p>
+  <p>Prices reviewed {{ queue.prices_reviewed }}; paid tests pause after 30 days until prices are reviewed again.
+    {% if not queue.rates_current %}<strong>Pricing review is overdue.</strong>{% endif %}
+    {% if not queue.scheduler_enabled %}<strong>The background scheduler is disabled.</strong>{% endif %}</p>
+  <form id="comparison-queue-form" style="display:grid;gap:12px;max-width:720px">
+    <label>Writing tool <select name="profile" required>{% for row in review.profiles if row.profile.endswith('.text') %}<option value="{{ row.profile }}" data-model="{{ row.model }}">{{ row.label }} · {{ row.model }}</option>{% endfor %}</select></label>
+    <label>Candidate <select name="candidate" required>{% for model in queue.models %}<option {% if model == 'gpt-5.6-terra' %}selected{% endif %}>{{ model }}</option>{% endfor %}</select></label>
+    <label>Fixed brief <select name="brief" required>{% for key, brief in briefs.items() %}<option value="{{ key }}">{{ brief.label }}</option>{% endfor %}</select></label>
+    <label>Maximum reservation for this pair (USD) <input name="budget_usd" type="number" min="0.001" max="0.25" step="0.001" value="0.100" required></label>
+    <label><input name="confirm_spend" type="checkbox" required> I authorize this paid comparison within the budget above.</label>
+    <button type="submit" {% if not queue.rates_current or not queue.scheduler_enabled %}disabled{% endif %}>Queue paid comparison</button>
+    <p id="queue-message" role="status" aria-live="polite"></p>
+  </form>
+  <p>The worker checks the queue about once a minute. <a href="/diagnostics/ai-models">Refresh status</a>. Only models with reviewed pricing are accepted; account availability and request compatibility are checked by the provider.</p>
+  <h3>Recent generation jobs</h3>
+  {% for job in queue.jobs %}<details style="margin:12px 0;padding:12px;border:1px solid #ccc">
+    <summary>{{ job.payload.profile }} · {{ job.payload.active }} vs {{ job.payload.candidate }} · {{ job.state|replace('_', ' ')|title }}</summary>
+    <p>Job {{ job.id }} · {{ job.payload.actor }} · Reserved ${{ '%.6f'|format(job.reserved_usd) }} · {{ job.payload.brief_id }}</p>
+    <p style="white-space:pre-wrap">{{ job.payload.brief.prompt }}</p>
+    {% if job.error %}<p role="alert">{{ job.error }}</p>{% endif %}
+    {% if job.state == 'queued' %}<button type="button" data-cancel-comparison="{{ job.id }}">Cancel queued job</button>{% endif %}
+    {% for sample in job.results %}<article>
+      <h4>{{ sample.model }} · {{ 'Complete' if sample.complete else 'Needs attention' }}</h4>
+      <p>Latency: {{ sample.latency_seconds }} seconds · Estimated cost: {{ sample.estimated_cost_usd if sample.estimated_cost_usd is not none else 'Unknown' }} USD · Response: {{ sample.response_id }}</p>
+      <p>Required wording missing: {{ sample.missing|join(', ') or 'None' }}</p>
+      <pre style="white-space:pre-wrap">{{ sample.script }}</pre><p>{{ sample.review }}</p>
+    </article>{% endfor %}
+    {% if job.state == 'completed' %}<button type="button" data-review-comparison="{{ job|tojson|forceescape }}">Copy into review form</button><p>Generate and listen to voice reads separately before recording a recommendation.</p>{% endif %}
+  </details>{% else %}<p>No generation jobs queued.</p>{% endfor %}
+  {% endif %}
+</section>

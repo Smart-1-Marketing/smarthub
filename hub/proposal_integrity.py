@@ -29,18 +29,7 @@ def readiness(state):
                 problems.append(f'{label}: ${amount:,.2f}/mo is below the ${minimum:,.2f} IO minimum.')
     for medium in creative_needs.evaluate(state)['unresolved']:
         problems.append('Confirm the creative source and production scope for ' + medium + '.')
-    for package in state.get('packages') or []:
-        for line in package.get('lines') or []:
-            try:
-                amount = float(line.get('amt') or 0)
-            except (TypeError, ValueError):
-                amount = float('nan')
-            if not math.isfinite(amount) or amount <= 0:
-                problems.append('Rebuild packages with positive, finite prices.')
-                continue
-            minimum = rate_card.minimum_for(line.get('name'), line.get('cat'))
-            if 0 < amount < minimum and not line.get('consulting'):
-                problems.append(f"{package.get('name', 'Package')}: {line.get('name')} is below its IO minimum. Rebuild the packages.")
+    problems.extend(package_readiness(state))
     for failure in state.get('draftFailures') or []:
         problems.append('Retry or edit the failed section: ' + str(failure.get('title') or failure.get('id')))
     for section in state.get('sections') or []:
@@ -51,4 +40,23 @@ def readiness(state):
             problems.append('Write or hide the empty section: ' + str(section.get('title') or section.get('id')))
         if re.search(r'\b(?:on the card|card rate|wholesale|buy.side rate|internal cost)\b', body, re.I):
             problems.append('Remove internal pricing from ' + str(section.get('title') or section.get('id')))
+    return list(dict.fromkeys(problems))
+
+
+def package_readiness(state):
+    """Every printed alternative must be a feasible priced package."""
+    problems = []
+    for package in state.get('packages') or []:
+        for line in package.get('lines') or []:
+            try:
+                amount = float(line.get('amt', line.get('dollars')) or 0)
+            except (TypeError, ValueError):
+                amount = float('nan')
+            if not math.isfinite(amount) or amount <= 0:
+                problems.append('Rebuild packages with positive, finite prices.')
+                continue
+            label = line.get('name') or line.get('product')
+            minimum = rate_card.minimum_for(label, line.get('cat') or line.get('category'))
+            if 0 < amount < minimum and not line.get('consulting'):
+                problems.append(f"{package.get('name', 'Package')}: {label} is below its IO minimum. Rebuild the packages.")
     return list(dict.fromkeys(problems))

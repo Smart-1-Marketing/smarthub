@@ -109,6 +109,7 @@ _ITEMS = [
     # for it only because that is where its URL happens to live. The mount
     # stays at /tools/io so every existing link keeps working.
     ("io_builder", "/tools/io/", "&#128221;", "IO Builder"),
+    ("industry_prospects", "/sales/industry-prospects", "&#128269;", "Industry Prospects"),
     ("leads", "/sales/leads", "&#128229;", "Leads"),
     ("landing", "/sales/landing", "&#128187;", "Landing Pages"),
     ("industry_factory", "/sales/industry-factory", "&#127968;", "Industry Factory"),

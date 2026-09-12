@@ -1,0 +1,37 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Review the ad set — Smart 1</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#192631;font:15px system-ui,sans-serif}main{max-width:1440px;margin:auto;padding:28px}nav,.actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:20px}button,select,a.button{font:inherit;padding:10px 14px;border:1px solid #9ba8b5;border-radius:6px;background:white;color:#16334c;cursor:pointer}button:disabled{opacity:.5;cursor:wait}h1{font-size:28px}.actions label{max-width:100%;min-width:0}select{max-width:100%;min-width:0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}.card{background:white;border:1px solid #cbd2da;border-radius:8px;padding:16px;break-inside:avoid}.art{height:250px;display:flex;align-items:center;justify-content:center;background:#e9edf0}.art img{max-width:100%;max-height:250px;object-fit:contain}.status{font-weight:700}.pass{color:#14643a}.warn{color:#825300}.fail{color:#a22025}.muted{color:#53606b}table{width:100%;border-collapse:collapse;background:white}th,td{padding:12px;text-align:left;border:1px solid #cad1d8;vertical-align:top;overflow-wrap:anywhere}pre{white-space:pre-wrap;word-break:break-word;margin:0}.compare-art{display:grid;grid-template-columns:1fr 1fr;gap:16px}details{margin-top:12px}#message{padding:12px;background:#fff;border-left:4px solid #365e86;margin:16px 0}section{margin-top:30px}@media print{nav,button,.actions{display:none}main{padding:0}.grid{grid-template-columns:repeat(3,1fr)}.art,.art img{max-height:170px}body{background:white}}@media(max-width:600px){main{padding:16px}.compare-art{grid-template-columns:1fr}}
+</style></head><body><main>
+<nav><a id="editor" href="/build">Back to editor</a><a href="/projects">Projects</a></nav>
+<h1>Review the whole ad set</h1><p id="client" class="muted"></p><p>Inspect every concept, size and platform together. Each sheet captures the saved version and the files that approval will protect.</p>
+<div class="actions"><button id="build">Build contact sheet</button><button id="approve" disabled>Approve all passing sizes</button><button id="print">Print / save PDF</button></div>
+<p class="muted">Bulk approval skips a size if any bought platform has a warning or failure. Manually replaced artwork always needs individual review.</p>
+<div id="message" role="status" aria-live="polite">Build a contact sheet to begin.</div><div id="sheet" class="grid"></div>
+<section><h2>Compare saved versions</h2><p>Choose an older and newer save to see changed fields. Captured artwork is shown when a contact sheet exists; historical images are never recreated from today's assets.</p>
+<div class="actions"><label>Older version <select id="before"></select></label><label>Newer version <select id="after"></select></label><button id="compare">Compare versions</button></div>
+<div id="comparison"></div></section></main>
+<script>
+(function(){
+  'use strict';
+  const id = new URLSearchParams(location.search).get('project');
+  const $ = id => document.getElementById(id);
+  const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const prefix = '/api/project/' + encodeURIComponent(id);
+  let review;
+  async function api(path, body){const r=await fetch(prefix+path,body ? {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)} : undefined);const b=await r.json();if(!r.ok)throw Error(b.error||'Request failed');return b;}
+  function message(text){$('message').textContent=text;}
+  function cards(cells){return cells.map(c=>'<article class="card"><h3>'+esc(c.conceptId)+' · '+esc(c.size)+' · '+esc(c.platform)+'</h3><div class="art">'+(c.image?'<img src="'+esc(c.image)+'" alt="'+esc(c.conceptId+' '+c.size+' '+c.platform)+'">':'No artwork captured')+'</div><p class="status '+c.status+'">'+esc(c.status.toUpperCase())+'</p><ul>'+c.qa.filter(q=>q.status!=='pass').map(q=>'<li>'+esc(q.detail)+'</li>').join('')+'</ul></article>').join('');}
+  async function history(){const b=await api('/versions');$('client').textContent=b.client+' · '+b.projectName;document.title='Ad review — '+b.client+' — '+b.projectName;$('editor').href=(window.S1_BASE||'')+'/build?request='+encodeURIComponent(b.requestId);for(const key of ['before','after'])$(key).innerHTML=b.versions.map(v=>'<option value="'+esc(v.id||v.revision)+'">'+esc(new Date(v.savedAt).toLocaleString()+' · '+v.kind)+'</option>').join('');if(b.versions.length>1)$('before').selectedIndex=1;}
+  async function poll(token){
+    try{review=await api('/review-set/'+token);$('sheet').innerHTML=cards(review.cells);message(review.status==='building'?'Rendering contact sheet: '+review.cells.length+' placements captured…':review.status==='ready'?'Contact sheet ready · saved version '+review.revision.slice(0,8)+' · '+new Date(review.createdAt).toLocaleString():review.error);
+      if(review.status==='building'){setTimeout(()=>poll(token),1500);return;}
+      $('build').disabled=false;$('approve').disabled=review.status!=='ready'||!review.cells.some(c=>c.status==='pass');await history();
+    }catch(e){message(e.message);$('build').disabled=false;$('approve').disabled=true;}
+  }
+  $('build').onclick=async()=>{try{$('build').disabled=true;$('approve').disabled=true;message('Starting contact sheet…');const b=await api('/review-set',{});await poll(b.id);}catch(e){message(e.message);$('build').disabled=false;}};
+  $('approve').onclick=async()=>{if(!review)return;try{$('approve').disabled=true;const b=await api('/bulk-approve',{id:review.id,revision:review.revision});message(b.approved.length+' sizes approved; '+b.skipped.length+' require individual attention. Return to the editor and reload to see the locks.');}catch(e){message(e.message);}};
+  $('print').onclick=()=>window.print();
+  $('compare').onclick=async()=>{try{const b=await api('/versions?before='+encodeURIComponent($('before').value)+'&after='+encodeURIComponent($('after').value));$('comparison').innerHTML='<p>'+b.changes.length+' changed fields.</p><table><thead><tr><th>Field</th><th>Older</th><th>Newer</th></tr></thead><tbody>'+b.changes.map(c=>'<tr><td>'+esc(c.path.replace(/^campaign\./,'').replace(/concepts\.(\d+)/,(_,n)=>'Concept '+(Number(n)+1)).replace(/\.copy\.default/g,' · All sizes').replace(/\./g,' · ').replace(/([a-z])([A-Z])/g,'$1 $2'))+'</td><td><pre>'+esc(JSON.stringify(c.before,null,2))+'</pre></td><td><pre>'+esc(JSON.stringify(c.after,null,2))+'</pre></td></tr>').join('')+'</tbody></table><div class="compare-art"><section><h3>Older captured artwork</h3>'+(b.before?cards(b.before.cells):'<p>No contact sheet captured for this version.</p>')+'</section><section><h3>Newer captured artwork</h3>'+(b.after?cards(b.after.cells):'<p>No contact sheet captured for this version.</p>')+'</section></div>';}catch(e){message(e.message);}};
+  if(!id){message('Open this page from a saved campaign.');$('build').disabled=true;}else history().catch(e=>message(e.message));
+})();
+</script></body></html>

@@ -1,6 +1,6 @@
 """Admin-only AI model review. No endpoint activates a production model."""
 from flask import Blueprint, jsonify, render_template, request
-from hub import ai_models, ai_comparisons
+from hub import ai_models, ai_comparisons, ai_comparison_queue
 
 bp = Blueprint("ai_model_review", __name__)
 
@@ -23,9 +23,13 @@ def guard():
 @bp.get("/diagnostics/ai-models")
 def page():
     from hub.users_routes import current_account
+    try:
+        queue = ai_comparison_queue.snapshot()
+    except Exception:
+        queue = {"error": "Comparison queue is unavailable. Existing reviews remain accessible."}
     return render_template("ai_models.html", active="diagnostics", user=current_account().email,
                            review=ai_models.inventory(), briefs=ai_comparisons.BRIEFS,
-                           comparisons=ai_comparisons.history())
+                           comparisons=ai_comparisons.history(), queue=queue)
 
 
 @bp.post("/api/diagnostics/ai-models/refresh")
@@ -57,3 +61,28 @@ def comparison():
         return jsonify(row), 201
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
+
+
+@bp.post("/api/diagnostics/ai-models/jobs")
+def enqueue_comparison():
+    from hub.users_routes import current_account
+    try:
+        return jsonify(ai_comparison_queue.enqueue(request.get_json(silent=True), current_account().email)), 202
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except Exception:
+        return jsonify(error="Queue storage unavailable. Retry with the same request ID."), 503
+
+
+@bp.post("/api/diagnostics/ai-models/jobs/cancel")
+def cancel_comparison():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not isinstance(body.get("id"), str):
+        return jsonify(error="Supply a job ID."), 400
+    try:
+        ai_comparison_queue.cancel(body["id"])
+        return jsonify(ok=True)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    except Exception:
+        return jsonify(error="Queue storage unavailable."), 503

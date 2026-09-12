@@ -157,8 +157,11 @@ export function renderDiagnostics(r: Report, jobs: JobRow[] = []): string {
   <div class="bar">
     <button onclick="location.reload()">Run again</button>
     <a class="btn" href="?format=json">View as JSON</a>
+    <button id="copySmoke">Test real AI copy generation</button>
   </div>
 
+  <p>This optional copy test makes one paid AI request using synthetic data, without changing a campaign.</p><pre id="copyResult" role="status" style="white-space:pre-wrap"></pre>
+  <script>document.getElementById('copySmoke').onclick=async function(){if(!confirm('Run one paid AI copy-generation test with synthetic data?'))return;this.disabled=true;const box=document.getElementById('copyResult');box.textContent='Testing generation…';try{const r=await fetch('/api/diagnostics/copy-smoke',{method:'POST'});const b=await r.json();box.textContent=JSON.stringify(b,null,2);}catch(e){box.textContent='Test could not complete: '+e.message;}finally{this.disabled=false;}};</script>
   <footer>Checks run live against this process. Integration checks make a real
   outbound call, so a failure here means this host genuinely cannot reach that
   service.</footer>

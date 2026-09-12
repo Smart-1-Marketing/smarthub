@@ -23,6 +23,7 @@ import { CloudinaryService } from './cloudinary';
 import { configuredToken, tokenIsWeak, bucketCount } from './auth';
 import { notificationsState, outboxState } from './notify';
 import { renderPreview } from './render';
+import { authenticatedAiCheck } from './ai-health';
 import type { Brand, CreativeConcept, SizeKey, Box, SizeLayout } from './types';
 
 export type Level = 'ok' | 'warn' | 'fail' | 'skip';
@@ -273,9 +274,11 @@ function checkPlatforms(): Check[] {
   const platforms = loadPlatforms();
   const out: Check[] = [];
   const unverified: string[] = [];
+  const disabled: string[] = [];
 
   for (const cfg of platforms.values()) {
     for (const [size, rule] of Object.entries(cfg.sizes)) {
+      if (rule.enabled === false) { disabled.push(`${cfg.platform}/${size}`); continue; }
       const why = ceilingDoubt(rule as never);
       if (why) unverified.push(`${cfg.platform}/${size} (${why})`);
     }
@@ -286,6 +289,8 @@ function checkPlatforms(): Check[] {
     level: platforms.size ? 'ok' : 'fail',
     detail: [...platforms.values()].map((p) => `${p.platform} (${Object.keys(p.sizes).length} sizes)`).join(', '),
   });
+
+  out.push({ id: 'platforms.disabled', group: 'Platform rules', label: 'Disabled placements', level: disabled.length ? 'warn' : 'ok', detail: disabled.length ? disabled.join(', ') + ': excluded until specifications are verified' : 'None' });
 
   out.push({
     id: 'platforms.verify', group: 'Platform rules', label: 'Unconfirmed limits',
@@ -591,11 +596,12 @@ export async function runDiagnostics(opts: { outDir: string; assetRoot: string }
   checks.push(await timed(() => pingHost('net.brandfetch', 'Brandfetch reachable',
     'https://api.brandfetch.io/v2/brands/example.com',
     'No outbound route to Brandfetch. Check egress rules on this host.')));
-  checks.push(await timed(() => pingHost('net.openai', 'OpenAI reachable',
+  checks.push(await timed(() => pingHost('net.openai', 'OpenAI network connectivity (not authentication)',
     'https://api.openai.com/v1/models',
     'No outbound route to OpenAI. Check egress rules on this host.')));
 
   checks.push(await timed(() => checkRender(opts.assetRoot)));
+  checks.push(await timed(() => authenticatedAiCheck()));
 
   const summary = {
     ok: checks.filter((c) => c.level === 'ok').length,

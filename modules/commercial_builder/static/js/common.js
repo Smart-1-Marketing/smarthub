@@ -247,5 +247,35 @@ const CB = (() => {
     return d.innerHTML;
   }
 
-  return { api, toast, fmtTime, el, debounce, working, escapeHtml, API_ROOT };
+  function renderChecks(list, results, labels) {
+    list.replaceChildren();
+    const passed = [];
+    let blocking = 0;
+    Object.entries(results).forEach(([key, result]) => {
+      if (!Object.prototype.hasOwnProperty.call(labels, key)) return;
+      const level = result.level || (result.passed ? "pass" : "fail");
+      const tone = level === "pass" || level === "warn" ? level : "fail";
+      const mark = tone === "pass" ? "✓" : (tone === "warn" ? "!" : "✕");
+      if (tone === "fail") blocking += 1;
+      const item = el(`<div class="cb-qc-item">
+        <div class="cb-qc-icon ${tone}">${mark}</div>
+        <div class="cb-qc-text"><strong>${escapeHtml(labels[key])}</strong>
+        <span>${escapeHtml(result.message)}</span></div>
+      </div>`);
+      if (tone === "pass") passed.push(item);
+      else list.appendChild(item);
+    });
+    if (passed.length) {
+      const details = document.createElement("details");
+      details.className = "cb-qc-passed";
+      const summary = document.createElement("summary");
+      summary.textContent = `${passed.length} passed ${passed.length === 1 ? "check" : "checks"}`;
+      details.appendChild(summary);
+      passed.forEach((item) => details.appendChild(item));
+      list.appendChild(details);
+    }
+    return blocking;
+  }
+
+  return { api, toast, fmtTime, el, debounce, working, escapeHtml, renderChecks, API_ROOT };
 })();
