@@ -430,6 +430,13 @@ def generate_script(project_id):
 def set_music(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     data = request.get_json(force=True) or {}
+    if not isinstance(data, dict):
+        return jsonify(ok=False, error="Send music and voice settings as an object."), 400
+    if "voice_id" in data and (not isinstance(data["voice_id"], str) or not 1 <= len(data["voice_id"]) <= 120):
+        return jsonify(ok=False, error="Choose a valid narration voice."), 400
+    if "pronunciation_dict" in data and (not isinstance(data["pronunciation_dict"], dict) or len(data["pronunciation_dict"]) > 200
+            or any(not isinstance(k, str) or not isinstance(v, str) or len(k) > 120 or len(v) > 300 for k, v in data["pronunciation_dict"].items())):
+        return jsonify(ok=False, error="Enter up to 200 pronunciation pairs."), 400
     # Merged, not replaced.
     #
     # This used to assign a fresh two-key dict, which quietly wiped
@@ -439,8 +446,22 @@ def set_music(project_id):
     # the finished commercial came back silent with nothing reading as an
     # error anywhere.
     music = dict(project.music or {})
-    music["mood"] = data.get("mood")
-    music["level"] = data.get("level", "Medium")
+    music["mood"] = data.get("mood", music.get("mood"))
+    music["level"] = data.get("level", music.get("level", "Medium"))
+    changed = {key for key in ("voice_id", "pronunciation_dict") if key in data and data[key] != music.get(key)}
+    for key in ("voice_id", "pronunciation_dict"):
+        if key in data:
+            music[key] = data[key]
+    if changed:
+        if music.get("voice_track_url") or music.get("voice_mode") == "scenes":
+            music["voice_track_stale"] = True
+        for scene in project.scenes.all():
+            meta = dict(scene.asset_meta or {})
+            if meta.get("voiceover"):
+                meta["voiceover"] = {**meta["voiceover"], "stale": True}
+            if "pronunciation_dict" in changed and (meta.get("heygen_job") or meta.get("spokesperson_url")):
+                meta["presenter_stale"] = True
+            scene.asset_meta = meta
     project.music = music
     db.session.commit()
     return jsonify({"ok": True, "music": project.music})
@@ -940,76 +961,54 @@ def expand_campaign(campaign_id):
 # ---------------------------------------------------------------------------
 @bp.post("/<int:project_id>/variation")
 def create_variation(project_id):
+    from ..variations import clone
     parent = CommercialProject.query.get_or_404(project_id)
-    data = request.get_json(force=True) or {}
-    variation_type = data.get("variation_type")
-    changes = data.get("changes") or {}
-
-    child = CommercialProject(
-        client_id=parent.client_id, campaign_id=parent.campaign_id,
-        title=f"{parent.title} — {variation_type} variation",
-        length_seconds=changes.get("length_seconds", parent.length_seconds),
-        commercial_type=parent.commercial_type, status=parent.status,
-    )
-    child.formats = parent.formats
-    child.brief = dict(parent.brief or {})
-    child.concepts = parent.concepts
-    child.selected_concept_id = parent.selected_concept_id
-    child.script = parent.script
-    child.music = dict(parent.music or {})
-    child.cta = dict(parent.cta or {})
-
-    # Apply the requested change on top of the cloned brief/CTA/music so only
-    # what changed actually changes — everything else (footage choices,
-    # locked scenes) carries over untouched.
-    if variation_type == "offer":
-        child.brief["what_advertising"] = changes.get("what_advertising", child.brief.get("what_advertising"))
-    elif variation_type == "location":
-        child.brief["target_audience"] = changes.get("target_audience", child.brief.get("target_audience"))
-    elif variation_type == "weather":
-        child.brief["what_advertising"] = changes.get("what_advertising", child.brief.get("what_advertising"))
-        child.brief["tone"] = changes.get("tone", child.brief.get("tone"))
-    elif variation_type == "cta":
-        child.cta.update(changes)
-    elif variation_type == "voice":
-        child.music["voice_id"] = changes.get("voice_id")
-    elif variation_type == "duration":
-        child.length_seconds = changes.get("length_seconds", child.length_seconds)
-
-    db.session.add(child)
-    db.session.flush()  # get child.id before copying scenes
-
-    for scene in parent.scenes.all():
-        clone = Scene(
-            project_id=child.id, order_index=scene.order_index, start=scene.start, end=scene.end,
-            narration=scene.narration, visual_description=scene.visual_description,
-            asset_type=scene.asset_type, asset_source=scene.asset_source, asset_url=scene.asset_url,
-            asset_thumb_url=scene.asset_thumb_url, is_cta=scene.is_cta,
-            # "New footage" variations intentionally unlock every scene so
-            # the storyboard editor re-sources everything on regenerate.
-            locked=(variation_type != "footage") and scene.locked,
-        )
-        clone.asset_meta = scene.asset_meta
-        db.session.add(clone)
-
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not isinstance(data.get("changes", {}), dict):
+        return jsonify(ok=False, error="Send valid variation settings."), 400
+    kind, changes = data.get("variation_type"), data.get("changes", {})
+    fields = {"offer": "what_advertising", "location": "target_audience", "weather": "what_advertising",
+              "cta": "headline", "voice": "voice_id", "duration": "length_seconds", "footage": None}
+    if kind not in fields:
+        return jsonify(ok=False, error="Choose a supported variation type."), 400
+    field = fields[kind]
+    value = changes.get(field) if field else None
+    if kind == "duration":
+        if type(value) is not int or value not in COMMERCIAL_LENGTHS:
+            return jsonify(ok=False, error="Choose a supported commercial length."), 400
+    elif field and (not isinstance(value, str) or not 1 <= len(value.strip()) <= 3000):
+        return jsonify(ok=False, error="Enter the new value (1–3000 characters)."), 400
+    child, mapping = clone(parent, title=f"{parent.title} — {kind} variation")
+    brief, cta, music = dict(child.brief or {}), dict(child.cta or {}), dict(child.music or {})
+    if kind in ("offer", "location", "weather"):
+        brief[field] = value.strip()
+        # This is a draft brief change. Generating copy remains an explicit
+        # action, so creating a variation cannot silently spend or fail halfway.
+        brief["variation_needs_script"] = True
+    elif kind == "cta":
+        cta["headline"] = value.strip()
+    elif kind == "voice":
+        music["voice_id"] = value.strip()
+        music["voice_track_stale"] = True
+        for scene in mapping.values():
+            meta = dict(scene.asset_meta or {})
+            if meta.get("voiceover"):
+                meta["voiceover"] = {**meta["voiceover"], "stale": True}
+            scene.asset_meta = meta
+    elif kind == "duration":
+        scale = value / parent.length_seconds
+        child.length_seconds = value
+        for scene in mapping.values():
+            scene.start, scene.end = round(scene.start * scale, 2), round(scene.end * scale, 2)
+        music["voice_track_stale"] = True
+        brief["variation_needs_script"] = True
+    elif kind == "footage":
+        for scene in mapping.values():
+            scene.locked = False
+    child.brief, child.cta, child.music = brief, cta, music
     variation = Variation(parent_project_id=parent.id, child_project_id=child.id,
-                           variation_type=variation_type, changes=changes)
+                          variation_type=kind, changes=changes)
     db.session.add(variation)
     db.session.commit()
-
-    # If the brief/CTA/tone changed, re-run the script writer so narration
-    # reflects the new offer/location/weather — but only for unlocked scenes.
-    if variation_type in ("offer", "location", "weather", "duration"):
-        client = Client.query.get(child.client_id)
-        concept = next((c for c in (child.concepts or []) if c["id"] == child.selected_concept_id), None)
-        if concept:
-            script = openai_service.generate_script(concept, child.length_seconds, child.brief, client.to_dict())
-            child.script = script
-            for idx, sc in enumerate(script["scenes"]):
-                scene = child.scenes.filter_by(order_index=idx).first()
-                if scene and not scene.locked:
-                    scene.start, scene.end = sc["start"], sc["end"]
-                    scene.narration, scene.visual_description = sc["voiceover"], sc["visual"]
-            db.session.commit()
-
-    return jsonify({"ok": True, "project": child.to_dict(), "variation": variation.to_dict()}), 201
+    return jsonify(ok=True, project=child.to_dict(), variation=variation.to_dict(),
+                   note="Draft created. Review the copy and regenerate changed media before rendering."), 201

@@ -246,6 +246,24 @@
         row.appendChild(btn);
       }
       card.appendChild(row);
+      const report = document.createElement('div'); report.className = 'cb-note';
+      const paint = inspection => {
+        report.replaceChildren();
+        const label = document.createElement('strong'); label.textContent = `Finished-file checks: ${(inspection || {}).status || 'pending'}`; report.append(label);
+        for (const check of (inspection || {}).checks || []) {
+          const p = document.createElement('p'); p.textContent = `${check.passed ? '✓' : '✕'} ${check.label}: ${check.detail}`; report.append(p);
+        }
+        for (const warning of (inspection || {}).warnings || []) { const p = document.createElement('p'); p.textContent = warning; report.append(p); }
+        const note = document.createElement('p'); note.textContent = (inspection || {}).note || 'Automatic checks will run in the background. You can check now.'; report.append(note);
+      };
+      paint(job.inspection); card.append(report);
+      const check = CB.el('<button class="cb-btn cb-btn-sm">Check finished file</button>');
+      check.addEventListener('click', async () => {
+        check.disabled = true; check.textContent = 'Inspecting video…';
+        try { const d = await CB.api(`/api/projects/${projectId}/render-jobs/${job.id}/inspect`, {method: 'POST'}); paint(d.inspection); }
+        catch (e) { report.textContent = e.message; }
+        finally { check.disabled = false; check.textContent = 'Check finished file'; }
+      }); card.append(check);
       if (approved) card.appendChild(filingReport(approved));
     }
     return card;
@@ -289,16 +307,23 @@
       + "</p>";
   }
 
-  async function approve(job, btn, override) {
+  async function approve(job, btn, override, acknowledgeVideo = false) {
     btn.disabled = true;
     btn.textContent = "Filing…";
     let data;
     try {
       data = await CB.api(`/api/projects/${projectId}/render-jobs/${job.id}/approve`,
-                          { method: "POST", body: { override: !!override } });
+                          { method: "POST", body: { override: !!override, acknowledge_unverified_video: acknowledgeVideo } });
     } catch (e) {
       btn.disabled = false;
       btn.textContent = "Approve & file";
+      if (e.data && e.data.needs_video_acknowledgment) {
+        const box = document.createElement('div'); box.className = 'cb-note';
+        const p = document.createElement('p'); p.textContent = e.message; box.append(p);
+        const go = CB.el('<button class="cb-btn cb-btn-sm">I watched the whole cut and verified picture, timing and audio — file it</button>');
+        go.addEventListener('click', () => { box.remove(); approve(job, btn, override, true); });
+        box.append(go); btn.parentNode.parentNode.append(box);
+      }
       // The client asked for changes. That is a decision to put in front of
       // somebody, not a failure to swallow into a three-second toast — and
       // it is overridable, because a rep who has settled it on the phone

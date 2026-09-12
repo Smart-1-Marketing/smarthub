@@ -479,3 +479,26 @@ a.cb-step.done:hover{background:#d5f0e0;}
 .cb-presenter-choice:focus-visible { outline: 3px solid #2776e8; outline-offset: 3px; }
 .cb-presenter-choice:disabled { opacity: .55; cursor: not-allowed; }
 .cb-presenter-picker audio { max-width: 100%; }
+
+/* Finishing rehearsal: frame stays bounded in both orientations. */
+.cb-finishing-controls {display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-bottom:12px}
+.cb-rehearsal-layout {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:start}
+.cb-timeline-stage {position:relative;background:#152337;color:white;--frame-height:520px;--frame-ratio:1.7778;width:min(100%,calc(var(--frame-height) * var(--frame-ratio)));max-width:560px;overflow:hidden;justify-self:center}
+#timeline-media,#timeline-overlay {position:absolute;inset:0}
+#timeline-media {display:grid;place-items:center;text-align:center;padding:0}
+#timeline-media img,#timeline-media video {width:100%;height:100%;object-fit:cover}
+.cb-timeline-safe {position:absolute;border:2px dashed #ffdb6e;pointer-events:none;z-index:4}
+.cb-timeline-safe span {font-size:11px;background:#172536;color:#ffdb6e;position:absolute;top:0;left:0;padding:2px 4px}
+.cb-rehearsal-text {position:absolute;transform:translate(-50%,-50%);text-align:center;font-size:clamp(10px,1.7vw,22px);line-height:1.2;text-shadow:0 1px 3px black}
+.cb-timeline-caption {position:absolute;left:15%;width:70%;top:63%;min-height:14%;display:grid;place-items:center;text-align:center;font-size:clamp(12px,1.7vw,24px);line-height:1.2;text-shadow:0 2px 3px #000;pointer-events:none}
+.cb-timeline-row {display:block;text-align:left;width:100%;padding:10px;margin:6px 0;border:1px solid #bbc5d1;border-radius:6px;background:#f2f6fa;color:#182d45;cursor:pointer}
+.cb-timeline-row:focus-visible {outline:3px solid #206bc4;outline-offset:2px}
+.cb-timeline-warning {border-color:#a54512;background:#fff0db}
+#finishing-root ~ .cb-grid details label {display:block;margin:12px 0 5px}
+#finishing-root ~ .cb-grid details input[type=text],#finishing-root ~ .cb-grid details select {max-width:100%;width:100%}
+#variation-lines {width:100%;box-sizing:border-box}
+@media(max-width:760px) {.cb-rehearsal-layout {grid-template-columns:1fr}.cb-timeline-stage {--frame-height:420px;max-width:100%}.cb-finishing-controls {display:grid}}
+
+.cb-btn[hidden] {display:none!important}
+
+.cb-presenter-area {position:absolute;top:30%;left:10%;right:10%;padding:8px;background:#172536e6;color:#fff;font-size:12px}

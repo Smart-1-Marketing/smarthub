@@ -75,6 +75,7 @@ class Client(db.Model):
 
     projects = db.relationship("CommercialProject", backref="client", lazy="dynamic",
                                 cascade="all, delete-orphan")
+    brand_presets = db.relationship("BrandPreset", cascade="all, delete-orphan")
 
     def to_dict(self):
         return {
@@ -134,6 +135,7 @@ class CommercialProject(db.Model):
                                    cascade="all, delete-orphan")
     production_takes = db.relationship("ProductionTake", lazy="dynamic",
                                        cascade="all, delete-orphan")
+    production_usage = db.relationship("ProductionUsage", cascade="all, delete-orphan")
 
     def to_dict(self, include_scenes=True):
         d = {
@@ -255,6 +257,7 @@ class RenderJob(db.Model):
     error = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    inspection = db.relationship("RenderInspection", uselist=False, cascade="all, delete-orphan")
 
     def to_dict(self):
         return {
@@ -577,3 +580,7 @@ class ComplianceAck(db.Model):
             "findings": self.findings or [],
             "note": self.note or "",
         }
+
+
+# Register additive production tables for model-only and background callers too.
+from . import finishing_models as _finishing_models  # noqa: E402,F401

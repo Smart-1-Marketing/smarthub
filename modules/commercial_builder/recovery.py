@@ -60,9 +60,19 @@ def recover_pending(limit=8, budget_seconds=45):
                if f"render:{j.id}" not in due]
     renders.sort(key=lambda item: last.get(item[0], 0))
     renders = renders[:limit]
+    from .finishing_models import RenderInspection
+    inspections = [(f"inspection:{j.id}", "inspection", j.project_id, j.id)
+                   for j in RenderJob.query.join(RenderInspection, RenderInspection.job_id == RenderJob.id)
+                   .filter(RenderJob.status == "succeeded", RenderJob.output_url.isnot(None),
+                           RenderInspection.status.in_(("pending", "unverified"))).order_by(RenderJob.id).all()
+                   if f"inspection:{j.id}" not in due]
+    inspections.sort(key=lambda item: last.get(item[0], 0))
+    inspections = inspections[:limit]
     queue = []
     for i in range(max(len(candidates), len(renders))):
         queue.extend(group[i] for group in (candidates, renders) if i < len(group))
+    queue.sort(key=lambda item: last.get(item[0], 0))
+    queue += inspections
     queue.sort(key=lambda item: last.get(item[0], 0))
     summary = {"checked": 0, "errors": 0, "pending": 0}
     for key, kind, project_id, item_id in queue[:limit]:
@@ -72,7 +82,12 @@ def recover_pending(limit=8, budget_seconds=45):
             continue
         error, pending = None, False
         try:
-            if kind == "presenter":
+            if kind == "inspection":
+                from .services.finished_video import inspect_job
+                result = inspect_job(db.session.get(RenderJob, item_id), force=True)
+                error = "Finished video inspection unavailable" if result["status"] == "unverified" else None
+                pending = bool(error)
+            elif kind == "presenter":
                 response = spokesperson_status(project_id, item_id)
                 if isinstance(response, tuple):
                     response = response[0]

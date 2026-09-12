@@ -12,7 +12,9 @@ const CB = (() => {
     try { data = await res.json(); } catch (e) { data = { ok: false, error: "Bad response from server." }; }
     if (!res.ok || data.ok === false) {
       toast(data.error || `Request failed (${res.status})`, true);
-      throw new Error(data.error || `Request failed (${res.status})`);
+      const error = new Error(data.error || `Request failed (${res.status})`);
+      error.data = data;
+      throw error;
     }
     noteMock(path, data);
     return data;

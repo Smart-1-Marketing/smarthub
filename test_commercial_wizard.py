@@ -439,6 +439,8 @@ def get_json(path):
 
 
 def post_json(path, body=None, method="post"):
+    if path.endswith('/approve'):
+        body = {**(body or {}), 'acknowledge_unverified_video': True}
     fn = client.post if method == "post" else client.put
     return fn(path, data=json.dumps(body or {}),
               headers={"Content-Type": "application/json"})

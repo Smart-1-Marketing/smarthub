@@ -221,6 +221,11 @@ def record(provider: str, *, module: str = "", detail: str = "",
               api=api or None, model=model or None,
               bytes=int(nbytes) or None, ok=(None if ok else False),
               month=month_key())
+    if module == "commercial_builder":
+        from modules.commercial_builder.usage import record as record_project_usage
+        rate = IMAGE_PRICING.get(model) if provider == "openai" and detail == "image generation" else None
+        record_project_usage(provider, operation=api or detail, units=units, cached=cached, ok=ok,
+                             cost=rate * units if rate is not None and ok else None)
 
 
 # ---------------------------------------------------------------------------

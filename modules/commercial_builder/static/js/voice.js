@@ -204,6 +204,7 @@
   }
 
   async function selectVoice(voiceId, name) {
+    await CB.api(`/api/projects/${projectId}/music`, {method: 'PUT', body: {voice_id: voiceId}});
     await CB.api(`/api/clients/${clientId}`, {
       method: "PUT", body: { preferred_voiceover_id: voiceId },
     });
@@ -256,11 +257,11 @@
   });
 
   async function loadClient() {
-    const { client } = await CB.api(`/api/clients/${clientId}`);
+    const [{ client }, { project }] = await Promise.all([CB.api(`/api/clients/${clientId}`), CB.api(`/api/projects/${projectId}`)]);
     CustomerVoicePicker.mount(document.getElementById("customer-voice-picker"), {client:client.name||"", onSelect:v=>selectVoice(v.voice_id,v.name)});
-    clientPronunciation = client.pronunciation_dict || {};
-    if (client.preferred_voiceover_id) {
-      selectedVoiceId = client.preferred_voiceover_id;
+    clientPronunciation = (project.music || {}).pronunciation_dict || client.pronunciation_dict || {};
+    if ((project.music || {}).voice_id || client.preferred_voiceover_id) {
+      selectedVoiceId = (project.music || {}).voice_id || client.preferred_voiceover_id;
       document.getElementById("voice-select").value = selectedVoiceId;
     }
     renderPronRows();
@@ -294,6 +295,7 @@
       if (word) dict[word] = phonetic;
     });
     clientPronunciation = dict;
+    await CB.api(`/api/projects/${projectId}/music`, {method: 'PUT', body: {pronunciation_dict: dict}});
     await CB.api(`/api/clients/${clientId}/pronunciation`,
                  { method: "PUT", body: { pronunciation_dict: dict } });
   }
@@ -310,6 +312,7 @@
         method: "POST",
         body: {
           voice_id: selectedVoiceId,
+          regenerate: document.getElementById('voice-new-take').checked,
           speed: parseFloat(document.getElementById("voice-speed").value),
           stability: parseFloat(document.getElementById("voice-stability").value),
           style: parseFloat(document.getElementById("voice-style").value),
