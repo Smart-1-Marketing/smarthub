@@ -456,6 +456,11 @@ $("results").addEventListener("click", function(ev){
   choose(row.getAttribute("data-name"), row.getAttribute("data-url"));
 });
 function choose(name, url){
+  ++openContextRequest;
+  state.contextLoading=false;
+  $("contextNotice").textContent='';
+  $("openNotice").textContent='';
+  $("retryOpen").hidden=true;
   state.context = null;
   state.holidays = []; suggestions = []; renderIdeas();
   state.client = name;
