@@ -155,6 +155,22 @@ WRITE: tuple[Scope, ...] = (
            "modules/social_planner/suite_client.py"), True),
     Scope(SCOPE_SOCIAL_READ, "Reading back what Social Planner scheduled",
           ("modules/social_planner/app.py",), True),
+
+    # 360 Skills' Email Creator (modules/skills360/suite_email.py): a message
+    # composed on Client 360 is saved into the client's own sub-account Email
+    # Builder, sent as a test, or sent to chosen contacts through
+    # /conversations/messages -- every call on a location token minted by
+    # hub/suite_accounts.token_for, never an env-var location. Unverified
+    # until an agency owner re-consents; until then readiness() reports the
+    # scopes as missing and the card says so rather than 401-ing quietly.
+    # The strings are HighLevel's own console names (AVAILABLE below).
+    Scope("emails/builder.readonly", "Proving a client's sub-account email builder answers before "
+          "the Email Creator skill is switched on",
+          ("modules/skills360/suite_email.py",), False),
+    Scope("emails/builder.write", "Saving an email composed on Client 360 into the client's Email Builder",
+          ("modules/skills360/suite_email.py",), False),
+    Scope("conversations/message.write", "Sending an Email Creator test or batch from the client's sub-account",
+          ("modules/skills360/suite_email.py",), False),
 )
 
 REQUESTED: tuple[Scope, ...] = READ + WRITE
@@ -224,8 +240,12 @@ AVAILABLE: frozenset = frozenset({
     "companies.readonly",
     # Contacts
     "contacts.readonly", "contacts.write",
-    # Conversations
-    "conversations.readonly",
+    # Conversations. The two message scopes are not on the console's picker
+    # page but are what HighLevel's own OpenAPI (apps/conversations.json,
+    # POST /conversations/messages) names for sending -- read there on
+    # 2026-09-12 for 360 Skills' Email Creator.
+    "conversations.readonly", "conversations.write",
+    "conversations/message.readonly", "conversations/message.write",
     # Custom Fields
     "locations/customFields.readonly", "locations/customFields.write",
     # Custom Menus

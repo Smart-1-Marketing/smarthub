@@ -401,6 +401,11 @@ PUBLIC_DYNAMIC: dict[str, str] = {
     "/tools/marketing-audit/<path:path>": "every asset and read route of the "
         "Marketing Efficiency Audit, proxied whole to the Node process "
         "behind it -- see the /tools/marketing-audit* entry in PUBLIC",
+    "/hot/<token>*": "a client's own store hotsheet from 360 Skills "
+                     "(modules/skills360), reached by an unguessable token "
+                     "that dies with the skill -- the page and its one read "
+                     "API. A wrong token is a 404 that says the link is not "
+                     "active, never a login form",
 }
 
 

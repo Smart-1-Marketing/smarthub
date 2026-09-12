@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{% if found %}{{ client }} · Store Hotsheet{% else %}Link not active{% endif %}</title>
+<style>
+  :root{--ink:#1a2b3c;--mute:#5a6b7c;--line:#e6ebf0;--bg:#f4f6f9;--card:#fff;--acc:#1e3a5f;--ok:#0a6b3c;--bad:#9c2b25;--warn:#92400e}
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);margin:0;padding:20px 16px 40px}
+  .wrap{max-width:1040px;margin:0 auto}
+  header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+  h1{font-size:22px;margin:0}
+  .sub{color:var(--mute);font-size:13px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px}
+  .tile{background:var(--card);border-radius:12px;padding:16px 18px;box-shadow:0 1px 6px rgba(0,0,0,.05)}
+  .tile .k{font-size:12px;color:var(--mute);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+  .tile .v{font-size:28px;font-weight:700;margin:4px 0 2px;color:var(--acc)}
+  .tile .d{font-size:12.5px;color:var(--mute)}
+  .up{color:var(--ok)}.down{color:var(--bad)}
+  .card{background:var(--card);border-radius:12px;padding:18px;box-shadow:0 1px 6px rgba(0,0,0,.05);margin-bottom:16px}
+  .card h2{font-size:15px;margin:0 0 12px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:720px){.two{grid-template-columns:1fr}}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--mute);font-weight:600;font-size:12px}
+  td.n,th.n{text-align:right;white-space:nowrap}
+  .bars{display:flex;align-items:flex-end;gap:6px;height:160px;padding-top:8px}
+  .bar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0}
+  .bar i{display:block;width:100%;background:var(--acc);border-radius:4px 4px 0 0;min-height:2px}
+  .bar b{font-size:10.5px;color:var(--mute);font-weight:500;margin-top:4px;white-space:nowrap}
+  .bar small{font-size:10px;color:var(--ink);margin-bottom:3px;white-space:nowrap}
+  .pills{display:flex;gap:8px;flex-wrap:wrap}
+  .pill{background:var(--bg);border-radius:999px;padding:4px 11px;font-size:12.5px}
+  .pill b{color:var(--acc)}
+  .empty{color:var(--mute);font-size:13.5px;padding:20px 0;text-align:center}
+  footer{color:var(--mute);font-size:12px;text-align:center;margin-top:20px}
+  .refresh{background:none;border:1px solid var(--line);border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;color:var(--mute);margin-left:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+{% if not found %}
+  <div class="card"><h2>This link is no longer active</h2>
+    <p class="sub">The dashboard it pointed to has been switched off or the link was replaced. Ask your Smart 1 Marketing contact for a current one.</p></div>
+{% else %}
+  <header>
+    <h1 id="title">{{ client }}</h1>
+    <span class="sub">Store hotsheet</span>
+    <span class="sub" id="stamp"></span>
+    <button type="button" class="refresh" id="refresh">Refresh</button>
+  </header>
+  <div id="body"><div class="empty">Reading the store…</div></div>
+  <footer>Prepared by Smart 1 Marketing · figures come straight from the store and refresh every few minutes.</footer>
+{% endif %}
+</div>
+{% if found %}
+<script>
+const TOKEN={{ token|tojson }};
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money=n=>'$'+Number(n||0).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0});
+const money2=n=>'$'+Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+function delta(cur,prev,label){
+  if(!prev) return `<span class="d">vs ${label}: —</span>`;
+  const p=Math.round(100*(cur-prev)/prev);
+  return `<span class="d ${p>=0?'up':'down'}">${p>=0?'▲':'▼'} ${Math.abs(p)}% vs ${label}</span>`;
+}
+/* Lifted verbatim by Client 360's Ecommerce card -- keep it self-contained. */
+function renderHotsheet(d){
+  if(!d||!d.ok) return '<div class="empty">'+esc((d&&d.error)||'The store did not answer.')+'</div>';
+  const P=d.periods||{}, w=P.week||{}, lw=P.last_week||{}, m=P.month||{}, lm=P.last_month||{}, y=P.year||{};
+  let h='<div class="grid">';
+  h+=`<div class="tile"><div class="k">This week</div><div class="v">${money(w.revenue)}</div><div class="d">${w.orders||0} orders · avg ${money2(w.avg_order)}</div>${delta(w.revenue,lw.revenue,'last week')}</div>`;
+  h+=`<div class="tile"><div class="k">This month</div><div class="v">${money(m.revenue)}</div><div class="d">${m.orders||0} orders · avg ${money2(m.avg_order)}</div>${delta(m.revenue,lm.revenue,'last month')}</div>`;
+  h+=`<div class="tile"><div class="k">This year</div><div class="v">${money(y.revenue)}</div><div class="d">${y.orders||0} orders</div></div>`;
+  if(d.abandoned){const a=d.abandoned; h+=`<div class="tile"><div class="k">Abandoned carts</div><div class="v">${(a.month||{}).carts||0}</div><div class="d">${money(( a.month||{}).value)} left in carts this month · ${(a.week||{}).carts||0} this week</div></div>`;}
+  h+='</div>';
+  const ms=d.monthly||[]; const max=Math.max(1,...ms.map(x=>x.revenue||0));
+  h+='<div class="card"><h2>Last 12 months</h2><div class="bars">'+ms.map(x=>`<div class="bar" title="${esc(x.month)}: ${money2(x.revenue)} · ${x.orders} orders"><small>${x.revenue?money(x.revenue):''}</small><i style="height:${Math.max(2,Math.round(100*(x.revenue||0)/max))}%"></i><b>${esc(x.month)}</b></div>`).join('')+'</div></div>';
+  h+='<div class="two">';
+  const tp=(d.top_products||{});
+  const list=(rows,label)=>rows&&rows.length?`<table><tr><th>${label}</th><th class="n">Qty</th><th class="n">Revenue</th></tr>${rows.slice(0,8).map(r=>`<tr><td>${esc(r.name)}</td><td class="n">${r.quantity}</td><td class="n">${money2(r.revenue)}</td></tr>`).join('')}</table>`:'<div class="empty">Nothing sold in this period yet.</div>';
+  h+='<div class="card"><h2>Top products this month</h2>'+list(tp.month,'Product')+'</div>';
+  h+='<div class="card"><h2>Top products this year</h2>'+list(tp.year,'Product')+'</div>';
+  h+='</div><div class="two">';
+  const st=m.status||{}; const dm=m.discounts||{};
+  h+='<div class="card"><h2>This month at a glance</h2><div class="pills">'
+    +`<span class="pill">Pending <b>${st.pending||0}</b></span><span class="pill">Processing <b>${st.processing||0}</b></span><span class="pill">Shipped <b>${st.shipped||0}</b></span><span class="pill">Delivered <b>${st.delivered||0}</b></span>`
+    +`</div><div class="pills" style="margin-top:10px"><span class="pill">Orders using a discount <b>${dm.orders_with||0}</b> (${dm.rate||0}%)</span><span class="pill">Discounts given <b>${money2(dm.amount)}</b></span></div></div>`;
+  const rc=d.recent||[];
+  h+='<div class="card"><h2>Latest orders</h2>'+(rc.length?`<table><tr><th>Order</th><th>Date</th><th class="n">Items</th><th class="n">Total</th><th>Status</th></tr>${rc.map(o=>`<tr><td>#${esc(o.number)}</td><td>${esc(o.date)}</td><td class="n">${o.items}</td><td class="n">${money2(o.total)}</td><td>${esc(o.status)}</td></tr>`).join('')}</table>`:'<div class="empty">No orders yet.</div>')+'</div>';
+  h+='</div>';
+  return h;
+}
+async function load(){
+  document.getElementById('body').innerHTML='<div class="empty">Reading the store…</div>';
+  const d=await fetch('/hot/'+encodeURIComponent(TOKEN)+'/data',{cache:'no-store'}).then(r=>r.json()).catch(()=>({ok:false,error:'The store did not answer.'}));
+  document.getElementById('body').innerHTML=renderHotsheet(d);
+  if(d&&d.store_name) document.getElementById('title').textContent=d.store_name;
+  if(d&&d.generated_at) document.getElementById('stamp').textContent='as of '+new Date(d.generated_at).toLocaleString();
+}
+document.getElementById('refresh').onclick=load;
+load();
+</script>
+{% endif %}
+</body>
+</html>

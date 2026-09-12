@@ -6430,7 +6430,24 @@ def create_hub_app() -> Flask:
             groups = knack_data.search_client(q)
         except Exception as exc:  # noqa: BLE001
             return jsonify({"groups": [], "error": str(exc)})
-        return jsonify({"groups": groups})
+        # Which 360 Skills are switched on, on the record itself, so render()
+        # can decide which skill cards to draw before sectionize() runs --
+        # the same way it reads g.smart1_site. A store that will not answer
+        # means no skill cards, never a broken record.
+        # A client Knack has never heard of can still have a skill on -- the
+        # skill was switched on by name -- so the no-match path gets the
+        # answer for the search term itself.
+        top: list = []
+        try:
+            from modules.skills360 import skills_for
+            for g in groups:
+                g["skills"] = skills_for(str(g.get("client") or ""))
+            if not groups:
+                top = skills_for(q.strip())
+        except Exception:  # noqa: BLE001
+            for g in groups:
+                g.setdefault("skills", [])
+        return jsonify({"groups": groups, "skills": top})
 
     @app.route("/api/c360/sites")
     def api_c360_sites():
@@ -6873,6 +6890,9 @@ def create_hub_app() -> Flask:
                   # A shareable customer index and the image-picker share
                   # route must never inherit the Hub sidebar or help controls.
                   "/client-links/", "/tools/image-picker/pick/",
+                  # A client's own hotsheet from 360 Skills (modules/skills360):
+                  # the client holds the link, and the staff nav is not theirs.
+                  "/hot/",
                   # The forgotten-password page and the admin-only refusal both
                   # render on _users_base.html, which is a bare card with no
                   # <body> the injector would recognise -- and injecting the
@@ -7274,6 +7294,21 @@ def create_hub_app() -> Flask:
     except Exception as _wx_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _wx_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- 360 Skills ----------------
+    # Three blueprints: the staff tool at /tools/360-skills, the
+    # /api/client/skills/... routes Client 360's skill-gated cards read (under
+    # /api/client/ for the reason /api/client/health gives), and /hot/<token>,
+    # the client's own hotsheet with no login and no chrome -- CHROMELESS
+    # carries the prefix. None is a prefix wsgi.py mounts, so all belong here.
+    try:
+        from modules.skills360 import register_skills360
+        register_skills360(app)
+    except Exception as _sk_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _sk_exc)
         except Exception:  # noqa: BLE001
             pass
 
