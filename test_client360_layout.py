@@ -94,6 +94,7 @@ WANT = {
     "Brand & logos": "creative",
     "Social Media": "social",
     "Social content requests": "social",
+    "Social suggestions": "social",
     "Tracked links": "social",
     "Form submissions": "social",
     "Approvals & proof links": "social",
