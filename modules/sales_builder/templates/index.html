@@ -156,8 +156,8 @@
   .steprail .sr:not(.lock):not(.on):hover{background:#f6faff}
   @media(max-width:980px){
     .bshell{grid-template-columns:1fr;gap:12px}
-    .steprail{position:static;display:flex;overflow-x:auto;padding:7px}
-    .steprail .sr{flex:none;padding:6px}
+    .steprail{position:static;display:flex;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;padding:7px}
+    .steprail .sr{flex:0 0 auto;width:auto;padding:6px}
     .steprail .sr .lbl{display:none}
     .steprail .sr.on .lbl{display:inline;white-space:nowrap}
   }
@@ -1506,8 +1506,17 @@ function clearResumeNote(){const el=document.getElementById('resumeNote');if(el)
 function restartWizard(){step=0;clearResumeNote();renderStep();}
 function drawQuoteTag(t){const el=document.getElementById('quoteTag');if(el)el.textContent=t;}
 function saveSoon(){clearTimeout(_saveT);setSave("…");_saveT=setTimeout(saveNow,900);}
-async function saveNow(extra){
- if(!S)return;
+let _saveQueue=Promise.resolve();
+function saveNow(extra){
+ clearTimeout(_saveT);
+ const owner=S;
+ const task=_saveQueue.then(()=>S===owner?persistQuote(extra):false);
+ _saveQueue=task.catch(()=>false);
+ return task;
+}
+async function persistQuote(extra){
+ if(!S)return false;
+ const owner=S;
  // Stamped on save so the IO payload, the PDF and the dashboard all read the
  // same sentence rather than each re-deriving it.
  try{S.creativeSummary=creativeSummary();}catch(e){}
@@ -1526,8 +1535,9 @@ async function saveNow(extra){
      packages and the discovery answers, and a stale copy of it would be a
      recommended budget that no longer matches the plan it sits under. */
   let saved=null;
-  if(!QUOTE_ID){saved=await api('/sales/builder/api/quotes',{method:'POST',body:JSON.stringify({data:S})});QUOTE_ID=saved.quote.id;QUOTE_NUMBER=saved.quote.quote_number;}
+  if(!QUOTE_ID){saved=await api('/sales/builder/api/quotes',{method:'POST',body:JSON.stringify({data:S})});if(S!==owner)return false;QUOTE_ID=saved.quote.id;QUOTE_NUMBER=saved.quote.quote_number;}
   else saved=await api('/sales/builder/api/quotes/'+QUOTE_ID,{method:'PUT',body:JSON.stringify(Object.assign({data:S},extra||{}))});
+  if(S!==owner)return false;
   if(saved&&saved.quote&&saved.quote.growth)S.growth=saved.quote.growth;
   /* The measurement framework is the server's, like growth above. Repainted
      only when it actually changed and only when nothing is being edited:
@@ -1555,6 +1565,8 @@ async function saveNow(extra){
    if(before!==JSON.stringify(S._kpiPlan))repaint=true;
   }
   if(repaint&&!S._editSec&&!S._tableEdit&&document.getElementById('docPreview'))drawPreview();
+  const review=document.getElementById('reviewSummary');
+  if(review)review.innerHTML=reviewSummaryHtml();
   setSave("✓ Saved "+(QUOTE_NUMBER||""));drawQuoteTag((QUOTE_NUMBER?QUOTE_NUMBER+" · ":"")+"autosaving");
  return true;
  }catch(e){setSave("⚠ Not saved: "+e.message);return false;}
@@ -3731,7 +3743,7 @@ function gotoStep(i){
   const j=firstIncomplete();
   toast("Finish step "+(j+1)+" — "+STEP_META[j].label+" — before jumping ahead.");
   return;}
- saveNow();clearResumeNote();step=i;renderStep();}
+ clearResumeNote();step=i;renderStep();saveNow();}
 function drawStepRail(){
  const host=document.getElementById('steprail');if(!host||!S)return;
  host.innerHTML=STEP_META.map((m,i)=>{
@@ -3998,17 +4010,24 @@ function syncNext(){const b=document.getElementById('nextBtn');if(b)b.disabled=w
  /* The rail's ticks read the same answers -- typing a client name flips
     step 2 to done without a full renderStep(), so the rail repaints here. */
  drawStepRail();}
-function nextStep(){
+let _advancing=false;
+async function nextStep(){
+ if(_advancing)return;
+ const owner=S,fromStep=step;
  const d=STEPS[step]();
  if(d.valid&&!d.valid())return;
  // A step can handle Continue itself -- the target-area editor saves the area
  // and returns to the list rather than advancing the wizard.
  if(d.onNext&&d.onNext()===true)return;
+ _advancing=true;
+ try{
  S.reviewedSteps=Array.from(new Set([...(S.reviewedSteps||[]),step]));
- saveNow();
+ if(!await saveNow()||S!==owner||step!==fromStep)return;
  clearResumeNote();
  if(step<STEPS.length-1){step++;renderStep();}
- else{toast("Saved. "+(QUOTE_NUMBER||"")+" is on the dashboard.");nav('dashboard');}}
+ else{toast("Saved. "+(QUOTE_NUMBER||"")+" is on the dashboard.");nav('dashboard');}
+ }finally{_advancing=false;}
+}
 function prevStep(){
  const d=window._stepDesc||STEPS[step]();
  if(d.onBack&&d.onBack()===true)return;   // the step walked its own sub-flow
@@ -4789,7 +4808,7 @@ function drawSuite(){
   : `<div class="note" style="margin-top:10px;color:#8c2f24"><b>Left off the quote.</b> The Investment Summary will show media and production only, and nothing in the proposal will offer the Suite.</div>`;
  const covered=cov.covered.length
   ? `<ul style="margin:8px 0 0 18px;padding:0">${cov.covered.map(r=>`<li style="margin-bottom:4px"><b>${esc(r.feature)}</b> — ${esc(r.detail)}</li>`).join('')}</ul>`
-  : `<div class="note" style="margin-top:6px">Nothing — by their own answers they already have every part of the Suite this plan would lean on. Worth saying out loud before it goes on the quote.</div>`;
+  : `<div class="note" style="margin-top:6px">${cov.unmeasured.length?'Discovery is incomplete. Confirm which capabilities they already have before recommending the Suite.':'No confirmed gaps for this tier were identified in the discovery answers.'}</div>`;
  const upgrade=cov.upgrade.length
   ? `<div class="note" style="margin-top:10px;color:#8c5a00"><b>A higher tier would also cover:</b> ${cov.upgrade.map(r=>esc(r.feature)+" ("+esc(r.tier)+")").join(' · ')}</div>` : '';
  const unmeasured=cov.unmeasured.length
@@ -4986,7 +5005,7 @@ async function aiRewrite(i){
  catch(e){toast("AI rewrite failed: "+e.message);}}
 
 /* review step */
-function reviewHtml(){const e=S.estimates||estimates();const sel=S.selectedPackage||{};
+function reviewSummaryHtml(){const e=S.estimates||estimates();const sel=S.selectedPackage||{};
  const row=(l,v)=>`<li style="display:flex;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line);gap:12px"><span style="color:var(--muted)">${l}</span><b style="color:var(--navy);text-align:right">${v}</b></li>`;
  const g=Array.from(new Set(guardrailsJs().concat(S.readiness||[],(S.draftFailures||[]).map(f=>"Retry or edit the failed section: "+f.title))));
  return `<div class="bpanel"><ul style="list-style:none;padding:0;margin:0">
@@ -4998,7 +5017,8 @@ function reviewHtml(){const e=S.estimates||estimates();const sel=S.selectedPacka
   ${row('Featured package',esc(sel.name||'—')+' · '+money(sel.monthly||0)+'/mo')}
   ${row('Creative',esc(creativeSummary()||'Display and social only — nothing to confirm'))}
   ${row('Smart 1 Suite',esc(chosenTier().name)+' · '+money(chosenTier().monthly)+'/mo')}
-  ${row('Campaign total',(S._cost?money(S._cost.campaign):'…')+' over '+S.months+' months')}
+  ${row('Campaign total — all-in',(S._invest?money(S._invest.campaign_total):'Calculating…')+' over '+S.months+' months')}
+  ${row('Media & services subtotal',S._cost?money(S._cost.campaign):'Calculating…')}
   ${row('KPIs',esc(S.kpis.join(', ')||'—'))}</ul></div>
   ${(()=>{const inv=S._invest;
     /* The server's summary, the same one the document prints. This panel had
@@ -5006,7 +5026,7 @@ function reviewHtml(){const e=S.estimates||estimates();const sel=S.selectedPacka
        media figure, so a rep who picked Essential saw a review costed at
        Essential beside a proposal costed at the plan. */
     if(!inv||!inv.lines)return `<div class="bpanel"><div class="ttl">💵 Investment</div>
-      <div class="note">Recalculating from the plan — this quote has not saved since it changed.</div></div>`;
+      <div class="note">Saving and calculating the full investment. <button class="btn btn-line" onclick="saveNow()">Retry save</button></div></div>`;
     return `<div class="bpanel"><div class="ttl">💵 Investment — what recurs and what does not</div>
      <ul style="list-style:none;padding:0;margin:8px 0 0">
       ${inv.lines.map(l=>row(esc(l.label),money(l.amount)+(l.recurs==="Monthly"?"/mo":" one-time"))).join('')}
@@ -5014,11 +5034,12 @@ function reviewHtml(){const e=S.estimates||estimates();const sel=S.selectedPacka
       ${row('Campaign total ('+S.months+' mo, including '+(inv.includes||'licensing')+')',money(inv.campaign_total))}
      </ul>
      <div class="note" style="margin-top:8px">Platform licensing is separate from media so it is clear what stops if the media pauses.</div></div>`;})()}
-  ${g.length?`<div class="warnbox"><b>🛡 Guardrails to note</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}</div>`:""}
+  ${g.length?`<div class="warnbox"><b>🛡 Guardrails to note</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}<br><button class="btn btn-line" onclick="gotoStep(9)">Review media &amp; rebuild packages</button></div>`:""}`;}
+function reviewHtml(){return `<div id="reviewSummary">${reviewSummaryHtml()}</div>
   <div class="bpanel"><div class="ttl">Deliver</div>
    <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:8px">
     <button class="btn btn-good" onclick="finishAndPdf()">📄 Save &amp; open branded PDF</button>
-    <button class="btn btn-line" onclick="saveNow().then(()=>location.href='/sales/builder/api/quotes/'+QUOTE_ID+'/docx')">📝 Export Word copy</button>
+    <button class="btn btn-line" onclick="saveNow().then(saved=>{if(saved)location.href='/sales/builder/api/quotes/'+QUOTE_ID+'/docx'})">📝 Export Word copy</button>
     <button class="btn btn-gold" id="deliverBtn" onclick="deliverProposal()">📤 Send to client &amp; file in Smart 1 Suite</button>
    </div>
    <div id="deliverOut"></div>
@@ -5028,10 +5049,11 @@ async function finishAndPdf(){
  const preview=window.open('about:blank','_blank');
  try{if(!await saveNow({bump_revision:true}))throw new Error('Your changes could not be saved. Retry before exporting.');if(!QUOTE_ID)throw new Error('Save the proposal first.');
   const url='/sales/builder/api/quotes/'+QUOTE_ID+'/pdf';
-  const response=await fetch(url);if(!response.ok)throw new Error('PDF generation failed ('+response.status+'). Try again.');
-  const blob=await response.blob();const link=URL.createObjectURL(blob);
+  const response=await fetch(url);if(!response.ok){const error=await response.json().catch(()=>({}));throw new Error(error.error||'PDF generation failed ('+response.status+'). Try again.');}
+  await response.blob();const link=url+'/archived';
   if(preview)preview.location=link;
-  if(out)out.innerHTML='<a class="btn btn-line" href="'+link+'" target="_blank">Open generated PDF</a>';
+  const result=document.getElementById('deliverOut');
+  if(result)result.innerHTML='<a class="btn btn-line" href="'+link+'" target="_blank" rel="noopener">Open generated PDF</a> <a class="btn btn-line" href="'+link+'?download=1">Download PDF</a>';
  }catch(e){if(preview)preview.close();if(out)out.textContent=e.message;toast(e.message);}
 }
 

@@ -334,7 +334,7 @@ def log_activity(db, quote_id, icon, text):
 # (mirrors the required pieces of the IO flow; rule-based so it works
 #  with or without AI)
 # =====================================================================
-from hub.proposal_integrity import readiness as proposal_readiness
+from hub.proposal_integrity import readiness as proposal_readiness, package_readiness
 
 
 def compute_gaps(state):
@@ -2660,6 +2660,9 @@ def quote_pdf(qid):
         if not q:
             return jsonify({"ok": False, "error": "Quote not found"}), 404
         state = json.loads(q.data or "{}")
+        issues = package_readiness(state)
+        if issues:
+            return jsonify({"ok": False, "error": "Rebuild the invalid package options before exporting.", "issues": issues}), 422
         ensure_sections(state)
         pdf_bytes, title = build_proposal_pdf(q, state)
         q.pdf_blob = pdf_bytes
@@ -2683,7 +2686,7 @@ def quote_pdf_archived(qid):
         if not q or not q.pdf_blob:
             return jsonify({"ok": False, "error": "No archived PDF for this quote yet"}), 404
         return send_file(BytesIO(q.pdf_blob), mimetype="application/pdf",
-                         as_attachment=False, download_name=q.pdf_filename or "proposal.pdf")
+                         as_attachment=request.args.get("download") == "1", download_name=q.pdf_filename or "proposal.pdf")
     finally:
         db.close()
 
@@ -2951,6 +2954,9 @@ def quote_docx(qid):
         if not q:
             return jsonify({"ok": False, "error": "Quote not found"}), 404
         state = json.loads(q.data or "{}")
+        issues = package_readiness(state)
+        if issues:
+            return jsonify({"ok": False, "error": "Rebuild the invalid package options before exporting.", "issues": issues}), 422
         ensure_sections(state)
         blob = build_proposal_docx(q, state)
         log_activity(db, q.id, "📝", f"Word copy exported — {q.quote_number}")
