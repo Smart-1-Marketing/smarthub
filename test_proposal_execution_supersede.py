@@ -217,7 +217,7 @@ with hub_app.app_context():
 
 
 # ---------------------------------------------------------------------------
-section("The route: analyze() answers 409 with the conflict, and honours supersede")
+section("The route: analyze() answers 409 with the conflict, and honors supersede")
 # ---------------------------------------------------------------------------
 
 CLIENT2 = "Route Fixture Co"
