@@ -75,6 +75,7 @@
     "short-links": "Client Link Masking",
     "ads": "Smart 1 Ads", "ads-grader": "Google Ads Grader",
     "calculators": "Media Calculators",
+    "marketing-audit": "Marketing Efficiency Audit",
     "gpt-ads": "GPT Ads Builder", "social": "Social Content Planner",
     "site-blocks": "Website Blocks",
     "smartforecast": "SmartForecast Dynamic Website",
