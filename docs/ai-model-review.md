@@ -76,11 +76,55 @@ The evaluation structure follows [OpenAI evaluation best practices](https://deve
 task-specific examples, explicit criteria and human review. The shipped briefs
 are a starting set, not statistical proof of a model-wide improvement.
 
-This release provides the inventory, shared settings, comparison evidence and review history. Automated
-paid comparisons, background evaluation jobs, per-asset model/prompt versioning,
-one-click activation/rollback and new voice providers are not implemented.
-The next stage should add a durable, budget-limited comparison queue with fixed
-test briefs and measured audio duration before offering an activation control.
+### Budget-limited script generation queue
+
+The page can now queue paid script comparisons: one current-model response and
+one candidate response, using the same fixed brief. It reuses the linked OpenAI
+key, uses the Responses endpoint without tools or conversation history, and
+never changes the builders' model settings. It is a text-generation evaluation,
+not a test of every builder's production request schema or a voice generator.
+
+Each job requires explicit spend confirmation and a user-selected reservation
+ceiling of at most $0.25. `AI_COMPARISON_MONTHLY_USD` sets the shared monthly
+reservation allowance (default $5; zero blocks new paid jobs). The database
+atomically reserves both models' maximum cost before accepting the job. The
+allowlist initially contains GPT-4o, GPT-4o Mini, GPT-5.6 Terra and GPT-5.6 Sol,
+with standard-tier text prices reviewed September 12, 2026. Unknown models are
+rejected; prices expire after 30 days and require a reviewed code update.
+
+Before each generation, `/v1/responses/input_tokens` must confirm no more than
+4,096 input tokens. Each response is capped at 2,048 output tokens, including
+reasoning. Sources: [Responses API](https://developers.openai.com/api/reference/python/resources/responses/methods/create)
+and [model pricing](https://developers.openai.com/api/docs/models/compare).
+Reservations are conservative estimates under those rates, not a provider-side
+billing guarantee. Completed and interrupted jobs retain their full reservation;
+actual token-derived estimates are displayed separately. Canceling a queued job
+releases its reservation. Do not use these numbers as the account's total bill.
+
+`hub_ai_comparison_jobs` and `hub_ai_comparison_budgets` use the shared database
+engine (Postgres in production, persistent SQLite in development). Unique
+request IDs prevent duplicate submissions from reserving or generating twice.
+The scheduler's `ai_comparisons` task starts a dedicated worker about once a
+minute; the worker claims the row atomically before any provider request. It
+does not block other scheduler jobs. Opening Diagnostics never starts generation.
+
+Jobs transition from queued to running to completed or needs_attention. Provider
+errors, timeouts and partial outputs stop the pair; prior results remain saved.
+No automatic generation retries occur. After 15 minutes without an update, a
+running job is marked needs_attention rather than replayed. Its provider outcome
+may be unknown and its reservation remains committed. An old-month queued job,
+a changed active model, or changed/stale pricing cannot silently start generation.
+The date of reservation determines the monthly allowance; work cannot begin in
+a later month. Pending jobs survive restarts in the shared database.
+
+The page shows recent jobs, per-model scripts, response IDs, token usage-derived
+cost estimates, latency and literal required-wording checks. Human quality,
+production-builder compatibility and measured voice duration still require the
+comparison review form. No live paid jobs are necessary for the regression suite.
+
+Cross-brief recommendation aggregation, per-production-asset model/prompt
+versioning, one-click activation/rollback and new voice providers remain future
+work. No activation endpoint is introduced by the queue.
 
 Unknown prices now produce an incomplete total and a known-cost subtotal rather
 than silently inheriting GPT-4o Mini pricing. Existing image rates remain rough

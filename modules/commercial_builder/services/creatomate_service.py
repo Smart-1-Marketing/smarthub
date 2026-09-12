@@ -148,6 +148,7 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
                 element["fit"] = "cover"
             if el_type == "video":
                 element["volume"] = "100%" if scene.get("asset_type") == "spokesperson" else "0%"
+        overlay = []
         if cs_overlay:
             # Creative Studio's own composition, computed once at bind time
             # from its own layout + aspect vocabulary (WO-CS7) -- this
@@ -155,11 +156,23 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
             # below is never reached for it. A scene with no `text_overlay`
             # (every scene the Commercial Builder's own script pipeline
             # writes) is untouched: this is additive, not a replacement.
-            element["overlay"] = {"type": "composition", "elements": cs_overlay}
+            overlay = cs_overlay
         elif scene.get("is_cta"):
-            element["overlay"] = {
-                "type": "composition",
-                "elements": _cta_overlay_elements(cta, project_dict, scene, platform),
+            overlay = _cta_overlay_elements(cta, project_dict, scene, platform)
+            if not scene.get("asset_url"):
+                element.update(type="shape", shape="rectangle", fill_color="#10243a")
+        if overlay:
+            # RenderScript layers are elements, not an `overlay` property.
+            # Child times are relative to this scene's composition.
+            background = {**element, "time": 0}
+            element = {
+                "id": f"scene_group_{scene['id']}", "type": "composition",
+                "track": TRACK_SCENES, "time": scene["start"],
+                "duration": round(scene["end"] - scene["start"], 2),
+                "elements": [background] + [
+                    {**layer, "track": index + 2, "time": layer.get("time", 0)}
+                    for index, layer in enumerate(overlay)
+                ],
             }
         video_elements.append(element)
 
@@ -240,6 +253,7 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
         "output_format": "mp4",
         "width": width,
         "height": height,
+        "duration": float(length_seconds),
         "elements": video_elements + audio_elements,
     }
 
@@ -392,6 +406,12 @@ def _cta_overlay_elements(cta, project_dict, scene, platform):
             "width": f"{QR_CODE_RULES['min_screen_pct']}%", "x": x, "y": y,
             "x_anchor": "50%", "y_anchor": "50%", "background_color": "#ffffff", "background_padding": "4%",
         })
+    for element in elements:
+        if element["type"] == "text":
+            element.update(fill_color="#ffffff", width="84%", height="16%",
+                           x_alignment="50%", y_alignment="50%",
+                           font_size_minimum="3vmin", font_size_maximum=font_size,
+                           font_size=None)
     return elements
 
 
@@ -420,7 +440,8 @@ def submit_render(source):
         return {"id": f"mock_render_{int(time.time())}", "status": "succeeded",
                 "url": None, "_mock": True}
     try:
-        r = requests.post(f"{BASE_URL}/renders", headers=_headers(), json={"source": source}, timeout=20)
+        r = requests.post(f"{BASE_URL}/renders", headers=_headers(),
+                          json={"source": source, "render_scale": 1}, timeout=20)
         r.raise_for_status()
         data = r.json()
         render = data[0] if isinstance(data, list) else data

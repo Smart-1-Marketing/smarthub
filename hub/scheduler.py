@@ -177,6 +177,11 @@ def _claim_leadership(app) -> bool:
 # Jobs
 # ---------------------------------------------------------------------------
 
+def job_ai_comparisons(app) -> dict:
+    from hub import ai_comparison_queue
+    return ai_comparison_queue.kick(app)
+
+
 def job_clear_stuck_scans(app) -> dict:
     """Resolve or error any scan running longer than the grace window.
 
@@ -889,6 +894,8 @@ JOBS = {
                           "as standing in."),
     "qa_task_vision":    (10, job_qa_task_vision,
                           "Read screenshots linked in QA task instructions."),
+    "ai_comparisons":   (1, job_ai_comparisons,
+                          "Start one budget-reserved model comparison in its own worker."),
 }
 
 

@@ -157,9 +157,9 @@ QUOTAS: dict[str, Quota] = {
     "creatomate": Quota(
         "creatomate", "Creatomate", "renders", 0, 0,
         "CREATOMATE_WARN_AT", "CREATOMATE_MONTHLY_LIMIT",
-        "One credit per render submitted. A render that fails still consumed "
-        "the request, which is why a refused call is recorded with ok=False "
-        "rather than dropped. No ceiling until CREATOMATE_MONTHLY_LIMIT is "
+        "One recorded submission per render, not one billing credit. Credit "
+        "cost varies with output size and duration. Failed submissions are "
+        "excluded from this count. No ceiling until CREATOMATE_MONTHLY_LIMIT is "
         "set."),
     # Pickaxe bills per use of an assistant, so units here are calls. Same
     # arrangement as the Commercial Builder trio above: no default allowance,
