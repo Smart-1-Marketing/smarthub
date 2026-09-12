@@ -2227,6 +2227,26 @@ jobs:
             echo "test_proposal_adapters_search_ads.py not on this branch — nothing to run."
           fi
 
+      # WO-2, Adapter C: social_calendar and social_posts both ran as `brief`
+      # -- an AI paragraph describing a content calendar nobody could approve.
+      # hub/proposal_adapters/social.py calls
+      # modules.social_planner.app.create_batch() and draft_slot() -- the same
+      # writers /tools/social's own route uses, extracted the way
+      # save_batch() was for the UTM adapter -- so a real run produces a real
+      # batch with real drafted copy on every slot, in the same store the
+      # Social Content Planner reads. social_posts depends on social_calendar
+      # and re-reads that same batch rather than spending a second round of
+      # AI calls. approval mode: this is AI-drafted copy that reaches a
+      # client's real social accounts. OpenAI is stubbed; nothing here makes
+      # a real network call.
+      - name: Proposal Execution — real-tool adapters (Social content calendar)
+        run: |
+          if [ -f test_proposal_adapters_social.py ]; then
+            python3 test_proposal_adapters_social.py
+          else
+            echo "test_proposal_adapters_social.py not on this branch — nothing to run."
+          fi
+
       # A curated shortlist per department, laid over the sidebar rather than
       # a second permission system. Block validation (a javascript: href, a
       # blank label, the cap), a delete that un-assigns rather than leaving a

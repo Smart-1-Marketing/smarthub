@@ -35,3 +35,4 @@ from __future__ import annotations
 def register_all() -> None:
     from . import utm  # noqa: F401 -- imported for its register_adapter() call
     from . import search_ads  # noqa: F401 -- imported for its register_adapter() call
+    from . import social  # noqa: F401 -- imported for its register_adapter() call

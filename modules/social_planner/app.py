@@ -226,12 +226,17 @@ def _new_id() -> str:
     return format(int(time.time() * 1000), "x")[-9:] + os.urandom(2).hex()
 
 
-def _log(event: str, **extra):
+def _log(event: str, actor: str | None = None, **extra):
     if hub_audit is None:
         return
     try:
         # audit.log()'s first positional is `module`; extras use tool=.
-        hub_audit.log(MODULE, event, actor=actor_name(), **extra)
+        # actor_name() reads the request -- only evaluated when no actor was
+        # given, so a caller outside a request (the Proposal Execution
+        # scheduler) that passes its own actor never touches it. The `or`
+        # short-circuits: this is the same fix UTM Builder's own _log()
+        # needed for the identical reason.
+        hub_audit.log(MODULE, event, actor=actor or actor_name(), **extra)
     except Exception:                                 # noqa: BLE001
         pass
 
@@ -595,51 +600,54 @@ def api_create_photo(batch_id):
                                    "source": source})
 
 
-@app.route("/api/batches", methods=["POST"])
-def api_create_batch():
-    data = request.get_json(silent=True) or {}
-    client = _str(data.get("client"), 200).strip()
+def create_batch(client: str, month: str, channels, *, per_week=3, mix=None,
+                 blackout=(), holidays=(), selected_ideas=(), brief=None,
+                 url: str = "", use_holidays: bool = False, actor: str = "") -> dict:
+    """Build and save a real month plan. Raises ValueError, named, on anything
+    the form would otherwise have refused -- the shape every other real-tool
+    adapter in this Hub uses, so a caller with no Flask response to return
+    (the Proposal Execution scheduler) gets the same refusal a person would.
+
+    `actor` is required by every caller outside a request: `actor_name()`
+    reads the request environ, which does not exist on the scheduler's own
+    thread.
+    """
+    client = _str(client, 200).strip()
     if not client:
-        return _fail("Pick a client first.")
-    month = _str(data.get("month"), 10).strip()
-    channels = [c for c in (data.get("channels") or [])
-                if c in social_plan.CHANNELS]
+        raise ValueError("Pick a client first.")
+    month = _str(month, 10).strip()
+    channels = [c for c in (channels or []) if c in social_plan.CHANNELS]
     if not channels:
-        return _fail("Pick at least one channel.")
+        raise ValueError("Pick at least one channel.")
     try:
-        per_week = int(data.get("per_week") or 3)
+        per_week = int(per_week or 3)
     except (TypeError, ValueError):
         per_week = 3
-    mix = data.get("mix") if isinstance(data.get("mix"), dict) else None
-    blackout = [_str(d, 10) for d in (data.get("blackout") or [])][:31]
-
-    holidays = [h for h in (data.get("holidays") or [])
+    mix = mix if isinstance(mix, dict) else None
+    blackout = [_str(d, 10) for d in (blackout or [])][:31]
+    holidays = [h for h in (holidays or [])
                 if isinstance(h, dict) and h.get("date") and h.get("name")][:40]
-    try:
-        slots = social_plan.build_grid(month, channels=channels,
-                                       per_week=per_week, mix=mix,
-                                       blackout=blackout, holidays=holidays,
-                                       start_date=_planning_today())
-    except ValueError as exc:
-        return _fail(str(exc))
+    slots = social_plan.build_grid(month, channels=channels, per_week=per_week,
+                                   mix=mix, blackout=blackout, holidays=holidays,
+                                   start_date=_planning_today())
     if not slots:
-        return _fail("No posting days remain from today onward. Choose a later month or a different posting frequency.")
+        raise ValueError("No posting days remain from today onward. Choose a later month or a different posting frequency.")
 
-    selected = data.get("selected_ideas") or []
-    if not isinstance(selected, list):
-        return _fail("Choose ideas from the suggestions.")
-    selected = [s for s in selected if isinstance(s, dict) and s.get("title")]
+    selected_ideas = selected_ideas or []
+    if not isinstance(selected_ideas, list):
+        raise ValueError("Choose ideas from the suggestions.")
+    selected = [s for s in selected_ideas if isinstance(s, dict) and s.get("title")]
     available = [s for s in slots if not s.get("holiday")]
     if len(selected) > len(available):
-        return _fail(f"There are {len(available)} open posting dates. Select fewer ideas or increase posts per week.")
+        raise ValueError(f"There are {len(available)} open posting dates. Select fewer ideas or increase posts per week.")
     for slot, idea in zip(available, selected):
         slot["idea_title"] = _str(idea["title"], 300)
         slot["origin"] = "staff_selected"
         if idea.get("type") in social_plan.POST_TYPES:
             slot["type"] = idea["type"]
 
-    brief = data.get("brief") if isinstance(data.get("brief"), dict) else {}
-    context = _client_context(client, _str(data.get("url"), 300))
+    brief = brief if isinstance(brief, dict) else {}
+    context = _client_context(client, _str(url, 300))
     batch = {
         "id": _new_id(),
         "client": client,
@@ -660,7 +668,7 @@ def api_create_batch():
             "tone": _str(brief.get("tone"), 200),
             "promote": [_str(x, 200) for x in (brief.get("promote") or [])
                         if str(x).strip()][:12],
-            "use_holidays": bool(data.get("use_holidays")),
+            "use_holidays": bool(use_holidays),
             "offers": _str(brief.get("offers"), 2000),
             "notes": _str(brief.get("notes"), 4000),
             "phone": _str(brief.get("phone"), 40),
@@ -673,11 +681,26 @@ def api_create_batch():
                     ("industry", "description", "products", "colors", "logo")},
         "slots": slots,
         "created_at": _now(),
-        "created_by": actor_name(),
+        "created_by": actor or actor_name(),
     }
     save_batch(batch)
-    _log("batch_created", client=client, month=month, slots=len(slots),
-         channels=",".join(channels))
+    _log("batch_created", actor=actor or None, client=client, month=month,
+         slots=len(slots), channels=",".join(channels))
+    return batch
+
+
+@app.route("/api/batches", methods=["POST"])
+def api_create_batch():
+    data = request.get_json(silent=True) or {}
+    try:
+        batch = create_batch(
+            data.get("client"), data.get("month"), data.get("channels"),
+            per_week=data.get("per_week"), mix=data.get("mix"),
+            blackout=data.get("blackout"), holidays=data.get("holidays"),
+            selected_ideas=data.get("selected_ideas"), brief=data.get("brief"),
+            url=data.get("url"), use_holidays=bool(data.get("use_holidays")))
+    except ValueError as exc:
+        return _fail(str(exc))
     return jsonify({"ok": True, "batch": batch})
 
 
@@ -790,22 +813,17 @@ def api_batch_status(batch_id: str):
 # =====================================================================
 # Drafting — one request per slot
 # =====================================================================
-@app.route("/api/batches/<batch_id>/draft", methods=["POST"])
-def api_draft(batch_id: str):
-    """Write one slot. The browser loops so the loader can name what it is on
-    and one failed slot costs one slot."""
-    batch = load_batch(batch_id)
-    if not batch:
-        return _fail("That plan no longer exists.", 404)
-    data = request.get_json(silent=True) or {}
-    if "revision" in data and data["revision"] != batch["revision"]:
-        raise PlanConflict()
-    slot_id = _str((request.get_json(silent=True) or {}).get("slot"), 12)
+def draft_slot(batch: dict, slot_id: str) -> tuple[dict | None, str, int]:
+    """Write one slot's real copy. (slot, error, status) rather than a Flask
+    response, so a caller with no request to answer -- a scheduler drafting a
+    dozen slots in one pass -- gets the identical refusal a person would, and
+    one bad slot costs only itself: never raises.
+    """
     slot = next((s for s in batch["slots"] if s["id"] == slot_id), None)
     if not slot:
-        return _fail("Unknown slot.", 404)
+        return None, "Unknown slot.", 404
     if slot.get("status") == "approved":
-        return _fail("That post is approved — unapprove it before rewriting.")
+        return None, "That post is approved — unapprove it before rewriting.", 400
 
     from hub import ai
     context = dict(batch.get("context") or {})
@@ -818,17 +836,34 @@ def api_draft(batch_id: str):
     except Exception as exc:                          # noqa: BLE001
         # The provider's own wording never reaches the screen — it has echoed
         # key prefixes before. hub/ai.py already logged the real error.
-        return _fail(f"Couldn't write that post ({type(exc).__name__}). The "
-                     "other posts are unaffected — try this one again.", 502)
+        return None, (f"Couldn't write that post ({type(exc).__name__}). The "
+                      "other posts are unaffected — try this one again."), 502
 
     copy = _str(result.get("copy"), 6000).strip()
     if not copy:
-        return _fail("The model returned an empty post. Try again.", 502)
+        return None, "The model returned an empty post. Try again.", 502
     tags = [_str(t, 60) for t in (result.get("hashtags") or []) if str(t).strip()]
     slot["copy"] = copy
     slot["hashtags"] = tags[:30]
     slot["status"] = "drafted"
     slot["flags"] = social_plan.validate_slot(slot, batch.get("brief"))
+    return slot, "", 200
+
+
+@app.route("/api/batches/<batch_id>/draft", methods=["POST"])
+def api_draft(batch_id: str):
+    """Write one slot. The browser loops so the loader can name what it is on
+    and one failed slot costs one slot."""
+    batch = load_batch(batch_id)
+    if not batch:
+        return _fail("That plan no longer exists.", 404)
+    data = request.get_json(silent=True) or {}
+    if "revision" in data and data["revision"] != batch["revision"]:
+        raise PlanConflict()
+    slot_id = _str(data.get("slot"), 12)
+    slot, error, status = draft_slot(batch, slot_id)
+    if error:
+        return _fail(error, status)
     save_batch(batch)
     return jsonify({"ok": True, "slot": slot, "batch": batch})
 
