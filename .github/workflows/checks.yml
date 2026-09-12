@@ -90,6 +90,9 @@ jobs:
       - name: Google Access offline route and OAuth regression tests
         run: python test_google_access_flow.py
 
+      - name: Client email contact mapping and GHL history
+        run: python test_client_email.py
+
       - name: Client 360 proposal-to-IO navigation
         run: node test_client360_proposal_io.js
 
@@ -1038,6 +1041,20 @@ jobs:
             python test_proposal_targeting.py
           else
             echo "test_proposal_targeting.py not on this branch — nothing to run."
+          fi
+
+      # hub/zip_geo.py is what the ZIP-radius lookup measures against instead
+      # of asking a model to guess (2,985 ZIP Codes for a 10-mile radius that
+      # holds about 22, before the fix). This pins the real case -- Bristol,
+      # CT at 10 miles is 23 ZIP Codes -- against the bundled data file
+      # itself, so a bad future edit to that file is caught here rather than
+      # in a proposal. Reaches no network and no database.
+      - name: ZIP-radius lookup — the real case, pinned against the real data
+        run: |
+          if [ -f test_zip_geo.py ]; then
+            python test_zip_geo.py
+          else
+            echo "test_zip_geo.py not on this branch — nothing to run."
           fi
 
       # hub/openai_responses.py is the one OpenAI Responses reader for the IO

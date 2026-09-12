@@ -43,7 +43,7 @@ export function withBase(req: IncomingMessage, html: string): string {
 
   // Core navigation must be correct in the response itself, before scripts
   // run. Only known module pages are rewritten; Hub chrome is added later.
-  html = html.replace(/(href=["'])\/(build|projects|presets|diagnostics)(?=[?/#"'])/g,
+  html = html.replace(/(href=["'])\/(build|projects|presets|diagnostics|review)(?=[?/#"'])/g,
     (_match, attr, page) => `${attr}${base}/${page}`);
 
   const shim = `<script>(function(){

@@ -1259,20 +1259,7 @@
       return;
     }
     const qc = data.qc_results || {};
-    list.innerHTML = "";
-    let blocking = 0;
-    Object.entries(qc).forEach(([key, result]) => {
-      if (key === "_all_passed" || !QC_LABELS[key]) return;
-      const level = result.level || (result.passed ? "pass" : "fail");
-      const tone = level === "pass" ? "pass" : level;
-      const mark = level === "pass" ? "✓" : (level === "warn" ? "!" : "✕");
-      if (level === "fail") blocking += 1;
-      list.appendChild(CB.el(`<div class="cb-qc-item">
-        <div class="cb-qc-icon ${tone}">${mark}</div>
-        <div class="cb-qc-text"><strong>${QC_LABELS[key]}</strong>
-        <span>${CB.escapeHtml(result.message)}</span></div>
-      </div>`));
-    });
+    const blocking = CB.renderChecks(list, qc, QC_LABELS);
     renderAbcd(qc._abcd);
     if (qc._all_passed && !(qc._warnings || []).length) CB.toast("Everything checks out.");
     else if (!blocking) CB.toast("Nothing blocking — the rest are recommendations.");

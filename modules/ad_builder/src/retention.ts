@@ -66,6 +66,7 @@ function prunable(): { sub: string; kind: 'render' | 'cache' }[] {
     // list, so every generated hero stayed for ever. A rule the code does not
     // keep is worse than no rule, because it is the rule people reason from.
     { sub: 'imagery', kind: 'cache' as const },
+    { sub: 'approvals', kind: 'cache' as const },
   ];
 }
 
@@ -109,9 +110,20 @@ export function sweep(opts: SweepOptions): SweepResult {
   const { outDir, renderDays = 30, cacheDays = 7, dryRun = false } = opts;
   const now = Date.now();
   const result: SweepResult = { scanned: 0, removed: 0, bytesFreed: 0, dryRun, details: [] };
+  const referenced = new Set<string>();
+  let referencesReadable = true;
+  const projectDir = path.join(outDir, 'projects');
+  if (fs.existsSync(projectDir)) walk(projectDir, (file) => {
+    if (!file.endsWith('.json')) return;
+    try {
+      const project = JSON.parse(fs.readFileSync(file, 'utf8'));
+      for (const a of project.approvals ?? []) if (a.artifact) referenced.add(path.resolve(a.artifact));
+    } catch { referencesReadable = false; }
+  });
 
   for (const { sub, kind } of prunable()) {
     if (PROTECTED.has(sub)) continue;
+    if (sub === 'approvals' && !referencesReadable) continue;
     const dir = path.join(outDir, sub);
     if (!fs.existsSync(dir)) continue;
 
@@ -119,6 +131,7 @@ export function sweep(opts: SweepOptions): SweepResult {
 
     walk(dir, (file, stat) => {
       result.scanned++;
+      if (referenced.has(path.resolve(file))) return;
       const age = now - stat.mtimeMs;
       if (age < maxAgeMs) return;
       result.bytesFreed += stat.size;
