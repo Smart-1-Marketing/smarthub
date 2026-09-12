@@ -846,6 +846,24 @@ JOBS = {
                                "Advance the opt-in GHL to Apollo suppression sync."),
     "commercial_recovery": (1, job_commercial_recovery,
                             "Check saved commercials and retry storing presenter clips."),
+    # Placed here rather than at the bottom of this dict on purpose: `_loop`
+    # runs every due job synchronously, in this insertion order, on one
+    # thread, and google_index below routinely spends 20+ minutes retrying
+    # rate-limited GTM calls across every connected account -- which is due
+    # immediately on every fresh boot, same as everything else. A ten-minute
+    # job sitting after it in the dict does not get a turn until that finishes,
+    # which on a deploy-heavy day is never: measured live, qa_task_vision went
+    # over three hours without running a single time because google_index (and
+    # the other slow network sweeps after it) never returned before the next
+    # redeploy reset the whole queue. Both QA-task jobs are cheap, bounded and
+    # read nothing but this Hub's own database, so moving them ahead of every
+    # slow provider sweep costs the rest of the list nothing and guarantees
+    # these two get to run on every tick regardless of what else is stuck.
+    "qa_task_autoclaim": (10, job_qa_task_autoclaim,
+                          "Claim QA tasks for whoever QA_TASK_DELEGATES names "
+                          "as standing in."),
+    "qa_task_vision":    (10, job_qa_task_vision,
+                          "Read screenshots linked in QA task instructions."),
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
     "clear_stuck_scans": (15, job_clear_stuck_scans,
@@ -889,11 +907,6 @@ JOBS = {
                           "concept/script/image generation)."),
     "creative_jobs":     (1, job_creative_jobs_sweep,
                           "Run one queued lead-triggered creative job (radio scripts)."),
-    "qa_task_autoclaim": (10, job_qa_task_autoclaim,
-                          "Claim QA tasks for whoever QA_TASK_DELEGATES names "
-                          "as standing in."),
-    "qa_task_vision":    (10, job_qa_task_vision,
-                          "Read screenshots linked in QA task instructions."),
     "ai_comparisons":   (1, job_ai_comparisons,
                           "Start one budget-reserved model comparison in its own worker."),
 }
