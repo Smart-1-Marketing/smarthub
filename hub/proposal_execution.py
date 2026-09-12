@@ -43,6 +43,7 @@ RUN_RUNNING = "running"
 RUN_PAUSED = "paused"
 RUN_ATTENTION = "attention"
 RUN_COMPLETED = "completed"
+RUN_SUPERSEDED = "superseded"
 MAX_ATTEMPTS = 3
 STALE_RUNNING_MINUTES = 10
 
@@ -390,7 +391,120 @@ def _proposal_record(client, proposal_id):
     return None
 
 
-def create_run(client, proposal_id, *, owner="", actor="", force=False):
+class ProposalRunConflict(ValueError):
+    """A newer proposal was analyzed while an earlier run for it is still open.
+
+    An identical file re-analyzed returns the existing run (unchanged
+    behaviour). A *different* file for what reads as the same engagement —
+    same stored proposal id, or a title that normalises to the same string
+    once the "(1)", "updated", "v2" and date noise a re-upload picks up is
+    stripped — used to happily start a second run beside one still in
+    progress, with its own thirty tasks and its own notifications. This is
+    raised instead, carrying enough for the caller to offer exactly two
+    doors: open the run that is already there, or supersede it and carry
+    the approved work forward. Never a third door that quietly starts a
+    parallel run.
+    """
+
+    def __init__(self, existing_run,
+                 message="This proposal has a newer version pending review."):
+        self.existing_run_id = existing_run.id
+        self.existing_state = existing_run.state
+        self.existing_progress = summary(existing_run).get("progress", 0)
+        self.changed = True
+        super().__init__(message)
+
+    def payload(self):
+        return {"existing_run_id": self.existing_run_id,
+                "existing_state": self.existing_state,
+                "existing_progress": self.existing_progress,
+                "changed": self.changed}
+
+
+_TITLE_EXT_RE = re.compile(r"\.(pdf|docx?|xlsx?|txt)$", re.I)
+_TITLE_PAREN_RE = re.compile(r"\([^)]*\)")
+_TITLE_WORD_RE = re.compile(r"\b(updated|update|revised|revision|final|draft|copy)\b", re.I)
+_TITLE_VERSION_RE = re.compile(r"\bv\d+(?:\.\d+)?\b", re.I)
+_TITLE_DATE_RE = re.compile(r"\b\d{4}[-_/]\d{1,2}[-_/]\d{1,2}\b|\b\d{1,2}[-_/]\d{1,2}[-_/]\d{2,4}\b")
+
+
+def _normalize_title(title):
+    """Same proposal, re-typed or re-exported, should compare equal.
+
+    Strips the noise a re-upload of the same engagement picks up — a
+    trailing "(1)", "updated"/"v2", a date, the file extension — so
+    ``Monogram_Homes_2026_2027_Marketing_Proposal(1).pdf`` and
+    ``Monogram_Homes_2026_2027_Marketing_Proposal.pdf`` normalise the same.
+    """
+    text = _TITLE_EXT_RE.sub("", str(title or ""))
+    text = _TITLE_PAREN_RE.sub(" ", text)
+    text = _TITLE_WORD_RE.sub(" ", text)
+    text = _TITLE_VERSION_RE.sub(" ", text)
+    text = _TITLE_DATE_RE.sub(" ", text)
+    return re.sub(r"[\s_\-]+", " ", text).strip().lower()
+
+
+def _is_open(run):
+    if run.state in {RUN_COMPLETED, RUN_SUPERSEDED}:
+        return False
+    tasks = tasks_for_run(run.id)
+    return not (tasks and all(t.state in FINAL_STATES for t in tasks))
+
+
+def _find_open_run(client, proposal_id, proposal_title):
+    """The open run for this client this proposal already belongs to, if any."""
+    norm_title = _normalize_title(proposal_title)
+    for run in (ProposalExecutionRun.query.filter_by(client=client)
+                .order_by(ProposalExecutionRun.id.desc()).all()):
+        matches = (bool(proposal_id) and run.proposal_id == proposal_id) or \
+                  (bool(norm_title) and _normalize_title(run.proposal_title) == norm_title)
+        if matches and _is_open(run):
+            return run
+    return None
+
+
+def _describe_channel_change(old_channel, new_channel):
+    old_budgets, new_budgets = old_channel.get("budgets") or [], new_channel.get("budgets") or []
+    if old_budgets != new_budgets:
+        return f"budget changed {' / '.join(old_budgets) or 'none stated'} → {' / '.join(new_budgets) or 'none stated'}"
+    old_name, new_name = old_channel.get("name") or "", new_channel.get("name") or ""
+    if old_name != new_name:
+        return f'scope changed "{old_name}" → "{new_name}"'
+    return "channel details changed"
+
+
+def _carry_over(old_run, new_run):
+    """Move a superseded run's shared inputs and reviewed work onto its successor.
+
+    Shared inputs travel wholesale -- a client's phone number and CTA do not
+    change because a budget line did. A task the old run had already carried
+    to approval, a handoff or completion carries its result across too, but
+    only where the channel it was built for is byte-identical in the new
+    graph; anything the new proposal actually changed is left exactly where
+    a brand-new task starts, with an event naming what moved instead of
+    silently discarding a decision nobody re-made.
+    """
+    new_run.inputs_json = _dumps(old_run.inputs())
+    db.session.commit()
+    old_by_key = {t.task_key: t for t in tasks_for_run(old_run.id)}
+    for new_task in tasks_for_run(new_run.id):
+        old_task = old_by_key.get(new_task.task_key)
+        if not old_task:
+            continue
+        old_channel = (old_task.payload() or {}).get("channel") or {}
+        new_channel = (new_task.payload() or {}).get("channel") or {}
+        if old_task.state in {APPROVED, LIVE, COMPLETED, NEEDS_APPROVAL} and old_channel == new_channel:
+            new_task.state = old_task.state
+            new_task.result_json = old_task.result_json
+            new_task.attempts = old_task.attempts
+            db.session.commit()
+            _event(new_run.id, new_task.state, f"Carried over from run #{old_run.id}.", new_task.id)
+        elif old_channel != new_channel:
+            _event(new_run.id, new_task.state,
+                   f"Re-planned: {_describe_channel_change(old_channel, new_channel)}.", new_task.id)
+
+
+def create_run(client, proposal_id, *, owner="", actor="", force=False, supersede=False):
     client = str(client or "").strip()
     proposal_id = str(proposal_id or "").strip()
     if not client or not proposal_id:
@@ -403,19 +517,27 @@ def create_run(client, proposal_id, *, owner="", actor="", force=False):
     if not text.strip():
         raise ValueError("No readable text was found in that proposal. It may be a scanned image-only PDF.")
     source_hash = hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()
+    resolved_proposal_id = str(rec.get("id") or proposal_id)
+    proposal_title = rec.get("title") or rec.get("filename") or "Proposal"
+
     if not force:
         existing = (ProposalExecutionRun.query
-                    .filter_by(client=client, proposal_id=str(rec.get("id") or proposal_id), source_hash=source_hash)
+                    .filter_by(client=client, proposal_id=resolved_proposal_id, source_hash=source_hash)
                     .order_by(ProposalExecutionRun.id.desc()).first())
         if existing:
             return existing, False
-    previous = (ProposalExecutionRun.query.filter_by(client=client)
-                .order_by(ProposalExecutionRun.id.desc()).first())
+
+    conflict = None if force else _find_open_run(client, resolved_proposal_id, proposal_title)
+    if conflict and conflict.source_hash != source_hash and not supersede:
+        raise ProposalRunConflict(conflict)
+
+    previous = conflict or (ProposalExecutionRun.query.filter_by(client=client)
+                            .order_by(ProposalExecutionRun.id.desc()).first())
     analysis, method = analyze_text(text, client)
     analysis["analysis_method"] = method
     context_data = _client_context(client)
-    run = ProposalExecutionRun(client=client, proposal_id=str(rec.get("id") or proposal_id),
-                               proposal_title=rec.get("title") or rec.get("filename") or "Proposal",
+    run = ProposalExecutionRun(client=client, proposal_id=resolved_proposal_id,
+                               proposal_title=proposal_title,
                                proposal_filename=rec.get("filename") or "", source_hash=source_hash,
                                state=RUN_DRAFT, owner=owner,
                                previous_run_id=previous.id if previous else None,
@@ -432,8 +554,18 @@ def create_run(client, proposal_id, *, owner="", actor="", force=False):
                                     fingerprint=spec["fingerprint"])
         db.session.add(row)
     db.session.commit()
+    superseded_note = ""
+    if conflict and supersede and conflict.id != run.id:
+        _carry_over(conflict, run)
+        pause_run(conflict.id, actor=actor)
+        conflict.state = RUN_SUPERSEDED
+        db.session.commit()
+        _event(conflict.id, RUN_SUPERSEDED, f"Superseded by run #{run.id}.", actor=actor)
+        superseded_note = f" Superseded run #{conflict.id}."
     _revalidate_run(run)
-    _event(run.id, run.state, f"Analyzed proposal and created {len(build_task_specs(analysis))} execution tasks.", actor=actor)
+    _event(run.id, run.state,
+           f"Analyzed proposal and created {len(build_task_specs(analysis))} execution tasks.{superseded_note}",
+           actor=actor)
     return run, True
 
 
@@ -660,6 +792,10 @@ def run_one():
     task = None
     for candidate in candidates:
         run = get_run(candidate.run_id)
+        # A superseded run never leaves a task QUEUED -- pause_run() flips
+        # every QUEUED task to READY before the state below is set -- and
+        # this check excludes it a second time regardless: RUN_SUPERSEDED
+        # is never RUN_RUNNING, so its tasks are inert here by construction.
         if run and run.state == RUN_RUNNING and not run.paused:
             task = candidate; break
     if not task: return {"claimed": 0}
@@ -774,9 +910,10 @@ def install_scheduler_bridge():
 
 
 __all__ = ["ProposalExecutionRun", "ProposalExecutionTask", "ProposalExecutionEvent",
-           "create_run", "get_run", "list_runs", "tasks_for_run", "proposal_choices",
-           "update_inputs", "start_run", "pause_run", "retry_failed", "run_one",
-           "approve_task", "request_changes", "rerun_task", "mark_task", "events_for_run",
-           "missing_input_manifest", "summary", "adapters", "build_task_specs", "analyze_text",
-           "install_scheduler_bridge", "NEEDS_INPUT", "RUNNING", "NEEDS_APPROVAL", "FAILED",
-           "COMPLETED", "LIVE", "SCHEDULED", "APPROVED", "CANCELLED"]
+           "ProposalRunConflict", "create_run", "get_run", "list_runs", "tasks_for_run",
+           "proposal_choices", "update_inputs", "start_run", "pause_run", "retry_failed",
+           "run_one", "approve_task", "request_changes", "rerun_task", "mark_task",
+           "events_for_run", "missing_input_manifest", "summary", "adapters",
+           "build_task_specs", "analyze_text", "install_scheduler_bridge", "NEEDS_INPUT",
+           "RUNNING", "NEEDS_APPROVAL", "FAILED", "COMPLETED", "LIVE", "SCHEDULED",
+           "APPROVED", "CANCELLED", "RUN_SUPERSEDED"]
