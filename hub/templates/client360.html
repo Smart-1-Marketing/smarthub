@@ -1988,14 +1988,80 @@ function render(g,q){
   // carries — type, billing, media partner, web services — from the live
   // object, because the four boxes that used to be here left the rest of the
   // ticket blank on everything Client 360 raised.
+  // A ticket the alias lookup cannot find is invisible, and an empty list
+  // reads exactly like a client with no tickets. matchToolsHtml() is drawn
+  // under the list either way — a fuzzy "find a close match" and a
+  // free-text search, both against Knack's own "Client Organization"
+  // strings, neither ever applied without a press: linkOrg()/unlinkOrg() are
+  // the only writers, and they write a small Hub-side overlay, never Knack.
+  function matchToolsHtml(linked){
+    const chips=(linked||[]).map(o=>'<span class="pill neutral" style="margin:2px 4px 2px 0">'+esc(o)+' <a class="tick-unlink" data-org="'+esc(o)+'" style="cursor:pointer" title="Unlink">×</a></span>').join('');
+    return '<div class="c-tickets-match" style="margin-top:10px;padding-top:10px;border-top:1px solid #eee">'
+      +(chips?'<div style="margin-bottom:6px"><span class="muted" style="font-size:12px">Also linked as: </span>'+chips+'</div>':'')
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+      +'<a class="open-link" id="c-tickets-suggest" style="cursor:pointer">Find a close match</a>'
+      +'<span class="muted" style="font-size:12px">or</span>'
+      +'<input id="c-tickets-q" type="text" placeholder="Search tickets by name…" style="font-size:12px;padding:4px 6px;border:1px solid #ccd;border-radius:4px;min-width:180px">'
+      +'<a class="open-link" id="c-tickets-search-go" style="cursor:pointer">Search</a>'
+      +'</div><div id="c-tickets-results"></div></div>';
+  }
+  function renderTicketCandidates(list, withScore){
+    const box=$('c-tickets-results');
+    if(!box) return;
+    if(!list.length){box.innerHTML='<div class="muted" style="font-size:12px;margin-top:6px">Nothing found.</div>';return}
+    box.innerHTML='<div style="margin-top:6px">'+list.map(c=>
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f2f2f2">'
+      +'<div><b>'+esc(c.org)+'</b>'+(withScore?' <span class="muted" style="font-size:12px">'+Math.round(c.score*100)+'% match</span>':'')
+      +'<div class="muted" style="font-size:12px">'+c.count+' ticket'+(c.count===1?'':'s')+(c.title?' — '+esc(c.title):'')+'</div></div>'
+      +'<a class="open-link tick-link" data-org="'+esc(c.org)+'" style="cursor:pointer;white-space:nowrap">Link</a></div>'
+    ).join('')+'</div>';
+    box.querySelectorAll('.tick-link').forEach(el=>{el.onclick=()=>linkOrg(el.dataset.org)});
+  }
+  function linkOrg(org){
+    fetch('/api/client/tickets/link',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:name,org:org})}).then(r=>r.json()).then(d=>{
+        if(!d.ok){alert(d.error||'Could not link that.');return}
+        loadTickets();
+      }).catch(()=>alert('Could not link that.'));
+  }
+  function unlinkOrg(org){
+    fetch('/api/client/tickets/unlink',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:name,org:org})}).then(r=>r.json()).then(d=>{
+        if(!d.ok){alert(d.error||'Could not unlink that.');return}
+        loadTickets();
+      }).catch(()=>alert('Could not unlink that.'));
+  }
+  function wireTicketMatch(){
+    const sug=$('c-tickets-suggest');
+    if(sug) sug.onclick=()=>{
+      $('c-tickets-results').innerHTML='<div class="muted" style="font-size:12px;margin-top:6px">Looking… <span class="spin"></span></div>';
+      fetch('/api/client/tickets/suggest?name='+encodeURIComponent(name)).then(r=>r.json()).then(d=>{
+        if(d.error){$('c-tickets-results').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+        renderTicketCandidates(d.candidates||[], true);
+      }).catch(()=>{$('c-tickets-results').innerHTML='<div class="empty">Could not search web tickets.</div>'});
+    };
+    const goBtn=$('c-tickets-search-go'), q=$('c-tickets-q');
+    const runSearch=()=>{
+      const val=(q&&q.value||'').trim();
+      if(!val) return;
+      $('c-tickets-results').innerHTML='<div class="muted" style="font-size:12px;margin-top:6px">Searching… <span class="spin"></span></div>';
+      fetch('/api/client/tickets/search?q='+encodeURIComponent(val)).then(r=>r.json()).then(d=>{
+        if(d.error){$('c-tickets-results').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+        renderTicketCandidates(d.results||[], false);
+      }).catch(()=>{$('c-tickets-results').innerHTML='<div class="empty">Could not search web tickets.</div>'});
+    };
+    if(goBtn) goBtn.onclick=runSearch;
+    if(q) q.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();runSearch()}};
+    document.querySelectorAll('.tick-unlink').forEach(el=>{el.onclick=()=>unlinkOrg(el.dataset.org)});
+  }
   function loadTickets(){
     const dom=web0&&web0.domain?web0.domain:'';
     fetch('/api/client/tickets?name='+encodeURIComponent(name)+'&website='+encodeURIComponent(dom))
       .then(r=>r.json()).then(d=>{
         if(!d.configured){$('c-tickets').innerHTML='<div class="empty">Knack API not connected — set KNACK_APP_ID and KNACK_API_KEY to see and create web tickets.</div>';return}
-        if(d.error){$('c-tickets').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+        if(d.error){$('c-tickets').innerHTML='<div class="empty">'+esc(d.error)+'</div>'+matchToolsHtml(d.linked);wireTicketMatch();return}
         const ts=d.tickets||[];
-        if(!ts.length){$('c-tickets').innerHTML='<div class="empty">No web tickets for this client yet — create one from any website record above or with "+ New web ticket".</div>';return}
+        if(!ts.length){$('c-tickets').innerHTML='<div class="empty">No web tickets for this client yet — create one from any website record above or with "+ New web ticket". If one exists under a different name, use the tools below.</div>'+matchToolsHtml(d.linked);wireTicketMatch();return}
         const shown=ts.slice(0,5);
         $('c-tickets').innerHTML='<table><thead><tr><th>Ticket</th><th>Type</th><th>Website</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>'+
           shown.map((t,i)=>{
@@ -2008,7 +2074,8 @@ function render(g,q){
             <td class="muted">${esc(t.date)}</td>
             <td><a class="open-link tick-edit" data-i="${i}" style="cursor:pointer">Manage</a></td></tr>`;
           }).join('')+'</tbody></table>'
-          +(ts.length>5?'<div class="muted" style="font-size:12px;padding-top:6px">'+(ts.length-5)+' more in Smart 1 Team</div>':'');
+          +(ts.length>5?'<div class="muted" style="font-size:12px;padding-top:6px">'+(ts.length-5)+' more in Smart 1 Team</div>':'')
+          +matchToolsHtml(d.linked);
         document.querySelectorAll('.tick-edit').forEach(el=>{
           el.onclick=()=>{
             if(!window.WebTicket){alert('The ticket form failed to load. Reload the page and try again.');return}
@@ -2017,6 +2084,7 @@ function render(g,q){
               user:user_name,onsaved:loadTickets});
           };
         });
+        wireTicketMatch();
       }).catch(()=>{$('c-tickets').innerHTML='<div class="empty">Web tickets unavailable.</div>'});
   }
   loadTickets();

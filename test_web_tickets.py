@@ -1,6 +1,6 @@
 """The web ticket fields: the ids, the form built from them, and the writes.
 
-Four things this protects, each of which has already gone wrong once in this
+Five things this protects, each of which has already gone wrong once in this
 codebase or is one rename away from going wrong:
 
 * **The ids are the ones the web team gave us.** They were pinned precisely
@@ -16,6 +16,13 @@ codebase or is one rename away from going wrong:
 * **A value Knack would refuse is refused here, by name.** Knack rejects the
   whole record over one bad dropdown value. Caught here it costs the field and
   the caller is told; not caught, it costs the ticket.
+* **A ticket filed under a name none of the client's known aliases predicts
+  is a fuzzy suggestion or a manual search away, never an automatic match.**
+  `hub/ticket_links.py` scores every "Client Organization" string already on
+  the ticket object against a client's own name with the same conservative
+  `SequenceMatcher`-over-`normalise_name` scorer this codebase already uses in
+  `hub/knack_websites.py` — nothing is applied without a press, and what a
+  rep confirms is a Hub-side overlay, never a write to Knack.
 
 Run directly: ``python3 test_web_tickets.py``. No pytest, no network — the
 requests seam is stubbed, so this needs no Knack credentials and touches
@@ -24,13 +31,18 @@ nothing real.
 import json
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 os.environ.setdefault("KNACK_APP_ID", "test-app")
 os.environ.setdefault("KNACK_API_KEY", "test-key")
 
-from hub import knack_api
+_TMP = tempfile.mkdtemp(prefix="s1-webtickets-")
+os.environ["HUB_DATA_DIR"] = _TMP
+os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_TMP, "t.db")
+
+from hub import knack_api, ticket_links
 
 FAILURES = []
 
@@ -171,6 +183,26 @@ class Resp:
 
 SENT = {"post": None, "put": None, "ticket_filters": None}
 
+# The one fixed ticket used by every test above this line. suggest_for()/
+# search() below swap this out for a larger pool and put it back afterward —
+# the fake doesn't discriminate on filters, so this is what "every ticket on
+# the object" means to it.
+TICKET_ROWS = [{
+    "id": "e" * 24,
+    "field_1895": "Homepage banner swap",
+    "field_1923": "Swap the hero image",
+    "field_2965": "riversidehvac.com",
+    "field_1657": "Open", "field_1657_raw": "Open",
+    "field_1000": "01/15/2026",
+    "field_2973": "Website Change", "field_2973_raw": "Website Change",
+    "field_3160": "Yes", "field_3160_raw": "Yes",
+    "field_1784": '<span>Riverside HVAC</span>',
+    "field_1784_raw": [{"id": "c" * 24, "identifier": "Riverside HVAC"}],
+    "field_3099_raw": ["Design", "SEO"],
+    "field_3099": "Design, SEO",
+    "field_3262_raw": True,
+}]
+
 
 class FakeRequests:
     """Knack, as far as this module is concerned."""
@@ -193,22 +225,9 @@ class FakeRequests:
             # this fixture exists to catch.
             return Resp(200, {"records": CLIENTS, "total_records": CLIENT_TOTAL})
         if url.endswith("/objects/object_107/records"):
-            SENT["ticket_filters"] = json.loads((kw.get("params") or {}).get("filters", "{}"))
-            return Resp(200, {"records": [{
-                "id": "e" * 24,
-                "field_1895": "Homepage banner swap",
-                "field_1923": "Swap the hero image",
-                "field_2965": "riversidehvac.com",
-                "field_1657": "Open", "field_1657_raw": "Open",
-                "field_1000": "01/15/2026",
-                "field_2973": "Website Change", "field_2973_raw": "Website Change",
-                "field_3160": "Yes", "field_3160_raw": "Yes",
-                "field_1784": '<span>Riverside HVAC</span>',
-                "field_1784_raw": [{"id": "c" * 24, "identifier": "Riverside HVAC"}],
-                "field_3099_raw": ["Design", "SEO"],
-                "field_3099": "Design, SEO",
-                "field_3262_raw": True,
-            }]})
+            SENT["ticket_filters"] = json.loads((kw.get("params") or {}).get("filters", "{}")) \
+                if (kw.get("params") or {}).get("filters") else None
+            return Resp(200, {"records": TICKET_ROWS})
         return Resp(404, {})
 
     @staticmethod
@@ -491,6 +510,96 @@ def main():
        open("hub/static/campaign-request.js", encoding="utf-8").read(),
        "the partner is on the same rows as the campaign and the IO, and the "
        "ad copy form offered it from the identical data")
+
+    print("\n=== A ticket filed under a name no alias predicts: fuzzy or found, "
+          "never guessed ===")
+    global TICKET_ROWS
+    saved_rows = TICKET_ROWS
+    TICKET_ROWS = [
+        {"id": "1" * 24, "field_1895": "New North branch site",
+         "field_1784": "Riverside HVAC - North"},
+        {"id": "2" * 24, "field_1895": "North branch phone number",
+         "field_1784": "Riverside HVAC - North"},
+        {"id": "3" * 24, "field_1895": "Drain snake promo",
+         "field_1784": "Riverside Plumbing"},
+        {"id": "4" * 24, "field_1895": "New logo", "field_1784": "Acme Plumbing"},
+    ]
+
+    cands = ticket_links.suggest_for("Riverside HVAC")
+    check("one candidate clears the threshold", [c["org"] for c in cands],
+          ["Riverside HVAC - North"])
+    ok("its ticket count is the real count", cands[0]["count"] == 2,
+       cands[0]["count"])
+    check("and its title is the most recent one seen",
+          cands[0]["title"], "New North branch site")
+    ok("the score is a real number, not a guess dressed up as one",
+       0.72 <= cands[0]["score"] < 1.0, cands[0]["score"])
+    ok("a lookalike that isn't close enough is refused, not offered",
+       not any(c["org"] == "Riverside Plumbing" for c in cands),
+       "\"Riverside HVAC\" and \"Riverside Plumbing\" merely share a word — "
+       "an automatic match here files a stranger's tickets onto this client")
+    check("no client with no name gets a candidate list at all",
+          ticket_links.suggest_for(""), [])
+
+    results = ticket_links.search("plumbing")
+    check("a manual search finds every org containing the text, "
+          "alphabetically", [r["org"] for r in results],
+          ["Acme Plumbing", "Riverside Plumbing"])
+    check("an empty query finds nothing rather than everything",
+          ticket_links.search(""), [])
+
+    print("...confirming one writes a Hub-side overlay, never Knack")
+    check("nothing is linked yet",
+          ticket_links.linked_orgs("Riverside HVAC"), [])
+    out = ticket_links.link("Riverside HVAC", "Riverside HVAC - North",
+                            actor="george@smart1marketing.com")
+    ok("the link is recorded", out["ok"], out)
+    check("and reads back for that client",
+          ticket_links.linked_orgs("Riverside HVAC"),
+          ["Riverside HVAC - North"])
+    check("an empty client name is refused",
+          ticket_links.link("", "Riverside HVAC - North")["ok"], False)
+    check("an empty organization is refused",
+          ticket_links.link("Riverside HVAC", "")["ok"], False)
+
+    print("...and it is additive: a second location is kept beside the first")
+    ticket_links.link("Riverside HVAC", "Riverside HVAC - South")
+    check("both are on file", sorted(ticket_links.linked_orgs("Riverside HVAC")),
+          ["Riverside HVAC - North", "Riverside HVAC - South"])
+    ticket_links.link("Riverside HVAC", "Riverside HVAC - North")
+    check("linking the same one twice does not duplicate it",
+          sorted(ticket_links.linked_orgs("Riverside HVAC")),
+          ["Riverside HVAC - North", "Riverside HVAC - South"])
+    ok("a suggestion already linked isn't offered again",
+       not any(c["org"] == "Riverside HVAC - North"
+               for c in ticket_links.suggest_for("Riverside HVAC")),
+       "confirmed once is confirmed, not re-asked on every visit")
+
+    print("...unlinking removes one, or the whole client with no organization named")
+    u = ticket_links.unlink("Riverside HVAC", "Riverside HVAC - North")
+    ok("one comes off", u["ok"], u)
+    check("the other stays",
+          ticket_links.linked_orgs("Riverside HVAC"),
+          ["Riverside HVAC - South"])
+    bad = ticket_links.unlink("Riverside HVAC", "Something never linked")
+    check("unlinking what was never linked is refused, not a silent no-op",
+          bad["ok"], False)
+    ticket_links.unlink("Riverside HVAC")
+    check("no organization named clears the client entirely",
+          ticket_links.linked_orgs("Riverside HVAC"), [])
+    check("unlinking a client with nothing on file is refused",
+          ticket_links.unlink("A Client Never Linked")["ok"], False)
+
+    print("...and a client renamed in Knack is never carried by a derived key")
+    from hub import client_key as _ck
+    ticket_links.link("Riverside HVAC", "Riverside HVAC - North")
+    ok("the overlay is keyed on the normalized name, never a Knack record id",
+       _ck.normalise_name("Riverside HVAC") in ticket_links.overlay(),
+       "the same rule hub/client_urls.py and hub/client_groups.py already "
+       "follow: a client renamed in Knack must re-join on the next request "
+       "rather than carry a stale copy forward")
+
+    TICKET_ROWS = saved_rows
 
     print()
     if FAILURES:
