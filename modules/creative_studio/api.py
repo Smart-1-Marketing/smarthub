@@ -15,7 +15,8 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, render_template, request, url_for
 
-from . import binder, brand_ext, campaign_spec, config, jobs, layouts, resolver, usage
+from . import (binder, brand_ext, brand_review, campaign_spec, config, jobs,
+               layouts, resolver, usage)
 from .db import db
 from .models import (CreativeJob, CsAiTool, CsCampaign, CsCampaignAsset, CsMediaAsset,
                      CsProject, CsProjectVersion, CsShare, CsShareDecision, CsTemplate,
@@ -1352,6 +1353,8 @@ def brand_kit_page(client):                                # noqa: ANN202
     except Exception:                                     # noqa: BLE001
         domain = ""
     kit = brand_ext.kit(client, domain)
+    review = brand_review.get(client)
+    form_ext, drafted_fields = brand_review.form_values(kit.get("ext") or {}, review)
     # A grid of several logo tiles, never one logo shown once -- the shape
     # hub/storage.preview_url() exists to cap rather than the _LOGO exemption
     # test_image_download.py carries for a lone mark. It is a no-op on
@@ -1364,7 +1367,9 @@ def brand_kit_page(client):                                # noqa: ANN202
     except Exception:                                     # noqa: BLE001
         pass
     return render_template("cs_brand_kit.html", title=f"Brand Kit — {client}",
-                           client=client, domain=domain, kit=kit)
+                           client=client, domain=domain, kit=kit, review=review,
+                           form_ext=form_ext, drafted_fields=drafted_fields,
+                           brand_field_labels=brand_review.FIELD_LABELS)
 
 
 @bp.post("/api/brand-kits/<path:client>/lookup")
@@ -1390,11 +1395,54 @@ def api_save_brand_kit(client):                            # noqa: ANN202
     data = request.get_json(silent=True) or {}
     result = brand_ext.save(client, data, actor=_actor())
     if result.get("ok"):
+        brand_review.note_manual_change(client, actor=_actor())
         try:
             from hub import audit
             audit.log("creative_studio", "brand_kit_saved", actor=_actor(), client=client)
         except Exception:                                 # noqa: BLE001
             pass
+    return jsonify(result)
+
+
+@bp.post("/api/brand-kits/<path:client>/research")
+def api_research_brand_kit(client):                        # noqa: ANN202
+    """Read the client's public footprint and create an unapproved draft.
+
+    This is a POST because it reaches live pages, search and a model.  Merely
+    opening a Brand Kit remains local and free.
+    """
+    try:
+        from hub.clients_registry import find_client
+        row = find_client(client) or {}
+        domain = row.get("domain") or ""
+    except Exception:                                     # noqa: BLE001
+        domain = ""
+    try:
+        result = brand_review.research(client, domain, actor=_actor())
+    except brand_review.BrandResearchError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 502
+    try:
+        from hub import audit
+        audit.log("creative_studio", "brand_kit_researched", actor=_actor(),
+                  client=client, detail=f"domain={domain or 'none'}")
+    except Exception:                                     # noqa: BLE001
+        pass
+    return jsonify(result)
+
+
+@bp.post("/api/brand-kits/<path:client>/approve")
+def api_approve_brand_kit(client):                         # noqa: ANN202
+    """Approve the pending source-backed draft; every signed-in user may."""
+    data = request.get_json(silent=True) or {}
+    result = brand_review.approve(client, data, actor=_actor())
+    if not result.get("ok"):
+        return jsonify(result), 409
+    try:
+        from hub import audit
+        audit.log("creative_studio", "brand_kit_approved", actor=_actor(),
+                  client=client)
+    except Exception:                                     # noqa: BLE001
+        pass
     return jsonify(result)
 
 

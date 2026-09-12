@@ -114,6 +114,80 @@ no_client = brand_ext.save("", {"cta_style": "x"})
 check("saving with no client name is refused", no_client["ok"], False)
 
 # ---------------------------------------------------------------------------
+section("source-backed Brand Kit review")
+
+from modules.creative_studio import brand_review  # noqa: E402
+
+fake_sources = {
+    "client": "Review Co", "domain": "review.example",
+    "website": "https://review.example",
+    "website_pages": [{"url": "https://review.example", "text": "Roof repair"}],
+    "social_profiles": {"facebook": "https://facebook.com/reviewco"},
+    "search_results": [], "hub_brief": "Roofing contractor",
+    "current_brand_kit": {},
+    "sources": [
+        {"kind": "website", "label": "Review Co", "url": "https://review.example"},
+        {"kind": "social", "label": "Facebook", "url": "https://facebook.com/reviewco"},
+    ],
+    "source_summary": {"website_pages": 1, "website_read": True,
+                       "social_profiles": 1, "search_results": 0},
+}
+fake_answer = """```json
+{"fields":{"services":["Roof repair","Roof repair"],"products":[],
+"promotions":[],"disclaimers":[],"legal":[],"certifications":[],
+"locations":["Columbus, OH"],"logo_position":"Bottom right",
+"cta_style":"Call for an inspection","image_style":"Real project photography",
+"brand_voice":"Direct and reassuring","preferred_music_style":"Warm acoustic",
+"preferred_voice_id":"must-not-be-accepted",
+"pronunciation_dict":{}},
+"field_evidence":{"services":[{"url":"https://review.example/services",
+"note":"The services page names roof repair.","confidence":"high"}],
+"cta_style":[{"url":"https://review.example","note":"The homepage repeatedly asks visitors to call.","confidence":"medium"}]},
+"open_questions":["Are there required financing disclaimers?"]}
+```"""
+
+before_review = brand_ext.get("Review Co")
+reviewed = brand_review.research(
+    "Review Co", "review.example", actor="Researcher",
+    ask=lambda _prompt: fake_answer,
+    source_loader=lambda _client, _domain: fake_sources)
+check("research creates an in-review record", reviewed["review"]["status"], "in_review")
+check("research deduplicates proposed list values",
+      reviewed["review"]["fields"]["services"], ["Roof repair"])
+check("research records source-backed field evidence",
+      reviewed["review"]["field_evidence"]["services"][0]["confidence"], "high")
+check("a suggestion without a source URL is dropped",
+      reviewed["review"]["fields"]["logo_position"], "")
+check("field-level evidence URLs join the reviewed source list",
+      "https://review.example/services" in
+      [s["url"] for s in reviewed["review"]["sources"]], True)
+check("research does not change the live Brand Kit",
+      brand_ext.get("Review Co")["services"], before_review["services"])
+check("provider ids cannot enter a researched draft",
+      "preferred_voice_id" in reviewed["review"]["fields"], False)
+
+shown, drafted = brand_review.form_values(brand_ext.get("Review Co"), reviewed["review"])
+check("pending suggestions are what the review form shows", shown["cta_style"],
+      "Call for an inspection")
+check("the form labels which values are still suggestions", "cta_style" in drafted, True)
+
+approval_fields = dict(reviewed["review"]["fields"])
+approval_fields["cta_style"] = "Edited before approval"
+approval_fields["preferred_voice_id"] = "chosen-by-the-reviewer"
+approved = brand_review.approve("Review Co", approval_fields, actor="Approver")
+check("approval writes the reviewed Brand Kit", approved["ok"], True)
+check("an edit made during review is the approved value",
+      brand_ext.get("Review Co")["cta_style"], "Edited before approval")
+check("a provider voice id typed by the reviewer is accepted",
+      brand_ext.get("Review Co")["preferred_voice_id"], "chosen-by-the-reviewer")
+check("the review records who approved it", brand_review.get("Review Co")["approved_by"],
+      "Approver")
+
+brand_review.note_manual_change("Review Co", actor="Editor")
+check("a later manual edit is no longer presented as the approved snapshot",
+      brand_review.get("Review Co")["status"], "changed")
+
+# ---------------------------------------------------------------------------
 section("creative_jobs: enqueue now, run later")
 
 from modules.creative_studio import jobs as cs_jobs  # noqa: E402
@@ -183,6 +257,11 @@ anon_apis = ["/creative-studio/api/clients/search",
 for p in anon_apis:
     out = client.get(p)
     check(f"{p} refuses an anonymous visitor too", out.status_code in (302, 401), True)
+
+for p in ("/creative-studio/api/brand-kits/Review%20Co/research",
+          "/creative-studio/api/brand-kits/Review%20Co/approve"):
+    out = client.post(p, json={})
+    check(f"{p} refuses an anonymous approval action", out.status_code in (302, 401), True)
 
 client.set_cookie(auth.COOKIE_NAME, auth.issue_cookie_value("Todd"),
                   domain="localhost")
@@ -277,11 +356,21 @@ section("Brand Kit page and save round-trip through the API")
 r = client.get("/creative-studio/brand-kits/Acme%20Plumbing")
 check("the brand kit page renders", r.status_code, 200)
 check("  ...carrying the saved field", b"Bold" in r.data, True)
+check("  ...and offers source-backed research", b"Research &amp; draft Brand Kit" in r.data, True)
 
 r = client.post("/creative-studio/api/brand-kits/Acme%20Plumbing",
                 json={"cta_style": "Friendly"})
 check("saving from the API reports ok", r.get_json()["ok"], True)
 check("  ...and reads back", brand_ext.get("Acme Plumbing")["cta_style"], "Friendly")
+
+# The API seam is stubbed: route wiring is tested without making a live model
+# or search call in CI.
+original_research = brand_review.research
+brand_review.research = lambda client, domain, actor="": {
+    "ok": True, "review": {"client": client, "status": "in_review"}}
+r = client.post("/creative-studio/api/brand-kits/Acme%20Plumbing/research", json={})
+brand_review.research = original_research
+check("the research action is a signed-in POST route", r.status_code, 200)
 
 # ---------------------------------------------------------------------------
 section("work here is attributable")
@@ -567,6 +656,18 @@ r = member_client.post("/creative-studio/api/templates",
 check("  ...and cannot create a template through the API either", r.status_code, 403)
 r = member_client.get("/creative-studio/templates")
 check("  ...but the public gallery is still open to them", r.status_code, 200)
+
+# Approval is deliberately not an admin action. Any authenticated Hub user
+# can review the evidence, edit the fields and accept the shared kit.
+brand_review.research(
+    "Member Review Co", "review.example", actor="Researcher",
+    ask=lambda _prompt: fake_answer,
+    source_loader=lambda _client, _domain: fake_sources)
+r = member_client.post("/creative-studio/api/brand-kits/Member%20Review%20Co/approve",
+                       json={"cta_style": "Approved by member"})
+check("a General Access member may approve a Brand Kit review", r.status_code, 200)
+check("  ...and their approval becomes the shared kit value",
+      brand_ext.get("Member Review Co")["cta_style"], "Approved by member")
 
 with hub_app.app_context():
     from hub.users import User, db as udb

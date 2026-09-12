@@ -2217,15 +2217,19 @@ REGISTRY: list[Help] = [
        link="/creative-studio/projects", link_text="Open projects"),
     _h("creative_studio.brand_kits", "Find a client's brand record",
        "Logos and colors come from Brandfetch and the client's last site "
-       "scan; the business facts below them -- services, promotions, "
-       "pronunciation -- are typed in once here and every template reads "
-       "them from then on."),
+       "scan. Research & draft reviews the client website, known social "
+       "profiles and web search to suggest the remaining business and "
+       "creative fields. The suggestions stay In review until a signed-in "
+       "Hub user approves them."),
     _h("creative_studio.brand_kit", "One brand record, not a third copy",
        "Logos, colors and fonts are read from the same brand data Client "
        "360 already shows -- editing them here would be a second answer to "
        "one question. What is edited here is the half nothing else "
        "publishes: services, promotions, disclaimers, the pronunciation "
-       "dictionary, and how this client's creative should look and sound."),
+       "dictionary, and how this client's creative should look and sound. "
+       "Research creates a source-linked draft without changing the live "
+       "kit. Review its values and open questions, edit anything needed, "
+       "then approve it in one action."),
     _h("creative_studio.media", "What is actually stored, not what was made",
        "Storage stays Cloudinary; this is the index over it. \"Index "
        "this client's assets\" queues a backfill job rather than "
