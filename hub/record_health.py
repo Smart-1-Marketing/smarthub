@@ -9,12 +9,17 @@ in its header that are badges rather than findings, and a Site Health card
 fed by the latest scan; nothing on it said what needs doing.
 
 A 360 record spans more than SEO: products and their terms, billing, the
-website and its audit, the Google accounts recorded against it, open
-proposals, and the outstanding work `/my-clients` already computes. So this
-is its own reading rather than the SEO one reused, and it lives beside it:
-the SEO half IS `seo.record_health()`, called here rather than restated,
-and the blogs rule is `seo.blogs_health()`, which both strips read so the
-two screens cannot disagree about who is behind.
+website and its audit, the Google accounts recorded against it, and open
+proposals. So this is its own reading rather than the SEO one reused, and it
+lives beside it: the SEO half IS `seo.record_health()`, called here rather
+than restated, and the blogs rule is `seo.blogs_health()`, which both strips
+read so the two screens cannot disagree about who is behind.
+
+The strip used to carry an "Outstanding" pill fed by `/my-clients`'s own
+`issues_for_client()` -- a second reading of the same work that report
+already surfaces, on a card George flagged as confusing rather than
+actionable from here. It is gone: `/my-clients` is where that queue is
+worked, and this strip no longer restates a number from it.
 
 Four rules, all this codebase's own:
 
@@ -47,7 +52,7 @@ ENDING_SOON_DAYS = 21
 # against each other so a pill cannot point at a section that is not there.
 SECTIONS = {
     "products": "overview", "billing": "billing", "site": "website",
-    "google": "google", "proposals": "overview", "work": "work",
+    "google": "google", "proposals": "overview",
 }
 
 STATES = ("ok", "warn", "bad", "idle", "unread")
@@ -244,31 +249,6 @@ def _proposals(name: str) -> tuple[dict, list]:
               "detail": ", ".join(s for s in signals if s)}])
 
 
-def _work(name: str) -> tuple[dict, list]:
-    from hub import client_health
-    try:
-        res = client_health.issues_for_client(name)
-    except Exception as exc:                     # noqa: BLE001
-        return _unread("work", "Outstanding", f"{type(exc).__name__}"), []
-    if not res.get("ok") or not res.get("measured"):
-        return _unread("work", "Outstanding", res.get("error") or res.get("warning")
-                       or "the outstanding-work report would not answer"), []
-    n = int(res.get("issue_count") or 0)
-    blind = res.get("missing_sources") or []
-    suffix = f" · {len(blind)} source{'s' if len(blind) != 1 else ''} not read" if blind else ""
-    if n:
-        return (_pill("work", "Outstanding", "warn", f"{n} issue{'s' if n != 1 else ''}{suffix}",
-                      measured=True, detail=res.get("warning") or ""),
-                [{"level": "warn", "section": "work",
-                  "title": f"{n} outstanding issue{'s' if n != 1 else ''} on /my-clients",
-                  "detail": "; ".join(str(i.get("title") or i.get("kind") or "")
-                                      for i in (res.get("issues") or [])[:4])}])
-    if blind:
-        return _pill("work", "Outstanding", "warn", "None found" + suffix, measured=True,
-                     detail=res.get("warning") or "Some sources could not be read, so this is not a clean bill."), []
-    return _pill("work", "Outstanding", "ok", "Nothing outstanding", measured=True), []
-
-
 def _seo(name: str, today: str = "") -> tuple[list, list, list]:
     """The SEO pills, read through hub/seo -- the same functions the SEO
     record itself draws. Returns (pills, queue, unread).
@@ -380,12 +360,6 @@ def client360(name: str, *, group: dict | None = None,
     queue += q
     if prop["state"] == "unread":
         unread.append("proposals: " + prop["detail"])
-
-    work, q = _work(name)
-    pills.append(work)
-    queue += q
-    if work["state"] == "unread":
-        unread.append("outstanding work: " + work["detail"])
 
     try:
         seo_pills, q, seo_unread = _seo(name, today.isoformat())
