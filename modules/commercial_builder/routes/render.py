@@ -220,6 +220,9 @@ def list_render_jobs(project_id):
     for job in jobs:
         row = job.to_dict()
         row["approval"] = approvals.get(job.id)
+        from ..finishing_models import RenderInspection
+        inspection = db.session.get(RenderInspection, job.id)
+        row["inspection"] = inspection.result if inspection and inspection.checked_at and inspection.output_url == job.output_url else {"status": "pending" if inspection else "unverified", "checks": []}
         rows.append(row)
     approved_formats = sorted({j.format for j in jobs if j.id in approvals})
     remaining = [f for f in (project.formats or []) if f not in approved_formats]
@@ -329,6 +332,16 @@ def approve_render(project_id, job_id):
         return jsonify({"ok": True, "approval": existing.to_dict(),
                         "already": True, "next": _next_in_campaign(project)})
 
+    from ..services.finished_video import inspect_job
+    inspection = inspect_job(job)
+    if inspection["status"] == "failed":
+        return jsonify(ok=False, error="The finished video failed technical checks. Fix the output before filing.", inspection=inspection), 409
+    if inspection["status"] != "passed" and data.get("acknowledge_unverified_video") is not True:
+        message = ("The video contains black or quiet sections. Watch those sections to verify that no media is missing before filing. " + " ".join(inspection.get("warnings", []))
+                   if inspection["status"] == "review" else "Automatic video inspection is unavailable. Watch the entire cut and confirm its timing, picture and audio before filing.")
+        return jsonify(ok=False, error=message,
+                       needs_video_acknowledgment=True, inspection=inspection), 409
+
     approval = RenderApproval(render_job_id=job.id, project_id=project.id,
                               approved_by=_actor())
 
@@ -352,6 +365,9 @@ def approve_render(project_id, job_id):
                   f":{project.length_seconds:02d} · {job.format}")
         if standing["blocks_filing"]:
             detail += " · filed despite the client asking for changes"
+        detail += " · finished-file checks: " + inspection["status"]
+        if inspection["status"] != "passed":
+            detail += " · picture, timing and audio confirmed by reviewer"
         _cb_log("commercial_approved", client=client.name, detail=detail,
                 project=project.id, url=approval.stored_url or job.output_url)
         approval.filed_to_client = True

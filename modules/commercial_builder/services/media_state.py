@@ -30,6 +30,8 @@ def timeline_signature(scenes):
 def integrity(project, scenes):
     """Non-overridable media requirements; legacy assets remain editable."""
     problems = []
+    if (project.get("brief") or {}).get("variation_needs_script"):
+        problems.append("This variation has a new brief or duration: regenerate its script before rendering.")
     music = project.get("music") or {}
     formats = project.get("formats") or ["16:9"]
     signature = music.get("voice_signature")

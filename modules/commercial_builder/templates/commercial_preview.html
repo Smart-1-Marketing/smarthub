@@ -16,6 +16,8 @@
   <a class="cb-btn" href="{{ url_for('commercial_builder.cb_pages.blueprint', project_id=project.id) }}">← Back to Blueprint</a>
 </div>
 
+{% include "_finishing.html" %}
+
 <div class="cb-grid cb-grid-2" style="align-items:start;" id="preview-root" data-project-id="{{ project.id }}">
   <div class="cb-card">
     <div class="cb-flex-between"><h3>Automatic quality checks</h3><button class="cb-btn cb-btn-sm" id="run-qc-btn">Run checks</button></div>
@@ -125,4 +127,4 @@
 </div>
 
 {% endblock %}
-{% block extra_scripts %}<script src="{{ url_for('commercial_builder.static', filename='js/preview.js') }}"></script>{% endblock %}
+{% block extra_scripts %}<script src="{{ url_for('commercial_builder.static', filename='js/preview.js') }}"></script><script src="{{ url_for('commercial_builder.static', filename='js/finishing.js') }}"></script>{% endblock %}

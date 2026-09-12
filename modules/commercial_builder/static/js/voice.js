@@ -310,6 +310,7 @@
         method: "POST",
         body: {
           voice_id: selectedVoiceId,
+          regenerate: document.getElementById('voice-new-take').checked,
           speed: parseFloat(document.getElementById("voice-speed").value),
           stability: parseFloat(document.getElementById("voice-stability").value),
           style: parseFloat(document.getElementById("voice-style").value),

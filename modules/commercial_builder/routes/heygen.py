@@ -133,7 +133,7 @@ def generate_spokesperson_clip(project_id, scene_id):
     if customer_voice:
         from ..services.elevenlabs_service import apply_pronunciation_dict
         customer_client = Client.query.get(project.client_id)
-        customer_spoken = apply_pronunciation_dict(scene.narration, customer_client.pronunciation_dict if customer_client else {})
+        customer_spoken = apply_pronunciation_dict(scene.narration, (project.music or {}).get("pronunciation_dict", customer_client.pronunciation_dict if customer_client else {}))
     # Keep existing HeyGen request keys stable. Customer reads also include the
     # actual spoken text so a pronunciation correction creates a fresh take.
     voice_identity = {"voice_provider": "customer", "spoken": customer_spoken} if customer_voice else {}
@@ -148,6 +148,8 @@ def generate_spokesperson_clip(project_id, scene_id):
         return jsonify({"ok": False, "error": "A presenter request already exists. Check its status before creating another take.",
                         "job": prior_job}), 409
     if prior_job.get("request_key") == identity and not data.get("regenerate") and not previous.get("presenter_stale"):
+        from ..usage import record
+        record("heygen", operation="presenter", cached=True)
         return jsonify({"ok": True, "job": prior_job, "scene": scene.to_dict(), "reused": True,
                         "live": heygen_service.is_live()})
     reservation = {"status": "submitting", "token": uuid.uuid4().hex, "submitted_at": time.time(),
