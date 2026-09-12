@@ -638,7 +638,8 @@ def migrate(client: str, *, apply: bool = False, actor: str = "",
         try:
             items = drive_files.files_for(token, link["url"])
         except drive_files.DriveRefused as exc:
-            failed.append({**link, "error": exc.detail, "reason": exc.reason})
+            failed.append({**link, "error": exc.detail, "reason": exc.reason,
+                           "google_reason": getattr(exc, "google", "")})
             continue
         except Exception as exc:                        # noqa: BLE001
             failed.append({**link, "error": f"{type(exc).__name__}: {exc}"[:200],
@@ -710,16 +711,39 @@ def _verdict(result: dict) -> dict:
     if len(reasons) != 1:
         return {}
     reason = reasons.pop()
-    if reason not in ("refused", "missing"):
+    if reason not in ("refused", "missing", "ratelimited"):
         return {}
     account = result.get("account") or ""
-    detail = (f"All {len(failed)} Drive link(s) were refused by Google, "
+    n = len(failed)
+
+    # Google's own word for it, where every row agreed on one. It is what
+    # separates "this login may not read these files" from "you asked too
+    # fast" -- both of which Drive answers 403 to, and both of which used to
+    # reach this sentence as the single word "refused".
+    said = {str(f.get("google_reason") or "") for f in failed}
+    google = said.pop() if len(said) == 1 else ""
+
+    if reason == "ratelimited":
+        # Not a login problem at all, so it must not be worded as one: the
+        # folders and the grant are fine and the run wants doing again.
+        detail = (f"Drive rate-limited all {n} link(s) rather than refusing "
+                  f"them. Nothing is wrong with the creative, the folders or "
+                  f"the {account} login.")
+        return {"kind": reason, "count": n, "account": account, "others": [],
+                "google": google,
+                "fix": "Run it again -- it goes in chunks and keeps its "
+                       "place, so nothing already copied is copied twice.",
+                "detail": detail}
+
+    detail = (f"All {n} Drive link(s) were refused by Google, "
               if reason == "refused" else
-              f"None of the {len(failed)} Drive link(s) could be found, ")
+              f"None of the {n} Drive link(s) could be found, ")
     detail += (f"reading as {account}. That is one login failing on every "
-               f"folder rather than {len(failed)} broken links: either the "
+               f"folder rather than {n} broken links: either the "
                f"creative is shared with a different Google login, or these "
                f"folders have moved.")
+    if google:
+        detail += f" Google's own reason on every one of them: {google}."
     # The other connected logins, named rather than left to be guessed at --
     # the answer `access()` gives one layer up, and the page draws a picker
     # from the same list. Deliberately *not* "we read as the wrong one": with
@@ -730,8 +754,25 @@ def _verdict(result: dict) -> dict:
     if others:
         detail += (f" {len(others)} other Google login(s) are connected to "
                    f"the Hub: {', '.join(others[:4])}.")
+    # What to actually do, decided here rather than by whichever screen draws
+    # this. A reconnect is the fix for `access()` refusing an account, which
+    # is a different refusal with the same word: that one is the token not
+    # carrying Drive at all, and it is ruled out before a single file is read
+    # -- `_has_drive()` asks Google what the grant is. Offering a reconnect
+    # here sends somebody to re-consent a login that was never the problem.
+    if reason == "missing":
+        fix = ("Nothing here is a permission problem -- Google says these "
+               "items are gone. Check the Drive links on the product records "
+               "rather than the login.")
+    else:
+        fix = ("Reconnecting the login will not help: it was checked for "
+               "Drive access before any file was read, and it has it. Either "
+               "share these folders with " + (account or "that login")
+               + ", or run it again as the login that owns them.")
+        if others:
+            fix += " Use the account box above to read as a different login."
     return {"kind": reason, "count": len(failed), "account": account,
-            "others": others, "detail": detail}
+            "others": others, "google": google, "fix": fix, "detail": detail}
 
 
 def _folder_for(client: str, link: dict, item: dict) -> str:
