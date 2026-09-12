@@ -13601,6 +13601,10 @@ known defect patterns; `/login/health` diagnoses sign-in without a session.
 
 ## Delivery
 
+Background cutouts use Cloudinary; background scene edits use the shared OpenAI
+image-edit helper. Run `python test_background_providers.py` alongside
+`python test_image_tools.py` for changes to these provider paths.
+
 `git push` from the sandbox has always been blocked, so releases have gone out
 as zips uploaded through GitHub's browser UI. **That uploader adds and
 overwrites but never deletes**, which is why the repo root accumulated 65

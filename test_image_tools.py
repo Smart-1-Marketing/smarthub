@@ -107,32 +107,27 @@ class OptimizerTests(unittest.TestCase):
 
 
 class BackgroundCreditTests(unittest.TestCase):
-    def test_preview_paid_and_cached_usage_are_distinct(self):
-        for quality, cached, credits, previews in (
-                ("preview", False, 0, 1), ("auto", False, 1, 0),
-                ("full", False, 1, 0), ("preview", True, 0, 0),
-                ("auto", True, 0, 0)):
-            with self.subTest(quality=quality, cached=cached), \
+    def test_provider_processing_and_cached_usage_are_distinct(self):
+        for mode, cached in (("cutout", False), ("replace", False), ("cutout", True), ("replace", True)):
+            with self.subTest(mode=mode, cached=cached), \
                     patch.object(background, "configured", return_value=True), \
-                    patch.object(background, "api_key", return_value="test-only-key"), \
+                    patch.object(background.providers, "ai_ready", return_value=True), \
                     patch.object(background, "_sweep"), \
                     patch.object(background, "_cache_get", return_value=png() if cached else None), \
                     patch.object(background, "_cache_put"), \
                     patch.object(background, "_log"), \
-                    patch("requests.post", return_value=Mock(ok=True, status_code=200, content=png())) as post, \
-                    patch("hub.quotas.record") as record:
+                    patch.object(background.providers, "cloud_cutout", return_value=png()) as cutout, \
+                    patch.object(background.providers, "replace_background", return_value=png()) as edit:
                 r = background.app.test_client().post("/api/remove", data={
-                    "images": (io.BytesIO(png()), "fixture.png"), "quality": quality,
+                    "images": (io.BytesIO(png()), "fixture.png"), "mode": mode, "prompt": "A kitchen",
                 })
                 self.assertEqual(r.status_code, 200)
                 body = r.get_json()
-                self.assertEqual(body["credits_used"], credits)
-                self.assertEqual(body["preview_calls"], previews)
-                self.assertEqual(body["results"][0]["billed"], bool(credits))
+                self.assertEqual(body["provider_calls"], 0 if cached else 1)
                 self.assertEqual(body["results"][0]["cached"], cached)
-                self.assertEqual(body["results"][0]["preview"], quality == "preview")
-                self.assertEqual(record.call_count, credits)
-                self.assertEqual(post.call_count, 0 if cached else 1)
+                self.assertNotIn("credits_used", body)
+                self.assertEqual(cutout.call_count, int(mode == "cutout" and not cached))
+                self.assertEqual(edit.call_count, int(mode == "replace" and not cached))
 
 
 class ProviderTests(unittest.TestCase):
