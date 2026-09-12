@@ -824,6 +824,11 @@ def job_qa_task_vision(app) -> dict:
         return qa_tasks.describe_image_backlog()
 
 
+def job_industry_prospect_sync(app):
+    from hub.industry_prospects import scheduled_step
+    return scheduled_step(app)
+
+
 def job_commercial_recovery(app) -> dict:
     """Continue saved commercial jobs after the browser closes."""
     with app.app_context():
@@ -832,6 +837,8 @@ def job_commercial_recovery(app) -> dict:
 
 
 JOBS = {
+    "industry_prospect_sync": (1, job_industry_prospect_sync,
+                               "Advance the opt-in GHL to Apollo suppression sync."),
     "commercial_recovery": (1, job_commercial_recovery,
                             "Check saved commercials and retry storing presenter clips."),
     "backup_json":       (60, job_backup_json,

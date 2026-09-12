@@ -7384,6 +7384,10 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # ---------------- Industry Prospect Builder ----------------
+    from .industry_prospect_routes import register_industry_prospects
+    register_industry_prospects(app)
+
     # ---------------- Prospect 360 ----------------
     # The record a scanned business gets before it is a client. Blueprint, so
     # the login gate sits on the blueprint itself -- every route here names a
