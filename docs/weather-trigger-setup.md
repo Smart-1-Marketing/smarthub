@@ -1,6 +1,6 @@
 # Weather trigger setup — lead → landing pages → approved work order
 
-**Date:** 2026-09-07 · **Verticals:** restaurant, hvac, retail, auto · **Status:** built (v1 + hvac + retail + auto)
+**Date:** 2026-09-07 · **Verticals:** restaurant, hvac, retail, auto, landscaping, pool_spa · **Status:** built (v1 + hvac + retail + auto + landscaping + pool_spa)
 
 This is the design spec the module in `modules/weather_setup/` and the
 trigger vocabulary in `hub/weather_triggers.py` were built against. What
@@ -361,6 +361,106 @@ and seasonal ones. `_PROMPT_CONTEXT["auto"]` gives the model prompt an
 "auto repair / service shop" noun and a "Service notes" label, and
 `_FALLBACK_NAME["auto"]` is "your shop" where retail falls back to "your
 store" and HVAC to "your business".
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 10. The fifth vertical (Landscaping / Lawn Care)
+
+Shipped the same way a fourth time: thirteen more rows, still the same rule
+vocabulary, still no change to `evaluate_trigger()`, `store.py`, `app.py` or
+the staff template.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="landscaping"`. The
+psychology sits closer to HVAC's service reminder than retail's stock-up
+call — the work is mostly a booked visit rather than a purchase.
+`dry-spell-watering`/`drought-stress` are an escalating pair for irrigation,
+the same shape as `hard-freeze`/`deep-freeze` for HVAC and
+`battery-cold-test`/`deep-freeze-auto` for auto. `heavy-rain-growth-spurt`
+sells the mowing catch-up the day *after* a soaking rain rather than the day
+of it. `storm-cleanup` and `high-wind-debris` split debris cleanup into an
+alert-driven row and a lesser daily one. `first-freeze-landscaping` is the
+once-per-season event — winterize the irrigation before the freeze cracks
+it — with its own season-state key so it cannot collide with any of the
+other four verticals' first-freeze rows inside one campaign's carried
+state, even though all five share the literal `once_per_season: "cold"`
+value: `trigger_state` is stored per-pick, keyed on `trigger_id`, in
+`store.py`, so none of them actually share a state dict. `spring-green-up-day`
+and `fall-leaf-peak` are the two shoulder-season pushes this vertical leans
+on hardest, and `spring-fertilize-window`/`fall-fertilize-window` are a
+second such pair for feeding rather than cleanup. `first-snow-landscaping`
+and `mosquito-surge` round the book out: a first snowfall for the plowing
+side of the business, and a run of overcast days for the pest-control side,
+the same `cloud_percent_min`/`consecutive_days` shape the restaurant
+vertical's `gray-streak` already uses.
+
+`MONTHS` gained the same treatment as the prior three verticals: all
+thirteen landscaping ids listed in every month's tuple, in month-appropriate
+priority order, alongside the restaurant, hvac, retail and auto ids already
+there.
+
+**The copy.** `_house_draft_landscaping()` is a fifth per-angle template in
+`modules/weather_setup/copy.py`, dispatched the same way as the other
+four — by `Trigger.vertical`, not by a swapped-in name. Its framing leans on
+"get it checked before it's a bigger job" for urgent/alert-driven triggers
+and "book it before the season gets away" for the seasonal maintenance
+ones. `_PROMPT_CONTEXT["landscaping"]` gives the model prompt a
+"landscaping / lawn care company" noun and a "Service notes" label, and
+`_FALLBACK_NAME["landscaping"]` is "your business", matching HVAC's fallback
+since the vertical has no single word as natural as "your table" or "your
+shop".
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 11. The sixth vertical (Pool & Spa Service)
+
+Shipped the same way a fifth time: thirteen more rows, still the same rule
+vocabulary, still no change to `evaluate_trigger()`, `store.py`, `app.py` or
+the staff template. Five verticals of precedent already proved the plumbing
+generalizes; the sixth confirms it rather than testing it again.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="pool_spa"`. The
+psychology is a service reminder like HVAC and landscaping, built around
+chemical balance and seasonal opening/closing rather than an appliance
+under strain. `chlorine-burn-off`/`algae-bloom-risk` are an escalating
+pair — hot and sunny burns chlorine off fast, heat stacked on humidity is
+the real algae risk — the same escalation shape as HVAC's
+`ac-overload`/`heat-index-strain`. `first-freeze-pool`, `hard-freeze-pool`
+and `deep-freeze-pool` are a three-step cold-weather ladder: the
+once-per-season event that opens the season's winterizing conversation, a
+daily row for every hard freeze after it (equipment left un-winterized is a
+risk every time, not only the first), and an emergency row for genuinely
+extreme cold. `pool-opening-day` and `pool-closing-day` are the two
+shoulder-season pushes the vertical exists to sell, mirroring
+`spring-tune-up-day`/`fall-tune-up-day` for HVAC. `spa-season-open` is the
+one row that runs opposite the rest of the book on purpose — cold weather
+is when hot tub demand actually surges, the exact inverse of what drives
+every other row here. `storm-debris-cleanup` and `high-wind-debris-pool`
+split cleanup the way landscaping's alert and daily rows do, and
+`heavy-rain-dilution`/`evaporation-watch` are the two water-chemistry rows
+for rain diluting chemicals and heat evaporating the water level, each
+escalating past the ordinary `chlorine-burn-off` condition rather than
+duplicating it. `first-freeze-pool`'s season-state key cannot collide with
+any of the other five verticals' first-freeze rows inside one campaign's
+carried state, for the same per-pick, per-`trigger_id` reason the other
+five hold.
+
+`MONTHS` gained the same treatment as the prior four verticals: all
+thirteen pool_spa ids listed in every month's tuple, in month-appropriate
+priority order, alongside the restaurant, hvac, retail, auto and
+landscaping ids already there.
+
+**The copy.** `_house_draft_pool_spa()` is a sixth per-angle template in
+`modules/weather_setup/copy.py`, dispatched the same way as the other
+five — by `Trigger.vertical`, not by a swapped-in name. Its framing leans on
+"don't let it get out of balance" for urgent/alert-driven triggers and "get
+ahead of it" for the ordinary seasonal ones. `_PROMPT_CONTEXT["pool_spa"]`
+gives the model prompt a "pool & spa service company" noun and a "Service
+notes" label, and `_FALLBACK_NAME["pool_spa"]` is "your business", the same
+choice as landscaping's.
 
 **Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
 already drive the dropdown and the fallback-to-`"restaurant"` guard in both
