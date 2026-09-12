@@ -85,8 +85,8 @@ READ: tuple[Scope, ...] = (
     Scope("forms.readonly", "Forms on a sub-account, and their submission counts",
           ("hub/ghl_forms.py",), True),
 
-    Scope("contacts.readonly", "Finding the contact a proposal is filed against",
-          ("modules/suite_panel/app.py", "hub/suite_opportunity.py"), True),
+    Scope("contacts.readonly", "Finding contacts and suppressing existing prospects",
+          ("modules/suite_panel/app.py", "hub/suite_opportunity.py", "hub/industry_prospect_providers.py"), True),
     Scope("opportunities.readonly", "Pipeline discovery, and the opportunity list",
           ("modules/suite_panel/app.py", "hub/suite_opportunity.py"), True),
     Scope("calendars.readonly", "Calendar counts in the sub-account analytics panel",
@@ -111,7 +111,7 @@ WRITE: tuple[Scope, ...] = (
     # than re-confirming a hand-written list.
     Scope("contacts.write", "Lead delivery — every Hub form writes a contact",
           ("hub/ghl_contacts.py", "hub/suite_opportunity.py",
-           "modules/landing_ads/prospect_builder.py"), True),
+           "modules/landing_ads/prospect_builder.py", "hub/industry_prospect_providers.py"), True),
     # hub/qa.py joined this months after the table was written: the accounting
     # QA report moves an opportunity's stage with PUT /opportunities/{id}/status.
     # Nothing named it until the coverage check below started discovering call

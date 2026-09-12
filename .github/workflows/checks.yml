@@ -2605,3 +2605,8 @@ jobs:
       # existing call sites that pass neither keep working unchanged.
       - name: The client brief is injected at the one wrapper
         run: python3 test_ai_injection.py
+
+      - name: Industry prospect suppression and paid-attempt safety
+        run: |
+          python3 test_industry_prospects.py
+          node tests/industry_prospects_ui.test.js

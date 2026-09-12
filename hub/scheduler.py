@@ -177,6 +177,11 @@ def _claim_leadership(app) -> bool:
 # Jobs
 # ---------------------------------------------------------------------------
 
+def job_ai_comparisons(app) -> dict:
+    from hub import ai_comparison_queue
+    return ai_comparison_queue.kick(app)
+
+
 def job_clear_stuck_scans(app) -> dict:
     """Resolve or error any scan running longer than the grace window.
 
@@ -824,9 +829,9 @@ def job_qa_task_vision(app) -> dict:
         return qa_tasks.describe_image_backlog()
 
 
-def job_ai_comparisons(app) -> dict:
-    from hub import ai_comparison_queue
-    return ai_comparison_queue.kick(app)
+def job_industry_prospect_sync(app):
+    from hub.industry_prospects import scheduled_step
+    return scheduled_step(app)
 
 
 def job_commercial_recovery(app) -> dict:
@@ -837,8 +842,8 @@ def job_commercial_recovery(app) -> dict:
 
 
 JOBS = {
-    "ai_comparisons":   (1, job_ai_comparisons,
-                          "Start one budget-reserved model comparison in its own worker."),
+    "industry_prospect_sync": (1, job_industry_prospect_sync,
+                               "Advance the opt-in GHL to Apollo suppression sync."),
     "commercial_recovery": (1, job_commercial_recovery,
                             "Check saved commercials and retry storing presenter clips."),
     "backup_json":       (60, job_backup_json,
@@ -889,6 +894,8 @@ JOBS = {
                           "as standing in."),
     "qa_task_vision":    (10, job_qa_task_vision,
                           "Read screenshots linked in QA task instructions."),
+    "ai_comparisons":   (1, job_ai_comparisons,
+                          "Start one budget-reserved model comparison in its own worker."),
 }
 
 
