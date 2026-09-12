@@ -132,5 +132,75 @@ class QuickBooksBoundaryTests(unittest.TestCase):
         self.assertEqual(invoice["doc_number"], "INV-9")
 
 
+class OperationalReadTests(unittest.TestCase):
+    def setUp(self):
+        self.identity = {
+            "known": True, "client": "Quality Air Columbus",
+            "client_key": "d:qualityaircolumbus.com",
+            "domain": "qualityaircolumbus.com", "matched_on": "domain",
+            "confidence": "exact", "candidates": [], "why": "Exact match.",
+        }
+
+    def test_ga4_property_list_drops_google_login(self):
+        indexed = {"built_at": "2026-09-12T12:00:00+00:00", "stale": False,
+                   "never_built": False, "ga4": [{
+                       "resource_id": "123456", "name": "Quality Air",
+                       "account_name": "Smart 1", "google_login": "secret@example.com",
+                       "match": "name", "match_detail": "Exact name",
+                       "open_url": "https://analytics.google.com/analytics/web/#/p123456",
+                   }]}
+        with patch.object(v2_tools, "resolve_identity", return_value=self.identity), \
+             patch("hub.google_index.for_client", return_value=indexed), \
+             patch.object(v2_tools, "_audit"):
+            out = v2_tools.client_ga4_properties("Quality Air Columbus")
+        self.assertTrue(out["available"])
+        self.assertEqual(out["properties"][0]["property_id"], "123456")
+        self.assertNotIn("google_login", repr(out))
+        self.assertNotIn("secret@example.com", repr(out))
+
+    def test_ga4_summary_refuses_unmapped_property(self):
+        indexed = {"built_at": "2026-09-12T12:00:00+00:00", "stale": False,
+                   "never_built": False, "ga4": [{
+                       "resource_id": "123456", "name": "Quality Air",
+                       "google_login": "analytics@example.com",
+                   }]}
+        with patch.object(v2_tools, "resolve_identity", return_value=self.identity), \
+             patch("hub.google_index.for_client", return_value=indexed), \
+             patch.object(v2_tools, "_audit"):
+            out = v2_tools.client_ga4_summary(
+                "Quality Air Columbus", property_id="999999")
+        self.assertFalse(out["available"])
+        self.assertEqual(out["reason"], "property_not_mapped")
+
+    def test_proposals_read_uses_canonical_name(self):
+        result = {"count": 1, "saved": [{"quote_number": "Q-10001"}],
+                  "uploaded": [], "note": ""}
+        with patch.object(v2_tools, "resolve_identity", return_value=self.identity), \
+             patch("hub.proposals.proposals_for", return_value=result) as read, \
+             patch.object(v2_tools, "_audit"):
+            out = v2_tools.client_proposals("Quality Air")
+        read.assert_called_once_with("Quality Air Columbus")
+        self.assertEqual(out["count"], 1)
+
+    def test_io_read_drops_internal_delivery_identifiers(self):
+        result = {"measured": True, "error": "", "rows": [{
+            "order": "IO-88", "client": "Quality Air Columbus",
+            "monthly": 9500, "campaign_total": 114000,
+            "suite_opportunity_id": "must-not-return",
+            "suite_contact_id": "must-not-return",
+            "suite": {"delivered": True, "ever_delivered": True},
+            "lines": [{"product": "Paid Search", "budget": 4000,
+                       "internal_note": "must-not-return"}],
+        }]}
+        with patch.object(v2_tools, "resolve_identity", return_value=self.identity), \
+             patch("hub.io_records.listing", return_value=result), \
+             patch.object(v2_tools, "_audit"):
+            out = v2_tools.client_insertion_orders("Quality Air")
+        text = repr(out)
+        self.assertEqual(out["orders"][0]["order"], "IO-88")
+        self.assertNotIn("must-not-return", text)
+        self.assertNotIn("suite_opportunity_id", text)
+
+
 if __name__ == "__main__":
     unittest.main()

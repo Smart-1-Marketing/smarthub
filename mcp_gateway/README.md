@@ -22,6 +22,23 @@ The server uses the current stable `mcp` Python SDK v2 line and supports the SDK
 - `get_campaign_inventory`
 - `get_mcp_activity`
 
+## V2 read tools
+
+- `explain_client_identity`
+- `search_clients_v2`
+- `get_quickbooks_status`
+- `get_client_quickbooks`
+- `get_google_access_summary`
+- `get_client_ga4_properties`
+- `get_client_ga4_summary`
+- `get_client_proposals`
+- `get_client_insertion_orders`
+
+V2 client-specific tools resolve through SmartHub's canonical identity layer.
+GA4 reports can run only against a property already mapped to that client in
+the durable Google index; an unknown or ambiguous property is refused. Google
+login/token material and internal Suite delivery identifiers are never returned.
+
 Resources:
 
 - `smarthub://capabilities`
@@ -87,7 +104,7 @@ The first production deployment should remain on the feature branch until MCP In
 
 1. Per-user auth + scopes (`admin`, `client_success`, `ad_ops`, `client`).
 2. Universal SmartHub client ID and external-system mappings.
-3. GA4, proposal, IO, QuickBooks read tools.
-4. Draft-only write tools.
+3. Per-user OAuth/scopes and role enforcement.
+4. Draft-only proposal, IO, report, and task write tools.
 5. Explicit-confirmation financial/external writes.
 6. MCP Apps UI for Client 360/reporting views.

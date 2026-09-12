@@ -11,7 +11,6 @@ from typing import Any
 from hub import audit, client_key as hub_client_key, clients_registry, quickbooks
 
 
-_REGISTERED = False
 MCP_ACTOR = "SmartHub MCP"
 
 
@@ -255,10 +254,229 @@ def google_access_summary(client_name: str) -> dict:
     }
 
 
+def client_ga4_properties(client_name: str) -> dict:
+    """Return GA4 properties already mapped to one canonical client."""
+    identity = resolve_identity(client_name)
+    if not identity.get("known"):
+        _audit("get_client_ga4_properties", identity, status="not_found")
+        return _not_found(client_name, identity)
+    try:
+        from hub import google_index
+        found = google_index.for_client(identity["client"], identity.get("domain") or "")
+    except Exception as exc:
+        _audit("get_client_ga4_properties", identity, status="unavailable")
+        return {
+            "found": True, "available": False, "identity": identity,
+            "properties": [],
+            "error": _clean(f"{type(exc).__name__}: {exc}", 500),
+        }
+
+    properties = []
+    for item in (found.get("ga4") or [])[:20]:
+        properties.append({
+            "property_id": _clean(item.get("resource_id"), 80),
+            "name": _clean(item.get("name"), 180),
+            "account_name": _clean(item.get("account_name"), 180),
+            "match": _clean(item.get("match"), 40),
+            "match_detail": _clean(item.get("match_detail"), 400),
+            "open_url": _clean(item.get("open_url"), 700),
+        })
+    status = "unavailable" if found.get("never_built") else "ok"
+    _audit("get_client_ga4_properties", identity, status=status,
+           result_count=len(properties))
+    return {
+        "found": True,
+        "available": not bool(found.get("never_built")),
+        "identity": identity,
+        "index_built_at": found.get("built_at"),
+        "index_stale": bool(found.get("stale")),
+        "count": len(properties),
+        "properties": properties,
+        "message": ("The Google resource index has not been built yet."
+                    if found.get("never_built") else ""),
+    }
+
+
+def _ga4_selection(identity: dict, property_id: str = "") -> tuple[dict | None, dict]:
+    """Select only from GA4 properties the canonical client is mapped to."""
+    from hub import google_index
+    found = google_index.for_client(identity["client"], identity.get("domain") or "")
+    rows = found.get("ga4") or []
+    wanted = _clean(property_id, 80)
+    if wanted:
+        hit = next((r for r in rows
+                    if _clean(r.get("resource_id"), 80) == wanted), None)
+        if hit:
+            return hit, found
+        return None, found
+    return (rows[0] if len(rows) == 1 else None), found
+
+
+def client_ga4_summary(client_name: str, property_id: str = "",
+                       start_date: str = "28daysAgo", end_date: str = "yesterday",
+                       compare_start: str = "", compare_end: str = "") -> dict:
+    """Read a bounded GA4 channel summary from a mapped client property."""
+    identity = resolve_identity(client_name)
+    if not identity.get("known"):
+        _audit("get_client_ga4_summary", identity, status="not_found")
+        return _not_found(client_name, identity)
+    try:
+        selected, index = _ga4_selection(identity, property_id)
+    except Exception as exc:
+        _audit("get_client_ga4_summary", identity, status="unavailable")
+        return {"found": True, "available": False, "identity": identity,
+                "error": _clean(f"{type(exc).__name__}: {exc}", 500)}
+
+    choices = [{"property_id": _clean(r.get("resource_id"), 80),
+                "name": _clean(r.get("name"), 180)}
+               for r in (index.get("ga4") or [])[:20]]
+    if selected is None:
+        reason = "property_not_mapped" if property_id else "property_selection_required"
+        _audit("get_client_ga4_summary", identity, status=reason,
+               result_count=len(choices))
+        return {
+            "found": True, "available": False, "identity": identity,
+            "reason": reason, "properties": choices,
+            "message": ("That property is not mapped to this client."
+                        if property_id else
+                        "Choose a mapped GA4 property before running the report."),
+        }
+
+    from hub import analytics_ask
+    ranges = [{"startDate": start_date, "endDate": end_date, "name": "Current"}]
+    if compare_start or compare_end:
+        if not (compare_start and compare_end):
+            return {"found": True, "available": False, "identity": identity,
+                    "reason": "invalid_date_range",
+                    "message": "Both comparison dates are required."}
+        ranges.append({"startDate": compare_start, "endDate": compare_end,
+                       "name": "Comparison"})
+    request, error = analytics_ask.validate({
+        "metrics": ["sessions", "activeUsers", "newUsers", "engagedSessions",
+                    "engagementRate", "keyEvents", "conversions"],
+        "dimensions": ["sessionDefaultChannelGroup"],
+        "dateRanges": ranges,
+        "orderBy": {"metric": "sessions", "desc": True},
+        "limit": 20,
+    })
+    if error or request is None:
+        _audit("get_client_ga4_summary", identity, status="invalid_request")
+        return {"found": True, "available": False, "identity": identity,
+                "reason": "invalid_date_range", "message": _clean(error, 300)}
+
+    try:
+        from modules.google_finder import app as google_finder
+        login = _clean(selected.get("google_login"), 240).lower()
+        account = next((a for a in google_finder.connected_accounts()
+                        if _clean(a.get("email"), 240).lower() == login), None)
+        if not account:
+            raise LookupError("The mapped Google login is not connected.")
+        token = google_finder.refresh_access_token(login, account["refresh_token"])
+        url = ("https://analyticsdata.googleapis.com/v1beta/properties/"
+               f"{_clean(selected.get('resource_id'), 80)}:runReport")
+        report = google_finder.google_post(token, url, request)
+        shaped = analytics_ask.shape(report, request)
+    except Exception as exc:
+        _audit("get_client_ga4_summary", identity, status="error")
+        return {
+            "found": True, "available": False, "identity": identity,
+            "property": choices and next(
+                (p for p in choices if p["property_id"] ==
+                 _clean(selected.get("resource_id"), 80)), choices[0]),
+            "error": _clean(f"{type(exc).__name__}: {exc}", 500),
+        }
+
+    _audit("get_client_ga4_summary", identity, result_count=shaped.get("row_count"))
+    return {
+        "found": True, "available": True, "identity": identity,
+        "property": {"property_id": _clean(selected.get("resource_id"), 80),
+                     "name": _clean(selected.get("name"), 180)},
+        "index_built_at": index.get("built_at"),
+        "index_stale": bool(index.get("stale")),
+        "query": {"metrics": [m["name"] for m in request["metrics"]],
+                  "dimensions": [d["name"] for d in request.get("dimensions", [])],
+                  "date_ranges": request["dateRanges"]},
+        "result": shaped,
+    }
+
+
+def client_proposals(client_name: str) -> dict:
+    """Read saved and uploaded proposals already associated with a client."""
+    identity = resolve_identity(client_name)
+    if not identity.get("known"):
+        _audit("get_client_proposals", identity, status="not_found")
+        return _not_found(client_name, identity)
+    try:
+        from hub import proposals
+        result = proposals.proposals_for(identity["client"])
+    except Exception as exc:
+        _audit("get_client_proposals", identity, status="unavailable")
+        return {"found": True, "available": False, "identity": identity,
+                "saved": [], "uploaded": [],
+                "error": _clean(f"{type(exc).__name__}: {exc}", 500)}
+    _audit("get_client_proposals", identity, result_count=result.get("count"))
+    return {"found": True, "available": True, "identity": identity,
+            "count": result.get("count", 0),
+            "saved": result.get("saved") or [],
+            "uploaded": result.get("uploaded") or [],
+            "note": _clean(result.get("note"), 500)}
+
+
+def _public_io(row: dict) -> dict:
+    return {
+        "order": _clean(row.get("order"), 40),
+        "client": _clean(row.get("client"), 180),
+        "partner": _clean(row.get("partner"), 160),
+        "io_type": _clean(row.get("io_type"), 80),
+        "start": _clean(row.get("start"), 40),
+        "end": _clean(row.get("end"), 40),
+        "monthly": row.get("monthly") or 0,
+        "campaign_total": row.get("campaign_total") or 0,
+        "line_count": row.get("line_count") or 0,
+        "lines": [{
+            "product": _clean(line.get("product"), 160),
+            "kind": _clean(line.get("kind"), 100),
+            "budget": line.get("budget") or 0,
+            "campaign_budget": line.get("campaign_budget") or 0,
+            "start": _clean(line.get("start"), 40),
+            "end": _clean(line.get("end"), 40),
+        } for line in (row.get("lines") or [])[:60] if isinstance(line, dict)],
+        "submitted_at": _clean(row.get("submitted_at"), 40),
+        "last_submitted_at": _clean(row.get("last_submitted_at"), 40),
+        "delivered_to_suite": bool((row.get("suite") or {}).get("delivered")),
+        "ever_delivered_to_suite": bool((row.get("suite") or {}).get("ever_delivered")),
+        "replaces_io": _clean(row.get("replaces_io"), 40),
+    }
+
+
+def client_insertion_orders(client_name: str, limit: int = 20) -> dict:
+    """Read submitted insertion-order records for one canonical client."""
+    identity = resolve_identity(client_name)
+    if not identity.get("known"):
+        _audit("get_client_insertion_orders", identity, status="not_found")
+        return _not_found(client_name, identity)
+    limit = max(1, min(int(limit or 20), 50))
+    try:
+        from hub import io_records
+        result = io_records.listing(identity["client"])
+    except Exception as exc:
+        _audit("get_client_insertion_orders", identity, status="unavailable")
+        return {"found": True, "available": False, "identity": identity,
+                "orders": [],
+                "error": _clean(f"{type(exc).__name__}: {exc}", 500)}
+    if not result.get("measured"):
+        _audit("get_client_insertion_orders", identity, status="unavailable")
+        return {"found": True, "available": False, "identity": identity,
+                "orders": [], "error": _clean(result.get("error"), 500)}
+    orders = [_public_io(r) for r in (result.get("rows") or [])[:limit]]
+    _audit("get_client_insertion_orders", identity, result_count=len(orders))
+    return {"found": True, "available": True, "identity": identity,
+            "count": len(orders), "orders": orders}
+
+
 def register(mcp) -> None:
     """Attach V2 read tools once to the existing V1 MCP server object."""
-    global _REGISTERED
-    if _REGISTERED:
+    if getattr(mcp, "_smarthub_v2_registered", False):
         return
 
     @mcp.tool()
@@ -294,4 +512,29 @@ def register(mcp) -> None:
         """Get recorded GA4/GTM/Search Console access state for a client."""
         return google_access_summary(client_name)
 
-    _REGISTERED = True
+    @mcp.tool()
+    def get_client_ga4_properties(client_name: str) -> dict:
+        """List GA4 properties mapped to a canonical SmartHub client."""
+        return client_ga4_properties(client_name)
+
+    @mcp.tool()
+    def get_client_ga4_summary(client_name: str, property_id: str = "",
+                               start_date: str = "28daysAgo",
+                               end_date: str = "yesterday",
+                               compare_start: str = "",
+                               compare_end: str = "") -> dict:
+        """Get bounded GA4 channel metrics for a mapped client property."""
+        return client_ga4_summary(client_name, property_id, start_date, end_date,
+                                  compare_start, compare_end)
+
+    @mcp.tool()
+    def get_client_proposals(client_name: str) -> dict:
+        """Get saved-builder and uploaded proposal summaries for a client."""
+        return client_proposals(client_name)
+
+    @mcp.tool()
+    def get_client_insertion_orders(client_name: str, limit: int = 20) -> dict:
+        """Get submitted insertion-order summaries for a client."""
+        return client_insertion_orders(client_name, limit)
+
+    setattr(mcp, "_smarthub_v2_registered", True)
