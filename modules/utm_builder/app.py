@@ -365,7 +365,7 @@ def save_batch(client: str, product: str, label: str, base_url: str,
         # different key. Unfiled links carry no client rather than the word
         # "unfiled", or the record for a client actually called that would
         # collect everybody's.
-        _log("links_saved", actor=actor, client=client or None, count=len(saved),
+        _log("links_saved", client=client or None, actor=actor, count=len(saved),
              campaign=saved[0].get("utm_campaign", ""))
     return {"saved": saved, "skipped": skipped, "dropped": dropped}
 
