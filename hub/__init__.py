@@ -2550,6 +2550,14 @@ def create_hub_app() -> Flask:
             return jsonify({"ok": False,
                             "error": "An email or phone is required."}), 400
         meta = body.get("meta") if isinstance(body.get("meta"), dict) else None
+        if src == "landing" and (str(body.get("page", "")).startswith("industry-") or
+                                 (meta and (meta.get("industry_id") or meta.get("creative_profile")))):
+            from .industry_factory import resolve_capture
+            try:
+                body = resolve_capture(dict(body, fields=fields))
+                meta = body["meta"]
+            except (ValueError, TypeError) as exc:
+                return jsonify({"ok": False, "error": str(exc)}), 400
         if trusted:
             # An exemption nobody can see afterwards is one nobody can audit.
             meta = dict(meta or {}) | {"trusted_source": True}
@@ -6893,6 +6901,7 @@ def create_hub_app() -> Flask:
                   "/llms/",
                   "/connect", "/api/", "/assets/", "/hub-", "/static/",
                   "/sales/landing/p/",
+                  "/industry/p/", "/industry/widget/", "/sales/industry-factory/preview/",
                   # The Smart 1 Suite app frame. A *client* opens this inside
                   # their own sub-account and has no Hub account at all, so
                   # the staff sidebar, help layer and feedback tab must not be
@@ -7458,6 +7467,9 @@ def create_hub_app() -> Flask:
         from . import creative_jobs as _creative_jobs  # noqa: F401
     except Exception:  # noqa: BLE001
         pass
+
+    from .industry_factory import bp as industry_factory_bp
+    app.register_blueprint(industry_factory_bp)
 
     # Create any tables the newly registered blueprints declared. Runs AFTER
     # all of them, so a module registered later still gets its tables. Guarded:

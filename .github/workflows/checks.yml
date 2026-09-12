@@ -404,6 +404,11 @@ jobs:
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
+      - name: Industry factory config, routes, leads and creative tests
+        run: |
+          python test_industry_core.py
+          python test_industry_factory.py
+
       - name: Quote numbering and draft deletion tests
         run: python test_quote_numbers.py
 

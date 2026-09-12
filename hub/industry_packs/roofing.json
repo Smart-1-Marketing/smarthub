@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "roofing",
+  "version": 1,
+  "name": "Roofing",
+  "industry_family": "storm_home_services",
+  "archetype": "weather_opportunity",
+  "services": {"residential_roofing": "Residential roofing", "roof_repair": "Roof repair", "commercial_roofing": "Commercial roofing"},
+  "conversion_goals": {"report": "Get my Storm Opportunity Report", "appointment": "Request a roofing marketing strategy review", "quote": "Request a roofing campaign quote"},
+  "default_goal": "report",
+  "trigger_profile": "roofing_v1",
+  "trigger_refs": [{"catalog": "smartforecast", "pack": "home_services", "id": "roofing_severe_storm"}, {"catalog": "hub", "id": "high-wind-shingle-risk"}, {"catalog": "hub", "id": "wind-driven-rain"}],
+  "weather_note": "Recommended: severe-storm response, high-wind shingle risk and wind-driven rain. Definitions come from SmartForecast and the Hub Roofing catalog. Hail is a messaging context, not an independently measured hail event; dedicated hail activation needs verified provider support.",
+  "audience": "Homeowners in the service area; property and facility managers for commercial roofing. Confirm audience availability before launch.",
+  "media": ["Programmatic display", "Paid social", "CTV", "Digital audio"],
+  "messaging": {
+    "headline": "Put your roofing business in the right neighborhoods after the storm.",
+    "subhead": "Connect roofing campaigns to weather conditions and your service area. Plan inspection messaging before severe weather, pause unsafe urgency during the event, and follow up when property owners can assess their roofs.",
+    "benefits": ["Reach the service areas your crews can actually cover.", "Match roof inspection and repair messages to the storm lifecycle.", "Connect every inquiry to your sales follow-up and creative plan."],
+    "pre_event": "Storms may be approaching. Help property owners know what to check after conditions clear.",
+    "active_event": "Safety comes first. Offer a way to request follow-up without encouraging anyone onto a roof during severe weather.",
+    "post_event": "Recent severe weather? Encourage a documented roof inspection before a small problem becomes a leak."
+  },
+  "widget": {"id": "roofing_weather_opportunity_v1", "title": "Free Storm Opportunity Report", "questions": ["company", "website", "name", "email", "phone"], "required": ["company", "name", "email"], "workflow": null, "offer_tag": "offer-weather-opportunity-report"},
+  "creative": {"id": "roofing_weather_v1", "kind": "industry_concepts", "sizes": ["300x250", "320x50", "728x90", "1080x1080", "1080x1350", "1080x1920"], "states": ["pre_event", "active_event", "post_event"], "image_direction": "Real roof details and documented inspections; no fabricated storm damage, insurance promises, or unsafe roof access."},
+  "disclaimer": "Planning recommendations, not a live weather forecast, damage assessment, insurance determination, or promise of leads. Confirm local conditions, service capacity, media availability and budget before activation."
+}
