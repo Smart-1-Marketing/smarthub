@@ -75,7 +75,8 @@ def main() -> int:
         w.writerow(["zip", "lat", "lon"])
         w.writerows(trimmed)
 
-    checksum = hashlib.sha256(open(OUT_PATH, "rb").read()).hexdigest()
+    with open(OUT_PATH, "rb") as f:
+        checksum = hashlib.sha256(f.read()).hexdigest()
     print(f"Wrote {len(trimmed)} rows to {OUT_PATH}")
     print(f"sha256:{checksum}")
     print("Paste that checksum into hub/data/README.md, then run "
