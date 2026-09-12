@@ -206,6 +206,44 @@ two shoulder-season pushes the vertical leans on hardest, and
 round the book out: a single heavy snowfall for structural risk, a heavy
 rain for the leak it reveals, and sustained heat for the shingle damage it
 causes on its own, needing no storm alert behind any of them.
+
+## The eighth vertical
+
+Pest Control, and the claim held a seventh time: thirteen more rows, still
+the same rule vocabulary, still no change to `evaluate_trigger()`,
+`store.py`, `app.py` or the staff template. The psychology is closest to
+auto's — pests do not move on a comfortable day, so nearly every row names
+the specific condition that drives a specific pest toward or away from a
+building, and the ad is the inspection or treatment call that heads it off.
+`rodent-cold-intrusion` is the once-per-season event — the first hard
+freeze is when rodents that spent fall outdoors actually come looking for a
+way in — with its own season-state key so it cannot collide with any of
+the other seven verticals' first-freeze rows inside one campaign's carried
+state, for the same per-pick, per-`trigger_id` reason the other seven hold.
+`deep-freeze-rodent-surge` escalates past it for every hard freeze after
+the first, the way HVAC's `deep-freeze` escalates past `hard-freeze`.
+`ant-invasion-after-rain` and `wet-week-mosquito-watch` are two different
+readings of the same rain: a single heavy rain floods ants out of the
+ground the day after, while a run of overcast days is what actually
+accumulates the standing water mosquitoes breed in — the same
+`cloud_percent_min`/`consecutive_days` shape restaurant's `gray-streak`
+already uses. `mosquito-pressure` is a third, independent angle on the
+same pest — heat stacked on humidity, not a rain event at all.
+`termite-swarm-season` is the one row combining a temperature floor with a
+rain-probability floor in a single rule (the same multi-condition shape
+roofing's `wind-driven-rain` already uses), because a termite colony
+swarms on a warm day with rain in the forecast, not on either condition
+alone. `wasp-hornet-season` and `flea-tick-season` are two warm-season
+pushes for two different pests, and `spider-season` is the one row that
+runs opposite them — a cool, dry fall stretch is when spiders move indoors
+looking for shelter, the same direction landscaping's fall pushes run.
+`spring-pest-inspection` and `fall-pest-inspection` are the two
+shoulder-season pushes the vertical leans on hardest, mirroring every
+other service-reminder vertical's pair. `heat-wave-pest-activity` and
+`storm-pest-disruption` round the book out: sustained heat driving ants
+and roaches indoors on its own, and a storm alert knocking a nest loose or
+flooding a colony out, caught by the same `cadence == "alert_driven"`
+blocklist check every other vertical's alert row already exercises.
 """
 from __future__ import annotations
 
@@ -217,11 +255,12 @@ from datetime import date
 # auction. Enforced here, not merely disabled in the picker.
 MAX_TRIGGERS = 3
 
-VERTICALS = ("restaurant", "hvac", "retail", "auto", "landscaping", "pool_spa", "roofing")
+VERTICALS = ("restaurant", "hvac", "retail", "auto", "landscaping", "pool_spa", "roofing",
+            "pest_control")
 VERTICAL_LABELS = {"restaurant": "Restaurant", "hvac": "HVAC / Home Comfort",
                    "retail": "Retail / Home Goods", "auto": "Auto Repair / Service",
                    "landscaping": "Landscaping / Lawn Care", "pool_spa": "Pool & Spa Service",
-                   "roofing": "Roofing & Exterior"}
+                   "roofing": "Roofing & Exterior", "pest_control": "Pest Control"}
 
 
 @dataclass(frozen=True)
@@ -1159,6 +1198,146 @@ TRIGGERS: dict[str, Trigger] = {
         windows=(("09:00", "19:00"),),
         cadence="daily", tags=("inspection", "relief"),
     ),
+    # -- Pest Control ------------------------------------------------------
+    "termite-swarm-season": Trigger(
+        id="termite-swarm-season", name="Termite Swarm Season", vertical="pest_control",
+        reason="A warm day with rain in the forecast is exactly when a "
+               "mature termite colony sends out its swarmers — the "
+               "inspection ad for the week they actually appear, not a "
+               "guess at when they might.",
+        condition_label="high ≥ 65°F, ≥ 40% chance of rain, March–May",
+        rule={"temp_min": 65.0, "precip_prob_min": 40.0, "months": (3, 4, 5)},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("inspection", "seasonal"),
+    ),
+    "ant-invasion-after-rain": Trigger(
+        id="ant-invasion-after-rain", name="Ant Invasion After Rain", vertical="pest_control",
+        reason="A heavy rain floods a colony's nest underground, and the "
+               "ants that come looking for dry ground come inside — the "
+               "treatment call for the day after, not the day of.",
+        condition_label="≥ 70% chance of rain",
+        rule={"precip_prob_min": 70.0},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("treatment", "maintenance"),
+    ),
+    "mosquito-pressure": Trigger(
+        id="mosquito-pressure", name="Mosquito Pressure", vertical="pest_control",
+        reason="Heat stacked on humidity is what actually drives mosquito "
+               "activity up, not the thermometer alone — the yard "
+               "treatment ad for the evenings people are actually being "
+               "bitten.",
+        condition_label="heat index ≥ 90°F",
+        rule={"heat_index_min": 90.0},
+        windows=(("08:00", "20:00"),),
+        cadence="daily", tags=("treatment", "relief"),
+    ),
+    "wasp-hornet-season": Trigger(
+        id="wasp-hornet-season", name="Wasp & Hornet Season", vertical="pest_control",
+        reason="A warm, dry summer stretch is when wasp and hornet nests "
+               "are most active and most visible — the removal ad for the "
+               "weeks people are actually outside near them.",
+        condition_label="75–90°F and dry, May–August",
+        rule={"temp_min": 75.0, "temp_max": 90.0, "precip_prob_max": 20.0,
+              "months": (5, 6, 7, 8)},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("removal", "seasonal"),
+    ),
+    "flea-tick-season": Trigger(
+        id="flea-tick-season", name="Flea & Tick Season", vertical="pest_control",
+        reason="A mild, humid stretch through the growing season is "
+               "exactly when fleas and ticks are active in the yard — the "
+               "treatment ad for the months a pet actually brings them "
+               "inside.",
+        condition_label="65–85°F, April–September",
+        rule={"temp_min": 65.0, "temp_max": 85.0, "months": (4, 5, 6, 7, 8, 9)},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("treatment", "seasonal"),
+    ),
+    "rodent-cold-intrusion": Trigger(
+        id="rodent-cold-intrusion", name="Rodent Cold Intrusion", vertical="pest_control",
+        reason="The first hard freeze of the season is when mice and rats "
+               "that spent fall outdoors actually come looking for a warm "
+               "way in — a seal-and-treat ad before they find one, not an "
+               "infestation call after.",
+        condition_label="first low ≤ 32°F of the season",
+        rule={"temp_low_max": 32.0, "once_per_season": "cold"},
+        cadence="once_per_season", tags=("event", "treatment"),
+    ),
+    "deep-freeze-rodent-surge": Trigger(
+        id="deep-freeze-rodent-surge", name="Deep Freeze Rodent Surge", vertical="pest_control",
+        reason="Every hard freeze after the first pushes more rodents "
+               "indoors looking for warmth, not only the first one of the "
+               "season — a repeat check, not a one-time event.",
+        condition_label="high ≤ 10°F",
+        rule={"temp_max": 10.0},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("treatment", "emergency"),
+    ),
+    "spider-season": Trigger(
+        id="spider-season", name="Spider Season", vertical="pest_control",
+        reason="A cool, dry fall stretch is when spiders move indoors "
+               "looking for shelter before the first freeze — the "
+               "treatment ad for the weeks webs actually start showing up.",
+        condition_label="45–65°F and dry, September–October",
+        rule={"temp_min": 45.0, "temp_max": 65.0, "precip_prob_max": 20.0,
+              "months": (9, 10)},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("treatment", "seasonal"),
+    ),
+    "spring-pest-inspection": Trigger(
+        id="spring-pest-inspection", name="Spring Pest Inspection", vertical="pest_control",
+        reason="The first comfortable, dry stretch of spring is when a "
+               "winter's worth of activity around the foundation is "
+               "finally worth actually going out and checking.",
+        condition_label="55–75°F and dry, March–May",
+        rule={"temp_min": 55.0, "temp_max": 75.0, "precip_prob_max": 20.0,
+              "months": (3, 4, 5)},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("inspection", "seasonal"),
+    ),
+    "fall-pest-inspection": Trigger(
+        id="fall-pest-inspection", name="Fall Pest Inspection", vertical="pest_control",
+        reason="The same logic in reverse — a mild, dry fall stretch is "
+               "the window to seal up entry points before the cold sends "
+               "everything looking for one.",
+        condition_label="50–70°F and dry, September–October",
+        rule={"temp_min": 50.0, "temp_max": 70.0, "precip_prob_max": 20.0,
+              "months": (9, 10)},
+        windows=(("08:00", "18:00"),),
+        cadence="daily", tags=("inspection", "seasonal"),
+    ),
+    "heat-wave-pest-activity": Trigger(
+        id="heat-wave-pest-activity", name="Heat Wave Pest Activity", vertical="pest_control",
+        reason="Genuine, sustained heat is what actually drives ants and "
+               "roaches indoors looking for water and shade — a "
+               "treatment ad for the week activity spikes, not a "
+               "coincidence.",
+        condition_label="high ≥ 95°F",
+        rule={"temp_min": 95.0},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("treatment", "relief"),
+    ),
+    "storm-pest-disruption": Trigger(
+        id="storm-pest-disruption", name="Storm Pest Disruption", vertical="pest_control",
+        reason="A severe weather alert is what actually knocks a nest out "
+               "of a tree or floods a colony out of the ground — a "
+               "check-it-after ad, never an invitation to be out in the "
+               "storm itself.",
+        condition_label="NWS severe weather alert issued",
+        rule={"alert_required": True},
+        cadence="alert_driven", tags=("inspection", "safety"),
+    ),
+    "wet-week-mosquito-watch": Trigger(
+        id="wet-week-mosquito-watch", name="Wet Week Mosquito Watch", vertical="pest_control",
+        reason="A run of overcast, wet-adjacent days is when standing "
+               "water actually accumulates enough to breed mosquitoes — "
+               "the treatment ad for the week it becomes a real problem,"
+               " not the day of any one rain.",
+        condition_label="cloud cover ≥ 80% for 3 consecutive days",
+        rule={"cloud_percent_min": 80.0, "consecutive_days": 3},
+        windows=(("08:00", "19:00"),),
+        cadence="daily", tags=("treatment", "seasonal"),
+    ),
 }
 
 # Ordering for the month strip: which triggers a rep browsing that month is
@@ -1182,6 +1361,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "first-freeze-landscaping", "first-snow-landscaping", "storm-cleanup", "high-wind-debris", "mosquito-surge", "spring-green-up-day", "dry-spell-watering", "drought-stress", "heavy-rain-growth-spurt", "fall-leaf-peak", "spring-fertilize-window", "fall-fertilize-window", "heat-wave-lawn-stress",
             "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "pool-opening-day", "chlorine-burn-off", "algae-bloom-risk", "heavy-rain-dilution", "evaporation-watch", "heat-wave-pool-surge", "pool-closing-day",
             "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
+            "rodent-cold-intrusion", "deep-freeze-rodent-surge", "storm-pest-disruption", "spider-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             ),
     "Feb": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "evening-cooldown", "heat-index",
@@ -1199,6 +1379,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "first-freeze-landscaping", "first-snow-landscaping", "storm-cleanup", "high-wind-debris", "mosquito-surge", "spring-green-up-day", "spring-fertilize-window", "dry-spell-watering", "drought-stress", "heavy-rain-growth-spurt", "fall-leaf-peak", "fall-fertilize-window", "heat-wave-lawn-stress",
             "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "pool-opening-day", "chlorine-burn-off", "algae-bloom-risk", "heavy-rain-dilution", "evaporation-watch", "heat-wave-pool-surge", "pool-closing-day",
             "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
+            "rodent-cold-intrusion", "deep-freeze-rodent-surge", "storm-pest-disruption", "spider-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             ),
     "Mar": ("warm-break", "crisp-day", "rain-delay", "cold-snap", "gray-streak",
             "wind-chill", "storm-watch", "patio-day", "evening-cooldown",
@@ -1216,6 +1397,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "spring-green-up-day", "spring-fertilize-window", "heavy-rain-growth-spurt", "storm-cleanup", "high-wind-debris", "mosquito-surge", "dry-spell-watering", "drought-stress", "first-freeze-landscaping", "first-snow-landscaping", "fall-leaf-peak", "fall-fertilize-window", "heat-wave-lawn-stress",
             "pool-opening-day", "spa-season-open", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "chlorine-burn-off", "hard-freeze-pool", "first-freeze-pool", "deep-freeze-pool", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "pool-closing-day",
             "ice-dam-risk", "spring-roof-inspection", "wind-driven-rain", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "heavy-rain-leak-check", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
+            "termite-swarm-season", "spring-pest-inspection", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "flea-tick-season", "wasp-hornet-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             ),
     "Apr": ("crisp-day", "patio-day", "rain-delay", "gray-streak", "storm-watch",
             "evening-cooldown", "warm-break", "heat-index", "heat-wave",
@@ -1233,6 +1415,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "spring-green-up-day", "spring-fertilize-window", "heavy-rain-growth-spurt", "storm-cleanup", "high-wind-debris", "mosquito-surge", "dry-spell-watering", "drought-stress", "first-freeze-landscaping", "first-snow-landscaping", "fall-leaf-peak", "fall-fertilize-window", "heat-wave-lawn-stress",
             "pool-opening-day", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "chlorine-burn-off", "spa-season-open", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "pool-closing-day",
             "spring-roof-inspection", "wind-driven-rain", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "heavy-rain-leak-check", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season", "heat-wave-shingle-stress",
+            "termite-swarm-season", "spring-pest-inspection", "ant-invasion-after-rain", "wet-week-mosquito-watch", "flea-tick-season", "storm-pest-disruption", "wasp-hornet-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             ),
     "May": ("patio-day", "crisp-day", "rain-delay", "storm-watch",
             "evening-cooldown", "heat-index", "heat-wave", "gray-streak",
@@ -1251,6 +1434,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "spring-green-up-day", "dry-spell-watering", "heavy-rain-growth-spurt", "mosquito-surge", "storm-cleanup", "high-wind-debris", "drought-stress", "heat-wave-lawn-stress", "spring-fertilize-window", "first-freeze-landscaping", "first-snow-landscaping", "fall-leaf-peak", "fall-fertilize-window",
             "pool-opening-day", "chlorine-burn-off", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "spa-season-open", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "pool-closing-day",
             "spring-roof-inspection", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "heat-wave-shingle-stress", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season",
+            "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "mosquito-pressure", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "fall-pest-inspection", "heat-wave-pest-activity",
             ),
     "Jun": ("patio-day", "heat-wave", "heat-index", "rain-delay",
             "storm-watch", "evening-cooldown", "crisp-day", "gray-streak",
@@ -1269,6 +1453,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "dry-spell-watering", "drought-stress", "heat-wave-lawn-stress", "mosquito-surge", "heavy-rain-growth-spurt", "storm-cleanup", "high-wind-debris", "spring-green-up-day", "spring-fertilize-window", "first-freeze-landscaping", "first-snow-landscaping", "fall-leaf-peak", "fall-fertilize-window",
             "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "pool-opening-day", "spa-season-open", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "pool-closing-day",
             "heat-wave-shingle-stress", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season",
+            "wasp-hornet-season", "flea-tick-season", "mosquito-pressure", "heat-wave-pest-activity", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "spring-pest-inspection", "fall-pest-inspection",
             ),
     "Jul": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "evening-cooldown", "crisp-day", "gray-streak",
@@ -1287,6 +1472,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "dry-spell-watering", "drought-stress", "heat-wave-lawn-stress", "mosquito-surge", "heavy-rain-growth-spurt", "storm-cleanup", "high-wind-debris", "spring-green-up-day", "spring-fertilize-window", "first-freeze-landscaping", "first-snow-landscaping", "fall-leaf-peak", "fall-fertilize-window",
             "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "pool-opening-day", "spa-season-open", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "pool-closing-day",
             "heat-wave-shingle-stress", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "fall-roof-inspection", "gutter-cleaning-season",
+            "wasp-hornet-season", "flea-tick-season", "mosquito-pressure", "heat-wave-pest-activity", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "spring-pest-inspection", "fall-pest-inspection",
             ),
     "Aug": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "first-cool-night", "evening-cooldown", "crisp-day",
@@ -1305,6 +1491,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "dry-spell-watering", "drought-stress", "heat-wave-lawn-stress", "mosquito-surge", "heavy-rain-growth-spurt", "storm-cleanup", "high-wind-debris", "fall-fertilize-window", "spring-green-up-day", "spring-fertilize-window", "first-freeze-landscaping", "first-snow-landscaping", "fall-leaf-peak",
             "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "pool-closing-day", "pool-opening-day", "spa-season-open", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool",
             "heat-wave-shingle-stress", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "fall-roof-inspection", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "gutter-cleaning-season",
+            "wasp-hornet-season", "flea-tick-season", "mosquito-pressure", "heat-wave-pest-activity", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "fall-pest-inspection", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "spring-pest-inspection",
             ),
     "Sep": ("patio-day", "first-cool-night", "rain-delay", "crisp-day",
             "evening-cooldown", "heat-index", "heat-wave", "storm-watch",
@@ -1323,6 +1510,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "fall-fertilize-window", "fall-leaf-peak", "dry-spell-watering", "heavy-rain-growth-spurt", "storm-cleanup", "high-wind-debris", "mosquito-surge", "drought-stress", "heat-wave-lawn-stress", "spring-green-up-day", "spring-fertilize-window", "first-freeze-landscaping", "first-snow-landscaping",
             "pool-closing-day", "chlorine-burn-off", "heavy-rain-dilution", "storm-debris-cleanup", "high-wind-debris-pool", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "spa-season-open", "pool-opening-day", "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool",
             "fall-roof-inspection", "gutter-cleaning-season", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "heat-wave-shingle-stress", "spring-roof-inspection", "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof",
+            "fall-pest-inspection", "spider-season", "flea-tick-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "mosquito-pressure", "heat-wave-pest-activity", "wasp-hornet-season", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spring-pest-inspection",
             ),
     "Oct": ("crisp-day", "first-cool-night", "first-freeze", "evening-cooldown",
             "rain-delay", "warm-break", "gray-streak", "storm-watch",
@@ -1341,6 +1529,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "fall-leaf-peak", "fall-fertilize-window", "first-freeze-landscaping", "storm-cleanup", "high-wind-debris", "heavy-rain-growth-spurt", "first-snow-landscaping", "mosquito-surge", "dry-spell-watering", "drought-stress", "heat-wave-lawn-stress", "spring-green-up-day", "spring-fertilize-window",
             "pool-closing-day", "first-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "heavy-rain-dilution", "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "pool-opening-day", "hard-freeze-pool", "deep-freeze-pool",
             "fall-roof-inspection", "gutter-cleaning-season", "first-freeze-roofing", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "heavy-rain-leak-check", "snow-load-roof", "ice-dam-risk", "deep-freeze-roofing", "spring-roof-inspection", "heat-wave-shingle-stress",
+            "fall-pest-inspection", "spider-season", "rodent-cold-intrusion", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "deep-freeze-rodent-surge", "flea-tick-season", "termite-swarm-season", "wasp-hornet-season", "spring-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             ),
     "Nov": ("first-freeze", "cold-snap", "gray-streak", "warm-break",
             "crisp-day", "wind-chill", "storm-watch", "snow-day",
@@ -1360,6 +1549,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "fall-leaf-peak", "first-freeze-landscaping", "first-snow-landscaping", "storm-cleanup", "high-wind-debris", "heavy-rain-growth-spurt", "fall-fertilize-window", "mosquito-surge", "dry-spell-watering", "drought-stress", "heat-wave-lawn-stress", "spring-green-up-day", "spring-fertilize-window",
             "pool-closing-day", "first-freeze-pool", "hard-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "heavy-rain-dilution", "pool-opening-day", "chlorine-burn-off", "algae-bloom-risk", "evaporation-watch", "heat-wave-pool-surge", "deep-freeze-pool",
             "gutter-cleaning-season", "fall-roof-inspection", "first-freeze-roofing", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "snow-load-roof", "heavy-rain-leak-check", "ice-dam-risk", "deep-freeze-roofing", "spring-roof-inspection", "heat-wave-shingle-stress",
+            "rodent-cold-intrusion", "spider-season", "fall-pest-inspection", "deep-freeze-rodent-surge", "storm-pest-disruption", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             ),
     "Dec": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "rain-delay", "evening-cooldown",
@@ -1378,6 +1568,7 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "first-freeze-landscaping", "first-snow-landscaping", "storm-cleanup", "high-wind-debris", "fall-leaf-peak", "mosquito-surge", "dry-spell-watering", "drought-stress", "heavy-rain-growth-spurt", "fall-fertilize-window", "heat-wave-lawn-stress", "spring-green-up-day", "spring-fertilize-window",
             "first-freeze-pool", "hard-freeze-pool", "deep-freeze-pool", "spa-season-open", "storm-debris-cleanup", "high-wind-debris-pool", "pool-closing-day", "pool-opening-day", "chlorine-burn-off", "algae-bloom-risk", "heavy-rain-dilution", "evaporation-watch", "heat-wave-pool-surge",
             "ice-dam-risk", "first-freeze-roofing", "deep-freeze-roofing", "snow-load-roof", "storm-damage-inspection", "high-wind-shingle-risk", "wind-damage-inspection", "wind-driven-rain", "gutter-cleaning-season", "fall-roof-inspection", "heavy-rain-leak-check", "spring-roof-inspection", "heat-wave-shingle-stress",
+            "rodent-cold-intrusion", "deep-freeze-rodent-surge", "storm-pest-disruption", "spider-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             ),
 }
 

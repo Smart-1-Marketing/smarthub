@@ -710,5 +710,50 @@ check("the campaign it started actually carries the roofing vertical",
      wx_store.get(roofing_started_token)["vertical"], "roofing")
 
 
+# ---------------------------------------------------------------------------
+section("Pest Control: the eighth vertical, end to end")
+# ---------------------------------------------------------------------------
+
+pest_row = wx_store.create(client="Guardian Pest Control", vertical="pest_control",
+                           zip_code="46032")
+check("a pest_control campaign records its vertical", pest_row["vertical"], "pest_control")
+
+result = wx_store.save_picks(pest_row["token"], ["storm-pest-disruption", "termite-swarm-season"])
+check("pest_control picks against pest_control triggers are accepted", result["ok"], True)
+
+result = wx_store.save_picks(pest_row["token"], ["spring-roof-inspection"])
+check("a roofing trigger id is refused on a pest_control campaign", result["ok"], False)
+
+result = wx_store.save_picks(pest_row["token"], ["pool-opening-day"])
+check("a pool_spa trigger id is refused on a pest_control campaign", result["ok"], False)
+
+pest_drafts = wx_copy.generate_drafts("rodent-cold-intrusion", "Guardian Pest Control")
+check("pest_control drafts fall back to the house source with no AI key",
+     pest_drafts["source"], "house")
+check("pest_control house copy is written as a service reminder, not a dining invitation",
+     any("before it's inside" in (d["headline"] + d["primary_text"]).lower()
+         or "get ahead of it" in (d["headline"] + d["primary_text"]).lower()
+         or "ready when you are" in (d["headline"] + d["primary_text"]).lower()
+         for d in pest_drafts["drafts"]), True)
+check("pest_control house copy never talks about sitting down to eat",
+     any("table" in (d["headline"] + d["primary_text"]).lower()
+         for d in pest_drafts["drafts"]), False)
+check("pest_control house copy never talks about roofs or shingles",
+     any("roof" in (d["headline"] + d["primary_text"]).lower()
+         or "shingle" in (d["headline"] + d["primary_text"]).lower()
+         for d in pest_drafts["drafts"]), False)
+
+storm_pest_drafts = wx_copy.generate_drafts("storm-pest-disruption", "Guardian Pest Control")
+check("the alert-driven storm blocklist covers pest_control's own alert trigger too",
+     storm_pest_drafts["source"] in ("house", "ai"), True)
+
+resp = staff_client.post("/tools/weather-setup/api/start",
+                         json={"client": "Sentry Pest Solutions", "vertical": "pest_control"})
+check("api/start accepts the pest_control vertical and starts the campaign", resp.status_code, 200)
+pest_started_token = resp.get_json()["token"]
+check("the campaign it started actually carries the pest_control vertical",
+     wx_store.get(pest_started_token)["vertical"], "pest_control")
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

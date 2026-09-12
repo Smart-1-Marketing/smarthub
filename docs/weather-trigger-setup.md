@@ -1,6 +1,6 @@
 # Weather trigger setup — lead → landing pages → approved work order
 
-**Date:** 2026-09-07 · **Verticals:** restaurant, hvac, retail, auto, landscaping, pool_spa, roofing · **Status:** built (v1 + hvac + retail + auto + landscaping + pool_spa + roofing)
+**Date:** 2026-09-07 · **Verticals:** restaurant, hvac, retail, auto, landscaping, pool_spa, roofing, pest_control · **Status:** built (v1 + hvac + retail + auto + landscaping + pool_spa + roofing + pest_control)
 
 This is the design spec the module in `modules/weather_setup/` and the
 trigger vocabulary in `hub/weather_triggers.py` were built against. What
@@ -524,6 +524,70 @@ launch — matched it, since that `reason` text is quoted verbatim into the
 house draft's primary text. Worded as "an inspection ad" instead, which
 says the same thing without tripping a guardrail built to catch a real
 promotional offer.
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 13. The eighth vertical (Pest Control)
+
+Shipped the same way a seventh time: thirteen more rows, still the same
+rule vocabulary, still no change to `evaluate_trigger()`, `store.py`,
+`app.py` or the staff template. Seven verticals of precedent already
+proved the plumbing generalizes; the eighth confirms it rather than
+testing it again.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="pest_control"`. The
+psychology is closest to auto's — pests do not move on a comfortable day,
+so nearly every row names the specific condition that drives a specific
+pest toward or away from a building, and the ad is the inspection or
+treatment call that heads it off. `rodent-cold-intrusion` is the
+once-per-season event — the first hard freeze is when rodents that spent
+fall outdoors actually come looking for a way in — with its own
+season-state key so it cannot collide with any of the other seven
+verticals' first-freeze rows inside one campaign's carried state, for the
+same per-pick, per-`trigger_id` reason the other seven hold.
+`deep-freeze-rodent-surge` escalates past it for every hard freeze after
+the first, the way HVAC's `deep-freeze` escalates past `hard-freeze`.
+`ant-invasion-after-rain` and `wet-week-mosquito-watch` are two different
+readings of the same rain: a single heavy rain floods ants out of the
+ground the day after, while a run of overcast days is what actually
+accumulates the standing water mosquitoes breed in — the same
+`cloud_percent_min`/`consecutive_days` shape restaurant's `gray-streak`
+already uses. `mosquito-pressure` is a third, independent angle on the
+same pest — heat stacked on humidity, not a rain event at all.
+`termite-swarm-season` is the one row combining a temperature floor with
+a rain-probability floor in a single rule, the same multi-condition shape
+roofing's `wind-driven-rain` already uses, because a termite colony swarms
+on a warm day with rain in the forecast, not on either condition alone.
+`wasp-hornet-season` and `flea-tick-season` are two warm-season pushes for
+two different pests, and `spider-season` is the one row that runs opposite
+them — a cool, dry fall stretch is when spiders move indoors looking for
+shelter. `spring-pest-inspection` and `fall-pest-inspection` are the two
+shoulder-season pushes the vertical leans on hardest, mirroring every
+other service-reminder vertical's pair. `heat-wave-pest-activity` and
+`storm-pest-disruption` round the book out: sustained heat driving ants
+and roaches indoors on its own, and a storm alert knocking a nest loose or
+flooding a colony out, caught by the same `cadence == "alert_driven"`
+blocklist check every other vertical's alert row already exercises.
+
+`MONTHS` gained the same treatment as the prior six verticals: all
+thirteen pest_control ids listed in every month's tuple, in
+month-appropriate priority order, alongside the restaurant, hvac, retail,
+auto, landscaping, pool_spa and roofing ids already there.
+
+**The copy.** `_house_draft_pest_control()` is an eighth per-angle
+template in `modules/weather_setup/copy.py`, dispatched the same way as
+the other seven — by `Trigger.vertical`, not by a swapped-in name. Its
+framing leans on "get ahead of it before it's inside" for urgent/alert-
+driven triggers and "get ahead of it" for the ordinary seasonal ones.
+`_PROMPT_CONTEXT["pest_control"]` gives the model prompt a "pest control
+company" noun and a "Service notes" label, and
+`_FALLBACK_NAME["pest_control"]` is "your business", the same choice as
+landscaping's, pool_spa's and roofing's. None of the thirteen `reason`
+strings tripped `_OFFER_RE` or `_PROMISE_RE` — checked directly against
+every trigger's generated house draft — so no rewording was needed this
+time, unlike roofing's "free-inspection" lesson.
 
 **Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
 already drive the dropdown and the fallback-to-`"restaurant"` guard in both
