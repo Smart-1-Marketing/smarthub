@@ -26,12 +26,15 @@
     </span></div>
   <div class="s1d-scroll">
   <table class="s1d-t">
-    <thead><tr><th>Platform</th><th>Last synced</th><th>Latest day</th><th class="num">Rows</th>
+    <thead><tr><th>Platform</th><th>Health</th><th>Last synced</th><th>Latest day</th><th class="num">Rows</th>
       <th>Last normalize run</th><th>Result</th></tr></thead>
     <tbody>
     {% for p in platforms %}
       <tr>
         <td>{{ p.label }} <span class="s1d-muted mono">{{ p.platform }}</span></td>
+        {% set h = health.get(p.platform) if health else none %}
+        <td>{% if h %}<span class="s1d-pill {{ 'ok' if h.state == 'ok' else 'bad' if h.state == 'failing' else 'warn' if h.state == 'stale' else '' }}" title="{{ h.detail }}">{{ h.state_label }}</span>
+            {% else %}<span class="s1d-muted">not measured</span>{% endif %}</td>
         <td>{% if p.synced_at %}<span class="s1d-pill ok" title="{{ p.synced_at }}"><time datetime="{{ p.synced_at }}">{{ p.synced_at }}</time></span>
             {% else %}<span class="s1d-pill warn">Never synced</span>{% endif %}</td>
         <td>{{ p.latest_date or '—' }}</td>

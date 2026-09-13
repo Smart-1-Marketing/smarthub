@@ -4229,6 +4229,27 @@ def create_hub_app() -> Flask:
         from . import ads_status
         return jsonify(ads_status.scoreboard())
 
+    @app.route("/api/reports/scoreboard")
+    def api_reports_scoreboard():
+        """The ad-performance feeds, for the dashboard: how many are current,
+        failing or stale, what is filed under nobody, and what is pacing off.
+
+        modules/reports/health.py is the one reading; /reports/ and /status
+        read the same function, so the three cannot disagree about a feed.
+        Under /api/ and not the /reports mount (a hub route under a mounted
+        prefix is never reached), and not behind UTILITY_PREFIXES for the
+        reason the scoreboards above give.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        try:
+            from modules.reports import health as _rhealth
+            return jsonify(_rhealth.scoreboard())
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"measured": False, "error": f"Reports could not be read ({type(exc).__name__}).",
+                            "url": "/reports/"})
+
     @app.route("/api/client/suite-locations")
     def api_client_suite_locations():
         """Every Smart 1 Suite sub-account actually recorded for this client
@@ -6822,6 +6843,19 @@ def create_hub_app() -> Flask:
         except Exception as _ab_exc:  # noqa: BLE001
             add("Display Ad Builder", "warn",
                 f"Could not be checked: {_ab_exc}")
+
+        # --- Reports feeds ---
+        # Every platform's watermark and newest day were on /reports/ and
+        # nowhere else, so a pull failing for three days was visible to
+        # whoever opened that one page. An ERROR when the module is on the
+        # SQLite fallback in production: that file is on the disk a deploy
+        # wipes, and nothing on any screen would have said so.
+        try:
+            from modules.reports import health as _rhealth
+            _rst, _rmsg = _rhealth.status_row()
+            add("Reports feeds", _rst, _rmsg)
+        except Exception as _rh_exc:  # noqa: BLE001
+            add("Reports feeds", "warn", f"Could not be checked: {_rh_exc}")
 
         # --- Marketing Efficiency Audit (third process in this container) ---
         try:

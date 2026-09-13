@@ -161,7 +161,18 @@ def index():
         clients=store.clients_with_campaigns(),
         native=_native_status(),
         rate_card=products.rate_card_products(),
+        health=_health_by_platform(),
     )
+
+
+def _health_by_platform() -> dict:
+    """health.feeds() keyed by platform, or {} -- the index must render
+    when the health reading cannot."""
+    try:
+        from . import health
+        return {p["platform"]: p for p in health.feeds()["platforms"]}
+    except Exception:                      # noqa: BLE001
+        return {}
 
 
 NATIVE_PULLS = (("ttd", "ttd"), ("google", "google_ads_perf"),

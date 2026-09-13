@@ -2902,6 +2902,13 @@ jobs:
       # failing the whole insert; substr() over a timestamp), and SQLite
       # cannot see either by construction. The hub half stays on the file
       # each test owns; only the reports engine moves.
+      # Feed health, read once and drawn three ways: a state per platform on
+      # /reports/, a row on /status (an ERROR for the SQLite fallback in
+      # production, whose file a deploy wipes), and the dashboard card; and
+      # the day a client's figures run through, said on the page and the PDF
+      # rather than implied to be today.
+      - name: Reports feed health, and the day the figures run through
+        run: python3 test_reports_health.py
       - name: The reports tests against Postgres
         env:
           REPORTS_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
@@ -2909,7 +2916,7 @@ jobs:
           for f in test_reports_store.py test_reports_pacing.py test_reports_normalize.py \
                    test_reports_public.py test_reports_crossover.py test_reports_pages.py \
                    test_reports_seo.py test_reports_ttd.py test_reports_stackadapt.py \
-                   test_reports_audiogo.py test_reports_google_perf.py; do
+                   test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1
           done
 

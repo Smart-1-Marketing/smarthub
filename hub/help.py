@@ -389,6 +389,17 @@ REGISTRY: list[Help] = [
        "Every action across every tool, attributed to whoever did it. Useful "
        "when something changed and nobody remembers changing it.", step=3,
        selector="[data-tour='activity']"),
+    _h("hub.dashboard.reports", "Whether the ad report feeds are arriving",
+       "Every client's live report is drawn from the platform feeds, and this "
+       "is whether they are actually landing. Current, failing and stale are "
+       "the feed itself: failing is a pull whose last run recorded an error, "
+       "and stale is a feed that has delivered before and has not produced a "
+       "new day in three days, which is what a provider quietly stopping "
+       "looks like. Never synced is our own coverage: a platform nobody has "
+       "switched on, and not a fault. Filed under nobody is spend on a "
+       "campaign no client report can read yet, and pacing off is a sold line "
+       "three days running outside its band. Each figure opens the rows "
+       "behind it."),
     _h("hub.dashboard.ads", "What the Google Ads sweep found",
        "Every account we deployed a campaign into is scanned twice a day on "
        "the Hub scheduler, and this is the last reading. Four of the five "
