@@ -381,6 +381,9 @@
   /* ---- the section-by-section writing loader ---- */
   .progress{height:9px;background:#e8edf3;border-radius:20px;overflow:hidden}
   .progress .bar{height:100%;background:var(--blue);border-radius:20px;transition:width .3s ease}
+.phase-nav{display:flex;flex-direction:column;gap:5px}.phase-detail{display:block;margin:12px 4px 6px;font-weight:700;font-size:12px}.steprail select{max-width:100%;width:100%;padding:8px;border:1px solid var(--line);border-radius:8px}.pkg .package-choice{margin-top:12px;width:100%}.pkg.on{outline:3px solid var(--blue)}.readiness-list{list-style:none;padding:0}.readiness-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)}
+.pkg .flag{position:static;transform:none;display:inline-block;margin:0 0 8px;max-width:100%}.pkg{display:flex;flex-direction:column}.pkg .package-choice{margin-top:auto}
+@media(max-width:1000px){.steprail{display:block}.phase-nav{flex-direction:row;overflow-x:auto}.phase-nav .sr{white-space:nowrap}.phase-detail{margin-top:6px}}
 </style>
 <link rel="stylesheet" href="/sales/builder/static/viewport.css">
 <script src="/sales/builder/static/viewport.js"></script>
@@ -826,7 +829,7 @@ async function drawDashboard(){
   <div class="stats">
    <div class="s1d-tile blue"><div class="lab">Open Proposals</div><b>${s.open_count}</b><div class="sub">${money(s.open_monthly)}/mo proposed</div></div>
    <div class="s1d-tile gold"><div class="lab">Awaiting Client</div><b>${s.awaiting_count}</b><div class="sub">avg. ${s.awaiting_avg_days} days out</div></div>
-   <div class="s1d-tile green"><div class="lab">Approved — Convert</div><b>${s.approved_count}</b><div class="sub ${s.approved_count?'up':''}">${s.approved_count?"ready for IO ↗":"none waiting"}</div></div>
+   <div class="s1d-tile green"><div class="lab">Approved — Prepare IO</div><b>${s.approved_count}</b><div class="sub ${s.approved_count?'up':''}">${s.approved_count?"ready for IO ↗":"none waiting"}</div></div>
    <div class="s1d-tile"><div class="lab">IOs This Month</div><b>${s.converted_month_count}</b><div class="sub">${money(s.converted_month_monthly)}/mo booked</div></div>
    <div class="s1d-tile"><div class="lab">Win Rate (90d)</div><b>${s.win_rate_90d}%</b><div class="sub">approved + converted</div></div>
   </div>
@@ -837,14 +840,14 @@ async function drawDashboard(){
      <div class="tabs" id="tabs">${["all","Draft","Sent","Approved","Converted","Uploaded"].map(t=>`<span class="${t===listTab?'on':''}" onclick="setTab(this,'${t}')">${t==="all"?"All":t+"s"===t+"s"?(t==="Draft"?"Drafts":t):t}</span>`).join("")}</div>
      <div class="search"><input id="q" placeholder="Search client, quote #, website…" oninput="drawRows()"></div></div>
     <div class="focusBanner"></div>
-   <table><thead><tr><th>Quote #</th><th>Client</th><th>Monthly</th><th>Created by</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+   <table><thead><tr><th>Quote #</th><th>Client</th><th>Investment</th><th>Created by</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
     <tbody id="rows"></tbody></table>
    </div>
    <div class="panel" style="margin-top:16px">
     <div class="phead"><span class="ttl">Insertion Orders</span>
      <button class="btn btn-primary" style="padding:8px 14px;font-size:12.5px" onclick="nav('io')">＋ New IO — open the IO builder</button>
      <div class="search"><input id="ioq" placeholder="Look up IO #, client, quote #…" oninput="drawIoRows()"></div></div>
-    <table><thead><tr><th>IO #</th><th>Client</th><th>Monthly</th><th>Converted</th><th style="text-align:right">Documents</th></tr></thead>
+    <table><thead><tr><th>IO #</th><th>Client</th><th>Investment</th><th>Converted</th><th style="text-align:right">Documents</th></tr></thead>
     <tbody id="ioRows"></tbody></table>
    </div>
   </div>
@@ -874,7 +877,7 @@ function ioRowHtml(x,i){
   <td><span class="qnum">IO #${esc(x.io_number)}<small>from ${esc(x.quote_number)}</small></span></td>
   <td><b style="color:var(--navy)">${esc(x.client||"—")}</b><small style="display:block;color:var(--muted)">${esc(x.website||"")}</small>
    <button class="detailslink" onclick="event.stopPropagation();openDrawer(${x.id})">🔍 View details</button></td>
-  <td><span class="money">${money(x.monthly_budget)}<small>${x.months} mo · ${money(x.total_budget)} total</small></span></td>
+  <td>${investmentSummary(x)}</td>
   <td style="font-size:12px;color:var(--muted)">${ago(x.converted_at||x.updated_at)}</td>
   <td><div class="rowact" onclick="event.stopPropagation()">
    ${x.io_client_pdf_url?`<button class="ic" title="Customer PDF" onclick="window.open('${esc(x.io_client_pdf_url)}','_blank')">📄</button>`:""}
@@ -903,6 +906,12 @@ function byLine(who,kind){
  const name=String(who||"").trim();
  if(!name)return `<span class="note" style="margin:0;display:block">${esc(kind)}<small style="display:block;color:var(--muted)">not recorded</small></span>`;
  return `<span style="font-size:12.5px;color:#33415C">${esc(name)}<small style="display:block;color:var(--muted)">${esc(kind)}</small></span>`;}
+function investmentSummary(x){
+ const inv=x.investment;
+ if(!inv)return `<span class="money">${money(x.monthly_budget)}<small>Media &amp; services /mo · ${money(x.total_budget)} subtotal</small></span>`;
+ const lines=inv.lines||[],media=lines.filter(l=>l.kind==='media').reduce((n,l)=>n+l.amount,0),services=lines.filter(l=>l.recurs==='Monthly'&&l.kind!=='media').reduce((n,l)=>n+l.amount,0),setup=lines.filter(l=>l.recurs!=='Monthly').reduce((n,l)=>n+l.amount,0);
+ return `<span class="money">${money(inv.campaign_total)}<small>All-in · ${x.months} months</small></span><details onclick="event.stopPropagation()"><summary>Investment breakdown</summary><div>Media &amp; services: ${money(media)}/mo</div><div>Licensing &amp; consulting: ${money(services)}/mo</div><div>Production &amp; setup: ${money(setup)} one-time</div><div>Total recurring: ${money(inv.recurring_monthly)}/mo</div><div>First month: ${money(inv.first_month)}</div></details>`;
+}
 function rowHtml(x,i){
  const gapsN=(x.gaps||[]).length,guard=(x.guardrails||[]);
  const z=(i|0)%2?"rzB":"rzA";
@@ -912,7 +921,7 @@ function rowHtml(x,i){
    <button class="detailslink" onclick="event.stopPropagation();openDrawer(${x.id})">🔍 View details</button>
    ${x.status==='Approved'&&gapsN?`<span class="miss">⚠ ${gapsN} answers needed for IO</span>`:""}
    ${x.status==='Draft'&&guard.length?`<span class="miss">⚠ ${esc(guard[0])}</span>`:""}</td>
-  <td><span class="money">${money(x.monthly_budget)}<small>${x.months} mo · ${money(x.total_budget)} total</small></span></td>
+  <td>${investmentSummary(x)}</td>
   <td>${byLine(x.created_by,"Built here")}</td>
   <td><span class="badge ${badge(x.shown_status||x.status)}">${x.shown_status||x.status}</span>${x.io_number?`<small style="display:block;color:var(--muted);margin-top:3px">IO #${esc(x.io_number)}</small>`:""}
    ${x.status==='Draft'&&x.step>0?`<small style="display:block;color:var(--muted);margin-top:3px">Left at step ${x.step+1} of ${STEP_COUNT}</small>`:""}</td>
@@ -922,7 +931,7 @@ function rowHtml(x,i){
    <button class="ic" data-demo="quote-pdf" title="Branded PDF" onclick="window.open('/sales/builder/api/quotes/${x.id}/pdf','_blank')">📄</button>
    <button class="ic" data-demo="quote-docx" title="Word copy" onclick="location.href='/sales/builder/api/quotes/${x.id}/docx'">📝</button>
    <button class="ic" data-demo="duplicate" title="Duplicate as new quote" onclick="dupQuote(${x.id})">📋</button>
-   ${x.status!=='Converted'?`<button class="ic gold" data-demo="convert" title="${x.status==='Approved'?'Convert to IO':'Convert to IO — this quote is '+x.status.toLowerCase()+', so check it is agreed first'}" onclick="openConvert(${x.id})">🔁</button>`:""}
+   ${x.status!=='Converted'?`<button class="ic gold" data-demo="convert" title="${x.status==='Approved'?'Prepare IO':'Prepare IO — approval still needs confirmation'}" onclick="openConvert(${x.id})">Prepare IO</button>`:""}
    ${x.status==='Draft'?`<button class="ic" title="Delete this draft" onclick="deleteQuote(${x.id})">🗑️</button>`:""}
   </div></td></tr>
   <tr class="pkgrow ${z}"><td colspan="6"><span class="pkglabel">Package / Products</span>${x.package?`<b>${esc(x.package)}</b> · `:""}${esc(x.products_summary||"—")}</td></tr>`;
@@ -1098,7 +1107,7 @@ async function drawProposals(){
     <div class="tabs" id="tabs">${["all","Draft","Sent","Approved","Converted","Lost","Uploaded"].map(t=>`<span class="${t===listTab?'on':''}" onclick="setTab(this,'${t}')">${t==="all"?"All":t}</span>`).join("")}</div>
     <div class="search"><input id="q" placeholder="Search client, quote #, IO #…" oninput="drawRows()"></div></div>
    <div class="focusBanner"></div>
-   <table><thead><tr><th>Quote #</th><th>Client</th><th>Monthly</th><th>Created by</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+   <table><thead><tr><th>Quote #</th><th>Client</th><th>Investment</th><th>Created by</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
    <tbody id="rows"></tbody></table>
   </div>`;
  drawRows();
@@ -1164,7 +1173,7 @@ async function drawIO(){
   <div class="panel" style="margin-bottom:16px">
    <div class="phead"><span class="ttl">🔍 IO Lookup</span><span class="note">IOs created from converted proposals — with their quote history and PDFs</span>
     <div class="search"><input id="ioq2" placeholder="Search IO #, client, quote #…" oninput="drawIoLookup()"></div></div>
-   <table><thead><tr><th>IO #</th><th>Client</th><th>Monthly</th><th>Converted</th><th style="text-align:right">Documents</th></tr></thead>
+   <table><thead><tr><th>IO #</th><th>Client</th><th>Investment</th><th>Converted</th><th style="text-align:right">Documents</th></tr></thead>
    <tbody id="ioRows2"></tbody></table>
   </div>
   <div class="panel" style="margin-bottom:0;overflow:hidden">
@@ -1202,8 +1211,7 @@ async function openDrawer(id){
    <li><span>Geography</span><b>${esc(x.geo_summary||"—")}</b></li>
    <li><span>Package</span><b>${esc(x.package||"—")}</b></li>
    <li><span>Products</span><b>${esc(x.products_summary||"—")}</b></li>
-   <li><span>Monthly budget</span><b>${money(x.monthly_budget)}</b></li>
-   <li><span>Term / total</span><b>${x.months} months · ${money(x.total_budget)}</b></li>
+   <li><span>Investment</span><div>${investmentSummary(x)}</div></li>
   </ul>
   <div class="dsec">Status</div>
   <div style="display:flex;gap:6px;flex-wrap:wrap">${["Draft","Sent","Approved","Lost"].map(s=>`<span class="pill ${x.status===s?'on':''}" style="margin:0" onclick="setStatus(${x.id},'${s}')">${s}</span>`).join("")}</div>
@@ -1224,7 +1232,7 @@ async function openDrawer(id){
   <button class="btn btn-line" onclick="window.open('/sales/builder/api/quotes/${x.id}/pdf','_blank')">📄 PDF</button>
   <button class="btn btn-line" onclick="location.href='/sales/builder/api/quotes/${x.id}/docx'">📝 Word</button>
   <button class="btn btn-line" onclick="dupQuote(${x.id})">📋 Duplicate</button>
-  ${x.status!=='Converted'?`<button class="btn btn-gold" onclick="closeDrawer();openConvert(${x.id})">🔁 Convert to IO</button>`:""}`;
+  ${x.status!=='Converted'?`<button class="btn btn-gold" onclick="closeDrawer();openConvert(${x.id})">Prepare IO →</button>`:""}`;
  document.getElementById('ov').style.display="block";
  document.getElementById('dr').classList.add("open");
  drawShare(x.id);
@@ -1476,6 +1484,8 @@ function editLoaded(q){
  S._mediaPlan=q.media_plan||null;
  S._cost=q.campaign_cost||null;
  S._invest=q.investment||null;
+ S._checklist=q.checklist||null;
+ S._packageInvestments=q.package_investments||[];
  S.growth=q.growth||null;
  // A quote saved before multi-area targeting has its geography only in
  // geoType/geo/radius. The server already converted it (hub/target_areas
@@ -1556,7 +1566,7 @@ async function persistQuote(extra){
   }
   if(saved&&saved.quote&&saved.quote.investment){
    const before=JSON.stringify(S._invest||null);
-   S._invest=saved.quote.investment;S._cost=saved.quote.campaign_cost||S._cost;S.readiness=saved.quote.readiness||[];
+   S._invest=saved.quote.investment;S._cost=saved.quote.campaign_cost||S._cost;S.readiness=saved.quote.readiness||[];S._checklist=saved.quote.checklist;S._packageInvestments=saved.quote.package_investments||[];if(document.getElementById("pkgWrap"))drawPkgs();
    if(before!==JSON.stringify(S._invest))repaint=true;
   }
   if(saved&&saved.quote&&saved.quote.kpi_framework){
@@ -1567,11 +1577,17 @@ async function persistQuote(extra){
   if(repaint&&!S._editSec&&!S._tableEdit&&document.getElementById('docPreview'))drawPreview();
   const review=document.getElementById('reviewSummary');
   if(review)review.innerHTML=reviewSummaryHtml();
-  setSave("✓ Saved "+(QUOTE_NUMBER||""));drawQuoteTag((QUOTE_NUMBER?QUOTE_NUMBER+" · ":"")+"autosaving");
+  const checklist=document.getElementById('readinessChecklist');if(checklist)checklist.innerHTML=readinessHtml();
+  setSave("✓ Saved");drawQuoteTag(QUOTE_NUMBER||"Draft");
  return true;
  }catch(e){setSave("⚠ Not saved: "+e.message);return false;}
 }
-function setSave(t){const el=document.getElementById('saveState');if(el)el.textContent=t;}
+function setSave(t){
+ const el=document.getElementById('saveState');if(!el)return;
+ const failed=t.startsWith('⚠');
+ el.setAttribute('role','status');el.setAttribute('aria-live','polite');
+ el.innerHTML=failed?`Save failed — ${esc(t.replace(/^⚠ Not saved: /,''))} <button type="button" class="btn btn-line" onclick="saveNow()">Retry save</button>`:esc(t==='…'?'Saving…':t);
+}
 
 /* ============================================================
    WE SUGGEST THEY SHOULD — mirrors hub/current_marketing.py
@@ -3744,18 +3760,13 @@ function gotoStep(i){
   toast("Finish step "+(j+1)+" — "+STEP_META[j].label+" — before jumping ahead.");
   return;}
  clearResumeNote();step=i;renderStep();saveNow();}
+const PROPOSAL_PHASES=[{name:'Discovery',start:0,end:4},{name:'Strategy',start:5,end:7},{name:'Investment',start:8,end:11},{name:'Proposal',start:12,end:12},{name:'Handoff',start:13,end:13}];
 function drawStepRail(){
  const host=document.getElementById('steprail');if(!host||!S)return;
- host.innerHTML=STEP_META.map((m,i)=>{
-  /* A locked step never wears a tick, even when its predicate is trivially
-     true: eight green ticks on a quote nobody has typed into reads as work
-     already done, and the one claim this rail must never make is one the
-     rep did not earn by getting there. */
-  const cur=i===step,lock=!stepAllowed(i),done=stepDone(i)&&!lock&&(S.reviewedSteps||[]).includes(i);
-  return `<button type="button" class="sr${cur?' on':''}${done&&!cur?' done':''}${lock?' lock':''}"
-    title="${lock?'Finish the earlier steps first':esc(m.label)}"
-    aria-current="${cur?'step':'false'}" onclick="gotoStep(${i})">
-    <span class="n">${done&&!cur?'✓':(lock?'🔒':i+1)}</span><span class="lbl">${esc(m.label)}</span></button>`;}).join('');}
+ const phase=PROPOSAL_PHASES.find(p=>step>=p.start&&step<=p.end);
+ host.innerHTML=`<nav class="phase-nav" aria-label="Proposal phases">${PROPOSAL_PHASES.map((p,i)=>`<button type="button" class="sr${p===phase?' on':''}" aria-current="${p===phase?'step':'false'}" onclick="gotoStep(${p.start})"><span class="n">${i+1}</span><span>${p.name}</span></button>`).join('')}</nav><label class="phase-detail" for="phaseStep">${phase.name} details</label><select id="phaseStep" aria-label="Detailed proposal step" onchange="gotoStep(Number(this.value))">${STEP_META.map((m,i)=>`<option value="${i}" ${i===step?'selected':''} ${!stepAllowed(i)?'disabled':''}>${i+1}. ${esc(m.label)}</option>`).join('')}</select>`;
+}
+
 
 /* ============================================================
    BUILDER STEPS
@@ -3942,8 +3953,8 @@ const STEPS=[
    valid:()=>creativeUnresolved().length===0};
  },
 
- ()=>{ buildPackages(); return{eyebrow:"Investment Options",title:"Three package recommendations",help:"sales_builder.packages.investment",sub:"Built from your "+money(S.budget)+"/mo budget and product mix, using real rates. Pick an option to apply its products and prices to the proposal and IO. Smaller budgets may support fewer channels. Platform and production costs appear in the investment summary.",
-   html:'<div class="pkgs" id="pkgWrap"></div><div class="note">Packages respect product minimums; lower budgets may use fewer channels. Prices shown here are media and services; licensing and production are itemized below. All three are printed on the proposal — the one you pick is marked as our recommendation. Change the budget or products and these rebuild.</div>'
+ ()=>{ buildPackages(); return{eyebrow:"Investment Options",title:"Three package recommendations",help:"sales_builder.packages.investment",sub:"Compare three ways to fund this campaign. Selecting a package applies its products and prices to the proposal and IO. Each all-in total includes the quoted licensing and production costs. Smaller packages may support fewer channels.",
+   html:'<div class="pkgs" id="pkgWrap"></div><div class="note">Packages respect product minimums; lower budgets may use fewer channels. Prices shown here are media and services; licensing and production are itemized below. All three are printed on the proposal. The featured choice and Smart 1 recommendation are labeled separately; client approval is recorded later. Change the budget or products and these rebuild.</div>'
     +'<div id="suiteWrap"></div>',
    valid:()=>true,after:()=>{drawPkgs();drawSuite();}};},
 
@@ -3991,7 +4002,7 @@ function renderStep(){
     hub-demo.js was just fixed to stop. */
  const _dot=k=>k?`<span data-help="${k}"></span>`:'';
  st.innerHTML=`<div class="eyebrow">${d.eyebrow}</div><h1 class="q">${d.title} ${_dot(d.help)}</h1><div class="sub">${d.sub}</div>${d.html}`;
- document.getElementById('stepLabel').textContent='Step '+(step+1)+' of '+STEPS.length+' — '+(STEP_META[step]?STEP_META[step].label:'');
+ document.getElementById('stepLabel').textContent=PROPOSAL_PHASES.find(p=>step>=p.start&&step<=p.end).name+' — '+(STEP_META[step]?STEP_META[step].label:'');
  document.getElementById('bar').style.width=((step+1)/STEPS.length*100)+'%';
  drawStepRail();
  // Back stays available inside a sub-flow even on step 0 of the wizard,
@@ -4898,7 +4909,7 @@ function conversionItems(withRate){
  return items;
 }
 function drawPkgs(){const w=document.getElementById('pkgWrap');if(!w)return;
- w.innerHTML=S.packages.map((p,i)=>`<div class="pkg${i===S.selPkg?' on':''}" onclick="choosePackage(${i})">${p.rec?'<div class="flag">Recommended</div>':''}<div class="pn">${p.name}</div><div class="pp">${money(p.monthly)}<small>/mo</small></div><div class="ptot">${money(p.total)} over ${S.months} mo</div><ul>${p.lines.map(l=>`<li>${esc(l.name)}<b>${money(l.amt)}</b></li>`).join('')}<li>Est. impressions / campaign<b>${fmt(p.impr)}</b></li>${p.views?`<li>Est. video views<b>${fmt(p.views)}</b></li>`:''}</ul></div>`).join('');}
+ w.innerHTML=S.packages.map((p,i)=>`<div class="pkg${i===S.selPkg?' on':''}">${p.rec?'<div class="flag">Recommended by Smart 1</div>':''}<div class="pn">${p.name}</div><div class="pp">${money(p.monthly)}<small>/mo</small></div><div class="ptot">${money(p.total)} media &amp; services subtotal over ${S.months} mo</div>${S._packageInvestments?.[i]?investmentSummary({investment:S._packageInvestments[i],months:S.months}):'<p class="note">Save to calculate all-in pricing.</p>'}<ul>${p.lines.map(l=>`<li>${esc(l.name)}<b>${money(l.amt)}</b></li>`).join('')}<li>Est. impressions / campaign<b>${fmt(p.impr)}</b></li>${p.views?`<li>Est. video views<b>${fmt(p.views)}</b></li>`:''}</ul><button type="button" class="btn btn-primary package-choice" aria-pressed="${i===S.selPkg}" onclick="choosePackage(${i})">${i===S.selPkg?'✓ Selected for proposal':'Select package'}</button><div class="note">Selection does not record client approval.</div></div>`).join('');}
 
 /* section editor */
 function isRequired(s){return !!s.required||REQUIRED_SECTIONS.includes(s.id);}
@@ -5035,7 +5046,14 @@ function reviewSummaryHtml(){const e=S.estimates||estimates();const sel=S.select
      </ul>
      <div class="note" style="margin-top:8px">Platform licensing is separate from media so it is clear what stops if the media pauses.</div></div>`;})()}
   ${g.length?`<div class="warnbox"><b>🛡 Guardrails to note</b>${g.map(x=>"⚠ "+esc(x)).join("<br>")}<br><button class="btn btn-line" onclick="gotoStep(9)">Review media &amp; rebuild packages</button></div>`:""}`;}
-function reviewHtml(){return `<div id="reviewSummary">${reviewSummaryHtml()}</div>
+function readinessHtml(){
+ if(!S._checklist)return '<div class="bpanel"><h3>Readiness checklist</h3><p>Save to check delivery and IO requirements.</p><button class="btn btn-line" onclick="saveNow()">Check readiness</button></div>';
+ const checks=S._checklist||{delivery:(S.readiness||[]).map(label=>({label,step:9})),io:[]};
+ const group=(title,items,empty)=>`<h3>${title}</h3>${items.length?`<ul class="readiness-list">${items.map(r=>`<li><span>${esc(r.label)}</span><button type="button" class="btn btn-line" onclick="${r.step!=null?'gotoStep('+r.step+')':'openConvertField('+JSON.stringify(r.field).replace(/"/g,'&quot;')+')'}">Review</button></li>`).join('')}</ul>`:`<p>✓ ${empty}</p>`}`;
+ return `<div class="bpanel"><div class="ttl">Readiness checklist</div>${group('Before delivery',checks.delivery,'No delivery blockers found. Review the document before sending.')}${group('Before preparing the IO',checks.io,'Review the carried-forward details in Prepare IO.')}<p class="note">IO details can be completed after the pitch. Preparing an IO does not issue an order number.</p><button class="btn btn-primary" onclick="openConvert(QUOTE_ID)">Prepare IO →</button></div>`;
+}
+async function openConvertField(field){await openConvert(QUOTE_ID);document.getElementById('conv-'+field)?.focus();}
+function reviewHtml(){return `<div id="reviewSummary">${reviewSummaryHtml()}</div><div id="readinessChecklist">${readinessHtml()}</div>
   <div class="bpanel"><div class="ttl">Deliver</div>
    <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:8px">
     <button class="btn btn-good" onclick="finishAndPdf()">📄 Save &amp; open branded PDF</button>
@@ -5171,7 +5189,7 @@ async function openConvert(id){
  if(S&&id===QUOTE_ID&&!await saveNow()){toast('Save your changes before conversion.');return;}
  let d;try{d=await api('/sales/builder/api/quotes/'+id);}catch(e){toast(e.message);return;}
  const q=d.quote,st=q.data||{};
- CONV={quote:q,step:0,submit:false,result:null,answers:{
+ CONV={quote:q,originalData:JSON.parse(JSON.stringify(st)),step:0,submit:false,result:null,answers:{
   clientContactName:st.clientContactName||"",clientContactEmail:st.clientContactEmail||"",clientContactPhone:st.clientContactPhone||"",
   startDate:st.startDate||"",endDate:st.endDate||"",
   creativeSource:st.creativeSource||conversionCreativeSource(st),creativeFee:String((q.investment?.lines||[]).filter(l=>l.kind==='setup'&&l.source!=='plan').reduce((a,l)=>a+l.amount,0)),
@@ -5189,20 +5207,27 @@ function conversionCreativeSource(st){
  if(answers.every(a=>a==='client'||a==='comp'))return 'Smart 1 builds creative (priced in proposal)';
  return 'Mixed — some provided, some built';
 }
-function convClose(){document.getElementById('convModal').classList.remove('open');}
+function convClose(){document.getElementById('convModal').classList.remove('open');
+ const checklist=document.getElementById('readinessChecklist');if(checklist&&S)checklist.innerHTML=readinessHtml();}
 function convFld(label,key,type,ph,options){
  const v=esc(CONV.answers[key]||"");
  if(options)return `<div class="fld"><label for="conv-${key}">${label}</label><select id="conv-${key}" data-conv-field="${key}" onchange="CONV.answers['${key}']=this.value">`+['<option value="">Select…</option>'].concat(options.map(o=>`<option ${CONV.answers[key]===o?'selected':''}>${esc(o)}</option>`)).join('')+`</select></div>`;
  return `<div class="fld"><label for="conv-${key}">${label}</label><input id="conv-${key}" data-conv-field="${key}" type="${type||'text'}" value="${v}" placeholder="${esc(ph||'')}" oninput="CONV.answers['${key}']=this.value"></div>`;}
+async function reviewProposalStep(id,index){convClose();if(await editQuote(id))gotoStep(index);}
+function conversionChecklistHtml(q){
+ const rows=[...(q.checklist?.delivery||[]),...(q.checklist?.io||[])];
+ return rows.length?`<details><summary>Review missing information (${rows.length})</summary><ul class="readiness-list">${rows.map(r=>`<li>${esc(r.label)} <button class="btn btn-line" onclick="${r.step!=null?'reviewProposalStep('+q.id+','+r.step+')':"document.getElementById('conv-"+esc(r.field)+"').focus()"}">Review</button></li>`).join('')}</ul></details>`:'';
+}
 function drawConvert(){
- const q=CONV.quote,gaps=q.gaps||[];
- document.getElementById('convTitle').textContent="Convert "+q.quote_number+" → Insertion Order";
- document.getElementById('convSub').innerHTML=esc(q.client||"")+" · "+esc(q.package||"")+" · "+money(q.monthly_budget)+"/mo · the proposal fields map to the IO automatically";
+ const q=CONV.quote,gaps=[...(q.checklist?.delivery||[]),...(q.checklist?.io||[])];
+ document.getElementById('convTitle').textContent="Prepare IO from "+q.quote_number;
+ document.getElementById('convSub').innerHTML=esc(q.client||"")+" · "+esc(q.package||"")+" · "+money(q.investment?.campaign_total??q.total_budget)+" all-in · package, pricing and scope carried forward";
  const body=document.getElementById('convBody'),foot=document.getElementById('convFoot');
  if(CONV.step===0){
   body.innerHTML=`
-   <div class="gap" style="margin-bottom:6px"><b>✨ AI gap check — ${gaps.length?gaps.length+" answer"+(gaps.length>1?"s":"")+" needed":"nothing missing"}</b>
-    Everything already in the proposal (goals, geo, audiences, products, budgets, landing pages) carries over. ${gaps.length?"Only the fields below still need answers:":"Review the prefilled fields below and continue."}</div>
+   <div class="gap" style="margin-bottom:6px"><b>Readiness check — ${gaps.length?gaps.length+" answer"+(gaps.length>1?"s":"")+" needed":"nothing missing"}</b>
+    Everything already in the proposal carries over. Review the prefilled information and complete the remaining details below.</div>
+   ${conversionChecklistHtml(q)}
    <div class="dsec">Client contact</div>
    <div class="two">${convFld("Contact name","clientContactName","text","Jane Smith")}${convFld("Contact email","clientContactEmail","email","jane@client.com")}</div>
    ${convFld("Contact phone","clientContactPhone","tel","(317) 555-0123")}
@@ -5218,18 +5243,23 @@ function drawConvert(){
    <div class="two">${convFld("Final landing page URL","landingUrl","text","client.com/offer")}${convFld("Management fee confirmed?","managementFeeAck",null,null,["Yes — as quoted on the plan","Custom (note in IO)"])}</div>
    <div class="two">${convFld("Smart 1 sales contact","salesContact","text","Your name")}${convFld("Sales contact email","salesEmail","email","you@smart1marketing.com")}</div>`;
   foot.innerHTML=`<button class="btn btn-back" onclick="convClose()">Cancel</button>
-   <button class="btn btn-primary" onclick="convToReview()">Review IO →</button>`;
+   <button class="btn btn-line" onclick="saveHandoffDetails()">Save handoff details</button><button class="btn btn-primary" onclick="convToReview()">Review IO →</button>`;
  }else if(CONV.step===1){
   const a=CONV.answers,st=CONV.quote.data||{};
   const items=conversionItems(false);
   body.innerHTML=`
    <div class="dsec">What happens next</div>
    <ol style="font-size:13px;color:#33415C;padding-left:20px;line-height:1.7">
-    <li>The IO API issues the next order number (10200 series) — same counter the IO builder uses.</li>
-    <li>The customer PDF and internal PDF are generated and stored in client gallery, exactly like a hand-built IO.</li>
+    <li>Create an IO number linked to this proposal.</li>
+    <li>Save customer and internal IO copies on the client record.</li>
     <li>${CONV.submit?"The finished IO is sent to Smart 1 Suite / GoHighLevel.":"The IO is prepared but NOT sent to Smart 1 Suite (you can submit from the IO builder later)."}</li>
     <li>${esc(q.quote_number)} is marked <b>Converted</b> and linked to the new IO number.</li>
    </ol>
+   <div class="dsec">Proposal → IO review</div>
+   <p>Featured package: <b>${esc(q.package||'Custom plan')}</b>. Products and prices carry forward unchanged.</p>
+   ${q.status!=='Approved'?'<div class="warnbox">Client approval is not recorded. Confirm agreement before issuing the IO.</div>':''}
+   ${q.approval_changes===null?'<p class="note">No approval snapshot is available for this proposal. Compare with the client-approved copy.</p>':q.approval_changes?.length?`<div class="warnbox"><b>Changed since approval</b><ul>${q.approval_changes.map(label=>`<li>${esc(label)}</li>`).join('')}</ul></div>`:'<p>✓ Scope matches the recorded approval.</p>'}
+   ${conversionChangesHtml()}
    <div class="dsec">IO summary</div>
    <ul class="kv2">
     <li><span>Client</span><b>${esc(st.client||"")} · ${esc(a.clientContactName||"—")}</b></li>
@@ -5240,6 +5270,7 @@ function drawConvert(){
     ${(q.investment?.lines||[]).filter(l=>["saas","consulting"].includes(l.kind)).map(l=>`<li><span>${esc(l.label)}</span><b>${money(l.amount)}/mo</b></li>`).join("")}
     <li><span>Tracking</span><b>${esc(a.primaryConversion||"—")} · GA4: ${esc(a.ga4||"?")}</b></li>
    </ul>
+   <label style="display:block;margin:12px 0"><input id="handoffAck" type="checkbox" onchange="CONV.reviewed=this.checked"> I reviewed the package, changes and client agreement.</label>
    <label style="display:flex;gap:9px;align-items:center;margin-top:14px;font-size:13.5px;font-weight:700;color:var(--navy)">
     <input type="checkbox" ${CONV.submit?"checked":""} onchange="CONV.submit=this.checked" style="width:17px;height:17px">
     Also submit the finished IO to Smart 1 Suite / GoHighLevel now</label>`;
@@ -5261,6 +5292,26 @@ function drawConvert(){
   foot.innerHTML=`<button class="btn btn-primary" onclick="convClose();nav('dashboard')">Done</button>`;
  }
 }
+async function saveHandoffDetails(){
+ ProposalIntegrity.capture(document.getElementById('convBody'),CONV.answers);
+ const a=CONV.answers,st={...CONV.quote.data},tracking={...st.trackingPlan};
+ for(const key of ['primaryConversion','ga4','callTracking','verifier'])tracking[key]=a[key];
+ for(const key of ['clientContactName','clientContactEmail','clientContactPhone','startDate','endDate','creativeSource','landingUrl','salesContact','salesEmail','managementFeeAck'])st[key]=a[key];
+ st.trackingPlan=tracking;
+ try{const result=await api('/sales/builder/api/quotes/'+CONV.quote.id,{method:'PUT',body:JSON.stringify({data:st})});CONV.quote=result.quote;
+  if(QUOTE_ID===result.quote.id&&S){Object.assign(S,result.quote.data);S._invest=result.quote.investment;S._checklist=result.quote.checklist;}
+  drawConvert();toast('Handoff details saved. No IO has been issued.');
+ }catch(e){toast('Handoff details were not saved: '+e.message);}
+}
+function conversionChangesHtml(){
+ const st=CONV.originalData||CONV.quote.data||{},tp=st.trackingPlan||{},changes=[];
+ const labels={clientContactName:'Contact name',clientContactEmail:'Contact email',clientContactPhone:'Contact phone',startDate:'Start date',endDate:'End date',creativeSource:'Creative source',creativeFee:'Production fee',primaryConversion:'Primary conversion',ga4:'GA4 status',callTracking:'Call tracking',verifier:'Tracking verifier',landingUrl:'Landing page',salesContact:'Sales contact',salesEmail:'Sales email',managementFeeAck:'Management fee confirmation'};
+ for(const [key,value] of Object.entries(CONV.answers)){
+  const before=key in tp?tp[key]:st[key];
+  if(String(before??'')!==String(value??''))changes.push(`<li><b>${esc(labels[key]||key)}</b>: ${esc(String(before||'Not recorded'))} → ${esc(String(value||'Not recorded'))}</li>`);
+ }
+ return changes.length?`<details open><summary>Handoff details added or changed</summary><ul>${changes.join('')}</ul></details>`:'<p>Handoff details match the proposal.</p>';
+}
 function convToReview(){
  ProposalIntegrity.capture(document.getElementById('convBody'),CONV.answers);
  const a=CONV.answers,need=[];
@@ -5270,6 +5321,7 @@ function convToReview(){
  if(a.endDate&&a.startDate&&a.endDate<a.startDate)need.push('end date on or after start date');
  if(!a.primaryConversion)need.push('primary conversion');
  if(!a.ga4)need.push('GA4 status');
+ if(!a.callTracking)need.push('call tracking status');
  if(!a.verifier)need.push('tracking verifier');
  if(!a.managementFeeAck)need.push('management fee confirmation');
  for(const area of CONV.quote.data?.targetAreas||[]){if(area.zips&&(!area.zipVerified||!area.zipSource||area.zipSource.includes('unverified')))need.push('verify ZIP geography and record its source');}
@@ -5277,7 +5329,7 @@ function convToReview(){
  if(!a.startDate)need.push("start date");
  if(!a.creativeSource)need.push("creative source");
  if(need.length){toast("Still needed before the IO: "+need.join(", ")+".");return;}
- CONV.step=1;drawConvert();
+ CONV.reviewed=false;CONV.step=1;drawConvert();
 }
 function managementFeeForIO(){
  /* What the plan actually charges in fees, per month. A line with no CPM or
@@ -5375,6 +5427,7 @@ function consultingInstructions(rows){
  return (rows||[]).filter(r=>r&&r.description&&(r.consulting||r.retainer))
   .map(r=>`${r.retainer?r.product:(c.product||r.product)}: ${r.description}`).join("\n");}
 async function runConvert(){
+ if(!CONV.reviewed){toast('Review the package, changes and client agreement before creating the IO.');return;}
  CONV.step=2;drawConvert();
  const log=m=>{const el=document.getElementById('convLog');if(el)el.innerHTML+=m+"<br>";};
  const base=CFG.io_api_base;

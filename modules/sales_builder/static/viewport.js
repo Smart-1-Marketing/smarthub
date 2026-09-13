@@ -76,7 +76,7 @@ function salesTable(tb, key) {
           fold.append(summary); actions.replaceWith(fold); fold.append(actions);
           fold.onclick = event => event.stopPropagation();
         }
-      } else if (cell.textContent.trim().length > 85) {
+      } else if (cell.textContent.trim().length > 85 && !cell.querySelector('details')) {
         const fold = document.createElement('details'); fold.className = 'sales-cell';
         const summary = document.createElement('summary');
         summary.textContent = cell.textContent.trim().replace(/\s+/g, ' ').slice(0, 55) + '…';
