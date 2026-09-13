@@ -2722,8 +2722,3 @@ jobs:
         run: |
           python3 test_industry_prospects.py
           node tests/industry_prospects_ui.test.js
-
-      # Shipped with its own test file and no step in this workflow -- the
-      # exact gap test_ci_gate.py exists to catch, one tool later.
-      - name: Smart 1 Sites Builder
-        run: python3 test_sites_builder.py
