@@ -2712,6 +2712,93 @@ jobs:
       - name: The client brief is injected at the one wrapper
         run: python3 test_ai_injection.py
 
+      # The Reports module's store: the fact table is in its own database
+      # (REPORTS_DATABASE_URL first, then DATABASE_URL, then a SQLite file),
+      # a day synced twice is the same spend, a platform outside the list is
+      # refused before its batch is written, a mapped campaign leaves the
+      # unmapped queue, and a platform bills at a markup or a fixed CPM and
+      # never both.
+      - name: The reporting fact table, and what sits beside it
+        run: python3 test_reports_store.py
+      # And its pages: every route under /reports refuses a stranger, read
+      # off the module's own URL map; staff get every screen; a mapping is
+      # written to the store and to the activity log under the client's
+      # name; and the module is in the nav, tiled once and mounted with its
+      # public list read from the module.
+      - name: The Reports screens, refused and served
+        run: python3 test_reports_pages.py
+      # The native pulls. The Trade Desk: a long-lived token sent as one
+      # header and carried nowhere else, advertisers paged, the MyReports
+      # CSV parsed the same way whether it was downloaded or emailed, and a
+      # native watermark the provider normalize defers to for a day.
+      - name: The native Trade Desk pull and the MyReports CSV
+        run: python3 test_reports_ttd.py
+      # Google Ads: one GAQL query per client account, micros divided once,
+      # and not connected -- this deployment's state -- a sentence rather
+      # than a traceback.
+      - name: The native Google Ads pull
+        run: python3 test_reports_google_perf.py
+      # StackAdapt: the key as the bearer header the official SDK sends and
+      # nowhere else, ONE query constant naming the schema-verified fields,
+      # a sample response parsed defensively (a missing metric is zero, a
+      # keyless record is counted), pages followed and Progress polled.
+      - name: The native StackAdapt pull
+        run: python3 test_reports_stackadapt.py
+      # AudioGo: the call shaped by audiogo_map.py's placeholders and by
+      # nothing else, the check page printing the raw keys an endpoint
+      # answered with, a map that does not resolve refused by name, and
+      # the UI's CSV export read through alias spellings.
+      - name: The config-driven AudioGo pull and its check page
+        run: python3 test_reports_audiogo.py
+      # The organic-search section: gated on an SEO product AND a linked
+      # analytics property, the client-facing labels naming no product by
+      # default, Search Console missing said neutrally to the client and by
+      # name to staff, work counted only where it exists, and the PDF
+      # carrying the same figures.
+      - name: The organic search section for SEO clients
+        run: python3 test_reports_seo.py
+      # The provider normalize: raw provider tables read through
+      # provider_map's placeholder column names, spend divided on the way in,
+      # one platform's failure isolated on its own watermark, the provider
+      # check saying resolved / table missing / columns missing, and the
+      # auto-mapper filing a campaign from its S1M | client | product name
+      # without ever overwriting a mapping a person made.
+      - name: The provider normalize, provider check and auto-mapper
+        run: python3 test_reports_normalize.py
+      # The client's live dashboard: the spend rule (link override, then
+      # platform markup, then delivery only) in one function; with
+      # investment off no money and neither "spend" nor "cost" in the page
+      # or its data; a replaced token renders the replaced page rather than
+      # a 404; the PDF carries the page's own figures; the internal view is
+      # staff-only; and the push writes the URL onto the client's Suite
+      # contact through ghl_contacts, never the lead book.
+      - name: The client's live report page, its link and the spend rule
+        run: python3 test_reports_public.py
+      # The crossover: the client reads the Smart 1 PRODUCT, never the
+      # platform. Two platforms sold as one product are one bar; the table
+      # is product x campaign with vendor-stripped display names; and the
+      # hard rule -- no vendor name and not the word "platform" in the
+      # public HTML, data.json or the PDF bytes -- is swept for a client
+      # mapped across four platforms, with the allowed phrases passing.
+      - name: The product-level crossover and the forbidden-word sweep
+        run: python3 test_reports_crossover.py
+      # The pacing board and the cost report: every band (under, on, over,
+      # stalled, unmapped) and the proration, projection and daily-needed
+      # math on fixed dates; an alert on three days of the same off-pace
+      # band and never one; one snapshot per line per hourly run, which the
+      # pages read rather than a live sum; both pages and their CSVs refused
+      # anonymously; and the cost-per-lead columns omitted rather than
+      # zeroed where no client has a Suite outcome row.
+      - name: The pacing board and the cost report
+        run: python3 test_reports_pacing.py
+
+      # The Smart 1 Sites Builder (hub/sites_builder_routes.py): the lead-
+      # facing preview, the authenticated route, and the theme catalog. It
+      # landed on main without this step, which is what test_ci_gate.py is
+      # for -- a test file the gate does not run is one nobody is running.
+      - name: The Smart 1 Sites Builder
+        run: python3 test_sites_builder.py
+
       - name: Industry prospect suppression and paid-attempt safety
         run: |
           python3 test_industry_prospects.py

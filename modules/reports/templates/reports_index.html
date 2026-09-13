@@ -1,0 +1,127 @@
+{% extends "_reports_base.html" %}
+{% block title %}Reports{% endblock %}
+{% block heading %}Reports{% endblock %}
+{% block lede %}Ad performance across every platform: what has synced, what is
+  not yet filed under a client, and what the campaigns pace against.{% endblock %}
+
+{% block body %}
+<div class="s1d-tiles">
+  <div class="s1d-tile"><b>{{ '{:,}'.format(facts) }}</b><span>Fact rows (campaign-days)</span></div>
+  <a class="s1d-tile" href="/reports/unmapped" style="text-decoration:none">
+    <b class="{{ 's1d-warn' if unmapped else '' }}">{{ unmapped }}</b>
+    <span>Unmapped campaigns</span></a>
+  <a class="s1d-tile" href="/reports/budgets" style="text-decoration:none">
+    <b>{{ budgets }}</b><span>Budget lines</span></a>
+  <a class="s1d-tile" href="/reports/markup" style="text-decoration:none">
+    <b>{{ markups|length }}</b><span>Platforms with a markup set</span></a>
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>Platform syncs {{ help_dot('reports.index.syncs') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">
+      {% if binding == 'reports' %}Stored in the dedicated reports database.
+      {% elif binding == 'hub' %}Stored in the Hub database &mdash; set
+        <code>REPORTS_DATABASE_URL</code> to move these tables to their own instance.
+      {% else %}Stored in a local SQLite file.{% endif %}
+    </span></div>
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr><th>Platform</th><th>Last synced</th><th>Latest day</th><th class="num">Rows</th>
+      <th>Last normalize run</th><th>Result</th></tr></thead>
+    <tbody>
+    {% for p in platforms %}
+      <tr>
+        <td>{{ p.label }} <span class="s1d-muted mono">{{ p.platform }}</span></td>
+        <td>{% if p.synced_at %}<span class="s1d-pill ok" title="{{ p.synced_at }}"><time datetime="{{ p.synced_at }}">{{ p.synced_at }}</time></span>
+            {% else %}<span class="s1d-pill warn">Never synced</span>{% endif %}</td>
+        <td>{{ p.latest_date or '—' }}</td>
+        <td class="num">{{ '{:,}'.format(p.rows) }}</td>
+        <td>{% if p.sync_run_at %}<time datetime="{{ p.sync_run_at }}">{{ p.sync_run_at }}</time>
+            {% elif p.platform == 'suite' %}<span class="s1d-muted">Not a provider feed</span>
+            {% else %}<span class="s1d-muted">Not run yet</span>{% endif %}</td>
+        <td>{% if p.sync_run_at and p.sync_error %}<span class="s1d-pill bad">Failed</span>
+              <span class="s1d-muted">{{ p.sync_error }}</span>
+            {% elif p.sync_run_at %}<span class="s1d-pill ok">{{ '{:,}'.format(p.sync_rows or 0) }} rows</span>
+            {% else %}&mdash;{% endif %}
+            {% if p.sync_run_at and p.sync_source == 'native' %}<span class="s1d-muted mono">native</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="s1d-hint">A platform that has never synced is listed rather than
+    left off: an absent platform is the finding. The hourly normalize reads
+    the provider's raw tables; a platform it skips has no table yet or a
+    column the map does not know &mdash; <a href="/reports/provider-check">provider check</a>
+    says which. A result marked <b>native</b> came from the platform's own API
+    and wins over the provider's copy for a day.</p>
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>Native pulls</h2>
+    <span class="s1d-muted">Every six hours, straight from the platform. Native rows win over the provider's for the same campaign-day.</span></div>
+  {% for n in native %}
+  <div class="s1d-kv"><b><span class="s1d-pill {{ 'ok' if n.connected else 'warn' }}">{{ 'connected' if n.connected else 'not connected' }}</span></b>
+    <span>{{ n.line }}{% if n.missing %} <span class="s1d-muted">Set {{ n.missing|join(', ') }} on the service.</span>{% endif %}{% if n.check_page %} <a href="{{ n.check_page }}">Check the field map</a>{% endif %}</span></div>
+  {% endfor %}
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>Clients</h2>
+    <span class="s1d-muted">Every client a campaign is filed under. Open one for the internal view and the client's live link.</span></div>
+  {% if clients %}
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr><th>Client</th><th class="num">Campaigns</th><th>Live link</th></tr></thead>
+    <tbody>
+    {% for c in clients %}
+      <tr><td><a href="/reports/client/{{ c.client }}">{{ c.client_name }}</a> <span class="s1d-muted mono">{{ c.client }}</span></td>
+        <td class="num">{{ c.campaigns }}</td>
+        <td>{% if c.token %}<span class="s1d-pill ok">Live</span>{% else %}<span class="s1d-muted">None yet</span>{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}<p class="s1d-muted">No campaign is filed under a client yet. <a href="/reports/unmapped">Map some.</a></p>{% endif %}
+</div>
+
+<div class="s1d-grid">
+  <div class="s1d-card">
+    <h2>Where to go</h2>
+    <div class="s1d-kv"><b>Unmapped campaigns</b>
+      <span><a href="/reports/unmapped">File each campaign under a client</a> &mdash;
+        or rename it in the platform to <span class="mono">S1M | &lt;ClientKey&gt; | &lt;Product&gt; | &lt;anything&gt;</span>
+        and the auto-mapper files it.</span></div>
+    <div class="s1d-kv"><b>Budgets</b>
+      <span><a href="/reports/budgets">What was sold</a>, by client, product and month,
+        so pacing has a figure to pace against.</span></div>
+    <div class="s1d-kv"><b>Markup</b>
+      <span><a href="/reports/markup">How each platform's spend is billed</a>:
+        a markup percentage or a fixed CPM.</span></div>
+  </div>
+  <div class="s1d-card">
+    <h2>Markups in force</h2>
+    {% if markups %}
+      {% for m in markups %}
+      <div class="s1d-kv"><b>{{ m.label }}</b>
+        <span>{% if m.cpm is not none %}Fixed CPM ${{ '%.2f'|format(m.cpm) }}
+              {% else %}Markup {{ '%.2f'|format(m.markup_pct) }}%{% endif %}</span></div>
+      {% endfor %}
+    {% else %}
+      <p class="s1d-muted">No platform has a markup or a fixed CPM set yet, so
+        every spend figure reads as raw cost. <a href="/reports/markup">Set them.</a></p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+  // The server stamps every time in UTC with its offset; read it in the
+  // viewer's own zone rather than showing a sync hours in the future.
+  Array.prototype.forEach.call(document.querySelectorAll("time[datetime]"), function (t) {
+    var d = new Date(t.getAttribute("datetime"));
+    if (!isNaN(d)) t.textContent = d.toLocaleString();
+  });
+</script>
+{% endblock %}

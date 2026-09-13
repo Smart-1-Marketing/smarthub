@@ -1,0 +1,96 @@
+{% extends "_reports_base.html" %}
+{% block title %}Cost report · Reports{% endblock %}
+{% block heading %}Cost report{% endblock %}
+{% block lede %}Per client for {{ c.month.label }}: raw media spend by platform,
+  what the client pays, and the margin between them. Finance's page; staff only,
+  and never linked from anything a client sees.{% endblock %}
+
+{% block style %}
+  .neg { color: #a12626; }
+  tfoot td { font-weight: 700; border-top: 2px solid #cbd5e1; }
+  .month { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .month select { padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 7px; font: inherit; }
+  td:first-child, tfoot td { white-space: nowrap; }
+  .month select { max-width: 260px; }
+{% endblock %}
+
+{% block body %}
+<div class="s1d-tiles">
+  <div class="s1d-tile"><b>${{ '{:,.0f}'.format(c.totals.spend) }}</b><span>Media spend, {{ c.month.label }}</span></div>
+  <div class="s1d-tile"><b>{% if c.totals.sold is not none %}${{ '{:,.0f}'.format(c.totals.sold) }}{% else %}—{% endif %}</b><span>Sold (lines with a sold amount)</span></div>
+  <div class="s1d-tile"><b class="{{ 'neg' if c.totals.margin is not none and c.totals.margin < 0 else '' }}">{% if c.totals.margin is not none %}${{ '{:,.0f}'.format(c.totals.margin) }}{% if c.totals.margin_pct is not none %} <span class="s1d-muted" style="font-size:14px">({{ c.totals.margin_pct }}%)</span>{% endif %}{% else %}—{% endif %}</b><span>Gross margin</span></div>
+  {% if c.outcomes %}<div class="s1d-tile"><b>{% if c.totals.cpl is not none %}${{ '{:,.2f}'.format(c.totals.cpl) }}{% else %}—{% endif %}</b><span>Cost per lead ({{ c.totals.leads }} leads)</span></div>{% endif %}
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>{{ c.rows|length }} client{{ '' if c.rows|length == 1 else 's' }} {{ help_dot('reports.cost.margin') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">Fact table synced {% if c.last_sync %}<time datetime="{{ c.last_sync }}">{{ c.last_sync }}</time>{% else %}never{% endif %}
+      · <a href="/reports/cost.csv?month={{ c.month.key }}">Download CSV</a></span></div>
+  <form method="get" class="month">
+    <label for="month">Month</label>
+    <select id="month" name="month" onchange="this.form.submit()">
+      {% for m in c.months %}<option value="{{ m.key }}" {{ 'selected' if c.month.key == m.key else '' }}>{{ m.label }}</option>{% endfor %}
+    </select>
+    <noscript><button type="submit" class="s1d-btn sec">Go</button></noscript>
+  </form>
+  {% if c.rows %}
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr>
+      <th>Client</th>
+      {% for p in c.platforms %}<th class="num">{{ c.platform_labels[p] }}</th>{% endfor %}
+      <th class="num">Media spend</th><th class="num">Sold</th><th class="num">Gross margin</th><th class="num">Margin %</th>
+      {% if c.outcomes %}<th class="num">Leads</th><th class="num">Cost / lead</th><th class="num">Appointments</th><th class="num">Cost / appt</th>{% endif %}
+    </tr></thead>
+    <tbody>
+    {% for r in c.rows %}
+      <tr>
+        <td><a href="/reports/client/{{ r.client }}">{{ r.client_name }}</a></td>
+        {% for p in c.platforms %}<td class="num">{% if r.by_platform.get(p) is not none %}${{ '{:,.2f}'.format(r.by_platform[p]) }}{% else %}<span class="s1d-muted">—</span>{% endif %}</td>{% endfor %}
+        <td class="num">${{ '{:,.2f}'.format(r.spend) }}</td>
+        <td class="num">{% if r.sold is not none %}${{ '{:,.2f}'.format(r.sold) }}{% else %}<span class="s1d-pill warn" title="No budget line with a sold amount covers this month">not sold</span>{% endif %}</td>
+        <td class="num {{ 'neg' if r.margin is not none and r.margin < 0 else '' }}">{% if r.margin is not none %}${{ '{:,.2f}'.format(r.margin) }}{% else %}—{% endif %}</td>
+        <td class="num {{ 'neg' if r.margin_pct is not none and r.margin_pct < 0 else '' }}">{% if r.margin_pct is not none %}{{ r.margin_pct }}%{% else %}—{% endif %}</td>
+        {% if c.outcomes %}
+        <td class="num">{% if r.has_suite %}{{ r.leads }}{% else %}<span class="s1d-muted">—</span>{% endif %}</td>
+        <td class="num">{% if r.cpl is not none %}${{ '{:,.2f}'.format(r.cpl) }}{% else %}<span class="s1d-muted">—</span>{% endif %}</td>
+        <td class="num">{% if r.has_suite %}{{ r.appointments }}{% else %}<span class="s1d-muted">—</span>{% endif %}</td>
+        <td class="num">{% if r.cpa is not none %}${{ '{:,.2f}'.format(r.cpa) }}{% else %}<span class="s1d-muted">—</span>{% endif %}</td>
+        {% endif %}
+      </tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr>
+      <td>Total</td>
+      {% for p in c.platforms %}<td class="num">${{ '{:,.2f}'.format(c.totals.by_platform[p]) }}</td>{% endfor %}
+      <td class="num">${{ '{:,.2f}'.format(c.totals.spend) }}</td>
+      <td class="num">{% if c.totals.sold is not none %}${{ '{:,.2f}'.format(c.totals.sold) }}{% else %}—{% endif %}</td>
+      <td class="num {{ 'neg' if c.totals.margin is not none and c.totals.margin < 0 else '' }}">{% if c.totals.margin is not none %}${{ '{:,.2f}'.format(c.totals.margin) }}{% else %}—{% endif %}</td>
+      <td class="num">{% if c.totals.margin_pct is not none %}{{ c.totals.margin_pct }}%{% else %}—{% endif %}</td>
+      {% if c.outcomes %}
+      <td class="num">{{ c.totals.leads }}</td>
+      <td class="num">{% if c.totals.cpl is not none %}${{ '{:,.2f}'.format(c.totals.cpl) }}{% else %}—{% endif %}</td>
+      <td class="num">{{ c.totals.appointments }}</td>
+      <td class="num">{% if c.totals.cpa is not none %}${{ '{:,.2f}'.format(c.totals.cpa) }}{% else %}—{% endif %}</td>
+      {% endif %}
+    </tr></tfoot>
+  </table>
+  </div>
+  {% else %}
+    <div class="empty">No client has a mapped campaign or a budget line yet.</div>
+  {% endif %}
+  <p class="s1d-hint">Media spend is what the platforms reported, raw. Sold is the sum of the sold amounts on budget lines
+    whose flight overlaps the month; the total margin counts only clients with a sold amount, so an unsold client does not read
+    as a loss. {% if c.outcomes %}Cost per lead and per appointment use the spend of clients with a Smart 1 Suite outcome row
+    this month.{% else %}Cost per lead and per appointment are left off: no client has a Smart 1 Suite outcome row this month.{% endif %}</p>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+  Array.prototype.forEach.call(document.querySelectorAll("time[datetime]"), function (t) {
+    var d = new Date(t.getAttribute("datetime"));
+    if (!isNaN(d)) t.textContent = d.toLocaleString();
+  });
+</script>
+{% endblock %}

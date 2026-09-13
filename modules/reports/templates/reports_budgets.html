@@ -1,0 +1,118 @@
+{% extends "_reports_base.html" %}
+{% block title %}Budgets{% endblock %}
+{% block heading %}Budgets{% endblock %}
+{% block lede %}What was sold, by client, product and month. Pacing reads
+  these against the spend the syncs bring in.{% endblock %}
+{% block saved_text %}Budget line #{{ saved }} added.{% endblock %}
+
+{% block body %}
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>Add a budget line {{ help_dot('reports.budgets.sold') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">A line typed here is marked manual; one read from an insertion order will say which.
+      The <a href="/reports/pacing">pacing board</a> and the <a href="/reports/cost">cost report</a> read these.</span></div>
+  <form method="post" action="/reports/budgets">
+    <div class="row">
+      <div class="field grow picker">
+        <label for="bl-client">Client</label>
+        <input type="text" id="bl-client" name="client_name" placeholder="Start typing a client…" autocomplete="off" required>
+        <input type="hidden" name="client_key" value="">
+        <div class="picker-list"></div>
+      </div>
+      <div class="field grow">
+        <label for="bl-product">Product</label>
+        <input type="text" id="bl-product" name="product" placeholder="e.g. CTV, Search, Display" required>
+      </div>
+      <div class="field">
+        <label for="bl-platform">Platform <span style="font-weight:400">(optional)</span></label>
+        <select id="bl-platform" name="platform">
+          <option value="">Any</option>
+          {% for key, label in platforms %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="bl-budget">Media budget / mo ($)</label>
+        <input type="text" id="bl-budget" name="monthly_budget" inputmode="decimal" placeholder="2500" required>
+      </div>
+      <div class="field">
+        <label for="bl-sold">Sold / mo ($) <span style="font-weight:400">(what the client pays)</span></label>
+        <input type="text" id="bl-sold" name="sold_amount" inputmode="decimal" placeholder="3500">
+      </div>
+      <div class="field">
+        <label for="bl-owner">Owner</label>
+        <input type="text" id="bl-owner" name="owner" placeholder="Staff name">
+      </div>
+      <div class="field">
+        <label for="bl-status">Status</label>
+        <select id="bl-status" name="status">
+          <option value="active">Active</option><option value="paused">Paused</option><option value="ended">Ended</option>
+        </select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="field">
+        <label for="bl-start">Flight start</label>
+        <input type="date" id="bl-start" name="flight_start">
+      </div>
+      <div class="field">
+        <label for="bl-end">Flight end</label>
+        <input type="date" id="bl-end" name="flight_end">
+      </div>
+      <div class="field grow">
+        <label for="bl-notes">Notes</label>
+        <input type="text" id="bl-notes" name="notes" placeholder="Anything the pacing reader should know">
+      </div>
+      <button type="submit" class="s1d-btn">Add line</button>
+    </div>
+  </form>
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>{{ rows|length }} budget line{{ '' if rows|length == 1 else 's' }}</h2></div>
+  {% if rows %}
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr>
+      <th>Client</th><th>Product</th><th>Platform</th><th class="num">Media / mo</th>
+      <th>Flight</th><th>Sold / owner / status</th><th>Notes</th><th>Source</th><th>Added</th>
+    </tr></thead>
+    <tbody>
+    {% for b in rows %}
+      <tr>
+        <td>{{ b.client_name or b.client }}<br><span class="s1d-muted mono">{{ b.client }}</span></td>
+        <td>{{ b.product }}</td>
+        <td>{{ b.platform_label or 'Any' }}</td>
+        <td class="num">${{ '{:,.2f}'.format(b.monthly_budget) }}</td>
+        <td>{% if b.flight_start or b.flight_end %}{{ b.flight_start or '…' }} &rarr; {{ b.flight_end or 'open' }}{% else %}<span class="s1d-muted">Open</span>{% endif %}</td>
+        <td>
+          <form method="post" action="/reports/budgets/{{ b.id }}" class="row" style="gap:4px">
+            <input type="text" name="sold_amount" value="{{ '%.2f'|format(b.sold_amount) if b.sold_amount is not none else '' }}" placeholder="Sold $" inputmode="decimal" style="width:90px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font:inherit">
+            <input type="text" name="owner" value="{{ b.owner }}" placeholder="Owner" style="width:110px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font:inherit">
+            <select name="status" style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font:inherit">
+              {% for st in ('active', 'paused', 'ended') %}<option value="{{ st }}" {{ 'selected' if b.status == st else '' }}>{{ st }}</option>{% endfor %}
+            </select>
+            <button type="submit" class="s1d-btn sec small">Save</button>
+          </form>
+        </td>
+        <td>{{ b.notes or '' }}</td>
+        <td>{% if b.manual %}<span class="s1d-pill info">Manual</span>{% else %}<span class="s1d-pill ok">Imported</span>{% endif %}</td>
+        <td>{{ b.created_by or '—' }} &middot; <time datetime="{{ b.created_at }}">{{ b.created_at }}</time></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+    <div class="empty">No budget lines yet. Add the first one above.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block script %}
+{% include "_reports_picker.html" %}
+<script>
+  Array.prototype.forEach.call(document.querySelectorAll("time[datetime]"), function (t) {
+    var d = new Date(t.getAttribute("datetime"));
+    if (!isNaN(d)) t.textContent = d.toLocaleString();
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,68 @@
+{# The client picker, shared by the unmapped queue and the budgets form.
+
+   One implementation rather than one per form: it types ahead over
+   hub/clients_registry through this module's own /reports/api/clients, and
+   hands the form both the display name and the Hub client key, so a mapping
+   is filed under the same key every other module's record uses. Picking a
+   client fires a `s1reports:client` event on the input, which the unmapped
+   queue listens to for the rename hint. #}
+<script>
+(function () {
+  "use strict";
+  var esc = function (s) { return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); };
+  var timers = new WeakMap();
+
+  function attach(input) {
+    var wrap = input.closest(".picker");
+    if (!wrap) return;
+    var list = wrap.querySelector(".picker-list");
+    var keyField = wrap.querySelector("input[name=client_key]");
+    if (!list || !keyField) return;
+
+    function choose(c) {
+      input.value = c.name || "";
+      keyField.value = c.key || "";
+      list.classList.remove("show");
+      list.innerHTML = "";
+      input.dispatchEvent(new CustomEvent("s1reports:client", { bubbles: true, detail: c }));
+    }
+
+    function draw(rows) {
+      if (!rows.length) { list.classList.remove("show"); list.innerHTML = ""; return; }
+      list.innerHTML = rows.map(function (c, i) {
+        return '<button type="button" data-i="' + i + '">' + esc(c.name) +
+          (c.domain ? '<small>' + esc(c.domain) + '</small>' : '') + '</button>';
+      }).join("");
+      list.classList.add("show");
+      Array.prototype.forEach.call(list.querySelectorAll("button"), function (b) {
+        b.addEventListener("click", function () { choose(rows[+b.getAttribute("data-i")]); });
+      });
+    }
+
+    function search() {
+      var q = input.value.trim();
+      // A name typed over a picked one is no longer that client.
+      keyField.value = "";
+      if (q.length < 2) { draw([]); return; }
+      fetch("/reports/api/clients?q=" + encodeURIComponent(q), { credentials: "same-origin" })
+        .then(function (r) { return r.ok ? r.json() : { clients: [] }; })
+        .then(function (d) { draw((d && d.clients) || []); })
+        .catch(function () { draw([]); });
+    }
+
+    input.addEventListener("input", function () {
+      clearTimeout(timers.get(input));
+      timers.set(input, setTimeout(search, 180));
+    });
+    input.addEventListener("blur", function () {
+      setTimeout(function () { list.classList.remove("show"); }, 160);
+    });
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { list.classList.remove("show"); }
+    });
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll(".picker input[name=client_name]"), attach);
+})();
+</script>
