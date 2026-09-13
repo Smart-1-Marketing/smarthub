@@ -2344,7 +2344,15 @@ jobs:
       # Node process this test does not start, so the one HTTP-calling
       # function (hub.ad_builder_link._api) is stubbed; nothing here makes
       # a real network call.
-      - name: Proposal Execution — real-tool adapters (Display Ad Builder)
+      #
+      # Backlog item #5's other half: stadium_banners ("300x250 companion
+      # banner brief") is the same kind of build and ran as `brief` too. It
+      # now shares this file's starter (_start_build()) under its own
+      # adapter key, display_ads_banner, registered here alongside
+      # display_ads -- so a reviewer reads "companion banner" rather than
+      # "retargeting creative" on the task that is not retargeting. Same
+      # test file, same stub, one more section.
+      - name: Proposal Execution — real-tool adapters (Display Ad Builder, Stadium companion banners)
         run: |
           if [ -f test_proposal_adapters_display_ads.py ]; then
             python3 test_proposal_adapters_display_ads.py

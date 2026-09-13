@@ -370,7 +370,7 @@ def build_task_specs(analysis):
         c = channels["stadium_audio"]
         specs += [_task("stadium_spec", "Stadium to Screen media spec", "Media", depends=("campaign_foundation",), needs=("target_geography",), channel=c),
                   _task("stadium_audio_scripts", "Football audio scripts", "Creative", "radio_scripts", "approval", ("stadium_spec",), needs=("landing_url",), channel=c, task_type="audio_scripts"),
-                  _task("stadium_banners", "300x250 companion banner brief", "Creative", depends=("stadium_spec", "campaign_foundation"), needs=("landing_url", "primary_cta"), channel=c),
+                  _task("stadium_banners", "300x250 companion banner brief", "Creative", "display_ads_banner", "approval", ("stadium_spec", "campaign_foundation"), needs=("landing_url", "primary_cta"), channel=c),
                   _task("stadium_activation", "Stadium/Venue Replay launch packet", "Ad Ops", "launch_packet", "handoff", ("stadium_audio_scripts", "stadium_banners", "tracking_plan"), channel=c, task_type="activation")]
     if "meta" in channels:
         c = channels["meta"]
