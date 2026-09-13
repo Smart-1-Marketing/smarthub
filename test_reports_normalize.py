@@ -289,6 +289,46 @@ check("...saying what it did", bool(sync) and sync[0]["detail"].startswith("sync
 check("...and not for the client whose campaign received no rows",
       not [e for e in sync if e.get("client") == "Buckeye Lake Winery"])
 
+# A product segment the catalog does not know must not become a product:
+# "Strming TV" as a bar on the client's page is one no budget line can pace.
+store.upsert_rows([{"platform": "ttd", "account_id": "t-acct", "campaign_id": "t-typo",
+                    "campaign_name": "S1M | Acme Plumbing | Strming TV | Q4",
+                    "date": TODAY - timedelta(days=1), "spend": 3, "impressions": 30,
+                    "clicks": 1, "source": "csv"}])
+automap.run(actor="test")
+from modules.reports import products as _products                    # noqa: E402
+typo = [m for m in store.mapped_campaigns(limit=200) if m["campaign_id"] == "t-typo"][0]
+check("a product segment outside the catalog files under the platform default",
+      typo["product"], _products.default_for("ttd"))
+check("...and the rule says the segment was not understood", "unknown_product" in (typo["auto_rule"] or ""))
+
+# A registry that cannot be read is not a book of unknown clients.
+from hub import clients_registry as _reg                             # noqa: E402
+_all = _reg.all_clients
+def _boom():
+    raise RuntimeError("knack is down")
+_reg.all_clients = _boom
+store.upsert_rows([{"platform": "x", "account_id": "x-acct", "campaign_id": "x-2",
+                    "campaign_name": "S1M | Acme Plumbing | Display | reg-down",
+                    "date": TODAY - timedelta(days=1), "spend": 1, "impressions": 1,
+                    "clicks": 0, "source": "csv"}])
+am4 = automap.run(actor="test")
+_reg.all_clients = _all
+check("a registry that could not be read is named on the run", "knack is down" in (am4.get("registry_error") or ""))
+check("...and nothing is reported as unresolved on the strength of it", am4["unresolved"], [])
+check("...and the campaign stays unmapped for the next run",
+      ("x", "x-2") not in {(m["platform"], m["campaign_id"]) for m in store.mapped_campaigns(limit=200)})
+
+# A table that synced and is then gone is a finding on the watermark; one
+# that never synced (linkedin, above) still records nothing.
+with store.engine.begin() as conn:
+    conn.execute(text(f'DROP TABLE "{G["table"]}"'))
+normalize.run(today=TODAY, actor="test")
+syncs_after = {s["platform"]: s for s in store.platform_status()}
+check("a platform whose table vanished after it synced records the error on its watermark",
+      "not in the schema" in (syncs_after["google"]["sync_error"] or ""))
+check("...and one that never synced still has no watermark", "linkedin" not in syncs)
+
 
 # ------------------------------------------------------ the scheduler
 section("The scheduler job")

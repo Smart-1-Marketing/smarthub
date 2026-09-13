@@ -106,11 +106,13 @@
         <span class="pace">
           <span>${{ '{:,.2f}'.format(b.spent) }} of ${{ '{:,.2f}'.format(b.expected) }} expected so far
             (${{ '{:,.2f}'.format(b.monthly_budget) }}/mo) &mdash;
-            <span class="s1d-pill {{ 'ok' if b.band == 'on' else 'warn' if b.band == 'under' else 'bad' }}">{{ b.band }}</span></span>
-          <span class="track"><span class="fill {{ b.band }}" style="width:{{ [b.pct, 100]|min }}%"></span></span>
+            <span class="s1d-pill {{ 'ok' if b.band == 'on' else 'warn' if b.band in ('under', 'unmapped') else 'bad' }}">{{ b.band }}</span></span>
+          <span class="track"><span class="fill {{ b.band if b.band in ('under', 'on', 'over') else 'over' }}" style="width:{{ [b.pct, 100]|min }}%"></span></span>
         </span></div>
       {% endfor %}
-      <p class="s1d-hint">Spent against budget &times; days elapsed / days in month. Under 0.9 is under, over 1.1 is over. Raw spend, staff only.</p>
+      <p class="s1d-hint">The pacing board's own arithmetic: spent on the line's mapped campaigns against the budget prorated to the
+        flight and the days elapsed. Under 0.9 is under, over 1.1 is over; stalled is two zero days mid-flight; unmapped is a
+        line with no campaign filed against it. Raw spend, staff only.</p>
     {% else %}<p class="s1d-muted">No budget lines for this client. <a href="/reports/budgets">Add one.</a></p>{% endif %}
   </div>
 

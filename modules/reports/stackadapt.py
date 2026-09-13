@@ -255,7 +255,7 @@ def parse_records(nodes: list) -> dict:
             "spend": _money(m.get("cost")),
             "impressions": _int(m.get("impressions")),
             "clicks": _int(m.get("clicks")),
-            "conversions": _int(m.get("conversions")),
+            "conversions": _money(m.get("conversions")),
             "extras": extras,
         }
         if m.get("videoStarts") not in (None, ""):

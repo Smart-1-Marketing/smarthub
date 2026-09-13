@@ -217,8 +217,15 @@ def run(today: date | None = None, actor: str = "scheduler") -> dict:
                                        "hours, so the provider copy is not read")}
             continue
         if c["status"] == "table_missing":
-            out[platform] = {"rows": 0, "error": f"table {c['table']} is not in the schema",
-                             "skipped": True}
+            msg = f"table {c['table']} is not in the schema"
+            out[platform] = {"rows": 0, "error": msg, "skipped": True}
+            # A platform that HAS synced and whose table is now gone is a
+            # finding, and the watermark is where /reports/ reads it from;
+            # left standing, the last good run reads as healthy for ever.
+            # One that has never synced records nothing: on a fresh
+            # deployment most tables are absent by design.
+            if store.has_synced(platform):
+                store.record_sync(platform, rows=0, error=msg)
             continue
         if c["status"] == "columns_missing":
             msg = f"{c['table']} is missing columns: " + ", ".join(c["missing"])
@@ -251,9 +258,17 @@ def run(today: date | None = None, actor: str = "scheduler") -> dict:
     return out
 
 
+# Which clients a reports_sync row was written for today. The provider
+# restates a week of days every hour, so every client is "touched" every
+# run, and a row per run is twenty-four identical rows a day on Client 360
+# -- a state logged every run, hub/google_index.py's rule. Once a day per
+# client; per process, and the scheduler runs on the leader alone.
+_SYNC_LOGGED: dict[str, date] = {}
+
+
 def _log_clients(touched: set, platforms: int, rows: int, actor: str) -> None:
     """audit.log(action="reports_sync") once per client whose campaigns
-    received rows in this run."""
+    received rows in this run -- and not more than once a day."""
     if not rows or not touched:
         return
     try:
@@ -265,6 +280,9 @@ def _log_clients(touched: set, platforms: int, rows: int, actor: str) -> None:
         if (m["platform"], m["account_id"], m["campaign_id"]) in touched:
             seen.setdefault(m["client"], m["client_name"] or m["client"])
     for key, name in seen.items():
+        if _SYNC_LOGGED.get(key) == date.today():
+            continue
+        _SYNC_LOGGED[key] = date.today()
         try:
             hub_audit.log("reports", "reports_sync", actor=actor, client=name,
                           client_key=key, action="reports_sync",

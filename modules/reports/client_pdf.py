@@ -240,7 +240,9 @@ def _organic(d: "_Doc", o: dict | None):
         d.text(search.get("note") or "", size=9.5, color=MUTED)
     d.space(8)
     d.text(L.get("work", "What we did"), size=11, bold=True, color=NAVY, gap=6)
-    if work.get("rows"):
+    if not work.get("rows") and work.get("measured") is False:
+        d.text("Some of this period's work could not be counted yet.", size=9.5, color=MUTED)
+    elif work.get("rows"):
         d.table([("", W - 80, False), ("Count", 80, True)],
                 [[w["label"], str(w["count"])] for w in work["rows"]])
         if work.get("latest_score") is not None:

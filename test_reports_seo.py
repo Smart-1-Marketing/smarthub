@@ -310,8 +310,16 @@ client_view.forget(link.token)
 r = anon.get(f"/reports/r/c/{link.token}")
 html = r.get_data(as_text=True)
 check("a Google refusal still renders the page", r.status_code, 200)
-check("...with the section saying analytics could not be read rather than zeros",
-      "Organic search" in html and "needs to sign in" in html and "1,200" not in html)
+check("...with the section saying visit data could not be read rather than zeros",
+      "Organic search" in html and organic.GA4_MISSING_CLIENT in html and "1,200" not in html)
+# The staff half never reaches the client: the account it names is a Hub
+# login, and "needs to sign in" is an instruction to somebody with one.
+check("...and neither the staff login nor its instruction is on the client's page",
+      "adops@example.test" not in html and "needs to sign in" not in html)
+check("...nor in data.json", "adops@example.test" not in anon.get(f"/reports/r/c/{link.token}/data.json").get_data(as_text=True))
+check("...while the block itself still carries it for staff, under staff_note",
+      "adops@example.test" in (organic._ga4({"google_login": "adops@example.test", "property_id": "123456"},
+                                          client_view.period_range("mtd"), date.today()).get("staff_note") or ""))
 gf.token_error = ""
 
 

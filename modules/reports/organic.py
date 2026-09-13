@@ -83,6 +83,12 @@ LABELS_NAMED = {**LABELS,
                 "gsc_impressions": "Impressions (Search Console)"}
 
 GSC_MISSING_CLIENT = "Google search data is not connected for this site yet."
+# The two analytics sentences a CLIENT may read. Neither names a product
+# (the LABELS rule) and neither carries the login: the staff wording --
+# which account, what it needs -- rides in ``staff_note`` and
+# ``public_view()`` strips it, exactly as ``search.staff_note`` is.
+GA4_MISSING_CLIENT = "Website visit data is not connected for this site yet."
+GA4_FAILED_CLIENT = "Website visit data could not be read for this period."
 GSC_MISSING_STAFF = ("Search Console is not connected for this client: attach the "
                      "Search Console property on the SEO client page.")
 
@@ -138,12 +144,20 @@ def _scans(domain: str, start: date, end: date) -> dict:
         engine = shared_engine()
         if not sa_inspect(engine).has_table("scans"):
             return out
+        # ``completed_at`` is a DateTime column: on Postgres substr() over a
+        # timestamp does not exist, and the exception was swallowed below
+        # into work.errors, which public_view() strips -- so on the live
+        # database the "Site audits run" row was silently absent. date()
+        # is a function on both engines; the bounds are bound as dates on
+        # Postgres and as ISO text on SQLite, normalize.py's rule.
+        pg = engine.dialect.name.startswith("postgres")
         sql = ("SELECT COUNT(*) FROM scans WHERE domain_key = :k AND status = 'complete' "
-               "AND substr(COALESCE(completed_at, created_at), 1, 10) BETWEEN :s AND :e")
+               "AND date(COALESCE(completed_at, created_at)) BETWEEN :s AND :e")
         with engine.connect() as conn:
             out["count"] = int(conn.execute(text(sql), {
-                "k": canonical_domain(domain), "s": start.isoformat(),
-                "e": end.isoformat()}).scalar() or 0)
+                "k": canonical_domain(domain),
+                "s": start if pg else start.isoformat(),
+                "e": end if pg else end.isoformat()}).scalar() or 0)
     except Exception as exc:                            # noqa: BLE001
         out["error"] = f"{type(exc).__name__}"
     return out
@@ -310,12 +324,15 @@ def _ga4(gate_: dict, rng: dict, today: date) -> dict:
     gf = _gf()
     token, err = gf.account_token(gate_["google_login"])
     if err:
-        return {"measured": False, "note": err}
+        # ``err`` names the connected Google login ("adops@… is not
+        # connected"); that is the staff half and never the client's.
+        return {"measured": False, "note": GA4_MISSING_CLIENT, "staff_note": err}
     reqs, ranges, months = ga4_requests(rng, today)
     try:
         reports = gf.ga4_batch_run_reports(token, gate_["property_id"], reqs)
     except Exception as exc:                            # noqa: BLE001
-        return {"measured": False, "note": f"Google Analytics did not answer ({type(exc).__name__})."}
+        return {"measured": False, "note": GA4_FAILED_CLIENT,
+                "staff_note": f"Google Analytics did not answer ({type(exc).__name__})."}
     cur = [0, 0, 0, 0]
     prev = [0, 0, 0, 0]
     for row in (reports[0] if reports else {}).get("rows") or []:
@@ -484,6 +501,9 @@ def public_view(block: dict | None) -> dict | None:
     search = dict(block.get("search") or {})
     search.pop("staff_note", None)
     out["search"] = search
+    analytics = dict(block.get("analytics") or {})
+    analytics.pop("staff_note", None)
+    out["analytics"] = analytics
     work = dict(block.get("work") or {})
     work.pop("errors", None)
     out["work"] = work

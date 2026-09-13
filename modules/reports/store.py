@@ -1418,6 +1418,52 @@ def clear_markup(platform: str) -> bool:
         db.close()
 
 
+def pricing_version() -> str:
+    """When the platform pricing rule last changed, as one string -- part of
+    the client page's cache key, so a markup saved on one worker is a cache
+    miss on the other. Never raises: a version that cannot be read is the
+    empty string, which still keys a page."""
+    db = SessionLocal()
+    try:
+        return iso(db.query(func.max(PlatformMarkup.updated_at)).scalar()) or ""
+    except Exception:                  # noqa: BLE001 - no table yet
+        return ""
+    finally:
+        db.close()
+
+
+def mapping_version(client: str) -> str:
+    """A digest of one client's mappings as they affect the page -- the
+    product and display name per campaign -- for the same cache key.
+    A digest rather than a stamped column, because ``mapped_at`` means when
+    the campaign was mapped and a corrected display name is not a
+    re-mapping. Never raises."""
+    import hashlib
+    db = SessionLocal()
+    try:
+        rows = (db.query(CampaignMap.platform, CampaignMap.account_id, CampaignMap.campaign_id,
+                         CampaignMap.product, CampaignMap.display_name)
+                  .filter(CampaignMap.client == client)
+                  .order_by(CampaignMap.platform, CampaignMap.account_id, CampaignMap.campaign_id).all())
+        return hashlib.sha1("|".join(str(v) for r in rows for v in r).encode("utf-8")).hexdigest()[:16]
+    except Exception:                  # noqa: BLE001 - no table yet
+        return ""
+    finally:
+        db.close()
+
+
+def has_synced(platform: str) -> bool:
+    """Whether this platform carries a watermark at all -- it has been read
+    at least once by either sync."""
+    db = SessionLocal()
+    try:
+        return db.get(ReportsSync, platform) is not None
+    except Exception:                  # noqa: BLE001 - no table yet
+        return False
+    finally:
+        db.close()
+
+
 def markups() -> list[dict]:
     """One row per platform, set or not, so the screen is the whole list."""
     db = SessionLocal()

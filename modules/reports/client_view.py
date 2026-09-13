@@ -188,7 +188,20 @@ def _labels(view: dict) -> dict:
     return labels
 
 
+# Which (link, platform) an unpriced-platform row has been written for
+# today. An unpriced platform is a STATE, and a row per cache miss wrote it
+# on every build -- hub/google_index.py's rule about logging a state only
+# when it changes. Per process, which on two workers is at most twice a
+# day rather than once; the alternative is a read of the activity log on
+# every client page open.
+_MISSING_LOGGED: dict[tuple[str, str], date] = {}
+
+
 def _log_missing(link, platform: str) -> None:
+    stamp = (link.token, platform)
+    if _MISSING_LOGGED.get(stamp) == date.today():
+        return
+    _MISSING_LOGGED[stamp] = date.today()
     try:
         from hub import audit as hub_audit
         hub_audit.log("reports", "reports_markup_missing", actor="system",
@@ -309,7 +322,12 @@ def build(link, period: str, today: date | None = None) -> dict:
               "value": imps, "display": compact(imps)},
              {"key": "clicks", "label": "Clicks to your site",
               "value": clicks, "display": compact(clicks)}]
-    kinds = {COMPLETION[p] for p in mapped_platforms if p in COMPLETION}
+    # Gated on the platforms with rows IN THIS PERIOD, not on every
+    # platform ever mapped: a video campaign that ran last year must not
+    # draw "Video ads completed 0" this month, which reads as a measured
+    # nought about a product the client is not running.
+    period_platforms = {f["platform"] for f in facts}
+    kinds = {COMPLETION[p] for p in period_platforms if p in COMPLETION}
     if kinds:
         completes = sum(t["completes"] for t in prod.values())
         label = ("Listens" if kinds == {"audio"} else
@@ -317,7 +335,7 @@ def build(link, period: str, today: date | None = None) -> dict:
                  "Video & audio ads completed")
         tiles.append({"key": "completes", "label": label, "value": completes,
                       "display": compact(completes)})
-    if "suite" in mapped_platforms:
+    if "suite" in period_platforms:
         tiles.append({"key": "leads", "label": "Leads & bookings", "value": suite_leads,
                       "display": compact(suite_leads)})
     if show:
@@ -419,7 +437,12 @@ def _client_logo(link) -> str:
 
 def aggregate(link, period: str, today: date | None = None) -> dict:
     """``build()`` behind a fifteen-minute cache per (token, period, version)."""
-    key = (link.token, period_range(period, today)["key"], store.iso(link.updated_at))
+    # The pricing rule and the client's mappings are in the key, not only
+    # the link's own version: a markup saved on /reports/markup, or a
+    # display name corrected on the staff page, must reach the client's
+    # page on BOTH workers, and forget() below can only empty this one.
+    key = (link.token, period_range(period, today)["key"], store.iso(link.updated_at),
+           store.pricing_version(), store.mapping_version(link.client))
     now = time.monotonic()
     with _LOCK:
         hit = _CACHE.get(key)
@@ -466,30 +489,28 @@ def staff_totals(client: str, start: date, end: date, link=None) -> list[dict]:
 
 
 def pacing(client: str, today: date | None = None) -> list[dict]:
-    """Each budget line against the month so far: spent / (budget x
-    days_elapsed / days_in_month), banded under 0.9 / on / over 1.1.
+    """Each of this client's budget lines against its flight, as the pacing
+    board computes it -- pacing.compute_line(), through pacing.compute(),
+    and NOT a second engine here.
 
-    Spent is the line's platform's raw spend this month where the line
-    names a platform, else the client's whole month. Staff only.
+    The first version of this function summed the client's whole spend per
+    line (filtered by platform only, never by product) and ignored the
+    flight proration, so with two lines on one client the board said
+    "Paid Search 0.90 on pace" while this page said "3.90 over pace" about
+    the same day; each screen was internally consistent, which is why it
+    survived. Two readings of one question drift the day either is edited,
+    so this is an adapter: the template's field names over the board's own
+    rows. Staff only.
     """
+    from . import pacing as pacing_mod
     today = today or date.today()
-    start = today.replace(day=1)
-    days_in = calendar.monthrange(today.year, today.month)[1]
-    elapsed = today.day
-    facts = store.facts_for(client, start, today)
     out = []
-    for b in store.budget_lines_for(client):
-        fs = b["flight_start"] and date.fromisoformat(b["flight_start"])
-        fe = b["flight_end"] and date.fromisoformat(b["flight_end"])
-        if (fs and fs > today) or (fe and fe < start):
-            continue
-        spent = sum((f["spend"] for f in facts
-                     if not b["platform"] or f["platform"] == b["platform"]), Decimal(0))
-        budget = Decimal(b["monthly_budget"] or 0)
-        expected = budget * Decimal(elapsed) / Decimal(days_in) if budget else Decimal(0)
-        ratio = float(spent / expected) if expected else 0.0
-        band = "under" if ratio < 0.9 else "over" if ratio > 1.1 else "on"
-        out.append({**b, "spent": spent, "expected": expected.quantize(Decimal("0.01")),
-                    "ratio": ratio, "pct": min(200, round(ratio * 100)), "band": band,
-                    "days_elapsed": elapsed, "days_in_month": days_in})
+    for r in pacing_mod.compute(today, client=client):
+        pace = float(r["pace"]) if r["pace"] is not None else None
+        out.append({**r,
+                    "spent": r["actual_to_date"], "expected": r["expected_to_date"],
+                    "ratio": pace or 0.0, "pct": min(200, round((pace or 0.0) * 100)),
+                    "days_in_month": r["days_in_period"],
+                    "platform_label": (PLATFORM_LABELS.get(r["platform"], r["platform"])
+                                       if r["platform"] else "")})
     return out

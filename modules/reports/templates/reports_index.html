@@ -108,8 +108,14 @@
               {% else %}Markup {{ '%.2f'|format(m.markup_pct) }}%{% endif %}</span></div>
       {% endfor %}
     {% else %}
-      <p class="s1d-muted">No platform has a markup or a fixed CPM set yet, so
-        every spend figure reads as raw cost. <a href="/reports/markup">Set them.</a></p>
+      <p class="s1d-muted">No platform has a markup or a fixed CPM set yet, so no
+        investment figure can be shown to any client: their pages show delivery
+        only until one is set. <a href="/reports/markup">Set them.</a></p>
+    {% endif %}
+    {% if rate_card and rate_card.unmapped %}
+      <p class="s1d-muted">The rate card has {{ rate_card.unmapped|length }} categor{{ 'y' if rate_card.unmapped|length == 1 else 'ies' }}
+        no product here maps to: {{ rate_card.unmapped|join(', ') }}. A campaign sold under one cannot be
+        filed by product until <code>products.RATE_CARD_CATEGORIES</code> names it.</p>
     {% endif %}
   </div>
 </div>

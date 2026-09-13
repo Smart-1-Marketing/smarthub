@@ -160,6 +160,7 @@ def index():
         budgets=len(store.budget_lines(limit=1000)),
         clients=store.clients_with_campaigns(),
         native=_native_status(),
+        rate_card=products.rate_card_products(),
     )
 
 
@@ -649,11 +650,9 @@ def _parse_markup_form(f) -> dict:
 
 def _parse_view_form(f) -> dict:
     labels = {p: (f.get(f"label_{p}") or "").strip() for p in store.PLATFORMS}
-    headline = {p: (f.get(f"headline_{p}") or "").strip() for p in store.PLATFORMS}
     return {
         "platform_labels": {p: v for p, v in labels.items() if v},
         "hidden_platforms": [p for p in store.PLATFORMS if f.get(f"hide_{p}")],
-        "headline_metric": {p: v for p, v in headline.items() if v},
         "logo_url": (f.get("logo_url") or "").strip(),
         "rep_name": (f.get("rep_name") or "").strip(),
         "rep_email": (f.get("rep_email") or "").strip(),

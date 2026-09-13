@@ -83,6 +83,13 @@ BAND_LABELS = {
     "unmapped": ("?", "Unmapped"),
 }
 ALERT_DAYS = 3
+# The largest pace the snapshot column can hold: ``PacingSnapshot.pace`` is
+# Numeric(8, 4). A $1/month line spends $10 on day one and paces at
+# 10,000x, which Postgres refuses -- and one refused row fails the whole
+# run's insert, so NO line gets a snapshot. SQLite ignores the precision,
+# which is why the tests could not see it. Past this the figure is
+# meaningless anyway; the band is still computed from the true ratio.
+PACE_CAP = 9999.9999
 CENT = Decimal("0.01")
 
 
@@ -179,7 +186,7 @@ def compute_line(line: dict, today: date, mappings: list[dict], facts: list[dict
         "monthly_budget": _q(budget), "sold_amount": _q(line["sold_amount"]) if line.get("sold_amount") is not None else None,
         "budget_period": _q(budget_period), "expected_to_date": _q(expected),
         "actual_to_date": _q(actual),
-        "pace": Decimal(str(round(pace, 4))) if pace is not None else None,
+        "pace": Decimal(str(round(min(pace, PACE_CAP), 4))) if pace is not None else None,
         "band": band, "stalled": stalled, "unmapped": unmapped,
         "projected_month_end": _q(projected), "daily_needed": _q(daily_needed) if daily_needed is not None else None,
         "avg_daily_7": _q(avg7),
@@ -192,11 +199,14 @@ def compute_line(line: dict, today: date, mappings: list[dict], facts: list[dict
     }
 
 
-def compute(today: date | None = None) -> list[dict]:
+def compute(today: date | None = None, client: str | None = None) -> list[dict]:
     """Every active, in-flight line's row, live. ``run()`` is what persists
-    them; the pages read the persisted rows."""
+    them; the pages read the persisted rows. ``client`` narrows it to one
+    client's lines -- the staff client page's reading, so that page and
+    the board cannot disagree about a line."""
     today = today or date.today()
-    lines = [b for b in store.budget_lines(limit=5000) if (b.get("status") or "active") == "active"]
+    lines = [b for b in store.budget_lines(limit=5000) if (b.get("status") or "active") == "active"
+             and (client is None or b["client"] == client)]
     if not lines:
         return []
     month_start = today.replace(day=1)
@@ -232,6 +242,15 @@ def summary_line(rows: list[dict]) -> str:
     return ", ".join(parts) or "no lines pacing"
 
 
+# What was last written to the activity log per client: (as_of, summary).
+# The run is hourly and the pages read the snapshot, so the log row is
+# for Client 360 -- and twenty-four identical rows a day per client is
+# the flood hub/google_index.py's rule exists to stop. A client is logged
+# once a day, and again the moment its band summary changes. Per process;
+# the scheduler runs on the leader alone, so that is one process.
+_LAST_LOGGED: dict[str, tuple[date, str]] = {}
+
+
 def run(today: date | None = None, actor: str = "scheduler") -> dict:
     """Compute, persist one run, prune, and log per client. Never raises
     past the store: the job's answer names the failure."""
@@ -250,11 +269,15 @@ def run(today: date | None = None, actor: str = "scheduler") -> dict:
     if hub_audit is not None:
         for key, crows in by_client.items():
             name = crows[0]["client_name"] or key
+            summary = summary_line(crows)
+            if _LAST_LOGGED.get(key) == (today, summary):
+                continue
+            _LAST_LOGGED[key] = (today, summary)
             try:
                 hub_audit.log("reports", "reports_pacing", actor=actor, client=name,
                               client_key=key, action="reports_pacing",
                               lines=len(crows), alerts=sum(1 for r in crows if r["alert"]),
-                              detail=summary_line(crows))
+                              detail=summary)
                 logged += 1
             except Exception:                           # noqa: BLE001 - a log line is not the run
                 pass
@@ -378,9 +401,23 @@ def cost(month: str | None = None, today: date | None = None) -> dict:
     has a Suite row that month."""
     today = today or date.today()
     rng = month_range(month, today)
-    lines = store.budget_lines(limit=5000)
+    # Spend is read to ``rng["end"]`` (today, mid-month) and the sold amount
+    # is a MONTHLY figure. Compared whole, every margin is inflated by the
+    # days not yet spent -- measured on the 20th, $2,600 spent against
+    # $5,500 sold read as 53% margin -- with nothing on screen saying the
+    # two halves covered different windows. Sold is prorated to the same
+    # window (a completed month is the whole figure), and the month figure
+    # rides beside it under its own name.
+    days_in_month = (rng["month_end"] - rng["start"]).days + 1
+    days_elapsed = (rng["end"] - rng["start"]).days + 1
+    try:
+        lines = store.budget_lines(limit=5000)
+        seen_clients = store.clients_with_campaigns()
+    except Exception as exc:                        # noqa: BLE001 - the store refused
+        return _cost_unmeasured(rng, today, f"the reports database could not be read "
+                                            f"({type(exc).__name__})")
     clients: dict[str, dict] = {}
-    for c in store.clients_with_campaigns():
+    for c in seen_clients:
         clients[c["client"]] = {"client": c["client"], "client_name": c["client_name"]}
     for b in lines:
         clients.setdefault(b["client"], {"client": b["client"], "client_name": b["client_name"] or b["client"]})
@@ -388,7 +425,11 @@ def cost(month: str | None = None, today: date | None = None) -> dict:
     any_outcomes = False
     platforms_seen: set = set()
     for key, c in clients.items():
-        facts = store.facts_for(key, rng["start"], rng["end"])
+        try:
+            facts = store.facts_for(key, rng["start"], rng["end"])
+        except Exception as exc:                    # noqa: BLE001 - the store refused
+            return _cost_unmeasured(rng, today, f"the fact table could not be read "
+                                                f"({type(exc).__name__})")
         by_plat: dict[str, Decimal] = {}
         leads = appts = 0
         has_suite = False
@@ -404,7 +445,8 @@ def cost(month: str | None = None, today: date | None = None) -> dict:
         spend = sum(by_plat.values(), Decimal(0))
         sold_lines = [b for b in lines if b["client"] == key and _line_in_month(b, rng["start"], rng["month_end"])
                       and b.get("sold_amount") is not None]
-        sold = sum((Decimal(b["sold_amount"]) for b in sold_lines), Decimal(0)) if sold_lines else None
+        sold_month = sum((Decimal(b["sold_amount"]) for b in sold_lines), Decimal(0)) if sold_lines else None
+        sold = (sold_month * days_elapsed / days_in_month) if sold_month is not None else None
         margin = (sold - spend) if sold is not None else None
         margin_pct = (float(margin / sold * 100) if sold else None) if margin is not None else None
         any_outcomes = any_outcomes or has_suite
@@ -412,6 +454,7 @@ def cost(month: str | None = None, today: date | None = None) -> dict:
             "client": key, "client_name": c["client_name"],
             "spend": _q(spend), "by_platform": {p: _q(v) for p, v in by_plat.items()},
             "sold": _q(sold) if sold is not None else None,
+            "sold_month": _q(sold_month) if sold_month is not None else None,
             "sold_lines": len(sold_lines),
             "margin": _q(margin) if margin is not None else None,
             "margin_pct": round(margin_pct, 1) if margin_pct is not None else None,
@@ -424,12 +467,14 @@ def cost(month: str | None = None, today: date | None = None) -> dict:
     total_spend = sum((r["spend"] for r in rows), Decimal(0))
     sold_rows = [r for r in rows if r["sold"] is not None]
     total_sold = sum((r["sold"] for r in sold_rows), Decimal(0)) if sold_rows else None
+    total_sold_month = sum((r["sold_month"] for r in sold_rows), Decimal(0)) if sold_rows else None
     total_margin = (total_sold - sum((r["spend"] for r in sold_rows), Decimal(0))) if total_sold is not None else None
     total_leads = sum(r["leads"] or 0 for r in rows if r["has_suite"])
     total_appts = sum(r["appointments"] or 0 for r in rows if r["has_suite"])
     suite_spend = sum((r["spend"] for r in rows if r["has_suite"]), Decimal(0))
     totals = {
         "spend": _q(total_spend), "sold": _q(total_sold) if total_sold is not None else None,
+        "sold_month": _q(total_sold_month) if total_sold_month is not None else None,
         "margin": _q(total_margin) if total_margin is not None else None,
         "margin_pct": round(float(total_margin / total_sold * 100), 1) if total_sold else None,
         "by_platform": {p: _q(sum((r["by_platform"].get(p, Decimal(0)) for r in rows), Decimal(0)))
@@ -442,10 +487,24 @@ def cost(month: str | None = None, today: date | None = None) -> dict:
     return {
         "month": rng, "rows": rows, "totals": totals, "outcomes": any_outcomes,
         "platforms": sorted(platforms_seen), "platform_labels": {p: store.platform_label(p) for p in platforms_seen},
-        "measured": True, "last_sync": store.iso(store.last_synced_at()),
+        "measured": True, "note": "", "last_sync": store.iso(store.last_synced_at()),
         "pacing_run_at": store.iso(store.latest_run_at()),
         "months": _month_options(today),
+        "days_elapsed": days_elapsed, "days_in_month": days_in_month,
+        "partial": days_elapsed < days_in_month,
     }
+
+
+def _cost_unmeasured(rng: dict, today: date, why: str) -> dict:
+    """The report's shape with nothing in it and ``measured`` False -- the
+    page draws the reason rather than a complete table of noughts, and
+    hub/report_cache.py would refuse to hold it."""
+    return {"month": rng, "rows": [], "totals": {"spend": _q(0), "sold": None, "sold_month": None,
+                                                "margin": None, "margin_pct": None, "by_platform": {},
+                                                "leads": None, "appointments": None, "cpl": None, "cpa": None},
+            "outcomes": False, "platforms": [], "platform_labels": {},
+            "measured": False, "note": why, "last_sync": None, "pacing_run_at": None,
+            "months": _month_options(today), "days_elapsed": 0, "days_in_month": 0, "partial": False}
 
 
 def _month_options(today: date, n: int = 12) -> list[dict]:
@@ -465,13 +524,14 @@ def cost_csv(data: dict) -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
     plats = data["platforms"]
-    head = ["client", "month", "media_spend"] + [f"spend_{p}" for p in plats] + ["sold", "gross_margin", "margin_pct"]
+    head = ["client", "month", "media_spend"] + [f"spend_{p}" for p in plats] + ["sold_to_date", "sold_month", "gross_margin", "margin_pct"]
     if data["outcomes"]:
         head += ["leads", "cost_per_lead", "appointments", "cost_per_appointment"]
     w.writerow(head)
     for r in data["rows"]:
         row = [r["client_name"], data["month"]["key"], r["spend"]] + [r["by_platform"].get(p, "") for p in plats]
-        row += [r["sold"] if r["sold"] is not None else "", r["margin"] if r["margin"] is not None else "",
+        row += [r["sold"] if r["sold"] is not None else "", r["sold_month"] if r["sold_month"] is not None else "",
+                r["margin"] if r["margin"] is not None else "",
                 r["margin_pct"] if r["margin_pct"] is not None else ""]
         if data["outcomes"]:
             row += [r["leads"] if r["leads"] is not None else "", r["cpl"] if r["cpl"] is not None else "",
@@ -479,7 +539,8 @@ def cost_csv(data: dict) -> str:
         w.writerow(row)
     t = data["totals"]
     row = ["TOTAL", data["month"]["key"], t["spend"]] + [t["by_platform"].get(p, "") for p in plats]
-    row += [t["sold"] if t["sold"] is not None else "", t["margin"] if t["margin"] is not None else "",
+    row += [t["sold"] if t["sold"] is not None else "", t["sold_month"] if t["sold_month"] is not None else "",
+            t["margin"] if t["margin"] is not None else "",
             t["margin_pct"] if t["margin_pct"] is not None else ""]
     if data["outcomes"]:
         row += [t["leads"] if t["leads"] is not None else "", t["cpl"] if t["cpl"] is not None else "",

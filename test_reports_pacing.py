@@ -184,6 +184,16 @@ r = {r["line_id"]: r for r in pacing.compute(TODAY)}[line_p.id]
 check("a line naming a platform counts only that platform's campaigns of the product: none here",
       (r["unmapped"], r["actual_to_date"]), (True, Decimal("0.00")))
 store.update_budget_line(line_p.id, status="ended")
+# PacingSnapshot.pace is Numeric(8, 4): a $1/month line spending $10 on
+# day one paces at 10,000x, which Postgres refuses -- and one refused row
+# fails the whole run's insert. SQLite ignores the precision, so this
+# asserts the cap rather than the overflow.
+line_tiny = store.add_budget_line(client=A, client_name="Acme Co", product="Streaming TV", monthly_budget="1")
+tiny = {r["line_id"]: r for r in pacing.compute(TODAY)}[line_tiny.id]
+check("a pace past what the snapshot column can hold is capped, and still over",
+      (tiny["pace"] <= Decimal(str(pacing.PACE_CAP)), tiny["band"]), (True, "over"))
+check("...at the column's own ceiling", pacing.PACE_CAP, 9999.9999)
+store.update_budget_line(line_tiny.id, status="ended")
 check("the band boundaries: 0.8999 under, 0.90 on, 1.10 on, 1.1001 over",
       [pacing.band_for(x) for x in (0.8999, 0.90, 1.10, 1.1001)], ["under", "on", "on", "over"])
 check("a line whose flight has not started does not pace",
@@ -297,15 +307,28 @@ acme = [x for x in data["rows"] if x["client"] == A][0]
 check("Acme's media spend is raw, across its platforms: 2000 + (190 + 900) + 340",
       (acme["spend"], acme["by_platform"]["ttd"], acme["by_platform"]["audiogo"]),
       (Decimal("3430.00"), Decimal("2000.00"), Decimal("340.00")))
-check("...sold is the sum of its lines' sold amounts overlapping the month", acme["sold"], Decimal("8100.00"))
-check("...margin is sold minus spend, and the percent of sold",
-      (acme["margin"], acme["margin_pct"]), (Decimal("4670.00"), 57.7))
+# Spend is read to the 20th; the sold amount is a monthly figure. Compared
+# whole, the margin was inflated by the ten days not yet spent -- so sold
+# is prorated to the same window, and the month figure rides beside it.
+check("...sold for the month is the sum of its lines' sold amounts overlapping it", acme["sold_month"], Decimal("8100.00"))
+check("...and sold to date is that prorated to the 20 of 30 days the spend covers",
+      acme["sold"], Decimal("5400.00"))
+check("...margin is sold-to-date minus spend, and the percent of sold-to-date",
+      (acme["margin"], acme["margin_pct"]), (Decimal("1970.00"), 36.5))
+check("...and the report says it is partial", (data["partial"], data["days_elapsed"], data["days_in_month"]), (True, 20, 30))
+check("...on the page, in the column heading and the hint (the page runs on the real clock)",
+      "Sold (to date)" in page and "prorated to the same" in page)
 charlie = [x for x in data["rows"] if x["client"] == C][0]
 check("a line whose flight ended last month is not sold this month, nor is a paused line without a sold amount",
       (charlie["sold"], charlie["spend"]), (None, Decimal("0.00")))
 check("the totals row sums spend and, for sold, only the clients with a sold amount",
-      (data["totals"]["spend"], data["totals"]["sold"], data["totals"]["margin"]),
-      (Decimal("4180.00"), Decimal("12100.00"), Decimal("7920.00")))
+      (data["totals"]["spend"], data["totals"]["sold"], data["totals"]["sold_month"], data["totals"]["margin"]),
+      (Decimal("4180.00"), Decimal("8066.67"), Decimal("12100.00"), Decimal("3886.67")))
+check("the CSV carries both sold figures under their own names",
+      "sold_to_date" in pacing.cost_csv(data).splitlines()[0] and "sold_month" in pacing.cost_csv(data).splitlines()[0])
+check("a completed month is not partial and sold-to-date is the whole figure",
+      (lambda d: (d["partial"], all(r["sold"] == r["sold_month"] for r in d["rows"] if r["sold"] is not None)))
+      (pacing.cost("2026-08", TODAY)), (False, True))
 check("no client has a Suite outcome row, so the cost-per-lead columns are omitted",
       (data["outcomes"], "Cost / lead" in page), (False, False))
 check("...and the page says why", "no client has a Smart 1 Suite outcome row" in page)

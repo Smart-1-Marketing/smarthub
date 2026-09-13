@@ -66,6 +66,11 @@ def parse_name(name: str) -> dict | None:
             "rest": " | ".join(parts[3:]).strip()}
 
 
+class RegistryUnavailable(RuntimeError):
+    """The client registry could not be read, which is a different answer
+    from a token naming nobody -- and only the second means rename it."""
+
+
 def resolve_client(token: str) -> tuple[str, str] | None:
     """(Hub key, display name) for the second segment, or None.
 
@@ -82,7 +87,10 @@ def resolve_client(token: str) -> tuple[str, str] | None:
         rows = clients_registry.all_clients()
     except Exception as exc:               # noqa: BLE001 - registry unavailable
         log.warning("reports automap: client registry unreadable: %s", exc)
-        return None
+        # Not "no such client": nothing can be resolved this run, and
+        # naming every campaign unresolved would send somebody to rename
+        # campaigns that are fine. run() stops on it and says so.
+        raise RegistryUnavailable(f"{type(exc).__name__}: {exc}"[:200]) from exc
     low = token.lower()
     for r in rows:
         name = r.get("name") or ""
@@ -118,17 +126,30 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
             continue
         token = parsed["client"]
         if token.lower() not in cache:
-            cache[token.lower()] = resolve_client(token)
+            try:
+                cache[token.lower()] = resolve_client(token)
+            except RegistryUnavailable as exc:
+                out["registry_error"] = str(exc)
+                break
         hit = cache[token.lower()]
         if not hit:
             if token not in out["unresolved"]:
                 out["unresolved"].append(token)
             continue
         key, name = hit
+        from . import products as _products
         product, rule = parsed["product"], RULE
+        typed = product
+        if product and _products.normalize(product) not in _products.PRODUCTS:
+            # A segment naming no product in the catalog ("Strming TV") must
+            # not become a product: it draws a bar on the client's page that
+            # no budget line can ever pace. The platform default, and the
+            # rule says the segment was not understood.
+            product, rule = "", RULE + "+unknown_product"
         if not product:
-            from . import products as _products
-            product, rule = _products.default_for(row["platform"]), RULE + "+default_product"
+            product = _products.default_for(row["platform"])
+            if rule == RULE:
+                rule = RULE + "+default_product"
         try:
             store.map_campaign(row["platform"], row["account_id"], row["campaign_id"],
                                client=key, client_name=name, product=product,
@@ -147,7 +168,10 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
                               product=product, rule=rule,
                               detail=f"{store.platform_label(row['platform'])} campaign "
                                      f"{row.get('campaign_name') or row['campaign_id']} "
-                                     f"filed under {name} from its name")
+                                     f"filed under {name} from its name"
+                                     + (f" (product segment {typed!r} is not in the catalog; "
+                                        f"filed under {product or 'no product'})"
+                                        if "unknown_product" in rule else ""))
             except Exception:              # noqa: BLE001 - a log line is not the mapping
                 pass
     return out

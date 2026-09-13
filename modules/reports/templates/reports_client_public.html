@@ -233,6 +233,7 @@
         {% if o.work.rows %}
         <div class="bars">{% for w in o.work.rows %}<div class="bar" style="grid-template-columns:1fr 60px"><span class="lab">{{ w.label }}</span><span class="num"><b>{{ w.count }}</b></span></div>{% endfor %}</div>
         {% if o.work.latest_score is not none %}<p class="hint" style="margin:12px 0 0">Latest site audit score: <b>{{ o.work.latest_score }}</b>{% if o.work.latest_scan_at %} ({{ o.work.latest_scan_at[:10] }}){% endif %}</p>{% endif %}
+        {% elif not o.work.measured %}<p class="empty">Some of this period's work could not be counted yet.</p>
         {% else %}<p class="empty">Nothing to show for this period yet.</p>{% endif %}</div>
       <div class="card soon"><h2>{{ o.gbp.label }}</h2><p class="hint">{{ o.gbp.note }}</p></div>
     </div>

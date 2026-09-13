@@ -296,6 +296,44 @@ check("...and its PDF the same", anon.get(f"/reports/r/c/{old}.pdf").status_code
 check("the new token opens", anon.get(f"/reports/r/c/{link2.token}").status_code, 200)
 
 
+# ------------------------------------------- a pricing change reaches the page
+section("A markup saved elsewhere reaches the page without forget()")
+
+# The cache key carries the pricing rule's version and the client's
+# mappings, so a change on one gunicorn worker is a miss on the other --
+# forget() is per process and could only ever empty one of the two.
+store.update_link(link2.token, show_spend=True, markup_json={}, view_json={})
+store.set_markup("ttd", cpm="18.00", updated_by="Todd")
+warm = client_view.aggregate(link2, "mtd")
+store.set_markup("ttd", cpm="20.00", updated_by="Todd")
+cold = client_view.aggregate(link2, "mtd")
+tv = lambda a: {p["product"]: p for p in a["products"]}["Streaming TV"]["investment"]  # noqa: E731
+check("a CPM changed on /reports/markup is on the next read, with no forget() anywhere",
+      (tv(warm), tv(cold)), ("$18,000.00", "$20,000.00"))
+_m = store.mapped_campaigns_for(CLIENT)[0]
+store.set_display(_m["platform"], _m["account_id"], _m["campaign_id"], display_name="Renamed by staff")
+check("...and so is a display name corrected on the staff page",
+      any(r["campaign"] == "Renamed by staff" for r in client_view.aggregate(link2, "mtd")["table"]))
+store.set_markup("ttd", cpm="18.00", updated_by="Todd")
+
+# ----------------------------------------- tiles are gated on the period
+section("A tile is drawn for what ran in the period, never for what was ever mapped")
+
+OLD = "n:old-video-client"
+store.upsert_rows([{"platform": "ttd", "account_id": "adv-9", "campaign_id": "old-1",
+                    "campaign_name": "old", "date": date(2025, 1, 15), "spend": 10, "impressions": 100,
+                    "clicks": 1, "conversions": 0, "completes": 80, "source": "native"}])
+store.map_campaign("ttd", "adv-9", "old-1", client=OLD, client_name="Old Video Client",
+                   product="Streaming TV", mapped_by="Todd")
+store.map_campaign("suite", "loc-9", "forms", client=OLD, client_name="Old Video Client",
+                   product="Smart 1 Suite", mapped_by="Todd")
+old_link = store.create_link(OLD, client_name="Old Video Client", created_by="Todd")
+old_tiles = [t["key"] for t in client_view.aggregate(old_link, "mtd")["tiles"]]
+check("a video platform mapped but silent this month draws no completion tile",
+      "completes" not in old_tiles)
+check("...and a Suite mapping with no outcome rows draws no leads tile", "leads" not in old_tiles)
+check("...while the reach tiles are still there", old_tiles[:2], ["impressions", "clicks"])
+
 # ----------------------------------------------------------- rate limit
 section("The rate limit")
 
@@ -343,7 +381,16 @@ pacing = client_view.pacing(CLIENT, TODAY)
 check("a budget line paces against days elapsed",
       pacing and pacing[0]["expected"] == (Decimal("3000") * TODAY.day / Decimal(
           __import__("calendar").monthrange(TODAY.year, TODAY.month)[1])).quantize(Decimal("0.01")))
-check("...in one of three bands", pacing[0]["band"] in ("under", "on", "over"))
+check("...in one of the board's five bands", pacing[0]["band"] in ("under", "on", "over", "stalled", "unmapped"))
+# One engine: the staff client page reads pacing.compute() for this client
+# rather than a second reading that filtered by platform alone.
+from modules.reports import pacing as pacing_mod                     # noqa: E402
+board_rows = {r["line_id"]: r for r in pacing_mod.compute(TODAY, client=CLIENT)}
+check("the client page's pacing rows are the board's own, line for line",
+      {p["line_id"]: (p["spent"], p["expected"], p["band"]) for p in pacing},
+      {i: (r["actual_to_date"], r["expected_to_date"], r["band"]) for i, r in board_rows.items()})
+check("...and compute(client=) narrows to that client alone",
+      all(r["client"] == CLIENT for r in board_rows.values()) and bool(board_rows))
 page = staff.get(f"/reports/client/{CLIENT}").get_data(as_text=True)
 check("...drawn as a bar on the page", 'class="fill ' in page and "expected so far" in page)
 
