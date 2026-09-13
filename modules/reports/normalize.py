@@ -245,13 +245,19 @@ def _fact(platform: str, src: dict, row) -> dict:
 
 
 def normalize_platform(platform: str, today: date | None = None,
-                       touched: set | None = None) -> int:
+                       touched: set | None = None, report: dict | None = None) -> int:
     """Sync one platform. Returns the row count; raises on any failure, and
     the caller isolates it. ``touched`` collects the (platform, account,
-    campaign) keys written, so the run can say which clients it reached."""
+    campaign) keys written, so the run can say which clients it reached;
+    ``report`` (a dict) collects how many rows the store held in quarantine
+    and why, because a row that was proposed and not written is a fact the
+    run has to be able to say."""
     src = provider_map.PLATFORM_SOURCES[platform]
     since = (today or date.today()) - timedelta(days=int(src["restate_days"]))
     written = 0
+    if report is not None:
+        report.setdefault("quarantined", 0)
+        report.setdefault("reasons", {})
     # SQLite has no date type: a raw table there holds ISO text, and the ISO
     # form of a date compares correctly as text. Postgres takes the date.
     bound = since.isoformat() if not store.is_postgres() else since
@@ -262,7 +268,12 @@ def normalize_platform(platform: str, today: date | None = None,
             if not chunk:
                 break
             facts = [_fact(platform, src, row) for row in chunk]
-            written += store.upsert_rows(facts)
+            batch: dict = {}
+            written += store.upsert_rows(facts, report=batch, today=today)
+            if report is not None:
+                report["quarantined"] += int(batch.get("quarantined") or 0)
+                for rule, n in (batch.get("reasons") or {}).items():
+                    report["reasons"][rule] = report["reasons"].get(rule, 0) + n
             if touched is not None:
                 touched.update((f["platform"], str(f["account_id"] or "").strip(),
                                 str(f["campaign_id"] or "").strip()) for f in facts)
@@ -330,15 +341,18 @@ def run(today: date | None = None, actor: str = "scheduler") -> dict:
             if store.has_synced(platform):
                 store.record_sync(platform, rows=0, error=msg)
             continue
+        held: dict = {}
         try:
-            n = normalize_platform(platform, today=today, touched=touched)
+            n = normalize_platform(platform, today=today, touched=touched, report=held)
         except Exception as exc:          # noqa: BLE001 - one platform, not the job
             msg = f"{type(exc).__name__}: {exc}"[:500]
             log.exception("reports: normalize %s failed", platform)
             out[platform] = {"rows": 0, "error": msg}
             store.record_sync(platform, rows=0, error=msg)
             continue
-        out[platform] = {"rows": n, "error": None}
+        out[platform] = {"rows": n, "error": None,
+                         "quarantined": int(held.get("quarantined") or 0),
+                         "quarantine_reasons": held.get("reasons") or {}}
         synced += 1
         store.record_sync(platform, rows=n, error="")
 

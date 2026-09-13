@@ -116,6 +116,15 @@ def feeds(today: date | None = None) -> dict:
             "binding": store.binding(), "binding_problem": binding_problem(), "note": ""}
 
 
+def _held() -> int | None:
+    """Rows held in quarantine, or None when the ledger cannot be read."""
+    try:
+        from . import quarantine
+        return quarantine.counts()["held"]
+    except Exception:                                       # noqa: BLE001
+        return None
+
+
 def _alerts() -> int | None:
     """Lines alerting on the latest pacing run, or None when it cannot be read."""
     try:
@@ -140,12 +149,19 @@ def status_row() -> tuple[str, str]:
         return "warn", f"Reports feeds could not be checked: {f['note']}."
     failing = [p["label"] for p in f["platforms"] if p["state"] == "failing"]
     stale = [p["label"] for p in f["platforms"] if p["state"] == "stale"]
-    if failing or stale:
+    held = _held()
+    if failing or stale or held:
         parts = []
         if failing:
             parts.append("failing: " + ", ".join(failing))
         if stale:
             parts.append(f"stale (no new day in {STALE_DAYS}+ days): " + ", ".join(stale))
+        if held:
+            # A held row is a day missing from somebody's page until a
+            # person decides on it, which is work rather than a fault --
+            # and work nobody is told about is work nobody does.
+            parts.append(f"{held} row{'s' if held != 1 else ''} held in quarantine "
+                         "(/reports/quarantine)")
         return "warn", "; ".join(parts) + " — see /reports/."
     if f["ok"] == 0:
         return "skipped", "No ad-performance feed has synced yet — nothing is being reported."
@@ -155,8 +171,9 @@ def status_row() -> tuple[str, str]:
 
 def scoreboard() -> dict:
     """The dashboard's reading: feeds by state, what is waiting on a person
-    (campaigns filed under nobody, and auto-mappings waiting for a
-    confirmation before they reach a client's page), and what is alerting.
+    (campaigns filed under nobody, auto-mappings waiting for a confirmation
+    before they reach a client's page, rows held in quarantine), and what is
+    alerting.
     Every figure opens the rows behind it, and every zero says which kind of
     zero it is.
 
@@ -178,10 +195,11 @@ def scoreboard() -> dict:
         pending = store.pending_count()
     except Exception:                                       # noqa: BLE001
         pending = None
+    held = _held()
     alerts = _alerts()
     ever = f["ok"] + f["failing"] + f["stale"]
     counts = {"ok": f["ok"], "failing": f["failing"], "stale": f["stale"], "never": f["never"],
-              "unmapped": unmapped, "pending": pending, "alerts": alerts}
+              "unmapped": unmapped, "pending": pending, "held": held, "alerts": alerts}
     if ever == 0:
         line = ("No feed has synced yet: the native pulls need their keys and the provider "
                 "its first table. Nothing is being reported to any client.")
@@ -198,6 +216,8 @@ def scoreboard() -> dict:
             bits.append("every campaign filed")
         if pending:
             bits.append(f"{pending} filed from a name and waiting for confirmation")
+        if held:
+            bits.append(f"{held} row{'s' if held != 1 else ''} held in quarantine")
         if alerts:
             bits.append(f"{alerts} line{'s' if alerts != 1 else ''} pacing off for three days")
         elif alerts == 0:
@@ -208,7 +228,7 @@ def scoreboard() -> dict:
         "measured": True, "counts": counts, "empty": empty, "line": line,
         "binding": f["binding"],
         "urls": {"feeds": "/reports/", "unmapped": "/reports/unmapped",
-                 "pending": "/reports/unmapped#pending",
+                 "pending": "/reports/unmapped#pending", "held": "/reports/quarantine",
                  "alerts": "/reports/pacing?band=under", "pacing": "/reports/pacing"},
         "platforms": [{"label": p["label"], "state": p["state"], "detail": p["detail"]}
                       for p in f["platforms"] if p["state"] in ("failing", "stale")],

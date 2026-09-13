@@ -406,6 +406,42 @@ class ReportsSync(Base):
     source = Column(String(20), default="windsor")
 
 
+class Quarantine(Base):
+    """A fact row a sync proposed that cannot be true, or almost certainly
+    is not, held apart from the fact table for a person to decide on.
+
+    Keyed on the fact key, so an hourly re-sync of the same impossible row
+    updates one entry (``times`` counts how often it has been proposed)
+    rather than filing a copy per hour. ``row_json`` is the row exactly as
+    it would have been written, so Accept writes that and not a re-read;
+    ``fingerprint`` is a digest of its figures, because a decision is about
+    the row AS IT WAS -- a different figure arriving later under the same
+    key is a new proposal, whatever was decided about the old one.
+    ``modules/reports/quarantine.py`` holds the rules and the arithmetic.
+    """
+    __tablename__ = "reports_quarantine"
+
+    platform = Column(String(20), primary_key=True)
+    account_id = Column(String(80), primary_key=True)
+    campaign_id = Column(String(120), primary_key=True)
+    date = Column(Date, primary_key=True)
+    rule = Column(String(40), nullable=False)
+    reason = Column(Text, default="")
+    row_json = Column(JSON, default=dict)
+    fingerprint = Column(String(40), nullable=False)
+    source = Column(String(20), default="")
+    status = Column(String(20), default="held", index=True)
+    times = Column(Integer, default=1)
+    seen_at = Column(DateTime(timezone=True), default=now)
+    last_seen_at = Column(DateTime(timezone=True), default=now)
+    decided_by = Column(String(160), nullable=True)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    note = Column(Text, default="")
+
+
+QUARANTINE_STATUSES = ("held", "accepted", "discarded", "superseded")
+
+
 class ProviderConfirmation(Base):
     """A person's confirmation that a platform's provider column map reads
     the right columns -- taken against a sample raw row on
@@ -643,7 +679,8 @@ def _fact_values(row: dict) -> dict:
 _FACT_KEY = ("platform", "account_id", "campaign_id", "date")
 
 
-def upsert_rows(rows: list[dict]) -> int:
+def upsert_rows(rows: list[dict], *, report: dict | None = None, screen: bool = True,
+                today: date | None = None) -> int:
     """Write fact rows, replacing any already there for the same key.
 
     Idempotent by construction: a sync that runs twice for the same day
@@ -652,8 +689,41 @@ def upsert_rows(rows: list[dict]) -> int:
     SQLite, which is a local run or a test and does not need the throughput.
     Every row is validated **before** anything is written, so a bad row in
     the middle of a batch rejects the batch rather than half of it.
+
+    A row that is well-formed and cannot be true -- more clicks than
+    impressions, a negative figure, a day that has not happened, spend
+    fifty times the campaign's own trailing average -- is not written and
+    not refused: it is held in ``Quarantine`` for a person, the rest of the
+    batch is written, and ``report`` (a dict the caller passes) receives
+    ``written``, ``quarantined`` and the reasons. This is the one door
+    every writer goes through, so the screen is here and not in each pull.
+    ``screen=False`` is Accept's own path back in and nothing else's.
+    ``today`` is the clock the "dated after today" rule reads -- the sync's
+    own day where a caller has one, the wall clock otherwise -- so a test
+    that drives the clock can write the days it is about.
     """
     values = [_fact_values(r) for r in rows]
+    if not values:
+        if report is not None:
+            report.update({"written": 0, "quarantined": 0, "reasons": {}})
+        return 0
+    held = []
+    if screen:
+        from . import quarantine as _quarantine
+        values, held = _quarantine.screen(values, today=today)
+    written = _write_values(values)
+    if screen:
+        _quarantine.settle(held, values)
+    if report is not None:
+        reasons: dict[str, int] = {}
+        for h in held:
+            reasons[h["rule"]] = reasons.get(h["rule"], 0) + 1
+        report.update({"written": written, "quarantined": len(held), "reasons": reasons})
+    return written
+
+
+def _write_values(values: list[dict]) -> int:
+    """The write itself, over rows ``_fact_values()`` has already shaped."""
     if not values:
         return 0
     db = SessionLocal()

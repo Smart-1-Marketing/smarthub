@@ -32,6 +32,12 @@
   {{ 'its' if pending|length == 1 else 'their' }} name{{ '' if pending|length == 1 else 's' }} and {{ 'is' if pending|length == 1 else 'are' }} <b>waiting for confirmation</b>: nothing from {{ 'it' if pending|length == 1 else 'them' }} is on the client's page,
   the raw totals or the pacing until somebody presses Confirm in the mapped campaigns table below.</div>
 {% endif %}
+{% if held %}
+<div class="notice err">{{ held|length }} campaign-day{{ '' if held|length == 1 else 's' }} on this client's confirmed campaigns
+  {{ 'is' if held|length == 1 else 'are' }} <b>held in quarantine</b> and missing from the client's page until somebody decides:
+  {% for h in held[:3] %}{{ h.platform_label }} {{ h.date }} ({{ h.rule_label }}){{ '; ' if not loop.last else '' }}{% endfor %}{% if held|length > 3 %} and {{ held|length - 3 }} more{% endif %}.
+  <a href="/reports/quarantine">Open the quarantine.</a></div>
+{% endif %}
 {% if blank_products %}
 <div class="notice err">{{ blank_products|length }} mapped campaign{{ '' if blank_products|length == 1 else 's' }} ha{{ 's' if blank_products|length == 1 else 've' }} <b>no product set</b>, so the client's page shows
   {{ 'it' if blank_products|length == 1 else 'them' }} under a generic label rather than the product they were sold. Set the product in the mapped campaigns table below.</div>

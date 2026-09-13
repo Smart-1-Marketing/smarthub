@@ -217,7 +217,8 @@ for _p in ("google", "meta"):
     store.confirm_provider(_p, by="Todd", fingerprint=provider_map.fingerprint(_p))
 res = normalize.run(today=TODAY, actor="test")
 
-check("google synced the rows inside the window", res["google"], {"rows": 3, "error": None})
+check("google synced the rows inside the window", res["google"],
+      {"rows": 3, "error": None, "quarantined": 0, "quarantine_reasons": {}})
 check("meta failed on its bad row and is isolated",
       bool(res["meta"]["error"]) and res["meta"]["rows"] == 0)
 check("...naming the cause", "campaign_id" in res["meta"]["error"])

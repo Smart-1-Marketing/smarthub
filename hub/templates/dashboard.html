@@ -702,8 +702,9 @@ fetch('/api/sales/scoreboard').then(r=>r.json()).then(d=>{
    page people scroll past. */
 /* The ad-performance feeds. A count of feeds is not a count of problems:
    never-synced is our own coverage (a platform nobody has switched on),
-   failing and stale are the feed, and unmapped, waiting-for-confirmation
-   and alerting are work. Only those and failing and stale are drawn red. */
+   failing and stale are the feed, and unmapped, waiting-for-confirmation,
+   held-in-quarantine and alerting are work. Only those and failing and
+   stale are drawn red. */
 fetch('/api/reports/scoreboard').then(r=>r.json()).then(d=>{
   const box=document.getElementById('reportsboard');
   if(!box) return;
@@ -723,14 +724,15 @@ fetch('/api/reports/scoreboard').then(r=>r.json()).then(d=>{
     box.innerHTML='<span class="muted">'+esc(d.line||'')+'</span>';
     return;
   }
-  let h='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">'
+  let h='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">'
     + stat('Feeds current',c.ok||0,u.feeds)
     + stat('Failing',c.failing||0,u.feeds,true)
     + stat('Stale',c.stale||0,u.feeds,true)
-    + '</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:10px">'
     + stat('Never synced',c.never||0,u.feeds)
+    + '</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:10px">'
     + stat('Filed under nobody',c.unmapped,u.unmapped,true)
     + stat('Waiting for confirmation',c.pending,u.pending,true)
+    + stat('Held in quarantine',c.held,u.held,true)
     + stat('Pacing off 3+ days',c.alerts,u.pacing,true)
     + '</div>';
   h+='<div class="muted" style="font-size:12px;margin-top:10px">'+esc(d.line||'')+'</div>';

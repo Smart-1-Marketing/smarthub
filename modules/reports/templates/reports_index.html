@@ -13,6 +13,9 @@
   <a class="s1d-tile" href="/reports/unmapped#pending" style="text-decoration:none">
     <b class="{{ 's1d-warn' if pending else '' }}">{{ pending }}</b>
     <span>Waiting for confirmation</span></a>
+  <a class="s1d-tile" href="/reports/quarantine" style="text-decoration:none">
+    <b class="{{ 's1d-warn' if held.held else '' }}">{{ held.held if held.held is not none else '—' }}</b>
+    <span>Held in quarantine</span></a>
   <a class="s1d-tile" href="/reports/budgets" style="text-decoration:none">
     <b>{{ budgets }}</b><span>Budget lines</span></a>
   <a class="s1d-tile" href="/reports/markup" style="text-decoration:none">
@@ -51,7 +54,8 @@
             {% elif provider and p.platform in provider.waiting %}<a class="s1d-pill warn" href="/reports/provider-check" style="text-decoration:none"
                 title="The raw table is there and the map resolves; nobody has confirmed the columns yet">Map awaiting confirmation</a>
             {% else %}&mdash;{% endif %}
-            {% if p.sync_run_at and p.sync_source == 'native' %}<span class="s1d-muted mono">native</span>{% endif %}</td>
+            {% if p.sync_run_at and p.sync_source == 'native' %}<span class="s1d-muted mono">native</span>{% endif %}
+            {% if held.by_platform.get(p.platform) %}<br><a class="s1d-pill warn" href="/reports/quarantine" style="text-decoration:none">{{ held.by_platform[p.platform] }} held</a>{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>
@@ -103,6 +107,10 @@
         or rename it in the platform to <span class="mono">S1M | &lt;ClientKey&gt; | &lt;Product&gt; | &lt;anything&gt;</span>
         and the auto-mapper files it, <a href="/reports/unmapped#pending">waiting for somebody to confirm</a>
         before it reaches the client's page.</span></div>
+    <div class="s1d-kv"><b>Quarantine</b>
+      <span><a href="/reports/quarantine">Rows a sync proposed that cannot be true</a> &mdash;
+        more clicks than impressions, a negative figure, a day that has not happened, a spend
+        spike &mdash; held for a person rather than filed on a client's page.</span></div>
     <div class="s1d-kv"><b>Budgets</b>
       <span><a href="/reports/budgets">What was sold</a>, by client, product and month,
         so pacing has a figure to pace against.</span></div>

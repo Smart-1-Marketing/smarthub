@@ -115,7 +115,7 @@ check("the module serves the staff screens, the picker's search and the client's
       sorted({p for p, _ in ROUTES}),
       sorted(["/", "/unmapped", "/unmapped/confirm", "/unmapped/refuse",
               "/markup", "/budgets", "/budgets/1", "/provider-check", "/provider-check/confirm",
-              "/provider-check/withdraw", "/audiogo-check",
+              "/provider-check/withdraw", "/audiogo-check", "/quarantine", "/quarantine/decide",
               "/pacing", "/pacing.csv", "/cost", "/cost.csv",
               "/api/clients", "/health", "/client/x", "/client/x/campaign", "/client/x/link", "/client/x/push",
               "/r/c/x", "/r/c/x.pdf", "/r/c/x/data.json"]))

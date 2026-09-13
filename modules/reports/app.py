@@ -41,7 +41,7 @@ from flask import (Flask, Response, jsonify, redirect, render_template,
 
 from hub.webargs import clamp_int
 
-from . import client_pdf, client_view, organic, pacing, products, store
+from . import client_pdf, client_view, organic, pacing, products, quarantine, store
 
 try:                                   # the shared last-hop rule for a caller's address
     from hub import leads as hub_leads
@@ -154,6 +154,7 @@ def index():
         platforms=store.platform_status(),
         unmapped=store.unmapped_count(),
         pending=store.pending_count(),
+        held=quarantine.counts(),
         facts=store.fact_count(),
         binding=store.binding(),
         markups=[m for m in store.markups()
@@ -278,6 +279,51 @@ def provider_withdraw():
          detail=f"{store.platform_label(platform)}'s provider column map confirmation "
                 f"(by {gone['by']}) withdrawn; the normalize stops reading it")
     return redirect(back + f"?saved={platform}-withdrawn")
+
+
+# -------------------------------------------------------------- quarantine
+@app.route("/quarantine")
+def quarantine_page():
+    """Rows a sync proposed that cannot be true, held for a person: the
+    figures, the rule each broke with the numbers behind it, how many
+    hourly runs have proposed it, and Accept / Discard."""
+    return render_template(
+        "reports_quarantine.html",
+        held=quarantine.held(), decided=quarantine.decided(),
+        rules=quarantine.RULES, source=quarantine.RULES_SOURCE,
+        multiplier=quarantine.SPIKE_MULTIPLIER, baseline_days=quarantine.BASELINE_DAYS,
+        baseline_min_days=quarantine.BASELINE_MIN_DAYS,
+        baseline_min_spend=quarantine.BASELINE_MIN_SPEND,
+        error=request.args.get("error", ""), saved=request.args.get("saved", ""))
+
+
+@app.route("/quarantine/decide", methods=["POST"])
+def quarantine_decide():
+    """Accept writes the held row -- that row -- into the fact table;
+    discard drops it. Either remembers the figures, so the same figure
+    arriving again on the next sync is not raised again."""
+    f = request.form
+    back = url_for("quarantine_page")
+    try:
+        row = quarantine.decide(f.get("platform", ""), f.get("account_id", ""),
+                                f.get("campaign_id", ""), f.get("date", ""),
+                                action=f.get("action", ""), by=actor_name())
+    except ValueError as exc:
+        return redirect(back + "?error=" + str(exc).replace(" ", "+"))
+    _log("quarantine_" + row["status"], platform=row["platform"], campaign_id=row["campaign_id"],
+         day=row["date"], rule=row["rule"],
+         detail=f"{row['platform_label']} campaign {row['campaign_name'] or row['campaign_id']} "
+                f"on {row['date']} ({row['rule_label']}: {row['reason']}) {row['status']}")
+    if row["status"] == "accepted":
+        # The accepted row may be a confirmed campaign's, and the client's
+        # page holds its answer for a quarter of an hour per worker.
+        for m in store.mapped_campaigns(limit=5000):
+            if (m["platform"], m["account_id"], m["campaign_id"]) == \
+                    (row["platform"], row["account_id"], row["campaign_id"]):
+                link = store.link_for_client(m["client"])
+                if link:
+                    client_view.forget(link.token)
+    return redirect(back + f"?saved={row['status']}")
 
 
 @app.route("/audiogo-check")
@@ -714,6 +760,7 @@ def client_page(client):
         preview=client_view.aggregate(link, period) if link else None,
         campaigns=store.mapped_campaigns_for(client),
         pending=[m for m in store.mapped_campaigns_for(client) if m.get("pending")],
+        held=quarantine.held_for_client(client),
         blank_products=client_view.blank_products(client),
         products=products.catalog(),
         pacing=client_view.pacing(client, today),

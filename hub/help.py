@@ -948,6 +948,16 @@ REGISTRY: list[Help] = [
        "it answered with, the key itself never among them, so the real "
        "names can be pasted into the map. Until it resolves the pull lands "
        "nothing and the Reports page says which field is missing."),
+    _h("reports.quarantine.rules", "Held, never filed and never refused whole",
+       "A row a sync proposes that cannot be true -- more clicks than "
+       "impressions, a negative figure, a day that has not happened, spend "
+       "fifty times the campaign's own trailing average -- is held here "
+       "instead of reaching the client's page, and the rest of the batch is "
+       "written. Accept writes that row and lets the same figure through "
+       "next time; Discard drops it and the same figure is dropped in "
+       "silence from then on. A different figure for the same day is a new "
+       "proposal, and a clean restatement from the provider supersedes a "
+       "held one by itself. The spike numbers are ours, not a platform's."),
     _h("reports.provider.confirm", "Resolved is not confirmed",
        "A placeholder column name that happens to match a real column "
        "resolves perfectly well -- and 'spend' is a plausible name for a "

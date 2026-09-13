@@ -2915,6 +2915,14 @@ jobs:
       # remembered so the next hourly run cannot undo it.
       - name: Reports confirmations
         run: python3 test_reports_confirmations.py
+      # A fact row that cannot be true -- more clicks than impressions, a
+      # negative figure, a day after today, a spend spike against the
+      # campaign's own history -- is held for a person in the one door
+      # every writer goes through, the rest of the batch written; a
+      # decision is about the row as it was, and a clean restatement
+      # supersedes a held one by itself.
+      - name: Reports quarantine
+        run: python3 test_reports_quarantine.py
       - name: The reports tests against Postgres
         env:
           REPORTS_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
@@ -2923,7 +2931,7 @@ jobs:
                    test_reports_public.py test_reports_crossover.py test_reports_pages.py \
                    test_reports_seo.py test_reports_ttd.py test_reports_stackadapt.py \
                    test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
-                   test_reports_confirmations.py; do
+                   test_reports_confirmations.py test_reports_quarantine.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1
           done
 
