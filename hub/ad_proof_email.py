@@ -37,7 +37,7 @@ def prepare(project_id, review_id, subject, message, sender, origin, actor):
     if not ok:
         raise client_email.EmailError(proof.get('error') or 'Finish reviewing and approving the sizes first.')
     proof_url = origin.rstrip('/') + '/tools/display-ads' + proof['proofUrl']
-    payload = {'type':'Email', 'contactId':linked['contact']['id'], 'emailFrom':sender,
+    payload = {'type':'Email', 'contactId':linked['contact']['id'], 'emailTo':linked['contact']['email'], 'emailFrom':sender,
                'subject':subject, 'html':'<p>'+escape(message).replace('\n','<br>')+'</p><p><a href="'+escape(proof_url, quote=True)+'">Review and approve your ads</a></p>', 'status':'pending'}
     fingerprint=hashlib.sha256(json.dumps([project_id,proof['token'],linked['revision'],payload],sort_keys=True).encode()).hexdigest()
     draft={'id':str(uuid.uuid4()), 'fingerprint':fingerprint, 'project_id':project_id, 'client':project['client'],

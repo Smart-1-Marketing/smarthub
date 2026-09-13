@@ -28,7 +28,7 @@ class ProofEmailTests(unittest.TestCase):
         draft=self.draft();email.requests.post.assert_not_called();self.assertEqual(self.draft()['id'],draft['id'])
         sent=email.send(draft['id']);self.assertEqual(sent['status'],'queued');self.assertEqual(sent['message_id'],'messageA')
         self.assertEqual(email.send(draft['id'])['status'],'queued');self.assertEqual(email.requests.post.call_count,1)
-        payload=email.requests.post.call_args.kwargs['json'];self.assertEqual(payload['contactId'],'contactA');self.assertIn('&lt;client&gt;',payload['html'])
+        payload=email.requests.post.call_args.kwargs['json'];self.assertEqual(payload['contactId'],'contactA');self.assertEqual(payload['emailTo'],'client@example.test');self.assertIn('&lt;client&gt;',payload['html'])
         self.assertEqual(self.data['drafts'][0]['client'],'Example Studio')
     def test_timeout_is_unknown_and_cannot_be_retried_as_a_new_draft(self):
         draft=self.draft();email.requests.post.side_effect=requests.Timeout()

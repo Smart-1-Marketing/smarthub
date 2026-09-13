@@ -128,6 +128,13 @@ check("the eight read scopes the app already runs on are still asked for",
           "conversations.readonly", "users.readonly")), True)
 
 check("no scope is requested twice", len(names), len(set(names)))
+check("proof email declares its Smart 1-only message permission",
+      any(s.name == "conversations/message.write" and "hub/ad_proof_email.py" in s.needed_by
+          for s in ghl_scopes.SMART1_ONLY), True)
+check("client proof email does not expand client-subaccount grants",
+      any(s.name in names for s in ghl_scopes.SMART1_ONLY), False)
+check("Smart 1-only message permissions use documented scope names",
+      all(ghl_scopes.known(s.name) for s in ghl_scopes.SMART1_ONLY), True)
 
 # The blog scopes are shaped blogs/<thing>.<verb>, not blogs.<verb>. Getting
 # that wrong is a whole feature lost to a plausible-looking string.
@@ -180,7 +187,7 @@ check("the advice is to grant it, not to re-spell it",
 
 check("every requested scope exists in HighLevel's own console list",
       ghl_scopes.unknown_requested(), [])
-check("the console list was captured whole", len(ghl_scopes.AVAILABLE), 97)
+check("the console snapshot plus documented message scopes stays complete", len(ghl_scopes.AVAILABLE), 99)
 # The three names this Hub had wrong until the console list was read. Each
 # would have been caught at the moment it was written.
 for dead in ("social-media-posting.write", "social-media-posting.readonly",

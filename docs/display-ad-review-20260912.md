@@ -17,7 +17,7 @@ Printing always includes the whole contact sheet, even when the screen is filter
 5. The client opens the proof without signing in, approves the complete set or requests changes for the set or a particular size. Changes unlock the relevant artwork for staff editing. The old proof stays preserved.
 6. Approval produces a download containing the exact approved files, grouped by platform. The campaign timeline records the decision and final package.
 
-The optional `GHL_PROOF_EMAIL_FROM` environment setting pre-fills the sender. Existing Smart 1 GHL token/location settings are reused; contact and conversation read permissions plus message-send permission are required. Recipient changes require re-verification. This flow sends from Smart 1 to its client, independently of the client’s own GHL subaccount.
+The optional `GHL_PROOF_EMAIL_FROM` environment setting pre-fills the sender. Existing Smart 1 GHL token/location settings are reused; contact and conversation read permissions plus `conversations/message.readonly` and `conversations/message.write` are required on that credential. These internal email permissions are not added to client-subaccount Marketplace grants. Recipient changes require re-verification. This flow sends from Smart 1 to its client, independently of the client’s own GHL subaccount.
 
 ## Reliability and operations
 
@@ -34,3 +34,5 @@ The full Display Ad regression suite passed 413 tests before the final focused a
 Live deployment verification is recorded separately. No successful live paid AI generation is claimed. Team alert transport and external embedding domains remain configuration decisions separate from this client proof workflow.
 
 Sources: [GHL send message](https://marketplace.gohighlevel.com/docs/ghl/conversations/send-a-new-message/), [GHL message history](https://marketplace.gohighlevel.com/docs/ghl/conversations/get-messages/).
+
+Permission reference: [HighLevel scopes](https://marketplace.gohighlevel.com/docs/Authorization/Scopes/index.html).
