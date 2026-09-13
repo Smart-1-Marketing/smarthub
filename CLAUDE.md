@@ -6511,6 +6511,74 @@ the template between markers and driven in **node**, the arrangement
 `test_menu_layout.py` uses over `hub-crumbs.js`, and the assertion is that no
 `{"` reaches the reader.
 
+### The questions were asked, answered, and read by nothing
+
+The launch date, the budget per channel, the reporting cadence and who
+supplies each channel's files were stored on the plan, carried forward when
+a run was superseded -- and read by no brief, no packet and no task. The
+brief's prompt carried the shared inputs and the kept items; the answers sat
+in `plan_json` beside them. That is the failure `hub/current_marketing.py`
+was written to undo, inside the module written after it: a question somebody
+answers and nothing reads is a form field.
+
+`proposal_plan.resolve()` lays the answers over the plan **at read time**. A
+launch date becomes a due date on every launch task -- each recipe row
+carries the days before launch it has to be done, zero being launch day --
+and on every creative item, which is wanted `LEAD_DAYS_CREATIVE` ahead; a
+supplier answer marks every creative item of its channel; a cadence lands on
+the report tasks, and only those. `answers_for()` hands a brief or a packet
+the answers for its channel and the run-wide ones, so `_brief_runner` tells
+the model the launch date as fact and `_launch_runner` prints the date, the
+supplier, the budget and the cadence as their own lines rather than burying
+them in a list. **Derived and stored nowhere** -- `as_dict()` serves the
+resolved plan and the column keeps the answers -- because a date written into
+the items would outlive the answer that produced it, and two gunicorn
+workers would disagree about which copy is current; `test_proposal_plan.py`
+asserts the stored plan carries no `due`. A launch date nothing can parse
+costs the due dates and says so on the page, never the plan.
+
+### A quote built in the Hub was read back as a PDF
+
+A run started from a document filed on the client record and read its
+**text** -- a regex pass over the prose, then a model asked to find the
+channels and the dollar amounts. Right for a proposal somebody wrote in Word.
+Wrong for a quote built in `modules/sales_builder`, which already holds every
+fact the analysis was trying to recover: the line items with their rate-card
+product and category, the dollars and the term, the start date, the target
+areas, the KPIs, and the creative gate's own answers about who supplies each
+medium's files. A delivered quote is filed as a PDF and `Quote.client_filed_as`
+points back at it, so execution was reading the rendered document and asking
+the rep again for things the quote had been told.
+
+`hub/proposal_quote_facts.py` reads the quote's state into the same analysis
+shape the engine and the plan already consume, so nothing downstream knows
+which kind of document a run started from. Four rules. **A channel is a
+rate-card family, matched on the category first and the product second** --
+the card files four products called "Demographic" under four headings, and a
+video product sits under the DISPLAY heading, so `channel_for_item()` reads a
+line the way `creative_needs.medium_of()` does; the ten keys the text
+analyzer knows keep their names so the task graph still builds, and the
+card's other families (display, connected TV, digital radio, paid social,
+email, signage, web) get keys and recipes of their own. **The creative is the
+gate's own reading**: the channel carries its products and `_kit_creative()`
+asks `required_units()` about *them*, medium by medium -- a Snapchat buy is
+filed under the card's video heading, so asking for one medium found none of
+its lines. **What the quote answered arrives as an answer marked as the
+quote's** -- the start date, the supplier from the creative step or from a
+production line on the plan, a cadence the Reporting section actually states
+-- still changeable, and the page says *answered from the quote*. And
+**another client's quote is refused as not found**: a quote id in a URL must
+not pull one client's proposal onto another's record, and a quote that is not
+this client's answers exactly what a quote that does not exist answers.
+
+The picker offers the saved quotes first and leaves out a PDF a quote points
+at, so one proposal is not offered twice; picking the PDF by id still resolves
+to the quote. The text the plan's model pass grounds against is rendered from
+the facts, deterministically, so the run's `source_hash` moves only when the
+quote does. `test_proposal_plan.py` sweeps the **real rate card** -- every
+product lands on a channel or on a category named as not one -- because a
+hand-written list of products proves nothing about the row somebody adds.
+
 ## Opportunistic migration — read this before editing any module
 
 `hub/storage.py` (Cloudinary), `hub/images.py` (resize/convert),

@@ -34,6 +34,16 @@ add, answer. This asserts the rules it is built on.
   bullets, a link to the tool -- and never as a JSON dump. The renderer is
   lifted out of the template and driven in node, so a copy restated here
   is not a third thing to keep in step.
+* A quote built in the Proposal Builder is read as data: the channels are
+  its rate-card lines, the budgets its dollars, the creative the gate's own
+  reading of its products, and the start date, the supplier and the
+  reporting cadence arrive as answers marked as the quote's. Picking the
+  PDF it was filed as reads the quote it was rendered from, and another
+  client's quote is refused as not found.
+* An answer is read by the work: the launch date becomes a due date on
+  every task, a supplier marks every creative item of its channel, the
+  cadence lands on the report tasks, and the brief and the packet carry
+  them. Derived on read and stored nowhere.
 """
 import json
 import os
@@ -298,6 +308,7 @@ hub_pkg._proposal_text_for = lambda client, ident: TEXT
 
 with hub_app.app_context():
     run, created = pe.create_run(CLIENT, "p1", owner="rep@smart1marketing.com", actor="rep")
+    RUN_ID = run.id
     full = run.as_dict(full=True)
     check("the run carries its plan", bool((full.get("plan") or {}).get("creative")))
     check("...built at analysis time, not on read", bool(run.plan().get("summary")))
@@ -354,9 +365,252 @@ with hub_app.app_context():
           "plan_json" in pe._LATE_COLUMNS)
 
 # ---------------------------------------------------------------------------
+section("A quote built in the Hub is read as data, not as a PDF")
+import modules.sales_builder.app as builder                         # noqa: E402
+import hub.proposal_quote_facts as qf                               # noqa: E402
+import hub.rate_card as rate_card                                   # noqa: E402
+
+QUOTE_CLIENT = "Riverstone Dental"
+QUOTE_STATE = {
+    "client": QUOTE_CLIENT, "months": 6, "budget": 8000, "startDate": "2026-11-02",
+    "objectives": ["Lead Generation"], "kpis": ["Cost per lead"],
+    "landingUrl": "https://riverstonedental.com/new-patients",
+    "trackingPlan": {"primaryConversion": "Appointment request form", "ga4": "G-1"},
+    "targetAreas": [{"type": "radius", "name": "Dublin, OH", "radius": 10}],
+    # The creative gate's own answers: display exists, Smart 1 produces video for a fee.
+    "creativePlan": {"video": {"answer": "client", "fee": 750}, "display": {"answer": "has"}},
+    "sections": [{"id": "reporting", "title": "Reporting, Optimization & Transparency", "enabled": True,
+                  "body": "You will receive a **monthly** performance report and a call to walk through it."}],
+    "items": [
+        {"category": "DISPLAY", "product": "Category", "rate": "CPM", "rateValue": 4.25, "dollars": 2000},
+        # A video product filed under the card's DISPLAY heading.
+        {"category": "DISPLAY", "product": "Programmatic - Targeted", "rate": "CPM", "dollars": 800},
+        {"category": "OTT", "product": "Connected TV - Targeted  - This is played on televisions only", "dollars": 3000},
+        {"category": "SEARCH ENGINE MARKETING / PAY PER CLICK", "product": "Pay Per Click", "dollars": 1000},
+        # Filed under the card's SOCIAL ADS - VIDEO heading, which the gate reads as video.
+        {"category": "SOCIAL ADS - VIDEO", "product": "Snapchat - Paid Social Media Advertising", "dollars": 500},
+        {"category": "CREATIVE / DESIGN SERVICES", "product": "Standard Set of 6 Ad Creation", "dollars": 250, "basis": "one_time"},
+        {"category": "ADD-ON PRODUCT", "product": "1st Phone Number - with area code", "dollars": 25},
+        {"category": "MANAGEMENT", "product": "Management Fee", "dollars": 500},
+    ],
+}
+bdb = builder.SessionLocal()
+try:
+    qrow = builder.Quote(quote_number="Q-TEST-0001", status="Sent", client=QUOTE_CLIENT,
+                         website="https://riverstonedental.com", data=json.dumps(QUOTE_STATE),
+                         monthly_budget=7300, months=6,
+                         products_summary="Display · Connected TV · Paid Search", revision=1)
+    bdb.add(qrow)
+    bdb.commit()
+    QID = qrow.id
+finally:
+    bdb.close()
+
+_PDF = {"id": "recX", "title": "Riverstone PDF", "filename": "riverstone.pdf", "kind": "pdf"}
+proposals_mod.list_proposals = lambda client: ([_PDF] if client == QUOTE_CLIENT
+                                               else list(_FIX.values()) if client == CLIENT else [])
+hub_pkg._proposal_text_for = lambda client, ident: ("Riverstone Dental proposal. Display $2,000."
+                                                    if ident == "recX" else TEXT)
+
+with open(os.path.join(ROOT, "hub", "proposal_quote_facts.py"), encoding="utf-8") as fh:
+    qsrc = fh.read()
+qcode = re.sub(r'"""[\s\S]*?"""', "", qsrc)
+qcode = "\n".join(l for l in qcode.splitlines() if not l.strip().startswith("#"))
+check("no banner size is typed into the quote reader either", re.findall(r"\b\d{3,4}x\d{2,4}\b", qcode), [])
+
+unplaced = []
+for prod in rate_card.products():
+    key = qf.channel_for_item(prod)
+    if key and key not in qf.QUOTE_CHANNELS:
+        unplaced.append((prod.get("category"), prod.get("product"), key))
+    if not key and str(prod.get("category") or "").upper() not in qf._NOT_A_CHANNEL:
+        unplaced.append((prod.get("category"), prod.get("product"), "nothing"))
+check("every product on the real rate card lands on a channel or a category named as not one",
+      unplaced, [])
+check("a video product under the display heading is a video channel",
+      qf.channel_for_item({"category": "DISPLAY", "product": "Programmatic - Targeted"}), "ctv")
+check("...and a banner product beside it is display",
+      qf.channel_for_item({"category": "DISPLAY", "product": "Category"}), "display")
+check("a Meta retargeting line is a Meta campaign, a website retargeting line is retargeting",
+      (qf.channel_for_item({"category": "RETARGETING", "product": "Facebook / Instagram Retargeting"}),
+       qf.channel_for_item({"category": "RETARGETING", "product": "Website Retargeting"})),
+      ("meta", "retargeting"))
+check("a fee is not a channel", qf.channel_for_item({"category": "MANAGEMENT", "product": "Management Fee"}), "")
+
+with hub_app.app_context():
+    choices = pe.proposal_choices(QUOTE_CLIENT)
+    qc = [c for c in choices if c.get("kind") == "quote"]
+    check("the saved quote is offered to start a run from",
+          len(qc) == 1 and qc[0]["id"] == f"quote:{QID}")
+    check("...with its number on it", (qc or [{}])[0].get("quote_number"), "Q-TEST-0001")
+    check("...beside the uploaded document, which is still offered", any(c.get("id") == "recX" for c in choices))
+
+    qrun, created = pe.create_run(QUOTE_CLIENT, f"quote:{QID}", owner="rep@smart1marketing.com", actor="rep")
+    a = qrun.analysis()
+    check("the run is read from the quote", a.get("analysis_method"), "quote")
+    check("the channels are the rate-card lines, exactly",
+          [c["key"] for c in a["channels"]], ["display", "ctv", "paid_search", "paid_social"])
+    by = {c["key"]: c for c in a["channels"]}
+    check("a channel's budget is its lines' dollars, not a regex over prose", by["display"]["budgets"], ["$2,000/mo"])
+    check("two lines of one family add up, and the video product under the display heading lands on video",
+          by["ctv"]["budgets"], ["$3,800/mo"])
+    check("the start date is the flight date", a.get("flight_dates"), ["2026-11-02"])
+    inputs = qrun.inputs()
+    check("the quote's landing page and conversion goal prefill the shared inputs",
+          (inputs.get("landing_url"), inputs.get("conversion_goal")),
+          ("https://riverstonedental.com/new-patients", "Appointment request form"))
+    check("...and its target areas the geography", "Dublin" in (inputs.get("target_geography") or ""))
+    qplan = qrun.plan()
+    qq = {q["key"]: q for q in qplan["questions"]}
+    check("the launch date is answered from the quote and marked as the quote's",
+          (qq["launch_date"]["answer"], qq["launch_date"]["from_text"], qq["launch_date"]["source_label"]),
+          ("2026-11-02", True, "quote"))
+    check("who supplies the display creative comes from the quote's creative step",
+          ((qq.get("creative_supply:display") or {}).get("answer"),
+           (qq.get("creative_supply:display") or {}).get("source_label")), ("client", "quote"))
+    check("...and a priced production answer means Smart 1 produces the video",
+          (qq.get("creative_supply:ctv") or {}).get("answer"), "smart1")
+    check("a cadence the Reporting section states is the quote's answer",
+          ((qq.get("reporting_cadence") or {}).get("answer"), (qq.get("reporting_cadence") or {}).get("from_text")),
+          ("monthly", True))
+    check("no budget is asked for -- every line carries one", not any(k.startswith("budget:") for k in qq))
+    check("no channel is one this Hub has no recipe for",
+          not any(k.startswith("creative_for:") for k in qq) and not any("no recipe" in n for n in qplan["notes"]))
+    banner = next((it for it in qplan["creative"] if it["channel"] == "display" and it["kind"] == "image"), {})
+    want_line = creative_needs.units_line({"items": [{"category": "DISPLAY", "product": "Category"}]},
+                                          creative_needs.DISPLAY)
+    check("the display creative is the kit's reading of the quote's own lines", banner.get("detail"), want_line)
+    ctv = [it for it in qplan["creative"] if it["channel"] == "ctv"]
+    check("a connected TV buy asks for the kit's spot", any("Connected TV" in it["title"] for it in ctv))
+    snap = [it for it in qplan["creative"] if it["channel"] == "paid_social" and it["kind"] != "copy"]
+    check("a Snapchat line filed under the card's video heading still gets Snapchat's own units",
+          len(snap) > 0 and all(it["title"].startswith("Paid Social:") for it in snap))
+    check("a production line on the quote becomes a launch task",
+          any(it["title"].startswith("Produce the Standard Set of 6") for it in qplan["launch"]))
+    check("...and a phone number an add-on to set up",
+          any(it["title"].startswith("Set up 1st Phone Number") for it in qplan["launch"]))
+    check("a fee line is not a task", not any("Management Fee" in it["title"] for it in qplan["launch"]))
+
+    bdb = builder.SessionLocal()
+    try:
+        bdb.get(builder.Quote, QID).client_filed_as = "recX@1"
+        bdb.commit()
+    finally:
+        bdb.close()
+    choices = pe.proposal_choices(QUOTE_CLIENT)
+    check("once the quote is filed as a PDF, the PDF is not offered a second time",
+          not any(c.get("id") == "recX" for c in choices))
+    run2, _created2 = pe.create_run(QUOTE_CLIENT, "recX", owner="rep", actor="rep", force=True)
+    RUN2_ID = run2.id
+    check("picking the filed PDF reads the quote it was rendered from",
+          (run2.analysis().get("analysis_method"), run2.proposal_id), ("quote", f"quote:{QID}"))
+    check("...and supersedes the earlier run of the same quote", pe.get_run(qrun.id).state, pe.RUN_SUPERSEDED)
+    try:
+        pe.create_run("Somebody Else", f"quote:{QID}", owner="x", actor="x", force=True)
+        refused = False
+    except ValueError as exc:
+        refused = "could not be found" in str(exc)
+    check("another client's quote is refused as not found, never read onto this record", refused)
+    run2.plan_json = "{}"
+    db.session.commit()
+    late = pe.plan_for(pe.get_run(run2.id))
+    check("a quote run rebuilt after the fact re-reads the quote, not a PDF",
+          bool(late.get("creative")) and any(q["key"] == "launch_date" and q["answer"] == "2026-11-02"
+                                             for q in late["questions"]))
+
+# ---------------------------------------------------------------------------
+section("An answer is read by the work, not filed beside it")
+with hub_app.app_context():
+    run = pe.get_run(RUN_ID)
+    # The plan was rebuilt after the fact above, so nothing on it is kept yet.
+    banner_id = next(it["id"] for it in run.plan()["creative"] if it["title"] == "Retargeting banner set")
+    pe.update_plan(run.id, {"accept": {banner_id: True},
+                            "answers": {"launch_date": "2026-10-01",
+                                        "creative_supply:retargeting": "client"}}, actor="rep")
+    served = pe.get_run(run.id).as_dict(full=True)["plan"]
+    stored = pe.get_run(run.id).plan()
+    ban = next(it for it in served["creative"] if it["title"] == "Retargeting banner set")
+    check("a supplier answer marks every creative item of its channel", ban.get("supplier_label"), "the client supplies it")
+    check("...and creative is wanted two weeks before launch",
+          (ban.get("due"), "14 days before launch" in (ban.get("due_label") or "")), ("2026-09-17", True))
+    pixel = next(it for it in served["launch"] if it["title"].startswith("Confirm the retargeting pixel"))
+    check("a launch task carries its own lead time from the launch date", pixel.get("due"), "2026-09-17")
+    confirm = next(it for it in served["launch"] if it["title"].startswith("Confirm the signed proposal"))
+    check("...and one with none is due on launch day",
+          (confirm.get("due"), "(launch day)" in (confirm.get("due_label") or "")), ("2026-10-01", True))
+    report = next(it for it in served["monthly"] if it["title"].startswith("Send the client the monthly performance report"))
+    check("a monthly task says the first month it is due", report.get("due_label"), "first due November 2026")
+    check("the served plan says what it resolved", served["resolved"]["launch_date_label"], "Oct 1")
+    check("nothing derived is stored -- the column carries answers, not dates",
+          all("due" not in it and "supplier" not in it and "cadence" not in it
+              for n in pp.LISTS for it in stored[n]) and "resolved" not in stored)
+
+    # The cadence, on the run whose document asked about it: the quote's own
+    # Reporting section said monthly, and a person can still say otherwise.
+    pe.update_plan(RUN2_ID, {"answers": {"reporting_cadence": "weekly"}}, actor="rep")
+    qserved = pe.get_run(RUN2_ID).as_dict(full=True)["plan"]
+    qreport = next(it for it in qserved["monthly"] if it["title"].startswith("Send the client the monthly performance report"))
+    check("the cadence lands on the report tasks", qreport.get("cadence_label"), "every week")
+    check("...measured from the quote's own start date", qreport.get("due_label"), "first due December 2026")
+    qpacing = next(it for it in qserved["monthly"] if it["title"].startswith("Check that spend is pacing"))
+    check("...and not on a task that is not a report", "cadence" not in qpacing)
+    search_task = next(t for t in pe.tasks_for_run(RUN2_ID) if t.task_key == "paid_search_activation")
+    qpacket = pe._launch_runner(pe.get_run(RUN2_ID), search_task)
+    check("a packet on the quote run carries the cadence and the quote's budget for its channel",
+          (qpacket.get("reporting_cadence"), qpacket.get("budget")), ("every week", "$1,000/mo"))
+
+    task = next(t for t in pe.tasks_for_run(run.id) if t.task_key == "retargeting_creative")
+    kept = pe._kept_plan_for(run, task)
+    check("a brief is handed the answers for its channel and the run",
+          kept["answers"].get("When does the campaign launch?") == "2026-10-01"
+          and kept["answers"].get("Who is supplying the Website Retargeting creative?") == "the client supplies it")
+    check("...and not another channel's", not any("Stadium" in k for k in kept["answers"]))
+    check("a kept item reads with its date and its supplier",
+          any("in hand by Sep 17" in k and "the client supplies it" in k for k in kept["creative"]))
+    activation = next(t for t in pe.tasks_for_run(run.id) if t.task_key == "retargeting_activation")
+    packet = pe._launch_runner(run, activation)
+    check("the launch packet carries the launch date and the supplier as their own lines",
+          (packet.get("launch_date"), packet.get("creative_supply")), ("Oct 1", "the client supplies it"))
+    check("...and the channel's budget", packet.get("budget"), "$500")
+    check("...and says nothing about a cadence nobody was asked for", "reporting_cadence" not in packet)
+
+    import hub.openai_responses as oai                              # noqa: E402
+    captured = {}
+    real_ask = oai.ask
+
+    def _fake_ask(prompt, **kw):
+        captured["prompt"] = prompt
+        return '{"summary": "ok", "deliverables": ["x"]}'
+    oai.ask = _fake_ask
+    os.environ["OPENAI_API_KEY"] = "test-key"
+    try:
+        brief = pe._brief_runner(run, task)
+    finally:
+        oai.ask = real_ask
+        os.environ.pop("OPENAI_API_KEY", None)
+    check("the working brief's prompt carries the answers as fact",
+          "Answers the team gave" in captured.get("prompt", "") and "2026-10-01" in captured.get("prompt", ""))
+    check("...and the model's draft is what comes back", brief.get("generated_by"), "openai")
+
+    pe.update_plan(run.id, {"answers": {"launch_date": "sometime in October"}}, actor="rep")
+    served = pe.get_run(run.id).as_dict(full=True)["plan"]
+    check("a launch date nothing can read costs the due dates, not the plan -- and says so",
+          served["resolved"]["unreadable_launch_date"] is True and not any(it.get("due") for it in served["launch"]))
+
+for raw, want in (("10/01/2026", "2026-10-01"), ("October 1, 2026", "2026-10-01"),
+                  ("Oct 1st 2026", "2026-10-01"), ("2026-10-01T00:00:00", "2026-10-01"),
+                  ("", None), ("soon", None)):
+    got = pp.parse_day(raw)
+    check(f"parse_day({raw!r})", got.isoformat() if got else None, want)
+
+# ---------------------------------------------------------------------------
 section("The page writes directions, not JSON")
 with open(os.path.join(ROOT, "hub", "templates", "proposal_execution.html"), encoding="utf-8") as fh:
     tpl = fh.read()
+check("the picker groups quotes apart from uploaded documents", 'optgroup label="Built in the Proposal Builder' in tpl)
+check("the page knows a run read from a quote", "read from the quote built in the Proposal Builder" in tpl)
+check("a question says which document answered it", "Answered from the ${esc(q.source_label" in tpl)
+check("an item shows its due date and its supplier", "it.due_label" in tpl and "it.supplier_label" in tpl)
 check("no task result is printed as a JSON dump", "JSON.stringify(r,null,2)" not in tpl
       and "JSON.stringify(r, null, 2)" not in tpl)
 check("the page carries the three plan lists", all(k in tpl for k in ("planLists", "planAccept", "planAdd")))
@@ -381,6 +635,8 @@ sample = {
     "generated_by": "template",
     "handoff": True,
     "creative_needed": ["Retargeting banner set — 728x90, 300x250"],
+    "launch_date": "Oct 1",
+    "creative_supply": "the client supplies it",
 }
 driver = ESC + SRC + "\nconsole.log(renderResult(" + json.dumps(sample) + "));"
 r = subprocess.run(["node", "-e", driver], capture_output=True, text=True)
@@ -392,6 +648,8 @@ check("the summary leads", html.startswith("<p>Prepared the retargeting creative
 check("a list becomes bullets under a heading a person would use",
       "<h5>What to produce</h5><ul><li>Six banner sizes</li>" in html)
 check("the kept creative is headed as such", "<h5>Creative needed</h5>" in html)
+check("the answers read as their own lines, in words",
+      "<b>Launch date:</b> Oct 1" in html and "<b>Who supplies the creative:</b> the client supplies it" in html)
 check("the tool link is offered as a link", 'href="/tools/utm?batch=7"' in html)
 check("the template fallback is said in words", "AI was not available" in html)
 check("the plumbing is behind a fold, not on the page",
