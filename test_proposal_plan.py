@@ -80,6 +80,7 @@ import hub as hub_pkg                                                # noqa: E40
 import hub.auth as auth                                              # noqa: E402
 import hub.creative_needs as creative_needs                          # noqa: E402
 import hub.creative_specs as creative_specs                          # noqa: E402
+import hub.help as hub_help                                          # noqa: E402
 from werkzeug.test import Client as WSGIClient                       # noqa: E402
 
 hub_app = wsgi.hub_app
@@ -362,7 +363,6 @@ check("the page carries the three plan lists", all(k in tpl for k in ("planLists
 check("...and the questions", "data-answer" in tpl)
 for key in ("proposal_execution.plan.review", "proposal_execution.plan.questions"):
     check(f"the bubble {key} is placed guarded", f"help_dot('{key}') if help_dot is defined" in tpl)
-    from hub import help as hub_help
     check(f"...and has an entry behind it", any(h.key == key for h in hub_help.REGISTRY))
 
 m = re.search(r"// --- result renderer.*?\n(.*?)// --- end result renderer ---", tpl, re.S)
