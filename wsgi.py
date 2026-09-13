@@ -305,6 +305,7 @@ class HubBar:
                     # job shown, in localStorage, so it cannot double-notify
                     # for being loaded from two code paths.
                     b'<script defer src="/hub-job-notify.js"></script>')
+        _scripts += b'<script defer src="/assets/ask-smarthub-widget.js?v=ask-v1"></script>'
         # The LAST </body>, not the first. A module page that builds a printable
         # document in JavaScript carries a whole `<html>...</body></html>`
         # string inside its own script -- the IO Builder builds two of them --
