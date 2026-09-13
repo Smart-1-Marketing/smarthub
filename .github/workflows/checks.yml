@@ -31,7 +31,9 @@ jobs:
   checks:
     name: syntax, links and tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The complete Hub suite now includes reporting and proposal handoff checks.
+    # Give the full gate time to finish instead of cancelling passing runs.
+    timeout-minutes: 35
 
     # Postgres rather than SQLite, for the steps that boot the app. Sites Admin
     # refuses to start without a real Postgres URL and serves wsgi.py's 503
