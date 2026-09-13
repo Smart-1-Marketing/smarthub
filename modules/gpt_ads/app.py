@@ -54,6 +54,7 @@ mirrored, and it is rebuilt by re-fetching the Cloudinary URL if it is missing.
 """
 from __future__ import annotations
 
+import copy
 import io
 import os
 import re
@@ -237,7 +238,21 @@ def _pack_from_body(data: dict | None = None):
 
 
 def _ok(pack: dict, **extra):
-    payload = {"ok": True, "ad": pack, "readiness": spec.readiness(pack)}
+    view = copy.deepcopy(pack)
+
+    def add_preview(image: dict | None) -> None:
+        if not isinstance(image, dict) or not image.get("url"):
+            return
+        image["thumb"] = storage.preview_url(
+            image["url"], image.get("resource_type") or "image")
+
+    add_preview(view.get("image"))
+    for version in view.get("history", []):
+        if isinstance(version, dict):
+            snapshot = version.get("snapshot") or {}
+            add_preview(snapshot.get("image"))
+
+    payload = {"ok": True, "ad": view, "readiness": spec.readiness(pack)}
     payload.update(extra)
     return jsonify(payload)
 
