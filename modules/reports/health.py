@@ -154,13 +154,16 @@ def status_row() -> tuple[str, str]:
 
 
 def scoreboard() -> dict:
-    """The dashboard's reading: feeds by state, what is waiting on a person,
-    and what is alerting. Every figure opens the rows behind it, and every
-    zero says which kind of zero it is.
+    """The dashboard's reading: feeds by state, what is waiting on a person
+    (campaigns filed under nobody, and auto-mappings waiting for a
+    confirmation before they reach a client's page), and what is alerting.
+    Every figure opens the rows behind it, and every zero says which kind of
+    zero it is.
 
     Only reads: the watermarks, the fact table's latest day per platform, the
-    unmapped count and the latest pacing snapshot. Nothing here reaches a
-    provider, so it costs a page load a few small queries and never a call.
+    unmapped and pending counts and the latest pacing snapshot. Nothing here
+    reaches a provider, so it costs a page load a few small queries and never
+    a call.
     """
     f = feeds()
     if f.get("binding_problem"):
@@ -171,10 +174,14 @@ def scoreboard() -> dict:
         unmapped = store.unmapped_count()
     except Exception:                                       # noqa: BLE001
         unmapped = None
+    try:
+        pending = store.pending_count()
+    except Exception:                                       # noqa: BLE001
+        pending = None
     alerts = _alerts()
     ever = f["ok"] + f["failing"] + f["stale"]
     counts = {"ok": f["ok"], "failing": f["failing"], "stale": f["stale"], "never": f["never"],
-              "unmapped": unmapped, "alerts": alerts}
+              "unmapped": unmapped, "pending": pending, "alerts": alerts}
     if ever == 0:
         line = ("No feed has synced yet: the native pulls need their keys and the provider "
                 "its first table. Nothing is being reported to any client.")
@@ -189,6 +196,8 @@ def scoreboard() -> dict:
             bits.append(f"{unmapped} campaign{'s' if unmapped != 1 else ''} filed under nobody")
         elif unmapped == 0:
             bits.append("every campaign filed")
+        if pending:
+            bits.append(f"{pending} filed from a name and waiting for confirmation")
         if alerts:
             bits.append(f"{alerts} line{'s' if alerts != 1 else ''} pacing off for three days")
         elif alerts == 0:
@@ -199,6 +208,7 @@ def scoreboard() -> dict:
         "measured": True, "counts": counts, "empty": empty, "line": line,
         "binding": f["binding"],
         "urls": {"feeds": "/reports/", "unmapped": "/reports/unmapped",
+                 "pending": "/reports/unmapped#pending",
                  "alerts": "/reports/pacing?band=under", "pacing": "/reports/pacing"},
         "platforms": [{"label": p["label"], "state": p["state"], "detail": p["detail"]}
                       for p in f["platforms"] if p["state"] in ("failing", "stale")],

@@ -10,6 +10,9 @@
   <a class="s1d-tile" href="/reports/unmapped" style="text-decoration:none">
     <b class="{{ 's1d-warn' if unmapped else '' }}">{{ unmapped }}</b>
     <span>Unmapped campaigns</span></a>
+  <a class="s1d-tile" href="/reports/unmapped#pending" style="text-decoration:none">
+    <b class="{{ 's1d-warn' if pending else '' }}">{{ pending }}</b>
+    <span>Waiting for confirmation</span></a>
   <a class="s1d-tile" href="/reports/budgets" style="text-decoration:none">
     <b>{{ budgets }}</b><span>Budget lines</span></a>
   <a class="s1d-tile" href="/reports/markup" style="text-decoration:none">
@@ -79,7 +82,7 @@
     <tbody>
     {% for c in clients %}
       <tr><td><a href="/reports/client/{{ c.client }}">{{ c.client_name }}</a> <span class="s1d-muted mono">{{ c.client }}</span></td>
-        <td class="num">{{ c.campaigns }}</td>
+        <td class="num">{{ c.campaigns }}{% if c.pending %} <span class="s1d-pill warn" title="Filed from the campaign name; not on the client's page until confirmed">{{ c.pending }} waiting for confirmation</span>{% endif %}</td>
         <td>{% if c.token %}<span class="s1d-pill ok">Live</span>{% else %}<span class="s1d-muted">None yet</span>{% endif %}</td></tr>
     {% endfor %}
     </tbody>
@@ -94,7 +97,8 @@
     <div class="s1d-kv"><b>Unmapped campaigns</b>
       <span><a href="/reports/unmapped">File each campaign under a client</a> &mdash;
         or rename it in the platform to <span class="mono">S1M | &lt;ClientKey&gt; | &lt;Product&gt; | &lt;anything&gt;</span>
-        and the auto-mapper files it.</span></div>
+        and the auto-mapper files it, <a href="/reports/unmapped#pending">waiting for somebody to confirm</a>
+        before it reaches the client's page.</span></div>
     <div class="s1d-kv"><b>Budgets</b>
       <span><a href="/reports/budgets">What was sold</a>, by client, product and month,
         so pacing has a figure to pace against.</span></div>

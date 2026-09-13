@@ -877,6 +877,14 @@ REGISTRY: list[Help] = [
        "client report. Pick the client on the row, or rename the campaign "
        "in the platform to the shape shown and the auto-mapper files it on "
        "the next sync without anybody opening this page."),
+    _h("reports.unmapped.pending", "A filing from a name is a proposal",
+       "The auto-mapper files a campaign under the client its name says, "
+       "and a name is somebody's typing in somebody else's platform. So the "
+       "filing waits here: nothing from the campaign reaches the client's "
+       "page, PDF or data until Confirm is pressed. Not theirs deletes the "
+       "proposal, sends the campaign back to the unmapped list, and stops "
+       "the auto-mapper filing that name under that client again -- a "
+       "renamed campaign is read afresh."),
     _h("reports.markup.columns", "Markup or fixed CPM, never both",
        "Markup is a percentage on the platform's cost: 15 bills $100 of "
        "spend as $115. A fixed CPM bills impressions at that rate and ignores "

@@ -8,6 +8,8 @@
   {% if saved == 'link' %}Link ready. Copy the URL below or push it to the client's Smart 1 Suite contact.
   {% elif saved == 'pushed' %}The link is on the client's Smart 1 Suite contact.
   {% elif saved == 'campaign' %}Campaign saved. The client's page picks it up at once.
+  {% elif saved == 'confirmed' %}Confirmed. The campaign is on the client's page from now.
+  {% elif saved == 'refused' %}Refused. The campaign is back on the <a href="/reports/unmapped">unmapped queue</a>, and the auto-mapper will not file it here from that name again.
   {% else %}Settings saved. The page picks them up at once.{% endif %}
 {% endblock %}
 
@@ -25,6 +27,11 @@
 {% endblock %}
 
 {% block body %}
+{% if pending %}
+<div class="notice err">{{ pending|length }} campaign{{ '' if pending|length == 1 else 's' }} {{ 'was' if pending|length == 1 else 'were' }} filed here by the auto-mapper from
+  {{ 'its' if pending|length == 1 else 'their' }} name{{ '' if pending|length == 1 else 's' }} and {{ 'is' if pending|length == 1 else 'are' }} <b>waiting for confirmation</b>: nothing from {{ 'it' if pending|length == 1 else 'them' }} is on the client's page,
+  the raw totals or the pacing until somebody presses Confirm in the mapped campaigns table below.</div>
+{% endif %}
 {% if blank_products %}
 <div class="notice err">{{ blank_products|length }} mapped campaign{{ '' if blank_products|length == 1 else 's' }} ha{{ 's' if blank_products|length == 1 else 've' }} <b>no product set</b>, so the client's page shows
   {{ 'it' if blank_products|length == 1 else 'them' }} under a generic label rather than the product they were sold. Set the product in the mapped campaigns table below.</div>
@@ -137,7 +144,25 @@
               <button type="submit" class="s1d-btn sec small">Save</button>
             </form>
           </td>
-          <td>{{ m.mapped_by }}{% if m.auto_rule %} <span class="s1d-muted">({{ m.auto_rule }})</span>{% endif %}</td></tr>
+          <td>{{ m.mapped_by }}{% if m.auto_rule %} <span class="s1d-muted">({{ m.auto_rule }})</span>{% endif %}
+            {% if m.pending %}<br><span class="s1d-pill warn">waiting for confirmation</span>
+              <span class="btnrow" style="margin-top:4px">
+                <form method="post" action="{{ request.script_root }}/unmapped/confirm">
+                  <input type="hidden" name="platform" value="{{ m.platform }}">
+                  <input type="hidden" name="account_id" value="{{ m.account_id }}">
+                  <input type="hidden" name="campaign_id" value="{{ m.campaign_id }}">
+                  <input type="hidden" name="back" value="client"><input type="hidden" name="client" value="{{ client }}">
+                  <button type="submit" class="s1d-btn small">Confirm</button>
+                </form>
+                <form method="post" action="{{ request.script_root }}/unmapped/refuse">
+                  <input type="hidden" name="platform" value="{{ m.platform }}">
+                  <input type="hidden" name="account_id" value="{{ m.account_id }}">
+                  <input type="hidden" name="campaign_id" value="{{ m.campaign_id }}">
+                  <input type="hidden" name="back" value="client"><input type="hidden" name="client" value="{{ client }}">
+                  <button type="submit" class="s1d-btn sec small">Not theirs</button>
+                </form>
+              </span>
+            {% elif m.auto_rule %}<br><span class="s1d-muted">confirmed by {{ m.confirmed_by }}</span>{% endif %}</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -145,7 +170,8 @@
     <datalist id="s1-products">{% for p in products %}<option value="{{ p }}"></option>{% endfor %}</datalist>
     <p class="s1d-hint">The client's page groups by product, never by platform: two campaigns filed under one product
       are one bar. "Shown as" defaults to the campaign's name with the vendor words stripped; override it where a name still
-      says which platform ran it.</p>
+      says which platform ran it. A campaign the auto-mapper filed from its name is a proposal until somebody confirms it,
+      and reaches no figure here or on the client's page before that.</p>
     {% else %}<p class="s1d-muted">No campaigns are filed under this client. <a href="/reports/unmapped">Map some.</a></p>{% endif %}
   </div>
 </div>

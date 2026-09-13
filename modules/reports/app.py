@@ -153,6 +153,7 @@ def index():
         "reports_index.html",
         platforms=store.platform_status(),
         unmapped=store.unmapped_count(),
+        pending=store.pending_count(),
         facts=store.fact_count(),
         binding=store.binding(),
         markups=[m for m in store.markups()
@@ -258,6 +259,7 @@ def unmapped():
     return render_template(
         "reports_unmapped.html",
         rows=store.unmapped_campaigns(days=days, limit=limit),
+        pending=store.pending_mappings(),
         days=days, shape=store.RENAME_SHAPE,
         products=products.catalog(),
         defaults=products.DEFAULT_PRODUCT_FOR_PLATFORM,
@@ -291,6 +293,64 @@ def map_campaign():
                 f"{f.get('campaign_name') or row.campaign_id} mapped to "
                 f"{client_name or client_key}")
     return redirect(url_for("unmapped", saved=row.campaign_id))
+
+
+def _mapping_back(f) -> str:
+    """Where a Confirm / Not theirs press goes back to: the client's own
+    staff page when it was pressed there, the queue otherwise. Read from a
+    form field naming which, never a URL the browser supplied."""
+    if f.get("back") == "client" and f.get("client"):
+        return url_for("client_page", client=f.get("client"))
+    return url_for("unmapped")
+
+
+@app.route("/unmapped/confirm", methods=["POST"])
+def confirm_mapping():
+    """A person stands behind a mapping the auto-mapper proposed. From this
+    press the campaign's rows reach the client's page, its PDF and its
+    data -- store.facts_for() reads confirmed mappings and nothing else."""
+    f = request.form
+    back = _mapping_back(f)
+    try:
+        row = store.confirm_mapping(f.get("platform", ""), f.get("account_id", ""),
+                                    f.get("campaign_id", ""), by=actor_name())
+    except ValueError as exc:
+        return redirect(back + "?error=" + str(exc).replace(" ", "+"))
+    if row is None:
+        return redirect(back + "?error=That+campaign+is+not+mapped.")
+    name = row.client_name or row.client
+    _log("campaign_confirmed", client=name, client_key=row.client,
+         platform=row.platform, campaign_id=row.campaign_id, product=row.product or None,
+         detail=f"{store.platform_label(row.platform)} campaign {row.campaign_id} confirmed "
+                f"as {name}'s ({row.product or 'no product'}); it is on their page from now")
+    return redirect(back + "?saved=confirmed")
+
+
+@app.route("/unmapped/refuse", methods=["POST"])
+def refuse_mapping():
+    """Not theirs: the proposal is deleted, the refusal remembered so the
+    auto-mapper does not re-file the same name under the same client, and
+    the campaign is back on the unmapped queue for a person to file."""
+    f = request.form
+    back = _mapping_back(f)
+    try:
+        gone = store.refuse_mapping(f.get("platform", ""), f.get("account_id", ""),
+                                    f.get("campaign_id", ""), by=actor_name())
+    except ValueError as exc:
+        return redirect(back + "?error=" + str(exc).replace(" ", "+"))
+    if gone is None:
+        return redirect(back + "?error=That+campaign+is+not+mapped.")
+    name = gone["client_name"] or gone["client"]
+    _log("campaign_refused", client=name, client_key=gone["client"],
+         platform=gone["platform"], campaign_id=gone["campaign_id"],
+         product=gone["product"] or None,
+         detail=f"{store.platform_label(gone['platform'])} campaign "
+                f"{gone['campaign_name'] or gone['campaign_id']} is not {name}'s; "
+                f"the auto-mapper's filing was refused and it is back on the unmapped queue")
+    for token in [l.token for l in [store.link_for_client(gone["client"])] if l]:
+        client_view.forget(token)
+    return redirect(url_for("unmapped") + "?saved=refused" if f.get("back") != "client"
+                    else back + "?saved=refused")
 
 
 @app.route("/api/clients")
@@ -587,6 +647,7 @@ def client_page(client):
         period=rng, period_key=period,
         preview=client_view.aggregate(link, period) if link else None,
         campaigns=store.mapped_campaigns_for(client),
+        pending=[m for m in store.mapped_campaigns_for(client) if m.get("pending")],
         blank_products=client_view.blank_products(client),
         products=products.catalog(),
         pacing=client_view.pacing(client, today),

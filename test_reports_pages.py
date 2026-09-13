@@ -113,7 +113,8 @@ for rule in reports_app.app.url_map.iter_rules():
     ROUTES.append((path, methods))
 check("the module serves the staff screens, the picker's search and the client's page",
       sorted({p for p, _ in ROUTES}),
-      sorted(["/", "/unmapped", "/markup", "/budgets", "/budgets/1", "/provider-check", "/audiogo-check",
+      sorted(["/", "/unmapped", "/unmapped/confirm", "/unmapped/refuse",
+              "/markup", "/budgets", "/budgets/1", "/provider-check", "/audiogo-check",
               "/pacing", "/pacing.csv", "/cost", "/cost.csv",
               "/api/clients", "/health", "/client/x", "/client/x/campaign", "/client/x/link", "/client/x/push",
               "/r/c/x", "/r/c/x.pdf", "/r/c/x/data.json"]))

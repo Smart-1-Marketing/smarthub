@@ -289,7 +289,19 @@ auto = [e for e in entries if e.get("action") == "campaign_automapped"]
 check("the automap wrote an activity row under the client's name",
       bool(auto) and auto[0].get("client") == "Acme Plumbing" and auto[0].get("module") == "reports")
 sync = [e for e in entries if e.get("action") == "reports_sync"]
-check("the sync wrote one activity row per client touched",
+# Acme's only mapping so far is the auto-mapper's proposal, and a proposal
+# is not yet a fact about whose campaign it is: a sync row on Acme's record
+# would say we synced their campaigns before anybody had agreed they were
+# theirs. Confirmed, the next run files it.
+check("no sync row while the client's only mapping is waiting for confirmation", sync, [])
+check("...because the automap's filing is pending",
+      store.mapped_campaigns(limit=100)[0].get("pending") in (True, False) and
+      all(m["pending"] for m in store.mapped_campaigns(limit=100) if m["client"] == "d:acme.com"))
+store.confirm_mapping("google", "123-456", "g-1", by="Todd")
+normalize.run(today=TODAY, actor="test")
+entries = [json.loads(l) for l in Path(os.environ["AUDIT_LOG_PATH"]).read_text().splitlines() if l.strip()]
+sync = [e for e in entries if e.get("action") == "reports_sync"]
+check("confirmed, the sync wrote one activity row per client touched",
       sorted(e.get("client") for e in sync[:1]), ["Acme Plumbing"])
 check("...saying what it did", bool(sync) and sync[0]["detail"].startswith("synced "))
 check("...and not for the client whose campaign received no rows",

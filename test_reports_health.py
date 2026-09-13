@@ -160,13 +160,14 @@ section("The scoreboard, and its route")
 store.map_campaign("ttd", "adv-1", "c-1", client="n:acme-co", client_name="Acme Co",
                    product="Streaming TV", mapped_by="Todd")
 sb = health.scoreboard()
-check("measured, with the six counts", (sb["measured"], sorted(sb["counts"])),
-      (True, ["alerts", "failing", "never", "ok", "stale", "unmapped"]))
+check("measured, with the seven counts", (sb["measured"], sorted(sb["counts"])),
+      (True, ["alerts", "failing", "never", "ok", "pending", "stale", "unmapped"]))
+check("a mapping a person made is not pending", sb["counts"]["pending"], 0)
 check("unmapped counts the campaigns filed under nobody", sb["counts"]["unmapped"], 2)
 check("alerts is a number rather than None when the snapshot table answers", sb["counts"]["alerts"], 0)
 check("the line says what is filed and what is pacing, in words",
       "filed under nobody" in sb["line"] and "nothing pacing off" in sb["line"])
-check("every figure has somewhere to open", sorted(sb["urls"]), ["alerts", "feeds", "pacing", "unmapped"])
+check("every figure has somewhere to open", sorted(sb["urls"]), ["alerts", "feeds", "pacing", "pending", "unmapped"])
 
 _ps = store.platform_status
 store.platform_status = lambda: [dict(r, synced_at=None, sync_run_at=None, sync_error="", latest_date=None)
@@ -242,7 +243,8 @@ section("Wired in")
 
 ci = (ROOT / ".github" / "workflows" / "checks.yml").read_text(encoding="utf-8")
 check("checks.yml runs this file", "python3 test_reports_health.py" in ci)
-check("...and the Postgres loop runs it too", "test_reports_health.py; do" in ci)
+loop = ci[ci.index("The reports tests against Postgres"):].split("done", 1)[0]
+check("...and the Postgres loop runs it too", "test_reports_health.py" in loop)
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{_passed} passed, {_failed} failed")
