@@ -114,6 +114,8 @@ def database_url() -> str:
     try:
         os.makedirs(base, exist_ok=True)
     except OSError:
+        # A root that cannot be created is reported by the engine on first
+        # use, in words; a database URL must still resolve here.
         pass
     return "sqlite:///" + os.path.join(base, "reports.sqlite3")
 

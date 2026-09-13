@@ -184,7 +184,6 @@ r = {r["line_id"]: r for r in pacing.compute(TODAY)}[line_p.id]
 check("a line naming a platform counts only that platform's campaigns of the product: none here",
       (r["unmapped"], r["actual_to_date"]), (True, Decimal("0.00")))
 store.update_budget_line(line_p.id, status="ended")
-line_any = store.add_budget_line(client=A, client_name="Acme Co", product="", monthly_budget="10000") if False else None
 check("the band boundaries: 0.8999 under, 0.90 on, 1.10 on, 1.1001 over",
       [pacing.band_for(x) for x in (0.8999, 0.90, 1.10, 1.1001)], ["under", "on", "on", "over"])
 check("a line whose flight has not started does not pace",
@@ -200,8 +199,8 @@ check("a flight cut at both ends is the days between", (per["days_in_period"], p
 section("The alert is a three-day trend, never one day")
 
 # Day 1 of the search line being under: no alert.
-res = pacing.run(TODAY - timedelta(days=2))
-res = pacing.run(TODAY - timedelta(days=1))
+pacing.run(TODAY - timedelta(days=2))
+pacing.run(TODAY - timedelta(days=1))
 snap = {r["line_id"]: r for r in store.latest_snapshots()}
 check("after two days under, trend_days is 2 and there is no alert",
       (snap[L_SEARCH.id]["trend_days"], snap[L_SEARCH.id]["alert"]), (2, False))

@@ -60,7 +60,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 import time as _time
 
 import requests

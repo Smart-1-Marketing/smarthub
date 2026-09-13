@@ -365,7 +365,7 @@ r = staff.post(f"/reports/client/{CLIENT}/link", data={
 check("both boxes on one platform is refused", "not+both" in r.headers.get("Location", ""))
 check("the settings and the link writes reached the activity log under the client",
       "report_link_settings" in {e.get("type") for e in entries() if e.get("client") == NAME})
-r = staff.post(f"/reports/client/{CLIENT}/link", data={"action": "regenerate"})
+staff.post(f"/reports/client/{CLIENT}/link", data={"action": "regenerate"})
 check("regenerating from the page logs it under the client",
       [e for e in entries() if e.get("type") == "report_link_regenerated"][-1].get("client"), NAME)
 link2 = store.link_for_client(CLIENT)

@@ -265,7 +265,6 @@ check("the rows land through the store", store.upsert_rows(p["rows"]), 2)
 for fname in ("env.example", "render.yaml"):
     check(f"{fname} documents AUDIOGO_API_KEY and AUDIOGO_API_BASE",
           all(k in (ROOT / fname).read_text(encoding="utf-8") for k in ("AUDIOGO_API_KEY", "AUDIOGO_API_BASE")))
-from hub import scheduler                                            # noqa: E402
 body = (ROOT / "hub" / "scheduler.py").read_text(encoding="utf-8")
 body = body[body.index("def job_reports_native_pull"):body.index("\nJOBS = {")]
 check("the native job pulls AudioGo in the same loop", '("audiogo", audiogo.pull)' in body)
@@ -274,16 +273,15 @@ shutil.rmtree(TMP, ignore_errors=True)
 
 
 # --- Render's spelling of the key is read too -----------------------------
-if True:
-    import os as _os
-    from modules.reports import audiogo as _ag
-    _saved = {k: _os.environ.pop(k, None) for k in _ag.KEY_ENV}
-    _os.environ["AUDIO_GO_API"] = "alias-key"
-    check("AUDIO_GO_API is read as the key", _ag.cfg()["key"], "alias-key")
-    for k, v in _saved.items():
-        _os.environ.pop(k, None)
-        if v is not None:
-            _os.environ[k] = v
+import os as _os
+from modules.reports import audiogo as _ag
+_saved = {k: _os.environ.pop(k, None) for k in _ag.KEY_ENV}
+_os.environ["AUDIO_GO_API"] = "alias-key"
+check("AUDIO_GO_API is read as the key", _ag.cfg()["key"], "alias-key")
+for k, v in _saved.items():
+    _os.environ.pop(k, None)
+    if v is not None:
+        _os.environ[k] = v
 
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

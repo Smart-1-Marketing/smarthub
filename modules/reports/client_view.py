@@ -108,6 +108,8 @@ def period_range(period: str, today: date | None = None) -> dict:
                     end = today
                 return {"key": p, "label": f"{start:%B %Y}", "start": start, "end": end}
         except ValueError:
+            # Not a real month (2026-13): fall through to month-to-date
+            # rather than 500 the client's page over a typed period.
             pass
     start = today.replace(day=1)
     return {"key": "mtd", "label": f"{today:%B %Y} (month to date)",

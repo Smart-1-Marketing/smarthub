@@ -232,7 +232,7 @@ check("a CPM is a CPM", str(have["ttd"]["cpm"]), "12.50")
 r = staff.post("/reports/markup", data={"markup_google": "abc"}, follow_redirects=True)
 check("a non-number is refused with the platform named",
       "Google Ads" in r.get_data(as_text=True) and "not a number" in r.get_data(as_text=True))
-r = staff.post("/reports/markup", data={"cpm_ttd": "12.5"}, follow_redirects=True)
+staff.post("/reports/markup", data={"cpm_ttd": "12.5"}, follow_redirects=True)
 check("a blank row clears the platform",
       [m["platform"] for m in store.markups() if m["markup"] is not None or m["cpm"] is not None],
       ["ttd"])
