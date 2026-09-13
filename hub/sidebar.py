@@ -140,6 +140,16 @@ _ITEMS = [
     # it is the one tool here that can start spend in a client's own
     # account, and it is opened directly rather than looked up.
     ("ads", "/tools/ads/", "&#128227;", "Smart 1 Ads"),
+    # Directly under Smart 1 Ads because it is the other half of the same
+    # question: that screen starts the spend, this one says what it did --
+    # every platform's performance, the campaigns not yet filed under a
+    # client, and the budgets they pace against.
+    ("reports", "/reports/", "&#128202;", "Reports"),
+    # Under Reports, the two internal reports it holds: how every sold line
+    # is spending against its budget, and what the month cost against what
+    # the client pays. Staff only, and never linked from a client's page.
+    ("reports_pacing", "/reports/pacing", "&#9201;", "Pacing"),
+    ("reports_cost", "/reports/cost", "&#128181;", "Cost Report"),
     ("qa", "/qa", "&#9989;", "QA Reports"),
     # Directly under QA Reports, because it is the other half of the same
     # question: those pages say what is wrong, and this one is how somebody

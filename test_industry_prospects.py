@@ -61,6 +61,46 @@ class BuilderTests(unittest.TestCase):
         service.approve(plan['id'], 'tester', True)
         return plan['id']
 
+    def test_preview_does_not_enable_paid_operations(self):
+        with patch.dict(os.environ, {'PROSPECT_PAID_ENABLED': '0'}):
+            plan = service.quote('c1', ['p1'], 'tester')
+            self.assertFalse(plan['approved'])
+            self.assertEqual(plan['max_verifications'], 1)
+            with self.assertRaises(store.ProspectError):
+                service.approve(plan['id'], 'tester', True)
+
+    def test_read_checks_do_not_write_or_spend(self):
+        with patch.object(provider, 'saved_page', return_value=([], 0)), \
+             patch.object(provider, 'apollo', return_value={'people': [], 'total_entries': 0}) as apollo, \
+             patch.object(provider, 'ghl_page', side_effect=store.ProspectError('Denied')):
+            result = service.test_connections('tester')
+        self.assertEqual([r['ok'] for r in result['checks']], [True, True, False])
+        self.assertEqual(apollo.call_args.args[0], 'mixed_people/api_search')
+        self.assertEqual(store.rows('purchase'), [])
+        self.assertNotIn('scope', result)
+
+    def test_manual_background_sync_survives_page_close(self):
+        with patch.dict(os.environ, {'HUB_SCHEDULER': '1', 'PROSPECT_AUTO_SYNC': '0'}):
+            job = service.queue_sync('tester')
+            self.assertEqual(service.queue_sync('tester'), job)
+            with patch.object(service, 'sync_step', return_value={'phase': 'complete'}):
+                service.scheduled_step(Flask(__name__))
+            self.assertEqual(store.get('sync-job')['status'], 'complete')
+
+    def test_background_error_pauses_without_retry(self):
+        with patch.dict(os.environ, {'HUB_SCHEDULER': '1', 'PROSPECT_AUTO_SYNC': '1'}):
+            service.queue_sync('tester')
+            with patch.object(service, 'sync_step', side_effect=store.ProspectError('Provider unavailable')) as step:
+                service.scheduled_step(Flask(__name__))
+                service.scheduled_step(Flask(__name__))
+                self.assertEqual(step.call_count, 1)
+            self.assertEqual(store.get('sync-job')['status'], 'paused')
+            self.assertIsNone(store.get('operation-lock'))
+
+    def test_recovery_never_offers_repurchase_of_saved_email(self):
+        hint = service.recovery_hint({'id': 'p1', 'status': 'verify_pending', 'email': 'a@example.com'})
+        self.assertIn('do not purchase', hint)
+
     def buy(self, plan=None):
         plan = plan or self.plan()
         with patch.object(provider, 'enrich', return_value={'person': PERSON}) as reveal, \
@@ -175,7 +215,7 @@ class BuilderTests(unittest.TestCase):
         with self.assertRaises(store.ProspectError): service.approve(plan['id'], 'other', True)
         with self.assertRaises(store.ProspectError): service.approve(plan['id'], 'tester', False)
         with patch.dict(os.environ, {'PROSPECT_PAID_ENABLED': '0'}):
-            with self.assertRaises(store.ProspectError): service.quote('c1', ['p1'], 'tester')
+            with self.assertRaises(store.ProspectError): service.approve(plan['id'], 'tester', True)
 
     def test_concurrent_worker_lock(self):
         with store.operation('one', 'buy'):

@@ -90,6 +90,42 @@ services:
         value: https://api.smart1sites.com
       - key: DATABASE_URL
         sync: false
+      # The reporting tables (modules/reports) live in the dedicated
+      # smart1-reports-db instance rather than the Hub database: the Hub's
+      # Postgres sits on a 1 GB disk, and the ad-performance fact table --
+      # one row per campaign per day across thirteen platforms -- would be
+      # the first thing to fill it. Blank falls back to DATABASE_URL.
+      - key: REPORTS_DATABASE_URL
+        sync: false
+      # The schema the data provider writes raw per-platform rows into, in
+      # that same database; the hourly normalize reads it.
+      - key: REPORTS_PROVIDER_SCHEMA
+        value: "raw_windsor"
+      # The native Trade Desk pull: a long-lived API token (TTD-Auth header)
+      # and the partner id. Unset, /reports/ says so and the pull skips it.
+      - key: TTD_API_TOKEN
+        sync: false
+      - key: TTD_PARTNER_ID
+        sync: false
+      # The MyReports template the pull's daily report schedule is created
+      # from, once; and the API base (production by default).
+      - key: TTD_REPORT_TEMPLATE_ID
+        sync: false
+      - key: TTD_API_BASE
+        value: "https://api.thetradedesk.com/v3"
+      # The native StackAdapt pull: the API key, sent as a bearer token to
+      # the GraphQL endpoint. Unset, /reports/ says so and the pull skips it.
+      - key: STACKADAPT_API_KEY
+        sync: false
+      - key: STACKADAPT_API_ENDPOINT
+        value: "https://api.stackadapt.com/graphql"
+      # The native AudioGo pull: the Reporting API key and origin. The field
+      # map is a placeholder until the spec arrives; /reports/audiogo-check
+      # is where it is corrected from.
+      - key: AUDIOGO_API_KEY
+        sync: false
+      - key: AUDIOGO_API_BASE
+        sync: false
       - key: MOCK_MODE
         value: "false"
       - key: ENABLE_WRITE_ACTIONS
