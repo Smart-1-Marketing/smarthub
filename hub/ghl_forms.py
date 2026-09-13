@@ -17,7 +17,7 @@ panel misleads.
     GET /forms/               list forms for a location
     GET /forms/submissions    submissions, filtered by form and date range
 
-Both need the `forms.readonly` scope on the Private Integration Token.
+Both need `forms.readonly` and a token scoped to the client's sub-account.
 """
 from __future__ import annotations
 
@@ -40,8 +40,26 @@ def _token() -> str:
     return ""
 
 
-def _headers() -> dict:
-    return {"Authorization": f"Bearer {_token()}", "Version": VERSION,
+def _headers(location_id: str) -> dict:
+    from hub import ghl_oauth
+
+    if ghl_oauth.status().get("connected"):
+        try:
+            token = ghl_oauth.location_token(location_id)
+        except Exception as exc:
+            # Do not fall back to a shared private token after a client-specific
+            # authorization fails: that token may belong to another account.
+            raise RuntimeError(
+                "Smart 1 Suite could not authorize forms for this client's "
+                "sub-account. Check that the Suite app is installed there "
+                "with forms.readonly access.") from exc
+    else:
+        token = _token()
+    if not token:
+        raise RuntimeError(
+            "No Smart 1 Suite token is available. Connect the Suite app "
+            "with forms.readonly access to read this client's forms.")
+    return {"Authorization": f"Bearer {token}", "Version": VERSION,
             "Accept": "application/json"}
 
 
@@ -104,14 +122,15 @@ def window(period: str, today: date | None = None) -> tuple[date, date, date, da
 def _get(path: str, params: dict) -> dict:
     import requests
     try:
-        r = requests.get(f"{BASE}{path}", headers=_headers(), params=params,
+        r = requests.get(f"{BASE}{path}",
+                         headers=_headers(str(params.get("locationId") or "")), params=params,
                          timeout=TIMEOUT)
     except requests.RequestException as exc:
         raise RuntimeError(f"Couldn't reach Smart 1 Suite ({type(exc).__name__}).")
     if r.status_code in (401, 403):
         raise RuntimeError(
-            "Smart 1 Suite rejected the request. The Private Integration "
-            "Token probably lacks the forms.readonly scope.")
+            "Smart 1 Suite rejected the forms request. Check that the "
+            "connection has forms.readonly access to this sub-account.")
     if not r.ok:
         raise RuntimeError(f"Smart 1 Suite returned HTTP {r.status_code}.")
     try:
@@ -227,10 +246,6 @@ def summary(client: str, location_id: str = "", period: str = "this_month",
                          "sub-account. A company id here reads every form as "
                          "missing.",
                 "measured": False, "forms": [], "period": period}
-    if not _token():
-        return {"error": "No Smart 1 Suite token is configured, so forms "
-                         "cannot be read.",
-                "measured": False, "forms": [], "period": period}
     if not loc:
         return {"error": "No Smart 1 Suite sub-account for this client.",
                 "measured": False, "forms": [], "period": period}
@@ -239,7 +254,8 @@ def summary(client: str, location_id: str = "", period: str = "this_month",
     try:
         all_forms = forms(loc)
     except RuntimeError as exc:
-        return {"error": str(exc), "forms": [], "period": period}
+        return {"error": str(exc), "measured": False,
+                "forms": [], "period": period}
 
     rows, skipped, unreadable = [], 0, 0
     for f in all_forms:
