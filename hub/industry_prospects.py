@@ -79,7 +79,60 @@ def status():
             "fresh": fresh, "paid_enabled": os.environ.get("PROSPECT_PAID_ENABLED") == "1",
             "auto_sync": os.environ.get("PROSPECT_AUTO_SYNC") == "1",
             "campaigns": sorted(store.rows("campaign"), key=lambda r: r["created"], reverse=True)[:30],
-            "lock": store.get("operation-lock"), "industries": INDUSTRIES}
+            "lock": store.get("operation-lock"), "industries": INDUSTRIES,
+            "connections": connection_status(),
+            "sync_job": {k: v for k, v in store.get("sync-job", {}).items() if k != "scope"},
+            "expires_at": sync.get("completed", 0) + MAX_AGE if fresh else None}
+
+
+def connection_status():
+    checked = store.get("connection-check", {})
+    try:
+        locations = provider.locations() if provider.ghl.configured() else []
+        valid = checked.get("scope") == scope() and time.time() - checked.get("checked", 0) < MAX_AGE
+        error = ""
+    except (ProspectError, provider.ghl.NotConfigured) as exc:
+        locations, valid, error = [], False, str(exc)
+    return {"apollo_configured": bool(provider.apollo_key()),
+            "ghl_configured": provider.ghl.configured(), "locations": locations,
+            "configuration_error": error, "checked": checked.get("checked") if valid else None,
+            "checks": checked.get("checks", []) if valid else [],
+            "untested": "Contact writes, paid enrichment and billed email verification require separate account validation."}
+
+
+def test_connections(actor):
+    if not provider.apollo_key() or not provider.ghl.configured():
+        raise ProspectError("Configure Apollo and GHL before testing read access.")
+    checks = []
+    targets = [("Apollo saved contacts", lambda: provider.saved_page(1)),
+               ("Apollo people search", lambda: provider.apollo("mixed_people/api_search", params={"page": 1, "per_page": 1}))]
+    targets += [("GHL contacts: " + loc, lambda loc=loc: provider.ghl_page(loc, 1)) for loc in provider.locations()]
+    for name, probe in targets:
+        try:
+            result = probe()
+            if name == "Apollo people search" and (not isinstance(result.get("people"), list) or not isinstance(result.get("total_entries"), int)):
+                raise ProspectError("Unexpected people-search response.")
+            checks.append({"name": name, "ok": True, "detail": "Read access confirmed"})
+        except ProspectError as exc:
+            checks.append({"name": name, "ok": False, "detail": str(exc)})
+    store.put("connection-check", "state", {"checks": checks, "checked": time.time(), "scope": scope(), "actor": actor})
+    return connection_status()
+
+
+def queue_sync(actor, resume=False):
+    from hub import scheduler
+    if not scheduler.enabled():
+        raise ProspectError("The background scheduler is disabled. Ask an administrator to enable it.")
+    existing = store.get("sync-job", {})
+    if existing.get("status") == "queued":
+        return existing
+    if not resume:
+        start_sync(actor)
+    elif not store.get("sync") or store.get("sync", {}).get("scope") != scope():
+        raise ProspectError("Start a new sync for this connection.")
+    job = {"status": "queued", "actor": actor, "updated": time.time(), "scope": scope()}
+    store.put("sync-job", "state", job)
+    return job
 
 
 def start_sync(actor):
@@ -257,7 +310,6 @@ def paid_enabled():
 
 
 def quote(cid, ids, actor):
-    paid_enabled()
     ready()
     campaign(cid)
     if not isinstance(ids, list) or not 1 <= len(ids) <= 100 or any(not isinstance(pid, str) for pid in ids) or len(set(ids)) != len(ids):
@@ -273,7 +325,8 @@ def quote(cid, ids, actor):
             raise ProspectError(reason + ". Refresh the audience before purchase.")
     plan = {"id": uuid.uuid4().hex, "campaign": cid, "ids": ids, "actor": actor,
             "created": time.time(), "scope": scope(), "approved": False,
-            "max_email_credits": len(ids), "note": "Up to one Apollo credit per selected person; no phone or waterfall enrichment. GHL verification is separately billed at your account rate."}
+            "max_email_credits": len(ids), "max_verifications": len(ids),
+            "note": "Planning estimate: one Apollo email credit per person. Actual credits depend on your Apollo plan; this is not a billing quote. GHL verification is separately billed at your account rate. No phone or waterfall enrichment."}
     store.put("plan:" + plan["id"], "plan", plan)
     return plan
 
@@ -368,15 +421,40 @@ def import_one(pid, actor):
 
 def history(cid):
     campaign(cid)
-    return [{k: row.get(k) for k in ("id", "campaign", "status", "email", "reason", "contact_id", "created")}
+    return [{**{k: row.get(k) for k in ("id", "campaign", "status", "email", "reason", "contact_id", "created")},
+             "recovery": recovery_hint(row)}
             for row in store.rows("purchase") if row["campaign"] == cid]
 
 
+def recovery_hint(row):
+    if row.get("status") in {"review_required", "reveal_pending", "verify_pending", "import_pending", "revealed"}:
+        if row.get("imported_by"):
+            return "Check GHL for this exact email before reconciling the import. Do not repeat the upsert blindly."
+        if row.get("email"):
+            return "Email is already saved. Check GHL verification history; do not purchase this person again."
+        return "Check Apollo credit and enrichment history for person " + row["id"] + ". The paid attempt is saved and will not be retried automatically."
+    return ""
+
+
 def scheduled_step(app):
-    if os.environ.get("PROSPECT_AUTO_SYNC") != "1":
+    job = store.get("sync-job", {})
+    manual = job.get("status") == "queued"
+    if job.get("status") == "paused":
+        return {"skipped": "Sync paused. Review the error and resume explicitly."}
+    if not manual and os.environ.get("PROSPECT_AUTO_SYNC") != "1":
         return {"skipped": "Automatic suppression sync is off"}
     with app.app_context():
         with store.operation("scheduler", "suppression sync"):
+            if manual:
+                try:
+                    if job.get("scope") != scope():
+                        raise ProspectError("Connection changed. Start a new sync.")
+                    result = sync_step()
+                    job.update(status="complete" if result["phase"] == "complete" else "queued", updated=time.time())
+                except ProspectError as exc:
+                    job.update(status="paused", error=str(exc), updated=time.time())
+                store.put("sync-job", "state", job)
+                return {k: v for k, v in job.items() if k != "scope"}
             sync = store.get("sync", {})
             if not sync or (sync.get("phase") == "complete" and time.time() - sync.get("completed", 0) > 1800):
                 start_sync("scheduler")

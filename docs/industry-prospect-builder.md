@@ -20,9 +20,17 @@ Staff page: `/sales/industry-prospects`, under **Sales → Industry Prospects**.
 1. Set `APOLLO_API_KEY` with access to People API Search, Contacts Search, Bulk Create Contacts and People Match. Actual access depends on the Apollo account/plan.
 2. Reuse the Hub's `GHL_PRIVATE_TOKEN` / `SMART1SUITE_PRIVATE_TOKEN` and `GHL_LEAD_LOCATION_ID`. Use the Smart 1 Marketing **location ID**, not an agency/company ID. The token needs contact read/write access and permission to use billed email verification.
 3. Optional `PROSPECT_SUPPRESSION_LOCATION_IDS`: additional comma-separated sub-account IDs; the token must cover every account. The primary account is always included. Maximum 20 accounts. Account discovery and exporting all agency accounts are not automatic.
-4. Open the page, run suppression sync and wait for both stages to complete. If a call fails, reopen and choose Resume. A failed/incomplete source prevents search and purchase. Use a small audience to validate your account's provider response shapes before enabling paid operations.
+4. Open the page and choose **Test read access**. This probes existing Apollo search/contact and GHL contact-read endpoints; it does not validate write permissions or billing. Then start background suppression sync and wait for both stages to complete. A queued job advances one page per scheduler tick, even after the browser closes. Use **Refresh progress** to check it. Provider errors pause the job; review the error before choosing Resume. A failed/incomplete source prevents search and purchase.
 5. Set `PROSPECT_PAID_ENABLED=1` only after provider access and account billing have been checked. The UI still requires approval of the exact selection and the separate GHL verification charges. No paid calls were made during development.
-6. Set `PROSPECT_AUTO_SYNC=1` to enable background suppression. Both flags default off. Normal scheduler leadership locking applies. For large books, the page's Resume loop progresses faster than the one-page-per-minute background job.
+6. Set `PROSPECT_AUTO_SYNC=1` to enable recurring suppression. Both prospect flags default off. A manually queued one-time sync does not require this flag, but it requires the normal Hub scheduler (`HUB_SCHEDULER`, enabled by default on Render). Normal scheduler leadership and operation locking apply. Paused jobs require explicit resumption even when recurring sync is enabled.
+
+## Workflow improvements
+
+- Connection readiness shows configured accounts, recent read-check results and untested permissions. Checks expire after one hour or a credential/location change. Provider payloads and credentials are not sent to the browser.
+- Navigation links and next-action text guide Sync → Search → Review → Import. Search and purchase controls explain the suppression prerequisite. Saved history can be opened independently of a new search.
+- Selection review is available while paid operations are disabled. Approval and purchase still enforce the server-side paid gate. The displayed credits are a planning estimate, not an account billing quote; GHL verification volume is shown separately and dollar pricing remains unknown.
+- Interrupted purchase/import rows include stage-specific reconciliation guidance. The interface never clears the operation lock or retries an uncertain paid call.
+- Background purchasing, automated paid reconciliation and GHL webhooks are not introduced in this change. Purchases still run from the reviewed browser workflow. Live provider validation remains required before enabling them.
 
 ## Deliberate limits
 

@@ -177,6 +177,12 @@ HUB_PAGES = [
     # manufacture, and a token nothing has ever heard of answers 404 by
     # design (test_weather_setup.py covers that page instead).
     "/tools/weather-setup/",
+    # Reports: the provider check and a client's internal view. Both are
+    # dispatcher-mounted module pages drawn server-side from the reports
+    # database, and the client page takes a Hub key in the path -- a sweep of
+    # mount roots lands on /reports/ alone and reports these green unasked.
+    "/reports/provider-check",
+    "/reports/client/n:pagecheck-client",
 ]
 
 # Mounted modules whose root is not a staff page, so no sidebar is expected:
