@@ -78,7 +78,8 @@ import hub.extensions as hub_extensions                              # noqa: E40
 import hub.proposals as proposals_mod                                # noqa: E402
 import hub as hub_pkg                                                # noqa: E402
 import hub.auth as auth                                              # noqa: E402
-from hub import creative_needs, creative_specs                       # noqa: E402
+import hub.creative_needs as creative_needs                          # noqa: E402
+import hub.creative_specs as creative_specs                          # noqa: E402
 from werkzeug.test import Client as WSGIClient                       # noqa: E402
 
 hub_app = wsgi.hub_app
@@ -138,7 +139,8 @@ check("paid search's creative is ad copy", any(it["kind"] == "copy" and it["chan
 check("a YouTube in-market buy asks for one spot, not the kit's six formats",
       sum(1 for it in plan["creative"] if it["channel"] == "youtube_ads"), 1)
 
-src = open(os.path.join(ROOT, "hub", "proposal_plan.py"), encoding="utf-8").read()
+with open(os.path.join(ROOT, "hub", "proposal_plan.py"), encoding="utf-8") as fh:
+    src = fh.read()
 code_only = re.sub(r'"""[\s\S]*?"""', "", src)
 code_only = "\n".join(l for l in code_only.splitlines() if not l.strip().startswith("#"))
 check("no banner size is typed into the plan module -- the kit is the one source",
@@ -263,7 +265,7 @@ before = json.dumps(reviewed, sort_keys=True)
 try:
     pp.apply_decisions(reviewed, {"accept": {first: True}, "remove": ["no-such-id"]})
 except ValueError:
-    pass
+    pass  # the refusal is the point; what is asserted is the plan beneath it, next line
 check("a refused decision leaves the plan exactly as it was", json.dumps(reviewed, sort_keys=True), before)
 answered = pp.apply_decisions(reviewed, {"answers": {"launch_date": "October 1"}})
 check("an answer is stored against its question", answered["answers"].get("launch_date"), "October 1")
@@ -352,7 +354,8 @@ with hub_app.app_context():
 
 # ---------------------------------------------------------------------------
 section("The page writes directions, not JSON")
-tpl = open(os.path.join(ROOT, "hub", "templates", "proposal_execution.html"), encoding="utf-8").read()
+with open(os.path.join(ROOT, "hub", "templates", "proposal_execution.html"), encoding="utf-8") as fh:
+    tpl = fh.read()
 check("no task result is printed as a JSON dump", "JSON.stringify(r,null,2)" not in tpl
       and "JSON.stringify(r, null, 2)" not in tpl)
 check("the page carries the three plan lists", all(k in tpl for k in ("planLists", "planAccept", "planAdd")))

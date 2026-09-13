@@ -625,7 +625,6 @@ def questions(analysis: dict, items: dict, text: str, client: str,
         # model quoted a line that is really in the text, or a line naming
         # the channel says who makes it. Any of them is the document's
         # answer; none of them stops a person changing it.
-        inferred, line = "", ""
         recipe = RECIPES.get(key) or {}
         if recipe.get("supplier"):
             inferred, line = recipe["supplier"], "This product includes production."
