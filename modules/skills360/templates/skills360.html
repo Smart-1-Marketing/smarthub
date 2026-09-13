@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>360 Skills</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f4f6f9;color:#1a2b3c;margin:0;padding:24px}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:#5a6b7c;margin:0 0 20px;max-width:760px}
+  .card{background:#fff;border-radius:10px;padding:20px;margin-bottom:20px;box-shadow:0 1px 6px rgba(0,0,0,.06)}
+  .card h2{font-size:15px;margin:0 0 6px;color:#1a2b3c;display:flex;align-items:center;gap:8px}
+  .card h2 .ico{font-size:18px}
+  .blurb{color:#5a6b7c;font-size:13px;margin:0 0 12px;line-height:1.5}
+  label{display:block;font-size:12px;font-weight:600;color:#5a6b7c;margin:10px 0 4px}
+  input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid #d6dde5;border-radius:6px;font-size:14px;background:#fff}
+  .help{font-size:11.5px;color:#7b8794;margin-top:3px}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .row > div{flex:1;min-width:220px}
+  button{background:#2563eb;color:#fff;border:none;border-radius:6px;padding:9px 16px;font-size:13.5px;cursor:pointer}
+  button.ghost{background:#fff;color:#2563eb;border:1px solid #2563eb}
+  button.warn{background:#fff;color:#9c2b25;border:1px solid #e5b4b0}
+  button:disabled{opacity:.5;cursor:default}
+  .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center}
+  .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:600}
+  .pill.on{background:#eafaf0;color:#0a6b3c}.pill.off{background:#eef2f7;color:#3a4d61}
+  .pill.warn{background:#fff4e5;color:#92400e}.pill.bad{background:#fdeceb;color:#9c2b25}
+  .msg{margin-top:12px;padding:10px 12px;border-radius:6px;font-size:13px;display:none;line-height:1.5}
+  .msg.ok{background:#eafaf0;color:#0a6b3c;display:block}
+  .msg.err{background:#fdeceb;color:#9c2b25;display:block}
+  .msg.note{background:#eef2f7;color:#3a4d61;display:block}
+  .picker{position:relative}
+  .drop{position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid #d6dde5;border-radius:6px;z-index:5;max-height:260px;overflow:auto;display:none}
+  .drop div{padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f4f7}
+  .drop div:hover{background:#f4f6f9}
+  .drop small{color:#7b8794;margin-left:6px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid #eef1f4;vertical-align:top}
+  th{color:#5a6b7c;font-weight:600}
+  code{background:#f4f6f9;padding:1px 5px;border-radius:4px;font-size:12px}
+  .share-url{font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all}
+  .chk{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;font-size:13px;margin-top:8px}
+  .chk .k{color:#5a6b7c}
+  .dns{margin-top:8px}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+  <h1>360 Skills {{ help_dot('skills360.activate') if help_dot is defined else '' }}</h1>
+  <p class="sub">Look up a client and switch on what their Client 360 record can do. A skill is
+    switched on only after it has been checked against the live source -- the card on Client 360
+    appears when the check passes, and not before.</p>
+
+  <div class="card">
+    <h2>Client</h2>
+    <div class="picker">
+      <label for="client">Client name</label>
+      <input id="client" autocomplete="off" placeholder="Start typing a client…" value="{{ client }}">
+      <div class="drop" id="drop"></div>
+    </div>
+    <div class="acts">
+      <button type="button" id="load">Load skills</button>
+      <a id="c360link" class="hidden" href="#" style="font-size:13px">Open on Client 360 &rarr;</a>
+    </div>
+    <div class="msg" id="clientMsg"></div>
+  </div>
+
+  <div id="skills"></div>
+
+  <div class="card">
+    <h2>Clients with skills on</h2>
+    <div id="index" class="blurb">Loading…</div>
+  </div>
+
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const SKILLS={{ skills|tojson }};
+const MOUNT='/tools/360-skills';
+let record=null, current='';
+
+function j(url,opts){return fetch(url,Object.assign({credentials:'same-origin',headers:{'Content-Type':'application/json'}},opts||{})).then(r=>r.json());}
+function say(id,kind,text){const el=$(id); if(!el) return; el.className='msg '+kind; el.innerHTML=text;}
+
+/* ---- picker ---- */
+let t=null;
+$('client').addEventListener('input',()=>{clearTimeout(t); t=setTimeout(suggest,180);});
+$('client').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('drop').style.display='none'; load(); }});
+document.addEventListener('click',e=>{ if(!e.target.closest('.picker')) $('drop').style.display='none'; });
+async function suggest(){
+  const q=$('client').value.trim(); if(!q){$('drop').style.display='none';return;}
+  const d=await j(MOUNT+'/api/clients?q='+encodeURIComponent(q)).catch(()=>({clients:[]}));
+  const rows=d.clients||[]; if(!rows.length){$('drop').style.display='none';return;}
+  $('drop').innerHTML=rows.map(c=>`<div data-n="${esc(c.name)}">${esc(c.name)}<small>${esc(c.domain||'')}</small></div>`).join('');
+  $('drop').style.display='block';
+  $('drop').querySelectorAll('div').forEach(el=>el.onclick=()=>{ $('client').value=el.dataset.n; $('drop').style.display='none'; load(); });
+}
+$('load').onclick=load;
+
+/* ---- one client's skills ---- */
+async function load(){
+  current=$('client').value.trim(); if(!current){ say('clientMsg','err','Type a client name first.'); return; }
+  say('clientMsg','note','Loading…');
+  const d=await j(MOUNT+'/api/status?client='+encodeURIComponent(current)).catch(()=>null);
+  if(!d||!d.ok){ say('clientMsg','err','Could not read this client’s skills'+(d&&d.error?' ('+esc(d.error)+')':'')+'.'); return; }
+  record=d.record; $('clientMsg').className='msg';
+  $('c360link').href='/client360?q='+encodeURIComponent(current)+'#skills'; $('c360link').classList.remove('hidden');
+  render();
+}
+function render(){
+  const out=SKILLS.map(s=>{
+    const rec=(record.skills||{})[s.key]||{active:false};
+    const on=!!rec.active;
+    let fields=s.fields.map(f=>{
+      const val=f.secret?'':(rec[f.name]||'');
+      const ph=f.secret&&rec.token_set?('stored: '+esc(rec.token_masked||'••••')+' — leave blank to keep'):esc(f.placeholder||'');
+      return `<div><label for="f-${s.key}-${f.name}">${esc(f.label)}</label>
+        <input id="f-${s.key}-${f.name}" ${f.secret?'type="password"':''} placeholder="${ph}" value="${esc(val)}">
+        <div class="help">${esc(f.help||'')}</div></div>`;
+    }).join('');
+    let status=on?`<span class="pill on">On</span>`:`<span class="pill off">Off</span>`;
+    if(s.key==='ecwid'&&rec.store_name) status+=` <span class="pill off">${esc(rec.store_name)}${rec.order_count?' · '+rec.order_count+' orders':''}</span>`;
+    if(s.key==='email'&&rec.location_id) status+=` <span class="pill off">Suite ${esc(rec.location_id)}</span>`;
+    if(rec.token_set&&rec.token_readable===false) status+=` <span class="pill bad">stored token unreadable — re-enter</span>`;
+    let shares='';
+    if(s.shareable){
+      const mine=(record.shares||[]).filter(x=>x.skill===s.key);
+      shares=`<div style="margin-top:14px"><b style="font-size:13px">${esc(s.share_label||'Client link')}</b>
+        <div class="blurb" style="margin:4px 0 8px">A page the client can keep open. It shows only this skill, carries no Hub chrome, and stops working the moment the skill is switched off or the link is revoked.</div>
+        ${mine.length?`<table><tr><th>Link</th><th>Made</th><th></th></tr>${mine.map(x=>`<tr><td class="share-url"><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.url)}</a>${x.label?'<div class="help">'+esc(x.label)+'</div>':''}</td><td style="white-space:nowrap">${esc((x.created||'').slice(0,10))}<div class="help">${esc(x.by||'')}</div></td><td style="white-space:nowrap"><button type="button" class="ghost" data-copy="${esc(x.url)}">Copy</button> <button type="button" class="warn" data-revoke="${esc(x.token)}">Revoke</button></td></tr>`).join('')}</table>`:'<div class="help">No links yet.</div>'}
+        <div class="acts"><button type="button" class="ghost" data-share="${s.key}" ${on?'':'disabled title="Switch the skill on first"'}>+ New client link</button></div></div>`;
+    }
+    let extra='';
+    if(s.key==='email') extra=`<div id="emailcheck" class="blurb" style="margin-top:10px"></div>`;
+    return `<div class="card" id="sk-${s.key}"><h2><span class="ico">${s.icon}</span>${esc(s.label)} ${status}</h2>
+      <p class="blurb">${esc(s.blurb)}</p>
+      <div class="row">${fields}</div>
+      <div class="acts">
+        <button type="button" class="ghost" data-save="${s.key}">Save</button>
+        <button type="button" class="ghost" data-verify="${s.key}">Check it works</button>
+        ${on?`<button type="button" class="warn" data-off="${s.key}">Switch off</button>`:`<button type="button" data-on="${s.key}">Check &amp; switch on</button>`}
+        ${on?`<button type="button" class="warn" data-forget="${s.key}" title="Switch off and delete the stored credentials and links">Switch off &amp; forget</button>`:''}
+      </div>
+      <div class="msg" id="msg-${s.key}"></div>${extra}${shares}</div>`;
+  }).join('');
+  $('skills').innerHTML=out;
+  $('skills').querySelectorAll('[data-save]').forEach(b=>b.onclick=()=>save(b.dataset.save,false));
+  $('skills').querySelectorAll('[data-verify]').forEach(b=>b.onclick=()=>save(b.dataset.verify,'verify'));
+  $('skills').querySelectorAll('[data-on]').forEach(b=>b.onclick=()=>save(b.dataset.on,'activate'));
+  $('skills').querySelectorAll('[data-off]').forEach(b=>b.onclick=()=>off(b.dataset.off,false));
+  $('skills').querySelectorAll('[data-forget]').forEach(b=>b.onclick=()=>off(b.dataset.forget,true));
+  $('skills').querySelectorAll('[data-share]').forEach(b=>b.onclick=()=>share(b.dataset.share));
+  $('skills').querySelectorAll('[data-revoke]').forEach(b=>b.onclick=()=>revoke(b.dataset.revoke));
+  $('skills').querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>{ navigator.clipboard.writeText(b.dataset.copy).then(()=>{b.textContent='Copied';setTimeout(()=>b.textContent='Copy',1500);}); });
+  loadIndex();
+}
+function fieldsOf(key){
+  const s=SKILLS.find(x=>x.key===key); const body={client:current};
+  s.fields.forEach(f=>{ body[f.name]=$('f-'+key+'-'+f.name).value.trim(); });
+  return body;
+}
+async function save(key,then){
+  const btns=$('sk-'+key).querySelectorAll('button'); btns.forEach(b=>b.disabled=true);
+  say('msg-'+key,'note','Saving…');
+  const d=await j(MOUNT+'/api/'+key+'/save',{method:'POST',body:JSON.stringify(fieldsOf(key))}).catch(()=>({ok:false,error:'no answer'}));
+  if(!d.ok){ say('msg-'+key,'err','Not saved: '+esc(d.error||'unknown')); btns.forEach(b=>b.disabled=false); return; }
+  if(!then){ say('msg-'+key,'ok','Saved. Not switched on yet — press <b>Check &amp; switch on</b> when ready.'); await load(); return; }
+  say('msg-'+key,'note',then==='activate'?'Checking against the live source, then switching on…':'Checking against the live source…');
+  const v=await j(MOUNT+'/api/'+key+'/'+then,{method:'POST',body:JSON.stringify({client:current})}).catch(()=>({ok:false,error:'no answer'}));
+  const ver=v.verify||v;
+  if(v.ok){
+    say('msg-'+key,'ok',(then==='activate'?'<b>Switched on.</b> ':'<b>Works.</b> ')+describe(key,ver));
+  } else {
+    say('msg-'+key,'err','<b>'+(then==='activate'?'Not switched on.':'Check failed.')+'</b> '+esc(v.error||ver.error||'')+' '+describe(key,ver));
+  }
+  await load();
+}
+function describe(key,v){
+  if(!v) return '';
+  if(key==='ecwid'&&v.store_name!==undefined) return 'Store: <b>'+esc(v.store_name||'(unnamed)')+'</b>'+(v.store_url?' · '+esc(v.store_url):'')+' · '+(v.order_count||0)+' orders on record.';
+  if(key==='email'&&v.account){
+    const st=(o)=>o&&o.state?o.state:'—';
+    const dom=v.domain||{};
+    let rows=`<div class="chk">
+      <span class="k">Suite account</span><span>${pill(v.account.state==='connected'?'on':'bad')} ${esc(v.account.name||v.account.matched_name||v.account.location_id||'')} ${v.account.detail?'<div class="help">'+esc(v.account.detail)+'</div>':''}</span>
+      <span class="k">From</span><span>${pill(v.from&&v.from.state==='set'?'on':'bad')} ${esc((v.from||{}).name||'')} &lt;${esc((v.from||{}).email||'none')}&gt; ${v.from&&v.from.detail?'<div class="help">'+esc(v.from.detail)+'</div>':''}</span>
+      <span class="k">Email builder</span><span>${pill(v.builder&&v.builder.state==='ok'?'on':'bad')} ${esc((v.builder||{}).detail||'')}</span>
+      <span class="k">Sending domain</span><span>${pill(dom.state==='verified'?'on':dom.state==='missing'?'warn':'off')} ${esc(dom.detail||'')}</span>
+      ${v.scopes&&v.scopes.missing&&v.scopes.missing.length?`<span class="k">App scopes</span><span>${pill('warn')} The Hub app has not been granted: <code>${v.scopes.missing.map(esc).join('</code> <code>')}</code>. An agency owner re-consents the app to add them; until then the builder and sends will be refused.</span>`:''}
+    </div>`;
+    if(dom.state==='missing'&&dom.records_needed){
+      rows+=`<div class="dns"><b style="font-size:12.5px">DNS records for ${esc(dom.domain)}</b><table><tr><th>Type</th><th>Host</th><th>Value</th></tr>${dom.records_needed.map(r=>`<tr><td>${esc(r.type)}</td><td><code>${esc(r.host)}</code></td><td><code>${esc(r.value)}</code><div class="help">${esc(r.note||'')}</div></td></tr>`).join('')}</table>
+        <div class="help" style="margin-top:6px">There is no API for sending domains — add the domain under Settings › Email Services in the client’s Suite account, publish these records, and check again.</div></div>`;
+    }
+    if(v.from&&v.from.email&&v.from.source==='skill'&&v.account&&v.account.location_id){
+      rows+=`<div class="acts"><button type="button" class="ghost" id="setbiz">Write ${esc(v.from.email)} onto the Suite account as its business email</button></div>`;
+      setTimeout(()=>{ const b=$('setbiz'); if(!b) return; b.onclick=async()=>{ b.disabled=true; const r=await j(MOUNT+'/api/email/set-business-email',{method:'POST',body:JSON.stringify({client:current,email:v.from.email})}).catch(()=>({ok:false,detail:'no answer'})); say('msg-email',r.ok?'ok':'err',esc(r.detail||r.error||'')); }; },0);
+    }
+    return rows;
+  }
+  return '';
+}
+function pill(k){return `<span class="pill ${k}">${({on:'ok',bad:'no',warn:'needs attention',off:'not measured'})[k]||k}</span>`;}
+async function off(key,forget){
+  if(forget&&!confirm('Switch off and delete the stored credentials and every client link for this skill?')) return;
+  const d=await j(MOUNT+'/api/'+key+'/deactivate',{method:'POST',body:JSON.stringify({client:current,forget:forget})}).catch(()=>({ok:false,error:'no answer'}));
+  say('msg-'+key,d.ok?'ok':'err',d.ok?'Switched off. The card is gone from Client 360'+(forget?' and the stored details are deleted.':'; the details are kept for next time.'):'Could not switch off: '+esc(d.error||''));
+  await load();
+}
+async function share(key){
+  const label=prompt('A label for this link (optional) — e.g. “Owner’s phone” or “Weekly email”','')||'';
+  const d=await j(MOUNT+'/api/share',{method:'POST',body:JSON.stringify({client:current,skill:key,label:label})}).catch(()=>({ok:false,error:'no answer'}));
+  say('msg-'+key,d.ok?'ok':'err',d.ok?'Link made: <a href="'+esc(d.url)+'" target="_blank" rel="noopener">'+esc(d.url)+'</a>':'Could not make a link: '+esc(d.error||''));
+  await load();
+}
+async function revoke(token){
+  if(!confirm('Revoke this link? Anyone holding it will see “no longer active”.')) return;
+  await j(MOUNT+'/api/share/revoke',{method:'POST',body:JSON.stringify({client:current,token:token})}).catch(()=>null);
+  await load();
+}
+async function loadIndex(){
+  const d=await j(MOUNT+'/api/index').catch(()=>({clients:[]}));
+  const rows=d.clients||[];
+  $('index').innerHTML=rows.length?`<table><tr><th>Client</th><th>Skills on</th><th>Links</th></tr>${rows.map(r=>`<tr><td><a href="${MOUNT}/?client=${encodeURIComponent(r.client)}">${esc(r.client)}</a></td><td>${r.skills.map(k=>{const s=SKILLS.find(x=>x.key===k);return '<span class="pill on">'+esc(s?s.label:k)+'</span>';}).join(' ')}</td><td>${r.shares||0}</td></tr>`).join('')}</table>`:'No client has a skill switched on yet.';
+}
+loadIndex();
+if($('client').value.trim()) load();
+</script>
+</body>
+</html>

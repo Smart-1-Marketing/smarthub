@@ -57,6 +57,10 @@ WORK_KINDS = {
     "display_ads":          ("Display ads", "Display Ad Builder"),
     "fan_radio":            ("Radio spot", "Fan Radio"),
     "commercial_builder":   ("Commercial", "Commercial Builder"),
+    # 360 Skills files a client's skill activations, hotsheet links and
+    # Email Creator sends -- an email that went out to the client's contacts
+    # is work done for them, and the record should say so.
+    "skills360":            ("Skill / email", "360 Skills"),
     # The two HyperFrames tools. Their own names rather than folded into
     # commercial_builder: both are also reachable inside that wizard, but a
     # standalone paint animation is not a commercial and reading as one on a
