@@ -39,7 +39,8 @@ TMP = tempfile.mkdtemp(prefix="s1reports_norm_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["AUDIT_LOG_PATH"] = os.path.join(TMP, "audit.jsonl")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "hub.sqlite3")
-os.environ["REPORTS_DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "reports.sqlite3")
+import _reports_testdb                                               # noqa: E402
+REPORTS_DB = _reports_testdb.bind(TMP)
 os.environ["REPORTS_PROVIDER_SCHEMA"] = ""
 os.environ["SECRET_KEY"] = "reports-normalize-test"
 
@@ -63,6 +64,7 @@ def section(title):
 from sqlalchemy import text                                          # noqa: E402
 
 from modules.reports import automap, normalize, provider_map, store  # noqa: E402
+_reports_testdb.reset(store, extra_tables=("google_ads", "facebook_ads", "ttd"))
 
 TODAY = date(2026, 9, 6)
 
@@ -93,17 +95,21 @@ section("Fake raw tables with the placeholder column names")
 G = provider_map.PLATFORM_SOURCES["google"]
 M = provider_map.PLATFORM_SOURCES["meta"]
 T = provider_map.PLATFORM_SOURCES["ttd"]
+# The raw date column is DATE on Postgres (what the provider writes there)
+# and TEXT on SQLite (which has no date type); normalize binds its bound
+# per dialect, and this is the half of that rule a fake table has to keep.
+DT = "DATE" if store.is_postgres() else "TEXT"
 with store.engine.begin() as conn:
-    conn.execute(text(f'CREATE TABLE "{G["table"]}" ("{G["date"]}" TEXT, "{G["account_id"]}" TEXT, '
+    conn.execute(text(f'CREATE TABLE "{G["table"]}" ("{G["date"]}" {DT}, "{G["account_id"]}" TEXT, '
                       f'"{G["campaign_id"]}" TEXT, "{G["campaign_name"]}" TEXT, "{G["spend"]}" REAL, '
                       f'"{G["impressions"]}" INTEGER, "{G["clicks"]}" INTEGER, "{G["conversions"]}" REAL)'))
-    conn.execute(text(f'CREATE TABLE "{M["table"]}" ("{M["date"]}" TEXT, "{M["account_id"]}" TEXT, '
+    conn.execute(text(f'CREATE TABLE "{M["table"]}" ("{M["date"]}" {DT}, "{M["account_id"]}" TEXT, '
                       f'"{M["campaign_id"]}" TEXT, "{M["campaign_name"]}" TEXT, "{M["spend"]}" REAL, '
                       f'"{M["impressions"]}" INTEGER, "{M["clicks"]}" INTEGER, "{M["conversions"]}" REAL, '
                       f'"video_views" INTEGER)'))
     # The Trade Desk table is present but missing two of the columns the map
     # names -- the state provider-check exists to show.
-    conn.execute(text(f'CREATE TABLE "{T["table"]}" ("{T["date"]}" TEXT, "{T["account_id"]}" TEXT, '
+    conn.execute(text(f'CREATE TABLE "{T["table"]}" ("{T["date"]}" {DT}, "{T["account_id"]}" TEXT, '
                       f'"{T["campaign_id"]}" TEXT, "{T["campaign_name"]}" TEXT)'))
     for d, spend, imps, clicks in (
             (TODAY - timedelta(days=1), 12_500_000, 1000, 40),   # micros
