@@ -61,7 +61,6 @@ from hub import proposal_execution_routes as pe_routes                  # noqa: 
 from hub import ai as hub_ai                                            # noqa: E402
 import hub.proposals as proposals_module                                # noqa: E402
 from modules.commercial_builder.models import Client, CommercialProject # noqa: E402
-from modules.commercial_builder.services import openai_service          # noqa: E402
 
 assert pe_routes.bp is not None
 assert "commercial_builder" in {a["key"] for a in pe.adapters()}, \

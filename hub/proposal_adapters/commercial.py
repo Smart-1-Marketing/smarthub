@@ -27,8 +27,6 @@ own `needs` already requires.
 """
 from __future__ import annotations
 
-from urllib.parse import quote
-
 from hub.proposal_execution import Adapter, register_adapter
 
 MOUNT = "/tools/commercial-builder"
