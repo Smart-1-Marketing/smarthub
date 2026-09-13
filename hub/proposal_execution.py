@@ -330,7 +330,7 @@ def build_task_specs(analysis):
     if "retargeting" in channels:
         c = channels["retargeting"]
         specs += [_task("retargeting_plan", "Retargeting audience & media plan", "Media", depends=("campaign_foundation",), needs=("landing_url", "target_geography"), channel=c),
-                  _task("retargeting_creative", "Retargeting creative brief", "Creative", depends=("retargeting_plan",), channel=c),
+                  _task("retargeting_creative", "Retargeting creative brief", "Creative", "display_ads", "approval", ("retargeting_plan",), channel=c),
                   _task("retargeting_activation", "Retargeting launch packet", "Ad Ops", "launch_packet", "handoff", ("retargeting_creative", "tracking_plan"), channel=c, task_type="activation")]
     if "paid_search" in channels:
         c = channels["paid_search"]

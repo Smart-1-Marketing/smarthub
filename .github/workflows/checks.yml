@@ -2294,6 +2294,28 @@ jobs:
             echo "test_proposal_adapters_seo.py not on this branch — nothing to run."
           fi
 
+      # WO-2, Adapter E: retargeting_creative ran as `brief` -- an AI
+      # paragraph describing creative somebody should go build, never a
+      # project anybody could actually open. hub/ad_builder_link.py already
+      # has start_project(), the plain, non-Flask entry point the Hub-side
+      # "Start a build" form itself calls: it validates the client against
+      # the registry, reads the landing page, and calls the renderer's own
+      # POST /api/requests. This adapter is one more caller of it, stopping
+      # at starting the build -- picking sizes, generating AI creative and
+      # reviewing every rendered frame is a person's job, each with its own
+      # billed provider call. approval mode: a person finishes the build
+      # from the link this hands back. The Display Ad Builder is a separate
+      # Node process this test does not start, so the one HTTP-calling
+      # function (hub.ad_builder_link._api) is stubbed; nothing here makes
+      # a real network call.
+      - name: Proposal Execution — real-tool adapters (Display Ad Builder)
+        run: |
+          if [ -f test_proposal_adapters_display_ads.py ]; then
+            python3 test_proposal_adapters_display_ads.py
+          else
+            echo "test_proposal_adapters_display_ads.py not on this branch — nothing to run."
+          fi
+
       # WO-2, Adapter F: meta_carousel ran as `brief` -- an AI paragraph
       # describing creative somebody should go build, never a project
       # anybody could open. hub/proposal_adapters/image_creator.py calls
