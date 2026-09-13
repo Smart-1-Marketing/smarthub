@@ -131,3 +131,18 @@ testSubmissionReview().then(()=>console.log('PASS: optional conversions, review 
  assert.equal(c.submissionReceiptHTML({}),'');
  console.log('PASS: product KPI relevance, conditional tracking and stale-answer normalization, receipt delivery states and safe links.');
 }
+
+// Opening and saving unrelated edits must retain the actual stored email.
+{
+ const fields={};const get=id=>fields[id]||(fields[id]={value:'',classList:{add(){},remove(){}},removeAttribute(){},setAttribute(){},focus(){}});
+ const c={state:{ioType:'New IO',salesContact:'Rep',salesEmail:'rep@example.com',client:'Test',url:'',objectives:[],kpis:[],income:[],audiences:[],items:[{product:'display',budget:500}]},objectiveKPIs:{},incomeOptions:[],suggestedAudienceOptions:()=>[],productConfig:{display:{product:'Display'}},document:{getElementById:get,querySelectorAll:selector=>selector==='#e-products input'?[{dataset:{row:'0',field:'budget'},value:'700'}]:[]},buildStrategy(){},render(){},recalculateItem(){},addMsg(){}};
+ vm.createContext(c);
+ vm.runInContext(source.slice(source.indexOf('function openEditor('),source.indexOf('function selectedProductInfo(')),c);
+ c.openEditor();assert.equal(get('e-sales-email').value,'rep@example.com');
+ // Fill only the DOM fields whose unset fixture values would not be strings in a browser.
+ for(const element of Object.values(fields))if(element.value===undefined)element.value='';
+ c.saveEditor();assert.equal(c.state.salesEmail,'rep@example.com');assert.equal(c.state.items[0].budget,700);
+ c.openEditor();assert.equal(get('e-sales-email').value,'rep@example.com');
+ get('e-sales-email').value='NONE';c.saveEditor();assert.equal(c.state.salesEmail,'');
+ console.log('PASS: actual editor open/save retains email through budget edits and supports explicit removal.');
+}
