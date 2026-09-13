@@ -186,6 +186,21 @@ ISSUE_KINDS = {
         "where": "Proposal Builder",
         "href": "/sales/builder/?focus=to_convert",
     },
+    "plan_review": {
+        "label": "Execution plan needs review",
+        "blurb": "The proposal's plan has items nobody has kept or dropped, "
+                 "or questions the proposal left open and nobody has answered.",
+        "where": "Proposal Execution",
+        "href": "/proposal-execution",
+    },
+    "plan_creative": {
+        "label": "Creative with no supplier named",
+        "blurb": "A creative item on the plan that nobody has said who "
+                 "supplies -- the client or Smart 1 -- so nothing can be "
+                 "requested or built for it.",
+        "where": "Proposal Execution",
+        "href": "/proposal-execution",
+    },
     "proof_waiting": {
         "label": "Proof answered, not acted on",
         "blurb": "The client replied to a review round and no cut has been "
@@ -637,6 +652,52 @@ def _proofs() -> tuple[dict, str]:
         return {}, f"{type(exc).__name__}: {exc}"[:200]
 
 
+def _plans() -> tuple[dict, str]:
+    """`{client key: [open execution plans]}` from the Proposal Execution
+    Center, one query for the whole book. Each carries the counts the issue
+    is built from; the engine decides what "open" and "unassigned" mean."""
+    try:
+        from hub import proposal_execution
+        data = proposal_execution.open_plan_summaries()
+    except Exception as exc:                            # noqa: BLE001
+        return {}, f"{type(exc).__name__}: {exc}"[:200]
+    if not data.get("measured"):
+        return {}, data.get("error") or "The execution runs did not answer."
+    out: dict[str, list] = {}
+    for row in data.get("runs") or []:
+        key = _client_key(str(row.get("client") or ""))
+        if key:
+            out.setdefault(key, []).append(row)
+    return out, ""
+
+
+def _plan_issues(plans: list[dict]) -> list[dict]:
+    """The issues one client's open plans raise. Two kinds, kept apart
+    because they send somebody to different presses: a plan nobody has
+    finished reviewing, and creative nobody has said who supplies."""
+    out = []
+    for plan in plans or []:
+        title = str(plan.get("title") or "Proposal")
+        link = str(plan.get("url") or "")
+        review, questions = int(plan.get("to_review") or 0), int(plan.get("open_questions") or 0)
+        if review or questions:
+            parts = []
+            if review:
+                parts.append(f"{review} item{'' if review == 1 else 's'} to review")
+            if questions:
+                parts.append(f"{questions} question{'' if questions == 1 else 's'} open")
+            out.append(_issue("plan_review", str(plan.get("id") or ""), title,
+                              ", ".join(parts) + ".", link=link,
+                              at=str(plan.get("updated_at") or "")))
+        unassigned = int(plan.get("creative_unassigned") or 0)
+        if unassigned:
+            out.append(_issue("plan_creative", str(plan.get("id") or ""), title,
+                              f"{unassigned} creative item{'' if unassigned == 1 else 's'} "
+                              "with nobody named to supply them.", link=link,
+                              at=str(plan.get("updated_at") or "")))
+    return out
+
+
 def _audits(domains) -> tuple[dict, str]:
     try:
         from hub import upsell
@@ -756,6 +817,8 @@ def build(today: date | None = None) -> dict:
     source("proposals", err_pipeline)
     proofs, err_proofs = _proofs()
     source("proofs", err_proofs)
+    plans, err_plans = _plans()
+    source("plans", err_plans, "Open runs in the Proposal Execution Center.")
 
     try:
         from hub import qa as _qa
@@ -938,6 +1001,9 @@ def build(today: date | None = None) -> dict:
                  + ". No cut has been filed since."),
                 link=f"/tools/commercial/projects/{rnd.get('project_id')}/preview",
                 at=rnd.get("sent_at") or ""))
+
+        # --- the execution plan ----------------------------------------------
+        issues.extend(_plan_issues(plans.get(key) or []))
 
         # --- the website reading ---------------------------------------------
         # A source that would not answer raises nothing at all. An unreadable

@@ -133,10 +133,20 @@ class ProposalExecutionRun(db.Model):
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
         if full:
+            # The plan is served with its answers applied -- due dates,
+            # suppliers, cadence -- and with the action each creative item
+            # offers, and stored without either, so the page reads one shape
+            # and the column never carries a derived value.
+            from hub import proposal_plan
+            tasks = tasks_for_run(self.id)
+            plan = proposal_plan.resolve(plan_for(self))
+            plan = proposal_plan.with_actions(plan, client=self.client,
+                                              task_keys=[t.task_key for t in tasks],
+                                              upload=_upload_link(self.client))
             row.update(analysis=self.analysis(), context=self.context(), inputs=self.inputs(),
                        summary=summary(self), missing_inputs=missing_input_manifest(self),
-                       plan=plan_for(self))
-            row["tasks"] = [t.as_dict() for t in tasks_for_run(self.id)]
+                       plan=plan)
+            row["tasks"] = [t.as_dict() for t in tasks]
         return row
 
 
@@ -406,9 +416,12 @@ def _initial_inputs(context_data, analysis):
     fields = context_data.get("fields") or {}
     facts = analysis.get("facts") or {}
     return {
-        "landing_url": fields.get("website") or "",
+        # A quote names its own landing page and conversion; those beat the
+        # client record's website, which is the company's home page and is
+        # not necessarily where this campaign sends anybody.
+        "landing_url": facts.get("landing_url") or fields.get("website") or "",
         "target_geography": facts.get("market") or "",
-        "conversion_goal": "",
+        "conversion_goal": facts.get("conversion_goal") or "",
         "primary_cta": "",
         "product_destinations": "",
         "video_source": "",
@@ -430,22 +443,62 @@ def _proposal_record(client, proposal_id):
     return None
 
 
+def _source_text(client, proposal_id, proposal_filename=""):
+    """The prose a run was read from -- regenerated from the quote for a
+    quote-sourced run, re-read from the filed document otherwise. Never
+    raises: a source that cannot be re-read costs the plan's grounding,
+    not the plan."""
+    from hub import proposal_quote_facts
+    qid = proposal_quote_facts.quote_id_for(proposal_id)
+    try:
+        if qid is not None:
+            quote = proposal_quote_facts.quote_row(qid, client)
+            return proposal_quote_facts.text(quote) if quote else ""
+        from hub import _proposal_text_for
+        return _proposal_text_for(client, proposal_id or proposal_filename) or ""
+    except Exception:                                    # noqa: BLE001
+        return ""
+
+
 def create_run(client, proposal_id, *, owner="", actor="", force=False):
     client = str(client or "").strip()
     proposal_id = str(proposal_id or "").strip()
     if not client or not proposal_id:
         raise ValueError("Choose a client and proposal first.")
-    rec = _proposal_record(client, proposal_id)
-    if not rec or rec.get("kind") == "link":
-        raise ValueError("That uploaded proposal could not be read as a document.")
-    from hub import _proposal_text_for
-    text = _proposal_text_for(client, rec.get("id") or rec.get("filename") or proposal_id)
-    if not text.strip():
-        raise ValueError("No readable text was found in that proposal. It may be a scanned image-only PDF.")
+    from hub import proposal_quote_facts
+    qid = proposal_quote_facts.quote_id_for(proposal_id)
+    rec = None
+    if qid is None:
+        rec = _proposal_record(client, proposal_id)
+        if not rec or rec.get("kind") == "link":
+            raise ValueError("That uploaded proposal could not be read as a document.")
+        # A delivered quote is filed on the client as a PDF, and the quote
+        # points back at the record. Somebody who picked the PDF gets the
+        # data it was rendered from rather than the rendering read back.
+        qid = proposal_quote_facts.quote_for_record(rec, client)
+    quote = None
+    if qid is not None:
+        quote = proposal_quote_facts.quote_row(qid, client)
+        if quote is None:
+            raise ValueError("That quote could not be found for this client.")
+        analysis, text = proposal_quote_facts.analysis_from_quote(quote)
+        method = "quote"
+        proposal_key = f"{proposal_quote_facts.QUOTE_PREFIX}{quote['id']}"
+        title = " · ".join(p for p in (quote.get("quote_number"), quote.get("products_summary") or "Proposal") if p)
+        filename = ""
+    else:
+        from hub import _proposal_text_for
+        text = _proposal_text_for(client, rec.get("id") or rec.get("filename") or proposal_id)
+        if not text.strip():
+            raise ValueError("No readable text was found in that proposal. It may be a scanned image-only PDF.")
+        analysis = method = None
+        proposal_key = str(rec.get("id") or proposal_id)
+        title = rec.get("title") or rec.get("filename") or "Proposal"
+        filename = rec.get("filename") or ""
     source_hash = hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()
     if not force:
         existing = (ProposalExecutionRun.query
-                    .filter_by(client=client, proposal_id=str(rec.get("id") or proposal_id), source_hash=source_hash)
+                    .filter_by(client=client, proposal_id=proposal_key, source_hash=source_hash)
                     .order_by(ProposalExecutionRun.id.desc()).first())
         if existing:
             return existing, False
@@ -459,7 +512,8 @@ def create_run(client, proposal_id, *, owner="", actor="", force=False):
     if conflict and not force:
         raise ProposalRunConflict(previous)
     supersedes = previous if conflict else None
-    analysis, method = analyze_text(text, client)
+    if analysis is None:
+        analysis, method = analyze_text(text, client)
     analysis["analysis_method"] = method
     context_data = _client_context(client)
     carried_inputs = _initial_inputs(context_data, analysis)
@@ -475,9 +529,9 @@ def create_run(client, proposal_id, *, owner="", actor="", force=False):
         # replaced is theirs; a new document changes the proposals, not
         # their decisions about the ones still on it.
         plan = proposal_plan.carry_forward(plan, supersedes.plan())
-    run = ProposalExecutionRun(client=client, proposal_id=str(rec.get("id") or proposal_id),
-                               proposal_title=rec.get("title") or rec.get("filename") or "Proposal",
-                               proposal_filename=rec.get("filename") or "", source_hash=source_hash,
+    run = ProposalExecutionRun(client=client, proposal_id=proposal_key,
+                               proposal_title=str(title)[:300],
+                               proposal_filename=filename, source_hash=source_hash,
                                state=RUN_DRAFT, owner=owner,
                                previous_run_id=previous.id if previous else None,
                                analysis_json=_dumps(analysis), context_json=_dumps(context_data),
@@ -613,12 +667,7 @@ def plan_for(run):
     if plan and plan.get("summary"):
         return plan
     from hub import proposal_plan
-    text = ""
-    try:
-        from hub import _proposal_text_for
-        text = _proposal_text_for(run.client, run.proposal_id or run.proposal_filename) or ""
-    except Exception:                                    # noqa: BLE001
-        text = ""
+    text = _source_text(run.client, run.proposal_id, run.proposal_filename)
     plan = proposal_plan.build_plan(run.analysis(), text, run.client, use_ai=False)
     plan.setdefault("notes", []).append(
         "Built from the stored analysis after the fact; re-analyze the proposal to have the "
@@ -647,6 +696,101 @@ def update_plan(run_id, decisions, *, actor=""):
     if d.get("answers"): what.append(f"{len(d['answers'])} question(s) answered")
     _event(run.id, run.state, "Updated the plan: " + (", ".join(what) or "no change") + ".", actor=actor)
     return run
+
+
+def _upload_link(client, *, create=False, base="", actor=""):
+    """The client's upload gallery link, through the one provisioner.
+
+    `create=False` only asks; the press that makes a gallery is
+    `provision_upload_link()`. Never raises -- a gallery table that will
+    not answer costs the link and says so, never the plan it sits on.
+    """
+    try:
+        if not base:
+            # A link handed to a client has to be absolute. Inside a request
+            # the host that served the page is the right origin; outside one
+            # the provisioner falls back to PUBLIC_BASE_URL.
+            from flask import has_request_context, request as _req
+            if has_request_context():
+                base = _req.host_url
+        from modules.image_picker import provisioning
+        return provisioning.link_for(str(client or ""), "", create=create, base=base, actor=actor)
+    except Exception as exc:                             # noqa: BLE001
+        return {"ok": False, "error": f"The upload galleries could not be read ({type(exc).__name__})."}
+
+
+def provision_upload_link(run_id, *, base="", actor=""):
+    """Create the client's upload gallery so the plan can hand out its link."""
+    run = get_run(run_id)
+    if not run:
+        raise ValueError("That execution run could not be found.")
+    got = _upload_link(run.client, create=True, base=base, actor=actor)
+    if not got.get("ok"):
+        raise ValueError(got.get("error") or "The upload link could not be created.")
+    if got.get("created"):
+        _event(run.id, run.state, f"Created the client upload link for {run.client}.", actor=actor)
+    return run, got
+
+
+def _run_plan_summary(run):
+    """One run's plan as the numbers a record or a report reads.
+
+    Counts only, never the items: this is what a card prints beside a link
+    to the plan, and what `hub/client_health.py` turns into an issue.
+    `creative_unassigned` is the creative items still in play (not dropped)
+    that nobody has said who supplies -- nothing can be requested or built
+    for those, so they are the plan's own outstanding work.
+    """
+    from hub import proposal_plan
+    plan = proposal_plan.resolve(plan_for(run))
+    s = plan.get("summary") or {}
+    kept = {name: (s.get("lists") or {}).get(name, {}).get("kept", 0) for name in proposal_plan.LISTS}
+    unassigned = sum(1 for it in plan.get("creative") or []
+                     if it.get("accepted") is not False and it.get("kind") != "copy"
+                     and not it.get("supplier"))
+    resolved = plan.get("resolved") or {}
+    return {
+        "id": run.id, "client": run.client, "title": run.proposal_title or "Proposal",
+        "state": run.state, "url": f"/proposal-execution?run={run.id}",
+        "launch_date": resolved.get("launch_date") or "",
+        "launch_date_label": resolved.get("launch_date_label") or "",
+        "to_review": int(s.get("to_review") or 0),
+        "open_questions": int(s.get("open_questions") or 0),
+        "unverified": int(s.get("unverified") or 0),
+        "creative_unassigned": unassigned,
+        "kept": kept,
+        "updated_at": run.updated_at.isoformat() if run.updated_at else "",
+    }
+
+
+_OPEN_STATES_EXCLUDED = (RUN_SUPERSEDED, RUN_COMPLETED)
+
+
+def plan_summary_for_client(client):
+    """The open plans for one client, for Client 360. `measured` is False
+    when the table would not answer -- "no plan has been built" and "we
+    could not look" are different answers and only the first is nothing."""
+    try:
+        rows = (ProposalExecutionRun.query
+                .filter(ProposalExecutionRun.client.ilike(str(client or "").strip()))
+                .filter(~ProposalExecutionRun.state.in_(_OPEN_STATES_EXCLUDED))
+                .order_by(ProposalExecutionRun.updated_at.desc()).limit(10).all())
+        return {"measured": True, "error": "", "runs": [_run_plan_summary(r) for r in rows]}
+    except Exception as exc:                             # noqa: BLE001
+        return {"measured": False, "error": f"{type(exc).__name__}", "runs": []}
+
+
+def open_plan_summaries(limit=500):
+    """Every open plan across the book, one query, for the client health
+    report. The same shape per run as `plan_summary_for_client()`."""
+    try:
+        rows = (ProposalExecutionRun.query
+                .filter(~ProposalExecutionRun.state.in_(_OPEN_STATES_EXCLUDED))
+                .order_by(ProposalExecutionRun.updated_at.desc())
+                .limit(max(1, min(int(limit), 2000))).all())
+        return {"measured": True, "error": "", "runs": [_run_plan_summary(r) for r in rows]}
+    except Exception as exc:                             # noqa: BLE001
+        return {"measured": False, "error": f"{type(exc).__name__}", "runs": []}
 
 
 def update_inputs(run_id, values, *, actor=""):
@@ -724,18 +868,29 @@ def adapters(): return [{"key": a.key, "label": a.label, "execution_mode": a.exe
 
 
 def _kept_plan_for(run, task):
-    """The plan items a person kept for this task's channel -- the only
-    half of the plan a downstream draft may read. Never raises."""
+    """The plan items a person kept for this task's channel, with the
+    answers applied -- the only half of the plan a downstream draft may
+    read. `answers` is what the questions were answered with, for this
+    channel and run-wide, so a brief knows the launch date and who is
+    supplying the files rather than guessing at either. Never raises."""
     try:
         from hub import proposal_plan
-        plan = plan_for(run)
+        plan = proposal_plan.resolve(plan_for(run))
         channel = (task.payload().get("channel") or {}).get("key") or ""
         out = {}
         for name in proposal_plan.LISTS:
             rows = [it for it in proposal_plan.kept_items(plan, name)
                     if not channel or it.get("channel") in ("", channel)]
-            out[name] = [it["title"] + (f" — {it['detail']}" if it.get("detail") else "")
-                         for it in rows][:20]
+            lines = []
+            for it in rows:
+                line = it["title"] + (f" — {it['detail']}" if it.get("detail") else "")
+                extra = [it[k] for k in ("due_label", "supplier_label", "cadence_label") if it.get(k)]
+                if extra:
+                    line += " (" + "; ".join(extra) + ")"
+                lines.append(line)
+            out[name] = lines[:20]
+        out["answers"] = proposal_plan.answers_for(plan, channel)
+        out["resolved"] = plan.get("resolved") or {}
         return out
     except Exception:                                    # noqa: BLE001
         return {}
@@ -748,9 +903,12 @@ def _brief_runner(run, task):
                 "qa": ["Destination and CTA match the plan.", "Targeting and budget match the proposal.", "Tracking is confirmed before launch."],
                 "generated_by": "template"}
     if not os.environ.get("OPENAI_API_KEY", "").strip(): return fallback
+    kept = _kept_plan_for(run, task) or {}
+    answers = kept.pop("answers", {})
+    kept.pop("resolved", None)
     prompt = f"""Return ONLY JSON with keys summary, deliverables, checklist, creative_or_copy, qa, handoff_notes.
 Create the internal working deliverable for this Smart 1 Marketing execution task. Use only facts below; invent no offers, dates, prices, URLs, claims, access or guarantees.
-Task: {task.title}\nDepartment: {task.department}\nChannel: {_dumps(task.payload())}\nShared inputs: {_dumps(run.inputs())}\nWhat staff kept on the plan for this channel (creative, launch, monthly): {_dumps(_kept_plan_for(run, task))[:4000]}\nProposal analysis: {_dumps(run.analysis())[:16000]}"""
+Task: {task.title}\nDepartment: {task.department}\nChannel: {_dumps(task.payload())}\nShared inputs: {_dumps(run.inputs())}\nAnswers the team gave about this campaign (treat as fact): {_dumps(answers)[:2000]}\nWhat staff kept on the plan for this channel (creative, launch, monthly): {_dumps(kept)[:4000]}\nProposal analysis: {_dumps(run.analysis())[:16000]}"""
     try:
         from hub.openai_responses import ask
         parsed = _extract_json(ask(prompt, module="proposal_execution", purpose=task.task_type, max_output_tokens=5000))
@@ -781,13 +939,34 @@ def _launch_runner(run, task):
     by_key = {t.task_key: t for t in tasks_for_run(run.id)}
     upstream = [{"task": by_key[k].title, "state": by_key[k].state, "result": by_key[k].result()} for k in task.depends() if k in by_key]
     kept = _kept_plan_for(run, task)
-    return {"summary": f"{task.title} is prepared as a human launch/handoff packet. SmartHub has not published, scheduled, changed a live campaign or started spend.",
-            "client": run.client, "proposal": run.proposal_title, "inputs": run.inputs(),
-            "channel": task.payload().get("channel") or {}, "upstream": upstream, "handoff": True,
+    resolved = kept.get("resolved") or {}
+    channel = task.payload().get("channel") or {}
+    key = channel.get("key") or ""
+    supply = (resolved.get("supply") or {}).get(key, "")
+    budget = (resolved.get("budgets") or {}).get(key, "") or " / ".join(channel.get("budgets") or [])
+    out = {"summary": f"{task.title} is prepared as a human launch/handoff packet. SmartHub has not published, scheduled, changed a live campaign or started spend.",
+           "client": run.client, "proposal": run.proposal_title, "inputs": run.inputs(),
+           "channel": channel, "upstream": upstream, "handoff": True}
+    # The answers, as their own lines rather than buried in the lists: the
+    # person trafficking this reads the date and the supplier first.
+    if resolved.get("launch_date_label") or resolved.get("launch_date_raw"):
+        out["launch_date"] = resolved.get("launch_date_label") or resolved.get("launch_date_raw")
+    if budget:
+        out["budget"] = budget
+    if supply:
+        from hub import proposal_plan
+        out["creative_supply"] = proposal_plan.SUPPLY_LABELS.get(supply, supply)
+    if resolved.get("reporting_cadence"):
+        out["reporting_cadence"] = resolved.get("reporting_cadence_label") or resolved["reporting_cadence"]
+    other = dict(kept.get("answers") or {})
+    if other:
+        out["answers"] = other
+    out.update({
             "creative_needed": kept.get("creative") or [],
             "launch_tasks": kept.get("launch") or [],
             "monthly_tasks": kept.get("monthly") or [],
-            "checklist": ["Confirm approved creative and destination.", "Confirm targeting, dates and budget.", "Confirm conversion tracking.", "Launch only after approval is recorded here.", "Return and mark Live or Completed after the external action."]}
+            "checklist": ["Confirm approved creative and destination.", "Confirm targeting, dates and budget.", "Confirm conversion tracking.", "Launch only after approval is recorded here.", "Return and mark Live or Completed after the external action."]})
+    return out
 
 register_adapter(Adapter("brief", "SmartHub Working Brief", "auto", _brief_runner))
 register_adapter(Adapter("radio_scripts", "Radio Scripts", "approval", _radio_runner))
@@ -906,10 +1085,26 @@ def events_for_run(run_id, limit=100):
 
 
 def proposal_choices(client):
-    from hub import proposals
-    return [{"id": r.get("id") or r.get("filename"), "title": r.get("title") or r.get("filename") or "Proposal",
-             "filename": r.get("filename") or "", "date_sent": r.get("date_sent") or "", "quote_number": r.get("quote_number") or "", "status": r.get("status") or ""}
-            for r in proposals.list_proposals(client) if r.get("kind") != "link"]
+    """What a run can be started from: the quotes built in the Proposal
+    Builder first, then the documents uploaded onto the client record.
+
+    A delivered quote is also filed as a PDF, and offering both would offer
+    one proposal twice -- so a record a quote points at is left out here
+    and the quote stands for it. Picking the PDF by id still works: the run
+    resolves it to the quote.
+    """
+    from hub import proposals, proposal_quote_facts
+    quotes, _error = proposal_quote_facts.quote_choices(client)
+    filed = {q["filed_id"] for q in quotes if q.get("filed_id")}
+    out = list(quotes)
+    for r in proposals.list_proposals(client):
+        if r.get("kind") == "link" or str(r.get("id") or "") in filed:
+            continue
+        out.append({"id": r.get("id") or r.get("filename"), "title": r.get("title") or r.get("filename") or "Proposal",
+                    "filename": r.get("filename") or "", "date_sent": r.get("date_sent") or "",
+                    "quote_number": r.get("quote_number") or "", "status": r.get("status") or "",
+                    "kind": "file"})
+    return out
 
 
 # Columns added to hub_proposal_execution_runs after it was live in
@@ -981,7 +1176,8 @@ def install_scheduler_bridge():
 
 __all__ = ["ProposalExecutionRun", "ProposalExecutionTask", "ProposalExecutionEvent",
            "ProposalRunConflict", "create_run", "get_run", "list_runs", "tasks_for_run",
-           "proposal_choices", "update_inputs", "update_plan", "plan_for", "start_run", "pause_run",
+           "proposal_choices", "update_inputs", "update_plan", "plan_for", "provision_upload_link",
+           "plan_summary_for_client", "open_plan_summaries", "start_run", "pause_run",
            "retry_failed", "run_one",
            "approve_task", "request_changes", "rerun_task", "mark_task", "events_for_run",
            "missing_input_manifest", "summary", "adapters", "build_task_specs", "analyze_text",

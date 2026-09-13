@@ -6511,6 +6511,120 @@ the template between markers and driven in **node**, the arrangement
 `test_menu_layout.py` uses over `hub-crumbs.js`, and the assertion is that no
 `{"` reaches the reader.
 
+### The questions were asked, answered, and read by nothing
+
+The launch date, the budget per channel, the reporting cadence and who
+supplies each channel's files were stored on the plan, carried forward when
+a run was superseded -- and read by no brief, no packet and no task. The
+brief's prompt carried the shared inputs and the kept items; the answers sat
+in `plan_json` beside them. That is the failure `hub/current_marketing.py`
+was written to undo, inside the module written after it: a question somebody
+answers and nothing reads is a form field.
+
+`proposal_plan.resolve()` lays the answers over the plan **at read time**. A
+launch date becomes a due date on every launch task -- each recipe row
+carries the days before launch it has to be done, zero being launch day --
+and on every creative item, which is wanted `LEAD_DAYS_CREATIVE` ahead; a
+supplier answer marks every creative item of its channel; a cadence lands on
+the report tasks, and only those. `answers_for()` hands a brief or a packet
+the answers for its channel and the run-wide ones, so `_brief_runner` tells
+the model the launch date as fact and `_launch_runner` prints the date, the
+supplier, the budget and the cadence as their own lines rather than burying
+them in a list. **Derived and stored nowhere** -- `as_dict()` serves the
+resolved plan and the column keeps the answers -- because a date written into
+the items would outlive the answer that produced it, and two gunicorn
+workers would disagree about which copy is current; `test_proposal_plan.py`
+asserts the stored plan carries no `due`. A launch date nothing can parse
+costs the due dates and says so on the page, never the plan.
+
+### A quote built in the Hub was read back as a PDF
+
+A run started from a document filed on the client record and read its
+**text** -- a regex pass over the prose, then a model asked to find the
+channels and the dollar amounts. Right for a proposal somebody wrote in Word.
+Wrong for a quote built in `modules/sales_builder`, which already holds every
+fact the analysis was trying to recover: the line items with their rate-card
+product and category, the dollars and the term, the start date, the target
+areas, the KPIs, and the creative gate's own answers about who supplies each
+medium's files. A delivered quote is filed as a PDF and `Quote.client_filed_as`
+points back at it, so execution was reading the rendered document and asking
+the rep again for things the quote had been told.
+
+`hub/proposal_quote_facts.py` reads the quote's state into the same analysis
+shape the engine and the plan already consume, so nothing downstream knows
+which kind of document a run started from. Four rules. **A channel is a
+rate-card family, matched on the category first and the product second** --
+the card files four products called "Demographic" under four headings, and a
+video product sits under the DISPLAY heading, so `channel_for_item()` reads a
+line the way `creative_needs.medium_of()` does; the ten keys the text
+analyzer knows keep their names so the task graph still builds, and the
+card's other families (display, connected TV, digital radio, paid social,
+email, signage, web) get keys and recipes of their own. **The creative is the
+gate's own reading**: the channel carries its products and `_kit_creative()`
+asks `required_units()` about *them*, medium by medium -- a Snapchat buy is
+filed under the card's video heading, so asking for one medium found none of
+its lines. **What the quote answered arrives as an answer marked as the
+quote's** -- the start date, the supplier from the creative step or from a
+production line on the plan, a cadence the Reporting section actually states
+-- still changeable, and the page says *answered from the quote*. And
+**another client's quote is refused as not found**: a quote id in a URL must
+not pull one client's proposal onto another's record, and a quote that is not
+this client's answers exactly what a quote that does not exist answers.
+
+The picker offers the saved quotes first and leaves out a PDF a quote points
+at, so one proposal is not offered twice; picking the PDF by id still resolves
+to the quote. The text the plan's model pass grounds against is rendered from
+the facts, deterministically, so the run's `source_hash` moves only when the
+quote does. `test_proposal_plan.py` sweeps the **real rate card** -- every
+product lands on a channel or on a category named as not one -- because a
+hand-written list of products proves nothing about the row somebody adds.
+
+### A creative item that names a set and offers nothing to do about it
+
+Every creative item said what had to exist and left a rep to find the tool
+that makes it, or the link the client uploads through -- two screens away,
+which is the signpost failure `hub/stale_creative.py` names, one screen
+earlier. The tools already exist. `proposal_plan.CREATIVE_TOOLS` is the
+table -- the Display Ad Builder for banners (with the client filled in, the
+same press Stale Creative offers), the Commercial Builder for a spot, the
+Radio Ad Creator for audio, Image Creator for everything else -- and
+`item_actions()` decides from the item's **kind and its supplier**: Smart 1
+produces it → make it in the tool; the client supplies it → the upload link;
+nobody has said → both, because the item is still somebody's to act on. Copy
+points at the board task that drafts it. The page draws what the server
+decided and decides nothing itself.
+
+**The upload link is the gallery's own share link, and the press that makes
+one is a press.** `provisioning.link_for(create=False)` only asks, so
+`as_dict()` can show the link where one exists; `POST
+…/run/<id>/upload-link` is the creation, the rule `modules/image_picker/
+provisioning.py` states about a gallery being asked for rather than assumed.
+Two galleries that could be this client is the one case nothing is created,
+because the wrong one collects their photographs. The link is built from the
+host that served the page, because a link handed to a client has to be
+absolute and `PUBLIC_BASE_URL` is unset on more deployments than it is set.
+
+### The plan lived on one page
+
+Client 360, `/my-clients` and the QA reports did not know an execution plan
+existed, so a client with items nobody had reviewed, questions nobody had
+answered and creative nobody had a supplier for was invisible everywhere a
+rep actually looks. `proposal_execution.plan_summary_for_client()` is the
+**counts beside a link, never the items** -- the plan is worked on its own
+page -- and `/api/client/execution-plan` serves it under `/api/client/` for
+the reason `/api/client/orders` gives: the Suite frame allowlists that
+prefix and nothing else. The card sits in Client 360's *Work & requests*
+section, and `test_client360_layout.py` holds it there. Three empties are
+kept apart on it: the table would not answer, no plan has been built, and a
+plan with nothing left to do here.
+
+`hub/client_health.py` reads the same summaries in **one query for the
+book** (`open_plan_summaries()`) and raises two kinds, apart because they
+send somebody to different presses: `plan_review` for a plan nobody has
+finished, and `plan_creative` for creative nobody has said who supplies.
+Both carry the run's own link. A superseded or completed run raises nothing,
+which is what `_OPEN_STATES_EXCLUDED` says in one place for both readers.
+
 ## Opportunistic migration — read this before editing any module
 
 `hub/storage.py` (Cloudinary), `hub/images.py` (resize/convert),
