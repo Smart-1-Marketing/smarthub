@@ -31,7 +31,8 @@ jobs:
   checks:
     name: syntax, links and tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The expanded full-Hub suite exceeded 20 minutes with passing checks.
+    timeout-minutes: 30
 
     # Postgres rather than SQLite, for the steps that boot the app. Sites Admin
     # refuses to start without a real Postgres URL and serves wsgi.py's 503
