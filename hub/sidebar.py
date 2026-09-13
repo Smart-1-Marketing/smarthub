@@ -110,8 +110,10 @@ _ITEMS = [
     # for it only because that is where its URL happens to live. The mount
     # stays at /tools/io so every existing link keeps working.
     ("io_builder", "/tools/io/", "&#128221;", "IO Builder"),
+    ("industry_prospects", "/sales/industry-prospects", "&#128269;", "Industry Prospects"),
     ("leads", "/sales/leads", "&#128229;", "Leads"),
     ("landing", "/sales/landing", "&#128187;", "Landing Pages"),
+    ("industry_factory", "/sales/industry-factory", "&#127968;", "Industry Factory"),
     # Creative Studio is the front door over the tools below it -- a client
     # picker, a project record and a template layer, not a replacement for
     # any one of them. It is its own section rather than folded into
@@ -121,7 +123,9 @@ _ITEMS = [
     ("_seccs", "", "", "Creative Studio"),
     ("cs_dashboard", "/creative-studio/", "&#127912;", "Create"),
     ("cs_projects", "/creative-studio/projects", "&#128196;", "Projects"),
+    ("cs_campaigns", "/creative-studio/campaigns", "&#128188;", "Campaigns"),
     ("cs_templates", "/creative-studio/templates", "&#128209;", "Templates"),
+    ("cs_library", "/creative-studio/library", "&#128218;", "Spot Library"),
     ("cs_ai_tools", "/creative-studio/ai-tools", "&#129302;", "AI Tools"),
     ("cs_brand_kits", "/creative-studio/brand-kits", "&#127912;", "Brand Kits"),
     ("cs_media", "/creative-studio/media", "&#128247;", "Media Library"),

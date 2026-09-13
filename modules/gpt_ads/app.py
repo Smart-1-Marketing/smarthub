@@ -54,6 +54,7 @@ mirrored, and it is rebuilt by re-fetching the Cloudinary URL if it is missing.
 """
 from __future__ import annotations
 
+import copy
 import io
 import os
 import re
@@ -82,7 +83,7 @@ STORAGE_KIND = "gpt_ads"
 MAX_PACKS = 400
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
 
-_lock = threading.Lock()
+_lock = threading.RLock()
 
 
 # ------------------------------------------------------------------ storage
@@ -144,6 +145,15 @@ def save_pack(pack: dict) -> dict:
     pack["updated_by"] = actor_name()
     spec.revalidate(pack)
     with _lock:
+        old = load_pack(pack["id"])
+        history = (old or {}).get("history", [])
+        fields = ("campaign", "offer", "brand", "landing", "copy", "image", "image_brief", "notes", "selected_copy")
+        if old and any(old.get(k) != pack.get(k) for k in fields):
+            history = history + [{"revision": (old or {}).get("revision", 1),
+                "at": old.get("updated_at", ""), "by": old.get("updated_by", ""),
+                "snapshot": {k: old.get(k) for k in fields}}]
+        pack["history"] = history[-20:]
+        pack["revision"] = (old or {}).get("revision", 0) + 1
         jsonstore.write_json(_pack_path(pack["id"]), pack, indent=1)
         rows = [r for r in _read_index() if r.get("id") != pack["id"]]
         rows.insert(0, _summarise(pack))
@@ -228,7 +238,21 @@ def _pack_from_body(data: dict | None = None):
 
 
 def _ok(pack: dict, **extra):
-    payload = {"ok": True, "ad": pack, "readiness": spec.readiness(pack)}
+    view = copy.deepcopy(pack)
+
+    def add_preview(image: dict | None) -> None:
+        if not isinstance(image, dict) or not image.get("url"):
+            return
+        image["thumb"] = storage.preview_url(
+            image["url"], image.get("resource_type") or "image")
+
+    add_preview(view.get("image"))
+    for version in view.get("history", []):
+        if isinstance(version, dict):
+            snapshot = version.get("snapshot") or {}
+            add_preview(snapshot.get("image"))
+
+    payload = {"ok": True, "ad": view, "readiness": spec.readiness(pack)}
     payload.update(extra)
     return jsonify(payload)
 
@@ -458,9 +482,75 @@ def api_create():
         "created_at": _now(),
         "created_by": actor_name(),
     }
+    pack["brand"].update(_brand_defaults(client))
     save_pack(pack)
     _log("pack_created", client=client, campaign=pack["campaign"])
     return _ok(pack, context=context)
+
+
+def _brand_defaults_path(client):
+    from hashlib import sha256
+    key = sha256(client.strip().casefold().encode()).hexdigest()
+    return os.path.join(_dir(), "brand-" + key + ".json")
+
+
+def _brand_defaults(client):
+    value = jsonstore.read_json(_brand_defaults_path(client), default={})
+    return value if isinstance(value, dict) else {}
+
+
+@app.route("/api/ads/brand-defaults", methods=["POST"])
+def api_brand_defaults():
+    pack = _pack_from_body()
+    if not pack:
+        return _fail("That ad pack no longer exists.", 404)
+    jsonstore.write_json(_brand_defaults_path(pack["client"]), pack.get("brand", {}), indent=1)
+    return jsonify({"ok": True})
+
+
+def _reset_campaign_checks(pack):
+    pack["status"] = "draft"
+    pack.setdefault("landing", {})["check"] = {}
+    pack["selected_copy"] = {}
+    image = pack.get("image") or {}
+    for key in ("visual_approved", "reviewed_by", "reviewed_at"):
+        image.pop(key, None)
+
+
+@app.route("/api/ads/duplicate", methods=["POST"])
+def api_duplicate():
+    import copy
+    original = _pack_from_body()
+    if not original:
+        return _fail("That ad pack no longer exists.", 404)
+    pack = copy.deepcopy(original)
+    pack.update(id=_new_id(), campaign=_str(original.get("campaign", "") + " — copy", 200),
+                history=[], revision=0, created_at=_now(), created_by=actor_name())
+    pack["offer"] = {key: "" for key in ("summary", "pricing", "product", "eligibility", "expires", "restrictions")}
+    pack["offer"]["product"] = original.get("offer", {}).get("product", "")
+    pack["landing"]["tracking"] = ""
+    _reset_campaign_checks(pack)
+    save_pack(pack)
+    return _ok(pack)
+
+
+@app.route("/api/ads/restore", methods=["POST"])
+def api_restore():
+    import copy
+    data = _body()
+    pack = _pack_from_body(data)
+    if not pack:
+        return _fail("That ad pack no longer exists.", 404)
+    version = next((h for h in pack.get("history", []) if h["revision"] == data.get("restore_revision")), None)
+    if not version:
+        return _fail("That version is no longer available.", 404)
+    pack.update(copy.deepcopy(version["snapshot"]))
+    _reset_campaign_checks(pack)
+    for name in os.listdir(_image_cache_dir()):
+        if name.startswith(pack["id"] + "."):
+            os.remove(os.path.join(_image_cache_dir(), name))
+    save_pack(pack)
+    return _ok(pack)
 
 
 @app.route("/api/ads/load", methods=["POST"])
@@ -474,10 +564,17 @@ def api_load():
 
 @app.route("/api/ads/save", methods=["POST"])
 def api_save():
+    with _lock:
+        return _save_request()
+
+
+def _save_request():
     data = _body()
     pack = _pack_from_body(data)
     if not pack:
         return _fail("That ad pack no longer exists.", 404)
+    if "revision" in data and data["revision"] != pack.get("revision", 0):
+        return _fail("This pack changed in another window. Reopen it before saving; your local draft is still available.", 409)
 
     pack["campaign"] = _str(data.get("campaign", pack.get("campaign", "")), 200)
     pack["notes"] = _str(data.get("notes", pack.get("notes", "")), 6000)
@@ -522,6 +619,19 @@ def api_save():
 
     if "image_alt" in data and pack.get("image", {}).get("url"):
         pack["image"]["alt"] = _str(data["image_alt"], 500)
+
+    selected = data.get("selected_copy", pack.get("selected_copy", {}))
+    pack["selected_copy"] = {kind: _str(selected.get(kind), 500)
+        for kind in ("headlines", "bodies", "ctas")
+        if isinstance(selected, dict) and selected.get(kind) in
+        [row.get("text") for row in pack["copy"].get(kind, [])]}
+
+    image = pack.get("image") or {}
+    if "image_approved" in data and image.get("url"):
+        if data.get("image_approval_url") == image["url"]:
+            image["visual_approved"] = data["image_approved"] is True
+            image["reviewed_by"] = actor_name() if image["visual_approved"] else ""
+            image["reviewed_at"] = _now() if image["visual_approved"] else ""
 
     save_pack(pack)
     return _ok(pack)
@@ -591,7 +701,9 @@ def api_copy():
         return _fail(f"Couldn't write those options ({type(exc).__name__}). "
                      "The rest of the pack is unaffected — try again.", 502)
 
-    options = [o for o in (result.get("options") or []) if str(o).strip()]
+    options = [o.get("text", o.get("label", "")) if isinstance(o, dict) else o
+               for o in (result.get("options") or [])]
+    options = [o for o in options if str(o).strip()]
     if not options:
         return _fail("The model returned no options. Try again.", 502)
     if kind == "ctas":

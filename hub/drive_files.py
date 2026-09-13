@@ -113,11 +113,18 @@ def is_drive(url: str) -> bool:
 # ---------------------------------------------------------------------------
 
 class DriveRefused(RuntimeError):
-    """Google said no. Carries the reason, so a route can offer the fix."""
+    """Google said no. Carries the reason, so a route can offer the fix.
 
-    def __init__(self, reason: str, detail: str = ""):
+    `reason` is ours -- refused / missing / ratelimited -- and `google` is
+    Google's own, kept beside it rather than only inside the sentence: a
+    caller that wants to tally what went wrong across a run should not have
+    to parse English back out of a message written for a person.
+    """
+
+    def __init__(self, reason: str, detail: str = "", google: str = ""):
         self.reason = reason
         self.detail = detail
+        self.google = google
         super().__init__(detail or reason)
 
 
@@ -242,15 +249,64 @@ def _note_google(url: str, ok: bool = True) -> None:
         pass
 
 
+# Drive answers **403** for its rate limits rather than 429, so the status
+# line alone cannot tell "this account may not read this file" from "you asked
+# too fast". Both arrive as 403 and both used to read as one word.
+_RATE_REASONS = frozenset({
+    "userratelimitexceeded", "ratelimitexceeded", "dailylimitexceeded",
+    "sharingratelimitexceeded", "quotaexceeded",
+})
+
+
+def _google_reason(r) -> tuple[str, str]:
+    """Google's own machine-readable reason for a refusal, and its sentence.
+
+    A Drive 403 carries `error.errors[0].reason` -- `insufficientFilePermissions`,
+    `userRateLimitExceeded`, `domainPolicy` and so on -- and discarding it is
+    what makes three different situations read as one. Never raises and never
+    invents: a body that will not parse answers `("", "")`, and the caller then
+    says what it always said.
+
+    Nothing from the request is carried back, only the response: the bearer
+    token is in a header rather than the URL, and this text is rendered onto a
+    page.
+    """
+    try:
+        err = ((r.json() or {}).get("error") or {})
+    except Exception:                                   # noqa: BLE001
+        return "", ""
+    if not isinstance(err, dict):
+        return "", ""
+    rows = err.get("errors")
+    reason = ""
+    if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+        reason = str(rows[0].get("reason") or "")
+    return reason[:60], str(err.get("message") or "")[:200]
+
+
 def _get(token: str, path: str, **params):
     url = f"{API}{path}"
     r = requests.get(url, params=params,
                      headers={"Authorization": f"Bearer {token}"}, timeout=45)
     _note_google(url, ok=r.ok)
     if r.status_code in (401, 403):
-        raise DriveRefused("refused", f"Drive refused this file (HTTP "
-                                      f"{r.status_code}). It may not be shared "
-                                      f"with the connected login.")
+        why, said = _google_reason(r)
+        # A rate limit is our pacing and is fixed by asking more slowly; a
+        # permission refusal is whose Drive this is and is fixed by sharing the
+        # folder or reading as its owner. One word for both sends somebody to
+        # reconnect a login that was never the problem.
+        if why.lower() in _RATE_REASONS:
+            raise DriveRefused(
+                "ratelimited",
+                f"Drive is rate-limiting this run (HTTP {r.status_code}, "
+                f"{why}). Nothing is wrong with the link or the login.",
+                google=why)
+        named = f" Google's reason: {why}." if why else ""
+        detail = (f"Drive refused this file (HTTP {r.status_code})."
+                  f"{named} It may not be shared with the connected login.")
+        if said and why:
+            detail += f" Google said: {said}"
+        raise DriveRefused("refused", detail, google=why)
     if r.status_code == 404:
         raise DriveRefused("missing", "That Drive item no longer exists, or is "
                                       "not shared with the connected login.")

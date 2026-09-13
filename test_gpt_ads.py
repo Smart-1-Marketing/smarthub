@@ -257,6 +257,12 @@ _responses["https://gone.example/offer"] = FakeResponse(
 result = spec.check_landing_page("https://live.example/offer")
 check("a live page with a viewport is reachable and mobile",
       result["checked"] and result["ok"] and result["mobile"] is True, result)
+_responses["https://locked.example"] = FakeResponse(200, MOBILE_PAGE, "https://locked.example/login?next=/")
+check("login redirect is blocked", not spec.check_landing_page("https://locked.example")["ok"])
+_responses["https://form.example"] = FakeResponse(200, '<title>Sign in</title><input type="password">', "https://form.example")
+check("login form is blocked", not spec.check_landing_page("https://form.example")["ok"])
+_responses["https://public.example"] = FakeResponse(200, MOBILE_PAGE + '<input type="password">', "https://public.example")
+check("public page with account widget is not automatically blocked", spec.check_landing_page("https://public.example")["ok"])
 result = spec.check_landing_page("https://desktop.example/offer")
 check("a page with no viewport is reported as probably not mobile-friendly",
       result["ok"] and result["mobile"] is False, result)
@@ -384,6 +390,8 @@ saved = client.post("/api/ads/save", json={
                         {"text": "Booked in under a minute."}],
              "ctas": [{"text": "Book Now"}, {"text": "Learn More"}]},
 }).get_json()
+saved = client.post("/api/ads/save", json={"id": pack_id, "selected_copy": {
+    kind: saved["ad"]["copy"][kind][0]["text"] for kind in ("headlines", "bodies", "ctas")}}).get_json()
 copy_section = [s for s in saved["readiness"]["sections"] if s["key"] == "copy"][0]
 check("with the invented line gone, the copy deliverable is complete",
       copy_section["state"] == "ok", copy_section)
@@ -405,7 +413,7 @@ check("a 1024 square attaches", square.get("ok") and square["ad"]["image"]["url"
 check("with its real pixels recorded, not what a form said",
       square["ad"]["image"]["width"] == 1024 and square["ad"]["image"]["height"] == 1024)
 image_section = [s for s in square["readiness"]["sections"] if s["key"] == "image"][0]
-check("and the image deliverable goes complete", image_section["state"] == "ok",
+check("image requires visual approval", image_section["state"] == "block",
       image_section)
 
 tiny = client.post("/api/ads/image/upload", data={
@@ -413,7 +421,7 @@ tiny = client.post("/api/ads/image/upload", data={
     content_type="multipart/form-data").get_json()
 tiny_section = [s for s in tiny["readiness"]["sections"] if s["key"] == "image"][0]
 check("a 200px square attaches but is flagged as soft",
-      tiny.get("ok") and tiny_section["state"] == "warn", tiny_section)
+      tiny.get("ok") and any(f["code"] == "image_soft" for f in tiny_section["flags"]), tiny_section)
 
 # Put the good one back for the export assertions below.
 client.post("/api/ads/image/upload", data={
@@ -440,6 +448,18 @@ client.post("/api/ads/landing/check", json={"id": pack_id})
 client.post("/api/ads/save", json={"id": pack_id,
                                    "landing": {"url": "https://live.example/offer"}})
 client.post("/api/ads/landing/check", json={"id": pack_id})
+
+def approve_current_image():
+    image = mod.load_pack(pack_id)["image"]
+    return client.post("/api/ads/save", json={"id": pack_id,
+        "image_approved": True, "image_approval_url": image["url"]}).get_json()
+
+stale = client.post("/api/ads/save", json={"id": pack_id,
+    "image_approved": True, "image_approval_url": "https://wrong.example/image"}).get_json()
+check("stale image approval is ignored", not stale["ad"]["image"].get("visual_approved"))
+check("unapproved image blocks readiness", not stale["readiness"]["ready"])
+approved = approve_current_image()
+check("approval is stored for the current image", approved["ad"]["image"]["visual_approved"])
 
 # ---- readiness and the status gate ----
 state = client.post("/api/ads/load", json={"id": pack_id}).get_json()["readiness"]
@@ -540,6 +560,8 @@ client.post("/api/ads/image/upload", data={
 
 
 # ---------------------------------------------------------------------------
+check("replacing an image clears approval", not mod.load_pack(pack_id)["image"].get("visual_approved"))
+approve_current_image()
 section("The handoff pack")
 # ---------------------------------------------------------------------------
 r = client.post("/api/export.zip", data={"id": pack_id})
@@ -609,6 +631,37 @@ check("the manifest records why the image is absent",
 
 
 # ---------------------------------------------------------------------------
+section("Reusable drafts and history")
+current = client.post("/api/ads/load", json={"id": pack_id}).get_json()["ad"]
+original_campaign = current["campaign"]
+changed = client.post("/api/ads/save", json={"id": pack_id, "revision": current["revision"], "campaign": "Revised campaign"}).get_json()["ad"]
+check("changes record a recoverable version", changed["history"][-1]["snapshot"]["campaign"] == original_campaign)
+conflict = client.post("/api/ads/save", json={"id": pack_id, "revision": current["revision"], "campaign": "Stale overwrite"})
+check("stale autosave cannot overwrite newer edits", conflict.status_code == 409 and mod.load_pack(pack_id)["campaign"] == "Revised campaign")
+restored = client.post("/api/ads/restore", json={"id": pack_id, "restore_revision": changed["history"][-1]["revision"]}).get_json()["ad"]
+check("restoring recovers old campaign", restored["campaign"] == original_campaign)
+check("restoring resets approvals and landing checks", not restored["image"].get("visual_approved") and not restored["landing"]["check"])
+check("restoring is itself undoable", restored["history"][-1]["snapshot"]["campaign"] == "Revised campaign")
+duplicated = client.post("/api/ads/duplicate", json={"id": pack_id}).get_json()["ad"]
+check("duplicate is a separate draft", duplicated["id"] != pack_id and duplicated["status"] == "draft")
+check("duplicate keeps copy and image", all([r["text"] for r in duplicated["copy"][k]] == [r["text"] for r in restored["copy"][k]] for k in ("headlines", "bodies", "ctas")) and duplicated["image"]["url"] == restored["image"]["url"])
+check("duplicate clears offer, tracking and selections", not duplicated["offer"]["expires"] and not duplicated["offer"]["pricing"] and not duplicated["offer"]["summary"] and not duplicated["landing"]["tracking"] and not duplicated["selected_copy"])
+client.post("/api/ads/delete", json={"id": duplicated["id"]})
+client.post("/api/ads/save", json={"id": pack_id, "brand": {"tone": "Friendly and direct", "approver_name": "QA approver"}})
+check("brand defaults can be saved", client.post("/api/ads/brand-defaults", json={"id": pack_id}).get_json()["ok"])
+fresh = client.post("/api/ads/create", json={"client": restored["client"]}).get_json()["ad"]
+check("new packs inherit saved brand defaults", fresh["brand"]["tone"] == "Friendly and direct" and fresh["brand"]["approver_name"] == "QA approver")
+client.post("/api/ads/delete", json={"id": fresh["id"]})
+check("final selection is explicit in CSV", "Selection" in spec.copy_csv(current) and "FINAL" in spec.copy_csv(current))
+check("final selection is in manifest", spec.manifest(current)["selected_copy"] == current["selected_copy"])
+other = client.post("/api/ads/create", json={"client": "Different client"}).get_json()["ad"]
+check("brand defaults do not leak to another client", other["brand"]["approver_name"] != "QA approver")
+client.post("/api/ads/delete", json={"id": other["id"]})
+invalid = client.post("/api/ads/save", json={"id": pack_id, "selected_copy": {"headlines": "Not in this pack"}}).get_json()
+check("final copy must belong to this pack", not invalid["ad"]["selected_copy"])
+for i in range(23):
+    client.post("/api/ads/save", json={"id": pack_id, "notes": f"Version {i}"})
+check("history retains the most recent twenty versions", len(mod.load_pack(pack_id)["history"]) == 20)
 section("Storage")
 # ---------------------------------------------------------------------------
 index = client.get("/api/ads").get_json()["ads"]
@@ -629,6 +682,14 @@ check("an unknown id is a 404 everywhere",
 
 
 requests.get = _real_get
+
+import subprocess
+node = shutil.which("node")
+check("Node is available for GPT builder UI regressions", bool(node))
+if node:
+    ui = subprocess.run([node, "test_gpt_ads_ui.cjs"], capture_output=True,
+                        text=True, timeout=30)
+    check("GPT builder UI regressions", ui.returncode == 0, ui.stdout + ui.stderr)
 
 # ---------------------------------------------------------------------------
 print("\n" + "-" * 60)

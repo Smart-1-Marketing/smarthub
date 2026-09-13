@@ -75,9 +75,18 @@ EXTS = ("html", "py", "js", "ts", "tsx", "jsx")
 # "{{ url_prefix }}/presets", which this file does not extract either, because
 # the pattern wants an href starting with a slash. The same is already true of
 # the "All builds" link beside it.
+# test_client360_proposal_io.js, a fifth: it renders Client 360's proposal
+# list against a fixture row of kind "link" -- an already-live Hub page a
+# proposal points at, as opposed to an uploaded PDF or DOCX -- and then
+# asserts `host.innerHTML.includes('href="/ads/"')` to prove that kind of
+# row keeps its original href rather than being rewritten into a document
+# download link. "/ads/" there is an arbitrary example URL standing in for
+# "some page," never a route this Hub is claimed to serve; the assertion
+# string is the thing being looked FOR, not a link this test follows -- the
+# same shape as test_display_ads.py's `href="/presets"` above.
 SKIP_PREFIXES = ("modules/ad_builder/", "tools/linkcheck.py",
                  "test_ads_module.py", "test_alt_text.py", "test_ads_estimate.py",
-                 "test_display_ads.py")
+                 "test_display_ads.py", "test_client360_proposal_io.js")
 
 # Known-good references that are not links in the running app. Empty today:
 # /tools/ads/ lived here while Smart 1 Ads shipped in the repo unmounted, and
@@ -254,7 +263,7 @@ def literals(patterns=None):
         for name in filenames:
             if name.rsplit(".", 1)[-1].lower() not in EXTS:
                 continue
-            rel = os.path.relpath(os.path.join(dirpath, name), ROOT)
+            rel = os.path.relpath(os.path.join(dirpath, name), ROOT).replace(os.sep, "/")
             if rel.startswith(SKIP_PREFIXES):
                 continue
             try:
@@ -384,7 +393,7 @@ def _rendered_templates():
         for name in filenames:
             if not name.endswith(".py"):
                 continue
-            rel = os.path.relpath(os.path.join(dirpath, name), ROOT)
+            rel = os.path.relpath(os.path.join(dirpath, name), ROOT).replace(os.sep, "/")
             if rel.startswith(SKIP_PREFIXES):
                 continue
             try:

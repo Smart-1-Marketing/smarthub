@@ -75,6 +75,7 @@ class Client(db.Model):
 
     projects = db.relationship("CommercialProject", backref="client", lazy="dynamic",
                                 cascade="all, delete-orphan")
+    brand_presets = db.relationship("BrandPreset", cascade="all, delete-orphan")
 
     def to_dict(self):
         return {
@@ -132,6 +133,9 @@ class CommercialProject(db.Model):
                               order_by="Scene.order_index", cascade="all, delete-orphan")
     render_jobs = db.relationship("RenderJob", backref="project", lazy="dynamic",
                                    cascade="all, delete-orphan")
+    production_takes = db.relationship("ProductionTake", lazy="dynamic",
+                                       cascade="all, delete-orphan")
+    production_usage = db.relationship("ProductionUsage", cascade="all, delete-orphan")
 
     def to_dict(self, include_scenes=True):
         d = {
@@ -218,6 +222,29 @@ from sqlalchemy.orm import Session as _Session
 _event.listen(_Session, "before_flush", _invalidate_changed_speech)
 
 
+class ProductionTake(db.Model):
+    """Immutable script/media snapshots; separate table works on existing installs."""
+    __tablename__ = "cb_production_takes"
+    __table_args__ = (db.Index("ix_cb_take_lookup", "project_id", "scene_id", "kind", "digest"),)
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("cb_projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    scene_id = db.Column(db.Integer)  # Keep history even when a scene is deleted.
+    kind = db.Column(db.String(20), nullable=False)
+    digest = db.Column(db.String(64), nullable=False)
+    snapshot_json = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    snapshot = JSONField("snapshot_json")
+
+
+class RecoveryAttempt(db.Model):
+    __tablename__ = "cb_recovery_attempts"
+    key = db.Column(db.String(80), primary_key=True)
+    next_at = db.Column(db.Float, default=0, nullable=False, index=True)
+    lease_until = db.Column(db.Float, default=0, nullable=False)
+    attempts = db.Column(db.Integer, default=0, nullable=False)
+    last_error = db.Column(db.String(200))
+
+
 class RenderJob(db.Model):
     __tablename__ = "cb_render_jobs"
 
@@ -230,6 +257,7 @@ class RenderJob(db.Model):
     error = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    inspection = db.relationship("RenderInspection", uselist=False, cascade="all, delete-orphan")
 
     def to_dict(self):
         return {
@@ -552,3 +580,7 @@ class ComplianceAck(db.Model):
             "findings": self.findings or [],
             "note": self.note or "",
         }
+
+
+# Register additive production tables for model-only and background callers too.
+from . import finishing_models as _finishing_models  # noqa: E402,F401

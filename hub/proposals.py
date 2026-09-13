@@ -557,6 +557,51 @@ def delete_proposal(client: str, pid: str) -> bool:
     return True
 
 
+def document_response(client: str, proposal_id: str):
+    """Open the stored document with its original filename, not its storage ID."""
+    import io
+    from urllib.parse import urlsplit
+    from flask import abort, send_file
+    import requests
+
+    record = next((p for p in list_proposals(client, backfill=False)
+                   if proposal_id and (str(p.get("id") or "") == proposal_id
+                                       or p.get("filename") == proposal_id)), None)
+    if not record or record.get("kind") == "link":
+        abort(404)
+    filename = _safe_name(str(record.get("filename") or "").replace("\\", "/"))
+    extension = os.path.splitext(filename)[1].lower()
+    if extension not in ALLOWED:
+        abort(404)
+    url = str(record.get("url") or "")
+    if url.startswith("/api/client/proposals/file/"):
+        source = local_file_path(url.rsplit("/", 1)[-1])
+        if not source:
+            abort(404)
+    else:
+        parsed = urlsplit(url)
+        if (parsed.scheme != "https" or parsed.netloc != "res.cloudinary.com"
+                or "/raw/upload/" not in parsed.path):
+            abort(404)
+        try:
+            with requests.get(url, timeout=30, stream=True, allow_redirects=False) as response:
+                if response.status_code != 200:
+                    abort(502, description="The proposal file is temporarily unavailable.")
+                source = io.BytesIO()
+                for chunk in response.iter_content(64 * 1024):
+                    if source.tell() + len(chunk) > MAX_BYTES:
+                        abort(413)
+                    source.write(chunk)
+                source.seek(0)
+        except requests.RequestException:
+            abort(502, description="The proposal file is temporarily unavailable.")
+    response = send_file(source, mimetype=ALLOWED[extension],
+                         as_attachment=False, download_name=filename)
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 def local_file_path(name: str) -> str | None:
     """Path for a locally-stored proposal (Cloudinary-less fallback)."""
     name = os.path.basename(str(name or ""))

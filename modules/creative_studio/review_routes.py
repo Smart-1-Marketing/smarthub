@@ -48,7 +48,8 @@ from datetime import datetime
 from flask import Blueprint, abort, jsonify, render_template, request
 
 from .db import db
-from .models import CsProject, CsProjectVersion, CsShare, CsShareComment, CsShareDecision
+from .models import (CsCampaign, CsCampaignAsset, CsProject, CsProjectVersion,
+                     CsShare, CsShareComment, CsShareDecision)
 
 try:
     from modules.commercial_builder import review_spec
@@ -156,6 +157,9 @@ def client_review(token):
                                     "Please check your email for the latest link, "
                                     "or ask your account manager to resend it."), 410
 
+    if share.kind == "campaign":
+        return _campaign_review_page(token, share)
+
     project = CsProject.query.get(share.project_id)
     version = CsProjectVersion.query.get(share.subject_id) if share.kind == "render" else None
     if project is None or (share.kind == "render" and version is None):
@@ -176,6 +180,49 @@ def client_review(token):
         said=[{"outcome_label": (review_spec.OUTCOME_LABELS.get(d.outcome, "") if review_spec else d.outcome),
                "reviewer_name": d.reviewer_name or "Someone", "note": d.note or ""}
               for d in share.decisions.all()],
+        comments=[c.to_dict() for c in share.comments.all()],
+    )
+
+
+def _campaign_review_page(token, share):
+    """The kind="campaign" half of the same page -- WO-CS8 item 5. One
+    link, every asset on it, a separate Approve / Request Changes per
+    asset (`CsShareDecision.asset_project_id`) rather than one verdict for
+    the whole campaign: a client who likes four of five cuts must be able
+    to say so about the fifth without holding up the other four."""
+    campaign = CsCampaign.query.get(share.subject_id)
+    if campaign is None:
+        abort(404)
+
+    share.opened_count = (share.opened_count or 0) + 1
+    share.last_opened_at = datetime.utcnow()
+    db.session.commit()
+
+    round_state = review_spec.round_state(share.round_no) if review_spec else {
+        "label": f"Round {share.round_no or 1}", "client_note": "", "over": False}
+
+    all_decisions = share.decisions.all()
+    assets = []
+    for link in CsCampaignAsset.query.filter_by(campaign_id=campaign.id).all():
+        project = CsProject.query.get(link.project_id)
+        if project is None:
+            continue
+        version = project.versions.order_by(CsProjectVersion.version.desc()).first()
+        own_decisions = [d for d in all_decisions if d.asset_project_id == project.id]
+        assets.append({
+            "project": project.as_dict(),
+            "channel": link.channel or "",
+            "render_url": version.render_url if version else "",
+            "said": [{"outcome_label": (review_spec.OUTCOME_LABELS.get(d.outcome, "")
+                                       if review_spec else d.outcome),
+                      "reviewer_name": d.reviewer_name or "Someone", "note": d.note or ""}
+                     for d in own_decisions],
+        })
+
+    return render_template(
+        "cs_review_campaign.html", token=token, campaign=campaign.as_dict(),
+        message=share.message or "", round_state=round_state,
+        outcomes=_outcomes_shown(), assets=assets,
         comments=[c.to_dict() for c in share.comments.all()],
     )
 
@@ -239,8 +286,24 @@ def client_decide(token):
             "Please add your name and email. We record who signed a version "
             "off, and an answer nobody can be named for is one we cannot act on.")}), 400
 
+    # WO-CS8: on a kind="campaign" share, a decision is about ONE asset, so
+    # the dedupe key is (email, asset) rather than email alone -- otherwise
+    # approving the first asset a reviewer opens would silently overwrite
+    # whatever they had already said about a different one.
+    asset_project_id = None
+    if share.kind == "campaign":
+        raw_asset_id = body.get("asset_project_id")
+        if not str(raw_asset_id or "").strip().isdigit():
+            return jsonify({"ok": False, "error": "Say which asset this answers for."}), 400
+        asset_project_id = int(raw_asset_id)
+        if not CsCampaignAsset.query.filter_by(
+                campaign_id=share.subject_id, project_id=asset_project_id).first():
+            return jsonify({"ok": False, "error": "That is not an asset on "
+                            "this campaign."}), 400
+
     existing = next((d for d in share.decisions.all()
-                     if (d.reviewer_email or "").strip().lower() == email.lower()), None)
+                     if (d.reviewer_email or "").strip().lower() == email.lower()
+                     and d.asset_project_id == asset_project_id), None)
     ip = _client_ip()
     if existing:
         existing.outcome = outcome
@@ -252,12 +315,16 @@ def client_decide(token):
     else:
         decision = CsShareDecision(share_id=share.id, outcome=outcome,
                                    reviewer_name=name, reviewer_email=email,
-                                   note=str(body.get("note") or "").strip()[:2000], ip=ip)
+                                   note=str(body.get("note") or "").strip()[:2000], ip=ip,
+                                   asset_project_id=asset_project_id)
         db.session.add(decision)
     db.session.commit()
 
-    project = CsProject.query.get(share.project_id)
-    resolved = review_spec.verdict([d.to_dict() for d in share.decisions.all()])
+    subject_id = asset_project_id if share.kind == "campaign" else share.project_id
+    project = CsProject.query.get(subject_id)
+    own_decisions = [d.to_dict() for d in share.decisions.all()
+                     if d.asset_project_id == asset_project_id]
+    resolved = review_spec.verdict(own_decisions)
     # Internal Review -> Client Review happened on send; this is the other
     # half -- WO-CS6 item 5. Approval sets the outcome only: it never
     # enqueues a render, which is the one thing a public page with no QC

@@ -29,7 +29,23 @@ function salesPager(container, items, size, key) {
   const pages = Math.max(1, Math.ceil(items.length / size));
   state.page = Math.min(state.page, pages - 1);
   function draw() {
-    items.forEach((item, i) => { item.hidden = i < state.page * size || i >= (state.page + 1) * size; });
+    items.forEach((item, i) => {
+      const off = i < state.page * size || i >= (state.page + 1) * size;
+      item.hidden = off;
+      // A quote or IO row is two <tr>s now -- the record, and its
+      // Package / Products line directly under it -- and this only ever
+      // paginates the first: the second has just one cell (a colspan), so
+      // the `cells.length > 1` filter below never counts it as an item of
+      // its own. Left alone, paging to page 2 hides three main rows and
+      // shows three new ones, while every Package/Products line for every
+      // record ever drawn stays on screen underneath them. Mirroring the
+      // state onto the very next row -- which is only ever a pkgrow when
+      // one exists -- keeps the two rows one unit without the pager (or
+      // the unrelated client-search list it also drives) needing to know
+      // that shape exists.
+      const sib = item.nextElementSibling;
+      if (sib && sib.classList?.contains('pkgrow')) sib.hidden = off;
+    });
     pager.replaceChildren();
     const prev = document.createElement('button');
     prev.type = 'button'; prev.textContent = '← Previous'; prev.disabled = state.page === 0;

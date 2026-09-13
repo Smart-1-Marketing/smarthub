@@ -7,12 +7,22 @@ import json
 from flask import Blueprint, current_app, jsonify, request
 
 from hub.extensions import db
+from .activity import log as _log
 from .context import get_seo_context
 from .file_store import mirror_client
 from .models import SEOAction, SEOMemory, SEOProperty, SEORecommendation, SEOSnapshot
 from .service import refresh_property, upsert_property
 
 bp = Blueprint("seo_intelligence", __name__, url_prefix="/seo/intelligence")
+
+
+def _actor():
+    """The signed-in name, or nothing. Never the value a POST body claims."""
+    try:
+        from hub import current_user
+        return current_user() or None
+    except Exception:                                   # noqa: BLE001
+        return None
 
 
 def _loads(raw, fallback):
@@ -98,6 +108,11 @@ def register_property():
     if not client_id or not site_url:
         return jsonify({"error": "client_id and site_url are required"}), 400
     prop = upsert_property(client_id, site_url, body.get("display_name"))
+    # Recorded because this is the join: every snapshot, recommendation and
+    # sitemap write below is filed against whichever client this row names, so
+    # a property pointed at the wrong one is wrong everywhere and silently.
+    _log("property_registered", actor=_actor(),
+         client=prop.display_name or prop.client_id, site=prop.site_url)
     return jsonify(_property_dict(prop)), 201
 
 

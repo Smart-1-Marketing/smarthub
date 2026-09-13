@@ -177,6 +177,11 @@ def _claim_leadership(app) -> bool:
 # Jobs
 # ---------------------------------------------------------------------------
 
+def job_ai_comparisons(app) -> dict:
+    from hub import ai_comparison_queue
+    return ai_comparison_queue.kick(app)
+
+
 def job_clear_stuck_scans(app) -> dict:
     """Resolve or error any scan running longer than the grace window.
 
@@ -757,10 +762,108 @@ def job_creative_jobs_sweep(app) -> dict:
     except Exception as exc:                            # noqa: BLE001
         return {"skipped": f"unavailable ({type(exc).__name__})"}
     with app.app_context():
-        return creative_jobs.run_one()
+        out = creative_jobs.run_one()
+        # The Proposal Execution Center advances one task on this same tick,
+        # deliberately: the leader lock, the cadence and the deploy safety are
+        # already here and a second scheduler would be a second answer to when
+        # a queue runs. It rides here rather than rebinding
+        # `creative_jobs.run_one` -- doing that changed what that function
+        # returns for every reader of it, this panel included.
+        #
+        # Its own half is labelled and never merged into the creative counts:
+        # two queues reporting one `claimed` is a number nobody can act on.
+        # A failure in it costs its own line and never the creative result.
+        try:
+            from hub import proposal_execution
+            out = dict(out)
+            out["proposal_execution"] = proposal_execution.run_one()
+        except Exception as exc:                        # noqa: BLE001
+            out = dict(out)
+            out["proposal_execution"] = {
+                "skipped": f"unavailable ({type(exc).__name__})"}
+        return out
+
+
+def job_qa_task_autoclaim(app) -> dict:
+    """Claim QA tasks on behalf of whoever `QA_TASK_DELEGATES` names as a
+    delegate, for whoever it names as their principal.
+
+    In-process rather than over HTTP: `tools/yoda_qa.py pickup` does the
+    identical thing (same mapping, same `qa_tasks.claim()`) for an account
+    that has to reach the live Hub from outside it. Run here under the leader
+    lock, the pickup happens on a schedule with no outbound call at all --
+    nothing external to run, nothing that can be blocked by a network policy
+    between wherever a script runs and this one.
+
+    Ten minutes: cheap (one query per delegate plus a write per claimed
+    task, no provider call), so there is no reason to make somebody wait an
+    hour to see a task move off their desk.
+    """
+    try:
+        from hub import qa_tasks
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        return qa_tasks.autoclaim()
+
+
+def job_qa_task_vision(app) -> dict:
+    """Read the screenshot linked in a QA task's own instructions and post
+    what a model sees into its thread.
+
+    Bounded the way job_index_video_backlog and job_describe_client_uploads
+    are: a vision call is billed and has no useful ceiling on how long it
+    takes, and this thread is shared with every other job. Skipped entirely
+    with no OpenAI key configured -- not an error and not silence, the
+    job_index_video_backlog rule: an unconfigured Hub would otherwise write
+    an identical "unavailable" line into the activity log every ten minutes
+    for ever.
+    """
+    try:
+        from hub import ai, qa_tasks
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    if not ai.ready():
+        return {"skipped": "OPENAI_API_KEY is not set"}
+    with app.app_context():
+        return qa_tasks.describe_image_backlog()
+
+
+def job_industry_prospect_sync(app):
+    from hub.industry_prospects import scheduled_step
+    return scheduled_step(app)
+
+
+def job_commercial_recovery(app) -> dict:
+    """Continue saved commercial jobs after the browser closes."""
+    with app.app_context():
+        from modules.commercial_builder.recovery import recover_pending
+        return recover_pending()
 
 
 JOBS = {
+    "industry_prospect_sync": (1, job_industry_prospect_sync,
+                               "Advance the opt-in GHL to Apollo suppression sync."),
+    "commercial_recovery": (1, job_commercial_recovery,
+                            "Check saved commercials and retry storing presenter clips."),
+    # Placed here rather than at the bottom of this dict on purpose: `_loop`
+    # runs every due job synchronously, in this insertion order, on one
+    # thread, and google_index below routinely spends 20+ minutes retrying
+    # rate-limited GTM calls across every connected account -- which is due
+    # immediately on every fresh boot, same as everything else. A ten-minute
+    # job sitting after it in the dict does not get a turn until that finishes,
+    # which on a deploy-heavy day is never: measured live, qa_task_vision went
+    # over three hours without running a single time because google_index (and
+    # the other slow network sweeps after it) never returned before the next
+    # redeploy reset the whole queue. Both QA-task jobs are cheap, bounded and
+    # read nothing but this Hub's own database, so moving them ahead of every
+    # slow provider sweep costs the rest of the list nothing and guarantees
+    # these two get to run on every tick regardless of what else is stuck.
+    "qa_task_autoclaim": (10, job_qa_task_autoclaim,
+                          "Claim QA tasks for whoever QA_TASK_DELEGATES names "
+                          "as standing in."),
+    "qa_task_vision":    (10, job_qa_task_vision,
+                          "Read screenshots linked in QA task instructions."),
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
     "clear_stuck_scans": (15, job_clear_stuck_scans,
@@ -804,6 +907,8 @@ JOBS = {
                           "concept/script/image generation)."),
     "creative_jobs":     (1, job_creative_jobs_sweep,
                           "Run one queued lead-triggered creative job (radio scripts)."),
+    "ai_comparisons":   (1, job_ai_comparisons,
+                          "Start one budget-reserved model comparison in its own worker."),
 }
 
 

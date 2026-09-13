@@ -274,28 +274,20 @@ Rules:
 - "why" is at most 12 words saying what you based it on. It is for the reviewer, not the site."""
 
 
-def _openai_json(system: str, payload: dict, timeout: int = 90):
+def _openai_json(system: str, payload: dict, timeout: int = 90,
+                 client: str | None = None):
     """Same seam and the same spend accounting as hub/seo.py's writer."""
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
+    from hub import ai as _hub_ai
+    if not _hub_ai.ready():
         return None
-    import requests
-    r = requests.post("https://api.openai.com/v1/chat/completions",
-                      headers={"Authorization": f"Bearer {api_key}",
-                               "Content-Type": "application/json"},
-                      json={"model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-                            "response_format": {"type": "json_object"},
-                            "temperature": 0.4,
-                            "messages": [{"role": "system", "content": system},
-                                         {"role": "user", "content": json.dumps(payload)}]},
-                      timeout=timeout)
-    r.raise_for_status()
     try:
-        from hub import ai as _hub_ai
-        _hub_ai.note_usage("seo", r.json(), purpose="alt_text")
-    except Exception:                                   # noqa: BLE001
-        pass
-    return json.loads(r.json()["choices"][0]["message"]["content"])
+        return _hub_ai.chat_json(
+            [{"role": "system", "content": system},
+             {"role": "user", "content": json.dumps(payload)}],
+            module="seo", purpose="alt_text", temperature=0.4, timeout=timeout,
+            client=client)
+    except _hub_ai.AIUnavailable:
+        return None
 
 
 def _fallback_alt(img: dict, page: dict) -> str:
@@ -348,7 +340,7 @@ def rewrite(client: str, urls: list[str] | None = None) -> dict:
                               for i in images]}
         out = None
         try:
-            out = _openai_json(_PROMPT, payload)
+            out = _openai_json(_PROMPT, payload, client=client)
         except Exception as exc:                        # noqa: BLE001
             ai_error = str(exc)
 

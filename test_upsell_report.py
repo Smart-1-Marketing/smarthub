@@ -255,23 +255,28 @@ body = [r for r in out["rows"]
 check("every row names its client with a link to the record",
       all(isinstance(r[0], dict) and r[0].get("href", "").startswith("/client360")
           for r in body), True)
-never = [r for r in body if "Not measured" in str(r[2].get("text", ""))]
+never = [r for r in body if "Not measured" in str(r[3].get("text", ""))]
 check("a client nobody audited says not measured, never 'nothing found'",
       bool(never), True)
 check("and is drawn as muted rather than as a finding",
-      all(r[2].get("muted") for r in never), True)
+      all(r[3].get("muted") for r in never), True)
 
 # The finding is the cell; the product is the tooltip. A product name in the
 # cell is what a rep gets argued with over.
 sellable = [r for r in body
-            if r[2].get("text") and not r[2].get("muted")]
+            if r[3].get("text") and not r[3].get("muted")]
 if sellable:
-    cell = sellable[0][2]
+    cell = sellable[0][3]
     check("the finding leads the cell", cell["text"][0].isupper(), True)
     check("and the product it points at is on the tooltip",
           cell.get("title", "").startswith("Points at:"), True)
 
-acts = [r[5] for r in body if isinstance(r[5], dict) and r[5].get("actions")]
+check("the second column is the partner",
+      out["columns"][1], "Partner")
+check("every row carries a partner cell, even when there is none on file",
+      all(isinstance(r[1], dict) and "text" in r[1] for r in body), True)
+
+acts = [r[6] for r in body if isinstance(r[6], dict) and r[6].get("actions")]
 check("rows carry an action, so the report is a queue and not a list",
       bool(acts), True)
 first = acts[0]["actions"][0]

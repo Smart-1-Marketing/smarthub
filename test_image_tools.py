@@ -15,6 +15,13 @@ os.environ["HUB_DATA_DIR"] = _tmp.name
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(_tmp.name, "test.db")
 os.environ["SECRET_KEY"] = "image-tools-test-secret"
 os.environ["AUDIT_LOG_PATH"] = os.path.join(_tmp.name, "audit.jsonl")
+# hub.config.settings is a frozen dataclass built once at import, so the key
+# hub.ai.image() actually reads has to be set before hub.ai is ever imported
+# (directly or via modules.image_creator) -- the same convention
+# test_ai_injection.py uses. Mocking modules.image_creator's own _settings()
+# no longer controls this: /api/ai/image is routed through hub.ai.image()
+# now, which reads hub.config.settings.openai_key rather than the caller's.
+os.environ["OPENAI_API_KEY"] = "sk-test-fixture-not-real"
 
 from PIL import Image
 from modules.image_optimizer import app as optimizer
@@ -100,32 +107,27 @@ class OptimizerTests(unittest.TestCase):
 
 
 class BackgroundCreditTests(unittest.TestCase):
-    def test_preview_paid_and_cached_usage_are_distinct(self):
-        for quality, cached, credits, previews in (
-                ("preview", False, 0, 1), ("auto", False, 1, 0),
-                ("full", False, 1, 0), ("preview", True, 0, 0),
-                ("auto", True, 0, 0)):
-            with self.subTest(quality=quality, cached=cached), \
+    def test_provider_processing_and_cached_usage_are_distinct(self):
+        for mode, cached in (("cutout", False), ("replace", False), ("cutout", True), ("replace", True)):
+            with self.subTest(mode=mode, cached=cached), \
                     patch.object(background, "configured", return_value=True), \
-                    patch.object(background, "api_key", return_value="test-only-key"), \
+                    patch.object(background.providers, "ai_ready", return_value=True), \
                     patch.object(background, "_sweep"), \
                     patch.object(background, "_cache_get", return_value=png() if cached else None), \
                     patch.object(background, "_cache_put"), \
                     patch.object(background, "_log"), \
-                    patch("requests.post", return_value=Mock(ok=True, status_code=200, content=png())) as post, \
-                    patch("hub.quotas.record") as record:
+                    patch.object(background.providers, "cloud_cutout", return_value=png()) as cutout, \
+                    patch.object(background.providers, "replace_background", return_value=png()) as edit:
                 r = background.app.test_client().post("/api/remove", data={
-                    "images": (io.BytesIO(png()), "fixture.png"), "quality": quality,
+                    "images": (io.BytesIO(png()), "fixture.png"), "mode": mode, "prompt": "A kitchen",
                 })
                 self.assertEqual(r.status_code, 200)
                 body = r.get_json()
-                self.assertEqual(body["credits_used"], credits)
-                self.assertEqual(body["preview_calls"], previews)
-                self.assertEqual(body["results"][0]["billed"], bool(credits))
+                self.assertEqual(body["provider_calls"], 0 if cached else 1)
                 self.assertEqual(body["results"][0]["cached"], cached)
-                self.assertEqual(body["results"][0]["preview"], quality == "preview")
-                self.assertEqual(record.call_count, credits)
-                self.assertEqual(post.call_count, 0 if cached else 1)
+                self.assertNotIn("credits_used", body)
+                self.assertEqual(cutout.call_count, int(mode == "cutout" and not cached))
+                self.assertEqual(edit.call_count, int(mode == "replace" and not cached))
 
 
 class ProviderTests(unittest.TestCase):
@@ -136,7 +138,10 @@ class ProviderTests(unittest.TestCase):
             openai_image_model="test-image-model"))
         self.settings.start()
         self.addCleanup(self.settings.stop)
-        self.usage = patch("hub.ai.note_usage").start()
+        # /api/ai/image is routed through hub.ai.image() now, which records
+        # spend through hub.audit.log(..., ok=...) via hub.ai._record()
+        # rather than the note_usage() helper the old direct-call path used.
+        self.usage = patch("hub.audit.log").start()
         self.addCleanup(patch.stopall)
 
     def test_rejected_provider_requests_do_not_expose_bodies(self):
@@ -164,7 +169,7 @@ class ProviderTests(unittest.TestCase):
 
     def test_empty_or_malformed_image_response_is_failure(self):
         for payload in ({"data": []}, {"data": [None]}, {"data": [{}]}, []):
-            response = Mock(ok=True)
+            response = Mock(ok=True, status_code=200)
             response.json.return_value = payload
             with patch("requests.post", return_value=response):
                 r = self.client.post("/api/ai/image", json={"prompt": "test"})
@@ -173,7 +178,7 @@ class ProviderTests(unittest.TestCase):
 
     def test_successful_generation_is_usable_and_recorded(self):
         raw = png()
-        response = Mock(ok=True)
+        response = Mock(ok=True, status_code=200)
         response.json.return_value = {"data": [{"b64_json": base64.b64encode(raw).decode()}]}
         with patch("requests.post", return_value=response) as post:
             r = self.client.post("/api/ai/image", json={"prompt": "blue mug"})

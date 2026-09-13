@@ -197,6 +197,17 @@ NO_ACTIVITY: dict[str, str] = {
         "of. The staff-facing internal calculator deliberately stores nothing "
         "at all, so there is nothing there to attribute either."
     ),
+    "marketing_audit": (
+        "The calculators shape, one Node process over: what this module "
+        "produces is a LEAD, not client work -- an accounting or bookkeeping "
+        "partner with no Hub account fills in the audit and the result goes "
+        "through hub/leads.py, the one store, delivery and panel for a "
+        "prospect. It is also not Python (modules/marketing_audit, a second "
+        "Express process proxied whole by hub/marketing_audit_proxy.py), so "
+        "there is no call site here to make: the lead is what hub/leads.py's "
+        "own capture() already logs under 'leads', and there is no staff "
+        "action anywhere in this module to attribute a second row to."
+    ),
     "hf_render_service": (
         "Not the ad_builder shape -- this is not a renderer proxied through "
         "to a browser with its own client-facing routes. It is a headless "

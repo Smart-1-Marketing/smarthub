@@ -225,10 +225,13 @@ else:
         check("a filled row gets an open link", 'target="_blank"' in filled)
         check("the add menu renders under the rows",
               'id="c-social-add"' in filled)
-        check("a platform already on the record is not offered again",
-              '<option value="facebook"' not in filled)
-        check("one that is not on the record IS offered",
-              '<option value="yelp"' in filled)
+        check("a platform already on the record stays offered -- a "
+              "multi-location client has more than one Facebook page",
+              '<option value="facebook"' in filled)
+        check("and says so, rather than reading like a duplicate mistake",
+              "(add another)" in filled)
+        check("one that is not on the record IS offered plainly",
+              '<option value="yelp">Yelp</option>' in filled)
         check("a custom option is always offered",
               'value="__custom"' in filled)
         check("the scan note names the platform, not the key",

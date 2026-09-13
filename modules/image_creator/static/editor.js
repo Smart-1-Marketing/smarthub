@@ -770,7 +770,7 @@ function showLogoUploadOptions(dataUrl, name){
         background-size:14px 14px;background-position:0 0,0 7px,7px -7px,-7px 0">
       <button class="btn sm" id="loAddAsIs" style="width:100%;margin-bottom:6px">Add as-is</button>
       <button class="btn sec sm" id="loRemoveBg" style="width:100%;margin-bottom:6px"
-        ${BGREM_ON?'':'disabled title="REMOVE_BG_API_KEY isn\'t set"'}>Remove background</button>
+        ${BGREM_ON?'':'disabled title="Cloudinary is not connected"'}>Remove background</button>
       <button class="btn sec sm" id="loRemoveWhite" style="width:100%">Remove white background</button>
       <div class="hint" id="loPendingMsg"></div>
     </div>`;
@@ -797,7 +797,7 @@ function showLogoUploadOptions(dataUrl, name){
   };
 }
 function removeWhiteBackground(dataUrl, threshold){
-  // A free, local alternative to the paid remove.bg call — flattens any
+  // A free, local alternative to the Cloudinary cutout — flattens any
   // near-white pixel to transparent. Good enough for a logo shot on a plain
   // white background; not a substitute for real subject cut-out.
   return new Promise((resolve, reject) => {

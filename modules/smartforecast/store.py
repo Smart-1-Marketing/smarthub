@@ -1393,7 +1393,7 @@ def normalize_snapshot(body: dict) -> dict:
 
 def _default_branding() -> dict:
     return {
-        "font": "inherit", "headline_weight": 800, "body_weight": 400,
+        "font": "inherit", "heading_tag": "h1", "headline_weight": 800, "body_weight": 400,
         "headline_color": "#ffffff", "body_color": "#dce7f2",
         "button_color": "#f6b544", "button_text": "#071726",
         "border_radius": 18, "desktop_headline_size": 54,

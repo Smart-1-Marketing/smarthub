@@ -207,7 +207,7 @@ def seed(actor: str = "system") -> int:
             category=spec["category"], industry=spec["industry"],
             duration=spec["duration"], aspect_ratio=spec["aspect_ratio"],
             creative_type=spec["creative_type"], status="published", version=1,
-            created_by=actor)
+            source="seed", created_by=actor)
         tmpl.tags = spec["tags"]
         db.session.add(tmpl)
 

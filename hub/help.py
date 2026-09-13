@@ -605,6 +605,18 @@ REGISTRY: list[Help] = [
        "so first: a proposal written from an older one describes a site that "
        "may have been rebuilt since.", step=6, selector="#nextCard"),
 
+    # ---------------- Smart 1 Sites Builder ----------------
+    _h("sites_builder.preview", "Show the outcome before the price",
+       "This turns the few facts a lead has already told you into a homepage "
+       "they can react to: their name, their market, one clear action and the "
+       "sections their customers need. It is a conversation piece, not a "
+       "finished site or a promise that copy has been approved. The design "
+       "cards come from the live Smart 1 Sites catalog; opening and choosing "
+       "them keeps a visual trail on this browser so you can compare what the "
+       "lead liked instead of relying on memory.",
+       link="https://smart1sites.com/themes",
+       link_text="Browse all Smart 1 themes"),
+
     # ---------------- Prospect record ----------------
     _h("hub.prospect.intro", "What this record is for",
        "Everything the Hub knows about one prospect, in one place: what they "
@@ -798,14 +810,14 @@ REGISTRY: list[Help] = [
 
     # ---------------- Background Remover ----------------
     _h("bg_remover.upload.credits", "This one costs money",
-       "Each cutout spends a remove.bg credit. The remaining balance is shown "
-       "before you spend one, and identical images are cached — retrying the "
-       "same file never charges twice.", step=1,
+       "Cutouts use Cloudinary; new scenes use OpenAI. Service usage charges apply. "
+       "Completed results are cached briefly so ordinary retries can reuse them. "
+       "Use the original photo without a border for cleaner cutouts.", step=1,
        selector="[data-tour='credit-balance']"),
-    _h("bg_remover.upload.white_bg", "Try the free option first",
-       "For a logo on a plain white background, 'Remove white background' runs "
-       "in your browser, costs nothing, and is usually as good. Save the paid "
-       "AI removal for photographs and complicated edges.", step=2,
+    _h("bg_remover.upload.white_bg", "Choose the size you need",
+       "Resize the finished image for its destination. Cutouts keep their "
+       "transparency. Changing only this size can reuse a recently completed "
+       "result without another background-processing call.", step=2,
        selector="[data-tour='white-bg']"),
 
     # ---------------- UTM Builder ----------------
@@ -2209,22 +2221,27 @@ REGISTRY: list[Help] = [
        "render on it. Status follows the vocabulary the whole pipeline uses: "
        "Draft, Rendering, Internal Review, Client Review, Changes Requested, "
        "Approved, Archived."),
-    _h("creative_studio.project_detail", "A record, not yet the editor",
-       "The scene-by-scene editor and the queued Creatomate render ship in "
-       "later work orders. This page exists now so nothing about a project "
-       "-- who started it, what it is for, which client it is filed under "
-       "-- is lost while those land."),
+    _h("creative_studio.project_detail", "Open the Storyboard Editor and review a version",
+       "Choose a template, then use Open in Storyboard Editor or Continue in Storyboard Editor. "
+       "Review the resolved variables and fill missing required values. AI Generation queues concepts "
+       "before a script; scene images need a scene from the editor. Render a version in the editor. "
+       "When its finished render appears under Versions, use Send for Approval for that version.",
+       link="/creative-studio/projects", link_text="Open projects"),
     _h("creative_studio.brand_kits", "Find a client's brand record",
        "Logos and colors come from Brandfetch and the client's last site "
-       "scan; the business facts below them -- services, promotions, "
-       "pronunciation -- are typed in once here and every template reads "
-       "them from then on."),
+       "scan. Research & draft reviews the client website, known social "
+       "profiles and web search to suggest the remaining business and "
+       "creative fields. The suggestions stay In review until a signed-in "
+       "Hub user approves them."),
     _h("creative_studio.brand_kit", "One brand record, not a third copy",
        "Logos, colors and fonts are read from the same brand data Client "
        "360 already shows -- editing them here would be a second answer to "
        "one question. What is edited here is the half nothing else "
        "publishes: services, promotions, disclaimers, the pronunciation "
-       "dictionary, and how this client's creative should look and sound."),
+       "dictionary, and how this client's creative should look and sound. "
+       "Research creates a source-linked draft without changing the live "
+       "kit. Review its values and open questions, edit anything needed, "
+       "then approve it in one action."),
     _h("creative_studio.media", "What is actually stored, not what was made",
        "Storage stays Cloudinary; this is the index over it. \"Index "
        "this client's assets\" queues a backfill job rather than "
@@ -2269,6 +2286,80 @@ REGISTRY: list[Help] = [
        "out with clients (sent, nothing back yet). A round past four is "
        "flagged for a change-order conversation rather than refused -- the "
        "client is still served."),
+
+    # ---------------- Creative Studio (WO-CS11: AI tools) -------------------
+    _h("creative_studio.product_lifestyle", "The real product, composited",
+       "Background removal runs on Cloudinary before anything is generated "
+       "-- gpt-image-1 is given the real product photo as an image input, "
+       "never asked to imagine the product from a description. Four "
+       "options come back and none is picked for you."),
+    _h("creative_studio.pdf_to_video", "Read from the page, never invented",
+       "Every extracted price is labeled 'read from PDF — confirm' until "
+       "you clear it -- OCR on a menu is not a contract. Building the "
+       "storyboard never renders it automatically."),
+
+    # ---------------- Creative Studio (WO-CS10: spot library) --------------
+    _h("creative_studio.library", "Approved spots become starting points",
+       "'Use as template' abstracts an approved spot's structure into a "
+       "reusable template -- client names, phones and websites are turned "
+       "back into {{variables}}, and footage is stripped so no client's "
+       "actual video reaches another client's storyboard. 'Use as "
+       "reference' attaches it to a new project's Concepts step as a "
+       "'make it like this' input, words only. A client's own "
+       "library_opt_out (set on their Brand Kit) hides their spots here."),
+
+    # ---------------- Creative Studio (WO-CS8: campaigns) ------------------
+    _h("creative_studio.campaigns", "One concept, several assets",
+       "A campaign shares one offer and one CTA across every channel it "
+       "covers. 'Generate all drafts' writes that shared brief once and "
+       "derives each asset's own copy from it -- no asset asks the model "
+       "twice. Nothing renders until you press Render, and a batch above "
+       "the confirmation threshold asks you to type the campaign's own "
+       "name before it spends anything."),
+
+    # ---------------- Creative Studio (WO-CS7: aspect variations) ----------
+    _h("creative_studio.variations", "Preview before you render",
+       "Pick a size and this builds the same scenes, same footage, same "
+       "resolved text -- re-flowed into that size's own safe area -- and "
+       "renders a single still frame first. Nothing queues a video until "
+       "you choose to render a variation, so checking a size costs nothing. "
+       "A 9:16 whose text would sit under a platform's own UI is refused "
+       "rather than built; every other size is built and named if it is "
+       "tight."),
+    # Scheduled maintenance: verified against main on September 12, 2026.
+    _h('radio_promo.delivery.final_mix', 'Save the final radio music mix before sharing',
+       'Choose the voice and music bed for each spot length, then Render the mix. Listen to the preview and use Save mix for customer. A browser preview or download alone does not save the customer version. If the voice or music changes, render and save the mix again. Delivery and sharing use the saved final mix; advertising audio is also filed in the client assets. Read any timing or audio findings before saving.',
+       link='/tools/radio-promo/', link_text="Open tool"),
+    _h('hub.qa_tasks.delegation', 'Taking over a QA task as a delegate',
+       'A configured delegate may claim an open task assigned to the person they cover. Claiming changes the assignee and records the handoff in the task thread. Being able to see the team board does not grant permission to claim every task. Ask an administrator to configure delegation if you are covering someone and cannot claim their task.',
+       link='/qa-tasks', link_text="Open tool"),
+    _h('hub.users.add', 'Add a Hub user',
+       'An administrator can open Users and choose Add user, enter the name and email, and create a General Access account. Only a super admin can create higher access roles. Supply a password or let the Hub generate one. The created account is active; copy the password when it is shown because that response displays it only once.',
+       link='/diagnostics/users', link_text="Open tool"),
+    _h('google_access.cleanup.progress', 'Read an incomplete Google cleanup scan',
+       'Open Inactive Google Accounts QA and use Run fresh scan. Results appear as connected accounts are scanned, so partial results do not mean the scan is complete. Tag Manager calls are paced to respect Google limits. If scanning fails, read the error and retry; do not treat an account that could not be read as inactive.',
+       link='/tools/google-access/qa-inactive/', link_text="Open tool"),
+    _h('google_access.cleanup.delete', 'Review inactivity before deleting a Google resource',
+       'GA4 inactivity is based on measured events and sessions during the displayed window. GTM has no traffic-reporting API: containers without enough evidence stay in Needs Review. Verify the connected account and resource before confirming deletion. GA4 deletion moves a property to the Analytics trash; GTM container deletion is permanent. Use the scan evidence rather than assuming every old resource is unused.',
+       link='/tools/google-access/qa-inactive/', link_text="Open tool"),
+    _h('seo_intelligence.overview.evidence', 'Use Search Console evidence in SEO Intelligence',
+       'Open SEO Intelligence for client snapshots and the agency Action Queue. Recommendations use weekly Search Console evidence and 28-day comparisons. A connected Google account needs access to the property and may need reconnection to grant Search Console access. Review the evidence behind a recommendation before creating another page, especially when existing pages compete for the same queries. Record completed actions so later snapshots can measure outcomes.',
+       link='/seo/intelligence/', link_text="Open tool"),
+    _h('proposal_execution.overview.approval', 'Take an approved proposal into execution',
+       'In Proposal Execution Center, choose the client, load an uploaded proposal and select Analyze Proposal. Review the analysis and required inputs before starting the run. Research and internal drafts can run in the background. Publishing, scheduling, changes to live campaigns and starting spend require explicit approval or a handoff. Open task outputs before approving them; Request Changes or Re-run when they need correction. Marking a handoff scheduled or live records its state, rather than performing the external work.',
+       link='/proposal-execution', link_text="Open tool"),
+    _h('hub.client360.links', 'Keep multiple client links and proposal files',
+       'Client 360 can retain multiple links for a platform and multiple Smart 1 Suite sub-accounts for one client. Check the specific destination before opening or disconnecting a link. Uploaded proposal PDFs keep their original filenames, making the intended file easier to identify when several proposals are on the client record.',
+       link='/client360', link_text="Open tool"),
+    _h('hub.account.notifications', 'Account menu and QA notifications',
+       'Use the initials circle in the upper-right corner to open the account dropdown and Log out. The notification bell includes radio, video and display processing plus personal QA assignments and updates on tasks you raised. Task links open the QA record; due dates and overdue status help prioritize it. New activity can become unread even if the task status is unchanged. Help is available beside the bell rather than in the main sidebar.',
+       link='/help', link_text="Open tool"),
+    _h('landing_ads.prospects.import', 'Preview a prospect import before activating outreach',
+       'In Industry Prospect Builder, upload the list and choose Preview & clean list. Review usable contacts before choosing the GHL sub-account and tags. Leave Activate outreach after import off while checking the first import. Enabling it adds the trigger tag and may start a GHL workflow. Read the imported and failed counts; a partially completed contact may still need its tags retried.', link='/tools/landing-ads/prospects', link_text="Open tool"),
+    _h('weather_setup.verticals.choose', 'Choose the weather campaign industry',
+       'Weather Trigger Setup supports Restaurant, HVAC, and Retail / Home Goods campaigns. Choose the matching industry when starting a campaign: it determines the available triggers and draft copy. Review the resulting offer and seasonal language before publishing; changing the industry is more than changing the business name.', link='/tools/weather-setup', link_text="Open tool"),
+    _h('fan_radio.voice.settings', 'Apply Fan Radio voice settings to future recordings',
+       'Use Voice settings to choose the voice mode and style strength, then generate a voice sample if needed. Samples use the voice-generation allowance. Save voice settings to all scripts to use them on future recordings. Existing clips do not change until you re-record them. Open the library to continue a saved project rather than creating a duplicate.', link='/tools/fan-radio/', link_text="Open tool"),
 ]
 
 _BY_KEY = {h.key: h for h in REGISTRY}

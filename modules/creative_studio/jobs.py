@@ -23,13 +23,15 @@ new must not count against the one-retry ceiling `config.JOB_MAX_ATTEMPTS`
 gives `"render"`; that ceiling matters at submission, not at every check-in
 afterward.
 
-`variant` and `pdf` are not implemented; enqueuing either writes the row and
-the sweep marks it failed at its first pass with a readable reason, rather
-than a job that "queued" reads as running for ever with nothing behind it.
-That is deliberately different from silently refusing the enqueue: a project
-should be able to *ask* for one today and see honestly that nothing can
-answer yet, the same distinction `hub/hyperframes.py` draws between
-configured, reachable and working.
+`pdf` is not implemented; enqueuing it writes the row and the sweep marks it
+failed at its first pass with a readable reason, rather than a job that
+"queued" reads as running for ever with nothing behind it. That is
+deliberately different from silently refusing the enqueue: a project should
+be able to *ask* for one today and see honestly that nothing can answer yet,
+the same distinction `hub/hyperframes.py` draws between configured,
+reachable and working. `variant` (WO-CS7) was declared the same way and is
+built now -- the same shape as every multi-tick runner here: `queued` binds
+and submits, later ticks poll.
 """
 from __future__ import annotations
 
@@ -189,8 +191,25 @@ def _run_storyboard(job: CreativeJob) -> None:
 
     job.stage = "Creating scenes"
     db.session.commit()
+
+    # WO-CS10 item 3. `archetype_keys=None` (the default at every other call
+    # site, including Commercial Builder's own Storyboard Editor) leaves
+    # `generation.run_concepts` behaving exactly as before -- this is the
+    # only caller in the Hub that passes a ranked list, and a failure
+    # computing the ranking costs the seeding, never the concepts.
+    ranked = []
     try:
-        concepts = generation.run_concepts(cb_project, client)
+        from . import recommender
+        industry = binder.project_industry(project)
+        platform = (cb_project.platform or "") or \
+            binder.PLATFORM_BY_CREATIVE_TYPE.get(project.creative_type, "")
+        ranked = recommender.rank_archetypes(industry, platform)
+        archetype_keys = [r["key"] for r in ranked] or None
+    except Exception:                                     # noqa: BLE001
+        archetype_keys = None
+
+    try:
+        concepts = generation.run_concepts(cb_project, client, archetype_keys=archetype_keys)
     except ValueError as exc:
         _fail(job, str(exc))
         return
@@ -202,10 +221,24 @@ def _run_storyboard(job: CreativeJob) -> None:
                 client_name=project.client_name, quantity=1, unit="call",
                 actor=job.created_by)
 
+    # WO-CS10 item 4. Run on the brief alone -- there is no script yet at
+    # the Concepts stage, and the offer/legal wording a Reg Z or superlative
+    # finding is about is already typed there. Advisory only: nothing here
+    # blocks concept generation, the same "never a verdict" rule
+    # `compliance_spec` itself states.
+    try:
+        from . import compliance_ext
+        compliance = compliance_ext.scan(
+            brief=cb_project.brief, client=client.to_dict(),
+            commercial_type=cb_project.commercial_type)
+    except Exception:                                     # noqa: BLE001
+        compliance = {"findings": [], "measured": False}
+
     job.state = "complete"
     job.stage = "Complete"
     job.progress = 100
-    job.output = {"concepts": concepts}
+    job.output = {"concepts": concepts, "compliance": compliance,
+                  "recommended_archetypes": ranked}
     job.finished_at = datetime.utcnow()
     db.session.commit()
 
@@ -703,6 +736,540 @@ def _run_render(job: CreativeJob) -> None:
 
 
 _RUNNERS["render"] = _run_render
+
+
+def _run_variant(job: CreativeJob) -> None:
+    """Build one variation's storyboard and render its single-frame preview
+    -- WO-CS7. This is the `"variant"` kind this file's own module docstring
+    named as declared-and-not-yet-built; it is built now.
+
+    Multi-tick like `_run_render`, and for the same reason: `queued` binds
+    the variation (`binder.bind_variation` -- copying the parent's scenes,
+    reframed and recomposed for this aspect, same footage, same resolved
+    text) and submits a still; later ticks poll `check_render` until a URL
+    lands. Binding itself needs no provider and is not why this is a job --
+    the still render is a billed Creatomate call, and nothing long-running
+    happens inside the request that asked for a variation.
+    """
+    from .models import CsProject
+    from . import binder
+    from modules.commercial_builder.models import CommercialProject as CbProject
+    from modules.commercial_builder.models import Scene as CbScene
+    from modules.commercial_builder.services import creatomate_service
+
+    project = CsProject.query.get(job.project_id) if job.project_id else None
+    if project is None:
+        _fail(job, "That project no longer exists.")
+        return
+
+    payload = dict(job.payload or {})
+
+    if job.state == "queued":
+        job.state = "processing"
+        job.stage = "Building the variation's storyboard"
+        db.session.commit()
+
+        result = binder.bind_variation(project)
+        if not result.get("ok"):
+            _fail(job, result.get("error") or "Could not build this variation.")
+            return
+
+        cb_project = CbProject.query.get(project.cb_project_id)
+        scenes = [s.to_dict() for s in cb_project.scenes.order_by(CbScene.order_index).all()]
+        source = creatomate_service.build_source(
+            cb_project.to_dict(include_scenes=False), scenes, project.aspect_ratio,
+            still=True)
+
+        job.state = "rendering"
+        job.stage = "Rendering a preview frame"
+        db.session.commit()
+
+        result = creatomate_service.submit_render(source)
+        if result.get("status") == "failed":
+            _fail(job, result.get("error") or "Creatomate refused the preview.")
+            return
+        if result.get("status") == "succeeded" and not result.get("url"):
+            # Mock mode -- `approve_render`'s own rule, applied here before
+            # anything is filed: the storyboard is real, the preview is not.
+            _fail(job, "No CREATOMATE_API_KEY is set, so this is a mock: it "
+                       "reported success and produced no preview. The "
+                       "variation's storyboard was still built.")
+            return
+        if result.get("status") == "succeeded" and result.get("url"):
+            payload["preview_url"] = result["url"]
+        else:
+            payload["provider_render_id"] = result.get("id")
+        job.payload = payload
+        db.session.commit()
+        if not payload.get("preview_url"):
+            return   # still rendering -- the next tick polls it
+
+    if not payload.get("preview_url"):
+        status = creatomate_service.check_render(payload.get("provider_render_id"))
+        if "status" not in status:
+            return   # could not reach Creatomate -- try again next tick
+        if status["status"] == "failed":
+            _fail(job, status.get("error") or "Creatomate reported the preview failed.")
+            return
+        if status["status"] == "succeeded" and not status.get("url"):
+            _fail(job, "Creatomate reported the preview complete but returned no file.")
+            return
+        if status["status"] != "succeeded":
+            return   # still queued/rendering on Creatomate's side
+        payload["preview_url"] = status["url"]
+        job.payload = payload
+        db.session.commit()
+
+    preview_url = payload.get("preview_url")
+    if not preview_url:
+        return
+
+    job.state = "uploading"
+    job.stage = "Storing the preview"
+    db.session.commit()
+
+    try:
+        url, _public_id = _materialize_remote(
+            project.client_name, preview_url, f"{project.name or 'variation'}-preview.jpg")
+    except Exception as exc:                              # noqa: BLE001
+        _fail(job, f"The preview could not be stored: {exc}")
+        return
+
+    project.preview_url = url
+    db.session.commit()
+
+    usage.record("creatomate", "preview", project_id=project.id,
+                client_name=project.client_name, quantity=1, unit="preview",
+                actor=job.created_by)
+
+    job.state = "complete"
+    job.stage = "Complete"
+    job.progress = 100
+    job.output = {"preview_url": url}
+    job.finished_at = datetime.utcnow()
+    db.session.commit()
+
+
+_RUNNERS["variant"] = _run_variant
+
+
+def _run_campaign_draft(job: CreativeJob) -> None:
+    """One OpenAI call for a whole campaign, then every asset's brief
+    derived from it and its storyboard auto-built -- WO-CS8 item 3.
+    Single-tick, like `_run_voice`: `hub.ai.chat_json` is a synchronous
+    request, so there is nothing here to poll for on a later sweep pass.
+
+    `job.project_id` is deliberately unset -- a campaign is not a project,
+    and `campaign_id` rides in the payload instead, the same shape the
+    `heygen` job uses for `scene_id`.
+    """
+    from . import binder
+    from .campaign_generation import generate_campaign_brief
+    from .models import CsCampaign, CsCampaignAsset, CsProject
+
+    campaign_id = (job.payload or {}).get("campaign_id")
+    campaign = CsCampaign.query.get(campaign_id) if campaign_id else None
+    if campaign is None:
+        _fail(job, "That campaign no longer exists.")
+        return
+
+    job.state = "processing"
+    job.stage = "Writing the campaign brief"
+    db.session.commit()
+
+    try:
+        brief = generate_campaign_brief(campaign)
+    except Exception as exc:                              # noqa: BLE001
+        _fail(job, f"Could not write the campaign brief: {exc}")
+        return
+
+    usage.record("openai", "campaign_draft", client_name=campaign.client_name,
+                quantity=1, unit="call", actor=job.created_by)
+
+    campaign.brief = brief
+    db.session.commit()
+
+    job.stage = "Building each asset's storyboard"
+    db.session.commit()
+
+    built, skipped = [], []
+    assets = CsCampaignAsset.query.filter_by(campaign_id=campaign.id).all()
+    for asset in assets:
+        project = CsProject.query.get(asset.project_id)
+        if project is None:
+            continue
+        if project.cb_project_id:
+            # Already opened -- a rep may have been editing it since it was
+            # added. Deriving a fresh brief onto a storyboard somebody is
+            # mid-edit on would be the `set_music` trap CLAUDE.md names for
+            # the Commercial Builder's own music panel, one screen over.
+            skipped.append(project.id)
+            continue
+        merged = dict(project.brief or {})
+        for key, value in brief.items():
+            if value and not str(merged.get(key) or "").strip():
+                merged[key] = value
+        project.brief = merged
+        db.session.commit()
+
+        result = binder.bind(project) if project.template_id else \
+            binder.bind_for_generation(project)
+        if result.get("ok"):
+            built.append(project.id)
+        else:
+            skipped.append(project.id)
+
+    job.state = "complete"
+    job.stage = "Complete"
+    job.progress = 100
+    job.output = {"brief": brief, "built": built, "skipped": skipped}
+    job.finished_at = datetime.utcnow()
+    db.session.commit()
+
+
+_RUNNERS["campaign_draft"] = _run_campaign_draft
+
+
+def _run_weather_set(job: CreativeJob) -> None:
+    """One project's seven (or fewer) weather variants -- WO-CS9 item 3
+    (copy) and item 4 (image). Single-tick: the OpenAI call and each stock
+    image fetch are synchronous requests, same shape as `_run_voice`.
+
+    Never renders anything and never creates a variation project --
+    `api_approve_weather_set` does that, on a per-condition, rep-reviewed
+    basis ("rep edits" in the work order's own words), the same two-step
+    "create it, then a person decides whether to build from it" shape
+    `_run_variant` already draws for WO-CS7.
+    """
+    from . import binder
+    from .campaign_generation import generate_weather_variants
+    from .models import CsMediaAsset, CsProject, CsWeatherSet
+
+    project = CsProject.query.get(job.project_id) if job.project_id else None
+    if project is None:
+        _fail(job, "That project no longer exists.")
+        return
+
+    industry = binder.project_industry(project)
+    pack = config.industry_pack(industry)
+    if not pack.get("weather_ready"):
+        _fail(job, f"There is no weather angle written for '{industry}' yet "
+                   "-- Create Weather Set needs an industry with weather copy.")
+        return
+
+    job.state = "processing"
+    job.stage = "Writing the weather variants"
+    db.session.commit()
+
+    try:
+        variants = generate_weather_variants(project, pack)
+    except Exception as exc:                              # noqa: BLE001
+        _fail(job, f"Could not write the weather variants: {exc}")
+        return
+
+    usage.record("openai", "weather_set", project_id=project.id,
+                client_name=project.client_name, quantity=1, unit="call",
+                actor=job.created_by)
+
+    job.stage = "Finding a background per condition"
+    db.session.commit()
+
+    conditions = []
+    for condition, copy in variants.items():
+        try:
+            from hub import stock_search
+            found = stock_search.search([f"{condition} weather"], per_page=1)
+            candidate = (found.get("results") or [None])[0]
+        except Exception:                                 # noqa: BLE001
+            candidate = None
+
+        image_url, media_id = "", None
+        if candidate:
+            source_url = candidate.get("full") or candidate.get("preview") or ""
+            if source_url:
+                try:
+                    url, public_id = _materialize_remote(
+                        project.client_name, source_url,
+                        f"weather-{condition}.jpg", kind="creative_studio_weather")
+                    asset = CsMediaAsset(
+                        client_name=project.client_name, asset_type="image",
+                        filename=f"weather-{condition}.jpg", cloudinary_public_id=public_id,
+                        cloudinary_url=url, source="stock", project_id=project.id,
+                        created_by=job.created_by)
+                    asset.tags = ["weather", condition]
+                    db.session.add(asset)
+                    db.session.flush()
+                    image_url, media_id = url, asset.id
+                except Exception:                          # noqa: BLE001
+                    pass  # a missing background costs the image, never the copy
+
+        row = CsWeatherSet.query.filter_by(project_id=project.id, condition=condition).first()
+        if row is None:
+            row = CsWeatherSet(project_id=project.id, condition=condition)
+            db.session.add(row)
+        row.headline = copy["headline"]
+        row.offer = copy["offer"]
+        row.cta = copy["cta"]
+        if image_url:
+            row.weather_image_url = image_url
+            row.media_asset_id = media_id
+        db.session.commit()
+        conditions.append(condition)
+
+    job.state = "complete"
+    job.stage = "Complete"
+    job.progress = 100
+    job.output = {"conditions": conditions}
+    job.finished_at = datetime.utcnow()
+    db.session.commit()
+
+
+_RUNNERS["weather_set"] = _run_weather_set
+
+
+def _run_library_abstract(job: CreativeJob) -> None:
+    """"Use as template" -- WO-CS10 item 2. Single-tick: no model call and
+    no provider round trip, `binder.library_abstract_from_project` is a
+    database write and nothing else, so there is no partial state for a
+    second tick to resume."""
+    from . import binder
+    from .models import CsProject
+
+    project = CsProject.query.get(job.project_id) if job.project_id else None
+    if project is None:
+        _fail(job, "That project no longer exists.")
+        return
+
+    job.state = "processing"
+    job.stage = "Abstracting the storyboard"
+    db.session.commit()
+
+    result = binder.library_abstract_from_project(project, actor=job.created_by)
+    if not result.get("ok"):
+        _fail(job, result.get("error") or "Could not build a template from this spot.")
+        return
+
+    job.state = "complete"
+    job.stage = "Complete"
+    job.progress = 100
+    job.output = {"template_id": result["template_id"]}
+    job.finished_at = datetime.utcnow()
+    db.session.commit()
+
+
+_RUNNERS["library_abstract"] = _run_library_abstract
+
+
+def _run_product_lifestyle(job: CreativeJob) -> None:
+    """Product Lifestyle -- WO-CS11 item 1. Background removal via
+    Cloudinary (the real product composited, never regenerated -- the same
+    rule `hub/qr_codes.py` states about never inventing a destination),
+    then gpt-image-1 given the product AS AN IMAGE INPUT, into one of the
+    12 seeded environments. Single-tick: every step is a synchronous
+    request.
+
+    `hub.storage.background_removed_url()` always builds a URL -- Cloudinary
+    transformations are lazy, so this is the point that actually finds out
+    whether the account can do it, by fetching it. A fetch failure ends the
+    job failed with a readable error and no generation is attempted, the
+    build spec's own test.
+    """
+    from . import config
+    from .models import CsMediaAsset, CsProject
+    from hub import ai, storage
+
+    project = CsProject.query.get(job.project_id) if job.project_id else None
+    if project is None:
+        _fail(job, "That project no longer exists.")
+        return
+
+    payload = job.payload or {}
+    public_id = str(payload.get("public_id") or "")
+    environment_key = str(payload.get("environment") or "")
+    extra_prompt = str(payload.get("prompt") or "").strip()
+    environment = config.environment_by_key(environment_key)
+    if not public_id:
+        _fail(job, "No product photo was uploaded.")
+        return
+    if environment is None:
+        _fail(job, f"'{environment_key}' is not a known environment.")
+        return
+
+    job.state = "processing"
+    job.stage = "Removing the background"
+    db.session.commit()
+
+    bg_url = storage.background_removed_url(public_id)
+    if not bg_url:
+        _fail(job, "Storage is not configured -- background removal needs "
+                   "a live Cloudinary account.")
+        return
+    try:
+        import requests
+        resp = requests.get(bg_url, timeout=30)
+        if resp.status_code != 200 or not resp.content:
+            _fail(job, "Background removal could not be applied to this "
+                       "photo -- the Advanced Background Removal add-on may "
+                       "not be enabled on this Cloudinary account.")
+            return
+        product_bytes = resp.content
+    except Exception as exc:                              # noqa: BLE001
+        _fail(job, f"Background removal failed: {exc}")
+        return
+
+    job.stage = "Generating lifestyle options"
+    db.session.commit()
+
+    full_prompt = environment["prompt"]
+    if extra_prompt:
+        full_prompt += " " + extra_prompt
+    full_prompt += (" Place the product from the reference image naturally "
+                    "into this scene, at a realistic scale. Do not alter "
+                    "the product itself.")
+
+    try:
+        images = ai.image_edit(full_prompt, product_bytes, module="creative_studio",
+                               purpose="product_lifestyle", n=4)
+    except Exception as exc:                              # noqa: BLE001
+        _fail(job, f"Could not generate lifestyle images: {exc}")
+        return
+
+    usage.record("openai", "product_lifestyle", project_id=project.id,
+                client_name=project.client_name, quantity=len(images), unit="image",
+                actor=job.created_by)
+
+    asset_ids = []
+    for i, img_bytes in enumerate(images, start=1):
+        try:
+            asset = storage.put("creative_studio", f"lifestyle-{environment_key}-{i}.png",
+                               img_bytes, client=project.client_name)
+        except Exception:                                 # noqa: BLE001
+            continue
+        row = CsMediaAsset(
+            client_name=project.client_name, asset_type="image",
+            filename=f"lifestyle-{environment_key}-{i}.png",
+            cloudinary_public_id=asset.public_id, cloudinary_url=asset.url,
+            source="openai", project_id=project.id, created_by=job.created_by)
+        row.tags = ["product_lifestyle", environment_key]
+        db.session.add(row)
+        db.session.flush()
+        asset_ids.append(row.id)
+    db.session.commit()
+
+    if not asset_ids:
+        _fail(job, "Images were generated but none could be stored.")
+        return
+
+    job.state = "complete"
+    job.stage = "Complete"
+    job.progress = 100
+    job.output = {"asset_ids": asset_ids}
+    job.finished_at = datetime.utcnow()
+    db.session.commit()
+
+
+_RUNNERS["product_lifestyle"] = _run_product_lifestyle
+
+
+def _run_pdf(job: CreativeJob) -> None:
+    """PDF -> Video, page 1 -- WO-CS11 item 2. Rasterises the uploaded PDF
+    through Cloudinary's own `pg_N` parameter (`hub.storage.pdf_page_url`)
+    and hands the image URL straight to `hub.ai.vision` -- no bytes fetched
+    here, the vision endpoint reads the URL itself the same way
+    `generate/image` already does for stock references.
+
+    Never builds a storyboard and never renders: this job's whole job is
+    the extraction. `POST .../pdf/build-storyboard` is the separate, later
+    step a rep takes once they have reviewed what came back -- "Never
+    renders automatically" is the build spec's own words, and a job that
+    extracted AND built AND rendered in one tick would be exactly that.
+    """
+    import json as _json
+
+    from .models import CsProject
+
+    project = CsProject.query.get(job.project_id) if job.project_id else None
+    if project is None:
+        _fail(job, "That project no longer exists.")
+        return
+
+    payload = job.payload or {}
+    public_id = str(payload.get("public_id") or "")
+    if not public_id:
+        _fail(job, "No PDF was uploaded.")
+        return
+
+    job.state = "processing"
+    job.stage = "Reading the PDF"
+    db.session.commit()
+
+    from hub import storage
+    page_url = storage.pdf_page_url(public_id, 1)
+    if not page_url:
+        _fail(job, "Storage is not configured -- this needs a live "
+                   "Cloudinary account.")
+        return
+
+    prompt = (
+        "This is page 1 of a PDF flyer or one-sheet for a local business. "
+        "Read it and return strict JSON with exactly these keys: "
+        '"headline" (string), "items" (a list of objects, each with '
+        '"name", "price" and "description" -- price as it is printed, a '
+        'string, e.g. "$12.99" or "" if none is shown), "dates" (string, '
+        'any date range or deadline printed, or ""), "address" (string, '
+        'or ""), "offer" (string, any headline promotion or discount, or '
+        '""). Read only what is actually printed -- never invent an item, '
+        "a price or a date that is not on the page."
+    )
+    from hub import ai
+    try:
+        raw = ai.vision(prompt, [page_url], module="creative_studio", purpose="pdf_extract")
+        data = _json.loads(raw)
+    except Exception as exc:                              # noqa: BLE001
+        _fail(job, f"Could not read the PDF: {exc}")
+        return
+
+    usage.record("openai", "pdf_extract", project_id=project.id,
+                client_name=project.client_name, quantity=1, unit="call",
+                actor=job.created_by)
+
+    items = []
+    for item in (data.get("items") or [])[:24]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        items.append({
+            "name": name[:200], "price": str(item.get("price") or "").strip()[:60],
+            "description": str(item.get("description") or "").strip()[:400],
+            # WO-CS11's own words: prices are "read from PDF -- confirm",
+            # and stay unconfirmed until a named human clears them --
+            # OCR on a menu is not a contract.
+            "price_confirmed": False,
+        })
+
+    extraction = {
+        "headline": str(data.get("headline") or "").strip()[:300],
+        "items": items,
+        "dates": str(data.get("dates") or "").strip()[:200],
+        "address": str(data.get("address") or "").strip()[:300],
+        "offer": str(data.get("offer") or "").strip()[:300],
+    }
+    brief = dict(project.brief or {})
+    brief["pdf_extraction"] = extraction
+    project.brief = brief
+    db.session.commit()
+
+    job.state = "complete"
+    job.stage = "Complete"
+    job.progress = 100
+    job.output = {"extraction": extraction}
+    job.finished_at = datetime.utcnow()
+    db.session.commit()
+
+
+_RUNNERS["pdf"] = _run_pdf
 
 
 def sweep(app=None, limit: int = 20) -> dict:

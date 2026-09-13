@@ -9,7 +9,7 @@
   behave two ways.
 #}
 <div class="page-head">
-  <h2>QA Tasks</h2>
+  <h2>QA Tasks {{ help_dot('hub.qa_tasks.delegation') if help_dot is defined else '' }} </h2>
   <p>Ask somebody to check a page or a tool, and get their answer back here</p>
 </div>
 
@@ -20,6 +20,7 @@
   <button type="button" class="qat-btn" id="qat-tab-mine" data-tab="mine">Mine</button>
   <button type="button" class="qat-btn" id="qat-tab-board" data-tab="board">Everyone</button>
   <button type="button" class="qat-btn" id="qat-tab-done" data-tab="done">Completed</button>
+  <button type="button" class="qat-btn" id="qat-tab-log" data-tab="log">Solved</button>
 </div>
 
 <div id="qat-form" class="card qat-form" hidden>
@@ -304,6 +305,37 @@
     wire(host);
   }
 
+  /* Question, solution, when -- across the whole team. Whether Todd has
+     formally ticked a row off is a separate fact, shown as the status pill:
+     solving it and closing the review are two different moments. */
+  function logRow(t) {
+    return '<div class="qat-row" data-open="' + t.task_id + '">'
+      + '<div class="qat-main">'
+      + '<div class="qat-title">' + esc(t.target_label) + '</div>'
+      + '<div class="qat-sub">' + esc(t.question) + '</div>'
+      + '<div class="qat-snip"><b>Solution:</b> ' + esc(t.solution) + '</div>'
+      + '</div><div class="qat-side">'
+      + '<span class="qat-pill ' + esc(t.status) + '">' + esc(t.status_label) + '</span>'
+      + '<div class="muted" style="font-size:11px;margin-top:4px;text-align:right">'
+      + esc(t.solved_by) + ' &middot; ' + esc(t.solved_on_pretty) + '</div>'
+      + '</div></div>';
+  }
+
+  function drawLog(d) {
+    var host = $('qat-body');
+    if (!d || d.measured === false) {
+      host.innerHTML = '<div class="qat-empty">' + esc((d && d.error)
+        || 'Not measured — this is not the same as nothing being solved.')
+        + '</div>';
+      return;
+    }
+    host.innerHTML = '<div class="qat-group">Question, solution, and when</div>'
+      + ((d.rows || []).length ? d.rows.map(logRow).join('')
+                                : '<div class="qat-empty">Nothing has been '
+                                  + 'answered yet.</div>');
+    wire(host);
+  }
+
   function wire(host) {
     Array.prototype.forEach.call(host.querySelectorAll('[data-open]'), function (el) {
       el.onclick = function () { openOne(el.getAttribute('data-open')); };
@@ -312,9 +344,11 @@
 
   /* ----------------------------------------------------------- one task */
   function post(t) {
-    var mine = t.kind === 'request';
+    var label = t.kind === 'request' ? ' asked for more information'
+      : t.kind === 'claim' ? ' picked this up'
+      : t.kind === 'vision' ? ' read the screenshot' : ' answered';
     return '<div class="qat-post"><div class="qat-post-h">'
-      + esc(t.author_name) + (mine ? ' asked for more information' : ' answered')
+      + esc(t.author_name) + label
       + ' <span class="muted" style="font-weight:400">' + esc(t.created_on_pretty)
       + '</span></div>'
       + (t.body ? '<div class="qat-post-b">' + esc(t.body) + '</div>' : '')
@@ -465,6 +499,15 @@
         .catch(function () { drawBoard(null); });
       return;
     }
+    if (tab === 'log') {
+      $('qat-body').innerHTML = '<div class="qat-empty">Reading what has '
+        + 'been solved… <span class="spin"></span></div>';
+      fetch('/api/qa-tasks/log', { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(drawLog)
+        .catch(function () { drawLog(null); });
+      return;
+    }
     $('qat-body').innerHTML = '<div class="qat-empty">Reading your tasks… '
       + '<span class="spin"></span></div>';
     fetch('/api/qa-tasks', { credentials: 'same-origin' })
@@ -473,11 +516,11 @@
       .catch(function () { draw(null); });
   }
 
-  ['mine', 'board', 'done'].forEach(function (name) {
+  ['mine', 'board', 'done', 'log'].forEach(function (name) {
     var el = $('qat-tab-' + name);
     el.onclick = function () {
       tab = name;
-      ['mine', 'board', 'done'].forEach(function (other) {
+      ['mine', 'board', 'done', 'log'].forEach(function (other) {
         $('qat-tab-' + other).classList.toggle('on', other === name);
       });
       openTask = 0;

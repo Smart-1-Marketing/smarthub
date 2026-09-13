@@ -262,10 +262,15 @@ function render(res){
   /* A run that authenticated and then failed on every link is one account
      failing, not a list of broken links — said once, above the table, or it
      is 108 identical rows nobody reads to the bottom of. */
+  /* The fix is the verdict's, not this screen's. A reconnect is right when
+     `access()` refuses the account and wrong when every *file* was refused —
+     the same word for two different refusals, and the token is checked for
+     Drive before a file is read, so the second one is never a consent
+     problem. */
   if (res.verdict && res.verdict.detail)
     h += `<div class="note bad"><b>Nothing came across.</b> `
        + esc(res.verdict.detail)
-       + ` <a href="/google/login">Connect the right login on Google Finder &rarr;</a></div>`;
+       + (res.verdict.fix ? " " + esc(res.verdict.fix) : "") + `</div>`;
   h += rowsTable(res.apply ? "Copied" : "Would copy", res.copied || [], "ok");
   h += rowsTable("Skipped", res.skipped || [], "warn");
   h += rowsTable("Failed", res.failed || [], "bad");
@@ -494,7 +499,7 @@ async function runBatch(apply){
     if (verdict && verdict.detail)
       h += `<div class="note bad"><b>Nothing came across.</b> `
          + esc(verdict.detail)
-         + connectFix("refused") + `</div>`;
+         + (verdict.fix ? " " + esc(verdict.fix) : "") + `</div>`;
     else if (totals.failed) {
       const why = Object.keys(reasons).sort((a,b) => reasons[b] - reasons[a])
         .map(k => `${reasons[k]} ${esc(k)}`).join(", ");

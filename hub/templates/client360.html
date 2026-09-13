@@ -90,7 +90,7 @@
   .c360-proposals-table td:empty{display:none}
 }
 </style>
-<div class="page-head"><h2>Client 360 {{ help_dot('hub.client360.header') if help_dot is defined else '' }}</h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
+<div class="page-head"><h2>Client 360 {{ help_dot('hub.client360.header') if help_dot is defined else '' }} {{ help_dot('hub.client360.links') if help_dot is defined else '' }} </h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
 
 <form class="c360-search" onsubmit="run();return false" hidden>
   <input id="q" data-demo="client-search" placeholder="Type a client name or domain…" value="{{ q or '' }}" autofocus>
@@ -330,8 +330,22 @@ function pick(i){
   render(groups[i],$('q').value.trim());
 }
 
+
+function loadClientEmailSummary(client,generation,domain){
+  fetch('/api/client-email/state?client='+encodeURIComponent(client)+'&domain='+encodeURIComponent(domain||'')).then(function(r){if(!r.ok)throw Error('Email contact could not be loaded.');return r.json();}).then(function(b){
+    if(generation!==c360Generation)return;var box=document.getElementById('c360EmailSummary');if(!box)return;
+    if(b.error){box.textContent='Client email: '+b.error;return;}
+    box.textContent=b.linked?'Email contact: '+b.contact.name+' · '+b.contact.email+' · '+b.messages.length+' recent emails available.':'No email contact linked yet. Use Email client & history to select the client’s contact in Smart 1’s GHL account.';
+    if(b.linked&&b.messages.length){var recent=document.createElement('p');recent.textContent='Latest: '+b.messages[0].subject+' · '+b.messages[0].at+' · '+b.messages[0].status;box.appendChild(recent);}
+  }).catch(function(e){if(generation===c360Generation){var box=document.getElementById('c360EmailSummary');if(box)box.textContent=e.message;}});
+}
+
 function render(g,q){
   c360Generation++;
+  const emailGeneration=c360Generation;
+  const emailWebsite=(g.websites||[])[0]||{};
+  const emailDomain=emailWebsite.domain||emailWebsite.liveUrl||'';
+  setTimeout(function(){loadClientEmailSummary(g.client||q,emailGeneration,emailDomain);},0);
   window.__trafficStarted=null;
   const name=g.client||q;
   window.CURRENT_CLIENT = name;
@@ -383,6 +397,7 @@ function render(g,q){
      card. The group button keeps the s1-acc-group class because
      loadGroup() and S1GroupLabel() address it by that name. */
   head+='<div class="c360-actions">'
+    +'<a class="ce-client-link" href="/client-email?client='+encodeURIComponent(name)+'&domain='+encodeURIComponent(emailDomain)+'">Email client &amp; history</a>'
     +'<button type="button" onclick="ioStart(\'new\')">New IO</button>'
     +'<button type="button" onclick="ioStart(\'renewal\')">Renew IO</button>'
     +'<button type="button" onclick="ioStart(\'proposal\')">IO from proposal</button>'
@@ -391,6 +406,7 @@ function render(g,q){
     +'</div>';
 
   let html=head
+    +'<div id="c360EmailSummary" role="status" style="margin:12px 0">Loading linked email contact…</div>'
     +'<div class="c360-health" id="c360Health" hidden></div>'
     +'<div class="c360-work" data-s1-workspace="1">'
     +'<nav class="c360-rail" id="c360Rail" aria-label="Record sections"></nav>'
@@ -792,42 +808,70 @@ function render(g,q){
     return `<div class="empty" id="c-suite-empty">
       <span class="muted">Checking Smart 1 Suite for an existing account…</span></div>`;
   };
+  /* "Attached" used to mean a display-only list (/api/client/links) that
+     token_for() and the Social Planner push never read -- a client could
+     look connected here and still be refused everywhere else, silently.
+     /api/client/suite-locations is the mapping those actually use, with
+     which sub-account is *primary* (the one a single-target caller gets)
+     when a multi-location client holds several. */
+  function loadSuiteAccount(){
   Promise.all([
     fetch('/suite/api/locations?limit=6&search='+encodeURIComponent(term)).then(r=>r.ok?r.json():null).catch(()=>null),
-    fetch('/api/client/links?name='+encodeURIComponent(name)).then(r=>r.json()).catch(()=>({attached:{}})),
-  ]).then(([d,la])=>{
-    let suiteAtt=((la||{}).attached||{}).suite||[];
-    if(!Array.isArray(suiteAtt)) suiteAtt=[suiteAtt];
-    if(d===null&&!suiteAtt.length){$('c-ghl').innerHTML='<div class="empty">Suite (GHL) not configured yet.</div>';return}
+    fetch('/api/client/suite-locations?name='+encodeURIComponent(name)).then(r=>r.json()).catch(()=>({locations:[]})),
+  ]).then(([d,rec])=>{
+    const recorded=(rec&&rec.locations)||[];
+    if(d===null&&!recorded.length){$('c-ghl').innerHTML='<div class="empty">Suite (GHL) not configured yet.</div>';return}
     const res=(d&&d.locations)||[];
-    const attIds=new Set(suiteAtt.map(a=>a.id));
-    // attached accounts not in the search results still show
-    suiteAtt.forEach(a=>{ if(!res.some(l=>(l.id||l._id)===a.id)) res.push({id:a.id,name:a.name,_attachedOnly:true}); });
+    const recById={}; recorded.forEach(r=>{recById[r.location_id]=r;});
+    // A recorded location not in this search's results still shows -- an
+    // account already mapped must never quietly disappear because a search
+    // for a differently-spelled name didn't happen to find it again.
+    recorded.forEach(r=>{ if(!res.some(l=>(l.id||l._id)===r.location_id))
+      res.push({id:r.location_id,name:'',_recordedOnly:true}); });
     if(!res.length){$('c-ghl').innerHTML=addBtn();return}
+    const multi=recorded.length>1;
     $('c-ghl').innerHTML='<div class="c360-suite-list">'+
       res.map((l,i)=>{const lid=l.id||l._id||'';
-        const isAtt=attIds.has(lid);
-        return `<div class="c360-suite-account"><div class="suite-name"><b>${esc(l.name||'—')}</b>${isAtt?' <span class="pill ok" style="font-size:10.5px">attached</span>':''}</div>
-          <div class="suite-actions"><a class="gbtn" href="/suite/?manage=${encodeURIComponent(lid)}&name=${encodeURIComponent(l.name||'')}">Manage account →</a>
-          ${isAtt?`<a class="gbtn suite-det" data-id="${esc(lid)}" style="cursor:pointer;color:#94a3b8">un-attach</a>`
-                 :`<a class="gbtn suite-att" data-i="${i}" style="cursor:pointer">Attach</a>`}</div>
-          <div class="suite-meta">${esc(l.city||'—')}${l.email?' · '+esc(l.email):''}</div></div>`;}).join('')+'</div>';
+        const r=recById[lid];
+        return `<div class="c360-suite-account"><div class="suite-name"><b>${esc(l.name||'—')}</b>`
+          +(r?(r.primary?' <span class="pill ok" style="font-size:10.5px">primary</span>'
+                        :' <span class="pill neutral" style="font-size:10.5px">recorded</span>'):'')
+          +`</div>
+          <div class="suite-actions"><a class="gbtn" href="/suite/?manage=${encodeURIComponent(lid)}&name=${encodeURIComponent(l.name||'')}">Manage account →</a>`
+          +(r
+            ? (!r.primary&&multi?`<a class="gbtn suite-primary" data-id="${esc(lid)}" style="cursor:pointer">make primary</a>`:'')
+              +`<a class="gbtn suite-det" data-id="${esc(lid)}" style="cursor:pointer;color:#94a3b8">remove</a>`
+            : `<a class="gbtn suite-att" data-i="${i}" style="cursor:pointer">${recorded.length?'Attach another location':'Attach'}</a>`)
+          +'</div>'
+          +`<div class="suite-meta">${esc(l.city||'—')}${l.email?' · '+esc(l.email):''}</div></div>`;}).join('')+'</div>';
     document.querySelectorAll('.suite-att').forEach(btn=>{
       btn.onclick=()=>{
         const l=res[parseInt(btn.dataset.i,10)];
-        fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({client:name,kind:'suite',data:{id:l.id||l._id,name:l.name}})})
-          .then(r=>r.json()).then(()=>{btn.outerHTML='<span class="pill ok">attached ✓</span>';});
+        fetch('/api/suite/link',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,location_id:l.id||l._id})})
+          .then(r=>r.json()).then(d=>{ if(d.ok===false){alert(d.detail||'That could not be attached.');return;}
+            loadSuiteAccount(); });
+      };
+    });
+    document.querySelectorAll('.suite-primary').forEach(btn=>{
+      btn.onclick=()=>{
+        fetch('/api/suite/primary',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,location_id:btn.dataset.id})})
+          .then(r=>r.json()).then(d=>{ if(d.ok===false){alert(d.detail||'That could not be set.');return;}
+            loadSuiteAccount(); });
       };
     });
     document.querySelectorAll('.suite-det').forEach(btn=>{
       btn.onclick=()=>{
-        fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({client:name,kind:'suite',remove:btn.dataset.id})})
-          .then(r=>r.json()).then(()=>{btn.outerHTML='<span class="muted" style="font-size:11px">removed</span>';});
+        fetch('/api/suite/unlink',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({client:name,location_id:btn.dataset.id})})
+          .then(r=>r.json()).then(d=>{ if(d.ok===false){alert(d.detail||'That could not be removed.');return;}
+            loadSuiteAccount(); });
       };
     });
   }).catch(()=>{$('c-ghl').innerHTML='<div class="empty">Suite module unavailable.</div>'});
+  }
+  loadSuiteAccount();
 
   // Proposals from the Proposal Builder — "+ New proposal" prefills this client.
   // /sales/builder is the one builder now; /sales/proposals redirects here and
@@ -912,7 +956,8 @@ function render(g,q){
             + ' style="padding:4px 6px;border:1px solid var(--line);border-radius:6px;font:12px inherit"></td>'
             + '<td class="muted">'+esc(r.d||'')+'</td>'
             + '<td style="white-space:nowrap">'
-            + '<a class="gbtn" href="'+esc(p.url)+'" target="_blank" rel="noopener">'
+            + '<a class="gbtn" href="'+(p.kind==='link'? esc(p.url)
+              : '/api/client/proposals/document/'+encodeURIComponent(p.id||p.filename||'')+'?client='+encodeURIComponent(p.member||name))+'" target="_blank" rel="noopener">'
             + (p.kind==='pdf'?'PDF':p.kind==='link'?'Open':'DOC')+'</a> '
             /* "To IO" reads the proposal document. A link row has no document
                behind it -- it points at a live Hub page -- so offering it would
@@ -1959,14 +2004,80 @@ function render(g,q){
   // carries — type, billing, media partner, web services — from the live
   // object, because the four boxes that used to be here left the rest of the
   // ticket blank on everything Client 360 raised.
+  // A ticket the alias lookup cannot find is invisible, and an empty list
+  // reads exactly like a client with no tickets. matchToolsHtml() is drawn
+  // under the list either way — a fuzzy "find a close match" and a
+  // free-text search, both against Knack's own "Client Organization"
+  // strings, neither ever applied without a press: linkOrg()/unlinkOrg() are
+  // the only writers, and they write a small Hub-side overlay, never Knack.
+  function matchToolsHtml(linked){
+    const chips=(linked||[]).map(o=>'<span class="pill neutral" style="margin:2px 4px 2px 0">'+esc(o)+' <a class="tick-unlink" data-org="'+esc(o)+'" style="cursor:pointer" title="Unlink">×</a></span>').join('');
+    return '<div class="c-tickets-match" style="margin-top:10px;padding-top:10px;border-top:1px solid #eee">'
+      +(chips?'<div style="margin-bottom:6px"><span class="muted" style="font-size:12px">Also linked as: </span>'+chips+'</div>':'')
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+      +'<a class="open-link" id="c-tickets-suggest" style="cursor:pointer">Find a close match</a>'
+      +'<span class="muted" style="font-size:12px">or</span>'
+      +'<input id="c-tickets-q" type="text" placeholder="Search tickets by name…" style="font-size:12px;padding:4px 6px;border:1px solid #ccd;border-radius:4px;min-width:180px">'
+      +'<a class="open-link" id="c-tickets-search-go" style="cursor:pointer">Search</a>'
+      +'</div><div id="c-tickets-results"></div></div>';
+  }
+  function renderTicketCandidates(list, withScore){
+    const box=$('c-tickets-results');
+    if(!box) return;
+    if(!list.length){box.innerHTML='<div class="muted" style="font-size:12px;margin-top:6px">Nothing found.</div>';return}
+    box.innerHTML='<div style="margin-top:6px">'+list.map(c=>
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f2f2f2">'
+      +'<div><b>'+esc(c.org)+'</b>'+(withScore?' <span class="muted" style="font-size:12px">'+Math.round(c.score*100)+'% match</span>':'')
+      +'<div class="muted" style="font-size:12px">'+c.count+' ticket'+(c.count===1?'':'s')+(c.title?' — '+esc(c.title):'')+'</div></div>'
+      +'<a class="open-link tick-link" data-org="'+esc(c.org)+'" style="cursor:pointer;white-space:nowrap">Link</a></div>'
+    ).join('')+'</div>';
+    box.querySelectorAll('.tick-link').forEach(el=>{el.onclick=()=>linkOrg(el.dataset.org)});
+  }
+  function linkOrg(org){
+    fetch('/api/client/tickets/link',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:name,org:org})}).then(r=>r.json()).then(d=>{
+        if(!d.ok){alert(d.error||'Could not link that.');return}
+        loadTickets();
+      }).catch(()=>alert('Could not link that.'));
+  }
+  function unlinkOrg(org){
+    fetch('/api/client/tickets/unlink',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:name,org:org})}).then(r=>r.json()).then(d=>{
+        if(!d.ok){alert(d.error||'Could not unlink that.');return}
+        loadTickets();
+      }).catch(()=>alert('Could not unlink that.'));
+  }
+  function wireTicketMatch(){
+    const sug=$('c-tickets-suggest');
+    if(sug) sug.onclick=()=>{
+      $('c-tickets-results').innerHTML='<div class="muted" style="font-size:12px;margin-top:6px">Looking… <span class="spin"></span></div>';
+      fetch('/api/client/tickets/suggest?name='+encodeURIComponent(name)).then(r=>r.json()).then(d=>{
+        if(d.error){$('c-tickets-results').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+        renderTicketCandidates(d.candidates||[], true);
+      }).catch(()=>{$('c-tickets-results').innerHTML='<div class="empty">Could not search web tickets.</div>'});
+    };
+    const goBtn=$('c-tickets-search-go'), q=$('c-tickets-q');
+    const runSearch=()=>{
+      const val=(q&&q.value||'').trim();
+      if(!val) return;
+      $('c-tickets-results').innerHTML='<div class="muted" style="font-size:12px;margin-top:6px">Searching… <span class="spin"></span></div>';
+      fetch('/api/client/tickets/search?q='+encodeURIComponent(val)).then(r=>r.json()).then(d=>{
+        if(d.error){$('c-tickets-results').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+        renderTicketCandidates(d.results||[], false);
+      }).catch(()=>{$('c-tickets-results').innerHTML='<div class="empty">Could not search web tickets.</div>'});
+    };
+    if(goBtn) goBtn.onclick=runSearch;
+    if(q) q.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();runSearch()}};
+    document.querySelectorAll('.tick-unlink').forEach(el=>{el.onclick=()=>unlinkOrg(el.dataset.org)});
+  }
   function loadTickets(){
     const dom=web0&&web0.domain?web0.domain:'';
     fetch('/api/client/tickets?name='+encodeURIComponent(name)+'&website='+encodeURIComponent(dom))
       .then(r=>r.json()).then(d=>{
         if(!d.configured){$('c-tickets').innerHTML='<div class="empty">Knack API not connected — set KNACK_APP_ID and KNACK_API_KEY to see and create web tickets.</div>';return}
-        if(d.error){$('c-tickets').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+        if(d.error){$('c-tickets').innerHTML='<div class="empty">'+esc(d.error)+'</div>'+matchToolsHtml(d.linked);wireTicketMatch();return}
         const ts=d.tickets||[];
-        if(!ts.length){$('c-tickets').innerHTML='<div class="empty">No web tickets for this client yet — create one from any website record above or with "+ New web ticket".</div>';return}
+        if(!ts.length){$('c-tickets').innerHTML='<div class="empty">No web tickets for this client yet — create one from any website record above or with "+ New web ticket". If one exists under a different name, use the tools below.</div>'+matchToolsHtml(d.linked);wireTicketMatch();return}
         const shown=ts.slice(0,5);
         $('c-tickets').innerHTML='<table><thead><tr><th>Ticket</th><th>Type</th><th>Website</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>'+
           shown.map((t,i)=>{
@@ -1979,7 +2090,8 @@ function render(g,q){
             <td class="muted">${esc(t.date)}</td>
             <td><a class="open-link tick-edit" data-i="${i}" style="cursor:pointer">Manage</a></td></tr>`;
           }).join('')+'</tbody></table>'
-          +(ts.length>5?'<div class="muted" style="font-size:12px;padding-top:6px">'+(ts.length-5)+' more in Smart 1 Team</div>':'');
+          +(ts.length>5?'<div class="muted" style="font-size:12px;padding-top:6px">'+(ts.length-5)+' more in Smart 1 Team</div>':'')
+          +matchToolsHtml(d.linked);
         document.querySelectorAll('.tick-edit').forEach(el=>{
           el.onclick=()=>{
             if(!window.WebTicket){alert('The ticket form failed to load. Reload the page and try again.');return}
@@ -1988,6 +2100,7 @@ function render(g,q){
               user:user_name,onsaved:loadTickets});
           };
         });
+        wireTicketMatch();
       }).catch(()=>{$('c-tickets').innerHTML='<div class="empty">Web tickets unavailable.</div>'});
   }
   loadTickets();
@@ -2109,20 +2222,22 @@ function render(g,q){
     return used;
   }
   function socialAddMenu(used){
-    // Only what isn't already on the record. A menu that offers a platform
-    // the client already has just makes a duplicate row. The caller passes
-    // what is used rather than the menu reading the page, so the rows it was
-    // built beside and the menu can't disagree.
+    // A platform already on the record stays offered rather than dropping
+    // off the menu -- a multi-location client genuinely has more than one
+    // Facebook page, one per storefront, and a menu that hides a platform
+    // the moment it is used once has no way to add the second one. Picking
+    // an already-used platform a second time seeds a labeled row instead of
+    // colliding with the first (see wireSocial()).
     used=used||{};
     var groups=[], byGroup={};
     SOCIAL_CATALOG.forEach(function(c){
-      if(used[c.key]) return;
       if(!byGroup[c.group]){byGroup[c.group]=[];groups.push(c.group);}
       byGroup[c.group].push(c);
     });
     var opts=groups.map(function(g){
       return '<optgroup label="'+esc(g)+'">'+byGroup[g].map(function(c){
-        return '<option value="'+esc(c.key)+'">'+esc(c.label)+'</option>';
+        return '<option value="'+esc(c.key)+'">'+esc(c.label)
+          +(used[c.key]?' (add another)':'')+'</option>';
       }).join('')+'</optgroup>';
     }).join('');
     return '<div style="display:flex;gap:6px;align-items:center;margin-top:10px">'
@@ -2131,7 +2246,9 @@ function render(g,q){
       +'<option value="">+ Add a link…</option>'+opts
       +'<optgroup label="Anything else"><option value="__custom">Custom link…</option>'
       +'</optgroup></select>'
-      +'<span class="muted" style="font-size:11.5px">Pick a platform, paste the URL, then Save.</span>'
+      +'<span class="muted" style="font-size:11.5px">Pick a platform, paste the URL, then Save. '
+      +'A client with several locations can have more than one of the same '
+      +'platform -- pick it again and name which location it is.</span>'
       +'</div>';
   }
   function renderSocial(social,fromScan){
@@ -2173,12 +2290,24 @@ function render(g,q){
         host.style.gap='8px';
       }
       var empty=$('c-social').querySelector('.empty'); if(empty) empty.remove();
+      // A platform already on the record cannot become a second plain row of
+      // the same key -- both would save under one dict key and the save loop
+      // would keep only whichever came last, silently losing the other
+      // location's link. It becomes a labeled row instead, seeded with the
+      // platform's own name so a rep only has to add which location it is.
+      var already=k!=='__custom'&&socialUsedKeys()[k];
+      var isCustom=k==='__custom'||already;
       host.insertAdjacentHTML('beforeend',
-        k==='__custom' ? socialRow('','',true) : socialRow(k,'',false));
+        isCustom ? socialRow(already?k:'','',true) : socialRow(k,'',false));
       var row=host.lastElementChild;
       wireSocialRows();
-      var f=row.querySelector(k==='__custom'?'.s-label':'.s-url'); if(f) f.focus();
-      // The menu must not keep offering what was just added.
+      var lbl=row.querySelector('.s-label');
+      if(already&&lbl){ lbl.value=socialLabelFor(k)+' — '; }
+      var f=row.querySelector(isCustom?'.s-label':'.s-url'); if(f){ f.focus();
+        if(already&&f.setSelectionRange) f.setSelectionRange(f.value.length,f.value.length); }
+      // The menu must not keep offering what was just added -- except a
+      // catalog platform, which stays offered so a third location can be
+      // added the same way.
       var menu=document.getElementById('c-social-add');
       if(menu&&menu.parentElement) menu.parentElement.outerHTML=socialAddMenu(socialUsedKeys());
       wireSocial();
@@ -2689,6 +2818,7 @@ function addLogosToImages(){
   }
 }
 
+var COLOR_ROLES_UI=['primary','secondary','accent'];
 function renderBrand(d){
   /* The logo is a client image; it just lives in the brand store rather than
      the gallery, so it never appeared there. The two cards load independently
@@ -2718,9 +2848,43 @@ function renderBrand(d){
       + 'rather than nothing found.</div>'
     : '';
 
+  // Typing a color in never depends on anything having been detected --
+  // that is the whole point, since the automated colors are sometimes
+  // simply wrong (an announcement bar, a header background) and there has
+  // to be a way to say so rather than live with them. hub/brand_template.py
+  // accepts any well-formed hex for this, unlike a logo, which still has to
+  // be one this Hub already has on file.
+  function manualColorRow(role, hx){
+    return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">'
+      +'<label style="width:66px;flex:none;font-size:11.5px;color:#64748b;text-transform:capitalize">'+esc(role)+'</label>'
+      +'<input class="bt-hex-input" data-role="'+esc(role)+'" value="'+esc(hx||'')+'" placeholder="#0077B4"'
+      +' style="width:110px;padding:4px 7px;border:1px solid var(--line);border-radius:7px;font:12px monospace">'
+      +'<a href="#" class="bt-hex-save" data-role="'+esc(role)+'" style="font-size:11.5px">save</a>'
+      +(hx?' <a href="#" data-clear-color="'+esc(role)+'" style="font-size:11.5px">clear</a>':'')
+      +'</div>';
+  }
+  function manualColorsBlock(tmpl){
+    const colors=(tmpl&&tmpl.colors)||{};
+    return '<div style="margin-top:8px"><div class="lbl">Not the right colors? Type theirs in</div>'
+      + COLOR_ROLES_UI.map(r=>manualColorRow(r,colors[r])).join('')
+      + '</div>';
+  }
+  const manualColors = manualColorsBlock(d.template);
+  function wireManualColors(){
+    Array.prototype.forEach.call(el.querySelectorAll('.bt-hex-save'), function(a){
+      a.addEventListener('click', function(ev){
+        ev.preventDefault();
+        const role=a.getAttribute('data-role');
+        const input=el.querySelector('.bt-hex-input[data-role="'+role+'"]');
+        setBrandPick(role, input?input.value.trim():'');
+      });
+    });
+  }
+
   if(!d || !d.has_brand){
-    el.innerHTML='<div class="empty">'+esc((d&&d.note)||'No brand data yet.')+'</div>'+unread;
+    el.innerHTML='<div class="empty">'+esc((d&&d.note)||'No brand data yet.')+'</div>'+unread+manualColors;
     if(acts) acts.innerHTML = lookBtn;
+    wireManualColors();
     return;
   }
 
@@ -2729,7 +2893,8 @@ function renderBrand(d){
      services answered — and they stay labeled because a logo the client gave
      us and a logo seen on their home page are different claims, and only the
      first belongs on a document a client reads. */
-  const originText = o => o==='site' ? 'Seen on their website' : 'On file';
+  const originText = o => o==='site' ? 'Seen on their website'
+    : o==='manual' ? 'Typed in' : 'On file';
   /* A swatch or a tile can be *confirmed* now -- a rep's pick of which of
      several is actually the brand, rather than every reader guessing at
      position zero (hub/brand_template.py). The pick/clear links are read
@@ -2778,7 +2943,8 @@ function renderBrand(d){
     (swatches?`<div style="margin-bottom:6px"><div class="lbl">Brand colors</div>${swatches}</div>`:'')+
     (fonts?`<div><div class="lbl">Fonts</div>${fonts}</div>`:'')+
     (d.description?`<p style="margin:10px 0 0;font-size:12.5px;color:#64748b">${esc(d.description)}</p>`:'')+
-    gap + unread;
+    gap + unread + manualColors;
+  wireManualColors();
 
   // Read off data attributes rather than an inline onclick carrying the
   // value itself -- a logo URL or a hex is data, not a JS literal to embed.
@@ -3294,9 +3460,6 @@ function renderOwner(d){
     +assignmentControls
     +(d.user_error?'<div style="flex-basis:100%;font-size:12px;color:#7a5b00">'
         +esc(d.user_error)+'</div>':'')
-    +'<div id="c-owner-issues" style="flex-basis:100%;min-width:0">'
-      +'<span class="muted" style="font-size:12px">Checking outstanding issues…</span>'
-      +'</div>'
     +'</div>';
   var follow=document.getElementById('c-owner-follow');
   if(follow) follow.onclick=function(){
@@ -3338,56 +3501,11 @@ function renderOwner(d){
   };
 }
 
-function renderClientIssues(d){
-  var el=document.getElementById('c-owner-issues'); if(!el) return;
-  d=d||{};
-  if(d.ok===false||d.error){
-    el.innerHTML='<span class="pill warn">Outstanding issues could not be read.</span>';
-    return;
-  }
-  var issues=d.issues||[];
-  var warning=d.warning
-    ? '<div style="margin-top:8px;font-size:12px;color:#7a5b00">'+esc(d.warning)+'</div>'
-    : '';
-  if(!issues.length){
-    el.innerHTML=(d.complete
-      ? '<span class="muted" style="font-size:12px">No outstanding issues.</span>'
-      : '<span class="pill warn">Outstanding issues were only partially checked.</span>')
-      +warning;
-    return;
-  }
-  var rows=issues.map(function(issue){
-    return '<div style="padding:10px 0;border-top:1px solid #e2e8f0">'
-      +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
-        +'<span class="pill warn">'+esc(issue.label||'Outstanding')+'</span>'
-        +'<b style="color:#172554">'+esc(issue.title||'Needs attention')+'</b>'
-      +'</div>'
-      +(issue.detail?'<div style="margin-top:5px;color:#334155">'+esc(issue.detail)+'</div>':'')
-      +(issue.where?'<div class="muted" style="margin-top:4px;font-size:12px">Handled in: '
-          +esc(issue.where)+'</div>':'')
-      +'</div>';
-  }).join('');
-  el.innerHTML='<details style="border-top:1px solid #dbe4f0;padding-top:8px">'
-    +'<summary style="cursor:pointer;color:#b45309;font-weight:700">'
-      +issues.length+' outstanding issue'+(issues.length===1?'':'s')
-      +' — show details</summary>'
-    +'<div style="padding-top:2px">'+rows+warning+'</div></details>';
-}
-
 function loadOwner(name){
   var el=document.getElementById('c-owner');
   if(!el||!name) return;
-  /* Start both reads together. The issue result waits for renderOwner() to
-     create its container, but it does not have to wait on the network. */
-  var issues=fetch('/api/client/issues?client='+encodeURIComponent(name),
-      {credentials:'same-origin'}).then(function(r){return r.json();});
   fetch('/api/client/owner?client='+encodeURIComponent(name),{credentials:'same-origin'})
-    .then(function(r){return r.json();}).then(function(d){
-      renderOwner(d);
-      issues.then(renderClientIssues).catch(function(){
-        renderClientIssues({ok:false,error:'unavailable'});
-      });
-    })
+    .then(function(r){return r.json();}).then(renderOwner)
     /* "Nobody owns this" and "we could not read who owns it" are different
        answers, and drawing the first over the second is how a client gets
        assigned twice. */

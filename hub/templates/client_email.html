@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Client email{% endblock %}
+{% block content %}
+<style>
+.ce-wrap [hidden]{display:none!important}.ce-wrap{max-width:980px;margin:auto}.ce-card{padding:22px;background:white;border:1px solid #d5dee7;border-radius:10px;margin:18px 0}.ce-card input{padding:10px;width:min(100%,480px);font:inherit}.ce-card button,.ce-link{display:inline-block;padding:10px 15px;margin:6px 8px 6px 0;border:1px solid #93a4b5;border-radius:6px;background:#f4f7fa;color:#15354c;font:inherit;text-decoration:none;cursor:pointer}.ce-message{border-top:1px solid #dae0e6;padding:14px 0}.ce-message pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;font-size:14px}.ce-status{padding:12px;background:#fff7de;border-left:4px solid #967100}.ce-muted{color:#536373}
+</style>
+<div class="ce-wrap"><a href="/client360?q={{ (domain or client)|urlencode }}">Back to Client 360</a>
+<h1>Email {{ client }}</h1>{% if domain %}<p class="ce-muted">Client website: {{ domain }}</p>{% endif %}<p>Smart 1 emails this client from its own GHL account. Link their contact once, then open that contact to write an email. Refresh here to see recent emails and replies.</p>
+<div id="ce-status" class="ce-status" role="status" aria-live="polite">Loading the client contact…</div>
+<div class="ce-card"><h2>Client contact</h2><div id="ce-contact"></div><a id="ce-open" class="ce-link" hidden target="_blank" rel="noopener">Open contact in GHL to email</a><button id="ce-refresh">Refresh email history</button><button id="ce-unlink" hidden>Unlink contact</button><small>Unlinking keeps all emails in GHL.</small>
+<p class="ce-muted">In GHL, choose Email in this contact’s conversation, check the From address and recipient, add your subject and proof link, then send. GHL keeps the message and replies with this contact.</p></div>
+<div class="ce-card"><h2>Link or change the client contact</h2><label for="ce-query">Contact name, email or company in Smart 1’s account</label><div><input id="ce-query" value="{{ client }}"><button id="ce-search">Find contact</button></div><div id="ce-results"></div></div>
+<div class="ce-card"><h2>Recent emails</h2><p class="ce-muted">Up to 20 recent emails from GHL. This view reflects GHL’s reported status; opening or linking a contact does not send an email.</p><div id="ce-history"></div></div></div>
+<script>
+(function(){
+const client={{ client|tojson }}, domain={{ domain|tojson }}, $=id=>document.getElementById(id);let revision=null;
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(path,body){const r=await fetch('/api/client-email/'+path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:undefined);const b=await r.json();if(!r.ok)throw Error(b.error||'Request failed');return b;}
+function status(text){$('ce-status').textContent=text;}
+async function load(){try{const b=await api('state?client='+encodeURIComponent(client)+'&domain='+encodeURIComponent(domain));revision=b.revision;$('ce-unlink').hidden=!revision;$('ce-open').hidden=!b.linked;if(b.linked){$('ce-open').href=b.ghl_url;$('ce-contact').textContent=b.contact.name+' · '+b.contact.email+(b.contact.company?' · '+b.contact.company:'');}else $('ce-contact').textContent='No verified email contact linked.';
+status(b.error||(b.linked?'Linked to this client in Client 360. Write and send the email in GHL.':'Find the client’s contact below, then verify their name and email before linking.'));
+$('ce-history').innerHTML=b.error?'<p>Email history could not be verified. '+esc(b.error)+'</p>':(b.messages||[]).length?b.messages.map(m=>'<article class="ce-message"><strong>'+esc(m.subject)+'</strong><p>'+esc(m.direction==='inbound'?'Incoming':m.direction==='outbound'?'Outgoing':'Email')+' · '+esc(m.at)+' · '+esc(m.status)+'</p><pre>'+esc(m.body)+'</pre></article>').join(''):'<p>'+(b.linked?'No emails returned for this contact.':'Link a contact to see their email history.')+'</p>';
+}catch(e){status(e.message);$('ce-open').hidden=true;}}
+$('ce-refresh').onclick=load;
+$('ce-unlink').onclick=async()=>{try{await api('link',{client,domain,revision,unlink:true});await load();}catch(e){status(e.message);}};
+$('ce-search').onclick=async()=>{try{$('ce-search').disabled=true;const b=await api('search?q='+encodeURIComponent($('ce-query').value));$('ce-results').replaceChildren();for(const c of b.contacts){const row=document.createElement('div');row.className='ce-message';const label=document.createElement('p');label.textContent=[c.name,c.email,c.company].filter(Boolean).join(' · ');row.appendChild(label);const button=document.createElement('button');button.textContent='Link this contact to '+client;button.disabled=!c.email;button.onclick=async()=>{try{button.disabled=true;await api('link',{client,domain,contact_id:c.id,revision});$('ce-results').replaceChildren();await load();}catch(e){status(e.message);button.disabled=false;}};row.appendChild(button);$('ce-results').appendChild(row);}if(!b.contacts.length)$('ce-results').textContent='No matching contacts. Create or update the client’s contact in Smart 1’s GHL account, then search again.';}catch(e){status(e.message);}finally{$('ce-search').disabled=false;}};
+load();
+})();
+</script>
+{% endblock %}

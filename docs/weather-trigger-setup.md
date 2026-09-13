@@ -1,6 +1,6 @@
 # Weather trigger setup — lead → landing pages → approved work order
 
-**Date:** 2026-09-07 · **Vertical for v1:** restaurant · **Status:** built (v1)
+**Date:** 2026-09-12 · **Verticals:** restaurant, hvac, retail, auto, landscaping, pool_spa, roofing, pest_control, moving, tree_service · **Status:** built (v1 + hvac + retail + auto + landscaping + pool_spa + roofing + pest_control + moving + tree_service)
 
 This is the design spec the module in `modules/weather_setup/` and the
 trigger vocabulary in `hub/weather_triggers.py` were built against. What
@@ -45,9 +45,10 @@ without needing a second template.
 
 `hub/weather_triggers.py` is the single source of truth — the same shape as
 `hub/lead_tags.py` (constants, not free text), read by the picker, the
-scheduler and the reporting line alike. Fourteen triggers ship for
+scheduler and the reporting line alike. Fourteen triggers shipped for
 restaurant v1, exactly as specified, each carrying its condition as data
-(`Trigger.rule`) rather than as a function nobody else can read.
+(`Trigger.rule`) rather than as a function nobody else can read. Thirteen
+more shipped for the second vertical, HVAC — §7 below.
 
 The month strip (`MONTHS`) orders the fourteen for browsing; **a chosen
 trigger evaluates all year**, not only in the month it was picked in —
@@ -183,13 +184,14 @@ skipped.
 ## 6. What shipped vs. what is still open
 
 **Shipped, real and tested** (`test_weather_triggers.py`,
-`test_weather_setup.py`): the trigger vocabulary and evaluator, the
-server-side cap, the campaign store, the copy guardrails, the four-source
-image picker with copy-on-select, the public wizard end to end over HTTP,
-approval's three side effects, work order numbering, and a scheduler job
-(`hub/scheduler.job_weather_triggers`, ticking every 30 minutes like
-`job_smartforecast_weather`) that evaluates every approved campaign's picks
-against a live snapshot and records whether each is active right now.
+`test_weather_setup.py`): the trigger vocabulary and evaluator for both
+verticals, the server-side cap, the campaign store, the vertical-aware copy
+guardrails, the four-source image picker with copy-on-select, the public
+wizard end to end over HTTP, approval's three side effects, work order
+numbering, and a scheduler job (`hub/scheduler.job_weather_triggers`,
+ticking every 30 minutes like `job_smartforecast_weather`) that evaluates
+every approved campaign's picks against a live snapshot and records
+whether each is active right now.
 
 **Open, and named rather than silently assumed:**
 
@@ -201,7 +203,523 @@ against a live snapshot and records whether each is active right now.
   and a scheduler that knows which triggers are live right now; it does not
   itself push spend to Google or Meta. That connection is a distinct piece
   of work for whoever picks up the work order.
-- **A second vertical (HVAC).** Everything except the trigger registry and
-  the copy prompts is vertical-agnostic already (`Trigger.vertical` is a
-  field, `triggers_for_vertical()` filters on it), so adding HVAC is
-  writing its own set of `Trigger` rows rather than new plumbing.
+
+---
+
+## 7. The second vertical (HVAC)
+
+Shipped. The claim two paragraphs above — "everything except the trigger
+registry and the copy prompts is vertical-agnostic already" — held exactly:
+no route, no store field, no evaluator rule and no wizard template needed
+to change shape to add it.
+
+**The registry.** Thirteen `Trigger` rows in `hub/weather_triggers.py`,
+`vertical="hvac"`, built from the same rule vocabulary the restaurant
+thirteen already exercise — `temp_min`/`temp_max`, `feels_like_max`,
+`heat_index_min`, `snow_in_min`, `cloud_percent_min` with a
+`consecutive_days` streak, `alert_required`, `once_per_season` with
+`temp_low_max`, and `months`. Nothing in `evaluate_trigger()` changed. Six
+are daily emergency/strain conditions escalating in a clear pair
+(`ac-overload`/`heat-index-strain` for cooling, `hard-freeze`/`deep-freeze`
+for heating, each pair naming which of the two is the tune-up ad and which
+is the emergency one), two are the shoulder-season maintenance push the
+whole vertical exists to sell (`spring-tune-up-day`, `fall-tune-up-day`),
+one is the once-per-season "the furnace gets tested for real" event
+(`first-hard-freeze` — the restaurant's `first-freeze` shape, its own id
+and its own carried season-state key so the two can never collide inside
+one campaign), and the rest cover wind chill, an early-season heat
+surprise, a mild winter break, a severe-weather power risk and heavy snow
+burying an outdoor unit.
+
+`MONTHS` stayed one flat table rather than splitting per vertical:
+`month_order()` already filters its ranked list down to
+`triggers_for_vertical(vertical)`, so an hvac id sitting in the same
+month's tuple as a restaurant id costs nothing — each vertical only ever
+sees its own ids, in the relative order they were written for that month.
+All thirteen hvac ids are listed in every month, exactly as the restaurant
+thirteen are.
+
+**The copy.** `modules/weather_setup/copy.py`'s house drafts and its model
+prompt both branch on `Trigger.vertical` now — `_house_draft_restaurant()`
+and `_house_draft_hvac()` are two separate templates per angle rather than
+one generic template with the business name swapped in, because a
+restaurant ad is an invitation ("come sit outside") and an HVAC ad is a
+warning or a reminder ("book this before it fails"), and a shared template
+answers a hard-freeze ad with something that reads as an invitation to eat
+somewhere. The storm-copy blocklist — no jokes, no urgency language
+inviting someone to be outside in a warned area — is checked by the
+trigger's `cadence == "alert_driven"` now rather than by the literal id
+`"storm-watch"`, because `storm-power-risk` carries the identical reasoning
+and would otherwise have shipped unchecked.
+
+**Starting a campaign.** `store.create()` already took a `vertical`
+keyword and had since before this vertical existed; nothing called it with
+anything but the default. `app.py`'s `api_start()` now reads `vertical`
+from the request body and `weather_setup_staff.html` gained a `<select>`
+for it, populated from `hub.weather_triggers.VERTICALS` /
+`VERTICAL_LABELS` rather than a hand-typed pair of options — the same
+reason `hub/qa_tasks.py`'s dropdown reads the Hub's own nav rather than
+restating it. An unrecognized vertical, from either the form or a crafted
+request, falls back to `"restaurant"` rather than creating a campaign that
+can validate no picks against anything: `store.create()` and `api_start()`
+both check against `VERTICALS` independently, because a route that trusted
+the form to have sent a real value is a route one crafted request away
+from a campaign nothing can be picked for.
+
+The public wizard needed no changes at all — it was already driven
+entirely by the server's catalog response, with no restaurant-specific
+copy anywhere in its template.
+
+## 8. The third vertical (Retail / Home Goods)
+
+Shipped the same way, and the claim held a second time: thirteen more rows,
+still the same rule vocabulary, still no change to `evaluate_trigger()`,
+`store.py`, `app.py` or the staff template — all three already read
+`VERTICALS` / `VERTICAL_LABELS` dynamically once HVAC added the plumbing, so
+this vertical needed no code changes outside the registry and the copy.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="retail"`. The
+psychology is neither an invitation nor a service reminder — it is a
+purchase trigger, closer to a stock-up call than either of the first two.
+`heat-wave-cooling`/`heat-index-retail` are the day a fan or a window AC
+actually sells; `deep-freeze-retail`/`cold-snap-retail` are the same shape
+for space heaters and warm layers. `first-frost-shop` is the once-per-season
+event — patio-furniture covers and pipe insulation move before the freeze,
+not after — with its own season-state key so it cannot collide with
+restaurant's `first-freeze` or HVAC's `first-hard-freeze` inside one
+campaign's carried state. `patio-season-open` and `fall-clearance-day` are
+the two shoulder-season pushes the vertical leans on hardest. `storm-prep`
+is the alert-driven row: a stock-up call for flashlights and batteries, not
+an invitation to be outside in the alert — and it is caught by the same
+`cadence == "alert_driven"` blocklist check HVAC's `storm-power-risk`
+already exercises, with no per-id special-casing needed.
+
+`MONTHS` gained the same treatment as HVAC's rows: all thirteen retail ids
+listed in every month's tuple, in month-appropriate priority order,
+alongside the restaurant and hvac ids already there. `month_order()`
+filters to `triggers_for_vertical(vertical)`, so nothing about a shared flat
+table costs a vertical anything.
+
+**The copy.** `_house_draft_retail()` is a third per-angle template in
+`modules/weather_setup/copy.py`, dispatched the same way as the restaurant
+and hvac ones — by `Trigger.vertical`, not by a swapped-in name. Its
+"Comfort" angle frames stock-up urgency for `stock-up`/`emergency`-tagged
+triggers ("Stock up before it's gone") and a softer seasonal-browse note for
+the rest ("New for your home"). `_PROMPT_CONTEXT["retail"]` gives the model
+prompt a "retail / home goods store" noun and an "Inventory or promo notes"
+label, and `_FALLBACK_NAME["retail"]` is "your store" where a restaurant
+falls back to "your table" and HVAC to "your business".
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 9. The fourth vertical (Auto Repair / Service)
+
+Shipped the same way a third time: thirteen more rows, still the same rule
+vocabulary, still no change to `evaluate_trigger()`, `store.py`, `app.py` or
+the staff template. Three verticals of precedent already proved the plumbing
+generalizes; the fourth confirms it rather than testing it again.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="auto"`. The psychology
+is closer to HVAC's service reminder than retail's stock-up call, because the
+thing being sold is mostly a check-up rather than a purchase — but it is a
+narrower, colder-weather-leaning one: a shop's business is disproportionately
+battery, tires and AC. `battery-cold-test`/`deep-freeze-auto`/`cold-snap-auto`
+are an escalating cold-weather ladder, each with its own threshold, so a
+20°F day and a below-zero day do not compete for the same ad. `first-freeze-auto`
+is the once-per-season event — the day a battery that coasted through fall
+gets tested for real — with its own season-state key so it cannot collide
+with restaurant's `first-freeze`, HVAC's `first-hard-freeze` or retail's
+`first-frost-shop` inside one campaign's carried state, even though all four
+share the literal `once_per_season: "cold"` value: `trigger_state` is stored
+per-pick, keyed on `trigger_id`, in `store.py`, so the four never actually
+share a state dict. `ac-check-early`/`heat-index-auto` are the summer half —
+an early-season 85°F day or a genuinely humid one, the moment a cabin AC that
+was low on refrigerant all winter gets caught out. `spring-service-day` and
+`fall-service-day` are the two shoulder-season maintenance pushes, mirroring
+each other in reverse. `wiper-blade-season`, `pothole-season` and
+`snow-tire-day` are weather-specific parts triggers rather than temperature
+bands. `storm-driving-prep` is the alert-driven row: a get-it-checked-before-
+the-next-one call, never an invitation to be on the road during this one — and
+it is caught by the same `cadence == "alert_driven"` blocklist check the other
+three verticals' alert rows already exercise, with no per-id special-casing
+needed.
+
+`MONTHS` gained the same treatment as the prior two verticals: all thirteen
+auto ids listed in every month's tuple, in month-appropriate priority order,
+alongside the restaurant, hvac and retail ids already there. `month_order()`
+filters to `triggers_for_vertical(vertical)`, so nothing about a shared flat
+table costs a vertical anything.
+
+**The copy.** `_house_draft_auto()` is a fourth per-angle template in
+`modules/weather_setup/copy.py`, dispatched the same way as the other three —
+by `Trigger.vertical`, not by a swapped-in name. Its urgency framing leans on
+"before it fails" / "don't get stranded" for battery- and emergency-tagged
+triggers, and a "get it checked" service-reminder note for the maintenance
+and seasonal ones. `_PROMPT_CONTEXT["auto"]` gives the model prompt an
+"auto repair / service shop" noun and a "Service notes" label, and
+`_FALLBACK_NAME["auto"]` is "your shop" where retail falls back to "your
+store" and HVAC to "your business".
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 10. The fifth vertical (Landscaping / Lawn Care)
+
+Shipped the same way a fourth time: thirteen more rows, still the same rule
+vocabulary, still no change to `evaluate_trigger()`, `store.py`, `app.py` or
+the staff template.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="landscaping"`. The
+psychology sits closer to HVAC's service reminder than retail's stock-up
+call — the work is mostly a booked visit rather than a purchase.
+`dry-spell-watering`/`drought-stress` are an escalating pair for irrigation,
+the same shape as `hard-freeze`/`deep-freeze` for HVAC and
+`battery-cold-test`/`deep-freeze-auto` for auto. `heavy-rain-growth-spurt`
+sells the mowing catch-up the day *after* a soaking rain rather than the day
+of it. `storm-cleanup` and `high-wind-debris` split debris cleanup into an
+alert-driven row and a lesser daily one. `first-freeze-landscaping` is the
+once-per-season event — winterize the irrigation before the freeze cracks
+it — with its own season-state key so it cannot collide with any of the
+other four verticals' first-freeze rows inside one campaign's carried
+state, even though all five share the literal `once_per_season: "cold"`
+value: `trigger_state` is stored per-pick, keyed on `trigger_id`, in
+`store.py`, so none of them actually share a state dict. `spring-green-up-day`
+and `fall-leaf-peak` are the two shoulder-season pushes this vertical leans
+on hardest, and `spring-fertilize-window`/`fall-fertilize-window` are a
+second such pair for feeding rather than cleanup. `first-snow-landscaping`
+and `mosquito-surge` round the book out: a first snowfall for the plowing
+side of the business, and a run of overcast days for the pest-control side,
+the same `cloud_percent_min`/`consecutive_days` shape the restaurant
+vertical's `gray-streak` already uses.
+
+`MONTHS` gained the same treatment as the prior three verticals: all
+thirteen landscaping ids listed in every month's tuple, in month-appropriate
+priority order, alongside the restaurant, hvac, retail and auto ids already
+there.
+
+**The copy.** `_house_draft_landscaping()` is a fifth per-angle template in
+`modules/weather_setup/copy.py`, dispatched the same way as the other
+four — by `Trigger.vertical`, not by a swapped-in name. Its framing leans on
+"get it checked before it's a bigger job" for urgent/alert-driven triggers
+and "book it before the season gets away" for the seasonal maintenance
+ones. `_PROMPT_CONTEXT["landscaping"]` gives the model prompt a
+"landscaping / lawn care company" noun and a "Service notes" label, and
+`_FALLBACK_NAME["landscaping"]` is "your business", matching HVAC's fallback
+since the vertical has no single word as natural as "your table" or "your
+shop".
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 11. The sixth vertical (Pool & Spa Service)
+
+Shipped the same way a fifth time: thirteen more rows, still the same rule
+vocabulary, still no change to `evaluate_trigger()`, `store.py`, `app.py` or
+the staff template. Five verticals of precedent already proved the plumbing
+generalizes; the sixth confirms it rather than testing it again.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="pool_spa"`. The
+psychology is a service reminder like HVAC and landscaping, built around
+chemical balance and seasonal opening/closing rather than an appliance
+under strain. `chlorine-burn-off`/`algae-bloom-risk` are an escalating
+pair — hot and sunny burns chlorine off fast, heat stacked on humidity is
+the real algae risk — the same escalation shape as HVAC's
+`ac-overload`/`heat-index-strain`. `first-freeze-pool`, `hard-freeze-pool`
+and `deep-freeze-pool` are a three-step cold-weather ladder: the
+once-per-season event that opens the season's winterizing conversation, a
+daily row for every hard freeze after it (equipment left un-winterized is a
+risk every time, not only the first), and an emergency row for genuinely
+extreme cold. `pool-opening-day` and `pool-closing-day` are the two
+shoulder-season pushes the vertical exists to sell, mirroring
+`spring-tune-up-day`/`fall-tune-up-day` for HVAC. `spa-season-open` is the
+one row that runs opposite the rest of the book on purpose — cold weather
+is when hot tub demand actually surges, the exact inverse of what drives
+every other row here. `storm-debris-cleanup` and `high-wind-debris-pool`
+split cleanup the way landscaping's alert and daily rows do, and
+`heavy-rain-dilution`/`evaporation-watch` are the two water-chemistry rows
+for rain diluting chemicals and heat evaporating the water level, each
+escalating past the ordinary `chlorine-burn-off` condition rather than
+duplicating it. `first-freeze-pool`'s season-state key cannot collide with
+any of the other five verticals' first-freeze rows inside one campaign's
+carried state, for the same per-pick, per-`trigger_id` reason the other
+five hold.
+
+`MONTHS` gained the same treatment as the prior four verticals: all
+thirteen pool_spa ids listed in every month's tuple, in month-appropriate
+priority order, alongside the restaurant, hvac, retail, auto and
+landscaping ids already there.
+
+**The copy.** `_house_draft_pool_spa()` is a sixth per-angle template in
+`modules/weather_setup/copy.py`, dispatched the same way as the other
+five — by `Trigger.vertical`, not by a swapped-in name. Its framing leans on
+"don't let it get out of balance" for urgent/alert-driven triggers and "get
+ahead of it" for the ordinary seasonal ones. `_PROMPT_CONTEXT["pool_spa"]`
+gives the model prompt a "pool & spa service company" noun and a "Service
+notes" label, and `_FALLBACK_NAME["pool_spa"]` is "your business", the same
+choice as landscaping's.
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 12. The seventh vertical (Roofing & Exterior)
+
+Shipped the same way a sixth time: thirteen more rows, still the same rule
+vocabulary, still no change to `evaluate_trigger()`, `store.py`, `app.py` or
+the staff template. Six verticals of precedent already proved the plumbing
+generalizes; the seventh confirms it rather than testing it again.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="roofing"`. The
+psychology is a service reminder like HVAC's, built almost entirely around
+damage inspection rather than an appliance under strain — a roof does not
+fail on a comfortable day, so nearly every row names the specific risk a
+condition puts a shingle, a seal or a structure under.
+`high-wind-shingle-risk`/`wind-damage-inspection` are an escalating wind
+pair, the same shape as HVAC's `ac-overload`/`heat-index-strain`.
+`wind-driven-rain` is the one row here combining two conditions in a single
+rule (`wind_mph_min` and `precip_prob_min` together) — the same
+multi-condition shape restaurant's `patio-day` already uses — because wind
+and rain together find a failing flashing seal that either alone rarely
+does. `ice-dam-risk` is its own daily row rather than an escalation of
+anything: a freeze-thaw band, not a hard freeze, is what melts and refreezes
+snow at the eave. `first-freeze-roofing` is the once-per-season event —
+check gutters and flashing before the freeze finds them — with its own
+season-state key so it cannot collide with any of the other six verticals'
+first-freeze rows inside one campaign's carried state, for the same
+per-pick, per-`trigger_id` reason the other six hold.
+`deep-freeze-roofing` escalates past it for a genuinely extreme cold snap,
+the way HVAC's `deep-freeze` escalates past `hard-freeze`.
+`spring-roof-inspection` and `fall-roof-inspection` are the two
+shoulder-season pushes the vertical leans on hardest, and
+`gutter-cleaning-season` is a third, narrower fall push the way retail's
+`fall-clearance-day` sits alongside its own shoulder-season pair.
+`snow-load-roof`, `heavy-rain-leak-check` and `heat-wave-shingle-stress`
+round the book out: a single heavy snowfall for structural risk, a heavy
+rain for the leak it reveals, and sustained heat for the shingle damage it
+causes on its own, needing no storm alert behind any of them.
+
+`MONTHS` gained the same treatment as the prior five verticals: all
+thirteen roofing ids listed in every month's tuple, in month-appropriate
+priority order, alongside the restaurant, hvac, retail, auto, landscaping
+and pool_spa ids already there.
+
+**The copy.** `_house_draft_roofing()` is a seventh per-angle template in
+`modules/weather_setup/copy.py`, dispatched the same way as the other
+six — by `Trigger.vertical`, not by a swapped-in name. Its framing leans on
+"get it checked before it's a bigger repair" for urgent/alert-driven
+triggers and "get ahead of it" for the ordinary seasonal ones.
+`_PROMPT_CONTEXT["roofing"]` gives the model prompt a "roofing & exterior
+company" noun and a "Service notes" label, and `_FALLBACK_NAME["roofing"]`
+is "your business", the same choice as landscaping's and pool_spa's.
+
+One thing this vertical's `reason` copy had to avoid that the others did
+not raise: `storm-damage-inspection`'s first draft described a "free-
+inspection ad", and `_OFFER_RE` in `copy.py` — the guardrail that flags a
+draft carrying a price, a discount or the word "free" for review before
+launch — matched it, since that `reason` text is quoted verbatim into the
+house draft's primary text. Worded as "an inspection ad" instead, which
+says the same thing without tripping a guardrail built to catch a real
+promotional offer.
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 13. The eighth vertical (Pest Control)
+
+Shipped the same way a seventh time: thirteen more rows, still the same
+rule vocabulary, still no change to `evaluate_trigger()`, `store.py`,
+`app.py` or the staff template. Seven verticals of precedent already
+proved the plumbing generalizes; the eighth confirms it rather than
+testing it again.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="pest_control"`. The
+psychology is closest to auto's — pests do not move on a comfortable day,
+so nearly every row names the specific condition that drives a specific
+pest toward or away from a building, and the ad is the inspection or
+treatment call that heads it off. `rodent-cold-intrusion` is the
+once-per-season event — the first hard freeze is when rodents that spent
+fall outdoors actually come looking for a way in — with its own
+season-state key so it cannot collide with any of the other seven
+verticals' first-freeze rows inside one campaign's carried state, for the
+same per-pick, per-`trigger_id` reason the other seven hold.
+`deep-freeze-rodent-surge` escalates past it for every hard freeze after
+the first, the way HVAC's `deep-freeze` escalates past `hard-freeze`.
+`ant-invasion-after-rain` and `wet-week-mosquito-watch` are two different
+readings of the same rain: a single heavy rain floods ants out of the
+ground the day after, while a run of overcast days is what actually
+accumulates the standing water mosquitoes breed in — the same
+`cloud_percent_min`/`consecutive_days` shape restaurant's `gray-streak`
+already uses. `mosquito-pressure` is a third, independent angle on the
+same pest — heat stacked on humidity, not a rain event at all.
+`termite-swarm-season` is the one row combining a temperature floor with
+a rain-probability floor in a single rule, the same multi-condition shape
+roofing's `wind-driven-rain` already uses, because a termite colony swarms
+on a warm day with rain in the forecast, not on either condition alone.
+`wasp-hornet-season` and `flea-tick-season` are two warm-season pushes for
+two different pests, and `spider-season` is the one row that runs opposite
+them — a cool, dry fall stretch is when spiders move indoors looking for
+shelter. `spring-pest-inspection` and `fall-pest-inspection` are the two
+shoulder-season pushes the vertical leans on hardest, mirroring every
+other service-reminder vertical's pair. `heat-wave-pest-activity` and
+`storm-pest-disruption` round the book out: sustained heat driving ants
+and roaches indoors on its own, and a storm alert knocking a nest loose or
+flooding a colony out, caught by the same `cadence == "alert_driven"`
+blocklist check every other vertical's alert row already exercises.
+
+`MONTHS` gained the same treatment as the prior six verticals: all
+thirteen pest_control ids listed in every month's tuple, in
+month-appropriate priority order, alongside the restaurant, hvac, retail,
+auto, landscaping, pool_spa and roofing ids already there.
+
+**The copy.** `_house_draft_pest_control()` is an eighth per-angle
+template in `modules/weather_setup/copy.py`, dispatched the same way as
+the other seven — by `Trigger.vertical`, not by a swapped-in name. Its
+framing leans on "get ahead of it before it's inside" for urgent/alert-
+driven triggers and "get ahead of it" for the ordinary seasonal ones.
+`_PROMPT_CONTEXT["pest_control"]` gives the model prompt a "pest control
+company" noun and a "Service notes" label, and
+`_FALLBACK_NAME["pest_control"]` is "your business", the same choice as
+landscaping's, pool_spa's and roofing's. None of the thirteen `reason`
+strings tripped `_OFFER_RE` or `_PROMISE_RE` — checked directly against
+every trigger's generated house draft — so no rewording was needed this
+time, unlike roofing's "free-inspection" lesson.
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 14. The ninth vertical (Moving Company)
+
+Shipped the same way an eighth time: thirteen more rows, still the same
+rule vocabulary, still no change to `evaluate_trigger()`, `store.py`,
+`app.py` or the staff template. Eight verticals of precedent already
+proved the plumbing generalizes; the ninth confirms it rather than
+testing it again.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="moving"`. The
+psychology is unlike any of the other eight: weather here does not sell a
+repair or a treatment, it decides whether moving day itself goes
+smoothly, so most rows are an advisory about the day already booked
+rather than a reason to book a new one. `perfect-moving-day` is the one
+purely aspirational row and the multi-condition shape restaurant's
+`patio-day` already uses — comfortable, dry and calm, the day nobody
+hesitates to load a truck. Heat and cold each get an escalating pair:
+`heat-wave-moving-advisory`/`humidity-heat-index-moving` for crew safety
+in extreme heat, and `cold-snap-moving-advisory`/`deep-freeze-moving-
+emergency` for belongings and a crew that cannot stay outside long in
+extreme cold, with `wind-chill-moving-advisory` as a third,
+feels-like-based angle on the same cold rather than a fourth step in the
+ladder. `storm-reschedule-alert` is the alert-driven row, and unlike
+every other vertical's version it argues for moving the appointment
+itself rather than merely inspecting or treating something afterward.
+`rain-day-moving-prep` and `high-wind-loading-risk` are two more
+advisories for a move already scheduled — tarps and covered trucks for
+one, a plan for carrying awkward furniture for the other.
+`first-freeze-moving` is the once-per-season event — plants, wine and
+electronics need special handling once the freeze arrives — with its own
+season-state key so it cannot collide with any of the other eight
+verticals' first-freeze rows inside one campaign's carried state, for the
+same per-pick, per-`trigger_id` reason the other eight hold.
+`spring-moving-season` and `fall-moving-season` are the two
+shoulder-season pushes the vertical leans on hardest, the one place this
+vertical does sell a new booking rather than advise on an existing one.
+`snow-day-moving-risk` rounds the book out as the one weather condition
+that is both an advisory and a reason to reconsider the schedule at once.
+
+`MONTHS` gained the same treatment as the prior seven verticals: all
+thirteen moving ids listed in every month's tuple, in month-appropriate
+priority order, alongside the restaurant, hvac, retail, auto, landscaping,
+pool_spa, roofing and pest_control ids already there.
+
+**The copy.** `_house_draft_moving()` is a ninth per-angle template in
+`modules/weather_setup/copy.py`, dispatched the same way as the other
+eight — by `Trigger.vertical`, not by a swapped-in name. It is the one
+house-draft function that reads a fourth signal beyond the urgent/alert
+tags every other vertical's draft checks: a `"booking"` tag marks a row
+that is actually trying to fill the calendar rather than advise on a move
+already scheduled, so only those rows read as an invitation ("book it
+before the calendar fills up") — everything else reads as a plan-ahead or
+get-ahead-of-it advisory, whatever its urgency. `_PROMPT_CONTEXT["moving"]`
+gives the model prompt a "moving company" noun and a "Move notes" label
+(the one vertical whose notes label is not "Service notes"), and
+`_FALLBACK_NAME["moving"]` is "your business", the same choice as
+landscaping's, pool_spa's, roofing's and pest_control's. None of the
+thirteen `reason` strings tripped `_OFFER_RE` or `_PROMISE_RE` — checked
+directly against every trigger's generated house draft, the same way
+pest_control's were.
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 15. The tenth vertical (Tree Service)
+
+Shipped the same way a ninth time: thirteen more rows, still the same
+rule vocabulary, still no change to `evaluate_trigger()`, `store.py`,
+`app.py` or the staff template. Nine verticals of precedent already
+proved the plumbing generalizes; the tenth confirms it rather than
+testing it again.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="tree_service"`. The
+psychology sits closest to roofing's — a tree does not fail on a
+comfortable day, so nearly every row names the specific hazard a weather
+condition puts a limb, a trunk or a root system under and the inspection
+or pruning call that heads it off. `high-wind-limb-risk` and
+`wind-damage-tree-inspection` are an escalating wind pair, the same shape
+as roofing's `high-wind-shingle-risk`/`wind-damage-inspection`.
+`ice-storm-limb-risk` is its own daily row rather than an escalation of
+anything — a freeze-thaw band, not a hard freeze, is what actually coats
+a limb in ice heavy enough to bring it down, the same reading roofing's
+`ice-dam-risk` gives a shingle. `heavy-snow-limb-load` rounds out the
+mechanical-failure trio: a load, not a temperature, snapping a branch
+under its own weight. `first-freeze-tree-service` is the once-per-season
+event — the healthiest window of the year to prune opens the day the sap
+stops running — with its own season-state key so it cannot collide with
+any of the other nine verticals' first-freeze rows inside one campaign's
+carried state, for the same per-pick, per-`trigger_id` reason the other
+nine hold. `deep-freeze-young-tree-risk` is not an escalation of the
+once-per-season event but its own emergency angle: genuinely extreme cold
+is when a young or recently transplanted tree takes damage a mature one
+shrugs off. `heat-wave-tree-stress` and `heat-index-canopy-stress` are a
+second escalating pair for the opposite season, the same shape HVAC's
+`ac-overload`/`heat-index-strain` already uses. `spring-pruning-season`
+and `fall-pruning-season` are the two shoulder-season pushes the vertical
+leans on hardest, both sitting inside the same dormant-season pruning
+window `first-freeze-tree-service` opens, just without needing a hard
+freeze to argue for the cut. `heavy-rain-tree-tip-risk` and
+`canopy-disease-risk` round the book out: a soil-saturating rain that
+sets up a tip-over risk in the wind that follows it, and a run of
+overcast, humid days that lets fungal disease take hold — the same
+`cloud_percent_min`/`consecutive_days` shape restaurant's `gray-streak`
+and landscaping's `mosquito-surge` already use. `storm-damage-tree-removal`
+is the alert-driven row, caught by the same `cadence == "alert_driven"`
+blocklist check every other vertical's alert row already exercises.
+
+`MONTHS` gained the same treatment as the prior eight verticals: all
+thirteen tree_service ids listed in every month's tuple, in
+month-appropriate priority order, alongside the restaurant, hvac, retail,
+auto, landscaping, pool_spa, roofing, pest_control and moving ids already
+there.
+
+**The copy.** `_house_draft_tree_service()` is a tenth per-angle template
+in `modules/weather_setup/copy.py`, dispatched the same way as the other
+nine — by `Trigger.vertical`, not by a swapped-in name. It follows
+roofing's shape: the urgent/alert-tagged rows read as "get it checked
+before it comes down" and everything else reads as a plan-ahead or
+get-ahead-of-it advisory. `_PROMPT_CONTEXT["tree_service"]` gives the
+model prompt a "tree service company" noun and a "Service notes" label,
+the same choice as hvac's, auto's, landscaping's, pool_spa's, roofing's
+and pest_control's, and `_FALLBACK_NAME["tree_service"]` is "your
+business", the same choice as landscaping's, pool_spa's, roofing's,
+pest_control's and moving's. None of the thirteen `reason` strings
+tripped `_OFFER_RE` or `_PROMISE_RE` — checked directly against every
+trigger's generated house draft, the same way moving's were.
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.

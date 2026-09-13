@@ -355,6 +355,42 @@ def smart_crop_url(public_id: str, width: int, height: int, *,
     return url
 
 
+def background_removed_url(public_id: str) -> str:
+    """A derived URL with the background stripped -- `e_background_removal`,
+    Cloudinary's Advanced Background Removal add-on. Same shape as
+    `smart_crop_url()`: a URL transformation on an asset already in the
+    account, never a second upload, and the account is not verified to have
+    the add-on enabled here because Cloudinary transformations are lazy --
+    the URL always builds, and it is the caller's job to actually FETCH it
+    and treat a failure to fetch as "the account cannot do this" rather
+    than raising this function itself. `"" ` for not ready / no public_id,
+    the same "not measured" shape every reader in this module uses.
+    """
+    if not ready() or not public_id:
+        return ""
+    _configure()
+    url, _ = cloudinary.utils.cloudinary_url(
+        public_id, resource_type="image", secure=True,
+        transformation=[{"effect": "background_removal"}, {"fetch_format": "png"}])
+    return url
+
+
+def pdf_page_url(public_id: str, page: int = 1) -> str:
+    """One page of an uploaded PDF, rasterised to an image -- Cloudinary's
+    own `pg_N` page parameter on a `raw`/`image` PDF asset, read by
+    Creative Studio's PDF -> Video tool (WO-CS11) rather than shelling out
+    to a PDF library this deployment does not carry (`hub/pdf_optimizer`
+    is Ghostscript/qPDF, a different job entirely -- compressing a PDF,
+    never rendering one page as a picture)."""
+    if not ready() or not public_id:
+        return ""
+    _configure()
+    url, _ = cloudinary.utils.cloudinary_url(
+        public_id, resource_type="image", secure=True, format="jpg",
+        transformation=[{"page": max(1, int(page or 1))}, {"quality": "auto"}])
+    return url
+
+
 def preview_url(url: str, resource_type: str = "", edge: int = THUMB_EDGE) -> str:
     """The version a gallery draws, from a stored delivery URL.
 

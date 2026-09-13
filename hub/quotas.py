@@ -157,9 +157,9 @@ QUOTAS: dict[str, Quota] = {
     "creatomate": Quota(
         "creatomate", "Creatomate", "renders", 0, 0,
         "CREATOMATE_WARN_AT", "CREATOMATE_MONTHLY_LIMIT",
-        "One credit per render submitted. A render that fails still consumed "
-        "the request, which is why a refused call is recorded with ok=False "
-        "rather than dropped. No ceiling until CREATOMATE_MONTHLY_LIMIT is "
+        "One recorded submission per render, not one billing credit. Credit "
+        "cost varies with output size and duration. Failed submissions are "
+        "excluded from this count. No ceiling until CREATOMATE_MONTHLY_LIMIT is "
         "set."),
     # Pickaxe bills per use of an assistant, so units here are calls. Same
     # arrangement as the Commercial Builder trio above: no default allowance,
@@ -221,6 +221,11 @@ def record(provider: str, *, module: str = "", detail: str = "",
               api=api or None, model=model or None,
               bytes=int(nbytes) or None, ok=(None if ok else False),
               month=month_key())
+    if module == "commercial_builder":
+        from modules.commercial_builder.usage import record as record_project_usage
+        rate = IMAGE_PRICING.get(model) if provider == "openai" and detail == "image generation" else None
+        record_project_usage(provider, operation=api or detail, units=units, cached=cached, ok=ok,
+                             cost=rate * units if rate is not None and ok else None)
 
 
 # ---------------------------------------------------------------------------
@@ -650,7 +655,14 @@ def untracked_openai_modules() -> list[str]:
     for p in paths:
         if "_attic" in p.parts or "__pycache__" in p.parts:
             continue
-        if p.name in {"ai.py", "quotas.py", "diagnostics.py"}:
+        # client_brief.py documents the endpoint strings and SDK call
+        # spellings as *data* -- its own check_ai_callers() AST sweep and
+        # its ALLOW dict's reasons for the modules not yet migrated (each
+        # naming "/v1/responses" in prose) -- and calls OpenAI nowhere
+        # itself. Excluded for the same reason ai.py/quotas.py/
+        # diagnostics.py are: this check matches the file as a whole, and a
+        # docstring or a data table naming the pattern is not a call site.
+        if p.name in {"ai.py", "quotas.py", "diagnostics.py", "client_brief.py"}:
             continue
         try:
             src = p.read_text(encoding="utf-8", errors="ignore")

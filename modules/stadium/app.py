@@ -199,35 +199,24 @@ def recommendations():
     if _limited(_ip()):
         return jsonify({"error": "Too many requests. Try again shortly."}), 429
 
-    key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+    from hub import ai as _hub_ai
+    from hub.client_brief import build_from_fields
     team = str(body.get("team") or "").strip()
     market = str(body.get("market") or "").strip()
-    if not key:
+    if not _hub_ai.ready():
         return jsonify(_fallback_recommendations(team, market))
     try:
-        import requests as _rq
-        r = _rq.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {key}",
-                     "Content-Type": "application/json"},
-            json={"model": MODEL, "response_format": {"type": "json_object"},
-                  "temperature": 0.3, "max_tokens": 900,
-                  "messages": [{"role": "user", "content":
-                    f"Return JSON with 'podcasts' (7 real sports podcasts, at "
-                    f"least 3 local to {market} or covering {team}, each "
-                    f"{{name, local: true|false}}) and 'apps' (6 streaming "
-                    f"apps or networks carrying {team} games). Real shows "
-                    f"only — do not invent titles."}]},
-            timeout=40)
-        r.raise_for_status()
-        data = r.json()
-        try:
-            from hub import ai as _hub_ai
-            _hub_ai.note_usage("stadium", data, purpose="recommendations")
-        except Exception:                               # noqa: BLE001
-            pass
-        content = json.loads(
-            ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "{}")
+        brief = build_from_fields({"company": team, "city": market})
+        content = _hub_ai.chat_json(
+            [{"role": "user", "content":
+                f"Return JSON with 'podcasts' (7 real sports podcasts, at "
+                f"least 3 local to {market} or covering {team}, each "
+                f"{{name, local: true|false}}) and 'apps' (6 streaming "
+                f"apps or networks carrying {team} games). Real shows "
+                f"only — do not invent titles."}],
+            module="stadium", purpose="recommendations", model=MODEL,
+            temperature=0.3, max_tokens=900, timeout=40,
+            brief=brief, audience="strategy")
         pods = [p for p in (content.get("podcasts") or []) if p.get("name")]
         if sum(1 for p in pods if p.get("local")) < 3:
             # The original prompt asked for local shows and got Bill Simmons

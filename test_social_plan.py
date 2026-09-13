@@ -338,7 +338,7 @@ check("and the flags are recomputed on save, not only on draft",
 r = client.post("/api/batches/" + batch_id + "/status", json={"status": "approved"})
 check("a plan with a blocking flag cannot be approved", r.status_code == 400)
 check("the refusal says how many are blocking",
-      "blocking flag" in (r.get_json().get("error") or ""))
+      (r.get_json().get("error") or "").startswith("1 post(s) need attention."))
 
 client.put("/api/batches/" + batch_id, json={"slots": [
     {"id": first, "copy": "Cooler mornings are here — book a furnace check."}]})
@@ -588,6 +588,25 @@ with patch.object(mod.links, 'client_for', return_value=(snapshot['client'], sna
     changed_copy['slots'][0]['copy']='A different maintenance tip.'
     mod.save_batch(changed_copy)
     check("an open client page cannot approve replacement copy", client.post(approval_path,json={'decision':'approved','review_token':review_token}).status_code == 409)
+snapshot=mod.load_batch(plan['id'])
+with patch.object(mod, '_client_context', side_effect=RuntimeError('External lookup unavailable')) as lookup:
+    fast = client.get(f"/api/batches/{plan['id']}?context=0")
+    check("saved plan opens without external client lookups", fast.status_code == 200 and
+          fast.get_json()['batch']['id'] == plan['id'] and not lookup.called)
+missing = mod.load_batch(plan['id'])
+for s in missing['slots']:
+    s['copy'] = 'A useful maintenance tip.'
+    s['image_url'] = ''
+    s['link'] = ''
+    s['channels'] = ['instagram', 'pinterest']
+mod.save_batch(missing)
+failure = client.post(f"/api/batches/{plan['id']}/status", json={'status':'approved'}).get_json()['error']
+check("missing-image approval error names the actual issue and counts posts",
+      failure.startswith(f"{len(missing['slots'])} post(s)") and 'image' in failure and
+      'Instagram' in failure and 'authorized' not in failure)
+with patch.object(mod, '_client_context', return_value={'gallery':[]}) as lookup:
+    full = client.get(f"/api/batches/{plan['id']}").get_json()
+    check("full context remains available to existing callers", full['context'] == {'gallery':[]} and lookup.called)
 snapshot=mod.load_batch(plan['id'])
 mod.delete_batch(plan['id'])
 conflict=False

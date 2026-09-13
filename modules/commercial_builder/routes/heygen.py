@@ -64,6 +64,8 @@ def _job_of(scene):
 
 def _claim(scene, meta, expected):
     """Reserve a scene atomically before making a paid provider request."""
+    from ..history import preserve_presenter
+    preserve_presenter(db.session, scene)
     count = Scene.query.filter(Scene.id == scene.id, Scene.asset_meta_json == expected).update(
         {Scene.asset_meta_json: json.dumps(meta)}, synchronize_session=False)
     db.session.commit()
@@ -128,13 +130,18 @@ def generate_spokesperson_clip(project_id, scene_id):
 
     customer_client = None
     customer_spoken = None
+    from ..services.elevenlabs_service import apply_pronunciation_dict
+    casting_client = Client.query.get(project.client_id)
+    pronunciation = (project.music or {}).get("pronunciation_dict", casting_client.pronunciation_dict if casting_client else {})
+    spoken_text = apply_pronunciation_dict(scene.narration, pronunciation)
     if customer_voice:
-        from ..services.elevenlabs_service import apply_pronunciation_dict
-        customer_client = Client.query.get(project.client_id)
-        customer_spoken = apply_pronunciation_dict(scene.narration, customer_client.pronunciation_dict if customer_client else {})
+        customer_client = casting_client
+        customer_spoken = spoken_text
     # Keep existing HeyGen request keys stable. Customer reads also include the
     # actual spoken text so a pronunciation correction creates a fresh take.
     voice_identity = {"voice_provider": "customer", "spoken": customer_spoken} if customer_voice else {}
+    if not customer_voice and spoken_text != scene.narration:
+        voice_identity["spoken"] = spoken_text
     identity = media_state.fingerprint({"avatar": avatar_id, "voice": voice_id, **voice_identity,
         "speech": media_state.speech_signature(scene.to_dict()), "format": _primary_format(project),
         "over_footage": over_footage})
@@ -146,6 +153,8 @@ def generate_spokesperson_clip(project_id, scene_id):
         return jsonify({"ok": False, "error": "A presenter request already exists. Check its status before creating another take.",
                         "job": prior_job}), 409
     if prior_job.get("request_key") == identity and not data.get("regenerate") and not previous.get("presenter_stale"):
+        from ..usage import record
+        record("heygen", operation="presenter", cached=True)
         return jsonify({"ok": True, "job": prior_job, "scene": scene.to_dict(), "reused": True,
                         "live": heygen_service.is_live()})
     reservation = {"status": "submitting", "token": uuid.uuid4().hex, "submitted_at": time.time(),
@@ -193,7 +202,7 @@ def generate_spokesperson_clip(project_id, scene_id):
             return jsonify(ok=False, error=str(exc) + " No presenter was submitted. Reopen the picker and check Generate a new take to explicitly retry."), 502
     kwargs = {"audio_url": audio_url} if audio_url else {}
     job = heygen_service.generate_spokesperson_clip(
-        avatar_id, scene.narration or "", None if customer_voice else voice_id,
+        avatar_id, spoken_text or "", None if customer_voice else voice_id,
         format_id=_primary_format(project), over_footage=over_footage, **kwargs)
     db.session.refresh(scene)
     if _job_of(scene).get("token") != reservation["token"]:

@@ -597,10 +597,26 @@ def create_hub_app() -> Flask:
         from . import suite_map
         body = request.get_json(silent=True) or {}
         client = str(body.get("client") or "")
-        out = suite_map.unlink(client)
+        out = suite_map.unlink(client, str(body.get("location_id") or ""))
         if out.get("ok"):
             audit.log("hub", "suite_location_unlinked", actor=current_user(),
                       client=client)
+        return jsonify(out)
+
+    @app.route("/api/suite/primary", methods=["POST"])
+    def api_suite_primary():
+        """Which of a client's several sub-accounts token_for() and the
+        Social Planner push use by default -- see hub/suite_map.py."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "")
+        out = suite_map.set_primary(client, str(body.get("location_id") or ""))
+        if out.get("ok"):
+            audit.log("hub", "suite_location_primary_set", actor=current_user(),
+                      client=client, detail=str(body.get("location_id") or ""))
         return jsonify(out)
 
     @app.route("/api/backup")
@@ -2534,6 +2550,14 @@ def create_hub_app() -> Flask:
             return jsonify({"ok": False,
                             "error": "An email or phone is required."}), 400
         meta = body.get("meta") if isinstance(body.get("meta"), dict) else None
+        if src == "landing" and (str(body.get("page", "")).startswith("industry-") or
+                                 (meta and (meta.get("industry_id") or meta.get("creative_profile")))):
+            from .industry_factory import resolve_capture
+            try:
+                body = resolve_capture(dict(body, fields=fields))
+                meta = body["meta"]
+            except (ValueError, TypeError) as exc:
+                return jsonify({"ok": False, "error": str(exc)}), 400
         if trusted:
             # An exemption nobody can see afterwards is one nobody can audit.
             meta = dict(meta or {}) | {"trusted_source": True}
@@ -2935,6 +2959,8 @@ def create_hub_app() -> Flask:
             direction=str(body.get("direction") or "trust"),
             goal=str(body.get("goal") or ""), offer=str(body.get("offer") or ""),
             promoting=str(body.get("promoting") or ""),
+            reviews=str(body.get("reviews") or ""),
+            ga4_id=str(body.get("ga4_id") or ""),
             actor=current_user() or ""))
 
     @app.route("/api/landing/goals")
@@ -4202,6 +4228,27 @@ def create_hub_app() -> Flask:
         from . import ads_status
         return jsonify(ads_status.scoreboard())
 
+    @app.route("/api/client/suite-locations")
+    def api_client_suite_locations():
+        """Every Smart 1 Suite sub-account actually recorded for this client
+        -- hub/suite_map.py -- for Client 360's Suite Account card.
+
+        Under `/api/client/` so the card reads inside the Suite frame too.
+        This is deliberately not `/api/client/links`, which is a lighter,
+        display-only "these look like they might be this client's" list a
+        rep can attach several of without any of it reaching token_for() or
+        the Social Planner push -- the disconnect the card used to have. This
+        is the mapping those actually read, with which one is primary.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_map
+        name = (request.args.get("name") or "").strip()
+        if not name:
+            return jsonify({"locations": []})
+        return jsonify({"locations": suite_map.client_locations(name)})
+
     # ------------- attached Google accounts (shared: SEO page + Client 360)
     @app.route("/api/client/links")
     def api_client_links():
@@ -4345,18 +4392,111 @@ def create_hub_app() -> Flask:
         gate = _require_api()
         if gate:
             return gate
-        from . import knack_api
+        from . import knack_api, client_groups, ticket_links
         name = (request.args.get("name") or "").strip()
         website = (request.args.get("website") or "").strip()
         if not knack_api.configured():
             return jsonify({"configured": False, "tickets": []})
+        # A grouped client reads across the whole group, the way the work log
+        # and the invoices do: a ticket for one location of a multi-location
+        # client is routinely filed under that location's own name. A name a
+        # rep has confirmed with the "find a match" or "search" tool on this
+        # card rides along the same way — it is why the lookup can find a
+        # ticket filed under a name none of the group's own aliases predict.
+        linked = ticket_links.linked_orgs(name)
+        names = (client_groups.member_names(name, request.args.get("url", ""))
+                 or [name]) + linked
         try:
             return jsonify({"configured": True,
-                            "tickets": knack_api.list_tickets(name, website)})
+                            "tickets": knack_api.list_tickets(names, website),
+                            "linked": linked})
         except Exception as exc:  # noqa: BLE001
             errors.log_exception("knack-tickets", exc, path=request.path,
                                  actor=current_user() or "")
-            return jsonify({"configured": True, "tickets": [], "error": str(exc)})
+            return jsonify({"configured": True, "tickets": [], "error": str(exc),
+                            "linked": linked})
+
+    @app.route("/api/client/tickets/suggest")
+    def api_client_tickets_suggest():
+        """Fuzzy candidates for a client whose known aliases found nothing.
+
+        Behind a button, never the automatic ticket fetch: this is a real
+        Knack pull of the ticket object, and a suggestion is a suggestion —
+        `link()` is what a rep presses to confirm one, never this route.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_api, ticket_links
+        name = (request.args.get("name") or "").strip()
+        if not knack_api.configured():
+            return jsonify({"configured": False, "candidates": []})
+        if not name:
+            return jsonify({"configured": True, "candidates": [],
+                            "error": "No client name was given."})
+        try:
+            return jsonify({"configured": True,
+                            "candidates": ticket_links.suggest_for(name)})
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("knack-tickets", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"configured": True, "candidates": [],
+                            "error": str(exc)})
+
+    @app.route("/api/client/tickets/search")
+    def api_client_tickets_search():
+        """Every ticket "Client Organization" containing the typed text.
+
+        For a rep who already has a rough idea what the ticket was filed
+        under and wants to find it directly, rather than wait on a fuzzy
+        score against the client's own name.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import knack_api, ticket_links
+        q = (request.args.get("q") or "").strip()
+        if not knack_api.configured():
+            return jsonify({"configured": False, "results": []})
+        if not q:
+            return jsonify({"configured": True, "results": [],
+                            "error": "Type something to search for."})
+        try:
+            return jsonify({"configured": True,
+                            "results": ticket_links.search(q)})
+        except Exception as exc:  # noqa: BLE001
+            errors.log_exception("knack-tickets", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"configured": True, "results": [], "error": str(exc)})
+
+    @app.route("/api/client/tickets/link", methods=["POST"])
+    def api_client_tickets_link():
+        """Confirm that a ticket "Client Organization" string is this client's.
+
+        Additive and Hub-side only — nothing is written to Knack, and nothing
+        is applied without this press. Reversed by
+        ``/api/client/tickets/unlink``.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import ticket_links
+        body = request.get_json(silent=True) or {}
+        out = ticket_links.link(str(body.get("name") or ""),
+                                 str(body.get("org") or ""),
+                                 actor=current_user() or "")
+        return jsonify(out)
+
+    @app.route("/api/client/tickets/unlink", methods=["POST"])
+    def api_client_tickets_unlink():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import ticket_links
+        body = request.get_json(silent=True) or {}
+        out = ticket_links.unlink(str(body.get("name") or ""),
+                                   str(body.get("org") or ""))
+        return jsonify(out)
 
     @app.route("/api/client/requests/triage", methods=["POST"])
     def api_client_request_triage():
@@ -5707,6 +5847,15 @@ def create_hub_app() -> Flask:
         return jsonify({"ok": True, "proposal": hit,
                         "proposals": proposals.list_proposals(client)})
 
+    @app.route("/api/client/proposals/document/<proposal_id>")
+    def api_client_proposals_document(proposal_id):
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import proposals
+        return proposals.document_response(
+            (request.args.get("client") or "").strip(), proposal_id)
+
     @app.route("/api/client/proposals/file/<path:name>")
     def api_client_proposals_file(name):
         """Serves proposals kept on disk when Cloudinary isn't configured."""
@@ -6656,6 +6805,15 @@ def create_hub_app() -> Flask:
             add("Display Ad Builder", "warn",
                 f"Could not be checked: {_ab_exc}")
 
+        # --- Marketing Efficiency Audit (third process in this container) ---
+        try:
+            from hub import marketing_audit_proxy
+            ma = marketing_audit_proxy.status()
+            add("Marketing Efficiency Audit", "ok" if ma.get("ok") else "warn", ma.get("detail", ""))
+        except Exception as _ma_exc:  # noqa: BLE001
+            add("Marketing Efficiency Audit", "warn",
+                f"Could not be checked: {_ma_exc}")
+
         # --- Video background library ---
         # Asked of the library itself rather than inferred from the two keys it
         # needs, for the reason the tool's own status card exists: an empty
@@ -6804,6 +6962,7 @@ def create_hub_app() -> Flask:
                   "/llms/",
                   "/connect", "/api/", "/assets/", "/hub-", "/static/",
                   "/sales/landing/p/",
+                  "/industry/p/", "/industry/widget/", "/sales/industry-factory/preview/",
                   # The Smart 1 Suite app frame. A *client* opens this inside
                   # their own sub-account and has no Hub account at all, so
                   # the staff sidebar, help layer and feedback tab must not be
@@ -6814,6 +6973,14 @@ def create_hub_app() -> Flask:
                   # has a high-severity check for exactly that, and it caught
                   # this one before it shipped.
                   "/suite-app",
+                  # The Marketing Efficiency Audit -- an accounting or
+                  # bookkeeping partner running this has no Hub account and
+                  # never should need one, so the staff sidebar, help layer
+                  # and feedback tab must not arrive on it. The whole prefix,
+                  # not a sub-path: unlike the Display Ad Builder this tool
+                  # has no staff-only area at all -- see
+                  # hub/marketing_audit_proxy.py.
+                  "/tools/marketing-audit/",
                   # The display-ad proof. A client opens this to approve or
                   # send back a set of banners, so it must not arrive wearing
                   # the staff sidebar, the help layer and a feedback tab --
@@ -7056,6 +7223,7 @@ def create_hub_app() -> Flask:
         ("Image Picker", "modules.image_picker", "register_image_picker", "/tools/image-picker"),
         ("Page Image Optimizer", "modules.page_image_optimizer", "register", "/tools/page-images"),
         ("Web Tickets", "modules.tickets", "register_tickets", "/tools/tickets"),
+        ("Smart 1 Sites Builder", "hub.sites_builder_routes", "register", "/tools/sites-builder"),
         # The Display Ad Builder is a Node service in the same container; this
         # registers the proxy that puts it behind the Hub login. Same wrapper
         # as the rest, so a renderer that will not start costs the Hub nothing.
@@ -7065,6 +7233,11 @@ def create_hub_app() -> Flask:
         # builder is still usable without attach, and attach still
         # explains itself if the renderer is down.
         ("Display Ad Builder links", "hub.ad_builder_link", "register", "/tools/display-ads"),
+        ("Client email", "hub.client_email_routes", "register", "/client-email"),
+        # The accounting-partner Marketing Efficiency Audit — a third Node
+        # process in this container, same shape as the two above. Unlike
+        # them, the whole prefix is public: see hub/marketing_audit_proxy.py.
+        ("Marketing Efficiency Audit", "hub.marketing_audit_proxy", "register", "/tools/marketing-audit"),
     ):
         try:
             _m = __import__(_mod, fromlist=[_fn])
@@ -7284,6 +7457,10 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # ---------------- Industry Prospect Builder ----------------
+    from .industry_prospect_routes import register_industry_prospects
+    register_industry_prospects(app)
+
     # ---------------- Prospect 360 ----------------
     # The record a scanned business gets before it is a client. Blueprint, so
     # the login gate sits on the blueprint itself -- every route here names a
@@ -7359,6 +7536,9 @@ def create_hub_app() -> Flask:
     except Exception:  # noqa: BLE001
         pass
 
+    from .industry_factory import bp as industry_factory_bp
+    app.register_blueprint(industry_factory_bp)
+
     # Create any tables the newly registered blueprints declared. Runs AFTER
     # all of them, so a module registered later still gets its tables. Guarded:
     # a sleeping database must not take the Hub down at boot.
@@ -7369,6 +7549,35 @@ def create_hub_app() -> Flask:
             app.config["HUB_DB_BOOT_ERROR"] = _tbl_err
     except Exception:  # noqa: BLE001
         pass
+
+    # cs_projects grew three columns after WO-CS1 shipped (WO-CS7) --
+    # create_all() above creates missing TABLES and never ALTERs an
+    # existing one, so this is the one place that adds them on the live
+    # Postgres. Guarded like every boot step here: a database that cannot
+    # be altered right now must not take the Hub down.
+    try:
+        from modules.creative_studio.db import add_missing_columns as _cs_add_columns
+        with app.app_context():
+            _cs_add_columns()
+    except Exception as _cs_col_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_col_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Proposal Execution's supersede-not-duplicate run (WO-1) added a column
+    # after the table was already live in production -- create_all() above
+    # creates missing tables and never ALTERs an existing one, the exact
+    # `cs_projects` reason above, one table over.
+    try:
+        from .proposal_execution import add_missing_columns as _pe_add_columns
+        with app.app_context():
+            _pe_add_columns()
+    except Exception as _pe_col_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _pe_col_exc)
+        except Exception:  # noqa: BLE001
+            pass
 
     # Seed Creative Studio's first 12 templates, now that cs_templates exists.
     # Idempotent (skips any id already present) and guarded like every other
@@ -7394,6 +7603,35 @@ def create_hub_app() -> Flask:
     except Exception as _cs_ai_seed_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _cs_ai_seed_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # WO-CS11: flip a row already stored as coming_soon to live once its
+    # tool exists -- "via data, not code," seed_ai_tools.promote()'s own
+    # words. seed() above only ever inserts what is missing, so on a
+    # database seeded before this order shipped, changing _ROWS alone
+    # would not move product_lifestyle/pdf_to_video off coming_soon.
+    try:
+        from modules.creative_studio.seed_ai_tools import promote as _promote_cs_ai_tools
+        with app.app_context():
+            _promote_cs_ai_tools()
+    except Exception as _cs_ai_promote_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_ai_promote_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Bring in every Commercial Builder Campaign row Creative Studio has a
+    # project bound to -- WO-CS8 item 1. Idempotent on cb_campaign_id, and
+    # guarded the same way: a migration that cannot run this boot leaves a
+    # campaign unmigrated for the next one, not the Hub down.
+    try:
+        from modules.creative_studio.campaign_spec import migrate_cb_campaigns as _cs_migrate_campaigns
+        with app.app_context():
+            _cs_migrate_campaigns()
+    except Exception as _cs_campaign_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _cs_campaign_exc)
         except Exception:  # noqa: BLE001
             pass
 

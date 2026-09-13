@@ -12,16 +12,45 @@ log = logging.getLogger(__name__)
 __version__ = "0.1.0"
 
 
+def _guard(bp) -> None:
+    """Staff only, on every one of this module's blueprints.
+
+    `wsgi.py` wraps each *dispatcher-mounted* module in `AuthGuard`; a
+    blueprint registered on the hub app never passes through it, and the hub
+    app has no blanket gate of its own. So without this every route here
+    answered **200 to anyone with the URL** -- the dashboard, a client's
+    Search Console evidence, and the writes that submit and delete sitemaps
+    in somebody else's property.
+
+    It is called for all three blueprints rather than for the one that looked
+    most sensitive: they share the `/seo/intelligence` prefix, a guard on one
+    of them says nothing about the other two, and a reader who sees the gate
+    installed once reasonably assumes the prefix is covered.
+
+    Never raises -- a module that cannot import the Hub's auth is a module
+    running standalone, and refusing to start it would be worse than the gate
+    not applying where there is nothing to protect.
+    """
+    try:
+        from hub.blueprint_guard import install as _install
+    except Exception:                                 # noqa: BLE001
+        return
+    _install(bp, mount="/seo/intelligence")
+
+
 def register_seo_intelligence(app, create_tables=True):
     from .app import bp
     from .actions import bp as actions_bp
     from .web import bp as web_bp
 
     if "seo_intelligence" not in app.blueprints:
+        _guard(bp)
         app.register_blueprint(bp)
     if "seo_intelligence_actions" not in app.blueprints:
+        _guard(actions_bp)
         app.register_blueprint(actions_bp)
     if "seo_intelligence_web" not in app.blueprints:
+        _guard(web_bp)
         app.register_blueprint(web_bp)
 
     if create_tables:

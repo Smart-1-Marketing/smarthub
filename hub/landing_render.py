@@ -42,6 +42,21 @@ Colours and font names arrive from a third party and land unquoted inside a
 `<style>` block, so both are validated rather than escaped: anything that is
 not literally a hex colour, or a plain family name, is dropped for the
 fallback. It loses a brand colour; it does not get to close the style element.
+
+## Reviews and tracking follow the same rule as the offer
+
+George's spec for this kind of page treats a Google review the way this file
+already treats an offer or a credential: real, or absent -- never a
+placeholder banner shown to a prospect, because a visible "[PLACEHOLDER --
+REPLACE WITH REAL REVIEW]" on a page somebody actually opens reads as an
+agency that shipped unfinished work. A rep can paste in one or two real
+reviews when building the page; with none, the social-proof section is simply
+omitted, the way an empty benefits list already omits its section, and the
+gap is named in the build response rather than on the page.
+
+A GA4 measurement id is the same shape: wired if a real one is given, dropped
+silently if what arrived does not look like `G-XXXXXXX`, and the page ships
+with no tracking script rather than a broken one pointed at nothing.
 """
 from __future__ import annotations
 
@@ -116,6 +131,62 @@ def _img_url(img) -> str:
     return u if u.startswith("https://") else ""
 
 
+_GA4_ID = re.compile(r"^G-[A-Z0-9]{4,20}$")
+
+
+def is_valid_ga4_id(v: str) -> bool:
+    """A real-looking GA4 measurement id, never trusted further than looking."""
+    return bool(_GA4_ID.match(str(v or "").strip().upper()))
+
+
+def _ga4_script(ga4_id: str) -> str:
+    """Phone-click and form-submit tracking, wired to a real id or not at all.
+
+    Google Tag Manager already tracks staff activity across this Hub; this is
+    a *client's* landing page, so the id -- if there is one -- is the one on
+    their own GA4 property, never invented and never the agency's own.
+    """
+    gid = str(ga4_id or "").strip().upper()
+    if not _GA4_ID.match(gid):
+        return ""
+    # Validated against the pattern above, so the charset is already safe to
+    # place directly in a <script src> and a JS string literal.
+    return (f'<script async src="https://www.googletagmanager.com/gtag/js?'
+            f'id={gid}"></script>\n'
+            f'<script>window.dataLayer=window.dataLayer||[];'
+            f'function gtag(){{dataLayer.push(arguments);}}'
+            f'gtag("js",new Date());gtag("config","{gid}");</script>')
+
+
+def _reviews_html(reviews: list[dict] | None) -> str:
+    """Real, attributed reviews, or no social-proof section at all.
+
+    Never a fabricated quote, and never a "placeholder -- add a review"
+    banner shown to a prospect: the gap is reported to the rep who can fix
+    it, not printed on a page somebody actually opens. Capped at two, which
+    is what the section has room for and what a visitor will actually read.
+    """
+    items = [r for r in (reviews or [])
+             if isinstance(r, dict) and str(r.get("quote") or "").strip()]
+    if not items:
+        return ""
+    cards = ""
+    for r in items[:2]:
+        quote = esc(r.get("quote"))
+        author = esc(r.get("author")) or "Google review"
+        try:
+            stars = max(0, min(5, int(r.get("rating") or 0)))
+        except (TypeError, ValueError):
+            stars = 0
+        star_row = (f'<div class="stars" aria-hidden="true">'
+                    f'{"&#9733;" * stars}{"&#9734;" * (5 - stars)}</div>'
+                    if stars else "")
+        cards += (f'<blockquote class="review">{star_row}'
+                  f'<p>&ldquo;{quote}&rdquo;</p><cite>{author}</cite></blockquote>')
+    return (f'<section class="sec social"><h2>What clients say</h2>'
+            f'<div class="reviews">{cards}</div></section>')
+
+
 _AUTOCOMPLETE = {"name": "name", "phone": "tel", "email": "email",
                  "postcode": "postal-code"}
 
@@ -152,7 +223,8 @@ def _lead_fields(fields: list[dict]) -> str:
 
 
 def render_page(brief: dict, copy: dict, direction: dict,
-                images: dict | None = None, goal_id: str = "") -> str:
+                images: dict | None = None, goal_id: str = "",
+                reviews: list[dict] | None = None, ga4_id: str = "") -> str:
     images = images or {}
     # The form is the goal. "Book an appointment" needs a preferred time and
     # "Call now" needs almost nothing, and asking every visitor the same four
@@ -228,7 +300,7 @@ def render_page(brief: dict, copy: dict, direction: dict,
                 f'<div class="band-in"><h2>{cta}</h2>'
                 f'<a class="btn" href="#enquire">{cta}</a></div></div>')
 
-    logo = (f'<img src="{esc(brief.get("logo"))}" alt="{client}" class="logo">'
+    logo = (f'<img src="{esc(brief.get("logo"))}" alt="{client} logo" class="logo">'
             if str(brief.get("logo") or "").startswith("https://")
             else f'<b class="wordmark">{client}</b>')
 
@@ -257,6 +329,9 @@ def render_page(brief: dict, copy: dict, direction: dict,
         credits = ('<p class="credit">Photography: ' +
                    esc(", ".join(images["credits"])) + "</p>")
 
+    reviews_html = _reviews_html(reviews)
+    ga4_head = _ga4_script(ga4_id)
+
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -264,6 +339,7 @@ def render_page(brief: dict, copy: dict, direction: dict,
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(copy.get('headline'))} | {client}</title>
 <meta name="description" content="{esc(copy.get('subhead'))}">
+{ga4_head}
 <style>
   :root{{--primary:{p['primary']};--accent:{p['accent']};
         --on-accent:{p['on_accent']};--radius:{direction['radius']};
@@ -290,6 +366,8 @@ def render_page(brief: dict, copy: dict, direction: dict,
         box-shadow:0 6px 18px rgba(15,23,42,.16);transition:transform .12s ease}}
   .btn:hover{{transform:translateY(-1px)}}
   .btn.sm{{padding:10px 18px;font-size:15px;box-shadow:none}}
+  .btn:focus-visible,.tel:focus-visible,a:focus-visible{{
+    outline:2px solid var(--accent);outline-offset:2px}}
 
   .hero{{{hero_style};color:{hero_ink};padding:{direction['hero_pad']}}}
   .hero h1{{font-size:clamp(32px,5.4vw,54px);line-height:1.1;margin:0 0 16px;
@@ -333,6 +411,14 @@ def render_page(brief: dict, copy: dict, direction: dict,
   .ticks li:before{{content:"";position:absolute;left:0;top:8px;width:14px;
       height:8px;border-left:3px solid var(--accent);
       border-bottom:3px solid var(--accent);transform:rotate(-45deg)}}
+
+  .reviews{{display:grid;gap:18px}}
+  @media(min-width:640px){{.reviews{{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}}}
+  .review{{margin:0;padding:20px 22px;border:1px solid var(--line);
+           border-radius:var(--radius);background:#fbfcfe}}
+  .review .stars{{color:var(--accent);font-size:16px;letter-spacing:1px;margin-bottom:6px}}
+  .review p{{margin:0 0 10px;color:var(--ink)}}
+  .review cite{{font-style:normal;font-size:13px;color:var(--muted)}}
 
   .band{{background-size:cover;background-position:center;position:relative;
          padding:88px 22px;text-align:center;color:#fff}}
@@ -399,6 +485,7 @@ def render_page(brief: dict, copy: dict, direction: dict,
 
 <div class="wrap">
   {faqs}
+  {reviews_html}
 </div>
 
 <div class="final" id="enquire"><div class="wrap">
@@ -443,11 +530,19 @@ function sendLead(ev){{
   }}).then(function(r){{ return r.json(); }})
     .then(function(){{ f.innerHTML =
       '<p style="font-size:18px;font-weight:600">Thanks — we have your details '+
-      'and someone will be in touch shortly.</p>'; }})
+      'and someone will be in touch shortly.</p>';
+      if(typeof gtag === 'function'){{ gtag('event','generate_lead',
+        {{event_category:'landing_page'}}); }} }})
     .catch(function(){{ msg.textContent =
       'That did not send. Please call us instead.'; }});
   return false;
 }}
+/* Guarded on gtag existing at all, so a page with no GA4 id given -- the
+   ordinary case -- runs this with nothing to call. */
+Array.prototype.forEach.call(document.querySelectorAll('a[href^="tel:"]'),
+  function(a){{ a.addEventListener('click', function(){{
+    if(typeof gtag === 'function'){{ gtag('event','phone_click',
+      {{event_category:'landing_page'}}); }} }}); }});
 </script>
 </body>
 </html>"""

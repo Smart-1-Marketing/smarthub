@@ -875,5 +875,134 @@ for _py in sorted(list((ROOT / "hub").rglob("*.py"))
 check("no jsonstore call site is handed a bare relative path", _relative, [])
 
 
+# ---------------------------------------------------------------------------
+# Drive answers 403 for three different things, and one word for all of them
+# sends somebody to fix the wrong one.
+# ---------------------------------------------------------------------------
+print("\nWhy a link failed, in Google's own words")
+
+from hub import drive_files as _df                                 # noqa: E402
+
+
+class _Resp:
+    """Just enough of a requests response for the classifier."""
+
+    def __init__(self, body):
+        self.status_code, self.ok, self._b = 403, False, body
+
+    def json(self):
+        if isinstance(self._b, Exception):
+            raise self._b
+        return self._b
+
+
+def _classify(body):
+    """What _get() actually raises for this 403 body.
+
+    It drives `_get` rather than repeating its branch: a helper that decides
+    the same thing the code decides cannot notice the code deciding it
+    differently, which is a check that passes on the defect it was written
+    for. Confirmed by reverting the split and requiring these red.
+    """
+    _real = _df.requests.get
+    _df.requests.get = lambda *a, **k: _Resp(body)
+    try:
+        _df._get("tok", "/files/x")
+    except _df.DriveRefused as exc:
+        return exc.reason, exc.google
+    except Exception as exc:                                       # noqa: BLE001
+        return f"{type(exc).__name__}", ""
+    finally:
+        _df.requests.get = _real
+    return "no refusal", ""
+
+
+_perm = {"error": {"errors": [{"reason": "insufficientFilePermissions"}],
+                   "message": "The user does not have sufficient permissions."}}
+_rate = {"error": {"errors": [{"reason": "userRateLimitExceeded"}],
+                   "message": "Rate Limit Exceeded"}}
+
+check("a permission refusal keeps Google's own word", _classify(_perm),
+      ("refused", "insufficientFilePermissions"))
+# Drive answers 403 rather than 429 for its rate limits, so the status line
+# alone cannot tell the two apart -- and read as a refusal it names the login
+# as the problem when the login is fine.
+check("a rate limit is its own answer, not a refusal", _classify(_rate),
+      ("ratelimited", "userRateLimitExceeded"))
+check("a body that will not parse invents nothing",
+      _df._google_reason(_Resp(ValueError("nope"))), ("", ""))
+check("nor does one shaped unlike an error",
+      _df._google_reason(_Resp({"error": "a string"})), ("", ""))
+check("the exception carries Google's word beside ours",
+      _df.DriveRefused("refused", "d", google="domainPolicy").google,
+      "domainPolicy")
+check("...and defaults to empty rather than absent",
+      _df.DriveRefused("refused", "d").google, "")
+
+
+# ---------------------------------------------------------------------------
+print("\nThe fix a verdict offers is the verdict's own")
+
+_ACCOUNT = "adops@smart1marketing.com"
+_BASE = {"copied": [], "skipped": [], "account": _ACCOUNT,
+         "connected": [_ACCOUNT, "smartadops@gmail.com"]}
+
+
+def _verdict_for(reason, google="", n=4):
+    return ad_assets._verdict(
+        dict(_BASE, failed=[{"reason": reason, "google_reason": google}] * n))
+
+
+_v = _verdict_for("refused", "insufficientFilePermissions")
+# This is the run that was live: 63 links, every one refused per file.
+# `access()` asks Google what the grant actually is before a single file is
+# read, so a token without Drive never gets this far -- which makes "reconnect
+# that login" advice for a case that was already ruled out.
+check("a per-file refusal does not send anybody to reconnect",
+      "Reconnecting the login will not help" in _v["fix"], True)
+check("...it names sharing or reading as another login instead",
+      "share these folders" in _v["fix"], True)
+check("...and points at the control that does it",
+      "account box" in _v["fix"], True)
+check("...while naming Google's own reason for it",
+      "insufficientFilePermissions" in _v["detail"], True)
+
+_r = _verdict_for("ratelimited", "userRateLimitExceeded")
+check("a rate-limited run gets a headline at all", bool(_r.get("detail")), True)
+check("...worded as ours rather than the login's",
+      "Nothing is wrong with" in _r["detail"], True)
+check("...and says to run it again", "Run it again" in _r["fix"], True)
+
+_m = _verdict_for("missing")
+check("a missing run points at the links rather than the login",
+      "rather than the login" in _m["fix"], True)
+
+# The rules the headline already had, which must survive it gaining a fix.
+check("a mixed run still gets no headline", ad_assets._verdict(
+    dict(_BASE, failed=[{"reason": "refused"}, {"reason": "missing"}])), {})
+check("nor does one that copied something", ad_assets._verdict(
+    dict(_BASE, copied=[{"a": 1}], failed=[{"reason": "refused"}])), {})
+check("nor one whose rows disagree about Google's reason",
+      "Google's own reason" not in ad_assets._verdict(dict(_BASE, failed=[
+          {"reason": "refused", "google_reason": "domainPolicy"},
+          {"reason": "refused", "google_reason": "insufficientFilePermissions"},
+      ]))["detail"], True)
+
+# The page must not put a reconnect link back on top of the verdict's own
+# answer: it hard-coded one, which is how the wrong advice reached the screen.
+_page = (ROOT / "hub" / "templates" / "ad_assets.html").read_text(
+    encoding="utf-8")
+check("neither verdict panel hard-codes a reconnect link",
+      'connectFix("refused")' in _page
+      or "Connect the right login on Google Finder" in _page, False)
+# Both panels, named individually rather than counted: a count passes on two
+# references in one of them and none in the other, which is the panel that
+# was wrong still being wrong.
+check("...the single-client panel draws the fix the server decided",
+      "esc(res.verdict.fix)" in _page, True)
+check("...and so does the whole-book one",
+      "esc(verdict.fix)" in _page, True)
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

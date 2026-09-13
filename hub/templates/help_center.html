@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="/assets/help-center.css">
 <div class="help-center">
   <p class="help-eyebrow">SMART 1 HUB SUPPORT</p>
-  <h1>How can we help?</h1>
+  <h1>How can we help? {{ help_dot('hub.account.notifications') if help_dot is defined else '' }} </h1>
   <p>Find an answer, learn a tool, or ask the team.</p>
   <label for="help-search">Search help, walkthroughs and video tutorials</label>
   <input id="help-search" type="search" placeholder="Try radio, video, display ads or client setup">

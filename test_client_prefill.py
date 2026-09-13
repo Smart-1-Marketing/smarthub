@@ -216,11 +216,20 @@ for mod in ("modules/social_planner/app.py", "modules/gpt_ads/app.py"):
     check(f"  ...and carries no second gallery reader",
           "def _gallery_images" in src, False)
 
-for mod, marker in (
-        ("modules/ads_builder/campaign_ai.py", "from hub.client_context import for_prompt"),
-        ("hub/seo.py", "from .client_context import for_prompt")):
-    src = (ROOT / mod).read_text(encoding="utf-8")
-    check(f"{mod} hands the client's facts to the model", marker in src)
+check("hub/seo.py hands the client's facts to the model",
+      "from .client_context import for_prompt" in
+      (ROOT / "hub" / "seo.py").read_text(encoding="utf-8"))
+
+# campaign_ai.py no longer builds its own client block -- it routes every
+# call through hub.ai.chat_json(client=, domain=), which is where the client
+# brief is injected now (hub/client_brief.py, read by hub/ai.py). Checking
+# for the block-building import would be checking for the very duplicate
+# hub.ai was built to remove.
+src = (ROOT / "modules" / "ads_builder" / "campaign_ai.py").read_text(encoding="utf-8")
+check("campaign_ai.py routes through hub.ai rather than building its own client block",
+      "from hub import ai as _hub_ai" in src)
+check("...and hands the client and domain through to it",
+      "client=client or None" in src or "client=payload.get" in src)
 
 hub = (ROOT / "hub" / "__init__.py").read_text(encoding="utf-8")
 check("the web ticket form prefills from it",

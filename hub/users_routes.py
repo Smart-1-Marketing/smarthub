@@ -359,12 +359,36 @@ def admin_page():
     return render_template("users_admin.html", account=user)
 
 
-@bp.route("/api/users")
+@bp.route("/api/users", methods=["GET", "POST"])
 def api_list():
-    _, gate = _require_admin_api()
+    actor, gate = _require_admin_api()
     if gate:
         return gate
-    return jsonify(users.listing())
+    if request.method == "GET":
+        return jsonify(users.listing())
+
+    # Adding an account from the panel — the admin-facing door onto
+    # `users.create_account()`, which the roster upload already uses. It
+    # starts active rather than pending: an admin creating it has already
+    # authorised it, the way `create_account`'s own docstring says.
+    body = request.get_json(silent=True) or request.form or {}
+    role = (body.get("role") or "member").strip()
+    if role != "member" and not actor.is_super:
+        # The same rule `set_role()` holds to for an existing account: only a
+        # super admin ever hands out anything above General Access.
+        return jsonify({"error": "Only a super admin can create an account "
+                                 "above General Access."}), 403
+    typed = (body.get("password") or "").strip()
+    chosen = typed or users.generate_password()
+    try:
+        user = users.create_account(
+            body.get("email", ""), body.get("name", ""), role=role,
+            password=chosen, status="active", approved_by=actor.email)
+    except UserError as exc:
+        return jsonify({"error": str(exc)}), 400
+    # Shown once, exactly like the key icon's password — nothing stores it.
+    return jsonify({"ok": True, "password": chosen, "generated": not typed,
+                    "user": user.as_dict(True)})
 
 
 @bp.route("/api/users/<int:uid>/<action>", methods=["POST"])

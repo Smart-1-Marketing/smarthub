@@ -13601,8 +13601,28 @@ known defect patterns; `/login/health` diagnoses sign-in without a session.
 
 ## Delivery
 
+Background cutouts use Cloudinary; background scene edits use the shared OpenAI
+image-edit helper. Run `python test_background_providers.py` alongside
+`python test_image_tools.py` for changes to these provider paths.
+
 `git push` from the sandbox has always been blocked, so releases have gone out
 as zips uploaded through GitHub's browser UI. **That uploader adds and
 overwrites but never deletes**, which is why the repo root accumulated 65
 stray files. If you can push directly, do — it removes the whole class of
 problem.
+
+## Standing authorization: merge on green
+
+Todd has asked that this not require asking each time: once CI is green on a
+pull request against this repo, **merge it without waiting for a fresh
+confirmation** — this is a durable authorization, not a one-off. Render
+auto-deploys `main` on every merge (`autoDeployTrigger: commit`, per the note
+in the data-sources section above), so a merge here is also a deploy; that is
+expected and does not need a separate go-ahead.
+
+This covers the merge action alone. It does not cover, and none of these are
+authorized in advance: force-pushing, rewriting history on a branch you did
+not create, merging with CI red or unresolved review comments, or a change
+outside what was actually asked for. Where CI is red or a PR is otherwise not
+mergeable, the drive-to-green rules elsewhere in this file's operating
+instructions apply — fix it or say what is blocking, never merge around it.

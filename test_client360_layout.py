@@ -219,8 +219,7 @@ check("the owner rendering block can be lifted", bool(OWNER_SRC))
 
 owner_driver = """
 const nodes={
-  'c-owner':{innerHTML:''},
-  'c-owner-issues':{innerHTML:''}
+  'c-owner':{innerHTML:''}
 };
 const document={getElementById:id=>nodes[id]||null};
 const window={CURRENT_CLIENT:'Acme'};
@@ -232,11 +231,7 @@ const assigned=nodes['c-owner'].innerHTML;
 renderOwner({email:'',owner:'',known:false,
   users:[{email:'aimee@smart1marketing.com',name:'Aimee'}]});
 const unassigned=nodes['c-owner'].innerHTML;
-renderClientIssues({ok:true,complete:true,issues:[{
-  label:'Assets needed',title:'Spring campaign',detail:'Waiting on banners.',
-  where:'Campaign Assets Needed'
-}]});
-console.log(JSON.stringify({assigned,unassigned,issues:nodes['c-owner-issues'].innerHTML}));
+console.log(JSON.stringify({assigned,unassigned}));
 """
 owner_run = subprocess.run(["node", "-"], input=owner_driver,
                            capture_output=True, text=True)
@@ -244,7 +239,6 @@ check("the owner rendering block runs on its own", owner_run.returncode, 0)
 owner_out = json.loads(owner_run.stdout or "{}") if owner_run.returncode == 0 else {}
 assigned = owner_out.get("assigned", "")
 unassigned = owner_out.get("unassigned", "")
-issues_html = owner_out.get("issues", "")
 check("an assigned client has no reassignment picker",
       'id="c-owner-pick"' in assigned, False)
 check("an assigned client has no reassignment save control",
@@ -254,13 +248,16 @@ check("an assigned client cannot be reassigned through a partner-rule control",
 check("an unassigned client can still receive its first assignment",
       all(token in unassigned for token in ('id="c-owner-pick"',
                                              'id="c-owner-save"')), True)
-check("outstanding work renders in a drop-down container",
-      "<details" in issues_html and "Spring campaign" in issues_html, True)
-check("the drop-down describes the handling screen without navigating away",
-      "Handled in: Campaign Assets Needed" in issues_html
-      and "href=" not in issues_html, True)
-check("Client 360 no longer links its outstanding control to another screen",
-      'href="/my-clients"' in REC, False)
+# George's call: the "N outstanding issues -- show details" disclosure comes
+# off Client 360 entirely. Its underlying report (hub/client_health.py) still
+# feeds the "Outstanding" pill in the health strip -- this only asserts the
+# owner card no longer draws or fetches it.
+check("renderOwner no longer draws an outstanding-issues container",
+      'c-owner-issues' in assigned, False)
+check("and the page no longer defines the disclosure renderer",
+      "function renderClientIssues" in REC, False)
+check("nor fetches the route that fed it",
+      "/api/client/issues" in REC, False)
 
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

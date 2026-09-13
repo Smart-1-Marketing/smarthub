@@ -47,8 +47,28 @@ vm.runInContext('function dbGain(db){return Math.pow(10,db/20);}'+functionText('
    post:async()=>({project:{id:'test'},qc:{status:'pass'},mix:{seconds:30}}),renderMixPanel(){}});
  context.RENDERED.thirty={blob:{},url:'blob:sample',level:'Soft'};
  vm.runInContext(promo.slice(promo.indexOf('async function fileMix('),promo.indexOf('/* ---------- QC')),context);
- await context.fileMix('thirty',false);
+ assert.equal(await context.fileMix('thirty',false),true);
  assert.equal(context.QCC.thirty.status,'pass','filing refreshes the QC verdict');
  assert.equal(context.RENDERED.thirty,undefined,'filing retires the temporary preview');
- console.log('Timing thresholds and selected mix gains passed.');
+ const elements={};const element=id=>elements[id]||(elements[id]={value:'',textContent:'',innerHTML:'',replaceChildren(){},append(){}});
+ let calls=[];
+ Object.assign(context,{$:element,esc:s=>s,volumeSave:Promise.resolve(),
+   document:{createElement:()=>({})},slotsOf:()=>['thirty','fifteen'],
+   P:{id:'test',spots:[{slot:'thirty',audio_url:'/voice'}],beds:{thirty:{audio_url:'/bed'}},mixes:{}},
+   bedOf:s=>context.P.beds[s],mixOf:s=>context.P.mixes[s],discardMixes(){context.RENDERED={};},
+   makeMix:async s=>{calls.push('render:'+s);context.RENDERED[s]={};return true;},
+   fileMix:async s=>{calls.push('save:'+s);context.P.mixes[s]={audio_url:'/mix',level:'Soft'};return true;},
+   api:async(path,opts)=>{if(!opts)return {project:context.P};calls.push('share');assert.equal(JSON.parse(opts.body).require_mixes,true);return {share:{},share_url:'/review'};}});
+ vm.runInContext(controls.slice(controls.indexOf('function renderCustomerAudio(')),context);
+ await context.createReviewLink();
+ assert.deepEqual(calls,['render:thirty','save:thirty','share'],'the combined file is saved before sharing');
+ assert.match(element('customerAudioBox').innerHTML,/With music/);
+ assert.match(element('customerAudioBox').innerHTML,/src="\/mix"/);
+ assert.match(element('customerAudioBox').innerHTML,/src="\/voice"/);
+ calls=[];await context.createReviewLink();assert.deepEqual(calls,['share'],'a current saved mix is reused');
+ context.P.mixes={};context.fileMix=async()=>false;calls=[];
+ await context.createReviewLink();assert.deepEqual(calls,['render:thirty'],'a failed mix save never publishes a link');
+ assert.match(element('shareResult').textContent,/could not be saved/);
+ assert.equal(element('createReviewLink').disabled,false,'a failed save permits retry');
+ console.log('Timing, mix gains and customer music publishing passed.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

@@ -18,7 +18,8 @@ import logging
 
 from flask import Blueprint, jsonify, render_template, request
 
-from hub.weather_triggers import MAX_TRIGGERS, TRIGGERS, month_order
+from hub.weather_triggers import (MAX_TRIGGERS, TRIGGERS, VERTICAL_LABELS,
+                                  VERTICALS, month_order)
 
 from . import store
 # Aliased rather than left as `images`. hub/quotas.py's OpenAI-spend sweep
@@ -94,8 +95,11 @@ def staff_index():
         listing = leads.listing(days=days)
     except Exception as exc:                              # noqa: BLE001
         listing = {"leads": [], "count": 0, "error": str(exc)}
+    verticals = [{"id": v, "label": VERTICAL_LABELS.get(v, v.title())}
+                for v in VERTICALS]
     return render_template("weather_setup_staff.html", listing=listing,
-                           days=days, max_triggers=MAX_TRIGGERS)
+                           days=days, max_triggers=MAX_TRIGGERS,
+                           verticals=verticals)
 
 
 @bp_staff.route("/api/start", methods=["POST"])
@@ -121,6 +125,9 @@ def api_start():
         lead_id = str(body.get("lead_id") or "").strip()[:60]
         zip_code = str(body.get("zip_code") or "").strip()[:12]
         mode = "guided" if body.get("mode") != "self" else "self"
+        vertical = str(body.get("vertical") or "").strip().lower()
+        if vertical not in VERTICALS:
+            vertical = "restaurant"
 
         lead = None
         if lead_id:
@@ -132,8 +139,8 @@ def api_start():
             if lead and not zip_code:
                 zip_code = str((lead.get("fields") or {}).get("zip") or "").strip()[:12]
 
-        row = store.create(client=client, lead_id=lead_id, created_by=_actor(),
-                           mode=mode, zip_code=zip_code)
+        row = store.create(client=client, vertical=vertical, lead_id=lead_id,
+                           created_by=_actor(), mode=mode, zip_code=zip_code)
         if row is None:
             return jsonify({"ok": False, "error": (
                 "Could not save the campaign. Nothing was charged or sent — "

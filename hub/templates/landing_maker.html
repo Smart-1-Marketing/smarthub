@@ -102,6 +102,27 @@
             Only put something here if it's real. The page won't invent an
             offer, a review or a guarantee that isn't in the material.</p>
         </div>
+
+        <div>
+          <label class="lp-l">Real Google reviews <span class="muted">(optional)</span></label>
+          <textarea id="lpReviews" class="lp-i" rows="3"
+                    placeholder="Jane D. | 5 | They showed up same day and fixed it right the first time."></textarea>
+          <p class="muted" style="font-size:12px;margin:5px 0 0">
+            One per line: <code>Name | star rating | quote</code> — the name
+            and rating are optional. Up to two are used. Leave this blank
+            rather than paste one that isn't real; the page simply has no
+            reviews section without it.</p>
+        </div>
+
+        <div>
+          <label class="lp-l">GA4 measurement ID <span class="muted">(optional)</span></label>
+          <input id="lpGa4" class="lp-i" placeholder="G-XXXXXXX">
+          <p class="muted" style="font-size:12px;margin:5px 0 0">
+            The client's own GA4 property, if they have one on file — never
+            the agency's. Wires phone-click and form-submit events. Left
+            blank, the page ships with no tracking script rather than a
+            broken one.</p>
+        </div>
       </div>
 
       <div>
@@ -468,6 +489,8 @@ function lpCreate(){
     goal: $('lpGoal').value.trim(),
     offer: $('lpOffer').value.trim(),
     promoting: $('lpPromoting').value.trim(),
+    reviews: $('lpReviews').value,
+    ga4_id: $('lpGa4').value.trim(),
     direction: (document.querySelector('input[name=lpDir]:checked')||{}).value || 'trust'
   };
   /* One select carries both kinds, so the prefix says which id this is. */

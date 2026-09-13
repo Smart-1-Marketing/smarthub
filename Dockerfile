@@ -94,6 +94,15 @@ ENV PUPPETEER_CACHE_DIR=/opt/puppeteer-cache
 COPY modules/hf_render_service/package.json modules/hf_render_service/package-lock.json ./modules/hf_render_service/
 RUN cd modules/hf_render_service && npm ci --include=dev --no-audit --no-fund
 
+# ---------------------------------------------------------------------------
+# The Marketing Efficiency Audit -- the accounting-partner lead form (see
+# hub/marketing_audit_proxy.py). Plain Express, no TypeScript and no build
+# step, so unlike the two blocks above this is the whole of what it needs:
+# install once here, before COPY . ., for the same layer-caching reason.
+# ---------------------------------------------------------------------------
+COPY modules/marketing_audit/package.json modules/marketing_audit/package-lock.json ./modules/marketing_audit/
+RUN cd modules/marketing_audit && npm ci --omit=dev --no-audit --no-fund
+
 COPY . .
 
 # The start script must be executable or the container never boots -- and it

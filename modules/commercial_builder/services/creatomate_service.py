@@ -26,6 +26,17 @@ BASE_URL = "https://api.creatomate.com/v1"
 
 _FORMAT_DIMS = {f["id"]: (f["width"], f["height"]) for f in OUTPUT_FORMATS}
 
+# Sizes Creative Studio's own aspect variations need (WO-CS7) that are not
+# in `OUTPUT_FORMATS` -- that table drives the Commercial Builder's own
+# format picker and its `/render` route's validation (`routes/render.py`'s
+# `known = {f["id"] for f in OUTPUT_FORMATS}`), neither of which a
+# CS-bound project ever reaches: Creative Studio's own render job calls
+# `build_source` directly. Adding entries here rather than to
+# `OUTPUT_FORMATS` keeps the Commercial Builder's own dropdown showing only
+# the three formats its own spec sells. "1200x628" is not a video ratio at
+# all -- the static link-image frame -- and is here for the same reason.
+_EXTRA_FORMAT_DIMS = {"4:5": (1080, 1350), "1200x628": (1200, 628)}
+
 # Track numbers are layers, and elements sharing a track play SEQUENTIALLY
 # rather than stacking — which is why the scenes all share track 1 and
 # everything that has to sit on top of them gets a track of its own. Named
@@ -82,14 +93,21 @@ def _headers():
     return {"Authorization": f"Bearer {_api_key()}", "Content-Type": "application/json"}
 
 
-def build_source(project_dict, scenes, format_id, voice_track_url=None, music_track_url=None):
+def build_source(project_dict, scenes, format_id, voice_track_url=None, music_track_url=None,
+                 *, still=False):
     """
     Builds a Creatomate render `source` document.
 
     project_dict: CommercialProject.to_dict()
     scenes: list of Scene.to_dict(), already ordered with resolved asset_url
+
+    ``still=True`` builds a single-frame image render instead of a video --
+    WO-CS7's per-variant preview and its static 1200x628 link image. No
+    audio elements, `output_format` swapped to a still image format;
+    everything about how a scene's own background and overlay are chosen is
+    identical, so a preview can never show something the video would not.
     """
-    width, height = _FORMAT_DIMS.get(format_id, (1920, 1080))
+    width, height = _FORMAT_DIMS.get(format_id) or _EXTRA_FORMAT_DIMS.get(format_id, (1920, 1080))
     music = project_dict.get("music") or {}
     music_level = music.get("level", "Medium")
     # One reading of the pair, shared with qc_service through config.ducked_db
@@ -104,25 +122,72 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
 
     video_elements = []
     for scene in scenes:
+        meta = scene.get("asset_meta") or {}
+        cs_overlay = meta.get("text_overlay") or []
         el_type = _element_type(scene)
-        element = {
-            "id": f"scene_{scene['id']}",
-            "track": TRACK_SCENES,
-            "time": scene["start"],
-            "duration": round(scene["end"] - scene["start"], 2),
-            "type": el_type,
-        }
-        if el_type in ("video", "image") and scene.get("asset_url"):
-            element["source"] = scene["asset_url"]
-            element["fit"] = "cover"
-        if el_type == "video":
-            element["volume"] = "100%" if scene.get("asset_type") == "spokesperson" else "0%"
-        if scene.get("is_cta"):
-            element["overlay"] = {
-                "type": "composition",
-                "elements": _cta_overlay_elements(cta, project_dict, scene, platform),
+        if not scene.get("asset_url") and meta.get("background_fill") and el_type == "image":
+            # A layout with no background slot (`offer_card`, `logo_reveal`)
+            # has no asset to fill this element with -- an "image" element
+            # with no `source` is what every one of those rendered as
+            # before this scene carried its own colour to sit on.
+            element = {
+                "id": f"scene_{scene['id']}", "track": TRACK_SCENES,
+                "time": scene["start"], "duration": round(scene["end"] - scene["start"], 2),
+                "type": "shape", "fill_color": meta["background_fill"],
+            }
+        else:
+            element = {
+                "id": f"scene_{scene['id']}",
+                "track": TRACK_SCENES,
+                "time": scene["start"],
+                "duration": round(scene["end"] - scene["start"], 2),
+                "type": el_type,
+            }
+            if el_type in ("video", "image") and scene.get("asset_url"):
+                element["source"] = scene["asset_url"]
+                element["fit"] = "cover"
+            if el_type == "video":
+                element["volume"] = "100%" if scene.get("asset_type") == "spokesperson" else "0%"
+        overlay = []
+        if cs_overlay:
+            # Creative Studio's own composition, computed once at bind time
+            # from its own layout + aspect vocabulary (WO-CS7) -- this
+            # scene supplies its complete overlay, so the CTA-dict path
+            # below is never reached for it. A scene with no `text_overlay`
+            # (every scene the Commercial Builder's own script pipeline
+            # writes) is untouched: this is additive, not a replacement.
+            overlay = cs_overlay
+        elif scene.get("is_cta"):
+            overlay = _cta_overlay_elements(cta, project_dict, scene, platform)
+            if not scene.get("asset_url"):
+                element.update(type="shape", shape="rectangle", fill_color="#10243a")
+        if overlay:
+            # RenderScript layers are elements, not an `overlay` property.
+            # Child times are relative to this scene's composition.
+            background = {**element, "time": 0}
+            element = {
+                "id": f"scene_group_{scene['id']}", "type": "composition",
+                "track": TRACK_SCENES, "time": scene["start"],
+                "duration": round(scene["end"] - scene["start"], 2),
+                "elements": [background] + [
+                    {**layer, "track": index + 2, "time": layer.get("time", 0)}
+                    for index, layer in enumerate(overlay)
+                ],
             }
         video_elements.append(element)
+
+        if cta.get("captions_enabled") and scene.get("narration"):
+            # Phrase timing is estimated evenly across the scene; the preview
+            # uses these exact elements and labels this as estimated alignment.
+            words = scene["narration"].split()
+            chunks = [" ".join(words[i:i + 8]) for i in range(0, len(words), 8)]
+            span = (scene["end"] - scene["start"]) / max(1, len(chunks))
+            for i, text in enumerate(chunks):
+                video_elements.append({"id": f"caption_{scene['id']}_{i}", "track": 30, "type": "text",
+                    "time": scene["start"] + i * span, "duration": span, "text": text,
+                    "x": "47.5%" if format_id == "9:16" else "50%", "y": "70%", "width": "70%", "height": "14%",
+                    "font_size": "4.5vmin", "fill_color": "#ffffff", "stroke_color": "#000000",
+                    "stroke_width": "0.25vmin", "x_alignment": "50%", "y_alignment": "50%"})
 
         # A spokesperson generated to stand over this scene's footage was
         # rendered against a chroma matte for exactly this moment. Without
@@ -152,6 +217,13 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
             "width": f"{LOGO_PERSISTENCE_RULES['size_pct']}%", "x": x, "y": y,
             "x_anchor": "50%", "y_anchor": "50%",
         })
+
+    if still:
+        # A still needs none of it: no voice, no bed, no sfx, and no scene
+        # past the first is ever seen, so the frame is exactly what the
+        # video's opening instant would show.
+        return {"output_format": "jpg", "width": width, "height": height,
+               "elements": video_elements}
 
     audio_elements = []
     if music.get("voice_mode") == "scenes" or (not voice_track_url and any(
@@ -194,6 +266,7 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
         "output_format": "mp4",
         "width": width,
         "height": height,
+        "duration": float(length_seconds),
         "elements": video_elements + audio_elements,
     }
 
@@ -320,6 +393,8 @@ def _cta_overlay_elements(cta, project_dict, scene, platform):
     # "Living room" legibility for CTV — bigger, bolder end-card text than a
     # spot that only ever plays on a phone/laptop screen.
     font_size = "8vmin" if platform in ("ctv", "both") else "6vmin"
+    if cta.get("captions_enabled"):
+        font_size = "5vmin"
     font_weight = "800" if platform in ("ctv", "both") else "700"
 
     elements = [
@@ -335,6 +410,11 @@ def _cta_overlay_elements(cta, project_dict, scene, platform):
          "y": "74%", "font_size": font_size, "font_weight": font_weight},
     ]
 
+    if cta.get("captions_enabled"):
+        # Keep the lower third for speech, including on the closing card.
+        positions = {"18%": "16%", "40%": "30%", "58%": "44%", "74%": "56%"}
+        for element in elements:
+            element["y"] = positions.get(element.get("y"), element.get("y"))
     qr_url = cta.get("qr_image_url") or cta.get("qr_data_url")
     if cta.get("qr_enabled") and qr_url:
         corner = cta.get("qr_corner", QR_CODE_RULES["default_corner"])
@@ -346,6 +426,12 @@ def _cta_overlay_elements(cta, project_dict, scene, platform):
             "width": f"{QR_CODE_RULES['min_screen_pct']}%", "x": x, "y": y,
             "x_anchor": "50%", "y_anchor": "50%", "background_color": "#ffffff", "background_padding": "4%",
         })
+    for element in elements:
+        if element["type"] == "text":
+            element.update(fill_color="#ffffff", width="84%", height="16%",
+                           x_alignment="50%", y_alignment="50%",
+                           font_size_minimum="3vmin", font_size_maximum=font_size,
+                           font_size=None)
     return elements
 
 
@@ -374,7 +460,8 @@ def submit_render(source):
         return {"id": f"mock_render_{int(time.time())}", "status": "succeeded",
                 "url": None, "_mock": True}
     try:
-        r = requests.post(f"{BASE_URL}/renders", headers=_headers(), json={"source": source}, timeout=20)
+        r = requests.post(f"{BASE_URL}/renders", headers=_headers(),
+                          json={"source": source, "render_scale": 1}, timeout=20)
         r.raise_for_status()
         data = r.json()
         render = data[0] if isinstance(data, list) else data

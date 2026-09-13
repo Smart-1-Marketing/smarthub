@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify, request
 
 from hub.extensions import db
 from . import google_search_console as gsc
+from .activity import log as _log
 from .models import SEOAction, SEOProperty
 from .tokens import token_for_property
 
@@ -13,6 +14,23 @@ bp = Blueprint("seo_intelligence_actions", __name__, url_prefix="/seo/intelligen
 
 def _property(property_id):
     return db.session.get(SEOProperty, property_id)
+
+
+def _actor(body):
+    """Whoever is signed in, and the posted name only where nobody is.
+
+    The Hub session is the answer a browser cannot put in a POST body, so it
+    wins; the `actor` field these routes already accept stays as the fallback
+    for a caller outside the Hub.
+    """
+    try:
+        from hub import current_user
+        who = current_user()
+        if who:
+            return str(who)[:60]
+    except Exception:                                 # noqa: BLE001
+        pass
+    return str(body.get("actor") or "")[:60] or None
 
 
 @bp.post("/api/properties/<int:property_id>/sitemaps")
@@ -27,6 +45,9 @@ def submit_sitemap(property_id):
     try:
         token = token_for_property(prop)
         gsc.submit_sitemap(token, prop.site_url, sitemap_url)
+        _log("sitemap_submitted", actor=_actor(body),
+             client=prop.display_name or prop.client_id,
+             site=prop.site_url, sitemap=sitemap_url)
         db.session.add(SEOAction(
             client_id=prop.client_id,
             action_type="submit_sitemap",
@@ -53,6 +74,9 @@ def delete_sitemap(property_id):
     try:
         token = token_for_property(prop)
         gsc.delete_sitemap(token, prop.site_url, sitemap_url)
+        _log("sitemap_deleted", actor=_actor(body),
+             client=prop.display_name or prop.client_id,
+             site=prop.site_url, sitemap=sitemap_url)
         db.session.add(SEOAction(
             client_id=prop.client_id,
             action_type="delete_sitemap",

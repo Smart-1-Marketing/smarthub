@@ -241,7 +241,7 @@ def with_reporter(html: bytes) -> bytes:
 # The loader the marketing site pastes
 # --------------------------------------------------------------------------
 
-def loader_js(title: str, default_height: int) -> str:
+def loader_js(title: str, default_height: int, *, forward_attribution: bool = False) -> str:
     """The body of ``/embed.js``.
 
     The Hub's URL appears exactly once on the marketing site -- in this
@@ -262,6 +262,7 @@ def loader_js(title: str, default_height: int) -> str:
 
   var frame = document.createElement('iframe');
   frame.src = base + '/embed';
+  __ATTRIBUTION__
   frame.title = '__TITLE__';
   frame.loading = 'lazy';
   frame.setAttribute('scrolling', 'no');
@@ -293,7 +294,15 @@ def loader_js(title: str, default_height: int) -> str:
       catch (err) { window.scrollTo(0, target); }
     }
   });
-})();""".replace("__TITLE__", safe_title).replace("__HEIGHT__", str(int(default_height)))
+})();""".replace("__TITLE__", safe_title).replace("__HEIGHT__", str(int(default_height))).replace(
+        "__ATTRIBUTION__", r"""
+  var target = new URL(frame.src), campaign = new URLSearchParams(window.location.search);
+  ['utm_source','utm_medium','utm_campaign','utm_content','utm_term'].forEach(function(key){
+    if (campaign.has(key)) target.searchParams.set(key, campaign.get(key).slice(0,500));
+  });
+  target.searchParams.set('parent_referrer', (window.location.origin + window.location.pathname).slice(0,500));
+  frame.src = target.href;
+""" if forward_attribution else "")
 
 
 # --------------------------------------------------------------------------

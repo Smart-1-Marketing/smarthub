@@ -27,6 +27,7 @@ from .config import DEFAULT_SHOT_GRAMMAR, SHOT_NUMBER_STEP, qr_eligible
 from .db import db
 from .models import Scene
 from .services import openai_service
+from .usage import metered
 
 
 def with_hub_facts(client) -> dict:
@@ -58,19 +59,26 @@ def with_hub_facts(client) -> dict:
     return profile
 
 
-def run_concepts(project, client) -> list[dict]:
+@metered
+def run_concepts(project, client, *, archetype_keys=None) -> list[dict]:
     """Three materially different concepts from `project.brief`.
 
     Raises `ValueError` when there is no brief yet -- generating concepts
     against nothing to advertise is the empty-input failure this line
     refuses rather than sending a model a blank brief and reporting whatever
     it invents as a real answer.
+
+    `archetype_keys` passes straight through to `openai_service.
+    generate_concepts` -- see that function's own docstring. None (the
+    default, and what every call site but Creative Studio's recommender
+    ever passes) is the ordinary single-archetype path, unchanged.
     """
     if not project.brief or not project.brief.get("what_advertising"):
         raise ValueError("Save a commercial brief before generating concepts.")
 
     concepts = openai_service.generate_concepts(
-        project.brief, with_hub_facts(client), project.commercial_type)
+        project.brief, (project.brief or {}).get("approved_brand") or with_hub_facts(client), project.commercial_type,
+        archetype_keys=archetype_keys)
     project.concepts = concepts
     project.selected_concept_id = None
     project.status = "concepts"
@@ -78,6 +86,7 @@ def run_concepts(project, client) -> list[dict]:
     return concepts
 
 
+@metered
 def run_script(project, client, *, concept_id: str | None = None) -> dict:
     """The timed script for the selected concept, and the Scene rows it
     implies.
@@ -100,10 +109,13 @@ def run_script(project, client, *, concept_id: str | None = None) -> dict:
     qr_enabled = (bool((project.cta or {}).get("qr_enabled")) if project.cta
                   else qr_eligible(project.length_seconds))
     script = openai_service.generate_script(
-        concept, project.length_seconds, project.brief, client.to_dict(),
+        concept, project.length_seconds, project.brief, (project.brief or {}).get("approved_brand") or client.to_dict(),
         platform=project.platform, qr_enabled=qr_enabled)
     project.script = script
     project.status = "scripted"
+    brief = dict(project.brief or {})
+    brief.pop("variation_needs_script", None)
+    project.brief = brief
 
     # (Re)build Scene rows from the script. Regenerating the script replaces
     # unlocked scenes only, so a user's manually-approved footage choices
@@ -146,6 +158,7 @@ def run_script(project, client, *, concept_id: str | None = None) -> dict:
     return script
 
 
+@metered
 def run_stills(scene, client, *, option_count: int = 2) -> list[dict]:
     """AI-generated still options for one scene's background.
 
@@ -171,7 +184,8 @@ def run_stills(scene, client, *, option_count: int = 2) -> list[dict]:
 # CLAUDE.md spends its own history undoing.
 # ---------------------------------------------------------------------------
 
-def run_full_voiceover(project, client, voice_id, *, stability=0.5, style=0.5, speed=1.0):
+@metered
+def run_full_voiceover(project, client, voice_id, *, stability=0.5, style=0.5, speed=1.0, regenerate=False):
     """One continuous voiceover track for the whole commercial, stored and
     written onto `project.music["voice_track_url"]` -- the key
     `creatomate_service.build_source` reads at render time.
@@ -189,9 +203,20 @@ def run_full_voiceover(project, client, voice_id, *, stability=0.5, style=0.5, s
     scenes = project.scenes.all()
     full_text = " ".join(s.narration or "" for s in scenes)
     signature = _timeline_signature(scenes)
+    from .services.media_state import fingerprint
+    music = project.music or {}
+    pronunciation = music.get("pronunciation_dict", client.pronunciation_dict)
+    key = fingerprint([full_text, voice_id, stability, style, speed, pronunciation])
+    cached = music.get("voice_take") or {}
+    if (not regenerate and music.get("voice_track_url") and not music.get("voice_track_stale")
+            and music.get("voice_signature") == signature and cached.get("key") == key
+            and cached.get("url") == music.get("voice_track_url")):
+        from .usage import record
+        record("elevenlabs", operation="full_voice", cached=True)
+        return {**cached["result"], "store_note": "Using the saved narration. Choose a new take to regenerate it.", "reused": True}
     result = elevenlabs_service.generate_voiceover(
         text=full_text, voice_id=voice_id, stability=stability, style=style,
-        speed=speed, pronunciation_dict=client.pronunciation_dict)
+        speed=speed, pronunciation_dict=pronunciation)
     result["voice_id"] = voice_id
     had_audio = bool(result.get("audio_bytes"))
     stored = _store_voice_track(project, client, result, signature=signature)
@@ -200,6 +225,9 @@ def run_full_voiceover(project, client, voice_id, *, stability=0.5, style=0.5, s
 
     if result.get("error") or (had_audio and not stored.get("stored")):
         raise ValueError(result.get("error") or stored.get("store_note"))
+    if stored.get("stored"):
+        project.music = {**(project.music or {}), "voice_take": {"key": key, "url": stored.get("voice_track_url"), "result": result}}
+        db.session.commit()
     return result
 
 
@@ -306,6 +334,7 @@ def _job_status(job):
     return state if state in ("queued", "rendering", "failed") else "queued"
 
 
+@metered
 def submit_render_job(project, client, scenes, fmt, *, voice_track_url=None, music_track_url=None):
     """Submit one render and record it as a `RenderJob` -- the single
     implementation of what `routes/render.py::submit_render` does per
@@ -329,6 +358,10 @@ def submit_render_job(project, client, scenes, fmt, *, voice_track_url=None, mus
                     status=result.get("status", "queued"),
                     output_url=result.get("url"), error=result.get("error"))
     db.session.add(job)
+    db.session.flush()
+    from .finishing_models import RenderInspection
+    from .services.finished_video import expected_output
+    db.session.add(RenderInspection(job_id=job.id, expected=expected_output(project, fmt, scenes)))
     db.session.commit()
     return job
 
@@ -338,23 +371,28 @@ def poll_render_job(job) -> None:
     `routes/render.py`'s own poll route and Creative Studio's "render" job
     runner both call this rather than each reading Creatomate/HyperFrames
     status their own way."""
-    from .models import CommercialProject
+    from .models import CommercialProject, RenderJob
     from .services import creatomate_service
     from hub import hyperframes
 
     if job.status in ("succeeded", "failed"):
         return
+    observed_status, provider_id = job.status, job.provider_render_id
     project = CommercialProject.query.get(job.project_id)
     vox = bool(project) and renders_through_hyperframes(project)
     if vox:
-        state = hyperframes.status(job.provider_render_id)
-        job.status = _job_status(state)
-        job.output_url = state.get("url") or job.output_url
-        job.error = state.get("error")
+        state = hyperframes.status(provider_id)
+        changes = {"status": _job_status(state), "error": state.get("error")}
     else:
-        status = creatomate_service.check_render(job.provider_render_id)
-        if not status.get("retryable"):
-            job.status = status.get("status") or job.status
-        job.output_url = status.get("url") or job.output_url
-        job.error = status.get("error")
+        state = creatomate_service.check_render(provider_id)
+        changes = {"error": state.get("error")}
+        if not state.get("retryable") and state.get("status"):
+            changes["status"] = state["status"]
+    if state.get("url"):
+        changes["output_url"] = state["url"]
+    # Browser polls and the recovery worker can overlap. Apply only to the
+    # state we actually checked, never over a newer completion or replacement.
+    RenderJob.query.filter_by(id=job.id, provider_render_id=provider_id,
+                              status=observed_status).update(changes, synchronize_session=False)
     db.session.commit()
+    db.session.refresh(job)

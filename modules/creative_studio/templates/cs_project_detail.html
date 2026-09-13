@@ -100,6 +100,31 @@
     {% endif %}
   </div>
 
+  {% if versions %}
+  <div class="card" id="cpdVariationsCard">
+    <h3 style="margin-top:0">Create Variations {{ help_dot('creative_studio.variations') if help_dot is defined else '' }}</h3>
+    <p style="color:var(--muted,#64748B);font-size:12.5px;margin-top:0">
+      A single-frame preview renders first for every size checked, before
+      anything queues a video -- picking a size costs nothing until you
+      render it. Text re-flows into each size's own safe area; a 9:16 whose
+      text would sit under a platform's UI is refused rather than built.
+    </p>
+    <label style="margin-right:14px"><input type="checkbox" class="cpdAspect" value="9:16"> 9:16 (Story/Reel)</label>
+    <label style="margin-right:14px"><input type="checkbox" class="cpdAspect" value="1:1"> 1:1 (Square)</label>
+    <label style="margin-right:14px"><input type="checkbox" class="cpdAspect" value="4:5"> 4:5 (Feed)</label>
+    <label style="margin-right:14px"><input type="checkbox" class="cpdAspect" value="16:9"> 16:9 (Landscape)</label>
+    <label style="margin-right:14px"><input type="checkbox" id="cpdLinkImage"> Static link image (1200x628)</label>
+    <div style="margin-top:10px">
+      <button class="btn btn-primary" id="cpdCreateVariations">Preview Variations</button>
+      <span id="cpdVariationsStatus" style="color:var(--muted,#64748B);font-size:12.5px;margin-left:8px"></span>
+    </div>
+    <table id="cpdVariationsTable" style="margin-top:12px">
+      <thead><tr><th>Size</th><th>Preview</th><th>Status</th><th></th></tr></thead>
+      <tbody id="cpdVariationsBody"></tbody>
+    </table>
+  </div>
+  {% endif %}
+
   <div class="card" id="cpdShareDialog" style="display:none;">
     <h3 style="margin-top:0">Review link</h3>
     <p id="cpdShareNote" style="color:var(--muted,#64748B)"></p>
@@ -230,6 +255,99 @@
   if (closeBtn) closeBtn.addEventListener('click', function(){
     dialog.style.display = 'none';
     window.location.reload();
+  });
+})();
+(function(){
+  // WO-CS7: create aspect variations from the latest version, poll each
+  // one's "variant" preview job, then hand the result back in a table row
+  // -- the same poll(jobId) shape the AI Generation card already uses,
+  // but per-row rather than a single shared status line, since several
+  // variations can be building at once.
+  var createBtn = document.getElementById('cpdCreateVariations');
+  if (!createBtn) return;
+  var projectId = {{ project.id|tojson }};
+  var latestVersion = {{ (versions[0].version if versions else 0)|tojson }};
+  var status = document.getElementById('cpdVariationsStatus');
+  var body = document.getElementById('cpdVariationsBody');
+
+  function row(label) {
+    var tr = document.createElement('tr');
+    var tdLabel = document.createElement('td');
+    tdLabel.textContent = label;
+    var tdPreview = document.createElement('td');
+    tdPreview.textContent = '—';
+    var tdStatus = document.createElement('td');
+    tdStatus.textContent = 'Queued…';
+    var tdAction = document.createElement('td');
+    tr.appendChild(tdLabel); tr.appendChild(tdPreview);
+    tr.appendChild(tdStatus); tr.appendChild(tdAction);
+    body.appendChild(tr);
+    return {preview: tdPreview, status: tdStatus, action: tdAction};
+  }
+
+  function pollVariant(jobId, cells, childProjectId) {
+    fetch('/creative-studio/api/jobs/' + jobId).then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.ok) { cells.status.textContent = 'Could not read job status.'; return; }
+        var job = d.job;
+        if (job.state === 'complete') {
+          cells.status.innerHTML = '<span class="pill ok">Ready</span>';
+          fetch('/creative-studio/api/projects/' + projectId + '/variations')
+            .then(function(r){ return r.json(); })
+            .then(function(d2){
+              var match = d2.ok ? (d2.variations || []).find(function(v){ return v.id === childProjectId; }) : null;
+              var url = match ? match.preview_url : null;
+              if (url) {
+                cells.preview.innerHTML = '<a href="' + url + '" target="_blank" rel="noopener">'
+                  + '<img src="' + url + '" style="max-width:96px;max-height:60px;border-radius:4px"></a>';
+              } else {
+                cells.preview.textContent = '—';
+              }
+            }).catch(function(){});
+        } else if (job.state === 'failed') {
+          cells.status.innerHTML = '<span class="pill err">' + (job.error || 'Failed') + '</span>';
+        } else {
+          cells.status.textContent = (job.stage || job.state) + '…';
+          setTimeout(function(){ pollVariant(jobId, cells, childProjectId); }, 1500);
+        }
+      }).catch(function(){ cells.status.textContent = 'Could not read job status.'; });
+  }
+
+  createBtn.addEventListener('click', function(){
+    var aspects = Array.prototype.slice.call(document.querySelectorAll('.cpdAspect:checked'))
+      .map(function(el){ return el.value; });
+    var linkImage = document.getElementById('cpdLinkImage').checked;
+    if (!aspects.length && !linkImage) {
+      status.textContent = 'Pick at least one size.';
+      return;
+    }
+    createBtn.disabled = true;
+    status.textContent = 'Creating…';
+    fetch('/creative-studio/api/projects/' + projectId + '/versions/' + latestVersion + '/variations',
+          {method: 'POST', headers: {'Content-Type': 'application/json'},
+           body: JSON.stringify({aspects: aspects, link_image: linkImage})})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        createBtn.disabled = false;
+        if (!d.ok) { status.textContent = d.error || 'Could not create variations.'; return; }
+        status.textContent = d.created.length + ' variation(s) started.'
+          + (d.refused.length ? ' ' + d.refused.length + ' refused -- see below.' : '');
+        d.created.forEach(function(entry){
+          var label = entry.project.variation_kind === 'link_image'
+            ? 'Link image' : entry.project.aspect_ratio;
+          var cells = row(label);
+          pollVariant(entry.job.id, cells, entry.project.id);
+        });
+        d.refused.forEach(function(entry){
+          var cells = row(entry.aspect + ' (refused)');
+          var msgs = (entry.findings || []).map(function(f){
+            return (f.layer || '') + ' ' + (f.reason || '');
+          }).join('; ');
+          cells.status.innerHTML = '<span class="pill err">Outside safe zone</span>';
+          cells.preview.textContent = msgs || 'Text falls outside the 9:16 safe area.';
+        });
+      })
+      .catch(function(){ createBtn.disabled = false; status.textContent = 'Could not create variations.'; });
   });
 })();
 </script>
