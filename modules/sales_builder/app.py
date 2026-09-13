@@ -1318,7 +1318,7 @@ def duplicate_quote(qid):
             return jsonify({"ok": False, "error": "Quote not found"}), 404
         state = json.loads(src.data or "{}")
         # New quotes start clean of decision/IO fields
-        for k in ("startDate", "ioPayload",):
+        for k in ("startDate", "ioPayload", "_approvedScope"):
             state.pop(k, None)
         # A duplicate is a new proposal, so it is credited to whoever made
         # it rather than to whoever wrote the one it was copied from.

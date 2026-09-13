@@ -85,6 +85,10 @@ class HandoffTests(unittest.TestCase):
         self.assertIn('Products and prices',edited['approval_changes'])
         self.assertEqual(edited['data']['_approvedScope']['items'][0]['dollars'],3000)
         self.assertIn('checklist',edited)
+        duplicate=self.client.post(path+'/duplicate').json['quote']
+        self.assertEqual(duplicate['status'],'Draft')
+        self.assertIsNone(duplicate['approval_changes'])
+        self.assertNotIn('_approvedScope',duplicate['data'])
 
     def test_list_and_package_investment_match_saved_scope(self):
         self.state['suiteTier']={'name':'Smart 1','monthly':199,'include':True}
