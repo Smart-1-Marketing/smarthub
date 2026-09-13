@@ -847,5 +847,53 @@ check("the campaign it started actually carries the tree_service vertical",
      wx_store.get(tree_started_token)["vertical"], "tree_service")
 
 
+section("Golf Course / Outdoor Recreation: the eleventh vertical, end to end")
+# ---------------------------------------------------------------------------
+
+golf_row = wx_store.create(client="Fairway Greens Golf Club", vertical="golf_recreation", zip_code="46032")
+check("a golf_recreation campaign records its vertical", golf_row["vertical"], "golf_recreation")
+
+result = wx_store.save_picks(golf_row["token"], ["high-wind-play-advisory", "perfect-golf-day"])
+check("golf_recreation picks against golf_recreation triggers are accepted", result["ok"], True)
+
+result = wx_store.save_picks(golf_row["token"], ["perfect-moving-day"])
+check("a moving trigger id is refused on a golf_recreation campaign", result["ok"], False)
+
+result = wx_store.save_picks(golf_row["token"], ["spring-pruning-season"])
+check("a tree_service trigger id is refused on a golf_recreation campaign", result["ok"], False)
+
+golf_drafts = wx_copy.generate_drafts("high-wind-play-advisory", "Fairway Greens Golf Club")
+check("golf_recreation drafts fall back to the house source with no AI key",
+     golf_drafts["source"], "house")
+check("golf_recreation house copy names checking before you head out or planning around it",
+     any("check before you head out" in (d["headline"] + d["primary_text"]).lower()
+         or "plan around it" in (d["headline"] + d["primary_text"]).lower()
+         or "ready when you are" in (d["headline"] + d["primary_text"]).lower()
+         for d in golf_drafts["drafts"]), True)
+check("golf_recreation house copy never talks about sitting down to eat",
+     any("table" in (d["headline"] + d["primary_text"]).lower()
+         for d in golf_drafts["drafts"]), False)
+check("golf_recreation house copy never talks about moving or trees",
+     any("move" in (d["headline"] + d["primary_text"]).lower()
+         or "limb" in (d["headline"] + d["primary_text"]).lower()
+         for d in golf_drafts["drafts"]), False)
+
+perfect_day_drafts = wx_copy.generate_drafts("perfect-golf-day", "Fairway Greens Golf Club")
+check("perfect-golf-day's own booking copy names a tee time",
+     any("book your tee time" in (d["headline"] + d["primary_text"]).lower()
+         for d in perfect_day_drafts["drafts"]), True)
+
+storm_golf_drafts = wx_copy.generate_drafts("storm-closure-golf", "Fairway Greens Golf Club")
+check("the alert-driven storm blocklist covers golf_recreation's own alert trigger too",
+     storm_golf_drafts["source"] in ("house", "ai"), True)
+
+resp = staff_client.post("/tools/weather-setup/api/start",
+                         json={"client": "Pinehurst Recreation Center", "vertical": "golf_recreation"})
+check("api/start accepts the golf_recreation vertical and starts the campaign", resp.status_code, 200)
+golf_started_token = resp.get_json()["token"]
+check("the campaign it started actually carries the golf_recreation vertical",
+     wx_store.get(golf_started_token)["vertical"], "golf_recreation")
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
