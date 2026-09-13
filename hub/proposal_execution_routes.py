@@ -139,6 +139,18 @@ def save_inputs(run_id):
         return _error(exc)
 
 
+@bp.post("/api/proposal-execution/run/<int:run_id>/plan")
+def save_plan(run_id):
+    """A person's review of the plan: keep or drop what the analysis
+    proposed, add their own, remove one they added, answer a question."""
+    owner, _name = _who()
+    try:
+        run = pe.update_plan(run_id, _body(), actor=owner)
+        return jsonify(ok=True, run=run.as_dict(full=True))
+    except Exception as exc:  # noqa: BLE001
+        return _error(exc)
+
+
 @bp.post("/api/proposal-execution/run/<int:run_id>/start")
 def start(run_id):
     owner, _name = _who()
