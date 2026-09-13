@@ -637,8 +637,8 @@
     attach. Each control appears at the point where it can do the thing its
     label says.
   -->
-  <button class="btn primary" id="save">Save</button>
-  <span class="hint" id="saveHint">Save first — everything after this works from the saved build, not from what is on screen.</span>
+  <button class="btn" id="save">Save now</button>
+  <span class="hint" id="saveHint" role="status" aria-live="polite">Changes save automatically.</span>
   <a class="btn" id="clientEmailLink" style="display:none">Email client in GHL</a>
   <a class="btn" id="proofLink" href="#" target="_blank" style="display:none">Open proof</a>
   <button class="btn" id="deliver" style="display:none;border-color:var(--pass);color:var(--pass)">Deliver final files</button>
@@ -652,8 +652,8 @@
        size and lives in the browser, and this is what writes the actual files
        every other step reads. It now asks what to do rather than assuming, so
        the label is the question rather than one of its answers. -->
-  <button class="btn" id="reviewSet">Contact sheet &amp; versions</button>
-  <button class="btn primary" id="renderAll" style="display:none"
+  <button class="btn primary" id="reviewSet">Next: review all sizes</button>
+  <button class="btn" id="renderAll" style="display:none"
     title="Build the finished files for this set. The preview is a live sketch; these are what the proof, the delivery ZIP and the client gallery all read.">Render…</button>
   <!-- Saved, so it acts on the build that is written down. A preset cut from
        an unsaved build would capture the previous version and every ad made
@@ -673,9 +673,10 @@
 
 <div class="workflow" aria-label="Display ad workflow">
   <span class="workflow-title">Display ad workflow</span>
-  <a class="workflow-step" href="/projects">Projects</a><span class="workflow-arrow">›</span>
-  <button type="button" class="workflow-step active" id="designStage">Design &amp; check</button><span class="workflow-arrow">›</span>
-  <button type="button" class="workflow-step" id="deliverStage">Render &amp; deliver</button>
+  <a class="workflow-step" id="briefStep" href="/projects">1. Brief</a><span class="workflow-arrow">›</span>
+  <button type="button" class="workflow-step active" id="designStage" aria-current="step">2. Design</button><span class="workflow-arrow">›</span>
+  <button type="button" class="workflow-step" id="guidedReview">3. Review</button><span class="workflow-arrow">›</span>
+  <button type="button" class="workflow-step" id="deliverStage">4. Send &amp; deliver</button>
 </div>
 
 <div class="nextstep" id="nextStep" hidden>
@@ -3660,7 +3661,11 @@
         state.requestId = id;
         state.doc = doc;
         state.baseDoc = JSON.parse(JSON.stringify(doc));
-        state.conceptId = doc.campaign.concepts[0].conceptId;
+        var requestedConcept = new URLSearchParams(location.search).get('concept');
+        state.conceptId = doc.campaign.concepts.some(function(c) { return c.conceptId === requestedConcept; }) ? requestedConcept : doc.campaign.concepts[0].conceptId;
+        var requestedSize = new URLSearchParams(location.search).get('size');
+        if (requestedSize && /^\d+x\d+$/.test(requestedSize)) state.size = requestedSize;
+        autosaveBlocked = false;
         state.sizeStatus = {};
         state.approvals = [];
         // Scope is a per-campaign answer, not a per-session one: "every size"
@@ -3674,11 +3679,14 @@
         state.platforms = (doc.platforms && doc.platforms.length)
           ? doc.platforms : ['google'];
         state.platform = state.platforms[0];
+        var requestedPlatform = new URLSearchParams(location.search).get('platform');
+        if (state.platforms.includes(requestedPlatform)) state.platform = requestedPlatform;
+        $('briefStep').href = (window.S1_BASE || '') + '/overview/' + encodeURIComponent(id);
         $('who').textContent = '— ' + doc.campaign.brand.name + ' · ' + doc.campaign.campaignName;
         var listEntry = (window.__campaignList || []).filter(function (c) { return c.requestId === id; })[0];
         var pill = $('statusPill');
         if (listEntry && listEntry.status === 'proof-sent') {
-          pill.textContent = 'Needs revision'; pill.className = 'pill revision'; pill.style.display = '';
+          pill.textContent = 'Client review'; pill.className = 'pill revision'; pill.style.display = '';
         } else if (listEntry && listEntry.status === 'approved') {
           pill.textContent = 'Approved'; pill.className = 'pill approved'; pill.style.display = '';
         } else {
@@ -3691,6 +3699,7 @@
         state.rendered = !!doc.reportUrl;
         state.saved = true;
         state.dirty = false;
+        offerLocalDraft(id);
         /* The page this campaign points at, and the analysis of it if one has
            been taken. Both live on the project record and neither used to
            reach this screen, so every "write this for me" and "draw me a
@@ -3788,7 +3797,23 @@
       });
   });
 
+  var savingCampaign = null, autosaveBlocked = false;
   function saveCampaign() {
+    if (savingCampaign) return savingCampaign.then(function () { return state.dirty ? saveCampaign() : null; });
+    $('saveHint').textContent = 'Saving…';
+    savingCampaign = writeCampaign().then(function (body) {
+      autosaveBlocked = false;
+      if (!state.dirty) { try { localStorage.removeItem('s1-ad-draft:' + state.requestId); } catch (_) {} }
+      $('saveHint').textContent = state.dirty ? 'New changes waiting to save…' : 'Saved';
+      return body;
+    }).catch(function (error) {
+      autosaveBlocked = true;
+      $('saveHint').textContent = 'Couldn’t save — your draft is kept here. Use Save now to retry.';
+      throw error;
+    }).finally(function () { savingCampaign = null; });
+    return savingCampaign;
+  }
+  function writeCampaign() {
     var requestId = state.requestId;
     var sent = JSON.stringify(state.doc);
     return fetch('/api/campaign/' + encodeURIComponent(state.requestId), {
@@ -3810,6 +3835,36 @@
       return body;
     }); });
   }
+
+  function offerLocalDraft(id) {
+    var saved; try { saved = JSON.parse(localStorage.getItem('s1-ad-draft:' + id)); } catch (_) { return; }
+    if (!saved || !saved.doc || !saved.base || (JSON.stringify(saved.doc.campaign) === JSON.stringify(state.doc.campaign) && JSON.stringify(saved.doc.platforms) === JSON.stringify(state.doc.platforms))) return;
+    var old = document.getElementById('localDraftRecovery'); if (old) old.remove();
+    var box = document.createElement('div'); box.id = 'localDraftRecovery'; box.className = 'nextstep';
+    box.setAttribute('role', 'status'); box.textContent = 'An unfinished draft was found on this device. ';
+    var restore = document.createElement('button'); restore.className = 'btn'; restore.textContent = 'Restore my draft';
+    var discard = document.createElement('button'); discard.className = 'btn'; discard.textContent = 'Keep saved version';
+    restore.onclick = function () {
+      if (state.requestId !== id) { box.remove(); return; }
+      var latest = state.doc.revision; state.doc = saved.doc; state.baseDoc = saved.base; state.dirty = true;
+      state.platforms = state.doc.platforms || ['google']; state.conceptId = state.doc.campaign.concepts[0].conceptId;
+      box.remove(); autosaveBlocked = latest !== saved.base.revision;
+      if (autosaveBlocked) recoverEdits(); else { drawControls(); drawRail(); preview(); refreshStage(); }
+    };
+    discard.onclick = function () { try { localStorage.removeItem('s1-ad-draft:' + id); } catch (_) {} box.remove(); };
+    box.append(restore, discard); $('bench').before(box);
+  }
+  var autoSignature = '', autoChangedAt = 0;
+  setInterval(function () {
+    if (!state.doc || !state.requestId || !state.dirty) return;
+    var signature = JSON.stringify(state.doc);
+    if (signature !== autoSignature) {
+      autoSignature = signature; autoChangedAt = Date.now();
+      try { localStorage.setItem('s1-ad-draft:' + state.requestId, JSON.stringify({ doc: state.doc, base: state.baseDoc })); }
+      catch (_) { $('saveHint').textContent = 'Device backup unavailable. Keep this tab open until Saved appears.'; }
+    }
+    if (!savingCampaign && !autosaveBlocked && Date.now() - autoChangedAt >= 1800) saveCampaign().catch(function () {});
+  }, 750);
 
   function projectIdForCurrent() {
     var row = (window.__campaignList || []).filter(function (c) {
@@ -4467,20 +4522,15 @@
     // moment Render does and for the same reason.
     var animBtn = $('animate');
     if (animBtn) { animBtn.style.display = ''; animBtn.disabled = !state.saved || state.dirty; animBtn.title = state.dirty ? 'Save your changes before adding animation.' : 'Add animation to this saved design.'; }
-    $('save').classList.toggle('primary', !state.saved);
-    $('renderAll').classList.toggle('primary', state.saved);
+    $('save').classList.remove('primary');
+    $('renderAll').classList.remove('primary');
     $('saveHint').style.display = '';
-    $('saveHint').textContent = state.dirty ? 'Unsaved changes' : 'Saved version loaded';
+    if (!savingCampaign && !autosaveBlocked) $('saveHint').textContent = state.dirty ? 'Changes waiting to save…' : 'Saved';
 
     var designStage = $('designStage');
     var deliverStage = $('deliverStage');
-    if (state.rendered) {
-      designStage.className = 'workflow-step done';
-      deliverStage.className = 'workflow-step active';
-    } else {
-      designStage.className = 'workflow-step active';
-      deliverStage.className = 'workflow-step';
-    }
+    designStage.className = 'workflow-step active';
+    deliverStage.className = 'workflow-step';
 
     // window.S1_BASE is set by the server only when the page is served under
     // a mount prefix, which is exactly the case where the Hub is in front of
@@ -4676,7 +4726,7 @@
       return;
     }
     $('campaignPick').innerHTML = list.map(function (c) {
-      var flag = c.status === 'proof-sent' ? '⚠ NEEDS REVISION — ' : c.status === 'approved' ? '✓ ' : '';
+      var flag = c.status === 'proof-sent' ? 'CLIENT REVIEW — ' : c.status === 'approved' ? '✓ ' : '';
       return '<option value="' + esc(c.requestId) + '">' + flag + esc(c.projectName || (c.client + ' — ' + c.campaignName)) + ' · ' + esc(c.status || 'draft') + ' · ' + esc((c.updated || '').slice(0, 10)) + ' · ' + esc(c.requestId.slice(-6)) + '</option>';
     }).join('');
     var pre = new URLSearchParams(location.search).get('request');
@@ -5292,7 +5342,10 @@
   });
 
   $('designStage').addEventListener('click', function () { $('controls').scrollTop = 0; });
-  $('deliverStage').addEventListener('click', function () { $('renderAll').click(); });
+  $('deliverStage').addEventListener('click', function () {
+    // Review verifies the current artwork before offering the Send step.
+    $('reviewSet').click();
+  });
 
   /* ---- health dot: quiet poll of diagnostics, click through when off ---- */
   (function () {
@@ -5320,6 +5373,17 @@
       location.href = (window.S1_BASE || '') + '/review?project=' + encodeURIComponent(pid);
     }).catch(function (e) { showNextSteps(e.message, true); });
   });
+  $('guidedReview').onclick = function () { $('reviewSet').click(); };
+  new MutationObserver(function () {
+    Array.from($('controls').children).forEach(function (group) {
+      if (!group.classList.contains('group') || group.tagName === 'DETAILS') return;
+      var heading = group.querySelector('h3');
+      if (!heading || !/^(Layout|Type)$/.test(heading.textContent.trim())) return;
+      var advanced = document.createElement('details'), summary = document.createElement('summary');
+      advanced.className = 'group'; summary.textContent = 'Advanced: ' + heading.textContent;
+      advanced.appendChild(summary); group.replaceWith(advanced); advanced.appendChild(group); heading.hidden = true;
+    });
+  }).observe($('controls'), { childList: true });
 
   function recoverEdits() {
     var request = state.requestId;

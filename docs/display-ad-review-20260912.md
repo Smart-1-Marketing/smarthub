@@ -1,29 +1,36 @@
-# Display Ad review and client email
+# Display Ad creation, review and client approval
 
-The editor's **Contact sheet & versions** button saves the current draft and opens a review of every supported size, platform and concept. The sheet can be printed to PDF. Version comparison shows changed fields and the artwork captured for each saved version, where available; it does not recreate historical images from today's assets.
+Start in **Client 360 → Create display ads**. The brief carries the client and website into the campaign, reuses saved brand choices and verified contact details, and asks for the campaign goal, offer, destination and purchased platforms. Client details and advanced design controls stay collapsed until needed.
 
-**Approve all passing sizes** signs only sizes whose bought platforms all pass QA. Warnings, failures and manual replacements stay for individual review. Approval checks the saved revision, source assets and exact rendered file. A later change invalidates the operation instead of approving different artwork.
+Follow **Brief → Design → Review → Send**. The editor autosaves after a pause and shows Saving, Saved or a retry message. A device backup offers to restore an unfinished draft. Conflicting saves preserve the draft and let staff reconcile competing edits.
 
-Draft ZIPs are marked DRAFT. Final packages require per-placement approval and list withheld or missing placements. A partial package does not mark the project complete. Replacement previews display the uploaded file itself. Save conflicts offer a draft download and a comparison that combines non-conflicting edits while preserving a choice for conflicting fields.
+Review builds a contact sheet of every supported size, platform and concept. Problem sizes appear first, with direct links to their headline, crop and replacement controls. **Approve all passing sizes** signs only sizes whose purchased platforms all pass QA. Warnings and manual replacements require individual visual approval. Send becomes available only after every placement in the proof has staff approval.
 
-Abandoned approval renders expire after the cache retention period. Referenced approval artifacts remain protected; corrupt project records prevent that cleanup. Saved versions and completed contact sheets remain available for comparison. Amazon's built-in 250x250 placement is disabled pending a verified specification.
+Print the contact sheet to PDF or compare saved versions. Comparison uses captured artwork, including older source images; it never recreates historical ads from current assets. Amazon 250×250 remains disabled pending a verified specification.
 
 ## Smart 1 emails its client
 
-1. Open the client in Client 360 and select **Email client & history**. The Display Ad editor also links to this page.
-2. Find the recipient in Smart 1 Marketing's GHL account. Check the displayed name, email and company, then link that contact to the client.
-3. Select **Open contact in GHL to email**. In the contact's conversation, choose Email, check the sender and recipient, add the subject and proof URL, and send.
-4. Return to Client 360 and refresh email history. The Hub reads the conversation and email messages for that exact contact. Pending, sent, delivered and failed states remain distinct.
+1. Link and verify the recipient once in **Client 360 → Email client & history**. The contact must belong to Smart 1’s GHL account.
+2. Open **Send** from the completed ad review. Check the recipient, enter the sender configured in Smart 1’s GHL account, and edit the subject and message.
+3. Choose **Preview email**. Check the displayed addresses, text and exact proof link. Nothing has been sent yet.
+4. Choose **Send proof through GHL**. An accepted response means GHL queued the email; actual delivery and replies appear in the linked client’s email history.
+5. The client opens the proof without signing in, approves the complete set or requests changes for the set or a particular size. Changes unlock the relevant artwork for staff editing. The old proof stays preserved.
+6. Approval produces a download containing the exact approved files, grouped by platform. The campaign timeline records the decision and final package.
 
-This uses Smart 1's existing GHL token and location configuration, not the client's own subaccount mapping. Contact, conversation and message read permissions are required. The Hub never sends an email from the linking or refresh buttons. Unlinking removes only the Hub association and keeps GHL's emails. Changed email addresses or a changed Smart 1 location require re-verification. No real client contact has been linked or emailed during development.
+The optional `GHL_PROOF_EMAIL_FROM` environment setting pre-fills the sender. Existing Smart 1 GHL token/location settings are reused; contact and conversation read permissions plus message-send permission are required. Recipient changes require re-verification. This flow sends from Smart 1 to its client, independently of the client’s own GHL subaccount.
 
-Client website identifies the client when available; ambiguous name-only matches are refused. GHL remains the source of the messages and their IDs. The Hub persists the explicitly selected client/contact/location association through its durable JSON store. Recent email views are limited to the latest 20 messages returned by GHL. Live account access and a real recipient still need verification.
+## Reliability and operations
 
-## Validation and remaining configuration
+Proof links contain an unguessable token and expose only that frozen version. Staff sign-offs bind the campaign revision, source assets and exact output bytes. Changed or unapproved artwork cannot be silently substituted during client approval.
 
-- Full Display Ad suite: 395 passed. Expanded HTTP workflow also passed for replacement bytes, full contact-sheet capture, warned-size exclusion, history comparison, approval locks and incomplete delivery.
-- Client 360 layout checks: 60 passed. Dedicated offline email tests cover account isolation, exact identity, stale changes, email changes, cross-contact messages, login and origin protection. Browser testing used disposable campaigns and mock GHL contacts.
-- OpenAI connectivity, authentication and generation are separate checks. Diagnostics offers a synthetic paid copy test, but no live paid generation result is claimed by this release.
-- Team alert recipient/webhook and allowed external embedding domains remain unset by this work. The client-email flow is not an automatic alert transport.
+Email attempts are saved durably before calling GHL. Double clicks and repeated requests do not send twice. A timeout or uncertain response stays blocked for review in GHL; it is never automatically resent. Reopening Send displays an existing attempt and reconciles a stored receipt with the campaign timeline.
 
-Sources: [GHL conversation search](https://marketplace.gohighlevel.com/docs/ghl/conversations/search-conversation/), [GHL message history](https://marketplace.gohighlevel.com/docs/ghl/conversations/get-messages/), [Amazon display specifications](https://advertising.amazon.com/resources/ad-specs/dsp/desktop).
+Render and review jobs survive a service restart on the persistent disk. Interrupted final packaging is recovered at startup; replaying approval does not duplicate delivery receipts. This queue supports the current single-instance deployment. Scaling to multiple instances requires a shared queue and shared transactional storage.
+
+## Validation
+
+The full Display Ad regression suite passed 413 tests before the final focused additions. Follow-up tests cover overlapping autosaves, failed-save retries, client revision unlocks, receipt reconciliation, email preview/send behavior and reopened send attempts. The HTTP integration test renders a fictional campaign’s 11 sizes, signs them off, approves the public proof and checks the exact final ZIP contents. All GHL sends in tests are mocked; no real client email was sent.
+
+Live deployment verification is recorded separately. No successful live paid AI generation is claimed. Team alert transport and external embedding domains remain configuration decisions separate from this client proof workflow.
+
+Sources: [GHL send message](https://marketplace.gohighlevel.com/docs/ghl/conversations/send-a-new-message/), [GHL message history](https://marketplace.gohighlevel.com/docs/ghl/conversations/get-messages/).
