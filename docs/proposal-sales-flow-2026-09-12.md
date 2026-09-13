@@ -17,6 +17,7 @@ Implements the six recommendations approved after live QA of Q-10215.
 - Repository JavaScript syntax and template checks passed before final UI polish; final inline JavaScript regression check also passed.
 - Local GPT-browser walkthrough used only a fictional, isolated SQLite proposal. Confirmed all-in dashboard values, phase navigation, contact checklist focus, saving handoff details without an IO, before/after handoff review, Essential selection, and the separate recommendation label.
 - The walkthrough exposed nested table disclosure and an overlapping recommendation badge; both were corrected. Local standalone preview has no Hub favicon route; that unrelated preview-only request returned an error.
+- Final browser checks confirmed that dashboard investment details expand without opening the record, and package/navigation layouts fit at 640px and 390px. The phone check initially found overflow; containment was corrected and the final document scroll width equaled its client width (375px inside the 390px viewport).
 - No client messages were sent and no IO number was issued by browser testing.
 
 CI, merge, deployment and production smoke verification are pending. No database schema migration is required.

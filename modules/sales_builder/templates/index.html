@@ -383,7 +383,8 @@
   .progress .bar{height:100%;background:var(--blue);border-radius:20px;transition:width .3s ease}
 .phase-nav{display:flex;flex-direction:column;gap:5px}.phase-detail{display:block;margin:12px 4px 6px;font-weight:700;font-size:12px}.steprail select{max-width:100%;width:100%;padding:8px;border:1px solid var(--line);border-radius:8px}.pkg .package-choice{margin-top:12px;width:100%}.pkg.on{outline:3px solid var(--blue)}.readiness-list{list-style:none;padding:0}.readiness-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)}
 .pkg .flag{position:static;transform:none;display:inline-block;margin:0 0 8px;max-width:100%}.pkg{display:flex;flex-direction:column}.pkg .package-choice{margin-top:auto}
-@media(max-width:1000px){.steprail{display:block}.phase-nav{flex-direction:row;overflow-x:auto}.phase-nav .sr{white-space:nowrap}.phase-detail{margin-top:6px}}
+.bgrid>*{min-width:0}.phase-nav{max-width:100%}.pkg{min-width:0}
+@media(max-width:1000px){.steprail{display:block;min-width:0;max-width:100%}.phase-nav{flex-direction:row;overflow-x:auto}.phase-nav .sr{white-space:nowrap}.phase-detail{margin-top:6px}}
 </style>
 <link rel="stylesheet" href="/sales/builder/static/viewport.css">
 <script src="/sales/builder/static/viewport.js"></script>
