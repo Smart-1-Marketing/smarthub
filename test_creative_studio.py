@@ -436,7 +436,7 @@ r = client.get("/creative-studio/brand-kits/Stale%20Co")
 check("an in-review page renders field-level decisions and verified evidence",
       r.status_code == 200 and b"data-review-field" in r.data and
       b"verified source" in r.data and b"Decision required" in r.data, True)
-check("the review requires an explicit visual-identity acknowledgement",
+check("the review requires an explicit visual-identity acknowledgment",
       b"bkVisualAcknowledged" in r.data, True)
 
 r = client.post("/creative-studio/api/brand-kits/Acme%20Plumbing",
