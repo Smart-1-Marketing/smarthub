@@ -459,10 +459,6 @@ FULL_ASSET_ON_PURPOSE = {
     ("hub/templates/client360.html", "Logo on their"): _LOGO,
     ("modules/gpt_ads/templates/index.html", "esc(g.url)"):
         "the chosen 1:1 ad image, where the exact asset is the point",
-    ("modules/gpt_ads/templates/index.html", "esc(p.image.url)"):
-        "the same chosen 1:1 ad image, drawn on the pack's own live preview "
-        "and in the version-comparison view -- same reasoning as the g.url "
-        "exemption immediately above, for the reusable-draft pack shape",
     ("modules/landing_ads/templates/index.html", "max-width:300px"):
         "one preview per generated ad, with no per-row producer wired yet",
     ("modules/social_planner/templates/index.html", "esc(s.image_url)"):
