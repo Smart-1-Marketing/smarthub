@@ -5,10 +5,11 @@
   if(!root)return;
   const $=id=>document.getElementById(id);
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let current=null, client='', selectedVideo=null;
+  let current=null, client='', selectedVideo=null, pending=0, searchTimer;
   let csrf=root.dataset.csrf;
   $('channelUrl').value=new URLSearchParams(location.search).get('channel')||'';
-  function message(text,error=false){$('ytMessage').textContent=text;$('ytMessage').className=error?'error':'';}
+  let messageVersion=0;
+  function message(text,error=false){messageVersion++;$('ytMessage').textContent=text;$('ytMessage').className=error?'error':'';}
   async function api(path,data,form=false){
     const options=data?{method:'POST',headers:{'X-YouTube-CSRF':csrf},body:data}:{};
     if(data&&!form){options.headers['Content-Type']='application/json';options.body=JSON.stringify({client,...data});}
@@ -18,12 +19,14 @@
     return result;
   }
   async function run(button,fn){
+    pending++;$('clientName').disabled=true;$('clientForm').querySelector('button').disabled=true;
     if(button)button.disabled=true;
     message('Working…');
+    const startedMessage=messageVersion;
     const indicator=window.S1Think?.attach?.($('ytMessage'),{kind:'wait'});
-    try{await fn();if($('ytMessage').textContent==='Working…')message('Saved.');}
+    try{await fn();if(messageVersion===startedMessage)message('Saved.');}
     catch(error){message(error.message,true);}
-    finally{indicator?.done?.();if(button)button.disabled=false;}
+    finally{indicator?.done?.();if(button)button.disabled=false;pending--;$('clientName').disabled=!!pending;$('clientForm').querySelector('button').disabled=!!pending;}
   }
   function needClient(){if(!client)throw new Error('Open a client first.');}
   function tab(id){root.querySelectorAll('[data-section]').forEach(e=>e.hidden=e.dataset.section!==id);root.querySelectorAll('[data-panel]').forEach(e=>e.setAttribute('aria-pressed',String(e.dataset.panel===id)));}
@@ -55,6 +58,7 @@
     tab('channels');$('inviteUrl').focus();$('inviteUrl').select();message('Link created. Copy it to your customer.');
   }
   $('clientForm').onsubmit=e=>{e.preventDefault();run(e.submitter,async()=>{await load();message('Client opened.');});};
+  $('clientName').oninput=()=>{clearTimeout(searchTimer);const term=$('clientName').value.trim();if(term.length<2)return;searchTimer=setTimeout(async()=>{try{const r=await fetch('/api/clients/search?q='+encodeURIComponent(term)+'&limit=10');if(!r.ok)return;const d=await r.json();if($('clientName').value.trim()!==term)return;$('ytClients').innerHTML=(d.clients||[]).map(c=>`<option value="${esc(c.name)}">${esc(c.domain||'')}</option>`).join('');}catch(_){}},250);};
   $('addForm').onsubmit=e=>{e.preventDefault();run(e.submitter,async()=>{needClient();await api('channels',{url:$('channelUrl').value});await load();message('Channel added to this client.');});};
   $('searchForm').onsubmit=e=>{e.preventDefault();run(e.submitter,async()=>{needClient();const data=await api('search',{query:$('searchQuery').value});$('searchResults').innerHTML=data.channels.map(c=>`<div class="yt-row"><b>${esc(c.title)}</b><p>${esc(c.description)}</p><a href="${esc(c.url)}" target="_blank" rel="noopener">Check channel ↗</a> <button data-add="${esc(c.id)}">Add to client</button></div>`).join('')||'<p>No channels found.</p>';message('Check the channel identity before adding it.');});};
   $('searchResults').onclick=e=>{const b=e.target.closest('[data-add]');if(b)run(b,async()=>{await api('channels',{url:b.dataset.add});await load();});};
