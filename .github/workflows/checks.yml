@@ -2252,6 +2252,27 @@ jobs:
             echo "test_proposal_adapters_social.py not on this branch — nothing to run."
           fi
 
+      # WO-2, Adapter D: seo_audit and seo_workplan both ran as `brief` -- an
+      # AI-imagined SEO audit for a site nobody had actually looked at.
+      # hub/proposal_adapters/seo.py reads hub/website_audit.py instead --
+      # the same reader Client 360 uses -- so a completed Insites scan
+      # produces real findings, each carrying its own evidence, and no scan
+      # yet says so by name rather than inventing one. Deliberately
+      # read-only: a real scan bills a credit and takes minutes, which does
+      # not fit inside one scheduler tick, so this adapter never starts one.
+      # seo_workplan depends on seo_audit and re-reads its real findings
+      # rather than writing a second, AI-imagined workplan on top of them.
+      # No network call and no OpenAI call in the test -- a real completed
+      # scan row is seeded through modules.scans.app.Scan, the way
+      # test_website_audit.py already does.
+      - name: Proposal Execution — real-tool adapters (SEO discovery audit)
+        run: |
+          if [ -f test_proposal_adapters_seo.py ]; then
+            python3 test_proposal_adapters_seo.py
+          else
+            echo "test_proposal_adapters_seo.py not on this branch — nothing to run."
+          fi
+
       # A curated shortlist per department, laid over the sidebar rather than
       # a second permission system. Block validation (a javascript: href, a
       # blank label, the cap), a delete that un-assigns rather than leaving a

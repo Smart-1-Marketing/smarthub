@@ -339,8 +339,8 @@ def build_task_specs(analysis):
                   _task("paid_search_activation", "Paid Search launch packet", "Ad Ops", "launch_packet", "handoff", ("paid_search_ads", "tracking_plan"), channel=c, task_type="activation")]
     if "seo_ai" in channels:
         c = channels["seo_ai"]
-        specs += [_task("seo_audit", "SEO + AI discovery audit brief", "SEO", needs=("landing_url",), channel=c),
-                  _task("seo_workplan", "SEO + AI prioritized workplan", "SEO", depends=("seo_audit",), channel=c),
+        specs += [_task("seo_audit", "SEO + AI discovery audit brief", "SEO", "seo_scan", "auto", (), needs=("landing_url",), channel=c),
+                  _task("seo_workplan", "SEO + AI prioritized workplan", "SEO", "seo_workplan", "auto", ("seo_audit",), channel=c),
                   _task("seo_implementation", "SEO implementation & QA packet", "SEO", "launch_packet", "handoff", ("seo_workplan",), channel=c, task_type="implementation")]
     if "stadium_audio" in channels:
         c = channels["stadium_audio"]
