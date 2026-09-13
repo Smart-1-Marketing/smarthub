@@ -104,6 +104,14 @@ class ProposalExecutionRun(db.Model):
     analysis_json = db.Column(db.Text, default="{}")
     context_json = db.Column(db.Text, default="{}")
     inputs_json = db.Column(db.Text, default="{}")
+    # The plan a person reviews -- creative needed, launch tasks, monthly
+    # tasks, the questions the proposal left open and the answers -- built
+    # by hub/proposal_plan.py. Its own column rather than a key inside
+    # analysis_json: the analysis is what the parser read, the plan is what
+    # somebody kept, dropped, added and answered, and a re-analysis must
+    # not be able to overwrite the second while refreshing the first.
+    # Added after the table was live, so add_missing_columns() carries it.
+    plan_json = db.Column(db.Text, default="{}")
     previous_run_id = db.Column(db.Integer, nullable=True)
     superseded_by_run_id = db.Column(db.Integer, nullable=True)
     created_at = db.Column(db.DateTime, default=_now, index=True)
@@ -112,6 +120,7 @@ class ProposalExecutionRun(db.Model):
     def analysis(self): return _loads(self.analysis_json, {})
     def context(self): return _loads(self.context_json, {})
     def inputs(self): return _loads(self.inputs_json, {})
+    def plan(self): return _loads(self.plan_json, {})
 
     def as_dict(self, full=False):
         row = {
@@ -125,7 +134,8 @@ class ProposalExecutionRun(db.Model):
         }
         if full:
             row.update(analysis=self.analysis(), context=self.context(), inputs=self.inputs(),
-                       summary=summary(self), missing_inputs=missing_input_manifest(self))
+                       summary=summary(self), missing_inputs=missing_input_manifest(self),
+                       plan=plan_for(self))
             row["tasks"] = [t.as_dict() for t in tasks_for_run(self.id)]
         return row
 
@@ -458,13 +468,20 @@ def create_run(client, proposal_id, *, owner="", actor="", force=False):
         # better source than whatever the analyzer re-derives from a new
         # document -- the overlay rule `hub/client_urls.py` already works to.
         carried_inputs.update({k: v for k, v in supersedes.inputs().items() if _resolved(v)})
+    from hub import proposal_plan
+    plan = proposal_plan.build_plan(analysis, text, client)
+    if supersedes:
+        # What somebody kept, dropped, added and answered on the run being
+        # replaced is theirs; a new document changes the proposals, not
+        # their decisions about the ones still on it.
+        plan = proposal_plan.carry_forward(plan, supersedes.plan())
     run = ProposalExecutionRun(client=client, proposal_id=str(rec.get("id") or proposal_id),
                                proposal_title=rec.get("title") or rec.get("filename") or "Proposal",
                                proposal_filename=rec.get("filename") or "", source_hash=source_hash,
                                state=RUN_DRAFT, owner=owner,
                                previous_run_id=previous.id if previous else None,
                                analysis_json=_dumps(analysis), context_json=_dumps(context_data),
-                               inputs_json=_dumps(carried_inputs))
+                               inputs_json=_dumps(carried_inputs), plan_json=_dumps(plan))
     db.session.add(run)
     db.session.flush()
     prior_by_key = {t.task_key: t for t in tasks_for_run(supersedes.id)} if supersedes else {}
@@ -494,7 +511,13 @@ def create_run(client, proposal_id, *, owner="", actor="", force=False):
     carried = sum(1 for s in specs if prior_by_key.get(s["key"]) is not None
                   and prior_by_key[s["key"]].fingerprint == s["fingerprint"]
                   and prior_by_key[s["key"]].state in CARRY_STATES)
-    note = f"Analyzed proposal and created {len(specs)} execution tasks."
+    ps = plan.get("summary") or {}
+    lists = ps.get("lists") or {}
+    note = (f"Analyzed proposal and created {len(specs)} execution tasks; the plan lists "
+            f"{(lists.get('creative') or {}).get('total', 0)} creative item(s), "
+            f"{(lists.get('launch') or {}).get('total', 0)} launch task(s) and "
+            f"{(lists.get('monthly') or {}).get('total', 0)} monthly task(s), "
+            f"with {ps.get('open_questions', 0)} question(s) to answer.")
     if supersedes:
         note += f" Superseded run #{supersedes.id}; carried {carried} approved/completed task(s) forward."
     _event(run.id, run.state, note, actor=actor)
@@ -574,6 +597,58 @@ def missing_input_manifest(run):
     return out
 
 
+def plan_for(run):
+    """The run's plan, built once for a run written before plans existed.
+
+    A run analyzed before this column was added has no plan, and a page
+    drawing "nothing to do" over it would be the confident wrong answer.
+    It is built from the analysis already on the run -- rules only, no
+    model call, because this is a page load and a billed call belongs
+    behind the Analyze button -- and stored, so what somebody then keeps or
+    drops sticks. The proposal's text is re-read where it can be, for the
+    supplier heuristic and the grounding; where it cannot the plan is still
+    built and says nothing false.
+    """
+    plan = run.plan()
+    if plan and plan.get("summary"):
+        return plan
+    from hub import proposal_plan
+    text = ""
+    try:
+        from hub import _proposal_text_for
+        text = _proposal_text_for(run.client, run.proposal_id or run.proposal_filename) or ""
+    except Exception:                                    # noqa: BLE001
+        text = ""
+    plan = proposal_plan.build_plan(run.analysis(), text, run.client, use_ai=False)
+    plan.setdefault("notes", []).append(
+        "Built from the stored analysis after the fact; re-analyze the proposal to have the "
+        "specific promises read out of it.")
+    try:
+        run.plan_json = _dumps(plan)
+        db.session.commit()
+    except Exception:                                    # noqa: BLE001
+        db.session.rollback()
+    return plan
+
+
+def update_plan(run_id, decisions, *, actor=""):
+    """Apply a person's review of the plan: keep/drop, add, remove, answer."""
+    run = get_run(run_id)
+    if not run: raise ValueError("That execution run could not be found.")
+    from hub import proposal_plan
+    plan = proposal_plan.apply_decisions(plan_for(run), decisions or {})
+    run.plan_json = _dumps(plan)
+    db.session.commit()
+    what = []
+    d = decisions or {}
+    if d.get("accept"): what.append(f"{len(d['accept'])} item(s) reviewed")
+    if d.get("add"): what.append(f"{len(d['add'])} item(s) added")
+    if d.get("remove"): what.append(f"{len(d['remove'])} item(s) removed")
+    if d.get("answers"): what.append(f"{len(d['answers'])} question(s) answered")
+    _event(run.id, run.state, "Updated the plan: " + (", ".join(what) or "no change") + ".", actor=actor)
+    return run
+
+
 def update_inputs(run_id, values, *, actor=""):
     run = get_run(run_id)
     if not run: raise ValueError("That execution run could not be found.")
@@ -648,6 +723,24 @@ def register_adapter(adapter): _ADAPTERS[adapter.key] = adapter
 def adapters(): return [{"key": a.key, "label": a.label, "execution_mode": a.execution_mode} for a in _ADAPTERS.values()]
 
 
+def _kept_plan_for(run, task):
+    """The plan items a person kept for this task's channel -- the only
+    half of the plan a downstream draft may read. Never raises."""
+    try:
+        from hub import proposal_plan
+        plan = plan_for(run)
+        channel = (task.payload().get("channel") or {}).get("key") or ""
+        out = {}
+        for name in proposal_plan.LISTS:
+            rows = [it for it in proposal_plan.kept_items(plan, name)
+                    if not channel or it.get("channel") in ("", channel)]
+            out[name] = [it["title"] + (f" — {it['detail']}" if it.get("detail") else "")
+                         for it in rows][:20]
+        return out
+    except Exception:                                    # noqa: BLE001
+        return {}
+
+
 def _brief_runner(run, task):
     fallback = {"summary": f"Prepared the {task.title} working brief from the proposal.",
                 "deliverables": (task.payload().get("channel") or {}).get("deliverables") or [],
@@ -657,7 +750,7 @@ def _brief_runner(run, task):
     if not os.environ.get("OPENAI_API_KEY", "").strip(): return fallback
     prompt = f"""Return ONLY JSON with keys summary, deliverables, checklist, creative_or_copy, qa, handoff_notes.
 Create the internal working deliverable for this Smart 1 Marketing execution task. Use only facts below; invent no offers, dates, prices, URLs, claims, access or guarantees.
-Task: {task.title}\nDepartment: {task.department}\nChannel: {_dumps(task.payload())}\nShared inputs: {_dumps(run.inputs())}\nProposal analysis: {_dumps(run.analysis())[:16000]}"""
+Task: {task.title}\nDepartment: {task.department}\nChannel: {_dumps(task.payload())}\nShared inputs: {_dumps(run.inputs())}\nWhat staff kept on the plan for this channel (creative, launch, monthly): {_dumps(_kept_plan_for(run, task))[:4000]}\nProposal analysis: {_dumps(run.analysis())[:16000]}"""
     try:
         from hub.openai_responses import ask
         parsed = _extract_json(ask(prompt, module="proposal_execution", purpose=task.task_type, max_output_tokens=5000))
@@ -687,9 +780,13 @@ def _radio_runner(run, task):
 def _launch_runner(run, task):
     by_key = {t.task_key: t for t in tasks_for_run(run.id)}
     upstream = [{"task": by_key[k].title, "state": by_key[k].state, "result": by_key[k].result()} for k in task.depends() if k in by_key]
+    kept = _kept_plan_for(run, task)
     return {"summary": f"{task.title} is prepared as a human launch/handoff packet. SmartHub has not published, scheduled, changed a live campaign or started spend.",
             "client": run.client, "proposal": run.proposal_title, "inputs": run.inputs(),
             "channel": task.payload().get("channel") or {}, "upstream": upstream, "handoff": True,
+            "creative_needed": kept.get("creative") or [],
+            "launch_tasks": kept.get("launch") or [],
+            "monthly_tasks": kept.get("monthly") or [],
             "checklist": ["Confirm approved creative and destination.", "Confirm targeting, dates and budget.", "Confirm conversion tracking.", "Launch only after approval is recorded here.", "Return and mark Live or Completed after the external action."]}
 
 register_adapter(Adapter("brief", "SmartHub Working Brief", "auto", _brief_runner))
@@ -815,12 +912,23 @@ def proposal_choices(client):
             for r in proposals.list_proposals(client) if r.get("kind") != "link"]
 
 
+# Columns added to hub_proposal_execution_runs after it was live in
+# production. `create_all()` creates missing tables and never adds a column
+# to an existing one, so each of these is applied by add_missing_columns()
+# at boot -- name to SQL type, and nothing else, because the model above is
+# still the one description of what the column is.
+_LATE_COLUMNS = {
+    "superseded_by_run_id": "INTEGER",
+    "plan_json": "TEXT",
+}
+
+
 def add_missing_columns() -> None:
     """A live Postgres never gains a column from `create_all()` alone once
     the table already exists -- the `modules/scans` rule, one table over.
-    `superseded_by_run_id` is the one column this module has ever added to
-    a table already live in production; called at blueprint registration
-    so it runs before the first request that might need it.
+    `_LATE_COLUMNS` is every column this module has added to a table already
+    live in production; called at boot so it runs before the first request
+    that might need one.
 
     Never raises: a database that is not up yet must not take the whole
     registration down over one ALTER, and a worker raced by its sibling
@@ -835,15 +943,16 @@ def add_missing_columns() -> None:
         have = {c["name"] for c in inspector.get_columns(ProposalExecutionRun.__tablename__)}
     except Exception:                                    # noqa: BLE001
         return
-    if "superseded_by_run_id" in have:
-        return
-    try:
-        with db.engine.begin() as conn:
-            conn.execute(_text(
-                f"ALTER TABLE {ProposalExecutionRun.__tablename__} "
-                "ADD COLUMN superseded_by_run_id INTEGER"))
-    except Exception:                                    # noqa: BLE001
-        pass                                              # raced by the other worker
+    for name, sql_type in _LATE_COLUMNS.items():
+        if name in have:
+            continue
+        try:
+            with db.engine.begin() as conn:
+                conn.execute(_text(
+                    f"ALTER TABLE {ProposalExecutionRun.__tablename__} "
+                    f"ADD COLUMN {name} {sql_type}"))
+        except Exception:                                # noqa: BLE001
+            pass                                          # raced by the other worker
 
 
 def install_scheduler_bridge():
@@ -872,7 +981,8 @@ def install_scheduler_bridge():
 
 __all__ = ["ProposalExecutionRun", "ProposalExecutionTask", "ProposalExecutionEvent",
            "ProposalRunConflict", "create_run", "get_run", "list_runs", "tasks_for_run",
-           "proposal_choices", "update_inputs", "start_run", "pause_run", "retry_failed", "run_one",
+           "proposal_choices", "update_inputs", "update_plan", "plan_for", "start_run", "pause_run",
+           "retry_failed", "run_one",
            "approve_task", "request_changes", "rerun_task", "mark_task", "events_for_run",
            "missing_input_manifest", "summary", "adapters", "build_task_specs", "analyze_text",
            "install_scheduler_bridge", "add_missing_columns",

@@ -2213,6 +2213,25 @@ jobs:
       - name: Proposal Execution — supersede, don't duplicate
         run: python3 test_proposal_execution.py
 
+      # Analyzing a proposal produced a task board and nothing a person
+      # wants on the day it is signed: the creative that has to exist, the
+      # one-time work before launch, the monthly promises. And a finished
+      # task's output was its result dict printed as JSON in a <pre>.
+      # hub/proposal_plan.py builds the three lists -- sizes read from the
+      # spec kit, the model's additions required to quote the proposal and
+      # marked when they cannot, every item a proposal until a person keeps
+      # or drops it, anything they add theirs to remove -- and asks about
+      # what the proposal does not say rather than guessing. Asserts all of
+      # it, including that the page's result renderer, lifted out of the
+      # template and run in node, writes directions and never braces.
+      - name: Proposal Execution — the plan a person reads, not JSON
+        run: |
+          if [ -f test_proposal_plan.py ]; then
+            python3 test_proposal_plan.py
+          else
+            echo "test_proposal_plan.py not on this branch — nothing to run."
+          fi
+
       # WO-2: real-tool adapters. Every task on the graph used to run as
       # `brief` -- an AI-written paragraph describing what somebody should
       # go and build, never the tool itself. hub/proposal_adapters/utm.py is

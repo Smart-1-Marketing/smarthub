@@ -6440,6 +6440,77 @@ staleness — a genuine second entry made it wrong the moment it was correct,
 which is the ordinary cost of a test asserting a literal list rather than a
 property.
 
+## A plan that comes back as JSON is a plan nobody reads
+
+`hub/proposal_plan.py`, the plan card on `/proposal-execution`, and
+`test_proposal_plan.py`. Analyzing a proposal produced a task graph the
+scheduler drains and a board to watch it on, and three things a person
+actually wants on the day the proposal is signed were nowhere on it: **the
+creative that has to exist**, **the one-time work before launch**, and **the
+monthly promises** -- which are what a client notices when they stop. What the
+board did show of a finished task was its result dict printed as JSON in a
+`<pre>`: a page of braces to somebody who wanted to know what to do next.
+
+Three rules, each a way the lists become confident and wrong.
+
+**Sizes come from the spec kit, never from here.** A list of banner sizes
+typed into the plan module would be the fourth copy of the table
+`kit_drift()` holds to the published page, and the one no check reads. Each
+recipe names the product string `hub/creative_specs.channels_for_product()`
+already maps and, where the kit's whole channel is wider than the buy, the
+unit ids to keep -- a YouTube in-market buy is one skippable spot, not the
+six formats the kit sells -- and the dimensions, formats and lengths are read
+through `hub/creative_needs.required_units()`, the same reader the Proposal
+Builder's creative gate uses. `test_proposal_plan.py` asserts the module's
+code carries no `WxH` literal at all.
+
+**The model proposes, the rules decide, a person presses.** The rule-derived
+items always exist, so the lists are complete with no OpenAI key. With one,
+the model is asked for the *specific* promises and every item it returns must
+quote the line it came from; a quote the text does not contain is **kept and
+marked** -- *check: no matching line in the proposal* -- never silently
+trusted and never silently dropped, because a task nobody can find in the
+document is exactly the one a person should look at before ticking. Nothing
+arrives accepted: every item is a proposal until somebody keeps it or marks
+it not needed, an item they add is theirs (`source: manual`) and is the one
+kind that can be *removed* rather than merely dropped, and **only what was
+kept** reaches a working brief or a handoff packet. An AI item with a rule
+item's title is folded into it (the rule item gains the quote) rather than
+listed twice. A refused decision -- an unknown id, an unknown list, a blank
+title -- is refused by name and leaves the plan exactly as it was.
+
+**What the proposal does not say is asked, not guessed.** A channel with no
+dollar amount beside it, a campaign with no start date, creative whose
+supplier the text never names -- each is a question carrying *why* it is
+being asked, answered beside the plan. What the proposal *does* say is not
+asked: a product that is by definition our production (the monthly sales
+video, the social posts) is answered from the recipe, and a supplier the
+model quoted from a line really in the text is answered from the text, both
+marked *answered from the proposal* and still changeable. The supplier is
+asked only for channels with **files** to supply -- asking who writes the
+paid-search ad copy is the question that teaches people to stop reading the
+list.
+
+Two things about where it lives. **`plan_json` is its own column**, added
+through `_LATE_COLUMNS` in `add_missing_columns()` because `create_all()`
+adds no column to a live table: the analysis is what the parser read and the
+plan is what somebody kept, dropped, added and answered, and a re-analysis
+must not be able to overwrite the second while refreshing the first. A run
+analyzed before the column existed gets a plan built from its stored analysis
+on first read -- rules only, no model call on a page load -- and says so. And
+**superseding carries the review forward**: a verdict follows an item still
+proposed, an item a person added comes across whole, an answer follows a
+question still asked.
+
+**The result renderer writes directions.** Summary first, each list under a
+heading a person would use (*What to produce*, *Steps*, *Check before
+approving*), a link to the tool where one exists, the template fallback said
+in words, and the plumbing -- the inputs echoed back, the channel payload,
+the upstream states -- behind a *Technical details* fold. It is lifted out of
+the template between markers and driven in **node**, the arrangement
+`test_menu_layout.py` uses over `hub-crumbs.js`, and the assertion is that no
+`{"` reaches the reader.
+
 ## Opportunistic migration — read this before editing any module
 
 `hub/storage.py` (Cloudinary), `hub/images.py` (resize/convert),
