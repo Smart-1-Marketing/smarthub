@@ -74,6 +74,7 @@
     "msa": "Master Services Agreement", "pdf": "PDF Optimizer",
     "short-links": "Client Link Masking",
     "ads": "Smart 1 Ads", "ads-grader": "Google Ads Grader",
+    "sites-builder": "Smart 1 Sites Builder",
     "calculators": "Media Calculators",
     "marketing-audit": "Marketing Efficiency Audit",
     "gpt-ads": "GPT Ads Builder", "social": "Social Content Planner",
