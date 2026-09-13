@@ -69,7 +69,8 @@
     "radio-promo": "Radio Ad Creator", "fan-radio": "Fan Radio",
     "radio-scripts": "Radio Scripts",
     // Tools
-    "website-audit": "Website Audit", "builder": "Proposal Builder",
+    "website-audit": "Website Audit", "sites-builder": "Smart 1 Sites Builder",
+    "builder": "Proposal Builder",
     "io": "IO Builder", "landing": "Landing Page Maker",
     "msa": "Master Services Agreement", "pdf": "PDF Optimizer",
     "short-links": "Client Link Masking",
@@ -77,7 +78,7 @@
     "calculators": "Media Calculators",
     "marketing-audit": "Marketing Efficiency Audit",
     "gpt-ads": "GPT Ads Builder", "social": "Social Content Planner",
-    "site-blocks": "Website Blocks",
+    "site-blocks": "Website Blocks", "sites-builder": "Smart 1 Sites Builder",
     "smartforecast": "SmartForecast Dynamic Website",
     "widgets": "Scan Widgets",
     "google-access": "Google Access", "utm": "UTM Builder",

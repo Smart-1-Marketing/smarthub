@@ -1147,6 +1147,20 @@ jobs:
             echo "test_sites_billing.py not on this branch — nothing to run."
           fi
 
+      - name: Smart 1 Sites Builder tests
+        # Ported: test_ci_gate.py's own sweep found this file added by a
+        # prior, unrelated merge with no step to run it. Unrelated to this
+        # PR's own change, ported here because it is a one-line,
+        # obviously-correct fix and test_ci_gate.py would otherwise report
+        # every PR built on today's main as red for a gap none of them
+        # introduced.
+        run: |
+          if [ -f test_sites_builder.py ]; then
+            python test_sites_builder.py
+          else
+            echo "test_sites_builder.py not on this branch — nothing to run."
+          fi
+
       - name: Domain attach, orphan URL and domain purchase tests
         # One domain attached to one client in four systems at once, the
         # orphan list that finds a URL nobody owns, and the purchased-domain
@@ -2167,6 +2181,12 @@ jobs:
       - name: Every tool is tiled once, and the trail names it
         run: python3 test_menu_layout.py
 
+      # The sales flow must stay customer-facing: it builds a visual site,
+      # keeps implementation data internal, and names the tool consistently
+      # everywhere a rep can enter or leave it.
+      - name: Smart 1 Sites Builder
+        run: python3 test_sites_builder.py
+
       # Asking somebody to check a page, and getting their answer back. Four
       # states, and the two middle ones are the point: collapse "waiting on
       # them" and "waiting on you" into one flag and the queue stops being
@@ -2248,6 +2268,48 @@ jobs:
             python3 test_proposal_adapters_social.py
           else
             echo "test_proposal_adapters_social.py not on this branch — nothing to run."
+          fi
+
+      # WO-2, Adapter D: seo_audit and seo_workplan both ran as `brief` -- an
+      # AI-imagined SEO audit for a site nobody had actually looked at.
+      # hub/proposal_adapters/seo.py reads hub/website_audit.py instead --
+      # the same reader Client 360 uses -- so a completed Insites scan
+      # produces real findings, each carrying its own evidence, and no scan
+      # yet says so by name rather than inventing one. Deliberately
+      # read-only: a real scan bills a credit and takes minutes, which does
+      # not fit inside one scheduler tick, so this adapter never starts one.
+      # seo_workplan depends on seo_audit and re-reads its real findings
+      # rather than writing a second, AI-imagined workplan on top of them.
+      # No network call and no OpenAI call in the test -- a real completed
+      # scan row is seeded through modules.scans.app.Scan, the way
+      # test_website_audit.py already does.
+      - name: Proposal Execution — real-tool adapters (SEO discovery audit)
+        run: |
+          if [ -f test_proposal_adapters_seo.py ]; then
+            python3 test_proposal_adapters_seo.py
+          else
+            echo "test_proposal_adapters_seo.py not on this branch — nothing to run."
+          fi
+
+      # WO-2, Adapter G: youtube_video_concept ran as `brief` -- an AI video
+      # concept nobody had actually drafted. hub/proposal_adapters/
+      # commercial.py calls modules.commercial_builder.client_link.
+      # ensure_client() and generation.run_concepts() -- the same plain
+      # functions the Storyboard Editor's own "Generate Concepts" button
+      # calls -- to create a real CommercialProject with real concepts, and
+      # stops there: picking one, writing the script and casting a voice
+      # stay a person's job. generation.run_concepts() degrades to
+      # deterministic mock concepts with no OpenAI key rather than raising
+      # -- the whole Commercial Builder is built to stay clickable with no
+      # live key -- so the test exercises both a stubbed live call and no
+      # key at all. hub.ai.chat_json is stubbed the way it already is
+      # elsewhere -- no real OpenAI call in CI.
+      - name: Proposal Execution — real-tool adapters (Monthly sales video concept)
+        run: |
+          if [ -f test_proposal_adapters_commercial.py ]; then
+            python3 test_proposal_adapters_commercial.py
+          else
+            echo "test_proposal_adapters_commercial.py not on this branch — nothing to run."
           fi
 
       # A curated shortlist per department, laid over the sidebar rather than

@@ -339,8 +339,8 @@ def build_task_specs(analysis):
                   _task("paid_search_activation", "Paid Search launch packet", "Ad Ops", "launch_packet", "handoff", ("paid_search_ads", "tracking_plan"), channel=c, task_type="activation")]
     if "seo_ai" in channels:
         c = channels["seo_ai"]
-        specs += [_task("seo_audit", "SEO + AI discovery audit brief", "SEO", needs=("landing_url",), channel=c),
-                  _task("seo_workplan", "SEO + AI prioritized workplan", "SEO", depends=("seo_audit",), channel=c),
+        specs += [_task("seo_audit", "SEO + AI discovery audit brief", "SEO", "seo_scan", "auto", (), needs=("landing_url",), channel=c),
+                  _task("seo_workplan", "SEO + AI prioritized workplan", "SEO", "seo_workplan", "auto", ("seo_audit",), channel=c),
                   _task("seo_implementation", "SEO implementation & QA packet", "SEO", "launch_packet", "handoff", ("seo_workplan",), channel=c, task_type="implementation")]
     if "stadium_audio" in channels:
         c = channels["stadium_audio"]
@@ -365,7 +365,7 @@ def build_task_specs(analysis):
                   _task("social_schedule", "Social scheduling packet", "Social", "launch_packet", "handoff", ("social_posts",), channel=c, task_type="scheduling")]
     if "youtube_video" in channels:
         c = channels["youtube_video"]
-        specs += [_task("youtube_video_concept", "Monthly YouTube sales video concept & script", "Video", depends=("campaign_foundation",), needs=("primary_cta",), channel=c),
+        specs += [_task("youtube_video_concept", "Monthly YouTube sales video concept & script", "Video", "commercial_builder", "approval", ("campaign_foundation",), needs=("primary_cta",), channel=c),
                   _task("youtube_video_production", "YouTube sales video production handoff", "Video", "launch_packet", "handoff", ("youtube_video_concept",), channel=c, task_type="production")]
     if "youtube_optimization" in channels:
         specs.append(_task("youtube_optimization", "YouTube channel optimization plan", "Video/SEO", needs=("landing_url",), channel=channels["youtube_optimization"]))
