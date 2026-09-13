@@ -848,7 +848,7 @@ function renderImage(){
     return;
   }
   $("thumb").hidden = false;
-  $("thumb").src = img.url;
+  $("thumb").src = img.thumb || img.url;
   $("thumb").alt = img.alt || "attached square image";
   var lines = [
     "<b>" + img.width + " &times; " + img.height + "</b> &middot; " +
@@ -1047,7 +1047,7 @@ function renderEnhancements(){
   if (!p) return;
   var selected = p.selected_copy || {};
   $('adPreview').innerHTML = '<article style="max-width:420px;border:1px solid #ccd4df;border-radius:12px;overflow:hidden;margin:16px 0">' +
-    (p.image && p.image.url ? '<img src="' + esc(p.image.url) + '" alt="' + esc(p.image.alt || 'Ad image preview') + '" style="width:100%;aspect-ratio:1;object-fit:contain">' : '<p>No image selected</p>') +
+    (p.image && p.image.url ? '<img src="' + esc(p.image.thumb || p.image.url) + '" alt="' + esc(p.image.alt || 'Ad image preview') + '" style="width:100%;aspect-ratio:1;object-fit:contain">' : '<p>No image selected</p>') +
     '<div style="padding:16px"><small>' + esc(p.client) + '</small><h3>' + esc(selected.headlines || 'Select a final headline') + '</h3><p>' +
     esc(selected.bodies || 'Select final body copy') + '</p><strong>' + esc(selected.ctas || 'Select a final CTA') + '</strong><p>' +
     esc((p.landing || {}).url || 'Add destination URL') + '</p></div></article>';
@@ -1077,7 +1077,7 @@ $('historyList').addEventListener('click', function(ev){
     function summary(p){
       return '<h4>' + esc(p.campaign) + '</h4><p>Offer: ' + esc((p.offer || {}).summary) + '</p>' +
         ['headlines','bodies','ctas'].map(function(k){ return '<p><b>' + esc(k) + '</b>: ' + esc(((p.copy || {})[k] || []).map(function(r){ return r.text; }).join(' | ')) + '</p>'; }).join('') +
-        (p.image && p.image.url ? '<img src="' + esc(p.image.url) + '" alt="Version image" style="width:160px">' : '<p>No image</p>');
+        (p.image && p.image.url ? '<img src="' + esc(p.image.thumb || p.image.url) + '" alt="Version image" style="width:160px">' : '<p>No image</p>');
     }
     $('versionComparison').innerHTML = '<div class="grid"><section><h3>Current</h3>' + summary(state.pack) + '</section><section><h3>Version ' + revision + '</h3>' + summary(version.snapshot) + '</section></div>';
   } else {
