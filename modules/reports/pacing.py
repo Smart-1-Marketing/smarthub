@@ -187,6 +187,10 @@ def compute_line(line: dict, today: date, mappings: list[dict], facts: list[dict
         "budget_period": _q(budget_period), "expected_to_date": _q(expected),
         "actual_to_date": _q(actual),
         "pace": Decimal(str(round(min(pace, PACE_CAP), 4))) if pace is not None else None,
+        # The bar on the board: 2.00x fills it. Computed here rather than as
+        # {{ [pace * 100, 200]|min / 2 }} in the template, which CodeQL reads
+        # as the filter call (min / 2)([...]) and reports as invoking a number.
+        "bar_pct": round(min(pace, 2.0) * 50, 1) if pace is not None else None,
         "band": band, "stalled": stalled, "unmapped": unmapped,
         "projected_month_end": _q(projected), "daily_needed": _q(daily_needed) if daily_needed is not None else None,
         "avg_daily_7": _q(avg7),

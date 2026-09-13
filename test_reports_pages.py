@@ -20,6 +20,7 @@ What it holds:
 """
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -265,6 +266,37 @@ check("the budget is in the activity log under the client",
 
 # --------------------------------------------------------------- wired in
 section("It is in the nav, tiled once, and named on the crumb trail")
+
+section("what the code-quality analyzer reads as JavaScript")
+# CodeQL extracts every {{ ... }} in an HTML file as a JavaScript expression
+# and reads a Jinja filter as a pipe: {{ a|b - 3 }} is the call (b - 3)(a),
+# reported as invoking a number -- on the PR, on every push, for ever. Two
+# lines here did that (the "and N more" count and the pacing bar's width) and
+# both moved into Python, which is where arithmetic belongs anyway. A filter
+# followed by an operator inside a placeholder is the shape; a filter with
+# parentheses ('%.2f'|format(x)) or on its own ([a, b]|min) is not read as one,
+# and a placeholder the JavaScript parser rejects outright -- a Python
+# conditional, `x if c else y` -- is not read at all, so one carrying ` if ` is
+# skipped here for the same reason the analyzer skips it.
+_PIPE_ARITH = re.compile(r"\{\{[^}]*\|\s*[A-Za-z_]+\s*[-+*/%][^}]*\}\}")
+def _read_as_call(placeholder):
+    return bool(_PIPE_ARITH.search(placeholder)) and " if " not in placeholder
+_offenders = []
+for _t in sorted((ROOT / "modules" / "reports" / "templates").glob("*.html")):
+    for _n, _line in enumerate(_t.read_text(encoding="utf-8").splitlines(), 1):
+        for _m in re.finditer(r"\{\{[^}]*\}\}", _line):
+            if _read_as_call(_m.group(0)):
+                _offenders.append(f"{_t.name}:{_n} {_m.group(0)}")
+check("no reports template applies an operator to a filter inside a placeholder",
+      _offenders, [])
+check("...and the sweep can see the shape",
+      _read_as_call("{{ held|length - 3 }}") and
+      _read_as_call("{{ [r.pace * 100, 200]|min / 2 }}") and
+      _read_as_call("{{ '%.2f'|format(o.markup|float * 100) }}"))
+check("...and skips what the parser never reads",
+      not _read_as_call("{{ '%.2f'|format(t.rule.markup * 100) }}") and
+      not _read_as_call("{{ [b.pct, 100]|min }}") and
+      not _read_as_call("{{ '%.2f'|format(o.markup|float * 100) if o.markup is defined else '' }}"))
 
 from hub import sidebar                                             # noqa: E402
 check("the sidebar has a Reports entry",

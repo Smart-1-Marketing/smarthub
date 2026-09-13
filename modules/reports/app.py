@@ -782,6 +782,7 @@ def client_page(client):
     link = store.link_for_client(client)
     period = (request.args.get("period") or "mtd")[:12]
     rng = client_view.period_range(period, today)
+    held = quarantine.held_for_client(client)
     return render_template(
         "reports_client.html",
         client=client, client_name=_client_name_for(client),
@@ -792,7 +793,11 @@ def client_page(client):
         preview=client_view.aggregate(link, period) if link else None,
         campaigns=store.mapped_campaigns_for(client),
         pending=[m for m in store.mapped_campaigns_for(client) if m.get("pending")],
-        held=quarantine.held_for_client(client),
+        # The notice names three held rows and says how many more there are.
+        # That count is arithmetic the route does, not the template: CodeQL
+        # reads {{ a|b - 3 }} in an HTML file as the filter call (b - 3)(a) and
+        # reports a number being invoked, on every push, for ever.
+        held=held, held_more=max(0, len(held) - 3),
         blank_products=client_view.blank_products(client),
         products=products.catalog(),
         pacing=client_view.pacing(client, today),

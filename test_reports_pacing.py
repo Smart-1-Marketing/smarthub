@@ -179,6 +179,12 @@ check("a flight starting on the 16th paces against 15/30 of the month: $1,500",
 check("...expected = 1500 x 5/15", br["expected_to_date"], Decimal("500.00"))
 check("...actual $750, pace 1.50, over", (br["actual_to_date"], br["pace"], br["band"]),
       (Decimal("750.00"), Decimal("1.5"), "over"))
+check("...and the board's bar is the pace out of 2.00x, decided on the row",
+      (tv["bar_pct"], se["bar_pct"], br["bar_pct"]), (50.0, 15.0, 75.0))
+check("...capped at a full bar, so a 10x line cannot draw off the page",
+      max(r["bar_pct"] for r in rows.values() if r["bar_pct"] is not None) <= 100.0)
+check("...and a line with no pace has no bar rather than a zero one",
+      all(r["bar_pct"] is None for r in rows.values() if r["pace"] is None))
 check("...projected: 750 + (4 days x 150 / 7) x 10 remaining", br["projected_month_end"], Decimal("1607.14"))
 check("...daily needed is (1500 - 750) / 10", br["daily_needed"], Decimal("75.00"))
 
