@@ -78,10 +78,18 @@ import hub.proposals as proposals_mod                                # noqa: E40
 import hub as hub_pkg                                                # noqa: E402
 import hub.auth as auth                                              # noqa: E402
 import hub.help as hub_help                                          # noqa: E402
-from hub import audit, qa                                            # noqa: E402
+import hub.qa as qa                                                  # noqa: E402
 from werkzeug.test import Client as WSGIClient                       # noqa: E402
 
 hub_app = wsgi.hub_app
+
+
+def _read(*parts):
+    """A repo file as text -- opened and closed here, so no check leaves a handle open."""
+    with open(os.path.join(ROOT, *parts), encoding="utf-8") as fh:
+        return fh.read()
+
+
 TODAY = date(2026, 9, 13)          # before the 25th: this month is still due
 LATE = date(2026, 9, 26)           # after it: this month is missed
 CLIENT = "Acme Tyre"
@@ -261,7 +269,7 @@ log_rows = client_brand.work_log(CLIENT, limit=100)["items"]
 check("...and holds the same rows the client's own work log holds",
       sorted((r["when"], r["action"]) for r in idx["rows"][CLIENT.lower().replace(" ", "")]),
       sorted((r["when"], r["action"]) for r in log_rows))
-src = open(os.path.join(ROOT, "hub", "client_brand.py"), encoding="utf-8").read()
+src = _read("hub", "client_brand.py")
 check("work_log() and work_index() read one _work_row()",
       src.count("got = _work_row(e)") == 2 and src.count("for key in CLIENT_KEYS:") >= 1)
 
@@ -422,7 +430,7 @@ with hub_app.app_context():
 
 # ---------------------------------------------------------------------------
 section("The screens draw the server's schedule and decide nothing themselves")
-tpl = open(os.path.join(ROOT, "hub", "templates", "proposal_execution.html"), encoding="utf-8").read()
+tpl = _read("hub", "templates", "proposal_execution.html")
 check("the plan page draws a month strip on each kept monthly item", "function promiseStrip" in tpl and "pex-months" in tpl)
 check("...with a press that posts to the plan's own route",
       "function planPromise" in tpl and "/promise`" in tpl)
@@ -432,10 +440,10 @@ check("the page decides no state of its own -- it reads the server's",
 check("the monthly list carries a bubble",
       'data-help="proposal_execution.plan.promises"' in tpl
       and "proposal_execution.plan.promises" in hub_help.as_json()["help"])
-c360 = open(os.path.join(ROOT, "hub", "templates", "client360.html"), encoding="utf-8").read()
+c360 = _read("hub", "templates", "client360.html")
 check("Client 360 prints missed and due promises as pills", "monthly promise" in c360 and "pr.due" in c360)
 check("...and prints nothing where there is no launch date to measure from", "pr.measured!==false" in c360)
-qat = open(os.path.join(ROOT, "hub", "templates", "qa_report.html"), encoding="utf-8").read()
+qat = _read("hub", "templates", "qa_report.html")
 check("the QA page draws the mark control and posts to the same route",
       "promise_mark" in qat and "/promise'" in qat and "qa-promise-go" in qat)
 
