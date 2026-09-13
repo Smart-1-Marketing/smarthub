@@ -400,8 +400,9 @@ check("with somewhere to put the link", 'id="review-link"' in preview, True)
 # There is no mail sender in the Hub. A panel implying we email it is a
 # promise nothing here can keep — hub/user_directory.py made the same point
 # about a forgotten-password form that flagged an admin nobody watches.
-check("and it says the sending is yours to do",
-      "no mail sender" in preview, True)
+check("link creation explicitly does not send", "this does not send a message" in preview, True)
+check("sending names the destination workflow", "through Smart 1 Suite" in preview, True)
+check("link creation and sending have separate controls", 'id="review-create-btn"' in preview and 'id="review-send-btn"' in preview, True)
 check("the bubble is placed", "commercial_builder.preview.review" in preview, True)
 from hub import help as hub_help                                        # noqa: E402
 check("and it resolves to content",

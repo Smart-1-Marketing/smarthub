@@ -106,6 +106,9 @@ def submit_render(project_id):
                 "already approved. Untick to render the rest, or render that "
                 "size on its own to replace it.")}), 409
 
+    from ..budget import status as budget_status
+    if len(requested) > 1 and budget_status(project.id)["configured"]:
+        return jsonify(ok=False, error="With a project spending limit, render one size at a time so a partial batch cannot consume budget unexpectedly."), 409
     formats = requested
     force = data.get("force_despite_qc_failures", False)
 
@@ -216,6 +219,7 @@ def list_render_jobs(project_id):
     jobs = project.render_jobs.order_by(RenderJob.id).all()
     scenes = [s.to_dict() for s in project.scenes.order_by(Scene.order_index).all()]
     from ..services.finished_video import creative_status
+    from ..budget import status as budget_status
     approvals = {a.render_job_id: a.to_dict() for a in
                  RenderApproval.query.filter_by(project_id=project.id).all()}
     rows = []
@@ -239,7 +243,7 @@ def list_render_jobs(project_id):
                     # two lists above: what opens a batch is a rule this route
                     # enforces, and a panel that works it out separately is a
                     # second copy of it that drifts.
-                    "can_batch": bool(approved_formats) and len(remaining) > 1,
+                    "can_batch": bool(approved_formats) and len(remaining) > 1 and not budget_status(project_id)["configured"],
                     "live": creatomate_service.is_live()})
 
 
