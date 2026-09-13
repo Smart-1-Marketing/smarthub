@@ -1,0 +1,60 @@
+{% extends "_reports_base.html" %}
+{% block title %}AudioGo check · Reports{% endblock %}
+{% block heading %}AudioGo check{% endblock %}
+{% block lede %}What AudioGo's reporting endpoint actually answers, against the
+  names <span class="mono">modules/reports/audiogo_map.py</span> expects. Every
+  name in that file is a placeholder until the Reporting API spec arrives;
+  this page calls the configured endpoint for yesterday and prints the raw
+  JSON keys that came back so the real ones can be pasted in.{% endblock %}
+
+{% block body %}
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>The call as configured {{ help_dot('reports.audiogo.check') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">{% if chk.configured %}<span class="s1d-pill ok">configured</span>{% else %}<span class="s1d-pill warn">not configured</span>{% endif %}</span></div>
+  {% if chk.error %}<div class="notice err">{{ chk.error }}</div>{% endif %}
+  <div class="s1d-kv"><b>Request</b>
+    <span class="mono">{{ chk.request.method }} {{ chk.request.url }}
+      {% for k, v in chk.request.params.items() %}<br>&nbsp;&nbsp;{{ k }}={{ v }}{% endfor %}</span></div>
+  <div class="s1d-kv"><b>Auth header</b>
+    <span class="mono">{{ chk.request.auth_header }}: {{ chk.map.auth_prefix }}[AUDIOGO_API_KEY]</span></div>
+  <div class="s1d-kv"><b>Rows expected under</b><span class="mono">{{ chk.map.rows_path or '(the body itself)' }}</span></div>
+  <p class="s1d-hint">Set <span class="mono">AUDIOGO_API_KEY</span> and <span class="mono">AUDIOGO_API_BASE</span>
+    on the service. The path, header and parameter names can be overridden by environment variable
+    (<span class="mono">AUDIOGO_REPORT_PATH</span>, <span class="mono">AUDIOGO_AUTH_HEADER</span>,
+    <span class="mono">AUDIOGO_PARAM_START</span>, <span class="mono">AUDIOGO_FIELD_SPEND</span> ...)
+    while a correction is tried; the settled answer belongs in <span class="mono">audiogo_map.py</span>.</p>
+</div>
+
+<div class="s1d-grid">
+  <div class="s1d-card">
+    <div class="s1d-cardhead"><h2>Field map expected</h2>
+      <span class="s1d-muted">{% if chk.resolves %}{% if chk.resolves.resolved %}<span class="s1d-pill ok">Resolved</span>{% else %}<span class="s1d-pill bad">Does not resolve</span>{% endif %}{% else %}<span class="s1d-muted">not checked</span>{% endif %}</span></div>
+    <div class="s1d-scroll">
+    <table class="s1d-t">
+      <thead><tr><th>Fact column</th><th>Response field</th></tr></thead>
+      <tbody>
+      {% for k, v in chk.map.fields.items() %}
+        <tr><td>{{ k }}</td><td class="mono">{{ v or '(not reported)' }}
+          {% if chk.resolves and v in chk.resolves.missing %}<span class="s1d-pill bad">missing</span>{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% if chk.resolves and chk.resolves.why %}<p class="s1d-hint">{{ chk.resolves.why }}</p>{% endif %}
+  </div>
+
+  <div class="s1d-card">
+    <div class="s1d-cardhead"><h2>What came back for {{ chk.day }}</h2>
+      <span class="s1d-muted">{% if chk.answer %}{{ chk.answer.rows }} row{{ '' if chk.answer.rows == 1 else 's' }}{% else %}nothing read{% endif %}</span></div>
+    {% if chk.answer %}
+      <div class="s1d-kv"><b>Top-level keys</b><span class="mono">{{ chk.answer.top_level|join(', ') or '(none)' }}</span></div>
+      <div class="s1d-kv"><b>Row keys</b><span class="mono">{{ chk.answer.row_keys|join(', ') or '(no rows found under rows_path)' }}</span></div>
+      {% if chk.answer.sample %}
+      <div class="s1d-kv"><b>First row</b><span class="mono">{% for k, v in chk.answer.sample.items() %}{{ k }} = {{ v }}<br>{% endfor %}</span></div>
+      {% endif %}
+    {% else %}
+      <p class="empty">{% if chk.configured %}The endpoint did not answer with something readable; the error above says what happened.{% else %}Set the key and the base URL first.{% endif %}</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

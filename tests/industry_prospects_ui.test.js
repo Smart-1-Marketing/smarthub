@@ -23,10 +23,10 @@ const document={getElementById:get,createElement:tag=>new Element(tag),createTex
   if(selector.startsWith('#ip-results')) return flatten(get('ip-results')).filter(el=>el.tag==='input'&&(!selector.includes(':not')||!el.disabled));
   return [...Object.values(ids),...Object.values(get('ip-form').elements)];
 }};
-let saved=false,bought=false,imported=false;
+let saved=false,bought=false,imported=false,fresh=true,paid=true;
 const calls=[];
 const campaign={id:'c1',name:'Test audience',landing_page:'https://example.com/hvac'};
-const status=()=>({ok:true,missing:[],sync:{phase:'complete',read:100,saved:100,completed:1},fresh:true,paid_enabled:true,auto_sync:false,campaigns:saved?[campaign]:[]});
+const status=()=>({ok:true,missing:[],sync:{phase:'complete',read:100,saved:100,completed:1},fresh,paid_enabled:paid,auto_sync:false,campaigns:saved?[campaign]:[]});
 const fetch=async(url,options={})=>{
   let data;
   if(url.endsWith('/status')) data=status();
@@ -69,5 +69,14 @@ const tick=()=>new Promise(resolve=>setImmediate(resolve));
   assert.ok(importButton);importButton.fire('click');await tick();
   assert.equal(imported,true);
   assert.equal(get('ip-message').textContent,'Contact confirmed in GHL.');
+  fresh=false; paid=false;
+  get('ip-refresh').fire('click');await tick();
+  assert.equal(get('ip-create').disabled,true);
+  assert.equal(get('ip-search').disabled,true);
+  assert.equal(get('ip-buy').disabled,true);
+  const before=calls.length;
+  get('ip-campaign').value='c1';get('ip-open').fire('click');await tick();
+  assert.equal(calls.length,before,'Opening history must not search or spend with stale suppression');
+  assert.match(get('ip-message').textContent,/history loaded/);
   console.log('PASS: UI form capture, search, duplicate exclusion, purchase approval, verification handoff and explicit import.');
 })().catch(error=>{console.error(error);process.exitCode=1;});
