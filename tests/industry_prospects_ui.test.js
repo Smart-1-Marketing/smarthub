@@ -39,7 +39,7 @@ const fetch=async(url,options={})=>{
       case 'search':data={campaign,people:[{id:'p1',name:'Test Owner',company:'Test HVAC',title:'Owner',reason:''},{id:'p2',name:'Existing Owner',company:'Existing HVAC',title:'Owner',reason:'Existing email'}],page:1,total:2,eligible_on_page:1};break;
       case 'quote':assert.deepEqual(body.ids,['p1']);data={id:'plan1',ids:body.ids,max_email_credits:1,note:'GHL billed separately'};break;
       case 'approve':assert.equal(body.confirmed,true);data={id:'plan1',ids:['p1']};break;
-      case 'buy':bought=true;data={status:'ready'};break;
+      case 'purchase_queue':data={status:'queued'};break;
       case 'import':imported=true;data={status:'imported'};break;
       default:throw new Error('Unexpected action '+body.action);
     }
@@ -64,7 +64,11 @@ const tick=()=>new Promise(resolve=>setImmediate(resolve));
   assert.equal(bought,false,'Unchecked approval must not buy');
   get('ip-confirm').checked=true;
   get('ip-buy').fire('click');await tick();
-  assert.equal(bought,true);assert.equal(imported,false,'Buying must not auto-import');
+  assert.equal(bought,false,'Queueing must not buy in the browser request');
+  assert.equal(imported,false,'Queueing must not auto-import');
+  assert.equal(calls.at(-1).action,'purchase_queue');
+  bought=true; // Simulate the separately tested scheduler completing a contact.
+  get('ip-refresh').fire('click');await tick();
   const importButton=flatten(get('ip-history')).find(el=>el.tag==='button');
   assert.ok(importButton);importButton.fire('click');await tick();
   assert.equal(imported,true);
