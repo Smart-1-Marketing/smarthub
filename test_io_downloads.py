@@ -374,7 +374,7 @@ try:
     check("  filed under the client/tool/date/IO/project convention",
           _upload_calls[-1].get("folder"),
           "client-assets/riverside-hvac/io-builder/"
-          + str(__import__("datetime").date.today()) + "/io-20500/project-io-documents")
+          + str(__import__("datetime").datetime.now(__import__("datetime").timezone.utc).date()) + "/io-20500/project-io-documents")
     check("the upload returns a usable URL", result.get("secure_url", "").startswith("https://"))
 
     r = client.post("/api/generate-client-pdf", json=ORDER)
@@ -459,6 +459,17 @@ check("but the direct-download route needs none of that",
                  json={"client": "X", "documentType": "client"}).status_code,
      200)
 
+
+section("Landing review formatting is escaped and structured")
+from reportlab.lib.styles import getSampleStyleSheet
+styles = getSampleStyleSheet()
+styles.add(io.ParagraphStyle(name="S1H2", parent=styles["Heading2"]))
+styles.add(io.ParagraphStyle(name="S1Body", parent=styles["BodyText"]))
+parts = io._review_paragraphs("## Findings\n- **CTA** needs clarity\n1. Next step\n<script>untrusted</script>", styles)
+check("heading uses heading style", parts[0].style.name, "S1H2")
+check("emphasis renders", parts[1].text, "<b>CTA</b> needs clarity")
+check("list has a bullet", bool(parts[1].bulletText))
+check("source HTML remains text", parts[3].text, "&lt;script&gt;untrusted&lt;/script&gt;")
 
 print(f"\n{'-' * 62}\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

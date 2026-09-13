@@ -55,6 +55,8 @@
   <section class="ip-card" aria-labelledby="history-heading">
     <div class="ip-section-head"><div><span class="ip-step">04</span><h2 id="history-heading">Verify & hand off to GHL</h2></div></div>
     <p>Only contacts with a deliverable, low-risk GHL verification result can be imported. Imported contacts receive industry and audience tags. The landing page stays attached to this audience for campaign setup.</p>
+    <p class="ip-note">Approved purchase batches run one contact per scheduler tick after you close the page. They stop on uncertain attempts, expired approval or stale suppression. Refresh progress to see updates. Stop affects future contacts; it cannot undo a call already in progress.</p>
+    <div id="ip-jobs" aria-live="polite"></div>
     <div class="ip-table-wrap"><table><thead><tr><th>Email</th><th>Status</th><th>Details</th><th>Action</th></tr></thead><tbody id="ip-history"><tr><td colspan="4">No purchase history loaded.</td></tr></tbody></table></div>
     <p class="ip-note">Importing can trigger your existing GHL workflows. The builder does not send outreach. Review-required attempts are never automatically repurchased or re-imported.</p>
   </section>

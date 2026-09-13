@@ -30,7 +30,10 @@ Staff page: `/sales/industry-prospects`, under **Sales → Industry Prospects**.
 - Navigation links and next-action text guide Sync → Search → Review → Import. Search and purchase controls explain the suppression prerequisite. Saved history can be opened independently of a new search.
 - Selection review is available while paid operations are disabled. Approval and purchase still enforce the server-side paid gate. The displayed credits are a planning estimate, not an account billing quote; GHL verification volume is shown separately and dollar pricing remains unknown.
 - Interrupted purchase/import rows include stage-specific reconciliation guidance. The interface never clears the operation lock or retries an uncertain paid call.
-- Background purchasing, automated paid reconciliation and GHL webhooks are not introduced in this change. Purchases still run from the reviewed browser workflow. Live provider validation remains required before enabling them.
+- Approved purchases are now queued in the shared database. Queueing spends nothing; the scheduler processes one contact per tick using the saved selection and approving user's identity. Closing the page does not cancel a queued batch. Refresh progress or open saved history to see its state.
+- The approving user can stop remaining purchases. A call already running cannot be cancelled or undone by that button. Worker errors, stale suppression, changed credentials, disabled paid access and expired approval pause the batch. There is no blind resume: reconcile uncertain rows and review a new selection for unattempted contacts.
+- Approval still expires one hour after review creation. A large or slow batch may not finish within that window; the worker does not extend approval or spend after expiry. Imports always require a separate action.
+- Automated paid reconciliation and GHL webhooks remain outside this change. Live provider validation remains required before enabling paid operations.
 
 ## Deliberate limits
 
