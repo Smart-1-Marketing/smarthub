@@ -132,6 +132,9 @@ function render(){
     }
     let extra='';
     if(s.key==='email') extra=`<div id="emailcheck" class="blurb" style="margin-top:10px"></div>`;
+    if(s.key==='ecwid'&&on&&rec.hook_url) extra=`<div style="margin-top:14px"><b style="font-size:13px">Live refresh (optional)</b>
+        <div class="blurb" style="margin:4px 0 8px">The hotsheet re-reads the store every ten minutes. For it to refresh the moment an order lands, paste this address into the Ecwid app as its webhook URL (Ecwid admin › Apps › My apps › the custom app › Webhooks) and tick the order events. It only clears the cache -- nothing in the call is trusted or stored.</div>
+        <div class="share-url"><code>${esc(rec.hook_url)}</code> <button type="button" class="ghost" data-copy="${esc(rec.hook_url)}">Copy</button></div></div>`;
     return `<div class="card" id="sk-${s.key}"><h2><span class="ico">${s.icon}</span>${esc(s.label)} ${status}</h2>
       <p class="blurb">${esc(s.blurb)}</p>
       <div class="row">${fields}</div>
