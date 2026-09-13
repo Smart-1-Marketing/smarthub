@@ -147,6 +147,11 @@ WORK_KINDS = {
     # join the list this file already counts of work filed and then dropped
     # for naming a module the record cannot answer to.
     "creative_studio":      ("Creative Studio", "Creative Studio"),
+    # A question asked with client context is attributable account work. The
+    # assistant records only the question metadata/result status here; the
+    # same audit row should therefore be visible on that client's timeline
+    # instead of being silently discarded as an unknown module.
+    "ask_smarthub":         ("AI question", "Ask SmartHub"),
 }
 
 # The other side of the same question, written down rather than left as an
