@@ -90,6 +90,9 @@ jobs:
       - name: Google Access offline route and OAuth regression tests
         run: python test_google_access_flow.py
 
+      - name: YouTube client access and publishing safeguards
+        run: python test_youtube_studio.py
+
       - name: Client email contact mapping and GHL history
         run: python test_client_email.py
 

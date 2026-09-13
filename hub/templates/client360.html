@@ -224,7 +224,7 @@ const C360_SECTIONS=[
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
   {key:'creative', label:'Creative & brand',  match:['creative infor','client images','brand']},
-  {key:'social',   label:'Social & links',    match:['social media','social content','tracked links','form submissions','approvals & proof links']},
+    {key:'social',   label:'Social & links',    match:['social media','social content','youtube','tracked links','form submissions','approvals & proof links']},
   {key:'work',     label:'Work & requests',   match:['work for this','web tickets']},
 ];
 function c360SectionFor(title){
@@ -514,6 +514,7 @@ function render(g,q){
   html+='</div></div>';
 
   // ---------- Google card ----------
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Video</span><h3>YouTube accounts</h3><a class="open-link" href="${'/tools/youtube/?client='+encodeURIComponent(name)}">Add account &amp; manage access →</a></div><div class="card-b" id="c-youtube"><div class="empty">Loading YouTube accounts…</div></div></div>`;
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GA4, GTM &amp; more</h3><a class="open-link" href="${'/google/?q='+encodeURIComponent(name)}">Open Google Finder →</a></div><div class="card-b" id="c-google"><div id="c-analytics-ids" style="margin-bottom:10px"></div><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
 
   // ---------- GTM Containers (replaces the old Simvoly box) ----------
@@ -721,6 +722,12 @@ function render(g,q){
   html+='</div></div>';               // close the staging grid and its wrapper
   $('results').innerHTML=html;
   sectionize();                       // move every card into its section
+  const youtubeTarget=$('c-youtube');
+  fetch('/tools/youtube/api/client?client='+encodeURIComponent(name)).then(r=>{if(!r.ok)throw new Error();return r.json();}).then(d=>{
+    if(!youtubeTarget.isConnected)return;
+    const channels=(d.client||{}).channels||[];
+    youtubeTarget.innerHTML=channels.length?channels.map(c=>'<div style="padding:8px 0"><b>'+esc(c.title)+'</b><div class="muted">'+esc(c.connection_error?'Reconnect required':c.connected?'Connected for management':'Linked — owner access needed')+'</div></div>').join(''):'<p>No YouTube account linked yet. Add a channel or create an owner access link.</p>';
+  }).catch(()=>{if(youtubeTarget.isConnected)youtubeTarget.textContent='YouTube accounts could not be loaded. Open YouTube Studio to retry.';});
   loadHealth(name);
 
   const term=(name||q);
@@ -2211,7 +2218,8 @@ function render(g,q){
       +'border-radius:8px;font:12.5px inherit">'
       +(safeExternalUrl(v)?'<a href="'+esc(safeExternalUrl(v))+'" target="_blank"'
         +' rel="noopener" style="flex:none" title="Open">↗</a>':'')
-      +'<button type="button" class="s-del" title="Remove this link"'
+        +(k==='youtube'&&v?'<a class="gbtn" href="/tools/youtube/?client='+encodeURIComponent(name)+'&channel='+encodeURIComponent(v)+'">Add account</a>':'')
+        +'<button type="button" class="s-del" title="Remove this link"'
       +' style="flex:none;border:0;background:none;cursor:pointer;color:#94a3b8;'
       +'font-size:16px;line-height:1;padding:0 2px">&times;</button></div>';
   }

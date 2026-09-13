@@ -280,6 +280,7 @@ def _allowed_write(path: str) -> bool:
 # must not quietly cover a parameterized route added under the same prefix
 # later.
 PUBLIC_DYNAMIC: dict[str, str] = {
+    "/connect/youtube/<token>": "a scoped, expiring YouTube owner consent or draft review link",
     "/industry/p/<page_id>": "a published industry page for prospects; drafts return 404",
     "/industry/p/<page_id>/report": "the published page's printable planning guide",
     "/industry/widget/<page_id>": "the published opportunity widget on a client's website",
@@ -416,6 +417,8 @@ def _allowed_dynamic(pattern: str) -> bool:
 # And the writes among them, its own list again. Nothing but an empty JSON
 # body is ever sent and no id resolves, so the sweep creates nothing.
 PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
+    "/connect/youtube/<token>/start": "client starts scoped YouTube consent with CSRF and a valid invite",
+    "/connect/youtube/<token>/review": "client reviews one draft revision with CSRF and an expiring invite",
     "/tools/commercial-builder/review/voice/<token>/submit": "client recording submission requires a pending, unrevoked capture token and speaker consent",
     "/connect/<token>/start": "the client starting the Google Access flow",
     "/sales/builder/api/p/<token>/accept": "the client accepting the "

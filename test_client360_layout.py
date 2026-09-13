@@ -93,6 +93,7 @@ WANT = {
     "Client Images": "creative",
     "Brand & logos": "creative",
     "Social Media": "social",
+    "YouTube accounts": "social",
     "Social content requests": "social",
     "Tracked links": "social",
     "Form submissions": "social",
