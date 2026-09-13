@@ -120,6 +120,12 @@
     <div class="card" id="reviewCard" hidden>
       <h2><span class="n">6</span> Review and download {{ help_dot('gpt_ads.pack.readiness') if help_dot is defined else '' }} <span class="state" id="readyState">&nbsp;</span></h2>
       <p class="req" id="readySummary"></p>
+      <div id="adPreview" aria-label="Ad preview"></div>
+      <p class="hint">Layout preview only. Final placement may differ. Choose final copy in the Copy step.</p>
+      <button class="btn sec" id="duplicatePack">Duplicate campaign</button>
+      <details><summary>Version history — last 20 changes</summary>
+        <div id="historyList"></div><div id="versionComparison"></div>
+      </details>
       <ul class="checklist" id="readyList"></ul>
       <div class="bar" style="margin-top:6px">
         <form method="post" action="/tools/gpt-ads/api/export.zip" id="zipForm" style="display:inline">
@@ -283,6 +289,8 @@
       <div style="margin-top:12px">
         <label class="f" for="notes">Notes for ad operations <span class="opt">&mdash; optional</span></label>
         <textarea id="notes" rows="2" placeholder="Anything the trafficker needs to know"></textarea>
+        <button class="btn sec" id="saveBrandDefaults">Use this brand information for future packs</button>
+        <p class="hint">Logo and colors start from the client brand kit. Save tone, brand rules, and approval contacts here to reuse them for this client.</p>
       </div>
 
     </div>
@@ -291,6 +299,7 @@
   <div class="wizard-actions">
     <button class="btn sec" id="wizardBack" hidden>Back</button>
     <div id="saveActions" hidden><button class="btn sec" id="save">Save pack</button>
+      <button class="btn sec" id="recoverDraft" hidden>Recover unsaved draft</button>
       <span class="msg" id="savemsg" role="status"></span></div>
     <button class="btn" id="wizardNext" hidden>Continue</button>
     <button class="btn sec" id="newPack" hidden>Start another pack</button>
@@ -311,6 +320,22 @@
 var BOOT = JSON.parse(document.getElementById("boot").textContent);
 var SPEC = BOOT.spec;
 var state = {client:"", url:"", pack:null, context:null};
+var dirty = false, autosaveTimer = null;
+function draftKey(){ return 'gpt-ad-draft:' + (state.pack || {}).id; }
+function markDirty(){
+  if (!state.pack) return;
+  dirty = true;
+  say('savemsg', 'Unsaved changes');
+  try { sessionStorage.setItem(draftKey(), JSON.stringify(formPayload())); } catch (_) {}
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(function autosave(){
+    if (requestBusy || saving) { autosaveTimer = setTimeout(autosave, 1500); return; }
+    if (dirty) save(null, true);
+  }, 1800);
+}
+document.addEventListener('input', function(ev){ if (ev.target.closest('#packArea, #clientCard') && state.pack) markDirty(); });
+document.addEventListener('change', function(ev){ if (ev.target.closest('#packArea') && state.pack) markDirty(); });
+window.addEventListener('beforeunload', function(ev){ if (dirty) { ev.preventDefault(); ev.returnValue = ''; } });
 
 function $(id){ return document.getElementById(id); }
 var stepIndex = 0;
@@ -395,7 +420,7 @@ var requestBusy = false;
 function request(url, options){
   if (requestBusy) return Promise.resolve({ok:false, error:'Another request is still running.'});
   requestBusy = true;
-  var controls = Array.from(document.querySelectorAll('.card input, .card textarea, .card button, #steps button, #wizardBack, #wizardNext, #save, #newPack'));
+  var controls = Array.from(document.querySelectorAll('.card input, .card textarea, .card button, #steps button, #wizardBack, #wizardNext, #save, #newPack, #recoverDraft'));
   var disabled = controls.map(function(el){ return el.disabled; });
   controls.forEach(function(el){ el.disabled = true; });
   var controller = new AbortController();
@@ -507,6 +532,8 @@ $("start").addEventListener("click", function(){
 });
 
 function adopt(d, step){
+  clearTimeout(autosaveTimer);
+  dirty = false;
   state.pack = d.ad;
   if (d.context) { state.context = d.context; renderContext(); }
   $("packArea").hidden = false;
@@ -519,6 +546,8 @@ function adopt(d, step){
   renderLanding();
   renderGallery();
   showStep(step == null ? 5 : step, true);
+  try { $('recoverDraft').hidden = !sessionStorage.getItem(draftKey()); } catch (_) {}
+  renderEnhancements();
 }
 
 function fillForm(){
@@ -549,6 +578,8 @@ function fillForm(){
 
 function formPayload(){
   return withId({
+    revision: state.pack.revision || 0,
+    selected_copy: state.pack.selected_copy || {},
     campaign: $("campaign").value.trim(),
     notes: $("notes").value,
     image_brief: $("imageBrief").value,
@@ -575,8 +606,9 @@ function formPayload(){
 }
 
 var saving = false;
-function save(then){
+function save(then, automatic){
   if (!state.pack || saving) return;
+  var wasDirty = dirty;
   saving = true;
   say("savemsg", "Saving…");
   post("/tools/gpt-ads/api/ads/save", formPayload()).then(function(d){
@@ -584,10 +616,17 @@ function save(then){
     if (!d.ok) { say("savemsg", d.error, "err"); return; }
     say("savemsg", "Saved.", "ok");
     state.pack = d.ad;
+    dirty = false;
+    clearTimeout(autosaveTimer);
+    if (wasDirty) {
+      try { sessionStorage.removeItem(draftKey()); } catch (_) {}
+      $('recoverDraft').hidden = true;
+    }
     renderReadiness(d.readiness);
-    renderCopy();
+    if (!automatic) renderCopy();
     renderLanding();
     loadSaved();
+    renderEnhancements();
     if (then) { then(); }
   }).catch(function(){
     saving = false;
@@ -697,6 +736,8 @@ function renderCopy(){
       var text = row.text || "";
       var over = text.length > SPEC.limits[k.limit];
       return '<div class="opt-row">' +
+        '<label><input type="radio" name="final-' + k.key + '" data-choice="' + k.key + '" data-choice-index="' + i + '"' +
+        ((p.selected_copy || {})[k.key] === text && text ? ' checked' : '') + '> Final</label>' +
         '<input type="text" data-kind="' + k.key + '" data-i="' + i + '" value="' + esc(text) + '">' +
         '<span class="chars' + (over ? " over" : "") + '">' + text.length + "/" +
         SPEC.limits[k.limit] + "</span>" +
@@ -737,12 +778,14 @@ $("copyBlocks").addEventListener("click", function(ev){
     state.pack.copy = collectCopy(true);
     if (!state.pack.copy.ctas.some(function(row){ return row.text.toLowerCase() === cta.toLowerCase(); })) state.pack.copy.ctas.push({text:cta});
     renderCopy();
+    markDirty();
     return;
   }
   if (add) {
     state.pack.copy = collectCopy(true);
     state.pack.copy[add].push({text:"", flags:[]});
     renderCopy();
+    markDirty();
   } else if (drop) {
     var i = parseInt(ev.target.getAttribute("data-i"), 10);
     state.pack.copy = collectCopy(true);
@@ -750,7 +793,15 @@ $("copyBlocks").addEventListener("click", function(ev){
     rows.splice(i, 1);
     state.pack.copy[drop] = rows;
     renderCopy();
+    markDirty();
   }
+});
+$("copyBlocks").addEventListener('change', function(ev){
+  if (!ev.target.dataset.choice) return;
+  var kind = ev.target.dataset.choice;
+  state.pack.selected_copy = state.pack.selected_copy || {};
+  state.pack.selected_copy[kind] = collectCopy(true)[kind][Number(ev.target.dataset.choiceIndex)].text;
+  markDirty();
 });
 $("copyBlocks").addEventListener("input", function(ev){
   if (!ev.target.getAttribute("data-kind")) return;
@@ -797,7 +848,7 @@ function renderImage(){
     return;
   }
   $("thumb").hidden = false;
-  $("thumb").src = img.url;
+  $("thumb").src = img.thumb || img.url;
   $("thumb").alt = img.alt || "attached square image";
   var lines = [
     "<b>" + img.width + " &times; " + img.height + "</b> &middot; " +
@@ -990,6 +1041,61 @@ $('newPack').addEventListener('click', function(){
     say('savemsg', '');
     showStep(0, true);
   });
+});
+function renderEnhancements(){
+  var p = state.pack;
+  if (!p) return;
+  var selected = p.selected_copy || {};
+  $('adPreview').innerHTML = '<article style="max-width:420px;border:1px solid #ccd4df;border-radius:12px;overflow:hidden;margin:16px 0">' +
+    (p.image && p.image.url ? '<img src="' + esc(p.image.thumb || p.image.url) + '" alt="' + esc(p.image.alt || 'Ad image preview') + '" style="width:100%;aspect-ratio:1;object-fit:contain">' : '<p>No image selected</p>') +
+    '<div style="padding:16px"><small>' + esc(p.client) + '</small><h3>' + esc(selected.headlines || 'Select a final headline') + '</h3><p>' +
+    esc(selected.bodies || 'Select final body copy') + '</p><strong>' + esc(selected.ctas || 'Select a final CTA') + '</strong><p>' +
+    esc((p.landing || {}).url || 'Add destination URL') + '</p></div></article>';
+  $('historyList').innerHTML = (p.history || []).slice().reverse().map(function(h){
+    return '<p>Version ' + h.revision + ' · ' + esc(h.at) + ' · ' + esc(h.by) +
+      ' <button class="btn sec sm" data-compare="' + h.revision + '">Compare</button>' +
+      ' <button class="btn sec sm" data-restore="' + h.revision + '">Restore as draft</button></p>';
+  }).join('') || '<p>No earlier versions yet.</p>';
+}
+$('duplicatePack').addEventListener('click', function(){
+  save(function(){ post('/tools/gpt-ads/api/ads/duplicate', withId({})).then(function(d){
+    if (!d.ok) { say('readymsg', d.error, 'err'); return; }
+    adopt(d, 1); loadSaved();
+    say('savemsg', 'Copied as a draft. Re-enter the offer and tracking, choose final copy, and recheck approvals.');
+  }); });
+});
+$('saveBrandDefaults').addEventListener('click', function(){
+  save(function(){ post('/tools/gpt-ads/api/ads/brand-defaults', withId({})).then(function(d){
+    say('savemsg', d.ok ? 'Brand defaults saved for this client’s future packs.' : d.error, d.ok ? 'ok' : 'err');
+  }); });
+});
+$('historyList').addEventListener('click', function(ev){
+  var revision = Number(ev.target.dataset.compare || ev.target.dataset.restore);
+  var version = (state.pack.history || []).find(function(h){ return h.revision === revision; });
+  if (!version) return;
+  if (ev.target.dataset.compare) {
+    function summary(p){
+      return '<h4>' + esc(p.campaign) + '</h4><p>Offer: ' + esc((p.offer || {}).summary) + '</p>' +
+        ['headlines','bodies','ctas'].map(function(k){ return '<p><b>' + esc(k) + '</b>: ' + esc(((p.copy || {})[k] || []).map(function(r){ return r.text; }).join(' | ')) + '</p>'; }).join('') +
+        (p.image && p.image.url ? '<img src="' + esc(p.image.thumb || p.image.url) + '" alt="Version image" style="width:160px">' : '<p>No image</p>');
+    }
+    $('versionComparison').innerHTML = '<div class="grid"><section><h3>Current</h3>' + summary(state.pack) + '</section><section><h3>Version ' + revision + '</h3>' + summary(version.snapshot) + '</section></div>';
+  } else {
+    save(function(){ post('/tools/gpt-ads/api/ads/restore', withId({restore_revision:revision})).then(function(d){
+      if (!d.ok) { say('readymsg', d.error, 'err'); return; }
+      adopt(d); say('savemsg', 'Version restored as a draft. Select final copy and recheck the image and destination.');
+    }); });
+  }
+});
+$('recoverDraft').addEventListener('click', function(){
+  try {
+    var draft = JSON.parse(sessionStorage.getItem(draftKey()));
+    if (!draft || draft.id !== state.pack.id) return;
+    ['campaign','notes','image_brief','offer','brand','landing','copy','selected_copy'].forEach(function(k){ if (draft[k] != null) state.pack[k] = draft[k]; });
+    if (state.pack.image && state.pack.image.url === draft.image_approval_url) state.pack.image.alt = draft.image_alt || '';
+    fillForm(); renderCopy(); renderEnhancements(); showStep(2,true); markDirty();
+    say('savemsg', 'Recovered local edits. Autosave will save them shortly.');
+  } catch (_) { say('savemsg', 'This local draft could not be recovered.', 'err'); }
 });
 // ---------------------------------------------------------------- boot
 showStep(0, false);

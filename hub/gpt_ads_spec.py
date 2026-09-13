@@ -441,6 +441,11 @@ def readiness(ad: dict) -> dict:
                               "message": f"{names[kind].title()} “"
                                          f"{str(row.get('text'))[:40]}”: "
                                          f"{flag['message']}"})
+    for kind in ("headlines", "bodies", "ctas"):
+        selected = (ad.get("selected_copy") or {}).get(kind)
+        if not selected or selected not in [r.get("text") for r in copy_options(ad, kind)]:
+            flags.append({"level": "block", "code": "copy_selection",
+                          "message": f"Choose the final {names[kind]} for the ad preview and handoff."})
     sections.append(section("copy", flags))
 
     # ---- 3. the landing page ----
@@ -678,14 +683,15 @@ def copy_csv(ad: dict) -> str:
     ad = revalidate(ad or {})
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(COPY_COLUMNS)
+    writer.writerow(list(COPY_COLUMNS) + ["Selection"])
     for kind, label in (("headlines", "Headline"), ("bodies", "Body"),
                         ("ctas", "CTA")):
         for row in copy_options(ad, kind):
             text = str(row.get("text") or "").strip()
             flags = "; ".join(f"{f['level']}: {f['message']}"
                               for f in (row.get("flags") or []))
-            writer.writerow([label, text, len(text), flags])
+            writer.writerow([label, text, len(text), flags,
+                             "FINAL" if (ad.get("selected_copy") or {}).get(kind) == text else "Alternative"])
     return buf.getvalue()
 
 
@@ -733,6 +739,7 @@ def manifest(ad: dict, *, image_filename: str = "") -> dict:
             for kind in ("headlines", "bodies", "ctas")
         },
         "copy_guidance": {"limits": dict(LIMITS), "source": LIMITS_SOURCE},
+        "selected_copy": ad.get("selected_copy") or {},
         "landing_page": {
             "url": landing.get("url") or "",
             "tracking": landing.get("tracking") or "",
@@ -778,6 +785,9 @@ def handoff_brief(ad: dict, *, image_filename: str = "") -> str:
     L: list[str] = []
     L.append("GPT AD — CREATIVE HANDOFF")
     L.append("=" * 60)
+    L.append("FINAL COPY SELECTION (other copy below is alternative copy)")
+    for kind in ("headlines", "bodies", "ctas"):
+        L.append(f"{kind}: {(ad.get('selected_copy') or {}).get(kind) or 'Not selected'}")
     L.append(f"Client:    {_v(ad.get('client'))}")
     L.append(f"Campaign:  {_v(ad.get('campaign'))}")
     L.append(f"Prepared:  {_now()} by {_v(ad.get('updated_by') or ad.get('created_by'))}")
