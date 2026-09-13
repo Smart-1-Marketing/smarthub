@@ -2923,6 +2923,13 @@ jobs:
       # supersedes a held one by itself.
       - name: Reports quarantine
         run: python3 test_reports_quarantine.py
+      # Does the fact table add up to the month the platform would invoice?
+      # Google's customer-level query as the one independent total, a
+      # provider table or StackAdapt's month re-read as the same feed summed
+      # whole, compared through yesterday on both sides; a platform that
+      # cannot be asked is not measured with the reason, never agreeing.
+      - name: Reports reconcile
+        run: python3 test_reports_reconcile.py
       - name: The reports tests against Postgres
         env:
           REPORTS_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
@@ -2931,7 +2938,8 @@ jobs:
                    test_reports_public.py test_reports_crossover.py test_reports_pages.py \
                    test_reports_seo.py test_reports_ttd.py test_reports_stackadapt.py \
                    test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
-                   test_reports_confirmations.py test_reports_quarantine.py; do
+                   test_reports_confirmations.py test_reports_quarantine.py \
+                   test_reports_reconcile.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1
           done
 

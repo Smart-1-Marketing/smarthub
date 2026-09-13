@@ -107,6 +107,10 @@
         or rename it in the platform to <span class="mono">S1M | &lt;ClientKey&gt; | &lt;Product&gt; | &lt;anything&gt;</span>
         and the auto-mapper files it, <a href="/reports/unmapped#pending">waiting for somebody to confirm</a>
         before it reaches the client's page.</span></div>
+    <div class="s1d-kv"><b>Reconcile</b>
+      <span><a href="/reports/reconcile">Our month against the platform's own total</a>, per platform,
+        measured nightly{% if drifting %} &mdash; <b class="s1d-warn">{{ drifting|length }} in drift</b>:
+        {% for d in drifting %}{{ d.label }} {{ d.month }}{{ ', ' if not loop.last else '' }}{% endfor %}{% endif %}.</span></div>
     <div class="s1d-kv"><b>Quarantine</b>
       <span><a href="/reports/quarantine">Rows a sync proposed that cannot be true</a> &mdash;
         more clicks than impressions, a negative figure, a day that has not happened, a spend

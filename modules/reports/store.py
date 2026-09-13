@@ -442,6 +442,37 @@ class Quarantine(Base):
 QUARANTINE_STATUSES = ("held", "accepted", "discarded", "superseded")
 
 
+class Reconcile(Base):
+    """One platform's month, our fact table's total beside the platform's
+    own, as the nightly reconcile last measured it.
+
+    The fact table is campaign-days summed; nothing else in the module can
+    say whether that sum is the month the platform would invoice. This row
+    is that comparison, kept per platform per month so the page can show
+    the previous month closing as the platform restates it. ``independent``
+    says whether ``theirs`` came from a different aggregation the platform
+    computed (Google's customer-level query) or from the same feed re-read
+    whole (a provider table summed), because the two catch different
+    mistakes and only the first can catch a systematic one.
+    """
+    __tablename__ = "reports_reconcile"
+
+    platform = Column(String(20), primary_key=True)
+    month = Column(String(7), primary_key=True)
+    state = Column(String(20), nullable=False)
+    ours = Column(Numeric(14, 2), nullable=True)
+    theirs = Column(Numeric(14, 2), nullable=True)
+    drift_pct = Column(Numeric(8, 2), nullable=True)
+    ours_impressions = Column(BigInteger, nullable=True)
+    theirs_impressions = Column(BigInteger, nullable=True)
+    held = Column(Integer, default=0)
+    independent = Column(Boolean, nullable=True)
+    source_label = Column(String(200), default="")
+    reason = Column(Text, default="")
+    through = Column(Date, nullable=True)
+    computed_at = Column(DateTime(timezone=True), default=now)
+
+
 class ProviderConfirmation(Base):
     """A person's confirmation that a platform's provider column map reads
     the right columns -- taken against a sample raw row on
@@ -1723,6 +1754,76 @@ def has_synced(platform: str) -> bool:
         return False
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Reconcile
+# ---------------------------------------------------------------------------
+
+def month_totals(platform: str, start: date, end: date) -> dict:
+    """Our side of a reconcile: every fact row of one platform in a date
+    range summed, mapped or not, confirmed or not -- the platform's own
+    total covers the whole account, so ours has to as well."""
+    platform = check_platform(platform)
+    db = SessionLocal()
+    try:
+        spend, imps, clicks, rows = (db.query(func.sum(AdPerfDaily.spend),
+                                              func.sum(AdPerfDaily.impressions),
+                                              func.sum(AdPerfDaily.clicks), func.count())
+                                       .filter(AdPerfDaily.platform == platform,
+                                               AdPerfDaily.date >= start, AdPerfDaily.date <= end)
+                                       .one())
+        return {"spend": Decimal(spend or 0), "impressions": int(imps or 0),
+                "clicks": int(clicks or 0), "rows": int(rows or 0)}
+    finally:
+        db.close()
+
+
+def write_reconcile(row: dict) -> None:
+    """Upsert one platform-month's comparison. Never raises past the
+    caller's own try: a ledger that fails must not cost the run its
+    answer."""
+    db = SessionLocal()
+    try:
+        r = db.get(Reconcile, (row["platform"], row["month"]))
+        if r is None:
+            r = Reconcile(platform=row["platform"], month=row["month"])
+            db.add(r)
+        for k in ("state", "ours", "theirs", "drift_pct", "ours_impressions", "theirs_impressions",
+                  "held", "independent", "source_label", "reason", "through"):
+            if k in row:
+                setattr(r, k, row[k])
+        r.computed_at = now()
+        db.commit()
+    finally:
+        db.close()
+
+
+def reconcile_rows(months: int = 3) -> list[dict]:
+    """The latest comparison per platform per month, newest month first,
+    every platform listed for each month the run has covered."""
+    db = SessionLocal()
+    try:
+        rows = (db.query(Reconcile).order_by(Reconcile.month.desc(), Reconcile.platform).all())
+    except Exception:                  # noqa: BLE001 - no table yet
+        return []
+    finally:
+        db.close()
+    keep = sorted({r.month for r in rows}, reverse=True)[:max(1, int(months))]
+    out = []
+    for r in rows:
+        if r.month not in keep:
+            continue
+        out.append({
+            "platform": r.platform, "label": platform_label(r.platform), "month": r.month,
+            "state": r.state, "ours": r.ours, "theirs": r.theirs, "drift_pct": r.drift_pct,
+            "ours_impressions": r.ours_impressions, "theirs_impressions": r.theirs_impressions,
+            "held": int(r.held or 0), "independent": r.independent,
+            "source_label": r.source_label or "", "reason": r.reason or "",
+            "through": r.through.isoformat() if r.through else None,
+            "computed_at": iso(r.computed_at),
+        })
+    return out
 
 
 # ---------------------------------------------------------------------------

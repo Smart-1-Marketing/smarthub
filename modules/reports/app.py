@@ -41,7 +41,7 @@ from flask import (Flask, Response, jsonify, redirect, render_template,
 
 from hub.webargs import clamp_int
 
-from . import client_pdf, client_view, organic, pacing, products, quarantine, store
+from . import client_pdf, client_view, organic, pacing, products, quarantine, reconcile, store
 
 try:                                   # the shared last-hop rule for a caller's address
     from hub import leads as hub_leads
@@ -155,6 +155,7 @@ def index():
         unmapped=store.unmapped_count(),
         pending=store.pending_count(),
         held=quarantine.counts(),
+        drifting=reconcile.drifting(),
         facts=store.fact_count(),
         binding=store.binding(),
         markups=[m for m in store.markups()
@@ -279,6 +280,37 @@ def provider_withdraw():
          detail=f"{store.platform_label(platform)}'s provider column map confirmation "
                 f"(by {gone['by']}) withdrawn; the normalize stops reading it")
     return redirect(back + f"?saved={platform}-withdrawn")
+
+
+# --------------------------------------------------------------- reconcile
+@app.route("/reconcile")
+def reconcile_page():
+    """Our month against the platform's own, per platform, as the nightly
+    run last measured it -- and a button to measure now."""
+    rows = store.reconcile_rows(months=3)
+    months = sorted({r["month"] for r in rows}, reverse=True)
+    return render_template(
+        "reports_reconcile.html",
+        rows=rows, months=months, labels=reconcile.STATE_LABELS,
+        tolerance=reconcile.TOLERANCE_PCT, source=reconcile.TOLERANCE_SOURCE,
+        not_measurable=reconcile.NOT_MEASURABLE,
+        error=request.args.get("error", ""), saved=request.args.get("saved", ""))
+
+
+@app.route("/reconcile/run", methods=["POST"])
+def reconcile_run():
+    """Measure now. A POST, because it reaches Google and the platforms:
+    a GET that spends API calls is one a reload or a prefetch fires."""
+    try:
+        res = reconcile.run(actor=actor_name())
+    except Exception as exc:                   # noqa: BLE001
+        app.logger.exception("reports: reconcile run failed")
+        return redirect(url_for("reconcile_page") + "?error="
+                        + f"The reconcile could not run ({type(exc).__name__}).".replace(" ", "+"))
+    _log("reports_reconcile_run",
+         detail=f"reconciled {', '.join(res['months'])}: {res['agree']} agree, {res['drift']} drift, "
+                f"{res['not_measured']} not measured")
+    return redirect(url_for("reconcile_page") + "?saved=run")
 
 
 # -------------------------------------------------------------- quarantine

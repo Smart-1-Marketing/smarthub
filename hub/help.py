@@ -948,6 +948,17 @@ REGISTRY: list[Help] = [
        "it answered with, the key itself never among them, so the real "
        "names can be pasted into the map. Until it resolves the pull lands "
        "nothing and the Reports page says which field is missing."),
+    _h("reports.reconcile.states", "Our month against the platform's own",
+       "Everything a client reads is campaign-days summed, and nothing else "
+       "could say whether that sum is the month the platform would invoice. "
+       "Each night this asks the platform for its own figure -- Google's "
+       "customer-level query is independent of the daily pull; a provider "
+       "table or StackAdapt's month re-read is the same feed summed whole "
+       "-- and compares through yesterday, on both sides. Drift past the "
+       "house tolerance is named on /status and the dashboard. A platform "
+       "that cannot be asked reads not measured with the reason, never as "
+       "agreeing; rows held in quarantine are counted beside the drift, "
+       "because they are its likeliest explanation."),
     _h("reports.quarantine.rules", "Held, never filed and never refused whole",
        "A row a sync proposes that cannot be true -- more clicks than "
        "impressions, a negative figure, a day that has not happened, spend "

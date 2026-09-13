@@ -125,6 +125,16 @@ def _held() -> int | None:
         return None
 
 
+def _drifting() -> list[dict] | None:
+    """Platform-months whose fact table does not add up to the platform's
+    own figure, or None when the ledger cannot be read."""
+    try:
+        from . import reconcile
+        return reconcile.drifting()
+    except Exception:                                       # noqa: BLE001
+        return None
+
+
 def _alerts() -> int | None:
     """Lines alerting on the latest pacing run, or None when it cannot be read."""
     try:
@@ -150,12 +160,21 @@ def status_row() -> tuple[str, str]:
     failing = [p["label"] for p in f["platforms"] if p["state"] == "failing"]
     stale = [p["label"] for p in f["platforms"] if p["state"] == "stale"]
     held = _held()
-    if failing or stale or held:
+    drift = _drifting() or []
+    if failing or stale or held or drift:
         parts = []
         if failing:
             parts.append("failing: " + ", ".join(failing))
         if stale:
             parts.append(f"stale (no new day in {STALE_DAYS}+ days): " + ", ".join(stale))
+        if drift:
+            # The fact table's month and the platform's own do not agree:
+            # what a client reads is smaller or larger than what the
+            # platform will invoice, and nothing else on the page says so.
+            parts.append("not adding up to the platform's own month: "
+                         + ", ".join(f"{d['label']} {d['month']} ({d['drift_pct']}%)" for d in drift[:4])
+                         + (f" and {len(drift) - 4} more" if len(drift) > 4 else "")
+                         + " (/reports/reconcile)")
         if held:
             # A held row is a day missing from somebody's page until a
             # person decides on it, which is work rather than a fault --
@@ -196,10 +215,12 @@ def scoreboard() -> dict:
     except Exception:                                       # noqa: BLE001
         pending = None
     held = _held()
+    drift = _drifting()
     alerts = _alerts()
     ever = f["ok"] + f["failing"] + f["stale"]
     counts = {"ok": f["ok"], "failing": f["failing"], "stale": f["stale"], "never": f["never"],
-              "unmapped": unmapped, "pending": pending, "held": held, "alerts": alerts}
+              "unmapped": unmapped, "pending": pending, "held": held,
+              "drift": len(drift) if drift is not None else None, "alerts": alerts}
     if ever == 0:
         line = ("No feed has synced yet: the native pulls need their keys and the provider "
                 "its first table. Nothing is being reported to any client.")
@@ -218,6 +239,9 @@ def scoreboard() -> dict:
             bits.append(f"{pending} filed from a name and waiting for confirmation")
         if held:
             bits.append(f"{held} row{'s' if held != 1 else ''} held in quarantine")
+        if drift:
+            bits.append(f"{len(drift)} platform-month{'s' if len(drift) != 1 else ''} not adding up "
+                        "to the platform's own total")
         if alerts:
             bits.append(f"{alerts} line{'s' if alerts != 1 else ''} pacing off for three days")
         elif alerts == 0:
@@ -229,8 +253,13 @@ def scoreboard() -> dict:
         "binding": f["binding"],
         "urls": {"feeds": "/reports/", "unmapped": "/reports/unmapped",
                  "pending": "/reports/unmapped#pending", "held": "/reports/quarantine",
+                 "drift": "/reports/reconcile",
                  "alerts": "/reports/pacing?band=under", "pacing": "/reports/pacing"},
         "platforms": [{"label": p["label"], "state": p["state"], "detail": p["detail"]}
-                      for p in f["platforms"] if p["state"] in ("failing", "stale")],
+                      for p in f["platforms"] if p["state"] in ("failing", "stale")]
+                     + [{"label": f"{d['label']} {d['month']}", "state": "drift",
+                         "detail": (f"our ${d['ours']:,.2f} against the platform's ${d['theirs']:,.2f}, "
+                                    f"{d['drift_pct']}% apart")}
+                        for d in (drift or [])],
         "as_of": datetime.now(timezone.utc).isoformat(),
     }
