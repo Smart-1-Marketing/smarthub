@@ -6,7 +6,7 @@ Follow **Brief → Design → Review → Send**. The editor autosaves after a pa
 
 Review builds a contact sheet of every supported size, platform and concept. Problem sizes appear first, with direct links to their headline, crop and replacement controls. **Approve all passing sizes** signs only sizes whose purchased platforms all pass QA. Warnings and manual replacements require individual visual approval. Send becomes available only after every placement in the proof has staff approval.
 
-Print the contact sheet to PDF or compare saved versions. Comparison uses captured artwork, including older source images; it never recreates historical ads from current assets. Amazon 250×250 remains disabled pending a verified specification.
+Printing always includes the whole contact sheet, even when the screen is filtered to problem sizes. You can also compare saved versions. Comparison uses captured artwork, including older source images; it never recreates historical ads from current assets. Amazon 250×250 remains disabled pending a verified specification.
 
 ## Smart 1 emails its client
 
@@ -25,7 +25,7 @@ Proof links contain an unguessable token and expose only that frozen version. St
 
 Email attempts are saved durably before calling GHL. Double clicks and repeated requests do not send twice. A timeout or uncertain response stays blocked for review in GHL; it is never automatically resent. Reopening Send displays an existing attempt and reconciles a stored receipt with the campaign timeline.
 
-Render and review jobs survive a service restart on the persistent disk. Interrupted final packaging is recovered at startup; replaying approval does not duplicate delivery receipts. This queue supports the current single-instance deployment. Scaling to multiple instances requires a shared queue and shared transactional storage.
+Campaign records and their index use atomic replacement so an interrupted save preserves the previous complete record. Render and review jobs survive a service restart on the persistent disk. Interrupted final packaging is recovered at startup; replaying approval does not duplicate delivery receipts. This queue supports the current single-instance deployment. Scaling to multiple instances requires a shared queue and shared transactional storage.
 
 ## Validation
 
