@@ -70,6 +70,7 @@ MODULES = [
     {"key": "sites", "label": "Sites", "href": "/sites/", "tag": "Simvoly"},
     {"key": "suite", "label": "Suite", "href": "/suite/", "tag": "GHL"},
     {"key": "scans", "label": "Site Scans", "href": "/scans/", "tag": "Insites"},
+    {"key": "reports", "label": "Reports", "href": "/reports/", "tag": "Ads"},
     {"key": "tools", "label": "Tools", "href": "/tools", "tag": ""},
 ]
 

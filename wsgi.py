@@ -89,6 +89,9 @@ def _owes_password_change(environ) -> bool:
 _MOUNT_ACTIVE = {
     "/google": "google", "/sites": "sites", "/suite": "suite",
     "/scans": "scans",
+    # Its own entry: ad performance across every platform, the campaign map
+    # and the budgets those campaigns pace against.
+    "/reports": "reports",
     # Both point at the one sidebar entry: /sales/proposals is the retired
     # standalone builder and redirects to /sales/builder.
     "/sales/builder": "salesb", "/sales/proposals": "salesb",
@@ -448,6 +451,15 @@ except Exception as _sc_exc:  # noqa: BLE001
     scans, scans_fb = None, _fallback_app("Scans", str(_sc_exc))
 
 try:
+    import importlib as _il_reports
+    reports = _il_reports.import_module("modules.reports.app")
+    reports_fb = None
+except Exception as _rp_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    reports, reports_fb = None, _fallback_app("Reports", str(_rp_exc))
+
+try:
     import importlib as _il3
     seoimg = _il3.import_module("modules.seo_images.app")
     seoimg_fb = None
@@ -732,6 +744,13 @@ except Exception as _exc_std:  # noqa: BLE001
 _SCANS_PUBLIC = tuple(getattr(scans, "PUBLIC_PREFIXES", ("/api/callback",))) \
     if scans else ("/api/callback",)
 
+# Reports declares its client-facing prefix (/r/c/ -- the live dashboard a
+# client opens at their own link, its PDF and its data) and it is read from
+# the module rather than restated here, so the mount and the module cannot
+# disagree about what is public. _mount hands it to both AuthGuard (no
+# login) and HubBar (no chrome), the modules/scans arrangement.
+_REPORTS_PUBLIC = tuple(getattr(reports, "PUBLIC_PREFIXES", ())) if reports else ()
+
 # Same arrangement for Smart 1 Ads: /tools/ads/estimate/<token> is the campaign
 # estimate a CLIENT opens, and a client has no Hub login. Read from the module
 # so the two halves cannot drift, and passed to _mount, which hands it to both
@@ -805,6 +824,10 @@ application = DispatcherMiddleware(hub_app, {
     # unguessable link a converted lead opens their own report on.
     "/scans": _mount(scans.app, "/scans",
                      public_prefixes=_SCANS_PUBLIC) if scans else scans_fb,
+    # Ad performance reporting. Its tables live in their own database
+    # (REPORTS_DATABASE_URL); the module explains why.
+    "/reports": _mount(reports.app, "/reports",
+                       public_prefixes=_REPORTS_PUBLIC) if reports else reports_fb,
     "/sales/builder": _mount(salesb.app, "/sales/builder",
                              public_prefixes=_SALESB_PUBLIC) if salesb else salesb_fb,
     "/sales/proposals": _mount(propb.app, "/sales/proposals") if propb else propb_fb,
