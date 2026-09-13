@@ -79,7 +79,6 @@
     "marketing-audit": "Marketing Efficiency Audit",
     "gpt-ads": "GPT Ads Builder", "social": "Social Content Planner",
     "site-blocks": "Website Blocks",
-    "sites-builder": "Smart 1 Sites Builder",
     "smartforecast": "SmartForecast Dynamic Website",
     "widgets": "Scan Widgets",
     "google-access": "Google Access", "utm": "UTM Builder",
