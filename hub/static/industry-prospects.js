@@ -59,6 +59,7 @@
     $('ip-campaign').replaceChildren(new Option('Choose an audience', ''));
     data.campaigns.forEach(c => $('ip-campaign').add(new Option(c.name, c.id)));
     $('ip-campaign').value = active || choice;
+    $('ip-factory').href = '/sales/industry-factory' + ($('ip-campaign').value ? '?audience=' + encodeURIComponent($('ip-campaign').value) : '');
     return data;
   }
   async function sync(resume) {
@@ -154,6 +155,9 @@
     if (!active) throw new Error('Choose a saved audience.');
     await history(); await search(1);
   });
+  $('ip-campaign').onchange = () => {
+    $('ip-factory').href = '/sales/industry-factory' + ($('ip-campaign').value ? '?audience=' + encodeURIComponent($('ip-campaign').value) : '');
+  };
   $('ip-prev').onclick = () => run(() => search(page - 1));
   $('ip-next').onclick = () => run(() => search(page + 1));
   $('ip-all').onchange = event => {

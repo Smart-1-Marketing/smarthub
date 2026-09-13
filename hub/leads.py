@@ -331,7 +331,7 @@ def capture(source: str, page: str, fields: dict, pdf_url: str = "",
     return row
 
 
-def _read_all() -> list[dict]:
+def _read_all(*, strict: bool = False) -> list[dict]:
     out = []
     try:
         with open(_path(), encoding="utf-8") as fh:
@@ -343,7 +343,11 @@ def _read_all() -> list[dict]:
                     out.append(json.loads(line))
                 except ValueError:
                     continue        # one bad line must not hide the rest
+    except FileNotFoundError:
+        return []
     except OSError:
+        if strict:
+            raise
         return []
     return out
 
