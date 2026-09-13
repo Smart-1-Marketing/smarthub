@@ -2170,6 +2170,12 @@ jobs:
       - name: Every tool is tiled once, and the trail names it
         run: python3 test_menu_layout.py
 
+      # The sales flow must stay customer-facing: it builds a visual site,
+      # keeps implementation data internal, and names the tool consistently
+      # everywhere a rep can enter or leave it.
+      - name: Smart 1 Sites Builder
+        run: python3 test_sites_builder.py
+
       # Asking somebody to check a page, and getting their answer back. Four
       # states, and the two middle ones are the point: collapse "waiting on
       # them" and "waiting on you" into one flag and the queue stops being
