@@ -2294,6 +2294,25 @@ jobs:
             echo "test_proposal_adapters_seo.py not on this branch — nothing to run."
           fi
 
+      # WO-2, Adapter F: meta_carousel ran as `brief` -- an AI paragraph
+      # describing creative somebody should go build, never a project
+      # anybody could open. hub/proposal_adapters/image_creator.py calls
+      # hub.ai.image() -- the same billed OpenAI call
+      # modules/image_creator/app.py's own /api/ai/image route makes -- and
+      # saves the result as a real Image Creator project through
+      # modules.image_creator.projects.save_project(). One image per run,
+      # never one per product_destinations line, the same bounded-cost rule
+      # every other adapter here follows. hub.ai.image() is stubbed in the
+      # test the way hub.ai.chat_json already is elsewhere -- no real
+      # OpenAI call in CI.
+      - name: Proposal Execution — real-tool adapters (Meta carousel creative)
+        run: |
+          if [ -f test_proposal_adapters_image_creator.py ]; then
+            python3 test_proposal_adapters_image_creator.py
+          else
+            echo "test_proposal_adapters_image_creator.py not on this branch — nothing to run."
+          fi
+
       # WO-2, Adapter G: youtube_video_concept ran as `brief` -- an AI video
       # concept nobody had actually drafted. hub/proposal_adapters/
       # commercial.py calls modules.commercial_builder.client_link.
