@@ -256,7 +256,7 @@ def oauth_callback():
         if request.args.get("error") or not request.args.get("code"):
             raise ValueError("Google access was not granted. Nothing was connected.")
         cid, secret, callback = yt.oauth_config()
-        response = requests.post("https://oauth2.googleapis.com/token", data={"client_id": cid,
+        response = yt.record_google_request("POST", "https://oauth2.googleapis.com/token", data={"client_id": cid,
             "client_secret": secret, "code": request.args["code"], "redirect_uri": callback,
             "grant_type": "authorization_code", "code_verifier": state["verifier"]}, timeout=20)
         credentials = yt.checked(response)
@@ -384,7 +384,7 @@ def upload():
     store.update(claim)
     sent = False
     try:
-        response = requests.post("https://www.googleapis.com/upload/youtube/v3/videos", params={"uploadType": "resumable", "part": "snippet,status"},
+        response = yt.record_google_request("POST", "https://www.googleapis.com/upload/youtube/v3/videos", params={"uploadType": "resumable", "part": "snippet,status"},
             headers={"Authorization": "Bearer " + token, "X-Upload-Content-Length": str(size), "X-Upload-Content-Type": "application/octet-stream"},
             json={"snippet": {"title": snapshot["title"], "description": snapshot["description"], "categoryId": "22"},
                   "status": {"privacyStatus": "private", "selfDeclaredMadeForKids": snapshot["made_for_kids"], "containsSyntheticMedia": snapshot["synthetic"]}}, timeout=30)
@@ -395,7 +395,7 @@ def upload():
             raise ValueError("YouTube did not return a valid upload session.")
         store.update(lambda state: store.client(state, name)["drafts"][did].update(upload_session=store.encrypt(location), upload_size=size))
         sent = True
-        result = yt.checked(requests.put(location, data=file.stream, headers={"Authorization": "Bearer " + token,
+        result = yt.checked(yt.record_google_request("PUT", location, data=file.stream, headers={"Authorization": "Bearer " + token,
             "Content-Length": str(size), "Content-Type": "application/octet-stream"}, timeout=(20, 180)))
         vid = result.get("id")
         if not vid:
@@ -418,7 +418,7 @@ def upload_status():
     if draft.get("status") not in ("uploading", "upload_uncertain") or not draft.get("upload_session"):
         raise ValueError("No recoverable upload session was found. Check YouTube Studio before starting another draft.")
     token = yt.access_token(name, draft["channel_id"])
-    response = requests.put(store.decrypt(draft["upload_session"]), data=b"", headers={"Authorization": "Bearer " + token,
+    response = yt.record_google_request("PUT", store.decrypt(draft["upload_session"]), data=b"", headers={"Authorization": "Bearer " + token,
         "Content-Length": "0", "Content-Range": "bytes */" + str(draft["upload_size"])}, timeout=30)
     if response.status_code == 308:
         return jsonify(ok=True, message="The upload is incomplete. Check YouTube Studio; do not upload a duplicate while it may still be running.")
@@ -475,7 +475,7 @@ def analytics():
     token = yt.access_token(name, cid)
     end = date.today() - timedelta(days=2)
     start = end - timedelta(days=27)
-    report = yt.checked(requests.get("https://youtubeanalytics.googleapis.com/v2/reports", headers={"Authorization": "Bearer " + token},
+    report = yt.checked(yt.record_google_request("GET", "https://youtubeanalytics.googleapis.com/v2/reports", headers={"Authorization": "Bearer " + token},
         params={"ids": "channel==" + cid, "startDate": start.isoformat(), "endDate": end.isoformat(),
         "metrics": "views,estimatedMinutesWatched,averageViewDuration,subscribersGained,subscribersLost", "dimensions": "day", "sort": "day"}, timeout=30))
     return jsonify(ok=True, report=report, start=start.isoformat(), end=end.isoformat())
@@ -564,7 +564,7 @@ def video_details():
     # Preserve writable metadata omitted from the form; updates replace parts.
     updated = {key: snippet[key] for key in ("categoryId", "tags", "defaultLanguage", "defaultAudioLanguage") if key in snippet}
     updated.update(title=payload["title"], description=payload["description"])
-    response = requests.put(yt.ROOT + "videos", params={"part": "snippet"},
+    response = yt.record_google_request("PUT", yt.ROOT + "videos", params={"part": "snippet"},
         headers={"Authorization": "Bearer " + token, "If-Match": video.get("etag", "")},
         json={"id": video["id"], "snippet": updated}, timeout=30)
     yt.checked(response)
@@ -630,7 +630,7 @@ def thumbnail():
         image.verify()
     except (UnidentifiedImageError, OSError) as exc:
         raise ValueError("This file is not a readable JPEG or PNG.") from exc
-    yt.checked(requests.post("https://www.googleapis.com/upload/youtube/v3/thumbnails/set", params={"videoId": video["id"], "uploadType": "media"},
+    yt.checked(yt.record_google_request("POST", "https://www.googleapis.com/upload/youtube/v3/thumbnails/set", params={"videoId": video["id"], "uploadType": "media"},
         headers={"Authorization": "Bearer " + token, "Content-Type": "image/jpeg" if image.format == "JPEG" else "image/png"}, data=raw, timeout=30))
     event("thumbnail_updated", name, video_id=video["id"])
     return jsonify(ok=True)
@@ -654,7 +654,7 @@ def captions():
     boundary = secrets.token_hex(24)
     metadata = json.dumps({"snippet": {"videoId": video["id"], "language": language, "name": "Smart Hub captions", "isDraft": False}})
     payload = (f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{metadata}\r\n--{boundary}\r\nContent-Type: application/octet-stream\r\n\r\n".encode() + raw + f"\r\n--{boundary}--\r\n".encode())
-    yt.checked(requests.post("https://www.googleapis.com/upload/youtube/v3/captions", params={"part": "snippet", "uploadType": "multipart"},
+    yt.checked(yt.record_google_request("POST", "https://www.googleapis.com/upload/youtube/v3/captions", params={"part": "snippet", "uploadType": "multipart"},
         headers={"Authorization": "Bearer " + token, "Content-Type": "multipart/related; boundary=" + boundary}, data=payload, timeout=30))
     event("captions_uploaded", name, video_id=video["id"])
     return jsonify(ok=True)

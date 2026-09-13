@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 import unittest
+import requests
 from unittest.mock import patch, Mock
 from flask import Flask
 from jinja2 import DictLoader
@@ -60,6 +61,16 @@ class YouTubeTests(unittest.TestCase):
         result = self.post("drafts", {"channel_id": CID, "title": "A useful customer video", "description": "Our source notes"})
         self.assertEqual(result.status_code, 200)
         return result.json["draft_id"]
+
+    def test_google_requests_meter_success_and_failure_without_secrets(self):
+        url = yt.ROOT + "upload/private-session?key=secret"
+        with patch("hub.quotas.record_google") as meter, patch("requests.get", return_value=response()):
+            yt.record_google_request("GET", url)
+            meter.assert_called_once_with(yt.ROOT, module="youtube_studio", ok=True)
+        with patch("hub.quotas.record_google") as meter, patch("requests.get", side_effect=requests.Timeout):
+            with self.assertRaises(requests.Timeout):
+                yt.record_google_request("GET", url)
+            meter.assert_called_once_with(yt.ROOT, module="youtube_studio", ok=False)
 
     def test_guard_blocks_every_staff_read(self):
         with patch("hub.auth.user_from_environ", return_value=None):
@@ -194,7 +205,7 @@ class YouTubeTests(unittest.TestCase):
 
     def test_upload_is_private_and_cannot_repeat(self):
         did = self.draft(); self.post("approve", {"draft_id": did})
-        with patch.object(yt, "access_token", return_value="access"), patch("requests.post", return_value=response(headers={"Location": "https://www.googleapis.com/upload/session"})) as start, patch("requests.put", return_value=response({"id": "vid"})):
+        with patch.object(yt, "access_token", return_value="access"), patch("requests.post", return_value=response(headers={"Location": yt.ROOT + "upload/session"})) as start, patch("requests.put", return_value=response({"id": "vid"})):
             result = self.client.post("/tools/youtube/api/upload", data={"client": "Alpha", "draft_id": did, "video": (io.BytesIO(b"video"), "test.mp4")}, headers={"X-YouTube-CSRF": "csrf-test"})
             self.assertEqual(result.status_code, 200)
             self.assertEqual(start.call_args.kwargs["json"]["status"]["privacyStatus"], "private")
@@ -205,7 +216,7 @@ class YouTubeTests(unittest.TestCase):
     def test_uncertain_upload_never_retries_automatically(self):
         import requests
         did = self.draft(); self.post("approve", {"draft_id": did})
-        with patch.object(yt, "access_token", return_value="access"), patch("requests.post", return_value=response(headers={"Location": "https://www.googleapis.com/upload/session"})), patch("requests.put", side_effect=requests.Timeout):
+        with patch.object(yt, "access_token", return_value="access"), patch("requests.post", return_value=response(headers={"Location": yt.ROOT + "upload/session"})), patch("requests.put", side_effect=requests.Timeout):
             result = self.client.post("/tools/youtube/api/upload", data={"client": "Alpha", "draft_id": did, "video": (io.BytesIO(b"video"), "test.mp4")}, headers={"X-YouTube-CSRF": "csrf-test"})
         self.assertEqual(result.status_code, 502)
         self.assertEqual(store.public_client("Alpha")["drafts"][0]["status"], "upload_uncertain")

@@ -12,6 +12,20 @@ SCOPES = ("https://www.googleapis.com/auth/youtube.force-ssl",
           "https://www.googleapis.com/auth/yt-analytics.readonly")
 
 
+def record_google_request(method, url, **kwargs):
+    """Meter each attempt without storing query credentials or upload sessions."""
+    from hub.quotas import record_google
+    host = urlsplit(url).hostname
+    safe_url = ROOT if host == "www.googleapis.com" else "https://" + str(host) + "/"
+    ok = False
+    try:
+        response = getattr(requests, method.lower())(url, **kwargs)
+        ok = response.ok
+        return response
+    finally:
+        record_google(safe_url, module="youtube_studio", ok=ok)
+
+
 def oauth_config():
     from modules.google_access import config
     return config.GOOGLE_CLIENT_ID, config.GOOGLE_CLIENT_SECRET, config.PUBLIC_BASE_URL + "/connect/callback"
@@ -60,7 +74,7 @@ def api(resource, params=None, token=None, method="GET", body=None):
         params["key"] = os.environ.get("YOUTUBE_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
         if not params["key"]:
             raise ValueError("Public lookup needs YOUTUBE_API_KEY. You can still save a channel link and connect its owner.")
-    return checked(requests.request(method, ROOT + resource, params=params,
+    return checked(record_google_request(method, ROOT + resource, params=params,
                                    json=body, headers=headers, timeout=30))
 
 
@@ -106,7 +120,7 @@ def access_token(name, channel_id):
     if not channel or not channel.get("refresh_token"):
         raise ValueError("Connect this channel's owner before managing it.")
     cid, secret, _ = oauth_config()
-    response = requests.post("https://oauth2.googleapis.com/token", data={"client_id": cid,
+    response = record_google_request("POST", "https://oauth2.googleapis.com/token", data={"client_id": cid,
         "client_secret": secret, "refresh_token": store.decrypt(channel["refresh_token"]),
         "grant_type": "refresh_token"}, timeout=20)
     if not response.ok:
