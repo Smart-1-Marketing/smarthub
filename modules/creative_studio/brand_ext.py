@@ -24,7 +24,7 @@ own.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from hub import jsonstore
 
@@ -37,10 +37,13 @@ from hub import jsonstore
 _TEXT_FIELDS = (
     "logo_position", "cta_style", "image_style", "brand_voice",
     "preferred_music_style", "preferred_spokesperson_id", "preferred_voice_id",
+    "tagline", "target_audience", "tone_examples", "photography_guidance",
+    "channel_voice_guidance",
 )
 _LIST_FIELDS = (
     "services", "products", "promotions", "disclaimers", "legal",
-    "certifications", "locations",
+    "certifications", "locations", "preferred_vocabulary",
+    "prohibited_phrases", "brand_dos", "brand_donts",
 )
 # WO-CS10 item 5's "library_opt_out flag on the brand record" -- a business
 # decision typed once, exactly the shape every other field in this file
@@ -78,6 +81,18 @@ def get(client: str) -> dict:
     out["pronunciation_dict"] = pron if isinstance(pron, dict) else {}
     for f in _BOOL_FIELDS:
         out[f] = bool(row.get(f))
+    metadata = row.get("field_metadata")
+    out["field_metadata"] = dict(metadata) if isinstance(metadata, dict) else {}
+    for value in out["field_metadata"].values():
+        if not isinstance(value, dict):
+            continue
+        value["stale"] = False
+        for key in ("valid_until", "stale_after"):
+            try:
+                if value.get(key) and date.fromisoformat(str(value[key])[:10]) < date.today():
+                    value["stale"] = True
+            except ValueError:
+                pass
     out["updated_at"] = str(row.get("updated_at") or "")
     out["updated_by"] = str(row.get("updated_by") or "")
     return out
@@ -100,7 +115,9 @@ def save(client: str, fields: dict, actor: str = "") -> dict:
 
     for f in _TEXT_FIELDS:
         if f in fields:
-            row[f] = str(fields.get(f) or "").strip()[:300]
+            limit = 2000 if f in ("tone_examples", "photography_guidance",
+                                  "channel_voice_guidance") else 500
+            row[f] = str(fields.get(f) or "").strip()[:limit]
     for f in _LIST_FIELDS:
         if f in fields:
             v = fields.get(f)
@@ -115,6 +132,22 @@ def save(client: str, fields: dict, actor: str = "") -> dict:
     for f in _BOOL_FIELDS:
         if f in fields:
             row[f] = bool(fields.get(f))
+
+    if isinstance(fields.get("field_metadata"), dict):
+        previous = row.get("field_metadata")
+        metadata = dict(previous) if isinstance(previous, dict) else {}
+        for field, value in fields["field_metadata"].items():
+            if field not in _TEXT_FIELDS + _LIST_FIELDS + ("pronunciation_dict",):
+                continue
+            if not isinstance(value, dict):
+                continue
+            metadata[field] = {
+                "verified_at": str(value.get("verified_at") or "")[:40],
+                "verified_by": str(value.get("verified_by") or actor or "")[:120],
+                "valid_until": str(value.get("valid_until") or "")[:10],
+                "stale_after": str(value.get("stale_after") or "")[:10],
+            }
+        row["field_metadata"] = metadata
 
     row["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     row["updated_by"] = str(actor or "")[:120]

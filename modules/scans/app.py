@@ -419,6 +419,28 @@ def _apply_report(s: Scan, report: dict):
     _fetch_llm_narrative(s)
 
 
+def _seed_brand_review(s: Scan) -> None:
+    """Turn a completed scan for a known client into review, never approval."""
+    try:
+        from hub.clients_registry import all_clients, find_client
+        client = find_client(s.business_name or "")
+        if not client:
+            wanted = str(s.domain_key or "").lower().removeprefix("www.")
+            client = next((row for row in all_clients()
+                           if str(row.get("domain") or "").lower()
+                           .removeprefix("https://").removeprefix("http://")
+                           .removeprefix("www.").split("/")[0] == wanted), None)
+        if not client:
+            return
+        from modules.creative_studio import brand_review
+        brand_review.seed_from_scan(client["name"], client.get("domain") or s.domain_key,
+                                    scan_id=s.public_id)
+    except Exception:                                   # noqa: BLE001
+        # Scan completion is the primary transaction. A draft can be rebuilt
+        # from the finished report, so it must never make the callback fail.
+        pass
+
+
 def _fetch_llm_narrative(s: Scan) -> None:
     """Best-effort: Insites' own LLM-optimised narrative for the report that
     just completed.
@@ -885,6 +907,7 @@ def _try_immediate_fetch(db, s: Scan):
         if status == "complete" and report:
             _apply_report(s, report)
             db.commit()
+            _seed_brand_review(s)
             _log("scan_completed", detail=s.domain_key, scan=s.public_id,
                  score=s.overall_score, via="immediate")
     except InsitesError:
@@ -933,6 +956,7 @@ def api_callback(public_id):
             return jsonify({"error": "Callback did not contain an audit report."}), 400
         _apply_report(s, report)
         db.commit()
+        _seed_brand_review(s)
         _log("scan_completed", detail=s.domain_key, scan=s.public_id,
              score=s.overall_score, via="callback")
         return jsonify({"ok": True})
@@ -989,6 +1013,7 @@ def api_refresh(public_id):
         if status == "complete" and report:
             _apply_report(s, report)
             db.commit()
+            _seed_brand_review(s)
             _log("scan_completed", detail=s.domain_key, scan=s.public_id,
                  score=s.overall_score, via="refresh")
         elif s.status == "error":
