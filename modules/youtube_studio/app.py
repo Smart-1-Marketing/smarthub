@@ -8,7 +8,8 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlencode, urlsplit
 import requests
-from flask import Blueprint, abort, jsonify, redirect, render_template, request, session
+from flask import Blueprint, abort, g, jsonify, redirect, render_template, request
+from itsdangerous import BadSignature
 from hub import audit
 from hub.blueprint_guard import install
 from . import store, youtube as yt
@@ -18,14 +19,41 @@ public_bp = Blueprint("youtube_customer", __name__, url_prefix="/connect/youtube
 install(bp, mount="/tools/youtube")
 
 
+def browser_serializer():
+    from hub.signing import timed_serializer
+    return timed_serializer("youtube-browser-v1")
+
+
+def browser_state():
+    # The hub intentionally does not configure Flask sessions. Use its shared
+    # signer for a separate short-lived browser binding, never an auth cookie.
+    if not hasattr(g, "youtube_browser"):
+        try:
+            value = browser_serializer().loads(request.cookies.get("s1youtube_browser", ""), max_age=12 * 3600)
+            g.youtube_browser = value if isinstance(value, dict) else {}
+        except BadSignature:
+            g.youtube_browser = {}
+    return g.youtube_browser
+
+
+@bp.after_request
+@public_bp.after_request
+def save_browser_state(response):
+    if hasattr(g, "youtube_browser"):
+        response.set_cookie("s1youtube_browser", browser_serializer().dumps(g.youtube_browser),
+            max_age=12 * 3600, httponly=True, secure=request.is_secure, samesite="Lax")
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 def csrf():
-    session.setdefault("youtube_csrf", secrets.token_urlsafe(24))
-    return session["youtube_csrf"]
+    browser_state().setdefault("youtube_csrf", secrets.token_urlsafe(24))
+    return browser_state()["youtube_csrf"]
 
 
 def check_csrf():
     sent = request.headers.get("X-YouTube-CSRF") or request.form.get("csrf", "")
-    if not sent or not hmac.compare_digest(sent, session.get("youtube_csrf", "")):
+    if not sent or not hmac.compare_digest(sent, browser_state().get("youtube_csrf", "")):
         abort(403, description="This page expired. Refresh it and retry.")
 
 
@@ -193,7 +221,7 @@ def start(token):
     value = "yt_" + secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(48)
     binding = secrets.token_urlsafe(32)
-    session["youtube_oauth_binding"] = binding
+    browser_state()["youtube_oauth_binding"] = binding
     state = {"invite": store.digest(token), "client": link["client"], "channel_id": link["channel_id"],
              "expires": time.time() + 1800, "verifier": verifier, "binding": store.digest(binding)}
     def save(data):
@@ -215,7 +243,7 @@ def oauth_callback():
     value = request.args.get("state", "")
     def consume(data):
         state = data.get("oauth", {}).get(value)
-        binding = store.digest(session.get("youtube_oauth_binding", ""))
+        binding = store.digest(browser_state().get("youtube_oauth_binding", ""))
         if not state or state["expires"] < time.time() or not hmac.compare_digest(binding, state["binding"]):
             raise ValueError("This sign-in expired or belongs to a different browser. Reopen your access link.")
         link = data.get("invites", {}).get(state["invite"], {})

@@ -6,11 +6,12 @@ import time
 import unittest
 from unittest.mock import patch, Mock
 from flask import Flask
+from jinja2 import DictLoader
 from cryptography.fernet import Fernet
 
 from modules.youtube_studio import register_youtube_studio
 from modules.youtube_studio import store, youtube as yt
-from modules.youtube_studio.app import oauth_callback
+from modules.youtube_studio.app import oauth_callback, browser_serializer
 
 CID = "UC" + "a" * 22
 OTHER = "UC" + "b" * 22
@@ -38,13 +39,13 @@ class YouTubeTests(unittest.TestCase):
         self.cfg = patch.object(yt, "oauth_config", return_value=("client", "secret", "https://hub.example/connect/callback"))
         self.cfg.start()
         self.app = Flask(__name__)
-        self.app.secret_key = "test-only"
+        # Match the real Hub, which deliberately leaves Flask sessions unset.
         self.app.config["TESTING"] = True
+        self.app.jinja_loader = DictLoader({"base.html": "{% block content %}{% endblock %}"})
         register_youtube_studio(self.app)
         self.app.add_url_rule("/connect/callback", view_func=oauth_callback)
         self.client = self.app.test_client()
-        with self.client.session_transaction() as session:
-            session["youtube_csrf"] = "csrf-test"
+        self.client.set_cookie("s1youtube_browser", browser_serializer().dumps({"youtube_csrf": "csrf-test"}))
         store.update(lambda state: store.client(state, "Alpha")["channels"].update({CID: {
             "id": CID, "title": "Alpha channel", "url": "https://www.youtube.com/channel/" + CID}}))
 
@@ -68,6 +69,14 @@ class YouTubeTests(unittest.TestCase):
     def test_csrf_required(self):
         result = self.client.post("/tools/youtube/api/drafts", json={"client": "Alpha"})
         self.assertEqual(result.status_code, 403)
+
+    def test_staff_page_works_without_flask_session_secret(self):
+        self.assertIsNone(self.app.secret_key)
+        result = self.client.get("/tools/youtube/?client=Alpha")
+        self.assertEqual(result.status_code, 200)
+        self.assertIn("Accounts &amp; access", result.text.replace("Accounts & access", "Accounts &amp; access"))
+        self.assertIn("s1youtube_browser=", result.headers.get("Set-Cookie", ""))
+        self.assertIn("HttpOnly", result.headers.get("Set-Cookie", ""))
 
     def test_parse_accepts_only_channel_urls(self):
         for value in (CID, "https://www.youtube.com/channel/" + CID):
@@ -204,6 +213,32 @@ class YouTubeTests(unittest.TestCase):
 
     def test_publish_rejects_unuploaded_draft(self):
         self.assertEqual(self.post("publish", {"draft_id": self.draft()}).status_code, 400)
+
+    def test_publish_preserves_disclosures_and_reports_private_restriction(self):
+        did = self.draft()
+        store.update(lambda state: store.client(state, "Alpha")["drafts"][did].update(status="uploaded", video_id="video"))
+        calls = []
+        def fake_api(resource, params, token, method="GET", body=None):
+            if method == "GET":
+                return {"items": [{"id": "video", "snippet": {"channelId": CID}, "processingDetails": {"processingStatus": "succeeded"},
+                    "status": {"privacyStatus": "private", "selfDeclaredMadeForKids": True, "containsSyntheticMedia": True, "embeddable": False}}]}
+            calls.append(body)
+            return {"status": {"privacyStatus": "private"}}
+        with patch.object(yt, "access_token", return_value="a"), patch.object(yt, "api", side_effect=fake_api):
+            result = self.post("publish", {"draft_id": did})
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(result.json["status"], "uploaded")
+        self.assertTrue(calls[0]["status"]["selfDeclaredMadeForKids"])
+        self.assertTrue(calls[0]["status"]["containsSyntheticMedia"])
+        self.assertFalse(calls[0]["status"]["embeddable"])
+
+    def test_publish_waits_for_processing(self):
+        did = self.draft()
+        store.update(lambda state: store.client(state, "Alpha")["drafts"][did].update(status="uploaded", video_id="video"))
+        with patch.object(yt, "access_token", return_value="a"), patch.object(yt, "api", return_value={"items": [{"snippet": {"channelId": CID}, "processingDetails": {"processingStatus": "processing"}}]}) as provider:
+            result = self.post("publish", {"draft_id": did})
+        self.assertEqual(result.status_code, 400)
+        self.assertEqual(provider.call_count, 1)
 
     def test_metadata_update_checks_video_ownership(self):
         with patch.object(yt, "access_token", return_value="a"), patch.object(yt, "api", return_value={"items": [{"id": "v", "snippet": {"channelId": OTHER}}]}), patch("requests.put") as write:
