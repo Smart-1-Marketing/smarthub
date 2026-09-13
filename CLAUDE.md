@@ -13071,6 +13071,113 @@ public: every route names a member of staff, what they were asked to check and
 what they said about it. `test_qa_tasks.py` asserts all of it.
 
 
+## What the ad-report syncs propose, and the person who stands behind each
+
+`modules/reports` is the ad-performance fact table -- every platform's
+campaign-days, the map from a campaign to a Hub client, the budgets those
+campaigns pace against, and the one page a client reads at a link of their
+own. It was mounted, reviewed and merged with seven defects fixed on the way
+in (`docs/reports-review-and-next-steps.md` is the review), and then
+hardened around one idea: **a sync proposes, and a person stands behind
+what reaches a client's page.** Five gates, each its own file and test, and
+each closing a way the module could be confidently wrong with every screen
+internally consistent.
+
+**Production is Postgres and the tests were not.** Two of the seven review
+findings were Postgres-only -- `Numeric(8, 4)` refusing a pace of 10,000x
+and failing the whole hourly insert, and `substr()` over a timestamp, which
+Postgres has no function for -- and SQLite cannot see either by construction.
+`_reports_testdb.py` is the one place a reports test binds its database:
+the SQLite file by default, `REPORTS_TEST_DATABASE_URL` when set, and
+`checks.yml` runs every `test_reports_*.py` a second time against the job's
+Postgres. `reset()` drops and recreates the module's own tables there so a
+run starts from an empty book -- `test_jsonstore.py`'s note about a fresh
+directory in front of an inherited database, one engine over.
+
+**Feed health is one reading drawn three ways.** Every platform's watermark
+and newest fact day sat on `/reports/` and only there, so a pull failing for
+three days was visible to whoever opened that page and did the arithmetic
+per row -- the scheduler-panel failure above, wearing a feed.
+`modules/reports/health.py` gives each platform one of four states (never,
+failing, stale past `STALE_DAYS`, ok) and `/status`, the dashboard's feeds
+card and the module's own index all read it; a store that will not answer is
+*not measured*, never a healthy-looking empty list. It also refuses the
+SQLite fallback in production: with neither database variable set the module
+lands on a file on the data disk that every deploy wipes, and `/status` says
+so as an **error** naming the variable. And the client's page says the day
+its figures run through, under the title and on the PDF, and says in words
+when that day is more than `DATA_STALE_DAYS` old -- a client reading "this
+month" on the 13th with rows through the 8th was reading a smaller number as
+the whole.
+
+**A campaign filed from its name is a proposal.** The auto-mapper reads
+`S1M | <ClientKey> | <Product> | ...` off the campaign name and files it,
+and a name is somebody's typing in somebody else's platform: a typo files
+one client's spend under another, on the client's own page. So the mapping
+row carries `confirmed_by` / `confirmed_at` -- LATE columns, because
+`create_all()` never adds one -- and `store.facts_for()`, the one reader the
+client's page, its PDF, its data.json, the pacing board and the cost report
+go through, returns confirmed mappings and nothing else. A person's own
+mapping is confirmed by the making; the auto-mapper's waits on
+`/reports/unmapped` and the client's staff page, counted on the index, the
+dashboard and the pacing board (a sold line whose only campaigns are pending
+reads unmapped and says how many are one press away, laid over the snapshot
+rather than stored in it). **Not theirs needed memory**: refusing deletes the
+row and the auto-mapper considers every campaign with no row, so without
+`reports_map_refusals` the next hourly run would file the same name under the
+same client again and the button would undo itself. A refusal remembers the
+name it was refused under; renamed, the campaign is a new decision.
+
+**A provider map that resolves is not read until a person confirms it.**
+`provider_map.py`'s column names are placeholders until the first Windsor
+sync lands, and the dangerous case is the one that resolves: `spend` is a
+plausible name for a column holding micros. `/reports/provider-check` prints
+the newest raw row under each mapped column with the spend **as it would be
+filed** after the divisor, and a Confirm button; the normalize reads confirmed
+platforms and nothing else. The confirmation is against
+`provider_map.fingerprint()` -- the table, every column and the divisor, and
+deliberately not `restate_days` -- so editing the map retires it and the page
+reads *map changed since confirmed*, naming who confirmed the old one. A
+platform that has synced and now cannot says so on its watermark; one awaiting
+its first confirmation records nothing, because on a fresh deployment that is
+every platform and twelve red rows for a queue about to be worked is the
+check that gets switched off.
+
+**A fact row that cannot be true is held, not filed and not refused whole.**
+`modules/reports/quarantine.py` stands in `store.upsert_rows()`, the one door
+every writer goes through. Four rules with their source written down: more
+clicks than impressions, a negative figure, a day after today, and spend over
+`SPIKE_MULTIPLIER` times the campaign's own trailing average given
+`BASELINE_MIN_DAYS` of history averaging `BASELINE_MIN_SPEND` -- the divisor
+rule, and those three numbers are **house**. A zero is deliberately not a
+rule. The held row is kept exactly as it would have been written and the
+rest of the batch goes in; `report=` on the call carries how many were held
+and why. **A decision is about the row as it was**: Accept writes that row
+and the same figure passes next time, Discard drops it and the same figure is
+dropped in silence and counted, a different figure under the same key is a
+new proposal either way, and a clean restatement from the provider supersedes
+a held row by itself. The screen takes the sync's own clock (`today=`), which
+is how `test_reports_pacing.py`, which drives the date, writes the days it is
+about -- and its fixture stopped spending $900 on a $10/day campaign to test
+"over", because that is exactly what the spike rule holds.
+
+**The fact table's month is reconciled against the platform's own total.**
+Everything a client reads is campaign-days summed, and nothing could say
+whether that sum was the month the platform would invoice.
+`modules/reports/reconcile.py` asks nightly, this month and the last,
+**through yesterday on both sides** -- today is partial at two different
+moments. Two kinds of source, and the row says which because they catch
+different mistakes: Google's customer-level query (`FROM customer`, the
+window as a range, nothing segmented) is *independent*, the only kind that
+can catch a systematic error; a confirmed provider table summed whole or
+StackAdapt's month fetched again is a *re-read*, which catches what we
+dropped or never read and not the feed being wrong. The Trade Desk is not
+measurable by design -- the MyReports file is the pull's own input -- and
+says so. Ours counts every row of the platform, mapped or not; held rows for
+the month ride on the row as the likeliest explanation of a drift;
+`TOLERANCE_PCT` is house and the page says so; and a state **change** is
+logged, never a state.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.
@@ -13518,6 +13625,26 @@ python3 test_linkcheck_helpers.py # the URLs linkcheck could not see: a
                                    #   module's own request helper, and
                                    #   sendBeacon; and prose is not a
                                    #   call site
+python3 test_reports_store.py      # the ad-report fact table and what sits beside it
+python3 test_reports_pages.py      # every /reports screen refused and served
+python3 test_reports_ttd.py        # the native Trade Desk pull and the MyReports CSV
+python3 test_reports_google_perf.py # the native Google Ads pull
+python3 test_reports_stackadapt.py # the native StackAdapt pull
+python3 test_reports_audiogo.py    # the config-driven AudioGo pull and its check page
+python3 test_reports_seo.py        # the organic search section for SEO clients
+python3 test_reports_normalize.py  # the provider normalize, provider check and auto-mapper
+python3 test_reports_public.py     # the client's live report page, its link and the spend rule
+python3 test_reports_crossover.py  # the product-level crossover and the forbidden-word sweep
+python3 test_reports_pacing.py     # the pacing board and the cost report
+python3 test_reports_health.py     # feed health drawn three ways, and the day the
+                                   #   figures run through
+python3 test_reports_confirmations.py # a campaign filed from its name waiting for a
+                                   #   person, and a provider map read only once confirmed
+python3 test_reports_quarantine.py # a fact row that cannot be true held, not filed
+python3 test_reports_reconcile.py  # each platform's month against the platform's own
+                                   #   total, independent or re-read, through yesterday
+                                   #   (checks.yml runs all of these a second time
+                                   #   against Postgres, through _reports_testdb.py)
 python3 test_ci_gate.py            # the gate runs every check a person runs
 ```
 
