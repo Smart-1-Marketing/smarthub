@@ -351,7 +351,7 @@ def build_task_specs(analysis):
     if "meta" in channels:
         c = channels["meta"]
         specs += [_task("meta_plan", "Meta home-buyer campaign plan", "Social Ads", depends=("campaign_foundation",), needs=("target_geography", "landing_url"), channel=c),
-                  _task("meta_carousel", "Meta carousel copy & creative brief", "Creative", depends=("meta_plan",), needs=("product_destinations", "primary_cta"), channel=c),
+                  _task("meta_carousel", "Meta carousel copy & creative brief", "Creative", "image_creator", "approval", ("meta_plan",), needs=("product_destinations", "primary_cta"), channel=c),
                   _task("meta_activation", "Meta launch packet", "Ad Ops", "launch_packet", "handoff", ("meta_carousel", "tracking_plan"), channel=c, task_type="activation")]
     if "youtube_ads" in channels:
         c = channels["youtube_ads"]
