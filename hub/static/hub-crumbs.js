@@ -69,10 +69,8 @@
     "radio-promo": "Radio Ad Creator", "fan-radio": "Fan Radio",
     "radio-scripts": "Radio Scripts",
     // Tools
-    // Named rather than left to the slug: title-casing "sites-builder" gives
-    // "Sites Builder", which drops the "Smart 1" the tile itself carries.
-    "sites-builder": "Smart 1 Sites Builder",
-    "website-audit": "Website Audit", "builder": "Proposal Builder",
+    "website-audit": "Website Audit", "sites-builder": "Smart 1 Sites Builder",
+    "builder": "Proposal Builder",
     "io": "IO Builder", "landing": "Landing Page Maker",
     "msa": "Master Services Agreement", "pdf": "PDF Optimizer",
     "short-links": "Client Link Masking",
