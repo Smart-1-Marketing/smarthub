@@ -241,7 +241,6 @@ def build(link, period: str, today: date | None = None) -> dict:
     hidden = set(view.get("hidden_platforms") or [])
     facts = [f for f in store.facts_for(link.client, rng["start"], rng["end"])
              if f["platform"] not in hidden]
-    mapped_platforms = {p for p, _a, _c in store.campaign_keys_for(link.client)} - hidden
 
     # Per product; per (product, platform) underneath it for pricing, which
     # is a platform rule; per (product, campaign) for the table.

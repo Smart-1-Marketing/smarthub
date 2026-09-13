@@ -779,15 +779,6 @@ def clients_with_campaigns() -> list[dict]:
     return out
 
 
-def campaign_keys_for(client: str) -> list[tuple[str, str, str]]:
-    db = SessionLocal()
-    try:
-        return [(m.platform, m.account_id, m.campaign_id) for m in
-                db.query(CampaignMap).filter(CampaignMap.client == client).all()]
-    finally:
-        db.close()
-
-
 def facts_for(client: str, start: date, end: date) -> list[dict]:
     """The fact rows of one client's mapped campaigns, in a date range
     (inclusive). Product and mapping come along, because the client page
