@@ -20,4 +20,4 @@
 - Browser preview checked formatted notes, empty-email protection, and both receipt states. Rendered the actual ReportLab PDF and visually inspected headings, bullets, emphasis, and escaped source HTML.
 - Production test IO 10216 was not resubmitted during this work. New behavior is validated locally and through CI before release.
 
-The initial CI run also exposed two new GPT Ad Builder final/version previews absent from the shared image-preview exception registry. Both deliberately display the selected original creative. Their narrow exception is documented alongside the existing final-ad preview exception; the gallery rule remains enforced.
+Shared CI checks exposed gallery-preview and breadcrumb issues that are now fixed on main; both phases incorporate those fixes. This work also wires the previously omitted Sites Builder test into CI. Its 11 checks and all 10 workflow-coverage checks pass locally.
