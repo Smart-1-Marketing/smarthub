@@ -1,0 +1,64 @@
+{% extends "_reports_base.html" %}
+{% block title %}Provider check · Reports{% endblock %}
+{% block heading %}Provider check{% endblock %}
+{% block lede %}What the data provider has actually written into
+  <span class="mono">{{ schema or '(no schema prefix)' }}</span>, against the
+  table and column names <span class="mono">modules/reports/provider_map.py</span>
+  expects. The names in that file are placeholders until the first sync lands;
+  correct them from this page.{% endblock %}
+
+{% block body %}
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>Each platform's source, resolved or not {{ help_dot('reports.provider.status') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">Read live from the reports database on every open.</span></div>
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr><th>Platform</th><th>Expected table</th><th>Status</th>
+      <th>Columns read</th><th class="num">Divide raw cost by</th><th class="num">Re-read days</th></tr></thead>
+    <tbody>
+    {% for s in sources %}
+      <tr>
+        <td>{{ s.label }} <span class="s1d-muted mono">{{ s.platform }}</span></td>
+        <td class="mono">{{ s.table }}</td>
+        <td>
+          {% if s.status == 'resolved' %}<span class="s1d-pill ok">Resolved</span>
+          {% elif s.status == 'table_missing' %}<span class="s1d-pill warn">Table missing</span>
+          {% else %}<span class="s1d-pill bad">Columns missing</span>
+            <span class="mono">{{ s.missing|join(', ') }}</span>{% endif %}
+        </td>
+        <td class="mono">{{ s.columns|join(', ') }}</td>
+        <td class="num">{{ s.spend_divisor }}</td>
+        <td class="num">{{ s.restate_days }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="s1d-hint">A platform that does not resolve is skipped by the hourly
+    normalize and its row on the Reports page says so. Nothing is guessed at:
+    a column of the wrong meaning under the right name would file the wrong
+    number on every report.</p>
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>Tables present in the schema</h2>
+    <span class="s1d-muted">{{ tables|length }} table{{ '' if tables|length == 1 else 's' }}</span></div>
+  {% if tables %}
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr><th>Table</th><th>Columns</th></tr></thead>
+    <tbody>
+    {% for name, cols in tables.items() %}
+      <tr><td class="mono">{{ name }}</td><td class="mono">{{ cols|join(', ') }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="empty">No tables in <span class="mono">{{ schema or 'the default schema' }}</span> yet.
+    Either the provider has not written its first sync, or
+    <span class="mono">REPORTS_PROVIDER_SCHEMA</span> names a schema other than
+    the one it writes to.</p>
+  {% endif %}
+</div>
+{% endblock %}

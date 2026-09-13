@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{ a.client_name }} — Marketing report from Smart 1 Marketing</title>
+{#
+  The page a client reads, and nothing but that. No sidebar, no login, no
+  widget grid, and never a vendor name: every figure is by Smart 1 PRODUCT
+  (products.py), and test_reports_crossover.py sweeps the rendered page for
+  products.FORBIDDEN -- so the wording here may not say which exchange ran a
+  campaign, nor use the word that means one. Everything on it is
+  the aggregate `a` client_view.aggregate() returned -- the same dict the PDF
+  and data.json render from -- so no figure is computed here. In particular
+  no money figure exists on this page unless the link's own setting put an
+  "investment" key on the aggregate; the template reads that key and never
+  the fact table. Single accent color, tiles, bars, a trend, a table, a CTA.
+#}
+<style>
+  :root{--surface:#fcfcfb;--card:#fff;--line:#e6e5e0;--ink:#0b0b0b;--ink2:#52514e;--ink3:#8a8984;
+    --accent:#2a78d6;--accent-soft:#e3eefb;--radius:12px}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--surface);color:var(--ink);font:15px/1.5 -apple-system,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1040px;margin:0 auto;padding:28px 20px 60px}
+  header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+  .brand{display:flex;align-items:center;gap:14px}
+  .logo{width:52px;height:52px;border-radius:10px;display:grid;place-items:center;overflow:hidden;background:#fff;border:1px solid var(--line)}
+  .logo img{max-width:100%;max-height:100%;object-fit:contain}
+  .logo.s1{background:#0a2240;border:0;color:#fff;font-weight:800;font-size:15px;letter-spacing:.02em}
+  h1{font-size:22px;margin:0;line-height:1.2}
+  .sub{color:var(--ink2);font-size:14px}
+  .period{display:flex;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:4px;align-items:center;flex-wrap:wrap}
+  .period a,.period select{border:0;background:transparent;padding:6px 14px;border-radius:999px;font:inherit;font-size:14px;color:var(--ink2);text-decoration:none}
+  .period a.on{background:var(--accent);color:#fff}
+  .period select{cursor:pointer}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+  .tile .k{font-size:13px;color:var(--ink2);margin-bottom:6px}
+  .tile .v{font-size:28px;font-weight:650;letter-spacing:-.01em;line-height:1.1}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px}
+  .card h2{font-size:16px;margin:0 0 2px}
+  .card .hint{font-size:13px;color:var(--ink2);margin:0 0 14px}
+  .bars{display:grid;gap:10px}
+  .bar{display:grid;grid-template-columns:150px 1fr 82px;align-items:center;gap:12px;font-size:14px}
+  .bar .track{height:14px;background:var(--accent-soft);border-radius:0 4px 4px 0}
+  .bar .fill{height:100%;background:var(--accent);border-radius:0 4px 4px 0}
+  .bar .num{text-align:right;color:var(--ink2);font-variant-numeric:tabular-nums}
+  svg{width:100%;height:auto;display:block}
+  .rel{position:relative}
+  .tip{position:absolute;pointer-events:none;background:var(--ink);color:#fff;font-size:12px;padding:6px 8px;border-radius:6px;transform:translate(-50%,-120%);white-space:nowrap;display:none}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:4px}
+  th{text-align:left;color:var(--ink2);font-weight:500;font-size:13px;border-bottom:1px solid var(--line);padding:8px 6px}
+  td{padding:9px 6px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  td.n,th.n{text-align:right}
+  .empty{color:var(--ink2);font-size:14px;padding:12px 0}
+  .cta{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 20px;margin-top:16px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+  .cta b{display:block;font-size:15px;margin-bottom:2px}
+  .btn{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:10px 16px;font:inherit;font-weight:600;text-decoration:none}
+  .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+  .foot{margin-top:22px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:center;color:var(--ink2);font-size:13px}
+  .scroll{overflow-x:auto}
+  .tile .delta{font-size:12px;color:var(--ink3);margin-top:4px}
+  td.sub{color:var(--ink3);font-size:13px}
+  td.url{word-break:break-all;font-size:13px}
+  .card.soon{background:var(--accent-soft);border-color:transparent}
+</style>
+</head>
+{% macro trend_svg(series, field, unit, svg_id, tip_id) %}
+      {% set peak = series|map(attribute=field)|max %}
+      {% set peak = peak if peak else 1 %}
+      <svg viewBox="0 0 460 190" id="{{ svg_id }}" class="trend" data-tip="{{ tip_id }}" aria-label="{{ unit|capitalize }} per month">
+        <g stroke="#e6e5e0" stroke-width="1">
+          <line x1="40" y1="20" x2="450" y2="20"/><line x1="40" y1="80" x2="450" y2="80"/><line x1="40" y1="140" x2="450" y2="140"/>
+        </g>
+        {% set pts = [] %}
+        {% for t in series %}
+          {% set x = 50 + loop.index0 * 36 %}
+          {% set y = 150 - (130 * t[field] / peak) %}
+          {% set _ = pts.append((x, y, t.label, t.display ~ (' ' ~ unit ~ ' (month to date)' if t.partial else ' ' ~ unit))) %}
+        {% endfor %}
+        {# The months that are over, solid; the segment into the month in
+           progress dashed and its point hollow, so a partial month reads as
+           partial rather than as a collapse. Nothing is projected. #}
+        <polyline fill="none" stroke="#2a78d6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"
+          points="{% for x, y, _l, _d in pts[:-1] %}{{ x }},{{ '%.1f'|format(y) }} {% endfor %}"/>
+        {% if pts|length > 1 %}<line x1="{{ pts[-2][0] }}" y1="{{ '%.1f'|format(pts[-2][1]) }}" x2="{{ pts[-1][0] }}" y2="{{ '%.1f'|format(pts[-1][1]) }}"
+          stroke="#2a78d6" stroke-width="2" stroke-dasharray="4 4" stroke-linecap="round"/>{% endif %}
+        <g fill="#fff" stroke="#2a78d6" stroke-width="2">
+          {% if pts %}<circle cx="{{ pts[-1][0] }}" cy="{{ '%.1f'|format(pts[-1][1]) }}" r="5"/>{% endif %}
+        </g>
+        <g fill="#8a8984" font-size="11" text-anchor="middle">
+          {% for x, y, l, d in pts %}{% if loop.index0 % 2 == 0 %}<text x="{{ x }}" y="172">{{ l }}</text>{% endif %}{% endfor %}
+        </g>
+        <g class="hits">
+          {% for x, y, l, d in pts %}<rect x="{{ x - 18 }}" y="0" width="36" height="190" fill="transparent"
+            data-x="{{ x }}" data-y="{{ '%.1f'|format(y) }}" data-label="{{ l }} · {{ d }}"/>{% endfor %}
+        </g>
+      </svg>
+      <div class="tip" id="{{ tip_id }}"></div>
+{% endmacro %}
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      {% if a.logo_url %}<div class="logo"><img src="{{ a.logo_url }}" alt="{{ a.client_name }}"></div>
+      {% else %}<div class="logo s1" role="img" aria-label="Smart 1 Marketing">S1</div>{% endif %}
+      <div>
+        <h1>{{ a.client_name }}</h1>
+        <div class="sub">Marketing report from Smart 1 Marketing · {{ a.period.label }}</div>
+      </div>
+    </div>
+    <nav class="period" aria-label="Report period">
+      {% for p in a.periods %}<a href="?period={{ p.key }}" class="{{ 'on' if a.period.key == p.key else '' }}">{{ p.label }}</a>{% endfor %}
+      <select aria-label="Pick a month" onchange="if(this.value)location.search='?period='+this.value">
+        <option value="">Month…</option>
+        {% for m in a.months %}<option value="{{ m.key }}" {{ 'selected' if a.period.key == m.key else '' }}>{{ m.label }}</option>{% endfor %}
+      </select>
+    </nav>
+  </header>
+
+  <section class="tiles">
+    {% for t in a.tiles %}
+    <div class="tile"><div class="k">{{ t.label }}</div><div class="v">{{ t.display }}</div></div>
+    {% endfor %}
+  </section>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Where your reach came from</h2>
+      <p class="hint">Impressions by product, {{ a.period.label }}</p>
+      {% if a.products %}
+      <div class="bars">
+        {% for p in a.products %}
+        <div class="bar"><span class="lab">{{ p.label }}</span>
+          <div class="track"><div class="fill" style="width:{{ p.share }}%"></div></div>
+          <span class="num">{{ '{:,}'.format(p.impressions) }}</span></div>
+        {% endfor %}
+      </div>
+      {% else %}<p class="empty">Nothing delivered in this period yet.</p>{% endif %}
+    </div>
+
+    <div class="card rel">
+      <h2>Reach over the last 12 months</h2>
+      <p class="hint">Impressions per month, all products · current month to date</p>
+      {{ trend_svg(a.trend, 'impressions', 'impressions', 'trend', 'tip') }}
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px">
+    <h2>Product detail</h2>
+    <p class="hint">{{ a.period.label }}</p>
+    {% if a.table %}
+    <div class="scroll">
+    <table>
+      <thead><tr><th>Product</th><th>Campaign</th><th class="n">Impressions</th><th class="n">Clicks</th><th class="n">CTR</th><th class="n">Conversions</th></tr></thead>
+      <tbody>
+      {% for r in a.table %}
+        <tr><td>{{ r.label }}</td><td>{{ r.campaign }}</td>
+          <td class="n">{{ '{:,}'.format(r.impressions) }}</td><td class="n">{{ '{:,}'.format(r.clicks) }}</td>
+          <td class="n">{{ r.ctr }}</td><td class="n">{{ '{:,}'.format(r.conversions) }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}<p class="empty">Nothing delivered in this period yet.</p>{% endif %}
+  </div>
+
+  {% if a.investment %}
+  <div class="card" style="margin-top:12px">
+    <h2>Investment by product</h2>
+    <p class="hint">{{ a.period.label }}</p>
+    <table>
+      <tbody>
+      {% for p in a.products %}
+        <tr><td>{{ p.label }}</td><td class="n">{{ p.investment if p.investment else 'delivery only' }}</td></tr>
+      {% endfor %}
+        <tr><td><b>Total</b></td><td class="n"><b>{{ a.investment.total }}</b></td></tr>
+      </tbody>
+    </table>
+    {% if a.investment.delivery_only %}<p class="hint" style="margin-top:8px">A product showing delivery only is reported by reach here; your Smart 1 rep can confirm its investment figure.</p>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if a.organic %}{% set o = a.organic %}{% set L = o.labels %}
+  <section class="organic" style="margin-top:16px" aria-labelledby="organic-h">
+    <h2 id="organic-h" style="font-size:18px;margin:0 0 10px">{{ L.section }}</h2>
+    {% if o.analytics.measured %}
+    <div class="tiles">
+      {% for k in ('sessions', 'users', 'engaged', 'key_events') %}
+      <div class="tile"><div class="k">{{ L[k] }}</div><div class="v">{{ '{:,}'.format(o.analytics.current[k]) }}</div>
+        <div class="delta">{% if o.analytics.change[k] is not none %}{{ '+' if o.analytics.change[k] > 0 else '' }}{{ o.analytics.change[k] }}% vs the period before{% else %}no earlier period to compare{% endif %}</div></div>
+      {% endfor %}
+    </div>
+    {% else %}<p class="empty">{{ o.analytics.note }}</p>{% endif %}
+    <div class="grid">
+      <div class="card rel">
+        <h2>{{ L.trend }}</h2>
+        <p class="hint">Visits that started from a Google search · current month to date</p>
+        {% if o.analytics.measured %}{{ trend_svg(o.analytics.trend, 'sessions', 'visits', 'organic-trend', 'organic-tip') }}{% endif %}
+      </div>
+      <div class="card">
+        <h2>Google search</h2>
+        <p class="hint">{{ o.period.label }}</p>
+        {% if o.search.measured %}
+        <table>
+          <tbody>
+            <tr><td>{{ L.gsc_clicks }}</td><td class="n">{{ '{:,}'.format(o.search.current.clicks) }}</td><td class="n sub">{{ '{:,}'.format(o.search.previous.clicks) }} before</td></tr>
+            <tr><td>{{ L.gsc_impressions }}</td><td class="n">{{ '{:,}'.format(o.search.current.impressions) }}</td><td class="n sub">{{ '{:,}'.format(o.search.previous.impressions) }} before</td></tr>
+            <tr><td>{{ L.gsc_ctr }}</td><td class="n">{{ o.search.current.ctr }}%</td><td class="n sub">{{ o.search.previous.ctr }}% before</td></tr>
+            <tr><td>{{ L.gsc_position }}</td><td class="n">{{ o.search.current.position }}</td><td class="n sub">{{ o.search.previous.position }} before</td></tr>
+          </tbody>
+        </table>
+        {% else %}<p class="empty">{{ o.search.note }}</p>{% endif %}
+      </div>
+    </div>
+    {% if o.search.measured and (o.search.queries or o.search.pages) %}
+    <div class="grid" style="margin-top:12px">
+      <div class="card"><h2>{{ L.queries }}</h2><p class="hint">Top 10 by clicks</p>
+        {% if o.search.queries %}<div class="scroll"><table><thead><tr><th>Search</th><th class="n">Clicks</th><th class="n">Shown</th></tr></thead><tbody>
+        {% for q in o.search.queries %}<tr><td>{{ q.key }}</td><td class="n">{{ '{:,}'.format(q.clicks) }}</td><td class="n">{{ '{:,}'.format(q.impressions) }}</td></tr>{% endfor %}
+        </tbody></table></div>{% else %}<p class="empty">Nothing yet in this period.</p>{% endif %}</div>
+      <div class="card"><h2>{{ L.pages }}</h2><p class="hint">Top 10 by clicks</p>
+        {% if o.search.pages %}<div class="scroll"><table><thead><tr><th>Page</th><th class="n">Clicks</th><th class="n">Shown</th></tr></thead><tbody>
+        {% for q in o.search.pages %}<tr><td class="url">{{ q.key }}</td><td class="n">{{ '{:,}'.format(q.clicks) }}</td><td class="n">{{ '{:,}'.format(q.impressions) }}</td></tr>{% endfor %}
+        </tbody></table></div>{% else %}<p class="empty">Nothing yet in this period.</p>{% endif %}</div>
+    </div>
+    {% endif %}
+    <div class="grid" style="margin-top:12px">
+      <div class="card"><h2>{{ L.work }}</h2><p class="hint">{{ o.period.label }}</p>
+        {% if o.work.rows %}
+        <div class="bars">{% for w in o.work.rows %}<div class="bar" style="grid-template-columns:1fr 60px"><span class="lab">{{ w.label }}</span><span class="num"><b>{{ w.count }}</b></span></div>{% endfor %}</div>
+        {% if o.work.latest_score is not none %}<p class="hint" style="margin:12px 0 0">Latest site audit score: <b>{{ o.work.latest_score }}</b>{% if o.work.latest_scan_at %} ({{ o.work.latest_scan_at[:10] }}){% endif %}</p>{% endif %}
+        {% elif not o.work.measured %}<p class="empty">Some of this period's work could not be counted yet.</p>
+        {% else %}<p class="empty">Nothing to show for this period yet.</p>{% endif %}</div>
+      <div class="card soon"><h2>{{ o.gbp.label }}</h2><p class="hint">{{ o.gbp.note }}</p></div>
+    </div>
+  </section>
+  {% endif %}
+
+  <div class="cta">
+    <div><b>Want more from this campaign?</b>
+      <span class="sub">{% if a.rep_name %}Your Smart 1 rep, {{ a.rep_name }}, can walk you through what's working and what's next.{% else %}Your Smart 1 rep can walk you through what's working and what's next.{% endif %}</span></div>
+    <div style="display:flex;gap:8px">
+      <a class="btn ghost" href="{{ request.script_root }}/r/c/{{ token }}.pdf?period={{ a.period.key }}">Download PDF</a>
+      <a class="btn" href="mailto:{{ a.rep_email or 'clientsuccess@smart1marketing.com' }}?subject={{ ('Report: ' ~ a.client_name)|urlencode }}">Talk to your Smart 1 rep</a>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>Updated {{ a.updated_et }} · Delivery data gathered by Smart 1 Marketing</span>
+    <a href="{{ a.smart1_site }}" style="color:inherit">smart1marketing.com</a>
+  </div>
+</div>
+<script>
+  // Hover layer for the trend line: the hit rects carry their own label, so
+  // nothing here computes a figure.
+  (function(){
+    Array.prototype.forEach.call(document.querySelectorAll('svg.trend'),function(svg){
+      var tip=document.getElementById(svg.getAttribute('data-tip'));
+      if(!tip)return;
+      Array.prototype.forEach.call(svg.querySelectorAll('.hits rect'),function(c){
+        c.addEventListener('mousemove',function(){
+          var r=svg.getBoundingClientRect(),sx=r.width/460;
+          tip.style.display='block';
+          tip.style.left=(c.getAttribute('data-x')*sx)+'px';
+          tip.style.top=(c.getAttribute('data-y')*sx)+'px';
+          tip.textContent=c.getAttribute('data-label');
+        });
+        c.addEventListener('mouseleave',function(){tip.style.display='none';});
+      });
+    });
+  })();
+</script>
+</body>
+</html>
