@@ -795,6 +795,13 @@ def describe_images(task_id: int) -> dict:
             "each in turn, numbered.",
             urls, module="qa_tasks", purpose="screenshot_read")
     except ai.AIUnavailable as exc:
+        # This is the one exit from this function that costs an attempt and
+        # produces nothing anybody can see: no QaResponse row, and idempotency
+        # means the next sweep tries the identical task again. Without this
+        # line a provider outage or a missing key reads, from every screen,
+        # as "nothing to describe yet" -- indistinguishable from success --
+        # for as long as it persists.
+        _warn(f"describe_images(task={task.id}) vision call failed", exc)
         return {"skipped": f"vision unavailable ({exc})"}
 
     now = _now()
