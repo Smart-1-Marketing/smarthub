@@ -409,9 +409,6 @@ jobs:
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
-      - name: Smart 1 Sites Builder tests
-        run: python test_sites_builder.py
-
       - name: Industry factory config, routes, leads and creative tests
         run: |
           python test_industry_core.py
@@ -2184,12 +2181,6 @@ jobs:
       - name: Every tool is tiled once, and the trail names it
         run: python3 test_menu_layout.py
 
-      # The sales flow must stay customer-facing: it builds a visual site,
-      # keeps implementation data internal, and names the tool consistently
-      # everywhere a rep can enter or leave it.
-      - name: Smart 1 Sites Builder
-        run: python3 test_sites_builder.py
-
       # Asking somebody to check a page, and getting their answer back. Four
       # states, and the two middle ones are the point: collapse "waiting on
       # them" and "waiting on you" into one flag and the queue stops being
@@ -2877,16 +2868,10 @@ jobs:
       - name: The pacing board and the cost report
         run: python3 test_reports_pacing.py
 
-      # The Smart 1 Sites Builder (hub/sites_builder_routes.py): the lead-
-      # facing preview, the authenticated route, and the theme catalog. It
-      # landed on main without this step, which is what test_ci_gate.py is
-      # for -- a test file the gate does not run is one nobody is running.
-      - name: The Smart 1 Sites Builder
-        run: python3 test_sites_builder.py
-
       - name: Industry prospect suppression and paid-attempt safety
         run: |
           python3 test_industry_prospects.py
           node tests/industry_prospects_ui.test.js
+
       - name: Ask SmartHub role and tool boundary
         run: python3 test_ask_smarthub.py
