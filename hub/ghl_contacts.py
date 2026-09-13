@@ -285,7 +285,8 @@ def payload_for(row: dict) -> dict:
     if row.get("source") == "landing" and meta.get("industry_id"):
         keys = ("industry_id", "industry_family", "page_id", "page_version", "service", "market",
                 "radius", "trigger_profile", "trigger_ids", "creative_profile", "conversion_goal",
-                "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "referrer")
+                "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "referrer",
+                "publication_id", "audience_id", "audience_name")
         for key in keys:
             field_id = os.environ.get("GHL_INDUSTRY_" + key.upper() + "_FIELD_ID", "").strip()
             if field_id and meta.get(key) not in (None, "", []):
