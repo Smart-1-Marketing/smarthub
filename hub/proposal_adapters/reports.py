@@ -39,7 +39,6 @@ from __future__ import annotations
 
 import re
 from decimal import Decimal, InvalidOperation
-from urllib.parse import quote
 
 from hub.proposal_execution import Adapter, register_adapter
 
