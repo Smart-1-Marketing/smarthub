@@ -237,9 +237,25 @@ def _pack_from_body(data: dict | None = None):
 
 
 def _ok(pack: dict, **extra):
-    payload = {"ok": True, "ad": pack, "readiness": spec.readiness(pack)}
+    payload = {"ok": True, "ad": _preview_pack(pack), "readiness": spec.readiness(pack)}
     payload.update(extra)
     return jsonify(payload)
+
+
+def _preview_pack(pack):
+    """Decorate response-only thumbnails without changing saved originals."""
+    from copy import deepcopy
+    from hub.storage import preview_url
+    result = deepcopy(pack)
+    def decorate(row):
+        image = row.get("image")
+        if isinstance(image, dict):
+            image["thumb"] = preview_url(image.get("url", ""))
+    decorate(result)
+    for version in result.get("history", []):
+        if isinstance(version.get("snapshot"), dict):
+            decorate(version["snapshot"])
+    return result
 
 
 # ------------------------------------------------------------------ context
