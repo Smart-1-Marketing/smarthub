@@ -1147,6 +1147,20 @@ jobs:
             echo "test_sites_billing.py not on this branch — nothing to run."
           fi
 
+      - name: Smart 1 Sites Builder tests
+        # Ported: test_ci_gate.py's own sweep found this file added by a
+        # prior, unrelated merge with no step to run it. Unrelated to this
+        # PR's own change, ported here because it is a one-line,
+        # obviously-correct fix and test_ci_gate.py would otherwise report
+        # every PR built on today's main as red for a gap none of them
+        # introduced.
+        run: |
+          if [ -f test_sites_builder.py ]; then
+            python test_sites_builder.py
+          else
+            echo "test_sites_builder.py not on this branch — nothing to run."
+          fi
+
       - name: Domain attach, orphan URL and domain purchase tests
         # One domain attached to one client in four systems at once, the
         # orphan list that finds a URL nobody owns, and the purchased-domain
@@ -2269,6 +2283,27 @@ jobs:
             python3 test_proposal_adapters_seo.py
           else
             echo "test_proposal_adapters_seo.py not on this branch — nothing to run."
+          fi
+
+      # WO-2, Adapter G: youtube_video_concept ran as `brief` -- an AI video
+      # concept nobody had actually drafted. hub/proposal_adapters/
+      # commercial.py calls modules.commercial_builder.client_link.
+      # ensure_client() and generation.run_concepts() -- the same plain
+      # functions the Storyboard Editor's own "Generate Concepts" button
+      # calls -- to create a real CommercialProject with real concepts, and
+      # stops there: picking one, writing the script and casting a voice
+      # stay a person's job. generation.run_concepts() degrades to
+      # deterministic mock concepts with no OpenAI key rather than raising
+      # -- the whole Commercial Builder is built to stay clickable with no
+      # live key -- so the test exercises both a stubbed live call and no
+      # key at all. hub.ai.chat_json is stubbed the way it already is
+      # elsewhere -- no real OpenAI call in CI.
+      - name: Proposal Execution — real-tool adapters (Monthly sales video concept)
+        run: |
+          if [ -f test_proposal_adapters_commercial.py ]; then
+            python3 test_proposal_adapters_commercial.py
+          else
+            echo "test_proposal_adapters_commercial.py not on this branch — nothing to run."
           fi
 
       # A curated shortlist per department, laid over the sidebar rather than
