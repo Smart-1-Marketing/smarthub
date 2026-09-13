@@ -406,6 +406,27 @@ class ReportsSync(Base):
     source = Column(String(20), default="windsor")
 
 
+class ProviderConfirmation(Base):
+    """A person's confirmation that a platform's provider column map reads
+    the right columns -- taken against a sample raw row on
+    ``/reports/provider-check`` -- keyed on a fingerprint of the map as it
+    stood. The normalize does not read a platform's raw table until one is
+    here, because the map's column names are guesses until the first sync
+    lands, and a guess that happens to match a column of the wrong meaning
+    files the wrong number under the right name on every report. A change
+    to the map (a column, the spend divisor) changes the fingerprint and so
+    retires the confirmation: the row stays, says who confirmed what, and
+    reads as superseded rather than as a confirmation of something nobody
+    has looked at."""
+    __tablename__ = "reports_provider_confirmations"
+
+    platform = Column(String(20), primary_key=True)
+    fingerprint = Column(String(40), nullable=False)
+    table_name = Column(String(120), default="")
+    confirmed_by = Column(String(160), nullable=False)
+    confirmed_at = Column(DateTime(timezone=True), default=now)
+
+
 class ReportLink(Base):
     """A client's live dashboard link, and everything that decides what it shows.
 
@@ -1630,6 +1651,71 @@ def has_synced(platform: str) -> bool:
         return db.get(ReportsSync, platform) is not None
     except Exception:                  # noqa: BLE001 - no table yet
         return False
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# ProviderConfirmation
+# ---------------------------------------------------------------------------
+
+def provider_confirmations() -> dict[str, dict]:
+    """{platform: {"fingerprint", "table", "by", "at"}} for every platform
+    somebody has confirmed a map for. Never raises: a table that will not
+    answer reads as nothing confirmed, which is the safe direction -- the
+    normalize then reads nothing rather than everything."""
+    db = SessionLocal()
+    try:
+        return {r.platform: {"fingerprint": r.fingerprint, "table": r.table_name or "",
+                             "by": r.confirmed_by, "at": iso(r.confirmed_at)}
+                for r in db.query(ProviderConfirmation).all()}
+    except Exception:                  # noqa: BLE001 - no table yet
+        return {}
+    finally:
+        db.close()
+
+
+def confirm_provider(platform: str, *, by: str, fingerprint: str, table: str = "") -> dict:
+    """Record that ``by`` looked at a platform's map against its raw table
+    and confirmed it. Replaces an earlier confirmation of that platform: the
+    record is who last stood behind THIS map."""
+    platform = check_platform(platform)
+    by = _text(by, 160)
+    fingerprint = _text(fingerprint, 40)
+    if not by:
+        raise ValueError("A confirmation needs a name against it")
+    if not fingerprint:
+        raise ValueError("A confirmation needs the map's fingerprint")
+    db = SessionLocal()
+    try:
+        row = db.get(ProviderConfirmation, platform)
+        if row is None:
+            row = ProviderConfirmation(platform=platform)
+            db.add(row)
+        row.fingerprint = fingerprint
+        row.table_name = _text(table, 120)
+        row.confirmed_by = by
+        row.confirmed_at = now()
+        db.commit()
+        return {"platform": platform, "fingerprint": fingerprint, "table": row.table_name,
+                "by": by, "at": iso(row.confirmed_at)}
+    finally:
+        db.close()
+
+
+def withdraw_provider(platform: str) -> dict | None:
+    """Take a confirmation back. The normalize stops reading the platform
+    on its next run. Returns what was withdrawn, or None."""
+    platform = check_platform(platform)
+    db = SessionLocal()
+    try:
+        row = db.get(ProviderConfirmation, platform)
+        if row is None:
+            return None
+        out = {"platform": platform, "by": row.confirmed_by, "at": iso(row.confirmed_at)}
+        db.delete(row)
+        db.commit()
+        return out
     finally:
         db.close()
 

@@ -18,6 +18,19 @@ that happened to match a column of the wrong meaning would file the wrong
 number under the right name, which is the failure nothing on screen would
 show.
 
+**And resolving is not enough: a person confirms each platform's map
+before the normalize reads it.** A placeholder that happens to match a real
+column resolves perfectly well -- ``spend`` is a plausible name for a
+column holding micros, or a column holding the wrong currency -- so
+``/reports/provider-check`` prints a SAMPLE raw row under each mapped
+column, with the spend as it would be filed after ``spend_divisor``, and a
+Confirm button. The confirmation is recorded against ``fingerprint()`` of
+the map as it stood (``store.ProviderConfirmation``); editing a column name
+or the divisor here changes the fingerprint and retires it, so the next
+run skips the platform again and the page says the map changed since
+somebody looked. ``normalize.run()`` reads confirmed platforms and nothing
+else.
+
 Each entry:
 
 * ``table`` -- the raw table's name inside the schema.
@@ -107,6 +120,26 @@ assert set(PLATFORM_SOURCES) == set(PLATFORMS) - {"suite"}, \
 # The columns a source has to name for the fact table to be written at all.
 REQUIRED_FIELDS = ("date", "account_id", "campaign_id", "campaign_name",
                    "spend", "impressions", "clicks")
+
+
+# The parts of a source that decide WHICH number is filed under WHICH name:
+# the table, every column, and the divisor. restate_days is deliberately not
+# in it -- how far back a sync re-reads changes nothing about what a row
+# means, and retiring a confirmation over it would send somebody back to
+# the page for a change that needs no second look.
+FINGERPRINT_FIELDS = ("table", "date", "account_id", "campaign_id", "campaign_name",
+                      "spend", "impressions", "clicks", "conversions", "extras", "spend_divisor")
+
+
+def fingerprint(platform: str) -> str:
+    """A short digest of one platform's map as it stands, keyed on the
+    fields that decide what is filed. A confirmation is recorded against
+    it, so a map edited since is a map nobody has confirmed."""
+    import hashlib
+    import json
+    src = PLATFORM_SOURCES[platform]
+    payload = {k: src.get(k) for k in FINGERPRINT_FIELDS}
+    return hashlib.sha1(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:16]
 
 
 def required_columns(source: dict) -> list[str]:

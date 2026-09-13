@@ -163,7 +163,23 @@ def index():
         native=_native_status(),
         rate_card=products.rate_card_products(),
         health=_health_by_platform(),
+        provider=_provider_gate(),
     )
+
+
+def _provider_gate() -> dict:
+    """Which platforms resolve against the provider schema and are waiting
+    for somebody to confirm the map -- the reason a table that is plainly
+    there has 'Not run yet' beside it. {platform: state} plus a count, or
+    {} when the schema cannot be read: the index must render either way."""
+    try:
+        from . import normalize
+        by = {c["platform"]: c for c in normalize.check_sources()}
+    except Exception:                      # noqa: BLE001
+        return {}
+    waiting = {p: c["confirmation"]["state"] for p, c in by.items()
+               if c["status"] == "resolved" and c["confirmation"]["state"] != "confirmed"}
+    return {"waiting": waiting, "count": len(waiting)}
 
 
 def _health_by_platform() -> dict:
@@ -208,10 +224,60 @@ def provider_check():
     """
     from . import normalize, provider_map
     tables = normalize.schema_tables()
+    sources = normalize.check_sources(tables)
+    # A sample row under each resolved platform's map: the confirmation is
+    # taken against real values, never against plausible names.
+    samples = {s["platform"]: normalize.sample_row(s["platform"])
+               for s in sources if s["status"] == "resolved"}
     return render_template(
         "reports_provider_check.html",
         schema=provider_map.schema(), tables=tables,
-        sources=normalize.check_sources(tables))
+        sources=sources, samples=samples,
+        error=request.args.get("error", ""), saved=request.args.get("saved", ""))
+
+
+@app.route("/provider-check/confirm", methods=["POST"])
+def provider_confirm():
+    """A person has looked at the sample row under a platform's map and
+    stands behind it. Recorded against the map's fingerprint, so editing
+    the map afterwards retires this rather than carrying it onto columns
+    nobody looked at. Only a RESOLVED map can be confirmed -- confirming a
+    map whose columns are not on the table is confirming nothing."""
+    from . import normalize, provider_map
+    platform = (request.form.get("platform") or "").strip().lower()
+    back = url_for("provider_check")
+    if platform not in provider_map.PLATFORM_SOURCES:
+        return redirect(back + "?error=" + f"Unknown platform {platform!r}.".replace(" ", "+"))
+    src = next(c for c in normalize.check_sources() if c["platform"] == platform)
+    if src["status"] != "resolved":
+        return redirect(back + "?error=" + (
+            f"{src['label']} does not resolve ({src['status'].replace('_', ' ')}), so there is "
+            "nothing to confirm yet.").replace(" ", "+"))
+    row = store.confirm_provider(platform, by=actor_name(),
+                                 fingerprint=provider_map.fingerprint(platform), table=src["table"])
+    _log("provider_map_confirmed", platform=platform, table=src["table"],
+         fingerprint=row["fingerprint"],
+         detail=f"{src['label']}'s provider column map ({src['table']}) confirmed against a "
+                f"sample row; the hourly normalize reads it from the next run")
+    return redirect(back + f"?saved={platform}")
+
+
+@app.route("/provider-check/withdraw", methods=["POST"])
+def provider_withdraw():
+    """Take a confirmation back: the normalize stops reading the platform
+    on its next run and says so on the watermark."""
+    platform = (request.form.get("platform") or "").strip().lower()
+    back = url_for("provider_check")
+    try:
+        gone = store.withdraw_provider(platform)
+    except ValueError as exc:
+        return redirect(back + "?error=" + str(exc).replace(" ", "+"))
+    if gone is None:
+        return redirect(back + "?error=" + f"{store.platform_label(platform)} was not confirmed.".replace(" ", "+"))
+    _log("provider_map_withdrawn", platform=platform,
+         detail=f"{store.platform_label(platform)}'s provider column map confirmation "
+                f"(by {gone['by']}) withdrawn; the normalize stops reading it")
+    return redirect(back + f"?saved={platform}-withdrawn")
 
 
 @app.route("/audiogo-check")

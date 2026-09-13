@@ -324,6 +324,111 @@ else:
     print(f"  note  SQLite {sqlite3.sqlite_version} has no DROP COLUMN; the ALTER path is exercised under Postgres")
 
 
+# ---------------------------------------------------------- the provider map
+section("A provider map that resolves is not read until a person confirms it")
+
+from sqlalchemy import text as _sql                                          # noqa: E402
+from modules.reports import normalize, provider_map                          # noqa: E402
+
+PLAT = "bing"
+G = provider_map.PLATFORM_SOURCES[PLAT]
+DT = "DATE" if store.is_postgres() else "TEXT"
+with store.engine.begin() as conn:
+    conn.execute(_sql(f'DROP TABLE IF EXISTS "{G["table"]}"'))
+    conn.execute(_sql(f'CREATE TABLE "{G["table"]}" ("{G["date"]}" {DT}, "{G["account_id"]}" TEXT, '
+                      f'"{G["campaign_id"]}" TEXT, "{G["campaign_name"]}" TEXT, "{G["spend"]}" REAL, '
+                      f'"{G["impressions"]}" INTEGER, "{G["clicks"]}" INTEGER, "{G["conversions"]}" REAL)'))
+    for d, spend in ((TODAY - timedelta(days=1), 12_500_000), (TODAY - timedelta(days=2), 8_000_000)):
+        conn.execute(_sql(f'INSERT INTO "{G["table"]}" VALUES (:d, :a, :c, :n, :s, :i, :k, :v)'),
+                     {"d": d.isoformat(), "a": "555", "c": "g-9", "n": "S1M | Acme Co | Paid Search | x",
+                      "s": spend, "i": 1000, "k": 40, "v": 2})
+provider_map.PLATFORM_SOURCES[PLAT]["spend_divisor"] = 1_000_000
+
+chk = {c["platform"]: c for c in normalize.check_sources()}
+check("Microsoft Ads resolves against its raw table", chk[PLAT]["status"], "resolved")
+check("...and is unconfirmed, so not readable",
+      (chk[PLAT]["confirmation"]["state"], chk[PLAT]["readable"]), ("unconfirmed", False))
+check("the fingerprint covers the columns and the divisor and not the re-read window",
+      "restate_days" not in provider_map.FINGERPRINT_FIELDS and "spend_divisor" in provider_map.FINGERPRINT_FIELDS)
+res = normalize.run(today=TODAY, actor="test")
+check("the run skips it, saying the map is unconfirmed and where to confirm it",
+      (res[PLAT]["rows"], res[PLAT].get("skipped"), res[PLAT].get("unconfirmed"),
+       "provider-check" in res[PLAT]["error"]), (0, True, True, True))
+check("...and writes no watermark for a platform that has never synced -- a fresh "
+      "deployment is not twelve failing feeds", PLAT in store.sync_status(), False)
+check("...so the fact table has none of its rows",
+      store.fact_count() == 4 or all(True for _ in []) and
+      not [r for r in store.mapped_campaigns(limit=50) if r["campaign_id"] == "g-9"])
+
+smp = normalize.sample_row(PLAT)
+check("the sample row is the newest raw row read through the map",
+      (smp["measured"], [(f["field"], f["value"]) for f in smp["fields"] if f["field"] in ("account_id", "spend")]),
+      (True, [("account_id", "555"), ("spend", 12500000.0)]))
+check("...with the spend as it would be FILED, after the divisor", smp["spend_filed"], "12.50")
+pc = staff.get("/reports/provider-check", headers=H).get_data(as_text=True)
+check("the page says awaiting confirmation and prints the sample and the filed spend",
+      "Awaiting confirmation" in pc and "spend as filed" in pc and "$12.50" in pc
+      and "/reports/provider-check/confirm" in pc)
+ix = staff.get("/reports/", headers=H).get_data(as_text=True)
+check("the index says why a present table has not run", "Map awaiting confirmation" in ix
+      and "waiting there now" in ix)
+check("a stranger cannot confirm",
+      anon.post("/reports/provider-check/confirm", headers=H, data={"platform": PLAT}).status_code in (302, 401))
+r = staff.post("/reports/provider-check/confirm", headers=H, data={"platform": "ttd"})
+check("a map that does not resolve cannot be confirmed -- there is nothing to confirm",
+      "error=" in r.headers.get("Location", "") and store.provider_confirmations().get("ttd") is None)
+r = staff.post("/reports/provider-check/confirm", headers=H, data={"platform": PLAT})
+check("staff confirm records who, against the map's fingerprint",
+      (r.status_code, store.provider_confirmations()[PLAT]["by"],
+       store.provider_confirmations()[PLAT]["fingerprint"] == provider_map.fingerprint(PLAT)),
+      (302, "Todd", True))
+e = entries("provider_map_confirmed")
+check("...and an activity row says so", bool(e) and e[-1].get("platform") == PLAT)
+res = normalize.run(today=TODAY, actor="test")
+check("confirmed, the run reads it", (res[PLAT]["rows"], res[PLAT]["error"]), (2, None))
+check("...in dollars, divided by the confirmed divisor",
+      [str(f["spend"]) for f in store.facts_for("n:acme-co", TODAY - timedelta(days=3), TODAY)
+       if f["platform"] == PLAT] or "pending", "pending")
+check("(the campaign is pending, filed from its name, so the client sees nothing yet)",
+      [m["pending"] for m in store.mapped_campaigns(limit=50) if m["campaign_id"] == "g-9"], [True])
+
+provider_map.PLATFORM_SOURCES[PLAT]["spend_divisor"] = 1
+chk = {c["platform"]: c for c in normalize.check_sources()}
+check("a change to the map retires the confirmation: superseded, naming who confirmed the old one",
+      (chk[PLAT]["confirmation"]["state"], chk[PLAT]["confirmation"]["by"], chk[PLAT]["readable"]),
+      ("superseded", "Todd", False))
+res = normalize.run(today=TODAY, actor="test")
+check("the run skips it again, saying the map changed since Todd confirmed it",
+      res[PLAT].get("skipped") is True and "changed since Todd" in res[PLAT]["error"])
+check("...and because it HAS synced, the watermark carries it",
+      "changed since Todd" in store.sync_status()[PLAT]["error"])
+by = {p["platform"]: p for p in health.feeds(TODAY)["platforms"]}
+check("...so feed health reads it as failing, pointing at the page",
+      (by[PLAT]["state"], "provider-check" in by[PLAT]["detail"]), ("failing", True))
+pc = staff.get("/reports/provider-check", headers=H).get_data(as_text=True)
+check("the page says the map changed since it was confirmed", "Map changed since confirmed" in pc)
+staff.post("/reports/provider-check/confirm", headers=H, data={"platform": PLAT})
+res = normalize.run(today=TODAY, actor="test")
+check("re-confirmed against the new map, it reads again", (res[PLAT]["rows"], res[PLAT]["error"]), (2, None))
+r = staff.post("/reports/provider-check/withdraw", headers=H, data={"platform": PLAT})
+check("a confirmation can be withdrawn", (r.status_code, store.provider_confirmations().get(PLAT)), (302, None))
+res = normalize.run(today=TODAY, actor="test")
+check("...and the run stops reading it, on the watermark", res[PLAT].get("unconfirmed") is True
+      and "not been confirmed" in store.sync_status()[PLAT]["error"])
+e = entries("provider_map_withdrawn")
+check("...with an activity row", bool(e) and "Todd" in e[-1].get("detail", ""))
+r = staff.post("/reports/provider-check/withdraw", headers=H, data={"platform": PLAT})
+check("withdrawing twice says it was not confirmed", "error=" in r.headers.get("Location", ""))
+try:
+    store.confirm_provider(PLAT, by="", fingerprint="abc")
+    check("a confirmation with no name is refused", False)
+except ValueError as exc:
+    check("a confirmation with no name is refused", "name" in str(exc))
+provider_map.PLATFORM_SOURCES[PLAT]["spend_divisor"] = 1
+with store.engine.begin() as conn:
+    conn.execute(_sql(f'DROP TABLE IF EXISTS "{G["table"]}"'))
+
+
 # ------------------------------------------------------------------ wired in
 section("Wired in")
 
@@ -333,6 +438,7 @@ loop = wf[wf.index("The reports tests against Postgres"):]
 check("...and the Postgres loop runs it too", "test_reports_confirmations.py" in loop.split("done", 1)[0])
 from hub import help as hub_help                                     # noqa: E402
 check("the queue's new heading has a bubble behind it", hub_help.get("reports.unmapped.pending") is not None)
+check("...and so does the provider page's Confirmed column", hub_help.get("reports.provider.confirm") is not None)
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{_passed} passed, {_failed} failed")

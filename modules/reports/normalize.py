@@ -18,6 +18,19 @@ Three rules, each a way this goes quietly wrong:
   provider lands tables as syncs are switched on, so a missing one is the
   ordinary state on day one and ``/reports/provider-check`` is where it is
   looked at.
+* **A map nobody has confirmed is not read.** The column names in
+  ``provider_map.py`` are guesses until somebody has looked at a raw row
+  under them, and a guess that resolves is the dangerous one: it files a
+  number under a name with nothing on any screen saying the number is the
+  wrong one. So a resolved platform is skipped until a person confirms its
+  map on the provider-check page (``store.ProviderConfirmation``, keyed on
+  ``provider_map.fingerprint()``), and a platform whose map has changed
+  since it was confirmed is skipped again and -- because it HAS synced --
+  says so on its watermark, where ``/reports/`` and ``/status`` read it. A
+  never-synced platform awaiting its first confirmation records nothing:
+  on a fresh deployment that is every platform, and twelve red rows on
+  the status page for a queue somebody is about to work is the check that
+  gets switched off.
 * **Spend is divided on the way in**, by the platform's own
   ``spend_divisor``, and nowhere else. The fact table holds dollars; a
   connector reporting micros is a per-platform fact recorded in the map.
@@ -78,16 +91,37 @@ def schema_tables() -> dict[str, list[str]]:
     return out
 
 
+CONFIRMATION_STATES = ("confirmed", "unconfirmed", "superseded")
+
+
+def confirmation_for(platform: str, confirmations: dict | None = None) -> dict:
+    """One platform's confirmation state against the map as it stands:
+    ``confirmed`` (somebody confirmed this very map), ``superseded`` (somebody
+    confirmed an earlier map and it has changed since) or ``unconfirmed``
+    (nobody has). Who and when ride along where there is a row."""
+    confirmations = store.provider_confirmations() if confirmations is None else confirmations
+    row = confirmations.get(platform)
+    fp = provider_map.fingerprint(platform)
+    if row is None:
+        return {"state": "unconfirmed", "by": "", "at": None, "fingerprint": fp}
+    state = "confirmed" if row.get("fingerprint") == fp else "superseded"
+    return {"state": state, "by": row.get("by") or "", "at": row.get("at"), "fingerprint": fp}
+
+
 def check_sources(tables: dict[str, list[str]] | None = None) -> list[dict]:
-    """Per platform: does the map resolve against what is in the schema?
+    """Per platform: does the map resolve against what is in the schema,
+    and has a person confirmed it?
 
     ``status`` is one of ``resolved``, ``table_missing`` or
-    ``columns_missing`` (with ``missing`` naming the columns). Every platform
-    in the map is listed, because the platform that is absent from the schema
-    is the finding.
+    ``columns_missing`` (with ``missing`` naming the columns);
+    ``confirmation`` is ``confirmation_for()``'s answer; ``readable`` is
+    the one bit the normalize acts on -- resolved AND confirmed. Every
+    platform in the map is listed, because the platform that is absent from
+    the schema is the finding.
     """
     tables = schema_tables() if tables is None else tables
     lower = {t.lower(): cols for t, cols in tables.items()}
+    confirmations = store.provider_confirmations()
     out = []
     for platform, src in provider_map.PLATFORM_SOURCES.items():
         cols = lower.get(src["table"].lower())
@@ -98,13 +132,59 @@ def check_sources(tables: dict[str, list[str]] | None = None) -> list[dict]:
             missing = [c for c in provider_map.required_columns(src)
                        if c.lower() not in have]
             status = "columns_missing" if missing else "resolved"
+        conf = confirmation_for(platform, confirmations)
         out.append({"platform": platform, "label": store.platform_label(platform),
                     "table": provider_map.qualified(src["table"]),
                     "status": status, "missing": missing,
                     "columns": provider_map.required_columns(src),
                     "spend_divisor": src["spend_divisor"],
-                    "restate_days": src["restate_days"]})
+                    "restate_days": src["restate_days"],
+                    "confirmation": conf,
+                    "readable": status == "resolved" and conf["state"] == "confirmed"})
     return out
+
+
+def sample_row(platform: str) -> dict:
+    """The newest raw row of one platform's table, as the map reads it:
+    ``{"measured": bool, "fields": [{"field", "column", "value"}, ...],
+    "spend_filed": str | None, "note": str}``. What the provider-check page
+    prints under each mapped column so a person confirms against real
+    values rather than plausible names -- the spend is shown as it would be
+    FILED, after the divisor, because a divisor wrong by six orders of
+    magnitude is the mistake that survives every other look. Never raises:
+    a table that will not answer is ``measured: False`` with the reason."""
+    src = provider_map.PLATFORM_SOURCES[platform]
+    cols = provider_map.required_columns(src)
+    schema = _schema()
+    table = (f"{_q(schema)}." if schema else "") + _q(src["table"])
+    sql = (f"SELECT {', '.join(_q(c) for c in cols)} FROM {table} "
+           f"ORDER BY {_q(src['date'])} DESC LIMIT 1")
+    try:
+        with store.engine.connect() as conn:
+            row = conn.execute(text(sql)).fetchone()
+    except Exception as exc:              # noqa: BLE001 - a column that is not there
+        return {"measured": False, "fields": [], "spend_filed": None,
+                "note": f"the table could not be read ({type(exc).__name__}: {str(exc)[:160]})"}
+    if row is None:
+        return {"measured": False, "fields": [], "spend_filed": None,
+                "note": "the table is present and has no rows yet"}
+    r = row._mapping
+    fields = []
+    for field in provider_map.REQUIRED_FIELDS + ("conversions",):
+        col = src.get(field)
+        if not col:
+            continue
+        fields.append({"field": field, "column": col, "value": r.get(col)})
+    for col in src.get("extras") or []:
+        fields.append({"field": f"extras.{col}", "column": col, "value": r.get(col)})
+    raw = r.get(src["spend"])
+    divisor = src.get("spend_divisor") or 1
+    try:
+        filed = f"{float(raw) / divisor:,.2f}" if raw not in (None, "") else None
+    except (TypeError, ValueError):
+        filed = None
+    return {"measured": True, "fields": fields, "spend_filed": filed,
+            "note": "" if filed is not None else "the spend column of the newest row is not a number"}
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +311,24 @@ def run(today: date | None = None, actor: str = "scheduler") -> dict:
             msg = f"{c['table']} is missing columns: " + ", ".join(c["missing"])
             out[platform] = {"rows": 0, "error": msg, "skipped": True}
             store.record_sync(platform, rows=0, error=msg)
+            continue
+        conf = c["confirmation"]
+        if conf["state"] != "confirmed":
+            label = store.platform_label(platform)
+            if conf["state"] == "superseded":
+                msg = (f"{label}'s column map has changed since {conf['by']} confirmed it; "
+                       f"confirm the new map on /reports/provider-check")
+            else:
+                msg = f"{label}'s column map has not been confirmed on /reports/provider-check"
+            out[platform] = {"rows": 0, "error": msg, "skipped": True, "unconfirmed": True}
+            # A platform that HAS synced and now cannot is a finding, and
+            # the watermark is where /reports/ and /status read it from.
+            # One awaiting its first confirmation records nothing: on a
+            # fresh deployment that is every platform, and a status page
+            # red across the board for a queue about to be worked is the
+            # check that gets switched off.
+            if store.has_synced(platform):
+                store.record_sync(platform, rows=0, error=msg)
             continue
         try:
             n = normalize_platform(platform, today=today, touched=touched)

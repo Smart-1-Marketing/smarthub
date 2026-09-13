@@ -209,6 +209,12 @@ section("The run")
 
 # The provider reports Google in micros on this deployment.
 provider_map.PLATFORM_SOURCES["google"]["spend_divisor"] = 1_000_000
+# A resolved map is read only once a person has confirmed it against a raw
+# row -- test_reports_confirmations.py holds that gate; here the two
+# platforms the run is about are confirmed as they stand, and the Trade
+# Desk deliberately is not, because it does not resolve.
+for _p in ("google", "meta"):
+    store.confirm_provider(_p, by="Todd", fingerprint=provider_map.fingerprint(_p))
 res = normalize.run(today=TODAY, actor="test")
 
 check("google synced the rows inside the window", res["google"], {"rows": 3, "error": None})

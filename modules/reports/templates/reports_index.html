@@ -48,6 +48,8 @@
         <td>{% if p.sync_run_at and p.sync_error %}<span class="s1d-pill bad">Failed</span>
               <span class="s1d-muted">{{ p.sync_error }}</span>
             {% elif p.sync_run_at %}<span class="s1d-pill ok">{{ '{:,}'.format(p.sync_rows or 0) }} rows</span>
+            {% elif provider and p.platform in provider.waiting %}<a class="s1d-pill warn" href="/reports/provider-check" style="text-decoration:none"
+                title="The raw table is there and the map resolves; nobody has confirmed the columns yet">Map awaiting confirmation</a>
             {% else %}&mdash;{% endif %}
             {% if p.sync_run_at and p.sync_source == 'native' %}<span class="s1d-muted mono">native</span>{% endif %}</td>
       </tr>
@@ -57,9 +59,11 @@
   </div>
   <p class="s1d-hint">A platform that has never synced is listed rather than
     left off: an absent platform is the finding. The hourly normalize reads
-    the provider's raw tables; a platform it skips has no table yet or a
-    column the map does not know &mdash; <a href="/reports/provider-check">provider check</a>
-    says which. A result marked <b>native</b> came from the platform's own API
+    the provider's raw tables; a platform it skips has no table yet, a
+    column the map does not know, or a map nobody has confirmed against a
+    raw row &mdash; <a href="/reports/provider-check">provider check</a>
+    says which{% if provider and provider.count %}, and <b>{{ provider.count }}</b> {{ 'is' if provider.count == 1 else 'are' }} waiting there now{% endif %}.
+    A result marked <b>native</b> came from the platform's own API
     and wins over the provider's copy for a day.</p>
 </div>
 

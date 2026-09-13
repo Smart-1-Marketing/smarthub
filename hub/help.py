@@ -948,6 +948,14 @@ REGISTRY: list[Help] = [
        "it answered with, the key itself never among them, so the real "
        "names can be pasted into the map. Until it resolves the pull lands "
        "nothing and the Reports page says which field is missing."),
+    _h("reports.provider.confirm", "Resolved is not confirmed",
+       "A placeholder column name that happens to match a real column "
+       "resolves perfectly well -- and 'spend' is a plausible name for a "
+       "column holding micros. So the normalize reads a platform only once "
+       "somebody has looked at the newest raw row printed here, checked the "
+       "spend as it would be filed after the divisor, and pressed Confirm. "
+       "The confirmation is against the map as it stood: change a column or "
+       "the divisor and it reads as superseded until somebody looks again."),
     _h("reports.provider.status", "Resolved, table missing, or columns missing",
        "The column names in provider_map.py are placeholders until the "
        "first sync lands. A platform resolves when its table is in the "
