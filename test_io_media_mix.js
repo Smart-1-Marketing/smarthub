@@ -90,3 +90,20 @@ async function testSubmissionReview(){
  assert.equal(c.helpBody('Use **bold**\n<script>bad()</script>'),'Use <b>bold</b><br>&lt;script&gt;bad()&lt;/script&gt;');
 }
 testSubmissionReview().then(()=>console.log('PASS: optional conversions, review cancel/Escape/duplicate/approval, guardrail override, PDF-before-submit, escaped help emphasis.')).catch(e=>{console.error(e);process.exitCode=1});
+
+{
+ const c={};vm.createContext(c);
+ vm.runInContext(source.slice(source.indexOf('function editorEmailError('),source.indexOf('function selectedProductInfo(')),c);
+ assert.match(c.editorEmailError('', 'rep@example.com'),/NONE/);
+ assert.match(c.editorEmailError('bad email','rep@example.com'),/valid/);
+ assert.equal(c.editorEmailError('NONE','rep@example.com'),'');
+ assert.equal(c.editorEmailError('new@example.com','rep@example.com'),'');
+ const body=source.slice(source.indexOf('function saveEditor('),source.indexOf('function text('));
+ const fields={'e-sales-email':{value:'',setAttribute(){},focus(){}},'e-sales-email-error':{}};
+ c.document={getElementById:id=>fields[id]};c.state={salesEmail:'rep@example.com',client:'Original'};
+ vm.runInContext(body,c);c.saveEditor();
+ assert.equal(c.state.salesEmail,'rep@example.com');assert.equal(c.state.client,'Original');
+ c.esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+ assert.equal(c.reviewMarkup('## Findings\n- **CTA**\n<script>x</script>'),'<h4>Findings</h4><ul><li><b>CTA</b></li></ul><p>&lt;script&gt;x&lt;/script&gt;</p>');
+ console.log('PASS: blank/invalid editor email preserves state; explicit removal; safe review formatting.');
+}
