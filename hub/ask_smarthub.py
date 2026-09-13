@@ -1,6 +1,6 @@
 """Read-only natural-language assistant for authenticated SmartHub staff.
 
-The model plans from a fixed catalogue; Python checks every requested tool and
+The model plans from a fixed catalog; Python checks every requested tool and
 argument again before execution.  No model output can name a function, URL,
 property, or write action outside this file's allowlist.
 """
@@ -112,18 +112,18 @@ def _history(raw: Any) -> list[dict]:
     return out
 
 
-def tool_catalogue(role: str) -> list[dict]:
+def tool_catalog(role: str) -> list[dict]:
     return [{"name": name, "description": tool.description,
              "arguments": list(tool.arguments)}
             for name, tool in allowed_tools(role).items()]
 
 
 def plan(question: str, role: str, context: dict, history: list[dict]) -> dict:
-    catalogue = tool_catalogue(role)
+    catalog = tool_catalog(role)
     system = (
         "You plan read-only SmartHub questions. Return JSON only with keys "
         "calls and direct_answer. calls is a list of at most 4 objects shaped "
-        "{tool, arguments}. Use only catalogue tools and only their named "
+        "{tool, arguments}. Use only catalog tools and only their named "
         "arguments. Never invent a client, property id, date, result, or tool. "
         "Use the context client when the question says this client. If a client "
         "is uncertain, search first. If no data tool is needed, calls is empty "
@@ -131,7 +131,7 @@ def plan(question: str, role: str, context: dict, history: list[dict]) -> dict:
         "a write, update, send, delete, payment, budget change, or other action."
     )
     payload = {"question": question, "context": context,
-               "available_tools": catalogue, "recent_history": history}
+               "available_tools": catalog, "recent_history": history}
     return ai.chat_json(
         [{"role": "system", "content": system},
          {"role": "user", "content": json.dumps(payload, ensure_ascii=True)}],
