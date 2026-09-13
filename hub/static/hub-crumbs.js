@@ -77,6 +77,7 @@
     "calculators": "Media Calculators",
     "marketing-audit": "Marketing Efficiency Audit",
     "gpt-ads": "GPT Ads Builder", "social": "Social Content Planner",
+    "sites-builder": "Smart 1 Sites Builder",
     "site-blocks": "Website Blocks",
     "smartforecast": "SmartForecast Dynamic Website",
     "widgets": "Scan Widgets",
