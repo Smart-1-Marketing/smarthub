@@ -66,11 +66,15 @@ def action():
     body = request.get_json()
     actor = current_user()
     name = body.get("action")
-    allowed = {"sync_start", "sync_step", "create", "search", "quote", "approve", "buy", "import"}
+    allowed = {"sync_start", "sync_step", "sync_queue", "sync_resume", "connections", "create", "search", "quote", "approve", "buy", "import"}
     if not isinstance(name, str) or name not in allowed:
         return jsonify(ok=False, error="Unknown prospect action."), 400
     with store.operation(actor, name):
-        if name == "sync_start":
+        if name == "connections":
+            result = service.test_connections(actor)
+        elif name in {"sync_queue", "sync_resume"}:
+            result = service.queue_sync(actor, resume=name == "sync_resume")
+        elif name == "sync_start":
             result = service.start_sync(actor)
         elif name == "sync_step":
             result = service.sync_step()
