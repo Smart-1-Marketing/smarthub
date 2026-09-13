@@ -459,12 +459,6 @@ FULL_ASSET_ON_PURPOSE = {
     ("hub/templates/client360.html", "Logo on their"): _LOGO,
     ("modules/gpt_ads/templates/index.html", "esc(g.url)"):
         "the chosen 1:1 ad image, where the exact asset is the point",
-    ("modules/gpt_ads/templates/index.html", "Ad image preview"):
-        "the final creative approval view shows the exact selected ad asset, "
-        "consistent with the chosen-image review above",
-    ("modules/gpt_ads/templates/index.html", 'alt="Version image"'):
-        "the current and historical creative are compared before restoring; "
-        "these two review images must represent the exact saved assets",
     ("modules/landing_ads/templates/index.html", "max-width:300px"):
         "one preview per generated ad, with no per-row producer wired yet",
     ("modules/social_planner/templates/index.html", "esc(s.image_url)"):
