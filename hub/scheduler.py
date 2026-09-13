@@ -952,6 +952,29 @@ def job_reports_pacing(app) -> dict:
         return pacing.run(actor="scheduler")
 
 
+def job_reports_reconcile(app) -> dict:
+    """Nightly: does each platform's month in the fact table add up to the
+    platform's own total? modules/reports/reconcile.run() asks Google's
+    customer-level query (independent) and the provider's raw tables and
+    StackAdapt (re-reads), for this month and the last, and writes one
+    ledger row per platform-month; /reports/reconcile and /status read it.
+
+    Safe to run late, skip and repeat: every row is a comparison as of now,
+    and a state is logged only when it changes.
+    """
+    try:
+        from modules.reports import reconcile
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        # An app context: the activity rows reach hub/audit and the Google
+        # client reaches its own store -- the flask.g trap.
+        res = reconcile.run(actor="scheduler")
+    return {"months": res["months"], "agree": res["agree"], "drift": res["drift"],
+            "not_measured": res["not_measured"],
+            "changed": [f"{p} {m}: {a} -> {b}" for p, m, a, b in res["changed"]]}
+
+
 JOBS = {
     "industry_prospect_sync": (1, job_industry_prospect_sync,
                                "Advance the opt-in GHL to Apollo suppression sync."),
@@ -1027,6 +1050,9 @@ JOBS = {
                           "own APIs (native wins)."),
     "reports_pacing":    (60, job_reports_pacing,
                           "Snapshot every sold line's pacing against its budget (the board reads this)."),
+    "reports_reconcile": (1440, job_reports_reconcile,
+                          "Compare each platform's month in the fact table against the platform's "
+                          "own total."),
 }
 
 

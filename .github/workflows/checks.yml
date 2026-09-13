@@ -2894,6 +2894,54 @@ jobs:
       # zeroed where no client has a Suite outcome row.
       - name: The pacing board and the cost report
         run: python3 test_reports_pacing.py
+      # The same files a second time, against this job's Postgres. Every
+      # reports test binds through _reports_testdb.py, which takes a SQLite
+      # file by default and REPORTS_TEST_DATABASE_URL when it is set -- and
+      # production is Postgres. Two of the seven defects the module's first
+      # review found were Postgres-only (Numeric precision refusing a row and
+      # failing the whole insert; substr() over a timestamp), and SQLite
+      # cannot see either by construction. The hub half stays on the file
+      # each test owns; only the reports engine moves.
+      # Feed health, read once and drawn three ways: a state per platform on
+      # /reports/, a row on /status (an ERROR for the SQLite fallback in
+      # production, whose file a deploy wipes), and the dashboard card; and
+      # the day a client's figures run through, said on the page and the PDF
+      # rather than implied to be today.
+      - name: Reports feed health, and the day the figures run through
+        run: python3 test_reports_health.py
+      # What the syncs propose and a person has to stand behind: a campaign
+      # the auto-mapper files from its NAME is pending, reaches no figure on
+      # the client's page until somebody presses Confirm, and a refusal is
+      # remembered so the next hourly run cannot undo it.
+      - name: Reports confirmations
+        run: python3 test_reports_confirmations.py
+      # A fact row that cannot be true -- more clicks than impressions, a
+      # negative figure, a day after today, a spend spike against the
+      # campaign's own history -- is held for a person in the one door
+      # every writer goes through, the rest of the batch written; a
+      # decision is about the row as it was, and a clean restatement
+      # supersedes a held one by itself.
+      - name: Reports quarantine
+        run: python3 test_reports_quarantine.py
+      # Does the fact table add up to the month the platform would invoice?
+      # Google's customer-level query as the one independent total, a
+      # provider table or StackAdapt's month re-read as the same feed summed
+      # whole, compared through yesterday on both sides; a platform that
+      # cannot be asked is not measured with the reason, never agreeing.
+      - name: Reports reconcile
+        run: python3 test_reports_reconcile.py
+      - name: The reports tests against Postgres
+        env:
+          REPORTS_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          for f in test_reports_store.py test_reports_pacing.py test_reports_normalize.py \
+                   test_reports_public.py test_reports_crossover.py test_reports_pages.py \
+                   test_reports_seo.py test_reports_ttd.py test_reports_stackadapt.py \
+                   test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
+                   test_reports_confirmations.py test_reports_quarantine.py \
+                   test_reports_reconcile.py; do
+            echo "== $f (postgres)"; python3 "$f" || exit 1
+          done
 
       - name: Industry prospect suppression and paid-attempt safety
         run: |

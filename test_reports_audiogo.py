@@ -40,7 +40,8 @@ TMP = tempfile.mkdtemp(prefix="s1reports_ag_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["AUDIT_LOG_PATH"] = os.path.join(TMP, "audit.jsonl")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "hub.sqlite3")
-os.environ["REPORTS_DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "reports.sqlite3")
+import _reports_testdb                                               # noqa: E402
+REPORTS_DB = _reports_testdb.bind(TMP)
 os.environ["REPORTS_PROVIDER_SCHEMA"] = ""
 os.environ["SECRET_KEY"] = "reports-ag-test"
 os.environ.pop("PANEL_PASSWORD", None)
@@ -71,6 +72,7 @@ from werkzeug.test import Client                                     # noqa: E40
 import wsgi                                                          # noqa: E402
 from hub import auth                                                 # noqa: E402
 from modules.reports import audiogo, audiogo_map, store              # noqa: E402
+_reports_testdb.reset(store)
 from modules.reports.parsers import audiogo_csv                      # noqa: E402
 
 KEY = "ag-key-77aa19c3"

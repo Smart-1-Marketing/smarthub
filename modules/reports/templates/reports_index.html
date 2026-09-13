@@ -10,6 +10,12 @@
   <a class="s1d-tile" href="/reports/unmapped" style="text-decoration:none">
     <b class="{{ 's1d-warn' if unmapped else '' }}">{{ unmapped }}</b>
     <span>Unmapped campaigns</span></a>
+  <a class="s1d-tile" href="/reports/unmapped#pending" style="text-decoration:none">
+    <b class="{{ 's1d-warn' if pending else '' }}">{{ pending }}</b>
+    <span>Waiting for confirmation</span></a>
+  <a class="s1d-tile" href="/reports/quarantine" style="text-decoration:none">
+    <b class="{{ 's1d-warn' if held.held else '' }}">{{ held.held if held.held is not none else '—' }}</b>
+    <span>Held in quarantine</span></a>
   <a class="s1d-tile" href="/reports/budgets" style="text-decoration:none">
     <b>{{ budgets }}</b><span>Budget lines</span></a>
   <a class="s1d-tile" href="/reports/markup" style="text-decoration:none">
@@ -26,12 +32,15 @@
     </span></div>
   <div class="s1d-scroll">
   <table class="s1d-t">
-    <thead><tr><th>Platform</th><th>Last synced</th><th>Latest day</th><th class="num">Rows</th>
+    <thead><tr><th>Platform</th><th>Health</th><th>Last synced</th><th>Latest day</th><th class="num">Rows</th>
       <th>Last normalize run</th><th>Result</th></tr></thead>
     <tbody>
     {% for p in platforms %}
       <tr>
         <td>{{ p.label }} <span class="s1d-muted mono">{{ p.platform }}</span></td>
+        {% set h = health.get(p.platform) if health else none %}
+        <td>{% if h %}<span class="s1d-pill {{ 'ok' if h.state == 'ok' else 'bad' if h.state == 'failing' else 'warn' if h.state == 'stale' else '' }}" title="{{ h.detail }}">{{ h.state_label }}</span>
+            {% else %}<span class="s1d-muted">not measured</span>{% endif %}</td>
         <td>{% if p.synced_at %}<span class="s1d-pill ok" title="{{ p.synced_at }}"><time datetime="{{ p.synced_at }}">{{ p.synced_at }}</time></span>
             {% else %}<span class="s1d-pill warn">Never synced</span>{% endif %}</td>
         <td>{{ p.latest_date or '—' }}</td>
@@ -42,8 +51,11 @@
         <td>{% if p.sync_run_at and p.sync_error %}<span class="s1d-pill bad">Failed</span>
               <span class="s1d-muted">{{ p.sync_error }}</span>
             {% elif p.sync_run_at %}<span class="s1d-pill ok">{{ '{:,}'.format(p.sync_rows or 0) }} rows</span>
+            {% elif provider and p.platform in provider.waiting %}<a class="s1d-pill warn" href="/reports/provider-check" style="text-decoration:none"
+                title="The raw table is there and the map resolves; nobody has confirmed the columns yet">Map awaiting confirmation</a>
             {% else %}&mdash;{% endif %}
-            {% if p.sync_run_at and p.sync_source == 'native' %}<span class="s1d-muted mono">native</span>{% endif %}</td>
+            {% if p.sync_run_at and p.sync_source == 'native' %}<span class="s1d-muted mono">native</span>{% endif %}
+            {% if held.by_platform.get(p.platform) %}<br><a class="s1d-pill warn" href="/reports/quarantine" style="text-decoration:none">{{ held.by_platform[p.platform] }} held</a>{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>
@@ -51,9 +63,11 @@
   </div>
   <p class="s1d-hint">A platform that has never synced is listed rather than
     left off: an absent platform is the finding. The hourly normalize reads
-    the provider's raw tables; a platform it skips has no table yet or a
-    column the map does not know &mdash; <a href="/reports/provider-check">provider check</a>
-    says which. A result marked <b>native</b> came from the platform's own API
+    the provider's raw tables; a platform it skips has no table yet, a
+    column the map does not know, or a map nobody has confirmed against a
+    raw row &mdash; <a href="/reports/provider-check">provider check</a>
+    says which{% if provider and provider.count %}, and <b>{{ provider.count }}</b> {{ 'is' if provider.count == 1 else 'are' }} waiting there now{% endif %}.
+    A result marked <b>native</b> came from the platform's own API
     and wins over the provider's copy for a day.</p>
 </div>
 
@@ -76,7 +90,7 @@
     <tbody>
     {% for c in clients %}
       <tr><td><a href="/reports/client/{{ c.client }}">{{ c.client_name }}</a> <span class="s1d-muted mono">{{ c.client }}</span></td>
-        <td class="num">{{ c.campaigns }}</td>
+        <td class="num">{{ c.campaigns }}{% if c.pending %} <span class="s1d-pill warn" title="Filed from the campaign name; not on the client's page until confirmed">{{ c.pending }} waiting for confirmation</span>{% endif %}</td>
         <td>{% if c.token %}<span class="s1d-pill ok">Live</span>{% else %}<span class="s1d-muted">None yet</span>{% endif %}</td></tr>
     {% endfor %}
     </tbody>
@@ -91,7 +105,16 @@
     <div class="s1d-kv"><b>Unmapped campaigns</b>
       <span><a href="/reports/unmapped">File each campaign under a client</a> &mdash;
         or rename it in the platform to <span class="mono">S1M | &lt;ClientKey&gt; | &lt;Product&gt; | &lt;anything&gt;</span>
-        and the auto-mapper files it.</span></div>
+        and the auto-mapper files it, <a href="/reports/unmapped#pending">waiting for somebody to confirm</a>
+        before it reaches the client's page.</span></div>
+    <div class="s1d-kv"><b>Reconcile</b>
+      <span><a href="/reports/reconcile">Our month against the platform's own total</a>, per platform,
+        measured nightly{% if drifting %} &mdash; <b class="s1d-warn">{{ drifting|length }} in drift</b>:
+        {% for d in drifting %}{{ d.label }} {{ d.month }}{{ ', ' if not loop.last else '' }}{% endfor %}{% endif %}.</span></div>
+    <div class="s1d-kv"><b>Quarantine</b>
+      <span><a href="/reports/quarantine">Rows a sync proposed that cannot be true</a> &mdash;
+        more clicks than impressions, a negative figure, a day that has not happened, a spend
+        spike &mdash; held for a person rather than filed on a client's page.</span></div>
     <div class="s1d-kv"><b>Budgets</b>
       <span><a href="/reports/budgets">What was sold</a>, by client, product and month,
         so pacing has a figure to pace against.</span></div>

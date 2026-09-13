@@ -1,0 +1,77 @@
+{% extends "_reports_base.html" %}
+{% block title %}Reconcile · Reports{% endblock %}
+{% block heading %}Reconcile{% endblock %}
+{% block lede %}Our fact table's month against the platform's own total, per platform,
+  through yesterday on both sides. A client reads campaign-days summed; this is
+  whether that sum is the month the platform would invoice.{% endblock %}
+{% block saved_text %}Measured. Every platform's row below is as of now.{% endblock %}
+
+{% block style %}
+  .figs { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.why { max-width: 380px; }
+{% endblock %}
+
+{% block body %}
+<div class="s1d-card">
+  <div class="s1d-cardhead">
+    <h2>By month {{ help_dot('reports.reconcile.states') if help_dot is defined else '' }}</h2>
+    <form method="post" action="/reports/reconcile/run" style="display:inline">
+      <button type="submit" class="s1d-btn small">Measure now</button>
+      <span class="s1d-muted" style="margin-left:8px">Reaches Google and the platforms; the nightly run does the same.</span>
+    </form>
+  </div>
+  {% if rows %}
+  {% for month in months %}
+  <h3 style="margin:14px 0 6px">{{ month }}</h3>
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr>
+      <th>Platform</th><th>State</th><th class="num">Ours</th><th class="num">Theirs</th><th class="num">Apart</th>
+      <th>Their figure is</th><th class="num">Held</th><th>Through</th><th>Measured</th>
+    </tr></thead>
+    <tbody>
+    {% for r in rows if r.month == month %}
+      <tr>
+        <td>{{ r.label }} <span class="s1d-muted mono">{{ r.platform }}</span></td>
+        <td><span class="s1d-pill {{ 'ok' if r.state == 'agree' else 'bad' if r.state == 'drift' else '' }}">{{ labels[r.state] }}</span></td>
+        <td class="num figs">{% if r.ours is not none %}${{ '{:,.2f}'.format(r.ours) }}{% else %}—{% endif %}</td>
+        <td class="num figs">{% if r.theirs is not none %}${{ '{:,.2f}'.format(r.theirs) }}{% else %}—{% endif %}</td>
+        <td class="num figs">{% if r.drift_pct is not none %}{{ r.drift_pct }}%{% else %}—{% endif %}</td>
+        <td class="why">{% if r.state == 'not_measured' %}<span class="s1d-muted">not measured: {{ r.reason }}</span>
+            {% else %}{{ r.source_label }} <span class="s1d-pill {{ 'ok' if r.independent else 'warn' }}" title="{{ 'A different aggregation the platform computed: this can catch a systematic error.' if r.independent else 'The same feed summed whole: this catches what we dropped or never read, not the feed being wrong.' }}">{{ 'independent' if r.independent else 're-read' }}</span>
+            {% if r.reason %}<br><span class="s1d-muted">{{ r.reason }}</span>{% endif %}{% endif %}</td>
+        <td class="num">{% if r.held %}<a href="/reports/quarantine" class="s1d-pill warn" style="text-decoration:none">{{ r.held }}</a>{% else %}0{% endif %}</td>
+        <td class="mono">{{ r.through or '—' }}</td>
+        <td><time datetime="{{ r.computed_at }}">{{ r.computed_at }}</time></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% endfor %}
+  {% else %}
+    <div class="empty">Nothing measured yet. The nightly run lands the first rows; Measure now does it at once.</div>
+  {% endif %}
+  <p class="s1d-hint">Ours counts every row of the platform in the fact table, mapped or not, because the
+    platform's own total covers the whole account. Agreement is within {{ tolerance }}% ({{ source }} figure:
+    no platform publishes one, attribution restates for weeks, and Google's customer total keeps campaigns
+    the daily pull has since dropped as removed). Held is the platform's rows sitting in quarantine for the
+    month &mdash; the likeliest explanation of a drift, and the one thing on this row somebody can act on.</p>
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>Not measurable, by design</h2></div>
+  {% for p, why in not_measurable.items() %}
+  <div class="s1d-kv"><b>{{ p }}</b><span>{{ why }}.</span></div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+  Array.prototype.forEach.call(document.querySelectorAll("time[datetime]"), function (t) {
+    var d = new Date(t.getAttribute("datetime"));
+    if (!isNaN(d)) t.textContent = d.toLocaleString();
+  });
+</script>
+{% endblock %}

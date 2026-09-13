@@ -389,6 +389,17 @@ REGISTRY: list[Help] = [
        "Every action across every tool, attributed to whoever did it. Useful "
        "when something changed and nobody remembers changing it.", step=3,
        selector="[data-tour='activity']"),
+    _h("hub.dashboard.reports", "Whether the ad report feeds are arriving",
+       "Every client's live report is drawn from the platform feeds, and this "
+       "is whether they are actually landing. Current, failing and stale are "
+       "the feed itself: failing is a pull whose last run recorded an error, "
+       "and stale is a feed that has delivered before and has not produced a "
+       "new day in three days, which is what a provider quietly stopping "
+       "looks like. Never synced is our own coverage: a platform nobody has "
+       "switched on, and not a fault. Filed under nobody is spend on a "
+       "campaign no client report can read yet, and pacing off is a sold line "
+       "three days running outside its band. Each figure opens the rows "
+       "behind it."),
     _h("hub.dashboard.ads", "What the Google Ads sweep found",
        "Every account we deployed a campaign into is scanned twice a day on "
        "the Hub scheduler, and this is the last reading. Four of the five "
@@ -866,6 +877,14 @@ REGISTRY: list[Help] = [
        "client report. Pick the client on the row, or rename the campaign "
        "in the platform to the shape shown and the auto-mapper files it on "
        "the next sync without anybody opening this page."),
+    _h("reports.unmapped.pending", "A filing from a name is a proposal",
+       "The auto-mapper files a campaign under the client its name says, "
+       "and a name is somebody's typing in somebody else's platform. So the "
+       "filing waits here: nothing from the campaign reaches the client's "
+       "page, PDF or data until Confirm is pressed. Not theirs deletes the "
+       "proposal, sends the campaign back to the unmapped list, and stops "
+       "the auto-mapper filing that name under that client again -- a "
+       "renamed campaign is read afresh."),
     _h("reports.markup.columns", "Markup or fixed CPM, never both",
        "Markup is a percentage on the platform's cost: 15 bills $100 of "
        "spend as $115. A fixed CPM bills impressions at that rate and ignores "
@@ -929,6 +948,35 @@ REGISTRY: list[Help] = [
        "it answered with, the key itself never among them, so the real "
        "names can be pasted into the map. Until it resolves the pull lands "
        "nothing and the Reports page says which field is missing."),
+    _h("reports.reconcile.states", "Our month against the platform's own",
+       "Everything a client reads is campaign-days summed, and nothing else "
+       "could say whether that sum is the month the platform would invoice. "
+       "Each night this asks the platform for its own figure -- Google's "
+       "customer-level query is independent of the daily pull; a provider "
+       "table or StackAdapt's month re-read is the same feed summed whole "
+       "-- and compares through yesterday, on both sides. Drift past the "
+       "house tolerance is named on /status and the dashboard. A platform "
+       "that cannot be asked reads not measured with the reason, never as "
+       "agreeing; rows held in quarantine are counted beside the drift, "
+       "because they are its likeliest explanation."),
+    _h("reports.quarantine.rules", "Held, never filed and never refused whole",
+       "A row a sync proposes that cannot be true -- more clicks than "
+       "impressions, a negative figure, a day that has not happened, spend "
+       "fifty times the campaign's own trailing average -- is held here "
+       "instead of reaching the client's page, and the rest of the batch is "
+       "written. Accept writes that row and lets the same figure through "
+       "next time; Discard drops it and the same figure is dropped in "
+       "silence from then on. A different figure for the same day is a new "
+       "proposal, and a clean restatement from the provider supersedes a "
+       "held one by itself. The spike numbers are ours, not a platform's."),
+    _h("reports.provider.confirm", "Resolved is not confirmed",
+       "A placeholder column name that happens to match a real column "
+       "resolves perfectly well -- and 'spend' is a plausible name for a "
+       "column holding micros. So the normalize reads a platform only once "
+       "somebody has looked at the newest raw row printed here, checked the "
+       "spend as it would be filed after the divisor, and pressed Confirm. "
+       "The confirmation is against the map as it stood: change a column or "
+       "the divisor and it reads as superseded until somebody looks again."),
     _h("reports.provider.status", "Resolved, table missing, or columns missing",
        "The column names in provider_map.py are placeholders until the "
        "first sync lands. A platform resolves when its table is in the "

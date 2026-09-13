@@ -66,10 +66,6 @@ Until each is set, `/reports/` says "not configured" and the pull skips it.
 - **Per-process state.** The public rate limit counts per worker, so it is
   effectively double the configured figure. Acceptable; move it to the
   shared disk if abuse ever shows up.
-- **No Postgres in the tests.** Every reports test runs on SQLite, and two
-  of the seven findings above were Postgres-only. CI already has a
-  Postgres; add one step that runs `test_reports_store.py` and
-  `test_reports_pacing.py` with `REPORTS_DATABASE_URL` pointed at it.
 - **The CSV parser has no door.** `parsers/audiogo_csv.py` is written and
   tested and reachable from no route. A staff upload on `/reports/` (per
   platform, source `csv`) is the fallback for every platform Windsor does
@@ -84,6 +80,21 @@ Until each is set, `/reports/` says "not configured" and the pull skips it.
   of how many have run, so it understates. Minor.
 - **StackAdapt's pull sleeps** up to thirty seconds on the shared scheduler
   thread while a report is prepared. Fine at one advertiser; watch it.
+
+## Hardening, done
+
+Five gates went in after the merge, each its own file and test, each around
+one idea: a sync proposes, and a person stands behind what reaches a
+client's page. `CLAUDE.md` carries the reasoning; this is the map.
+
+| Gate | Where it is worked | What it closes |
+|---|---|---|
+| Feed health, one reading drawn three ways | `/status`, the dashboard's feeds card, `/reports/` | A pull failing for days, visible only to whoever opened the index and did the arithmetic per row. The SQLite fallback in production is an error naming the variable; the client's page says the day its figures run through. |
+| Every reports test against Postgres | `checks.yml`, `_reports_testdb.py` | Two of the seven review findings were Postgres-only and no test could see either. |
+| A campaign filed from its name waits for confirmation | `/reports/unmapped`, the client's staff page | A typo in somebody else's platform filing one client's spend under another. Not theirs is remembered, so the next run cannot undo it. |
+| The provider map is read only once confirmed | `/reports/provider-check` | A placeholder column that happens to resolve filing the wrong number under the right name. Confirmed against a sample row with the spend as it would be filed; editing the map retires it. |
+| Impossible rows are held, not filed | `/reports/quarantine` | More clicks than impressions, a negative figure, a day after today, a spend spike -- each reaching the client's page as a figure. A decision is about the row as it was. |
+| Each platform's month against the platform's own total | `/reports/reconcile`, nightly | The fact table's sum being smaller or larger than the month the platform would invoice, with every screen internally consistent. Google's customer query is independent; a provider table or StackAdapt re-read is the same feed summed whole. |
 
 ## Where Google Places fits
 
@@ -170,11 +181,14 @@ that reason or the forbidden-word sweep will refuse it. About two days.
 
 ## Suggested order
 
-1. Merge #551. Set `REPORTS_DATABASE_URL` (or leave it blank to share),
-   set the Trade Desk token and partner id, and watch `/reports/` after the
-   first six-hourly pull.
-2. Add the Postgres run of the two store tests to CI.
-3. Client 360 card, dashboard line and the two QA entries.
+1. ~~Merge #551.~~ Done. Set `REPORTS_DATABASE_URL` (or leave it blank to
+   share -- but set one of the two: the SQLite fallback is now an error on
+   `/status` in production), set the Trade Desk token and partner id, and
+   watch `/reports/` after the first six-hourly pull. Confirm each provider
+   map on `/reports/provider-check` once Windsor's first tables land, and
+   work the confirmation queue on `/reports/unmapped`.
+2. ~~Add the Postgres run to CI.~~ Done, for every reports test.
+3. Client 360 card and the two QA entries. The dashboard line is done.
 4. Google Ads channel type and video completes (half a day).
 5. Google Places → the Business Profile card.
 6. YouTube organic section.
