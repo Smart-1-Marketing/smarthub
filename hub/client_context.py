@@ -805,8 +805,12 @@ def _resolves_through_key(root, module: str) -> bool:
             src = p.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if re.search(r"from\s+hub\.client_key\s+import|import\s+hub\.client_key",
-                     src):
+        # Three spellings of one import, and the third is how
+        # modules/reports reaches it (`from hub import client_key as ck`) --
+        # matched on the module name as a whole word, so `client_keys` or a
+        # comment naming the file is not an import.
+        if re.search(r"from\s+hub\.client_key\s+import|import\s+hub\.client_key"
+                     r"|from\s+hub\s+import\s+[^\n]*\bclient_key\b", src):
             return True
     return False
 

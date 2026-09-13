@@ -1712,6 +1712,57 @@ _SNAP_METRICS = [{"name": "totalUsers"}, {"name": "sessions"},
                  {"name": "averageSessionDuration"}]
 
 
+# ---------------------------------------------------------------------------
+# The GA4 and Search Console reads, as functions rather than routes
+# ---------------------------------------------------------------------------
+# The two snapshot routes below and the Reports module's organic-search
+# section ask GA4 the same question, and a module does not call another
+# module's Flask route (there is no precedent here for it). These are the
+# pieces those routes are built from, importable: the organic filter is the
+# one reading of what "organic" means, and the token is resolved from the
+# connected-accounts table the same way every route resolves it.
+
+def organic_filter() -> dict:
+    """The dimensionFilter that says Organic Search, once."""
+    return {"filter": {"fieldName": "sessionDefaultChannelGroup",
+                       "stringFilter": {"matchType": "EXACT", "value": ORGANIC_CHANNEL}}}
+
+
+def account_token(google_login: str) -> tuple[str, str]:
+    """``(access_token, error)`` for a connected login. The error is a
+    sentence -- not connected, or needs to sign in again -- and never a
+    token fragment."""
+    login = str(google_login or "").strip().lower()
+    accounts, err = connected_accounts_result()
+    account = next((a for a in accounts if a["email"] == login), None)
+    if not account:
+        return "", (f"Account {login} is not connected." + (f" ({err})" if err else ""))
+    try:
+        return refresh_access_token(login, account["refresh_token"]), ""
+    except ReauthRequired as exc:
+        return "", str(exc)
+    except Exception as exc:  # noqa: BLE001
+        return "", f"Google refused the token refresh ({type(exc).__name__})."
+
+
+def ga4_batch_run_reports(access_token: str, property_id: str, report_requests: list) -> list:
+    """``batchRunReports`` for one property: the list of reports, in the
+    order asked. One HTTP call however many reports."""
+    url = ("https://analyticsdata.googleapis.com/v1beta/properties/"
+           f"{property_id}:batchRunReports")
+    got = google_post(access_token, url, {"requests": list(report_requests)})
+    return got.get("reports") or []
+
+
+def gsc_search_analytics(access_token: str, site_url: str, body: dict) -> dict:
+    """Search Console ``searchAnalytics/query`` for one property. ``site_url``
+    is the property exactly as Search Console names it (``sc-domain:x.com``
+    or ``https://x.com/``)."""
+    encoded = urlencode({"": site_url})[1:]
+    url = f"https://www.googleapis.com/webmasters/v3/sites/{encoded}/searchAnalytics/query"
+    return google_post(access_token, url, body)
+
+
 def _snap_vals(row):
     v = row.get("metricValues", [])
 
@@ -1832,9 +1883,7 @@ def api_ga4_seo_snapshot():
     organic_req = {
         "dateRanges": ranges,
         "metrics": _SNAP_METRICS,
-        "dimensionFilter": {"filter": {
-            "fieldName": "sessionDefaultChannelGroup",
-            "stringFilter": {"matchType": "EXACT", "value": ORGANIC_CHANNEL}}},
+        "dimensionFilter": organic_filter(),
     }
     ai_req = {
         "dateRanges": ranges,
@@ -1854,14 +1903,10 @@ def api_ga4_seo_snapshot():
         return jsonify({"error": str(exc), "needs_reauth": True,
                         "reconnect_url": "/google/login"}), 401
 
-    url = ("https://analyticsdata.googleapis.com/v1beta/properties/"
-           f"{property_id}:batchRunReports")
     try:
-        got = google_post(access_token, url, {"requests": [organic_req, ai_req]})
+        reports = ga4_batch_run_reports(access_token, property_id, [organic_req, ai_req])
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": f"GA4 snapshot failed: {exc}"}), 502
-
-    reports = got.get("reports") or []
 
     # ---- organic: one figure per period ---------------------------------
     organic, organic_prev = dict(_SNAP_ZERO), dict(_SNAP_ZERO)
@@ -2040,9 +2085,7 @@ def api_ga4_webmaster_row():
     organic_req = {
         "dateRanges": ranges,
         "metrics": _WM_METRICS,
-        "dimensionFilter": {"filter": {
-            "fieldName": "sessionDefaultChannelGroup",
-            "stringFilter": {"matchType": "EXACT", "value": ORGANIC_CHANNEL}}},
+        "dimensionFilter": organic_filter(),
     }
     ai_req = {
         "dateRanges": ranges,
@@ -2059,13 +2102,10 @@ def api_ga4_webmaster_row():
         return jsonify({"error": str(exc), "needs_reauth": True,
                         "reconnect_url": "/google/login"}), 401
 
-    url = ("https://analyticsdata.googleapis.com/v1beta/properties/"
-           f"{property_id}:batchRunReports")
     try:
         # One HTTP call for both reports. A dashboard of forty clients is forty
         # round trips this way instead of eighty.
-        got = google_post(access_token, url, {"requests": [organic_req, ai_req]})
-        reports = got.get("reports") or []
+        reports = ga4_batch_run_reports(access_token, property_id, [organic_req, ai_req])
         payload = {
             "property_id": property_id,
             "periods": {"mtd": ranges[0], "same_last_month": ranges[1],

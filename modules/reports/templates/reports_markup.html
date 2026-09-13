@@ -1,0 +1,74 @@
+{% extends "_reports_base.html" %}
+{% block title %}Platform Markup{% endblock %}
+{% block heading %}Platform markup{% endblock %}
+{% block lede %}How each platform's raw spend becomes the figure a client is
+  billed: a markup on cost, or a fixed CPM on impressions. One or the other
+  per platform &mdash; a row with both is refused.{% endblock %}
+{% block saved_text %}Markups saved.{% endblock %}
+
+{% block style %}
+  input.pct, input.cpm { width: 110px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 7px; font: inherit; text-align: right; }
+  .unit { color: var(--muted); margin-left: 4px; }
+{% endblock %}
+
+{% block body %}
+<form method="post" action="/reports/markup" id="markupForm">
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>Markup by platform {{ help_dot('reports.markup.columns') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">Leave both boxes blank to bill at cost.</span></div>
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr><th>Platform</th><th>Markup %</th><th>Fixed CPM</th><th>Last set</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr data-platform="{{ r.platform }}">
+        <td>{{ r.label }} <span class="s1d-muted mono">{{ r.platform }}</span></td>
+        <td><input class="pct" type="text" inputmode="decimal" name="markup_{{ r.platform }}"
+                   value="{{ '%.2f'|format(r.markup_pct) if r.markup_pct is not none else '' }}"
+                   placeholder="e.g. 15"><span class="unit">%</span></td>
+        <td><span class="unit">$</span><input class="cpm" type="text" inputmode="decimal" name="cpm_{{ r.platform }}"
+                   value="{{ '%.2f'|format(r.cpm) if r.cpm is not none else '' }}"
+                   placeholder="e.g. 12.50"></td>
+        <td>{% if r.updated_at %}{{ r.updated_by or '—' }} &middot; <time datetime="{{ r.updated_at }}">{{ r.updated_at }}</time>
+            {% else %}<span class="s1d-muted">Not set &mdash; billed at cost</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <div class="row" style="margin-top:14px">
+    <button type="submit" class="s1d-btn">Save markups</button>
+    <span class="s1d-muted" id="bothWarn" hidden>A row has both a markup and a fixed CPM. Clear one before saving.</span>
+  </div>
+  <p class="s1d-hint">Markup is a percentage on the platform's cost: 15 means
+    $100 of spend bills as $115. A fixed CPM bills impressions at that rate
+    and ignores cost. The two answer the same question, which is why a
+    platform may carry only one.</p>
+</div>
+</form>
+{% endblock %}
+
+{% block script %}
+<script>
+  // The server refuses a row with both filled in; say so before the round
+  // trip rather than after it.
+  var form = document.getElementById("markupForm");
+  var warn = document.getElementById("bothWarn");
+  function bothSet() {
+    return Array.prototype.some.call(form.querySelectorAll("tr[data-platform]"), function (tr) {
+      var p = tr.querySelector("input.pct").value.trim();
+      var c = tr.querySelector("input.cpm").value.trim();
+      tr.style.background = (p && c) ? "#fdecec" : "";
+      return p && c;
+    });
+  }
+  form.addEventListener("input", function () { warn.hidden = !bothSet(); });
+  form.addEventListener("submit", function (e) {
+    if (bothSet()) { e.preventDefault(); warn.hidden = false; }
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("time[datetime]"), function (t) {
+    var d = new Date(t.getAttribute("datetime"));
+    if (!isNaN(d)) t.textContent = d.toLocaleString();
+  });
+</script>
+{% endblock %}

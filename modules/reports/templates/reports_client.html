@@ -1,0 +1,221 @@
+{% extends "_reports_base.html" %}
+{% block title %}{{ client_name }} · Reports{% endblock %}
+{% block heading %}{{ client_name }}{% endblock %}
+{% block lede %}The internal view: raw platform spend beside what the client
+  is billed, the campaigns filed under them, how the budget lines are pacing,
+  and the live report link. <span class="mono">{{ client }}</span>{% endblock %}
+{% block saved_text %}
+  {% if saved == 'link' %}Link ready. Copy the URL below or push it to the client's Smart 1 Suite contact.
+  {% elif saved == 'pushed' %}The link is on the client's Smart 1 Suite contact.
+  {% elif saved == 'campaign' %}Campaign saved. The client's page picks it up at once.
+  {% else %}Settings saved. The page picks them up at once.{% endif %}
+{% endblock %}
+
+{% block style %}
+  .pace { display: grid; grid-template-columns: 1fr; gap: 4px; }
+  .pace .track { height: 10px; background: #e3eefb; border-radius: 5px; overflow: hidden; }
+  .pace .fill { height: 100%; background: #2a78d6; }
+  .pace .fill.under { background: #f0b429; }
+  .pace .fill.over { background: #dc2626; }
+  .url { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .url input { flex: 1; min-width: 260px; padding: 7px 9px; border: 1px solid #cbd5e1; border-radius: 7px; font: inherit; }
+  .settings th, .settings td { padding: 6px 8px; }
+  .settings input[type=text], .settings input[type=number] { width: 100%; padding: 5px 7px; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit; }
+  .btnrow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+{% endblock %}
+
+{% block body %}
+{% if blank_products %}
+<div class="notice err">{{ blank_products|length }} mapped campaign{{ '' if blank_products|length == 1 else 's' }} ha{{ 's' if blank_products|length == 1 else 've' }} <b>no product set</b>, so the client's page shows
+  {{ 'it' if blank_products|length == 1 else 'them' }} under a generic label rather than the product they were sold. Set the product in the mapped campaigns table below.</div>
+{% endif %}
+{% if seo.product and not seo.ga4 %}
+<div class="notice err">This client has an SEO product and no linked analytics property, so the public page
+  omits the organic search section. <a href="{{ seo.seo_page }}">Link analytics on the SEO client page</a>
+  (attach the Google Analytics property under Attached accounts) to enable it.</div>
+{% endif %}
+<div class="s1d-grid">
+  <div class="s1d-card">
+    <div class="s1d-cardhead"><h2>The client's link {{ help_dot('reports.client.link') if help_dot is defined else '' }}</h2>
+      {% if link %}<span class="s1d-muted">Opened {{ link.view_count }} time{{ '' if link.view_count == 1 else 's' }}{% if link.last_viewed_at %}, last <time datetime="{{ link.last_viewed_at }}">{{ link.last_viewed_at }}</time>{% endif %}</span>{% endif %}
+    </div>
+    {% if link %}
+      <div class="url">
+        <input type="text" id="publicUrl" value="{{ public_url }}" readonly>
+        <button type="button" class="s1d-btn sec" id="copyUrl">Copy URL</button>
+        <a class="s1d-btn sec" href="{{ public_url }}" target="_blank" rel="noopener">Open</a>
+      </div>
+      <p class="s1d-hint">Created <time datetime="{{ link.created_at }}">{{ link.created_at }}</time> by {{ link.created_by or 'unknown' }}.
+        Regenerating issues a new token; the old one renders a "this link has been replaced" page.</p>
+      <div class="btnrow">
+        <form method="post" action="{{ request.script_root }}/client/{{ client }}/link" onsubmit="return confirm('Regenerate the link? The one already sent stops working.')">
+          <input type="hidden" name="action" value="regenerate">
+          <button type="submit" class="s1d-btn sec">Regenerate</button>
+        </form>
+        <form method="post" action="{{ request.script_root }}/client/{{ client }}/push">
+          <button type="submit" class="s1d-btn" {{ '' if push_ready.ok and contact.email else 'disabled' }}>Push to Smart 1 Suite</button>
+        </form>
+        <span class="s1d-muted">
+          {% if not push_ready.ok %}{{ push_ready.why }}
+          {% elif not contact.email %}No primary contact email on this client's Hub profile, so there is no contact to write the link onto. Add one on Client 360.
+          {% else %}Writes the URL onto {{ contact.email }}'s contact.{% endif %}
+        </span>
+      </div>
+    {% else %}
+      <p class="s1d-muted">No live link yet. Creating one gives the client a permanent page at
+        <span class="mono">/reports/r/c/&lt;token&gt;</span> showing what is below, with no login.</p>
+      <form method="post" action="{{ request.script_root }}/client/{{ client }}/link">
+        <input type="hidden" name="action" value="create">
+        <button type="submit" class="s1d-btn">Create link</button>
+      </form>
+    {% endif %}
+  </div>
+
+  <div class="s1d-card">
+    <div class="s1d-cardhead"><h2>Raw platform totals (staff only)</h2>
+      <span class="s1d-muted">{{ period.label }} ·
+        <a href="?period=mtd">This month</a> · <a href="?period=last_month">Last month</a> · <a href="?period=90d">90 days</a></span></div>
+    {% if totals %}
+    <div class="s1d-scroll">
+    <table class="s1d-t">
+      <thead><tr><th>Platform</th><th class="num">Raw spend</th><th class="num">Impressions</th><th class="num">Clicks</th><th class="num">Client sees</th><th>Rule</th></tr></thead>
+      <tbody>
+      {% for t in totals %}
+        <tr><td>{{ t.label }} <span class="s1d-muted mono">{{ t.platform }}</span></td>
+          <td class="num">${{ '{:,.2f}'.format(t.raw_spend) }}</td>
+          <td class="num">{{ '{:,}'.format(t.impressions) }}</td>
+          <td class="num">{{ '{:,}'.format(t.clicks) }}</td>
+          <td class="num">{% if t.client_price is not none %}${{ '{:,.2f}'.format(t.client_price) }}{% else %}<span class="s1d-pill warn">delivery only</span>{% endif %}</td>
+          <td class="s1d-muted">{% if t.rule %}{% if t.rule.markup is defined %}markup {{ '%.2f'|format(t.rule.markup * 100) }}%{% else %}CPM ${{ '%.2f'|format(t.rule.cpm) }}{% endif %} ({{ t.rule.source }}){% else %}none set{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}<p class="empty">No fact rows for this client in {{ period.label|lower }}.</p>{% endif %}
+    <p class="s1d-hint">"Client sees" is what the public page prints under Investment when it is switched on,
+      from the link's own override first and the platform markup second. Raw spend never reaches the page.</p>
+  </div>
+</div>
+
+<div class="s1d-grid">
+  <div class="s1d-card">
+    <div class="s1d-cardhead"><h2>Budget pacing</h2><span class="s1d-muted">Day {{ pacing[0].days_elapsed if pacing else '' }} of {{ pacing[0].days_in_month if pacing else '' }}</span></div>
+    {% if pacing %}
+      {% for b in pacing %}
+      <div class="s1d-kv"><b>{{ b.product }}{% if b.platform_label %} <span class="s1d-muted">({{ b.platform_label }})</span>{% endif %}</b>
+        <span class="pace">
+          <span>${{ '{:,.2f}'.format(b.spent) }} of ${{ '{:,.2f}'.format(b.expected) }} expected so far
+            (${{ '{:,.2f}'.format(b.monthly_budget) }}/mo) &mdash;
+            <span class="s1d-pill {{ 'ok' if b.band == 'on' else 'warn' if b.band in ('under', 'unmapped') else 'bad' }}">{{ b.band }}</span></span>
+          <span class="track"><span class="fill {{ b.band if b.band in ('under', 'on', 'over') else 'over' }}" style="width:{{ [b.pct, 100]|min }}%"></span></span>
+        </span></div>
+      {% endfor %}
+      <p class="s1d-hint">The pacing board's own arithmetic: spent on the line's mapped campaigns against the budget prorated to the
+        flight and the days elapsed. Under 0.9 is under, over 1.1 is over; stalled is two zero days mid-flight; unmapped is a
+        line with no campaign filed against it. Raw spend, staff only.</p>
+    {% else %}<p class="s1d-muted">No budget lines for this client. <a href="/reports/budgets">Add one.</a></p>{% endif %}
+  </div>
+
+  <div class="s1d-card">
+    <div class="s1d-cardhead"><h2>Mapped campaigns {{ help_dot('reports.client.product') if help_dot is defined else '' }}</h2><span class="s1d-muted">{{ campaigns|length }}</span></div>
+    {% if campaigns %}
+    <div class="s1d-scroll">
+    <table class="s1d-t">
+      <thead><tr><th>Platform</th><th>Campaign</th><th>Product (what the client reads)</th><th>Shown to the client as</th><th>Mapped by</th></tr></thead>
+      <tbody>
+      {% for m in campaigns %}
+        <tr><td>{{ m.platform_label }}</td>
+          <td><span class="mono">{{ m.campaign_id }}</span>{% if m.campaign_name %}<br><span class="s1d-muted">{{ m.campaign_name }}</span>{% endif %}</td>
+          <td colspan="2">
+            <form method="post" action="{{ request.script_root }}/client/{{ client }}/campaign" class="btnrow">
+              <input type="hidden" name="platform" value="{{ m.platform }}">
+              <input type="hidden" name="account_id" value="{{ m.account_id }}">
+              <input type="hidden" name="campaign_id" value="{{ m.campaign_id }}">
+              <input type="text" name="product" list="s1-products" value="{{ m.product }}" placeholder="Product" style="max-width:170px">
+              {% if not m.product_set %}<span class="s1d-pill warn" title="Shown under a generic label until a product is set">no product set</span>{% endif %}
+              <input type="text" name="display_name" value="{{ m.display_name }}" placeholder="Shown to the client as" style="min-width:200px">
+              <button type="submit" class="s1d-btn sec small">Save</button>
+            </form>
+          </td>
+          <td>{{ m.mapped_by }}{% if m.auto_rule %} <span class="s1d-muted">({{ m.auto_rule }})</span>{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <datalist id="s1-products">{% for p in products %}<option value="{{ p }}"></option>{% endfor %}</datalist>
+    <p class="s1d-hint">The client's page groups by product, never by platform: two campaigns filed under one product
+      are one bar. "Shown as" defaults to the campaign's name with the vendor words stripped; override it where a name still
+      says which platform ran it.</p>
+    {% else %}<p class="s1d-muted">No campaigns are filed under this client. <a href="/reports/unmapped">Map some.</a></p>{% endif %}
+  </div>
+</div>
+
+{% if link %}
+<form method="post" action="{{ request.script_root }}/client/{{ client }}/link" class="s1d-card">
+  <input type="hidden" name="action" value="save">
+  <div class="s1d-cardhead"><h2>What the page shows {{ help_dot('reports.client.investment') if help_dot is defined else '' }}</h2>
+    <label><input type="checkbox" name="show_spend" value="1" {{ 'checked' if link.show_spend else '' }}> Show Investment on the client's page</label></div>
+  <p class="s1d-hint">Investment is the client's figure from the pricing rule, never raw spend. A platform with no rule anywhere
+    shows delivery only and writes an activity row saying so. The per-platform boxes below override the
+    <a href="/reports/markup">platform markup</a> for this client only; blank means "use the platform's".</p>
+  <div class="s1d-scroll">
+  <table class="s1d-t settings">
+    <thead><tr><th>Platform</th><th>Label on the page</th><th>Hide</th><th>Markup % (this client)</th><th>Fixed CPM (this client)</th><th>Platform rule</th></tr></thead>
+    <tbody>
+    {% for p, label in platforms %}
+      {% set o = link.markup_json.get(p) or {} %}
+      {% set pm = markups.get(p) or {} %}
+      <tr>
+        <td>{{ label }} <span class="s1d-muted mono">{{ p }}</span></td>
+        <td><input type="text" name="label_{{ p }}" value="{{ (link.view_json.platform_labels or {}).get(p, '') }}" placeholder="{{ label }}"></td>
+        <td><input type="checkbox" name="hide_{{ p }}" value="1" {{ 'checked' if p in (link.view_json.hidden_platforms or []) else '' }}></td>
+        <td><input type="number" step="0.01" min="0" name="link_markup_{{ p }}" value="{{ '%.2f'|format(o.markup|float * 100) if o.markup is defined else '' }}"></td>
+        <td><input type="number" step="0.01" min="0" name="link_cpm_{{ p }}" value="{{ o.cpm if o.cpm is defined else '' }}"></td>
+        <td class="s1d-muted">{% if pm.markup_pct is not none %}{{ '%.2f'|format(pm.markup_pct) }}%{% elif pm.cpm is not none %}CPM ${{ '%.2f'|format(pm.cpm) }}{% else %}none{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <div class="s1d-kv" style="margin-top:12px"><b>SEO</b>
+    <span>
+      {% if seo.gated %}<span class="s1d-pill ok">Organic search section on</span>{% else %}<span class="s1d-pill warn">Organic search section off</span>{% endif %}
+      &mdash; SEO product: <b>{{ 'yes' if seo.product else 'no' }}</b>{% if seo.products %} ({{ seo.products|join(', ') }}){% endif %},
+      analytics linked: <b>{{ 'yes' if seo.ga4 else 'no' }}</b>{% if seo.property_id %} (property {{ seo.property_id }}, {{ seo.google_login }}){% endif %},
+      Search Console: <b>{{ 'yes' if seo.gsc else 'no' }}</b>{% if seo.gsc_site %} ({{ seo.gsc_site }}){% endif %}.
+      {% if seo.why %}<span class="s1d-muted">{{ seo.why|join('; ') }}.</span>{% endif %}
+      {% if seo.gated and not seo.gsc %}<span class="s1d-muted">{{ seo.gsc_staff_note }}</span>{% endif %}
+      {% if seo.errors %}<span class="s1d-pill bad">not measured</span> <span class="s1d-muted">{{ seo.errors|join('; ') }}</span>{% endif %}
+      <label style="margin-left:8px"><input type="checkbox" name="name_products" value="1" {{ 'checked' if link.view_json.name_products else '' }}> Name Google's products (GA4, Search Console) on the page</label>
+    </span></div>
+  <div class="row" style="margin-top:12px">
+    <div class="field grow"><label>Logo URL (blank uses the Hub's brand cache, then the Smart 1 logo)</label>
+      <input type="text" name="logo_url" value="{{ link.view_json.logo_url or '' }}"></div>
+    <div class="field"><label>Rep name</label><input type="text" name="rep_name" value="{{ link.view_json.rep_name or '' }}"></div>
+    <div class="field"><label>Rep email</label><input type="text" name="rep_email" value="{{ link.view_json.rep_email or '' }}"></div>
+  </div>
+  <div class="btnrow" style="margin-top:12px">
+    <button type="submit" class="s1d-btn">Save settings</button>
+    {% if preview %}<span class="s1d-muted">Preview: {{ preview.tiles|length }} tiles, {{ preview.products|length }} products, {{ 'Investment shown' if preview.investment else 'no money on the page' }}.</span>{% endif %}
+  </div>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block script %}
+<script>
+  Array.prototype.forEach.call(document.querySelectorAll("time[datetime]"), function (t) {
+    var d = new Date(t.getAttribute("datetime"));
+    if (!isNaN(d)) t.textContent = d.toLocaleString();
+  });
+  // navigator.clipboard is not available on http and refusing is allowed: a
+  // button that lies about copying is worse than one that asks.
+  var btn = document.getElementById("copyUrl"), box = document.getElementById("publicUrl");
+  if (btn && box) btn.addEventListener("click", function () {
+    var done = function () { btn.textContent = "Copied"; setTimeout(function () { btn.textContent = "Copy URL"; }, 1500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(box.value).then(done, function () { box.select(); btn.textContent = "Press Ctrl-C"; });
+    } else { box.select(); try { document.execCommand("copy"); done(); } catch (e) { btn.textContent = "Press Ctrl-C"; } }
+  });
+</script>
+{% endblock %}

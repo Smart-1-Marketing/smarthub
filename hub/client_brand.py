@@ -152,6 +152,11 @@ WORK_KINDS = {
     # join the list this file already counts of work filed and then dropped
     # for naming a module the record cannot answer to.
     "creative_studio":      ("Creative Studio", "Creative Studio"),
+    # A question asked with client context is attributable account work. The
+    # assistant records only the question metadata/result status here; the
+    # same audit row should therefore be visible on that client's timeline
+    # instead of being silently discarded as an unknown module.
+    "ask_smarthub":         ("AI question", "Ask SmartHub"),
 }
 
 # The other side of the same question, written down rather than left as an
@@ -184,6 +189,10 @@ NOT_WORK = {
     # A join we recorded, not something the client received. Attaching a GA4
     # property says who owns it; it does not say we made anything.
     "google_index": "a resource joined to a client, not work delivered",
+    # A campaign filed under a client, or a budget line typed against one, is
+    # the same shape: a join the Hub recorded so the reports can read it, not
+    # something the client received.
+    "reports":      "a campaign or budget joined to a client, not work delivered",
     # Hub housekeeping: a domain attached, an SEO task ticked. Same reason.
     "hub":          "housekeeping — a join or a status, not a deliverable",
     "qa":           "a report row acted on, not work produced",
