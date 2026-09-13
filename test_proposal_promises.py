@@ -75,13 +75,16 @@ import hub.proposal_promises as pr                                   # noqa: E40
 import hub.client_brand as client_brand                              # noqa: E402
 import hub.client_health as client_health                            # noqa: E402
 import hub.proposals as proposals_mod                                # noqa: E402
-import hub as hub_pkg                                                # noqa: E402
 import hub.auth as auth                                              # noqa: E402
 import hub.help as hub_help                                          # noqa: E402
 import hub.qa as qa                                                  # noqa: E402
 from werkzeug.test import Client as WSGIClient                       # noqa: E402
 
 hub_app = wsgi.hub_app
+# The package itself, for the proposal-text hook the run reads at analysis time.
+# Reached through sys.modules rather than a second import of a module this file
+# already imports by its submodules -- wsgi has loaded it by now.
+hub_pkg = sys.modules["hub"]
 
 
 def _read(*parts):
