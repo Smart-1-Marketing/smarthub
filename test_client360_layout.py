@@ -99,6 +99,7 @@ WANT = {
     "Approvals & proof links": "social",
     "Work for this client": "work",
     "Web Tickets": "work",
+    "Execution plan": "work",
     # Skill-gated (modules/skills360): drawn only when the skill is on.
     "Ecommerce": "skills",
     "Email Creator": "skills",

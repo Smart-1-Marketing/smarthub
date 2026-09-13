@@ -6579,6 +6579,52 @@ quote does. `test_proposal_plan.py` sweeps the **real rate card** -- every
 product lands on a channel or on a category named as not one -- because a
 hand-written list of products proves nothing about the row somebody adds.
 
+### A creative item that names a set and offers nothing to do about it
+
+Every creative item said what had to exist and left a rep to find the tool
+that makes it, or the link the client uploads through -- two screens away,
+which is the signpost failure `hub/stale_creative.py` names, one screen
+earlier. The tools already exist. `proposal_plan.CREATIVE_TOOLS` is the
+table -- the Display Ad Builder for banners (with the client filled in, the
+same press Stale Creative offers), the Commercial Builder for a spot, the
+Radio Ad Creator for audio, Image Creator for everything else -- and
+`item_actions()` decides from the item's **kind and its supplier**: Smart 1
+produces it → make it in the tool; the client supplies it → the upload link;
+nobody has said → both, because the item is still somebody's to act on. Copy
+points at the board task that drafts it. The page draws what the server
+decided and decides nothing itself.
+
+**The upload link is the gallery's own share link, and the press that makes
+one is a press.** `provisioning.link_for(create=False)` only asks, so
+`as_dict()` can show the link where one exists; `POST
+…/run/<id>/upload-link` is the creation, the rule `modules/image_picker/
+provisioning.py` states about a gallery being asked for rather than assumed.
+Two galleries that could be this client is the one case nothing is created,
+because the wrong one collects their photographs. The link is built from the
+host that served the page, because a link handed to a client has to be
+absolute and `PUBLIC_BASE_URL` is unset on more deployments than it is set.
+
+### The plan lived on one page
+
+Client 360, `/my-clients` and the QA reports did not know an execution plan
+existed, so a client with items nobody had reviewed, questions nobody had
+answered and creative nobody had a supplier for was invisible everywhere a
+rep actually looks. `proposal_execution.plan_summary_for_client()` is the
+**counts beside a link, never the items** -- the plan is worked on its own
+page -- and `/api/client/execution-plan` serves it under `/api/client/` for
+the reason `/api/client/orders` gives: the Suite frame allowlists that
+prefix and nothing else. The card sits in Client 360's *Work & requests*
+section, and `test_client360_layout.py` holds it there. Three empties are
+kept apart on it: the table would not answer, no plan has been built, and a
+plan with nothing left to do here.
+
+`hub/client_health.py` reads the same summaries in **one query for the
+book** (`open_plan_summaries()`) and raises two kinds, apart because they
+send somebody to different presses: `plan_review` for a plan nobody has
+finished, and `plan_creative` for creative nobody has said who supplies.
+Both carry the run's own link. A superseded or completed run raises nothing,
+which is what `_OPEN_STATES_EXCLUDED` says in one place for both readers.
+
 ## Opportunistic migration — read this before editing any module
 
 `hub/storage.py` (Cloudinary), `hub/images.py` (resize/convert),

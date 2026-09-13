@@ -1050,6 +1050,39 @@ def create_hub_app() -> Flask:
                   reverse=True)
         return jsonify({"orders": rows, "measured": measured, "error": error})
 
+    @app.route("/api/client/execution-plan")
+    def api_client_execution_plan():
+        """The open execution plans for a client, as counts beside a link.
+
+        The plan a proposal produced -- creative, launch and monthly lists,
+        and the questions it left open -- lived on one page, and a client
+        with items nobody had reviewed was invisible on their own record.
+        This is the numbers a card prints: what is kept, what is still to
+        review, what nobody has answered, and the creative nobody has said
+        who supplies. Never the items; the plan is worked on its own page.
+
+        Under `/api/client/` for the reason `/api/client/orders` gives: the
+        Suite frame allowlists that prefix and nothing else. A grouped
+        client reads across the group, the way the orders do.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_groups, proposal_execution
+        name = request.args.get("name", "") or request.args.get("client", "")
+        names = client_groups.member_names(name, request.args.get("url", "")) \
+            or [name]
+        rows, measured, error = [], True, ""
+        for member in [name] + [n for n in names if n != name]:
+            got = proposal_execution.plan_summary_for_client(member)
+            if not got.get("measured"):
+                measured, error = False, got.get("error", "")
+                continue
+            for row in got["runs"]:
+                rows.append(dict(row, member=member))
+        rows.sort(key=lambda r: str(r.get("updated_at") or ""), reverse=True)
+        return jsonify({"runs": rows, "measured": measured, "error": error})
+
     @app.route("/api/client/brand/push-to-suite", methods=["POST"])
     def api_brand_push():
         """Send the brand guide into the client's Smart 1 Suite sub-account."""

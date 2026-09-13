@@ -134,13 +134,19 @@ class ProposalExecutionRun(db.Model):
         }
         if full:
             # The plan is served with its answers applied -- due dates,
-            # suppliers, cadence -- and stored without them, so the page
-            # reads one shape and the column never carries a derived value.
+            # suppliers, cadence -- and with the action each creative item
+            # offers, and stored without either, so the page reads one shape
+            # and the column never carries a derived value.
             from hub import proposal_plan
+            tasks = tasks_for_run(self.id)
+            plan = proposal_plan.resolve(plan_for(self))
+            plan = proposal_plan.with_actions(plan, client=self.client,
+                                              task_keys=[t.task_key for t in tasks],
+                                              upload=_upload_link(self.client))
             row.update(analysis=self.analysis(), context=self.context(), inputs=self.inputs(),
                        summary=summary(self), missing_inputs=missing_input_manifest(self),
-                       plan=proposal_plan.resolve(plan_for(self)))
-            row["tasks"] = [t.as_dict() for t in tasks_for_run(self.id)]
+                       plan=plan)
+            row["tasks"] = [t.as_dict() for t in tasks]
         return row
 
 
@@ -692,6 +698,101 @@ def update_plan(run_id, decisions, *, actor=""):
     return run
 
 
+def _upload_link(client, *, create=False, base="", actor=""):
+    """The client's upload gallery link, through the one provisioner.
+
+    `create=False` only asks; the press that makes a gallery is
+    `provision_upload_link()`. Never raises -- a gallery table that will
+    not answer costs the link and says so, never the plan it sits on.
+    """
+    try:
+        if not base:
+            # A link handed to a client has to be absolute. Inside a request
+            # the host that served the page is the right origin; outside one
+            # the provisioner falls back to PUBLIC_BASE_URL.
+            from flask import has_request_context, request as _req
+            if has_request_context():
+                base = _req.host_url
+        from modules.image_picker import provisioning
+        return provisioning.link_for(str(client or ""), "", create=create, base=base, actor=actor)
+    except Exception as exc:                             # noqa: BLE001
+        return {"ok": False, "error": f"The upload galleries could not be read ({type(exc).__name__})."}
+
+
+def provision_upload_link(run_id, *, base="", actor=""):
+    """Create the client's upload gallery so the plan can hand out its link."""
+    run = get_run(run_id)
+    if not run:
+        raise ValueError("That execution run could not be found.")
+    got = _upload_link(run.client, create=True, base=base, actor=actor)
+    if not got.get("ok"):
+        raise ValueError(got.get("error") or "The upload link could not be created.")
+    if got.get("created"):
+        _event(run.id, run.state, f"Created the client upload link for {run.client}.", actor=actor)
+    return run, got
+
+
+def _run_plan_summary(run):
+    """One run's plan as the numbers a record or a report reads.
+
+    Counts only, never the items: this is what a card prints beside a link
+    to the plan, and what `hub/client_health.py` turns into an issue.
+    `creative_unassigned` is the creative items still in play (not dropped)
+    that nobody has said who supplies -- nothing can be requested or built
+    for those, so they are the plan's own outstanding work.
+    """
+    from hub import proposal_plan
+    plan = proposal_plan.resolve(plan_for(run))
+    s = plan.get("summary") or {}
+    kept = {name: (s.get("lists") or {}).get(name, {}).get("kept", 0) for name in proposal_plan.LISTS}
+    unassigned = sum(1 for it in plan.get("creative") or []
+                     if it.get("accepted") is not False and it.get("kind") != "copy"
+                     and not it.get("supplier"))
+    resolved = plan.get("resolved") or {}
+    return {
+        "id": run.id, "client": run.client, "title": run.proposal_title or "Proposal",
+        "state": run.state, "url": f"/proposal-execution?run={run.id}",
+        "launch_date": resolved.get("launch_date") or "",
+        "launch_date_label": resolved.get("launch_date_label") or "",
+        "to_review": int(s.get("to_review") or 0),
+        "open_questions": int(s.get("open_questions") or 0),
+        "unverified": int(s.get("unverified") or 0),
+        "creative_unassigned": unassigned,
+        "kept": kept,
+        "updated_at": run.updated_at.isoformat() if run.updated_at else "",
+    }
+
+
+_OPEN_STATES_EXCLUDED = (RUN_SUPERSEDED, RUN_COMPLETED)
+
+
+def plan_summary_for_client(client):
+    """The open plans for one client, for Client 360. `measured` is False
+    when the table would not answer -- "no plan has been built" and "we
+    could not look" are different answers and only the first is nothing."""
+    try:
+        rows = (ProposalExecutionRun.query
+                .filter(ProposalExecutionRun.client.ilike(str(client or "").strip()))
+                .filter(~ProposalExecutionRun.state.in_(_OPEN_STATES_EXCLUDED))
+                .order_by(ProposalExecutionRun.updated_at.desc()).limit(10).all())
+        return {"measured": True, "error": "", "runs": [_run_plan_summary(r) for r in rows]}
+    except Exception as exc:                             # noqa: BLE001
+        return {"measured": False, "error": f"{type(exc).__name__}", "runs": []}
+
+
+def open_plan_summaries(limit=500):
+    """Every open plan across the book, one query, for the client health
+    report. The same shape per run as `plan_summary_for_client()`."""
+    try:
+        rows = (ProposalExecutionRun.query
+                .filter(~ProposalExecutionRun.state.in_(_OPEN_STATES_EXCLUDED))
+                .order_by(ProposalExecutionRun.updated_at.desc())
+                .limit(max(1, min(int(limit), 2000))).all())
+        return {"measured": True, "error": "", "runs": [_run_plan_summary(r) for r in rows]}
+    except Exception as exc:                             # noqa: BLE001
+        return {"measured": False, "error": f"{type(exc).__name__}", "runs": []}
+
+
 def update_inputs(run_id, values, *, actor=""):
     run = get_run(run_id)
     if not run: raise ValueError("That execution run could not be found.")
@@ -1075,7 +1176,8 @@ def install_scheduler_bridge():
 
 __all__ = ["ProposalExecutionRun", "ProposalExecutionTask", "ProposalExecutionEvent",
            "ProposalRunConflict", "create_run", "get_run", "list_runs", "tasks_for_run",
-           "proposal_choices", "update_inputs", "update_plan", "plan_for", "start_run", "pause_run",
+           "proposal_choices", "update_inputs", "update_plan", "plan_for", "provision_upload_link",
+           "plan_summary_for_client", "open_plan_summaries", "start_run", "pause_run",
            "retry_failed", "run_one",
            "approve_task", "request_changes", "rerun_task", "mark_task", "events_for_run",
            "missing_input_manifest", "summary", "adapters", "build_task_specs", "analyze_text",

@@ -1229,7 +1229,113 @@ def answers_for(plan: dict, channel: str = "") -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------
+# What to do about a creative item
+# ---------------------------------------------------------------------------
+# A creative item that names a set and offers nothing to do about it sends a
+# rep through two screens to find the tool. The tools already exist -- Stale
+# Creative sends a rep to the Display Ad Builder's start form with the client
+# filled in, and this is the same press one screen earlier -- so each item
+# carries the action its kind and its supplier decide, from this table and
+# never from a copy of it in the page.
+CREATIVE_TOOLS = {
+    "display": {"label": "Display Ad Builder", "href": "/tools/display-ads/_hub/start?client={client}"},
+    "video": {"label": "Commercial Builder", "href": "/tools/commercial-builder/new"},
+    "audio": {"label": "Radio Ad Creator", "href": "/tools/radio-promo/"},
+    "image": {"label": "Image Creator", "href": "/tools/image-creator/"},
+    "social": {"label": "Social Content Planner", "href": "/tools/social/"},
+    "gpt": {"label": "GPT Ads Builder", "href": "/tools/gpt-ads/"},
+}
+# Which tool makes an image for which channel. Banners -- a display buy, a
+# retargeting set, a companion banner beside a spot -- are the Display Ad
+# Builder's; a post graphic is the planner's; the AI placement's square is
+# GPT Ads'; anything else is an Image Creator canvas.
+_IMAGE_TOOL_BY_CHANNEL = {"display": "display", "retargeting": "display",
+                          "stadium_audio": "display", "digital_radio": "display",
+                          "social": "social", "ai_ads": "gpt"}
+# Copy is written by a task on the board rather than in a tool; the action
+# points at that task where the run has one.
+COPY_TASKS = {"paid_search": "paid_search_ads", "meta": "meta_carousel",
+              "ai_ads": "ai_ads_plan", "social": "social_posts"}
+
+
+def tool_for(item: dict) -> dict | None:
+    """The tool that makes this item's kind of file, or None for copy."""
+    kind = str((item or {}).get("kind") or "")
+    if kind == "copy":
+        return None
+    if kind == "video":
+        return CREATIVE_TOOLS["video"]
+    if kind == "audio":
+        return CREATIVE_TOOLS["audio"]
+    if kind == "package":
+        return CREATIVE_TOOLS["display"]
+    key = _IMAGE_TOOL_BY_CHANNEL.get(str((item or {}).get("channel") or ""), "image")
+    return CREATIVE_TOOLS[key]
+
+
+def item_actions(item: dict, *, client: str = "", task_keys=(), upload: dict | None = None) -> list[dict]:
+    """The presses a creative item offers, decided by its kind and supplier.
+
+    Smart 1 produces it -> make it in the tool, with the client filled in
+    where the tool takes one. The client supplies it -> the upload link,
+    which is the gallery's own share link where one exists and a press that
+    creates one where it does not (creating is asked for, never assumed --
+    `modules/image_picker/provisioning.py`'s rule). Nobody has said ->
+    both are offered, because the item is still somebody's to act on.
+    Copy points at the board task that drafts it, where the run has one.
+    """
+    from urllib.parse import quote_plus
+    item = item or {}
+    upload = upload or {}
+    out: list[dict] = []
+    if item.get("kind") == "copy":
+        task = COPY_TASKS.get(str(item.get("channel") or ""))
+        if task and task in set(task_keys or ()):
+            out.append({"kind": "task", "label": "Drafted by the board", "task_key": task,
+                        "href": f"#task-{task}"})
+        return out
+    who = str(item.get("supplier") or "")
+    tool = tool_for(item)
+    if who in ("smart1", "mixed", "") and tool:
+        out.append({"kind": "create", "label": f"Make it in {tool['label']}", "tool": tool["label"],
+                    "href": tool["href"].format(client=quote_plus(client or ""))})
+    if who in ("client", "mixed", ""):
+        share = str(upload.get("share_url") or "")
+        act: dict = {"kind": "request", "label": "Request from the client", "href": share}
+        if not share:
+            # No link yet: the press creates the gallery. Two galleries that
+            # could be this client is the one case nothing may be created,
+            # because the wrong one collects their photographs.
+            act["provision"] = not upload.get("ambiguous") and not upload.get("error")
+            if upload.get("error"):
+                act["note"] = str(upload["error"])
+        elif upload.get("share_enabled") is False:
+            act["note"] = str(upload.get("note") or "This gallery's link is switched off.")
+        out.append(act)
+    return out
+
+
+def with_actions(plan: dict, *, client: str = "", task_keys=(), upload: dict | None = None) -> dict:
+    """The resolved plan with an `actions` list on every creative item, and
+    the client's upload link on `resolved` so the page can show it once.
+    Never raises: an item whose action cannot be decided carries none."""
+    plan = json.loads(json.dumps(plan or {}))
+    upload = upload or {}
+    resolved = plan.setdefault("resolved", {})
+    resolved["upload_link"] = {k: upload.get(k) for k in
+                               ("ok", "share_url", "exists", "created", "ambiguous", "error",
+                                "note", "share_enabled", "can_create") if k in upload}
+    keys = set(task_keys or ())
+    for it in plan.get("creative") or []:
+        try:
+            it["actions"] = item_actions(it, client=client, task_keys=keys, upload=upload)
+        except Exception:                               # noqa: BLE001
+            it["actions"] = []
+    return plan
+
+
 __all__ = ["LISTS", "LIST_LABELS", "RECIPES", "SUPPLY_CHOICES", "SUPPLY_LABELS", "CADENCE_LABELS",
-           "LEAD_DAYS_CREATIVE", "build_plan", "rule_items", "ai_items", "questions",
-           "apply_decisions", "carry_forward", "summarize", "kept_items", "resolve",
-           "answers_for", "parse_day"]
+           "LEAD_DAYS_CREATIVE", "CREATIVE_TOOLS", "COPY_TASKS", "build_plan", "rule_items",
+           "ai_items", "questions", "apply_decisions", "carry_forward", "summarize", "kept_items",
+           "resolve", "answers_for", "parse_day", "tool_for", "item_actions", "with_actions"]

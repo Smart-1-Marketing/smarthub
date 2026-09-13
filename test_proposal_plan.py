@@ -446,6 +446,7 @@ with hub_app.app_context():
     check("...beside the uploaded document, which is still offered", any(c.get("id") == "recX" for c in choices))
 
     qrun, created = pe.create_run(QUOTE_CLIENT, f"quote:{QID}", owner="rep@smart1marketing.com", actor="rep")
+    QRUN_ID = qrun.id
     a = qrun.analysis()
     check("the run is read from the quote", a.get("analysis_method"), "quote")
     check("the channels are the rate-card lines, exactly",
@@ -604,6 +605,94 @@ for raw, want in (("10/01/2026", "2026-10-01"), ("October 1, 2026", "2026-10-01"
     check(f"parse_day({raw!r})", got.isoformat() if got else None, want)
 
 # ---------------------------------------------------------------------------
+section("A creative item carries the press that closes it")
+with hub_app.app_context():
+    full = pe.get_run(RUN_ID).as_dict(full=True)
+    plan = full["plan"]
+    ban = next(it for it in plan["creative"] if it["title"] == "Retargeting banner set")
+    check("the client supplies the banners -> the item offers the upload link and not a tool",
+          [a["kind"] for a in ban.get("actions") or []], ["request"])
+    req = (ban.get("actions") or [{}])[0]
+    check("...and with no gallery yet, the press is what creates one",
+          req.get("provision") is True and not req.get("href"))
+    audio = next(it for it in plan["creative"] if it["channel"] == "stadium_audio" and it["kind"] == "audio")
+    check("nobody has said who makes the spot -> both presses are offered",
+          [a["kind"] for a in audio.get("actions") or []], ["create", "request"])
+    check("...and the tool is the one that makes audio", (audio.get("actions") or [{}])[0].get("tool"), "Radio Ad Creator")
+    companion = next(it for it in plan["creative"] if it["channel"] == "stadium_audio" and it["kind"] == "image")
+    check("a companion banner is the Display Ad Builder's, with the client filled in",
+          (companion.get("actions") or [{}])[0].get("href"), "/tools/display-ads/_hub/start?client=Monogram+Homes")
+    copy_item = next(it for it in plan["creative"] if it["channel"] == "paid_search" and it["kind"] == "copy")
+    check("copy points at the board task that drafts it",
+          [(a["kind"], a.get("task_key")) for a in copy_item.get("actions") or []], [("task", "paid_search_ads")])
+    check("the actions are derived, never stored",
+          not any("actions" in it for it in pe.get_run(RUN_ID).plan()["creative"]))
+    check("the tool table names the display tool with a client slot and nothing else guesses a URL",
+          "{client}" in pp.CREATIVE_TOOLS["display"]["href"]
+          and all("{" not in t["href"] for k, t in pp.CREATIVE_TOOLS.items() if k != "display"))
+
+    staff = WSGIClient(wsgi.application)
+    staff.set_cookie(auth.COOKIE_NAME, auth.issue_cookie_value("Harness"), domain="localhost")
+    for key, tool in pp.CREATIVE_TOOLS.items():
+        path = tool["href"].format(client="Monogram+Homes")
+        status = staff.get(path).status_code
+        check(f"the {tool['label']} path is one the composed app serves ({status})", status != 404)
+    resp = staff.post(f"/api/proposal-execution/run/{RUN_ID}/upload-link", json={})
+    body = resp.get_json() or {}
+    check("the press creates the client's upload gallery",
+          resp.status_code == 200 and (body.get("link") or {}).get("created") is True)
+    ban = next(it for it in (body.get("run") or {}).get("plan", {}).get("creative", [])
+               if it["title"] == "Retargeting banner set")
+    link_href = str((ban.get("actions") or [{}])[0].get("href") or "")
+    check("...and the item now carries the link to hand the client, absolute, from the host that served the page",
+          link_href.startswith("http://localhost") and "/pick/" in link_href)
+    resp2 = staff.post(f"/api/proposal-execution/run/{RUN_ID}/upload-link", json={})
+    check("a second press does not make a second gallery",
+          (resp2.get_json() or {}).get("link", {}).get("created") is False)
+
+# ---------------------------------------------------------------------------
+section("The plan reaches the client's record and the client health report")
+import hub.client_health as client_health                           # noqa: E402
+with hub_app.app_context():
+    resp = staff.get("/api/client/execution-plan?name=Monogram%20Homes")
+    check("the record's API answers", resp.status_code, 200)
+    d = resp.get_json() or {}
+    check("...measured, with the open run on it",
+          d.get("measured") is True and any(r["id"] == RUN_ID for r in d.get("runs") or []))
+    row = next((r for r in d.get("runs") or [] if r["id"] == RUN_ID), {})
+    check("...carrying counts and a link, never the items",
+          row.get("to_review", 0) > 0 and row.get("url") == f"/proposal-execution?run={RUN_ID}"
+          and "creative" not in row and "launch" not in row)
+    check("...and how many creative items nobody has a supplier for", row.get("creative_unassigned", 0) > 0)
+    quote_rows = (staff.get("/api/client/execution-plan?name=Riverstone%20Dental").get_json() or {}).get("runs") or []
+    check("a superseded run is not on the record", not any(r["id"] == QRUN_ID for r in quote_rows))
+    check("...and the run that superseded it is", any(r["id"] == RUN2_ID for r in quote_rows))
+    anon = WSGIClient(wsgi.application)
+    check("a stranger is refused the record's API",
+          anon.get("/api/client/execution-plan?name=Monogram%20Homes").status_code in (401, 302, 403))
+
+    plans, err = client_health._plans()
+    mkey = client_health._client_key(CLIENT)
+    check("the health report reads the open plans in one query", err == "" and mkey in plans)
+    issues = client_health._plan_issues(plans.get(mkey) or [])
+    check("...and raises a review issue pointing at the plan",
+          any(i["kind"] == "plan_review" and i["link"] == f"/proposal-execution?run={RUN_ID}" for i in issues))
+    check("...and a creative issue for the spot nobody has a supplier for",
+          any(i["kind"] == "plan_creative" for i in issues))
+    check("both kinds name the screen they are fixed on",
+          all(client_health.ISSUE_KINDS[k]["where"] == "Proposal Execution"
+              and client_health.ISSUE_KINDS[k]["href"] for k in ("plan_review", "plan_creative")))
+    check("no open plan raises nothing", client_health._plan_issues([]), [])
+    check("a reviewed and answered plan raises nothing",
+          client_health._plan_issues([{"id": 1, "title": "x", "url": "/p", "to_review": 0,
+                                       "open_questions": 0, "creative_unassigned": 0}]), [])
+
+with open(os.path.join(ROOT, "hub", "templates", "client360.html"), encoding="utf-8") as fh:
+    c360 = fh.read()
+check("Client 360 draws the plan card", "<h3>Execution plan</h3>" in c360 and "api/client/execution-plan" in c360)
+check("...in the work section", "'execution plan'" in c360.split("/* ---- c360 sections")[1].split("/* ---- end c360 sections")[0])
+
+# ---------------------------------------------------------------------------
 section("The page writes directions, not JSON")
 with open(os.path.join(ROOT, "hub", "templates", "proposal_execution.html"), encoding="utf-8") as fh:
     tpl = fh.read()
@@ -611,6 +700,9 @@ check("the picker groups quotes apart from uploaded documents", 'optgroup label=
 check("the page knows a run read from a quote", "read from the quote built in the Proposal Builder" in tpl)
 check("a question says which document answered it", "Answered from the ${esc(q.source_label" in tpl)
 check("an item shows its due date and its supplier", "it.due_label" in tpl and "it.supplier_label" in tpl)
+check("an item draws the actions the server decided, and the upload-link press",
+      "it.actions" in tpl and "planUploadLink" in tpl and "/upload-link" in tpl)
+check("a board task can be pointed at", 'id="task-${esc(t.task_key)}"' in tpl)
 check("no task result is printed as a JSON dump", "JSON.stringify(r,null,2)" not in tpl
       and "JSON.stringify(r, null, 2)" not in tpl)
 check("the page carries the three plan lists", all(k in tpl for k in ("planLists", "planAccept", "planAdd")))
