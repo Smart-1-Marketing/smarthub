@@ -72,7 +72,7 @@ from werkzeug.test import Client                                     # noqa: E40
 
 import wsgi                                                          # noqa: E402
 from hub import auth                                                 # noqa: E402
-from modules.reports import automap, client_pdf, client_view, organic, products, store  # noqa: E402
+from modules.reports import automap, client_view, organic, products, store  # noqa: E402
 
 TODAY = date.today()
 D1 = TODAY - timedelta(days=1) if TODAY.day > 1 else TODAY
