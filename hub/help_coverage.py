@@ -148,6 +148,7 @@ PREFIXES: dict[str, str] = {
     "/tools/pdf/": "pdf_optimizer",
     "/tools/short-links": "short_links",
     "/tools/ads/": "ads_builder",
+    "/reports/": "reports",
     "/tools/gpt-ads/": "gpt_ads",
     "/tools/social/": "social",
     "/tools/site-blocks/": "site_blocks",

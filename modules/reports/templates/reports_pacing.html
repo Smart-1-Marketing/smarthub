@@ -1,0 +1,103 @@
+{% extends "_reports_base.html" %}
+{% block title %}Pacing · Reports{% endblock %}
+{% block heading %}Pacing board{% endblock %}
+{% block lede %}Every sold line against its media budget this month, from the
+  last hourly snapshot. Staff only.{% endblock %}
+
+{% block style %}
+  .band { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .band .ic { font-size: 11px; }
+  .band-on { background: #ecfdf3; color: #15803d; border: 1px solid #b7e4c7; }
+  .band-under { background: #fff7e6; color: #9a5b00; border: 1px solid #f3d9a4; }
+  .band-over { background: #fdecec; color: #a12626; border: 1px solid #f3c1c1; }
+  .band-stalled { background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
+  .band-unmapped { background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe; }
+  .alert { font-size: 11px; color: #a12626; font-weight: 700; margin-left: 4px; }
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px; }
+  .filters select, .filters input { padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 7px; font: inherit; }
+  th a { color: inherit; text-decoration: none; }
+  th a.on::after { content: " ▾"; }
+  .pace-track { height: 6px; background: #e3eefb; border-radius: 3px; overflow: hidden; min-width: 80px; }
+  .pace-fill { height: 100%; background: #2a78d6; }
+  .pace-fill.under { background: #f0b429; } .pace-fill.over { background: #dc2626; }
+  td:first-child { white-space: nowrap; }
+{% endblock %}
+
+{% block body %}
+<div class="s1d-tiles">
+  {% for key, label in (('unmapped', 'Unmapped'), ('stalled', 'Stalled'), ('under', 'Under pace'), ('over', 'Over pace'), ('on', 'On pace')) %}
+  <a class="s1d-tile" href="?band={{ key }}" style="text-decoration:none">
+    <b class="{{ 's1d-warn' if key in ('unmapped', 'stalled') and b.counts[key] else '' }}">{{ b.counts[key] }}</b>
+    <span><span class="ic">{{ labels[key][0] }}</span> {{ label }}</span></a>
+  {% endfor %}
+  <div class="s1d-tile"><b class="{{ 's1d-warn' if b.counts.alerts else '' }}">{{ b.counts.alerts }}</b><span>Alerts (3+ days off pace)</span></div>
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>{{ b.shown }} of {{ b.total }} line{{ '' if b.total == 1 else 's' }} {{ help_dot('reports.pacing.board') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">
+      {% if b.run_at %}Snapshot <time datetime="{{ b.run_at }}">{{ b.run_at }}</time>{% else %}<span class="s1d-pill warn">not measured</span> No pacing run has landed yet; the hourly job writes the first one.{% endif %}
+      · <a href="/reports/pacing.csv?band={{ b.filters.band }}&platform={{ b.filters.platform }}&owner={{ b.filters.owner|urlencode }}&client={{ b.filters.client|urlencode }}&sort={{ b.sort }}">Download CSV</a>
+    </span></div>
+  <form method="get" class="filters">
+    <label>Band <select name="band"><option value="">Any</option>{% for k in bands %}<option value="{{ k }}" {{ 'selected' if b.filters.band == k else '' }}>{{ labels[k][1] }}</option>{% endfor %}</select></label>
+    <label>Platform <select name="platform"><option value="">Any</option>{% for p in b.platforms %}<option value="{{ p }}" {{ 'selected' if b.filters.platform == p else '' }}>{{ platform_label(p) }}</option>{% endfor %}</select></label>
+    <label>Owner <select name="owner"><option value="">Any</option>{% for o in b.owners %}<option value="{{ o }}" {{ 'selected' if b.filters.owner == o else '' }}>{{ o }}</option>{% endfor %}</select></label>
+    <label>Client <input type="text" name="client" value="{{ b.filters.client }}" placeholder="Name contains…"></label>
+    <input type="hidden" name="sort" value="{{ b.sort }}">
+    <button type="submit" class="s1d-btn sec">Filter</button>
+    {% if b.filters.band or b.filters.platform or b.filters.owner or b.filters.client %}<a class="s1d-btn sec" href="/reports/pacing">Clear</a>{% endif %}
+  </form>
+  {% macro th(key, label, cls='') -%}
+    <th class="{{ cls }}"><a class="{{ 'on' if b.sort == key else '' }}" href="?band={{ b.filters.band }}&platform={{ b.filters.platform }}&owner={{ b.filters.owner|urlencode }}&client={{ b.filters.client|urlencode }}&sort={{ key }}">{{ label }}</a></th>
+  {%- endmacro %}
+  {% if b.rows %}
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr>
+      {{ th('client', 'Client') }}{{ th('product', 'Product') }}<th>Platform(s)</th>{{ th('owner', 'Owner') }}
+      {{ th('budget', 'Budget (period)', 'num') }}{{ th('spent', 'Spent', 'num') }}{{ th('pace', 'Pace', 'num') }}{{ th('band', 'Band') }}
+      {{ th('projected', 'Projected', 'num') }}{{ th('needed', 'Daily needed', 'num') }}<th>Last sync</th>
+    </tr></thead>
+    <tbody>
+    {% for r in b.rows %}
+      <tr>
+        <td><a href="/reports/client/{{ r.client }}">{{ r.client_name }}</a></td>
+        <td>{{ r.product or '—' }}</td>
+        <td>{% if r.platform_labels %}{{ r.platform_labels|join(', ') }}{% elif r.platform %}{{ platform_label(r.platform) }}{% else %}<span class="s1d-muted">none mapped</span>{% endif %}</td>
+        <td>{{ r.owner or '—' }}</td>
+        <td class="num" title="${{ '{:,.2f}'.format(r.monthly_budget) }}/mo, {{ r.days_in_period }} days this period">${{ '{:,.2f}'.format(r.budget_period) }}</td>
+        <td class="num" title="Expected so far ${{ '{:,.2f}'.format(r.expected_to_date) }}">${{ '{:,.2f}'.format(r.actual_to_date) }}</td>
+        <td class="num">{% if r.pace is not none %}{{ '%.2f'|format(r.pace) }}x
+          <div class="pace-track"><div class="pace-fill {{ r.band }}" style="width:{{ [r.pace * 100, 200]|min / 2 }}%"></div></div>{% else %}—{% endif %}</td>
+        <td><span class="band band-{{ r.band }}"><span class="ic" aria-hidden="true">{{ r.icon }}</span>{{ r.band_label }}</span>
+          {% if r.alert %}<span class="alert" title="{{ r.trend_days }} days running">alert · {{ r.trend_days }}d</span>{% elif r.band != 'on' and r.trend_days > 1 %}<span class="s1d-muted" style="font-size:11px">{{ r.trend_days }}d</span>{% endif %}</td>
+        <td class="num">{% if r.projected_month_end is not none %}${{ '{:,.2f}'.format(r.projected_month_end) }}{% else %}—{% endif %}</td>
+        <td class="num">{% if r.daily_needed is not none %}${{ '{:,.2f}'.format(r.daily_needed) }}{% else %}—{% endif %}</td>
+        <td>{% if r.last_sync %}<time datetime="{{ r.last_sync }}">{{ r.last_sync }}</time>{% else %}<span class="s1d-muted">never</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% elif b.total %}
+    <div class="empty">No line matches the filter. <a href="/reports/pacing">Clear it.</a></div>
+  {% else %}
+    <div class="empty">Nothing is pacing: no active budget line has a flight that includes today, or the hourly run has not landed yet.
+      <a href="/reports/budgets">Add a budget line.</a></div>
+  {% endif %}
+  <p class="s1d-hint">Budget (period) is the monthly media budget prorated to the part of this month the flight covers.
+    Pace is spent over expected-to-date; under is below 0.90, over is past 1.10. Stalled is two completed days of zero spend mid-flight;
+    unmapped is a sold line with no campaign filed against it. An alert needs the same off-pace band three days running.
+    Projected is spent plus the last seven days' average times the days remaining. Raw media spend, staff only.</p>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+  Array.prototype.forEach.call(document.querySelectorAll("time[datetime]"), function (t) {
+    var d = new Date(t.getAttribute("datetime"));
+    if (!isNaN(d)) t.textContent = d.toLocaleString();
+  });
+</script>
+{% endblock %}
