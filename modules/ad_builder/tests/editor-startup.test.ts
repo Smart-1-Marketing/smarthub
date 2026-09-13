@@ -20,11 +20,12 @@ function editorHarness(expose = false) {
   }
   const document = { getElementById: node, querySelectorAll: () => [], addEventListener() {}, body: node('body') };
   const requests: { url: string; options?: any; resolve: (result: any) => void }[] = [];
-  const context = { document, window: { addEventListener() {} } as any, location: { search: '', pathname: '/build' },
+  const removed: string[] = [];
+  const context = { localStorage: {removeItem: (key:string)=>removed.push(key)}, document, window: { addEventListener() {} } as any, location: { search: '', pathname: '/build' },
     fetch: (url: string, options?: any) => new Promise(resolve => { requests.push({ url, options, resolve }); }), setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1,
     URLSearchParams, console, navigator: {}, MutationObserver: class { observe() {} } };
   vm.runInNewContext(code, context, { timeout: 2000 });
-  return { events, nodes, requests, editor: context.window.testEditor };
+  return { events, nodes, requests, removed, editor: context.window.testEditor };
 }
 
 test('the complete editor script starts and registers animation and workflow handlers', () => {
@@ -84,4 +85,17 @@ test('a failed autosave keeps edits and a manual retry can finish saving', async
   const retry=editor.saveCampaign();
   requests.filter(r=>r.url==='/api/campaign/retry-test')[1].resolve({ok:true,json:async()=>({revision:'saved'})});
   await retry;assert.equal(editor.state.dirty,false);assert.equal(nodes.get('saveHint').textContent,'Saved');
+});
+
+test('a save finishing after switching campaigns cannot clear the other draft or its status',async()=>{
+  const {editor,requests,nodes,removed}=editorHarness(true);
+  editor.state.requestId='first';editor.state.doc={revision:'old',campaign:{concepts:[]}};editor.state.dirty=true;
+  const saving=editor.saveCampaign();
+  editor.state.requestId='second';editor.state.doc={revision:'second-version',campaign:{concepts:[]}};editor.state.dirty=false;
+  nodes.get('saveHint').textContent='An unfinished draft is available';
+  requests.find(r=>r.url==='/api/campaign/first')!.resolve({ok:true,json:async()=>({revision:'first-saved'})});
+  await saving;
+  assert.equal(editor.state.doc.revision,'second-version');
+  assert.equal(nodes.get('saveHint').textContent,'An unfinished draft is available');
+  assert.ok(!removed.includes('s1-ad-draft:second'));
 });

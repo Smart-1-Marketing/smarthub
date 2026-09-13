@@ -3800,13 +3800,16 @@
   var savingCampaign = null, autosaveBlocked = false;
   function saveCampaign() {
     if (savingCampaign) return savingCampaign.then(function () { return state.dirty ? saveCampaign() : null; });
+    var savingRequestId = state.requestId;
     $('saveHint').textContent = 'Saving…';
     savingCampaign = writeCampaign().then(function (body) {
+      if (savingRequestId !== state.requestId) return body;
       autosaveBlocked = false;
       if (!state.dirty) { try { localStorage.removeItem('s1-ad-draft:' + state.requestId); } catch (_) {} }
       $('saveHint').textContent = state.dirty ? 'New changes waiting to save…' : 'Saved';
       return body;
     }).catch(function (error) {
+      if (savingRequestId !== state.requestId) throw error;
       autosaveBlocked = true;
       $('saveHint').textContent = 'Couldn’t save — your draft is kept here. Use Save now to retry.';
       throw error;
