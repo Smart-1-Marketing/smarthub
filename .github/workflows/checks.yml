@@ -2360,6 +2360,8 @@ jobs:
         # through copyToClipboard rather than reporting a copy it never made.
         run: python3 test_client360_utm_card.py
 
+      - name: Sites Builder brief and lead capture tests
+        run: python3 test_sites_builder.py
       - name: The gate runs every check a person runs
         run: python3 test_ci_gate.py
 
