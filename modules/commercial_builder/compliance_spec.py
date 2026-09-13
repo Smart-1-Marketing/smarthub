@@ -268,7 +268,7 @@ def _text_of(script, brief, cta):
     """
     parts = []
     for scene in (script or {}).get("scenes", []) or []:
-        for key in ("voiceover", "visual", "on_screen_text", "text"):
+        for key in ("voiceover", "narration", "visual", "visual_description", "on_screen_text", "text"):
             value = (scene or {}).get(key)
             if value:
                 parts.append(str(value))
@@ -367,9 +367,19 @@ def _scan(script, brief, cta, client, commercial_type):
             evidence=f"“{rate.group(0).strip()}”",
             satisfied=False))
 
+    # Negative planning instructions are not endorsements in the actual ad.
+    # Keep spoken/on-screen copy intact, including an explicit testimonial type.
+    brief_copy = dict(brief or {})
+    for field, value in brief_copy.items():
+        if isinstance(value, str):
+            brief_copy[field] = re.sub(
+                r"\b(?:no|without|avoid|exclude|do not (?:use|include))\s+"
+                r"(?:(?:performance claims?|claims?|offers?|endorsements?|testimonials?)(?:\s*,\s*(?:(?:or|and)\s+)?|\s+(?:or|and)\s+)?)+",
+                "", value, flags=re.I)
+    endorsement_text = _text_of(script, brief_copy, cta)
     # --- FTC endorsements --------------------------------------------------
     is_testimonial = (str(commercial_type or "") == "testimonial"
-                      or bool(_TESTIMONIAL_WORDS.search(text)))
+                      or bool(_TESTIMONIAL_WORDS.search(endorsement_text)))
     if is_testimonial:
         findings.append(_finding(
             "ftc_material_connection", "ftc_endorsements",
@@ -383,7 +393,7 @@ def _scan(script, brief, cta, client, commercial_type):
             "dramatization.",
             evidence=("the commercial type is Testimonial"
                       if str(commercial_type or "") == "testimonial"
-                      else f"“{_TESTIMONIAL_WORDS.search(text).group(0).strip()}”"),
+                      else f"“{_TESTIMONIAL_WORDS.search(endorsement_text).group(0).strip()}”"),
             satisfied=bool(_MATERIAL_CONNECTION.search(text)) or None))
 
         results = _RESULTS_CLAIM.search(text)

@@ -213,12 +213,17 @@ def list_render_jobs(project_id):
     chances for it to draw one while the other is still in flight.
     """
     project = CommercialProject.query.get_or_404(project_id)
-    jobs = project.render_jobs.all()
+    jobs = project.render_jobs.order_by(RenderJob.id).all()
+    scenes = [s.to_dict() for s in project.scenes.order_by(Scene.order_index).all()]
+    from ..services.finished_video import creative_status
     approvals = {a.render_job_id: a.to_dict() for a in
                  RenderApproval.query.filter_by(project_id=project.id).all()}
     rows = []
-    for job in jobs:
+    for version, job in enumerate(jobs, 1):
         row = job.to_dict()
+        row["version"] = version
+        row["creative_status"] = creative_status(job, project, scenes)
+        row["created_at"] = job.created_at.isoformat() + "Z" if job.created_at else None
         row["approval"] = approvals.get(job.id)
         from ..finishing_models import RenderInspection
         inspection = db.session.get(RenderInspection, job.id)
@@ -332,11 +337,16 @@ def approve_render(project_id, job_id):
         return jsonify({"ok": True, "approval": existing.to_dict(),
                         "already": True, "next": _next_in_campaign(project)})
 
-    from ..services.finished_video import inspect_job
+    from ..services.finished_video import inspect_job, creative_status
+    scenes = [s.to_dict() for s in project.scenes.order_by(Scene.order_index).all()]
+    if creative_status(job, project, scenes) != "current":
+        return jsonify(ok=False, error="This cut does not have a verified match to the current script and settings. Render a new cut before approval."), 409
     inspection = inspect_job(job)
     if inspection["status"] == "failed":
         return jsonify(ok=False, error="The finished video failed technical checks. Fix the output before filing.", inspection=inspection), 409
-    if inspection["status"] != "passed" and data.get("acknowledge_unverified_video") is not True:
+    if inspection["status"] not in ("passed", "review"):
+        return jsonify(ok=False, error="Finished-file checks must complete before approval. Run Check finished file, resolve any inspection issue, then try again.", inspection=inspection), 409
+    if inspection["status"] == "review" and data.get("acknowledge_unverified_video") is not True:
         message = ("The video contains black or quiet sections. Watch those sections to verify that no media is missing before filing. " + " ".join(inspection.get("warnings", []))
                    if inspection["status"] == "review" else "Automatic video inspection is unavailable. Watch the entire cut and confirm its timing, picture and audio before filing.")
         return jsonify(ok=False, error=message,

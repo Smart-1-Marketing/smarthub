@@ -127,13 +127,23 @@
   async function loadCost() {
     const d = await api('/production-cost');
     const box = $('production-cost'); box.replaceChildren();
+    const headline = document.createElement('strong'); headline.textContent = 'Total cost unknown — some provider or historical charges are missing'; box.append(headline);
     const p = document.createElement('p');
     p.textContent = `${d.elapsed_hours} hours ${d.approved ? 'to first approval' : 'elapsed so far'} · ${d.render_attempts} render attempts (${d.extra_render_attempts} extra) · ${d.approved_cuts} approved cuts. Known cost subtotal: $${d.known_cost_usd.toFixed(4)}.`; box.append(p);
     for (const provider of d.providers) {
       const line = document.createElement('p'); line.textContent = `${provider.provider}: ${provider.calls} recorded calls, ${provider.failed} failed, ${provider.cached} reused${provider.unpriced ? ` · ${provider.unpriced} unpriced` : ''}`; box.append(line);
     }
     const note = document.createElement('p'); note.className = 'cb-hint'; note.textContent = d.note; box.append(note);
+    const budget = d.budget || {};
+    text('budget-status', budget.configured ? `Limit: $${budget.limit_usd.toFixed(2)} · Reserved: $${budget.reserved_usd.toFixed(2)} · ${budget.remaining_usd === null ? 'Remaining budget unknown — reconcile past charges' : 'Available under ceiling: $' + budget.remaining_usd.toFixed(2)}. ${budget.note}` : budget.note);
+    text('render-budget-status', 'Total cost unknown. ' + $('budget-status').textContent);
+    if (budget.configured) $('budget-limit').value = budget.limit_usd;
   }
+  $('budget-save').addEventListener('click', e => action(e.target, 'budget-status', async () => {
+    const prior = $('budget-prior').value;
+    await api('/budget', {limit_usd: $('budget-limit').value, prior_usd: prior === '' ? null : prior, confirm_prior: $('budget-confirm').checked});
+    await loadCost();
+  }));
   $('cost-refresh').addEventListener('click', e => action(e.target, 'production-cost', loadCost));
   $('creative-review').addEventListener('click', e => action(e.target, 'creative-result', async () => {
     const d = await api('/creative-review', {}), box = $('creative-result');

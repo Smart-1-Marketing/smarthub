@@ -316,6 +316,12 @@ section("A cut the client refused does not reach their library")
 anon.post(f"{MOUNT}/review/{token}/decide",
           json={"outcome": "changes_required", "name": "Bob",
                 "email": "bob@acme.test", "note": "Old phone number"})
+from unittest.mock import patch as _patch_video
+_video_status = _patch_video("modules.commercial_builder.services.finished_video.creative_status", return_value="current")
+_video_inspection = _patch_video("modules.commercial_builder.services.finished_video.inspect_job", return_value={"status": "passed", "checks": []})
+_video_status.start()
+_video_inspection.start()
+
 blocked = staff.post(f"{MOUNT}/api/projects/{pid}/render-jobs/{job_id}/approve", json={"acknowledge_unverified_video": True, })
 check("filing is refused", blocked.status_code, 409)
 check("and it names who asked", "Bob" in blocked.get_json()["error"], True)
