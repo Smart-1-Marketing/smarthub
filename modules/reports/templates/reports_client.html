@@ -35,7 +35,7 @@
 {% if held %}
 <div class="notice err">{{ held|length }} campaign-day{{ '' if held|length == 1 else 's' }} on this client's confirmed campaigns
   {{ 'is' if held|length == 1 else 'are' }} <b>held in quarantine</b> and missing from the client's page until somebody decides:
-  {% for h in held[:3] %}{{ h.platform_label }} {{ h.date }} ({{ h.rule_label }}){{ '; ' if not loop.last else '' }}{% endfor %}{% if held|length > 3 %} and {{ held|length - 3 }} more{% endif %}.
+  {% for h in held[:3] %}{{ h.platform_label }} {{ h.date }}, {{ h.rule_label }}{{ '; ' if not loop.last else '' }}{% endfor %}{% if held|length > 3 %} and {{ held|length - 3 }} more{% endif %}.
   <a href="/reports/quarantine">Open the quarantine.</a></div>
 {% endif %}
 {% if blank_products %}

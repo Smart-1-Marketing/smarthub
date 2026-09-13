@@ -324,12 +324,12 @@ check("...carrying the comparison", (led[("google", LAST)]["state"], led[("googl
       ("agree", Decimal("100.00")))
 check("the first run logs nothing: there was no prior state to change from", entries("reports_reconcile"), [])
 THEIRS["micros"] = 150_000_000
-res = reconcile.run(today=TODAY, actor="test")
+reconcile.run(today=TODAY, actor="test")
 e = entries("reports_reconcile")
 check("google moving to drift is logged once, with both figures",
       len(e) == 1 and e[0].get("platform") == "google" and "Agrees -> Drift" in e[0].get("detail", "")
       and "$100.00" in e[0]["detail"] and "$150.00" in e[0]["detail"])
-res = reconcile.run(today=TODAY, actor="test")
+reconcile.run(today=TODAY, actor="test")
 check("...and the same state on the next run is not logged again", len(entries("reports_reconcile")), 1)
 check("drifting() names it", [(d["platform"], d["month"]) for d in reconcile.drifting()], [("google", LAST)])
 
