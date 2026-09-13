@@ -2374,6 +2374,25 @@ jobs:
             echo "test_proposal_adapters_commercial.py not on this branch — nothing to run."
           fi
 
+      # Backlog item #7: reporting_plan ran as `brief` -- a paragraph
+      # describing a reporting cadence, with no client-facing dashboard
+      # anybody could open. modules/reports (the ad-performance reporting
+      # module, merged independently of WO-2) already has both halves this
+      # needs: a ReportLink is the client's own dashboard token
+      # (/reports/r/c/<token>) and a BudgetLine is what its pacing measures
+      # against. hub/proposal_adapters/reports.py mints one link per client
+      # and one budget line per channel the proposal's own analysis quotes a
+      # dollar figure for -- reusing a client's existing link and skipping a
+      # budget line already on file rather than doubling it on a retry, the
+      # same "already existed and were left as-is" shape utm.py uses.
+      - name: Proposal Execution — real-tool adapters (Cross-channel reporting dashboard)
+        run: |
+          if [ -f test_proposal_adapters_reports.py ]; then
+            python3 test_proposal_adapters_reports.py
+          else
+            echo "test_proposal_adapters_reports.py not on this branch — nothing to run."
+          fi
+
       # A curated shortlist per department, laid over the sidebar rather than
       # a second permission system. Block validation (a javascript: href, a
       # blank label, the cap), a delete that un-assigns rather than leaving a
