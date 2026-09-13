@@ -31,7 +31,7 @@ jobs:
   checks:
     name: syntax, links and tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
 
     # Postgres rather than SQLite, for the steps that boot the app. Sites Admin
     # refuses to start without a real Postgres URL and serves wsgi.py's 503
@@ -424,7 +424,9 @@ jobs:
         run: python test_commercial_reliability.py
 
       - name: Commercial Builder finishing tests
-        run: python test_commercial_finishing.py
+        run: |
+          python test_commercial_finishing.py
+          python test_video_workflow.py
 
       - name: Commercial Builder provider key tests
         run: |

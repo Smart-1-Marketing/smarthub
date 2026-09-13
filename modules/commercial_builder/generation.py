@@ -346,11 +346,16 @@ def submit_render_job(project, client, scenes, fmt, *, voice_track_url=None, mus
     from .services import creatomate_service
 
     if renders_through_hyperframes(project):
+        from .budget import reject_unpriced
+        reject_unpriced(project.id)
         result = _submit_vox(project, client, fmt, voice_track_url)
     else:
         source = creatomate_service.build_source(
             project.to_dict(include_scenes=False), scenes, fmt,
             voice_track_url, music_track_url)
+        if creatomate_service.is_live():
+            from .budget import reserve_render
+            reserve_render(project, source)
         result = creatomate_service.submit_render(source)
 
     job = RenderJob(project_id=project.id, format=fmt,

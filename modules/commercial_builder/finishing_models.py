@@ -39,3 +39,21 @@ class ProductionUsage(db.Model):
     cached = db.Column(db.Boolean, default=False)
     ok = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ProjectBudget(db.Model):
+    __tablename__ = "cb_project_budgets"
+    project_id = db.Column(db.Integer, db.ForeignKey("cb_projects.id", ondelete="CASCADE"), primary_key=True)
+    limit_cents = db.Column(db.Integer, nullable=False)
+    prior_cents = db.Column(db.Integer)  # None: past spending has not been reconciled.
+    reserved_cents = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class BudgetReservation(db.Model):
+    __tablename__ = "cb_budget_reservations"
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("cb_projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    operation = db.Column(db.String(120), nullable=False)
+    cents = db.Column(db.Integer, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

@@ -51,6 +51,16 @@ def install(bp):
         if project_id:
             value = (project_id, [])
             g.cb_usage = (value, _scope.set(value))
+            paid_actions = {
+                'generate_ai_footage', 'generate_ai_video', 'generate_paint_animation',
+                'generate_scene_sfx', 'compose_project_music', 'generate_spokesperson_clip',
+                'generate_scene_voiceover', 'generate_full_voiceover', 'generate_vox_beats',
+                'generate_concepts', 'generate_script', 'expand_narration', 'regenerate_scene',
+                'review_script'
+            }
+            if (request.endpoint or '').rsplit('.', 1)[-1] in paid_actions:
+                from .budget import reject_unpriced
+                reject_unpriced(project_id)
 
     @bp.teardown_request
     def finish_usage(_error):
@@ -64,6 +74,10 @@ def install(bp):
 def metered(fn):
     @wraps(fn)
     def wrapped(project, *args, **kwargs):
-        with scope(getattr(project, "project_id", None) or project.id):
+        project_id = getattr(project, "project_id", None) or project.id
+        if fn.__name__ != 'submit_render_job':
+            from .budget import reject_unpriced
+            reject_unpriced(project_id)
+        with scope(project_id):
             return fn(project, *args, **kwargs)
     return wrapped
