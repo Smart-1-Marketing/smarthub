@@ -49,7 +49,10 @@ async function testSubmissionReview(){
  const previous={isConnected:true,focus(){restored++}};
  function element(tag){return {tag,style:{},children:[],events:{},setAttribute(){},append(...children){this.children.push(...children)},addEventListener(name,fn){this.events[name]=fn},showModal(){active=this},close(){},remove(){if(active===this)active=null},focus(){}};}
  const doc={activeElement:previous,createElement:element,body:{appendChild(){}},getElementById:()=>({}),querySelector:()=>({style:{}})};
- const c={document:doc,Promise};vm.createContext(c);
+ const c={document:doc,Promise,URL};vm.createContext(c);
+ vm.runInContext(source.slice(source.indexOf("function esc("),source.indexOf("function editorEmailError(")),c);
+ vm.runInContext(source.slice(source.indexOf("function needsTrackingDetail("),source.indexOf("function allRecommendedKPIs(")),c);
+ vm.runInContext(source.slice(source.indexOf("function receiptLink("),source.indexOf("// A page dialog keeps")),c);
  const review=source.slice(source.indexOf('let _ioConfirmActive='),source.indexOf('let _ioSubmitting='));
  vm.runInContext(review,c);
  let result=c.confirmIOReview('<img src=x onerror=alert(1)>');
@@ -106,4 +109,25 @@ testSubmissionReview().then(()=>console.log('PASS: optional conversions, review 
  c.esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
  assert.equal(c.reviewMarkup('## Findings\n- **CTA**\n<script>x</script>'),'<h4>Findings</h4><ul><li><b>CTA</b></li></ul><p>&lt;script&gt;x&lt;/script&gt;</p>');
  console.log('PASS: blank/invalid editor email preserves state; explicit removal; safe review formatting.');
+}
+
+{
+ const c={state:{objectives:['Brand Awareness'],selected:['display'],items:[],trackingPlan:{primaryConversion:'Store visits',secondaryConversions:[],callTracking:'Yes',thankYouPage:'Yes'}},productConfig:{display:{category:'DISPLAY',product:'RON'},video:{category:'OTT',product:'CTV'},audio:{category:'DIGITAL RADIO',product:'Streaming audio'}},URL};
+ vm.createContext(c);
+ vm.runInContext(source.slice(source.indexOf('const objectiveKPIs='),source.indexOf('/* ===',source.indexOf('const objectiveKPIs='))),c);
+ vm.runInContext(source.slice(source.indexOf('function needsTrackingDetail('),source.indexOf('function recommendedKPIs(')),c);
+ assert.deepEqual(Array.from(c.allRecommendedKPIs()),['Impressions','Reach','Frequency']);
+ c.state.selected=['video'];assert.ok(c.allRecommendedKPIs().includes('Video Completion Rate'));assert.ok(!c.allRecommendedKPIs().includes('Audio Completion Rate'));
+ c.state.selected=['video','audio'];assert.ok(c.allRecommendedKPIs().includes('Audio Completion Rate'));
+ c.state.selected=[];assert.ok(!c.allRecommendedKPIs().includes('Video Completion Rate'));
+ assert.equal(c.needsTrackingDetail('callTracking'),false);assert.equal(c.needsTrackingDetail('thankYouPage'),false);
+ assert.equal(c.effectiveTrackingPlan().callTracking,'Not applicable');assert.equal(c.state.trackingPlan.callTracking,'Yes');
+ c.state.trackingPlan.secondaryConversions=['Phone calls','Form completion'];assert.equal(c.needsTrackingDetail('callTracking'),true);assert.equal(c.needsTrackingDetail('thankYouPage'),true);
+ vm.runInContext(source.slice(source.indexOf('function esc('),source.indexOf('function editorEmailError(')),c);
+ vm.runInContext(source.slice(source.indexOf('function receiptLink('),source.indexOf('// A page dialog keeps')),c);
+ const record={status:'submitted',orderNumber:'10216',client:'<b>Test</b>',submittedAt:'2026-09-12T22:29:00Z',clientPdfUrl:'https://example.com/client.pdf',internalPdfUrl:'javascript:alert(1)',deliveredToSuite:false};
+ let html=c.submissionReceiptHTML(record);assert.match(html,/delivery to Smart 1 Suite not confirmed/);assert.match(html,/10216/);assert.match(html,/&lt;b&gt;Test/);assert.match(html,/Open client PDF/);assert.ok(!html.includes('javascript:'));
+ record.deliveredToSuite=true;record.internalPdfUrl='https://example.com/internal.pdf';html=c.submissionReceiptHTML(record);assert.match(html,/Delivered to Smart 1 Suite/);assert.match(html,/Open internal PDF/);
+ assert.equal(c.submissionReceiptHTML({}),'');
+ console.log('PASS: product KPI relevance, conditional tracking and stale-answer normalization, receipt delivery states and safe links.');
 }
