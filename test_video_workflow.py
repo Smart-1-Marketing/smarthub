@@ -14,6 +14,11 @@ from modules.commercial_builder.routes import review
 class WorkflowTests(unittest.TestCase):
     setUp = fixture.ReliabilityTests.setUp
     tearDown = fixture.ReliabilityTests.tearDown
+    @classmethod
+    def tearDownClass(cls):
+        with fixture.app.app_context():
+            db.session.remove()
+            db.engine.dispose()
 
     def job(self):
         job = RenderJob(project_id=self.project.id, format="16:9", status="succeeded", output_url="https://res.cloudinary.com/test.mp4")
