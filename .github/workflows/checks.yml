@@ -409,6 +409,9 @@ jobs:
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
+      - name: Smart 1 Sites Builder tests
+        run: python test_sites_builder.py
+
       - name: Industry factory config, routes, leads and creative tests
         run: |
           python test_industry_core.py
