@@ -615,6 +615,9 @@ jobs:
             echo "test_commercial_dashboard_layout.py not on this branch — nothing to run."
           fi
 
+      - name: Smart 1 Sites Builder tests
+        run: python test_sites_builder.py
+
       - name: Website block tests
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
