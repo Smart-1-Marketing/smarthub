@@ -605,6 +605,18 @@ REGISTRY: list[Help] = [
        "so first: a proposal written from an older one describes a site that "
        "may have been rebuilt since.", step=6, selector="#nextCard"),
 
+    # ---------------- Smart 1 Sites Builder ----------------
+    _h("sites_builder.preview", "Show the outcome before the price",
+       "This turns the few facts a lead has already told you into a homepage "
+       "they can react to: their name, their market, one clear action and the "
+       "sections their customers need. It is a conversation piece, not a "
+       "finished site or a promise that copy has been approved. The design "
+       "cards come from the live Smart 1 Sites catalog; opening and choosing "
+       "them keeps a visual trail on this browser so you can compare what the "
+       "lead liked instead of relying on memory.",
+       link="https://smart1sites.com/themes",
+       link_text="Browse all Smart 1 themes"),
+
     # ---------------- Prospect record ----------------
     _h("hub.prospect.intro", "What this record is for",
        "Everything the Hub knows about one prospect, in one place: what they "

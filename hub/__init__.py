@@ -7161,6 +7161,7 @@ def create_hub_app() -> Flask:
         ("Image Picker", "modules.image_picker", "register_image_picker", "/tools/image-picker"),
         ("Page Image Optimizer", "modules.page_image_optimizer", "register", "/tools/page-images"),
         ("Web Tickets", "modules.tickets", "register_tickets", "/tools/tickets"),
+        ("Smart 1 Sites Builder", "hub.sites_builder_routes", "register", "/tools/sites-builder"),
         # The Display Ad Builder is a Node service in the same container; this
         # registers the proxy that puts it behind the Hub login. Same wrapper
         # as the rest, so a renderer that will not start costs the Hub nothing.
