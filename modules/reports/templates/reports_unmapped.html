@@ -1,0 +1,135 @@
+{% extends "_reports_base.html" %}
+{% block title %}Unmapped Campaigns{% endblock %}
+{% block heading %}Unmapped campaigns{% endblock %}
+{% block lede %}Campaigns the syncs have seen that are not filed under a client
+  yet. Spend they carry reaches no client report until they are.{% endblock %}
+{% block saved_text %}Campaign {{ saved }} is filed. It leaves this list on the next load.{% endblock %}
+
+{% block style %}
+  td.hint-cell { max-width: 320px; }
+  .hint-cell .mono { white-space: nowrap; }
+  form.map { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  form.map .picker { min-width: 200px; flex: 1; }
+  form.map input[type=text] { width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 7px; font: inherit; }
+  form.map input.product { max-width: 150px; }
+{% endblock %}
+
+{% block body %}
+<div class="s1d-card">
+  <div class="s1d-cardhead">
+    <h2>{{ rows|length }} unmapped {{ help_dot('reports.unmapped.hint') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">Spend is the last {{ days }} days, biggest first.</span>
+  </div>
+  {% if rows %}
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr>
+      <th>Platform</th><th>Account</th><th>Campaign</th>
+      <th class="num">Spend ({{ days }}d)</th>
+      <th>File under</th>
+      <th>Rename hint</th>
+    </tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td>{{ r.platform_label }}</td>
+        <td class="mono">{{ r.account_id }}</td>
+        <td><b>{{ r.campaign_name or '(unnamed)' }}</b><br>
+            <span class="s1d-muted mono">{{ r.campaign_id }}</span>
+            {% if r.last_seen %}<br><span class="s1d-muted">last seen {{ r.last_seen }}</span>{% endif %}</td>
+        <td class="num">${{ '{:,.2f}'.format(r.spend_30d) }}</td>
+        <td>
+          <form class="map" method="post" action="/reports/unmapped">
+            <input type="hidden" name="platform" value="{{ r.platform }}">
+            <input type="hidden" name="account_id" value="{{ r.account_id }}">
+            <input type="hidden" name="campaign_id" value="{{ r.campaign_id }}">
+            <input type="hidden" name="campaign_name" value="{{ r.campaign_name }}">
+            <div class="picker">
+              <input type="text" name="client_name" placeholder="Client…" autocomplete="off" required>
+              <input type="hidden" name="client_key" value="">
+              <div class="picker-list"></div>
+            </div>
+            <input type="text" name="product" class="product" list="s1-products" placeholder="Product" autocomplete="off" value="{{ defaults.get(r.platform, '') }}">
+            <button type="submit" class="s1d-btn small">Map</button>
+          </form>
+        </td>
+        <td class="hint-cell">
+          <span class="s1d-muted">Rename it in {{ r.platform_label }} to</span><br>
+          <span class="mono rename-hint" data-shape="{{ shape }}">{{ shape }}</span>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+    <div class="empty">Every campaign the syncs have seen is filed under a client.</div>
+  {% endif %}
+  <datalist id="s1-products">{% for p in products %}<option value="{{ p }}"></option>{% endfor %}</datalist>
+  <p class="s1d-hint">The product is what the client reads: two campaigns on two platforms
+    filed under one product are one bar on their page. The box offers the Smart 1 catalog
+    and opens on the platform's default; anything else may be typed. A mapping with no
+    product shows under a generic label and is flagged on the client's page.</p>
+  <p class="s1d-hint">The rename hint is the name shape the auto-mapper reads:
+    <span class="mono">{{ shape }}</span>. A campaign named that way is filed
+    without anybody opening this page. Pick a client on a row and the hint
+    fills in that client's key.</p>
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>Recently mapped</h2></div>
+  {% if recent %}
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr><th>Platform</th><th>Campaign</th><th>Client</th><th>Product</th><th>Shown as</th><th>By</th><th>When</th></tr></thead>
+    <tbody>
+    {% for m in recent %}
+      <tr>
+        <td>{{ m.platform_label }}</td>
+        <td class="mono">{{ m.campaign_id }}</td>
+        <td>{{ m.client_name or m.client }} <span class="s1d-muted mono">{{ m.client }}</span></td>
+        <td>{% if m.product %}{{ m.product }}{% else %}<span class="s1d-pill warn">no product set</span>{% endif %}</td>
+        <td>{{ m.display_name }}</td>
+        <td>{{ m.auto_rule or m.mapped_by or '—' }}</td>
+        <td><time datetime="{{ m.mapped_at }}">{{ m.mapped_at }}</time></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+    <div class="empty">Nothing has been mapped yet.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block script %}
+{% include "_reports_picker.html" %}
+<script>
+  // Picking a client on a row fills in the rename hint with that client's
+  // key, and typing a product fills in the product, so what is shown is the
+  // exact name to paste into the platform.
+  document.addEventListener("s1reports:client", function (e) {
+    var row = e.target.closest("tr");
+    if (!row) return;
+    row.__key = (e.detail && (e.detail.key || "").replace(/^[dn]:/, "")) || "";
+    refresh(row);
+  });
+  document.addEventListener("input", function (e) {
+    if (e.target && e.target.name === "product") refresh(e.target.closest("tr"));
+  });
+  function refresh(row) {
+    if (!row) return;
+    var hint = row.querySelector(".rename-hint");
+    var product = row.querySelector("input[name=product]");
+    if (!hint) return;
+    var key = row.__key || "<ClientKey>";
+    var prod = (product && product.value.trim()) || "<Product>";
+    hint.textContent = "S1M | " + key + " | " + prod + " | <anything>";
+  }
+  Array.prototype.forEach.call(document.querySelectorAll("time[datetime]"), function (t) {
+    var d = new Date(t.getAttribute("datetime"));
+    if (!isNaN(d)) t.textContent = d.toLocaleString();
+  });
+</script>
+{% endblock %}

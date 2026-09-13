@@ -365,7 +365,7 @@ def build_task_specs(analysis):
                   _task("social_schedule", "Social scheduling packet", "Social", "launch_packet", "handoff", ("social_posts",), channel=c, task_type="scheduling")]
     if "youtube_video" in channels:
         c = channels["youtube_video"]
-        specs += [_task("youtube_video_concept", "Monthly YouTube sales video concept & script", "Video", depends=("campaign_foundation",), needs=("primary_cta",), channel=c),
+        specs += [_task("youtube_video_concept", "Monthly YouTube sales video concept & script", "Video", "commercial_builder", "approval", ("campaign_foundation",), needs=("primary_cta",), channel=c),
                   _task("youtube_video_production", "YouTube sales video production handoff", "Video", "launch_packet", "handoff", ("youtube_video_concept",), channel=c, task_type="production")]
     if "youtube_optimization" in channels:
         specs.append(_task("youtube_optimization", "YouTube channel optimization plan", "Video/SEO", needs=("landing_url",), channel=channels["youtube_optimization"]))

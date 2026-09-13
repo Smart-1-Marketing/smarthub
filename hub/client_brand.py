@@ -184,6 +184,10 @@ NOT_WORK = {
     # A join we recorded, not something the client received. Attaching a GA4
     # property says who owns it; it does not say we made anything.
     "google_index": "a resource joined to a client, not work delivered",
+    # A campaign filed under a client, or a budget line typed against one, is
+    # the same shape: a join the Hub recorded so the reports can read it, not
+    # something the client received.
+    "reports":      "a campaign or budget joined to a client, not work delivered",
     # Hub housekeeping: a domain attached, an SEO task ticked. Same reason.
     "hub":          "housekeeping — a join or a status, not a deliverable",
     "qa":           "a report row acted on, not work produced",

@@ -855,6 +855,88 @@ REGISTRY: list[Help] = [
        "minutes. You don't need to sit on it — come back later and it'll be "
        "there.", step=3, selector="[data-tour='scan-refresh']"),
 
+    # ---------------- Reports ----------------
+    _h("reports.index.syncs", "Every platform, synced or not",
+       "One row per platform the syncs can write, including the ones that "
+       "have never synced. A platform missing from this table would be the "
+       "finding, so nothing is left off it. The time is when the last sync "
+       "wrote rows; the latest day is the newest date those rows cover."),
+    _h("reports.unmapped.hint", "Map it here, or rename it there",
+       "Spend on a campaign nobody has filed under a client reaches no "
+       "client report. Pick the client on the row, or rename the campaign "
+       "in the platform to the shape shown and the auto-mapper files it on "
+       "the next sync without anybody opening this page."),
+    _h("reports.markup.columns", "Markup or fixed CPM, never both",
+       "Markup is a percentage on the platform's cost: 15 bills $100 of "
+       "spend as $115. A fixed CPM bills impressions at that rate and ignores "
+       "cost. They are two answers to one question, so a platform may carry "
+       "only one and a row with both is refused whole."),
+    _h("reports.client.link", "One live link per client",
+       "The client's page lives at this link with no login. Regenerating "
+       "issues a new token and the old one renders a short 'this link has "
+       "been replaced' page rather than a 404, so a client working from an "
+       "old email is told to ask for the new one. Push writes the URL onto "
+       "the client's Smart 1 Suite contact, matched on the primary contact's "
+       "email from their Hub profile; with no email on file nothing is "
+       "written, because an upsert on a guessed address creates a stray "
+       "contact."),
+    _h("reports.client.product", "The client reads the product, never the platform",
+       "Every figure on the client's page is grouped by the Smart 1 product a "
+       "campaign is mapped to -- Streaming TV, Paid Search -- so two "
+       "platforms sold as one product are one bar. A campaign with no "
+       "product shows under a generic label and is flagged here until one "
+       "is set. 'Shown as' is the campaign's name with the vendor words "
+       "stripped; override it where a name still says which platform ran "
+       "it, because the campaign name is the one thing on that page that "
+       "comes from a platform."),
+    _h("reports.client.investment", "Investment is the rule's figure, never raw spend",
+       "What Smart 1 pays a platform never reaches the client's page. With "
+       "Show Investment on, each platform prints the pricing rule's answer: "
+       "this client's own markup or CPM first, the platform markup second. "
+       "A platform with neither shows delivery only and writes an activity "
+       "row saying so, rather than quietly leaving a smaller total that "
+       "reads as the whole."),
+    _h("reports.pacing.board", "Read from the last hourly snapshot, alerting on three days",
+       "Every active budget line whose flight includes today, against the "
+       "spend its mapped campaigns have carried this month: expected is the "
+       "prorated budget times days elapsed over days in the period, pace is "
+       "actual over expected, and the band is under below 0.90, on to 1.10, "
+       "over past it. Stalled is two completed days of zero spend mid-flight; "
+       "unmapped is a sold line with no campaign filed against it. The "
+       "figures are the last hourly run's, never a live sum, and the alert "
+       "needs the same off-pace band three days running -- one day off is "
+       "ordinary on every platform here."),
+    _h("reports.cost.margin", "Raw media spend against what the client pays",
+       "Per client for the month: the media spend by platform as the "
+       "platforms reported it, the sum of the sold amounts on lines whose "
+       "flight overlaps the month, and the difference as gross margin. Cost "
+       "per lead and per appointment appear only where the client has a "
+       "Smart 1 Suite outcome row that month -- a $0 cost per lead would "
+       "read as a lead that cost nothing. This page is never linked from "
+       "anything a client sees."),
+    _h("reports.budgets.sold", "Media budget, sold amount, owner, status",
+       "Media budget is what the campaigns pace against; sold is what the "
+       "client pays for the line and is what the cost report's margin reads. "
+       "The owner is who on staff answers for the line on the pacing board. "
+       "A paused or ended line stops pacing; an ended line with no flight "
+       "end also stops counting as sold, because nothing says which month "
+       "it ended in."),
+    _h("reports.audiogo.check", "Placeholders until the spec arrives",
+       "AudioGo publishes its Reporting API as a PDF that has not arrived, "
+       "so every name in audiogo_map.py -- the path, the auth header, the "
+       "date parameters, the field names -- is a placeholder. This page "
+       "calls the endpoint as configured for yesterday and prints the keys "
+       "it answered with, the key itself never among them, so the real "
+       "names can be pasted into the map. Until it resolves the pull lands "
+       "nothing and the Reports page says which field is missing."),
+    _h("reports.provider.status", "Resolved, table missing, or columns missing",
+       "The column names in provider_map.py are placeholders until the "
+       "first sync lands. A platform resolves when its table is in the "
+       "schema and every column the map names is on it; the hourly "
+       "normalize skips anything else and says so on the Reports page. "
+       "Correct the map from what this table shows -- a column of the wrong "
+       "meaning under the right name files the wrong number on every report."),
+
     # ---------------- Schema & FAQ ----------------
     _h("seo.schema.known_first", "It uses what we already know",
        "Anything already on the client record is used first. It only goes "

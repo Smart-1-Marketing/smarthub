@@ -346,6 +346,12 @@ PUBLIC_DYNAMIC: dict[str, str] = {
     "/tools/ads/r/<token>": "the monthly Google Ads performance report a "
                             "client is sent",
     "/tools/ads/r/<token>.pdf": "the same report as a document",
+    "/reports/r/c/<token>": "a client's live ad-performance dashboard, at "
+                            "their own unguessable link",
+    "/reports/r/c/<token>.pdf": "the same dashboard as a document",
+    "/reports/r/c/<token>/data.json": "the aggregate that dashboard is drawn "
+                                      "from, with the spend rule already "
+                                      "applied",
     "/tools/calculators/c/<slug>": "the standalone media calculator an ad can "
                                    "point at",
     "/tools/calculators/embed/<slug>": "the framed copy on "

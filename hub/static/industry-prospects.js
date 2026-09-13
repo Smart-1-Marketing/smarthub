@@ -3,6 +3,7 @@
   const $ = id => document.getElementById(id);
   let active = '', page = 1, total = 0, plan = null, busy = false;
   const selections = new Set();
+  let readiness = null, excluded = 0;
   const message = (text, error = false) => {
     $('ip-message').textContent = text;
     $('ip-message').classList.toggle('error', error);
@@ -40,15 +41,37 @@
     $('ip-next').disabled = !active || page * 25 >= Math.min(total, 12500);
     $('ip-review').disabled = selections.size === 0;
     $('ip-review').textContent = selections.size ? `Review ${selections.size} selected contacts` : 'Review selected contacts';
+    if (readiness) {
+      $('ip-create').disabled = !readiness.fresh;
+      $('ip-search').disabled = !readiness.fresh;
+      $('ip-review').disabled = !readiness.fresh || selections.size === 0;
+      $('ip-buy').disabled = !readiness.fresh || !readiness.paid_enabled;
+      $('ip-sync').disabled = Boolean(readiness.missing.length || readiness.lock || readiness.sync_job?.status === 'queued');
+      $('ip-resume').disabled = Boolean(readiness.lock || readiness.sync_job?.status === 'queued');
+    }
   }
   async function refresh() {
     const data = await json('/api/industry-prospects/status');
+    readiness = data;
+    const connections = data.connections;
+    if (connections) {
+      $('ip-connections').textContent = `Apollo: ${connections.apollo_configured ? 'configured' : 'missing'}. GHL: ${connections.ghl_configured ? 'configured' : 'missing'}. Accounts: ${connections.locations.join(', ') || 'none'}. ${connections.configuration_error || ''} ${connections.checked ? 'Read access tested ' + new Date(connections.checked * 1000).toLocaleString() : 'Read access has not been tested recently.'}`;
+      $('ip-checks').replaceChildren();
+      for (const check of connections.checks) {
+        const item = document.createElement('li');
+        item.textContent = `${check.ok ? 'Passed' : 'Needs attention'} — ${check.name}: ${check.detail}`;
+        $('ip-checks').append(item);
+      }
+    }
+    $('ip-next-action').textContent = data.missing.length ? 'Next: configure the missing connections, then test read access.' : !data.fresh ? 'Next: complete suppression sync. Saved purchase history remains available.' : 'Next: search an audience, review your selection, then import verified contacts.';
     const sync = data.sync;
     $('ip-fresh').textContent = data.fresh ? 'Suppression is current' : 'Sync needed before purchase';
     $('ip-ghl').textContent = sync.read ?? '—';
     $('ip-saved').textContent = sync.saved ?? '—';
     $('ip-sync-time').textContent = sync.completed ? new Date(sync.completed * 1000).toLocaleString() : 'Not yet';
     $('ip-sync-detail').textContent = sync.phase ? `Stage: ${sync.phase}. ${sync.unmatchable || 0} contacts lack enough identity information for Apollo matching. Automatic sync: ${data.auto_sync ? 'on' : 'off'}.` : 'No sync has run yet.';
+    if (data.sync_job?.status) $('ip-sync-detail').textContent += ` Background job: ${data.sync_job.status}. ${data.sync_job.error || ''} Last progress: ${new Date(data.sync_job.updated * 1000).toLocaleString()}.`;
+    if (data.expires_at) $('ip-sync-detail').textContent += ` Coverage expires ${new Date(data.expires_at * 1000).toLocaleString()}.`;
     $('ip-config').textContent = [
       data.missing.length ? 'Apollo and GHL connection setup is incomplete. Ask an administrator to configure the integrations.' : 'Apollo and GHL configuration is present.',
       data.paid_enabled ? 'Paid operations enabled; each purchase still requires review.' : 'Purchasing is off until an administrator enables it.',
@@ -62,16 +85,9 @@
     return data;
   }
   async function sync(resume) {
-    message(resume ? 'Resuming suppression sync…' : 'Starting suppression sync…');
-    let result = resume ? (await refresh()).sync : await action('sync_start');
-    while (result.phase !== 'complete') {
-      result = await action('sync_step');
-      $('ip-ghl').textContent = result.read;
-      $('ip-saved').textContent = result.saved;
-      message(`Syncing ${result.phase === 'apollo' ? 'Apollo saved contacts' : 'GHL contacts'}: ${result.read} GHL contacts, ${result.saved} saved Apollo contacts checked. You can reopen this page and resume if interrupted.`);
-    }
+    await action(resume ? 'sync_resume' : 'sync_queue');
     await refresh();
-    message('Suppression sync complete. You can now search your audience.');
+    message('Sync queued. The scheduler continues after you close this page. Refresh progress to check completion.');
   }
   function cell(row, text) {
     const td = document.createElement('td');
@@ -88,6 +104,7 @@
     message('Searching Apollo and checking existing contacts…');
     const data = await action('search', {campaign: active, page: nextPage});
     page = data.page; total = data.total;
+    excluded = data.people.filter(person => person.reason).length;
     selections.clear(); invalidatePlan(); $('ip-all').checked = false;
     $('ip-count').textContent = `${data.eligible_on_page} eligible on this page`;
     $('ip-audience').replaceChildren(document.createTextNode(`${data.campaign.name} · Apollo reports ${total.toLocaleString()} matches. Landing page: `));
@@ -122,7 +139,7 @@
     for (const row of data.rows) {
       const tr = document.createElement('tr');
       cell(tr, row.email || 'Email unavailable'); cell(tr, row.status.replaceAll('_', ' '));
-      cell(tr, row.reason || (row.contact_id ? `GHL contact: ${row.contact_id}` : ''));
+      cell(tr, [row.reason, row.recovery, row.contact_id ? `GHL contact: ${row.contact_id}` : ''].filter(Boolean).join(' '));
       const td = cell(tr, '');
       if (row.status === 'ready') {
         const button = document.createElement('button'); button.textContent = 'Import to GHL';
@@ -137,6 +154,12 @@
   }
   $('ip-sync').addEventListener('click', () => run(() => sync(false)));
   $('ip-resume').onclick = () => run(() => sync(true));
+  $('ip-refresh').onclick = () => run(async () => { await refresh(); await history(); });
+  $('ip-test').onclick = () => run(async () => {
+    message('Testing read access. No contacts will be purchased or imported.');
+    await action('connections'); await refresh();
+    message('Read checks finished. Review the results above; write access and billing remain untested.');
+  });
   $('ip-form').onsubmit = event => {
     event.preventDefault();
     // Capture before run() disables the form controls.
@@ -152,7 +175,14 @@
   $('ip-open').onclick = () => run(async () => {
     active = $('ip-campaign').value;
     if (!active) throw new Error('Choose a saved audience.');
-    await history(); await search(1);
+    selections.clear(); invalidatePlan(); total = 0;
+    $('ip-results').replaceChildren();
+    await history(); message('Saved history loaded. Use Search audience for fresh candidates.');
+  });
+  $('ip-search').onclick = () => run(async () => {
+    active = $('ip-campaign').value;
+    if (!active) throw new Error('Choose a saved audience.');
+    await search(1);
   });
   $('ip-prev').onclick = () => run(() => search(page - 1));
   $('ip-next').onclick = () => run(() => search(page + 1));
@@ -164,7 +194,8 @@
   };
   $('ip-review').onclick = () => run(async () => {
     plan = await action('quote', {campaign: active, ids: [...selections]});
-    $('ip-quote').textContent = `${plan.ids.length} contacts selected. Maximum ${plan.max_email_credits} Apollo credits. ${plan.note}`;
+    $('ip-quote').textContent = `${plan.ids.length} contacts selected; ${excluded} known duplicates excluded on this page. ${plan.note}`;
+    $('ip-estimate').textContent = `Estimated Apollo email credits: ${plan.max_email_credits}. Up to ${plan.max_verifications ?? plan.ids.length} separately billed GHL verifications. Dollar cost is unknown until your account rates are confirmed. Review expires in 15 minutes. ${readiness?.paid_enabled ? '' : 'Purchasing is disabled; this is a preview only.'}`;
     $('ip-confirm').checked = false; $('ip-review-box').hidden = false;
     $('ip-review-box').scrollIntoView({block: 'center', behavior: 'smooth'});
     message('Review the purchase details and charges before approving.');
