@@ -69,6 +69,56 @@ class BuilderTests(unittest.TestCase):
             with self.assertRaises(store.ProspectError):
                 service.approve(plan['id'], 'tester', True)
 
+    def queue(self):
+        plan = self.plan()
+        with patch.dict(os.environ, {'HUB_SCHEDULER': '1'}):
+            return service.queue_purchase(plan, 'tester')
+
+    def test_purchase_queue_requires_approval_and_does_not_spend(self):
+        plan = service.quote('c1', ['p1'], 'tester')
+        with patch.dict(os.environ, {'HUB_SCHEDULER': '1'}):
+            with self.assertRaises(store.ProspectError): service.queue_purchase(plan['id'], 'tester')
+            service.approve(plan['id'], 'tester', True)
+            job = service.queue_purchase(plan['id'], 'tester')
+            self.assertEqual(service.queue_purchase(plan['id'], 'tester'), job)
+        self.assertEqual(store.rows('purchase'), [])
+
+    def test_purchase_worker_uses_saved_approval_and_never_imports(self):
+        job = self.queue()
+        with patch.object(provider, 'enrich', return_value={'person': PERSON}) as reveal, \
+             patch.object(provider, 'duplicate', return_value=False), \
+             patch.object(provider, 'verify', return_value=VERDICT), \
+             patch.object(provider, 'import_contact') as importer:
+            with store.operation('scheduler', 'purchase'):
+                result = service.purchase_step()
+                self.assertIsNone(service.purchase_step())
+        self.assertEqual(result['status'], 'complete')
+        self.assertEqual(reveal.call_count, 1)
+        importer.assert_not_called()
+        self.assertEqual(store.get('purchase:p1')['status'], 'ready')
+        self.assertNotIn('scope', service.purchase_jobs('c1')[0])
+
+    def test_purchase_worker_pauses_uncertain_without_retry(self):
+        self.queue()
+        with patch.object(provider, 'enrich', side_effect=store.ProspectError('Timeout')) as reveal:
+            self.assertEqual(service.purchase_step()['status'], 'paused')
+            self.assertIsNone(service.purchase_step())
+            self.assertEqual(reveal.call_count, 1)
+        self.assertEqual(store.get('purchase:p1')['status'], 'review_required')
+
+    def test_purchase_worker_rechecks_paid_gate(self):
+        self.queue()
+        with patch.dict(os.environ, {'PROSPECT_PAID_ENABLED': '0'}):
+            self.assertEqual(service.purchase_step()['status'], 'paused')
+        self.assertEqual(store.rows('purchase'), [])
+
+    def test_purchase_stop_requires_owner_and_prevents_remaining_calls(self):
+        job = self.queue()
+        with self.assertRaises(store.ProspectError): service.pause_purchase(job['id'], 'other')
+        self.assertEqual(service.pause_purchase(job['id'], 'tester')['status'], 'stopped')
+        self.assertIsNone(service.purchase_step())
+        self.assertEqual(store.rows('purchase'), [])
+
     def test_read_checks_do_not_write_or_spend(self):
         with patch.object(provider, 'saved_page', return_value=([], 0)), \
              patch.object(provider, 'apollo', return_value={'people': [], 'total_entries': 0}) as apollo, \

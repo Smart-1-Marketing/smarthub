@@ -312,6 +312,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
  <p id="ioReadiness" class="hint" aria-live="polite"></p>
  <div id="ioEmptyPreview" class="start-screen"><h2>Your insertion order will appear here</h2><p class="lede">Choose a source and add the client and campaign details. Review the plan here before submitting.</p></div>
  <div id="submitStatus" class="submit-status"></div>
+ <section id="submissionReceipt" class="start-screen" aria-label="Submission receipt" aria-live="polite" hidden></section>
  <div class="report" id="ioReport" hidden>
   <div class="report-head">
    <div><div class="brand">SMART1 MARKETING</div><div class="sub">Campaign Planning & Rate-Card Insertion Order Report</div></div>
@@ -850,8 +851,8 @@ function baseFlow(){
   {key:"secondaryConversions",q:"Which secondary conversions should also be tracked? Select any that apply, or choose Continue for none.",multi:true,allowEmpty:true,options:conversionOptions},
   {key:"ga4",q:"Is GA4 installed and accessible?",options:["Yes","No","Unknown"]},
   {key:"gtm",q:"Is Google Tag Manager installed and accessible?",options:["Yes","No","Unknown"]},
-  {key:"callTracking",q:"Is call tracking required?",options:["Yes","No","Unknown"]},
-  {key:"thankYouPage",q:"Does the form or conversion path have a dedicated thank-you page?",options:["Yes","No","Not applicable","Unknown"]},
+  {key:"callTracking",condition:()=>needsTrackingDetail("callTracking"),q:"Is call tracking required?",options:["Yes","No","Unknown"]},
+  {key:"thankYouPage",condition:()=>needsTrackingDetail("thankYouPage"),q:"Does the form or conversion path have a dedicated thank-you page?",options:["Yes","No","Not applicable","Unknown"]},
   {key:"offlineImport",q:"Is offline conversion import needed?",options:["Yes","No","Unknown"]},
   {key:"verifier",q:"Who will verify tracking before launch?"},
   {key:"campaignOwner",q:"Who is the internal campaign owner?"},
@@ -1176,8 +1177,24 @@ function nextValidIndex(i){
                          || (typeof proposalAnswered==="function" && proposalAnswered(flow[i]))))i++;
  return i;
 }
+function needsTrackingDetail(key){
+ const t=state.trackingPlan||{},goals=[t.primaryConversion,...(t.secondaryConversions||[])];
+ if(key==="thankYouPage")return goals.some(x=>/form|appointment|purchase|registration/i.test(x));
+ if(key==="callTracking")return goals.includes("Phone calls")||(state.objectives||[]).includes("Phone Calls")||(state.selected||[]).some(x=>/call tracking|phone number|toll free/i.test(x));
+ return true;
+}
+function effectiveTrackingPlan(){
+ const plan={...state.trackingPlan};
+ for(const key of ["callTracking","thankYouPage"])if(!needsTrackingDetail(key))plan[key]="Not applicable";
+ return plan;
+}
 function allRecommendedKPIs(){
- return [...new Set(state.objectives.flatMap(o=>objectiveKPIs[o]||[]))];
+ const products=[...new Set([...(state.selected||[]),...(state.items||[]).map(i=>i.product)])].map(k=>{const c=productConfig[k]||{};return `${c.category||""} ${c.product||k}`;}).join(" ");
+ return [...new Set(state.objectives.flatMap(o=>objectiveKPIs[o]||[]))].filter(k=>{
+  if(k==="Video Completion Rate")return /video|pre.?roll|\bott\b|\bctv\b|youtube/i.test(products);
+  if(k==="Audio Completion Rate")return /audio|radio|podcast|spotify|pandora/i.test(products);
+  return true;
+ });
 }
 function recommendedKPIs(){
  return [...new Set(state.objectives.map(o=>(objectiveKPIs[o]||[])[0]).filter(Boolean))];
@@ -2555,6 +2572,7 @@ function submissionMissing(){
  return missing;
 }
 function render(){
+ renderSubmissionReceipt();
  const hasClient=!!String(state.client||"").trim()||state.items.length>0;
  document.getElementById("ioReport").hidden=!hasClient;
  document.getElementById("ioEmptyPreview").hidden=hasClient;
@@ -2980,8 +2998,8 @@ function downloadRequirements(){
 function customerFriendlyNeeds(productKey){
  const {cfg,s}=selectedProductInfo(productKey);let items=[];
  const add=(...x)=>pushUnique(items,...x);
- add("Please confirm the offer or message, where the ad should send people, and who will approve the final work.");
- if(/programmatic|display|retarget|mobile|geo-fence|location lookback|ip targeting/.test(s))add("Your logo, brand colors, approved photos and the page you want people to visit.","If you are supplying ads, send the requested banner sizes. Every display file must be 150 KB or smaller.","Your target area, ideal customer, campaign dates, budget, schedule and anything we should avoid.","We may need website or analytics access so we can measure results and reach past website visitors.");
+
+ if(/programmatic|display|retarget|mobile|geo-fence|location lookback|ip targeting/.test(s))add("If you are supplying ads, send the requested banner sizes. Every display file must be 150 KB or smaller.","We may need website or analytics access so we can measure results and reach past website visitors.");
  if(/native display/.test(s))add("One strong horizontal image without words on it, a square logo, a short headline and description, and the landing-page link.");
  if(/location lookback/.test(s))add("A list of the locations and full addresses, the dates visitors were there, and whether we should look back one, three, six or twelve months.");
  if(/geo-fence/.test(s))add("The exact addresses or areas to target, event dates/times if applicable, and the location that should count as a visit.");
@@ -3284,6 +3302,7 @@ function buildPdfPayload(type){
  const totalCampaignBudget=state.items.reduce((s,i)=>s+(i.campaignBudget||0),0);
  const monthlySpend=state.items.reduce((s,i)=>s+(i.budget||0),0);
  return {...state,
+  trackingPlan:effectiveTrackingPlan(),
   monthlySpendFormatted:money(monthlySpend),
   totalCampaignBudgetFormatted:money(totalCampaignBudget),
   documentType:type,
@@ -4313,6 +4332,21 @@ async function ensurePdfForSuite(kind){
   return url;
 }
 
+function receiptLink(url,label){
+ try{if(new URL(url).protocol!=="https:")return "";}catch(e){return "";}
+ return `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
+}
+function submissionReceiptHTML(record){
+ if(!record||record.status!=="submitted")return "";
+ const when=new Date(record.submittedAt),timestamp=Number.isNaN(when.getTime())?"Time unavailable":when.toLocaleString();
+ const delivery=record.deliveredToSuite===true?"Delivered to Smart 1 Suite":"Recorded; delivery to Smart 1 Suite not confirmed";
+ return `<h2>Submission receipt</h2><p><strong>IO ${esc(record.orderNumber||"—")}</strong> · ${esc(record.client||"")}</p><p>Submitted ${esc(timestamp)}</p><p><strong>${delivery}</strong></p>${record.message?`<p>${esc(record.message)}</p>`:""}<p>${[receiptLink(record.clientPdfUrl,"Open client PDF"),receiptLink(record.internalPdfUrl,"Open internal PDF")].filter(Boolean).join(" · ")}</p><p class="hint">These documents are the submitted version. Later edits are not sent until you review and submit again.</p>`;
+}
+function renderSubmissionReceipt(){
+ const box=document.getElementById("submissionReceipt");if(!box)return;
+ box.innerHTML=submissionReceiptHTML(state.submission);box.hidden=!box.innerHTML;
+}
+
 // A page dialog keeps review visible and keyboard-accessible in embedded browsers.
 // Text content deliberately remains plain text: campaign answers are not markup.
 let _ioConfirmActive=false;
@@ -4418,6 +4452,7 @@ async function submitCompletedIO(){
     setStatus("Sending the completed IO…","");
     const payload={
       ...state,
+      trackingPlan:effectiveTrackingPlan(),
       client_pdf_url:clientUrl,
       internal_pdf_url:internalUrl,
       documents:{
@@ -4439,12 +4474,15 @@ async function submitCompletedIO(){
 
     state.submission={
       status:"submitted",
+      orderNumber:state.orderNumber,client:state.client,
+      message:result.message||"",
       submittedAt:new Date().toISOString(),
       clientPdfUrl:clientUrl,
       internalPdfUrl:internalUrl,
-      deliveredToSuite:result.delivered_to_suite!==false
+      deliveredToSuite:result.delivered_to_suite===true
     };
-    if(result.delivered_to_suite===false){
+    renderSubmissionReceipt();
+    if(result.delivered_to_suite!==true){
       // The backend names the actual reason (not configured, or no email/phone
       // for the contact) in result.message, already worded "Order recorded.
       // ..." -- a hardcoded "turned off for testing" here would say the same

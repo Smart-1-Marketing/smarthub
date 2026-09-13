@@ -262,5 +262,86 @@ check("...with the same two GA4 keys",
       <= set(reloaded))
 
 
+# ---------------------------------------------------------------------------
+section("A deploy mid-scan does not erase resources not yet reached")
+# ---------------------------------------------------------------------------
+# This Hub redeploys on every merge to main, often several times an hour --
+# the process a scan is running on can be killed mid-flight at any point.
+# _run_scan() used to save the resource cache exactly once, after every
+# login had been covered, so an interrupted run threw away everything it had
+# already checked. It saves after each login now; the fix that matters is
+# that the *incremental* save merges onto the cache as it stood before this
+# run rather than replacing it outright -- new_cache only holds the logins
+# reached so far, and writing that wholesale after login A would erase a
+# perfectly good cached entry for login B, which the run has not reached yet
+# and may never reach if the next deploy lands first.
+LOGIN_A, LOGIN_B = "a@example.com", "b@example.com"
+
+
+class _TwoLoginFinder:
+    def connected_accounts_result(self):
+        return ([{"email": LOGIN_A, "refresh_token": "ra", "status": "ACTIVE"},
+                  {"email": LOGIN_B, "refresh_token": "rb", "status": "ACTIVE"}], "")
+
+
+saves: list[dict] = []
+_real_save_resource_cache = qa._save_resource_cache
+
+
+def _recording_save(data):
+    saves.append(dict(data))
+    _real_save_resource_cache(data)
+
+
+def _fake_scan_login_for_run(login, refresh, on_progress=None, resource_cache=None,
+                              new_cache=None, full=False, cutoff_iso=""):
+    # A minimal stand-in for the real _scan_login: it writes one GA4 entry
+    # into new_cache for whichever login called it, the same contract the
+    # real function honours.
+    if new_cache is not None:
+        new_cache[qa._skip_key("GA4", login, "p-only")] = {
+            "kind": "GA4", "login": login, "account": "Acme", "account_id": "1",
+            "name": f"{login}-site", "resource": "p-only", "public_id": "",
+            "events": 0, "sessions": 0, "status": "inactive",
+            "reason": "0 events and 0 sessions", "measurement_ids": [],
+            "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        }
+    return [], [], []
+
+
+# Seed the on-disk cache with an entry for login B, as if it had been
+# checked recently by an earlier, separately-completed run.
+b_key = qa._skip_key("GA4", LOGIN_B, "pre-existing")
+qa._save_resource_cache({b_key: {
+    "kind": "GA4", "login": LOGIN_B, "account": "Acme", "account_id": "1",
+    "name": "b-site", "resource": "pre-existing", "public_id": "",
+    "events": 12, "sessions": 4, "status": "active", "reason": "Activity detected",
+    "measurement_ids": [], "checked_at": NOW.isoformat(timespec="seconds"),
+}})
+
+_real_finder, _real_scan_login = qa._finder, qa._scan_login
+qa._finder = _TwoLoginFinder
+qa._scan_login = _fake_scan_login_for_run
+qa._save_resource_cache = _recording_save
+try:
+    qa._run_scan(full=False)
+finally:
+    qa._finder, qa._scan_login = _real_finder, _real_scan_login
+    qa._save_resource_cache = _real_save_resource_cache
+
+check("the scan saved the cache more than once (once per login, not only at the end)",
+      len(saves) >= 2, len(saves))
+check("the save taken right after login A still carries login B's untouched entry",
+      b_key in saves[0], saves[0])
+check("...because it had not been reached yet when that save happened",
+      qa._skip_key("GA4", LOGIN_B, "p-only") not in saves[0], saves[0])
+check("the final save, after both logins, carries both logins' own findings",
+      qa._skip_key("GA4", LOGIN_A, "p-only") in saves[-1]
+      and qa._skip_key("GA4", LOGIN_B, "p-only") in saves[-1], saves[-1])
+check("...and login B's pre-existing entry is gone from the final save "
+      "(the self-pruning wholesale replace, once every login is covered)",
+      b_key not in saves[-1], saves[-1])
+
+
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

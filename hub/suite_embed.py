@@ -111,6 +111,8 @@ PUBLIC_FRAME_ANCESTORS = os.environ.get("HUB_PUBLIC_FRAME_ANCESTORS", "*").strip
 # writes work, not before.
 EMBEDDABLE: tuple[str, ...] = (
     "/client360",          # who is this client — the reason to do this at all
+    "/ask-smarthub",       # same-origin assistant drawer; read-only tools
+    "/api/ask-smarthub",   # its question endpoint
     "/api/c360",           # and the fetches it renders from
     "/api/client/",
     "/api/clients/",
