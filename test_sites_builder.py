@@ -60,7 +60,10 @@ root = pathlib.Path(__file__).parent
 tools = (root / "hub/templates/tools.html").read_text(encoding="utf-8")
 page = (root / "hub/templates/sites_builder.html").read_text(encoding="utf-8")
 routes = (root / "hub/sites_builder_routes.py").read_text(encoding="utf-8")
+crumbs = (root / "hub/static/hub-crumbs.js").read_text(encoding="utf-8")
 check("Client Tools visibly offers the builder", "Smart 1 Sites Builder" in tools)
+check("the navigation trail uses the same customer-facing name",
+      '"sites-builder": "Smart 1 Sites Builder"' in crumbs)
 check("the tool produces a visual website rather than showing data",
       'id="sb-browser"' in page and "<pre" not in page.lower() and
       "structured data" not in page.lower())
