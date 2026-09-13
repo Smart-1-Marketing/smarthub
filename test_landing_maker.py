@@ -493,8 +493,11 @@ section("Tier 1 — what the page tells the prospect, and what a lead carries")
 
 from hub import landing_spec as _ls                               # noqa: E402
 from hub.landing_render import render_page as _rp                 # noqa: E402
-from hub.landing_maker import DIRECTIONS as _DIRS                 # noqa: E402
-from hub.landing_maker import _parse_reviews as _pr               # noqa: E402
+
+# `lm` is the module this file already imported at the top -- read through it
+# rather than re-importing names out of it, so there is one spelling of
+# hub.landing_maker in the file.
+_DIRS, _pr = lm.DIRECTIONS, lm._parse_reviews
 
 _BRIEF = {"client": "Icon Solar", "service_area": "Carmel and Hamilton County",
           "geo": "Carmel, IN + 10-mile radius / Indianapolis DMA / +3 more",
@@ -574,7 +577,6 @@ check("a quote with no name gets no byline",
 check("a name that was given still does", "<cite>Jane D.</cite>" in _html, True)
 
 # -- 6. the client brief reaches the copy writer, for a client only ---------
-import hub.landing_maker as _lm                                   # noqa: E402
 _seen = {}
 
 
@@ -589,10 +591,10 @@ try:
     # A website, because hub/client_brief.py answers "" for a client it can
     # join to nothing at all -- which is its own correct behaviour and would
     # make this assertion pass whether or not the wiring existed.
-    _lm.write_copy({"client": "Icon Solar", "kind": "client",
+    lm.write_copy({"client": "Icon Solar", "kind": "client",
                     "website": "iconsolar.com"}, "quote", "", "")
     _client_prompt = _seen.pop("text", "")
-    _lm.write_copy({"client": "Icon Solar", "kind": "prospect",
+    lm.write_copy({"client": "Icon Solar", "kind": "prospect",
                     "website": "iconsolar.com"}, "quote", "", "")
     _prospect_prompt = _seen.pop("text", "")
 finally:
