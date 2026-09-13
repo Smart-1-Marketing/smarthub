@@ -20,6 +20,7 @@ def write_guard():
             return jsonify(error="Submit changes from the factory using JSON."), 403
         if request.content_length and request.content_length > 32768:
             return jsonify(error="Request is too large."), 413
+    return None
 
 
 class IndustryPage(db.Model):
