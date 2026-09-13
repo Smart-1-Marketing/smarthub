@@ -54,6 +54,7 @@ mirrored, and it is rebuilt by re-fetching the Cloudinary URL if it is missing.
 """
 from __future__ import annotations
 
+import copy
 import io
 import os
 import re
@@ -244,16 +245,15 @@ def _ok(pack: dict, **extra):
 
 def _preview_pack(pack):
     """Decorate response-only thumbnails without changing saved originals."""
-    from copy import deepcopy
     from hub.storage import preview_url
-    result = deepcopy(pack)
+    result = copy.deepcopy(pack)
     def decorate(row):
         image = row.get("image")
-        if isinstance(image, dict):
-            image["thumb"] = preview_url(image.get("url", ""))
+        if isinstance(image, dict) and image.get("url"):
+            image["thumb"] = preview_url(image["url"], image.get("resource_type") or "image")
     decorate(result)
     for version in result.get("history", []):
-        if isinstance(version.get("snapshot"), dict):
+        if isinstance(version, dict) and isinstance(version.get("snapshot"), dict):
             decorate(version["snapshot"])
     return result
 

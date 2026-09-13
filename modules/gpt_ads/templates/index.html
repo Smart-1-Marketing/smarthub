@@ -848,7 +848,7 @@ function renderImage(){
     return;
   }
   $("thumb").hidden = false;
-  $("thumb").src = img.url;
+  $("thumb").src = img.thumb || img.url;
   $("thumb").alt = img.alt || "attached square image";
   var lines = [
     "<b>" + img.width + " &times; " + img.height + "</b> &middot; " +
