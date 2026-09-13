@@ -13,7 +13,8 @@ Implements the six recommendations approved after live QA of Q-10215.
 
 - JavaScript regression tests cover package allocation/switching, complete IO investment, serialized saves, failed Finish, server investment display, readiness links and handoff comparison.
 - Python regression tests cover approval snapshot preservation, scope changes, actionable checklist routing, list/package investment arithmetic, and existing export/conversion guards.
-- All 25 focused Python tests passed. The broader targeting script passed its initial checks but could not boot the composed app because this Windows runtime failed to load the SQLite DLL; the Linux CI run must complete that coverage.
+- All 26 focused Python tests passed, including rejection of conversion for an already-converted proposal and clearing approval snapshots on duplication. The broader targeting script passed its initial checks but could not boot the composed app because this Windows runtime failed to load the SQLite DLL; the Linux CI run must complete that coverage.
+- The initial CI failure was an assertion expecting the old PDF cover label. The corrected test retains the $5,500 monthly media/services subtotal assertion and adds the $38,094 all-in assertion. An isolated generated-PDF check independently passed both.
 - Repository JavaScript syntax and template checks passed before final UI polish; final inline JavaScript regression check also passed.
 - Local GPT-browser walkthrough used only a fictional, isolated SQLite proposal. Confirmed all-in dashboard values, phase navigation, contact checklist focus, saving handoff details without an IO, before/after handoff review, Essential selection, and the separate recommendation label.
 - The walkthrough exposed nested table disclosure and an overlapping recommendation badge; both were corrected. Local standalone preview has no Hub favicon route; that unrelated preview-only request returned an error.

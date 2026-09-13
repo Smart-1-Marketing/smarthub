@@ -5190,6 +5190,7 @@ async function openConvert(id){
  if(S&&id===QUOTE_ID&&!await saveNow()){toast('Save your changes before conversion.');return;}
  let d;try{d=await api('/sales/builder/api/quotes/'+id);}catch(e){toast(e.message);return;}
  const q=d.quote,st=q.data||{};
+ if(q.status==='Converted'||q.io_number){toast('This proposal already has an IO. Open Insertion Orders to review it.');return;}
  CONV={quote:q,originalData:JSON.parse(JSON.stringify(st)),step:0,submit:false,result:null,answers:{
   clientContactName:st.clientContactName||"",clientContactEmail:st.clientContactEmail||"",clientContactPhone:st.clientContactPhone||"",
   startDate:st.startDate||"",endDate:st.endDate||"",

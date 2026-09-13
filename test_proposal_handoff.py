@@ -55,6 +55,13 @@ class HandoffTests(unittest.TestCase):
         q=self.quote()
         r=self.client.post(f"/api/quotes/{q['id']}/conversion-check",json={'revision':q['revision'],'updated_at':q['updated_at']})
         self.assertEqual(r.status_code,200,r.json)
+    def test_converted_proposal_cannot_issue_another_io(self):
+        q=self.quote()
+        path=f"/api/quotes/{q['id']}"
+        q=self.client.put(path,json={'status':'Converted'}).json['quote']
+        response=self.client.post(path+'/conversion-check',json={'revision':q['revision'],'updated_at':q['updated_at']})
+        self.assertEqual(response.status_code,409)
+        self.assertIn('already has an IO',response.json['error'])
     def test_unverified_zip_blocks_conversion(self):
         self.state['targetAreas']=[{'type':'City/ZIP + Radius','origin':'Columbus, OH','radius':15,'zips':'43215','zipSource':'AI-assisted — unverified','zipVerified':False}]
         q=self.quote()

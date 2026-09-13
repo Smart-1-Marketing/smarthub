@@ -1344,6 +1344,8 @@ def conversion_check(qid):
         q = db.get(Quote, qid)
         if not q:
             return jsonify(ok=False, error="Quote not found"), 404
+        if q.status == "Converted" or q.io_number:
+            return jsonify(ok=False, error="This proposal already has an IO. Open Insertion Orders to review it."), 409
         # SQLite reads UTC timestamps back without an offset; Postgres keeps it.
         # Compare instants, so reopening the same version works on both stores.
         def as_utc(value):
