@@ -2231,6 +2231,24 @@ jobs:
             echo "test_proposal_plan.py not on this branch — nothing to run."
           fi
 
+      # Every monthly promise on a plan was kept once and nothing asked about
+      # month two. hub/proposal_promises.py turns each kept monthly item into
+      # a row per month since launch -- landed (the work log has the work),
+      # marked done by hand, due until the 25th, missed after it, or not
+      # measured where the log cannot answer -- derived on read and stored
+      # nowhere but the mark. Asserts the kind table joins to modules the work
+      # log can name, the five states and the day boundary, that housekeeping
+      # is never raised, that a month before the log's horizon is not a miss,
+      # the QA report's shape, the health issue per missed month, and that a
+      # mark on the plan page clears the issue on read.
+      - name: Proposal Execution — monthly promises against the work log
+        run: |
+          if [ -f test_proposal_promises.py ]; then
+            python3 test_proposal_promises.py
+          else
+            echo "test_proposal_promises.py not on this branch — nothing to run."
+          fi
+
       # WO-2: real-tool adapters. Every task on the graph used to run as
       # `brief` -- an AI-written paragraph describing what somebody should
       # go and build, never the tool itself. hub/proposal_adapters/utm.py is

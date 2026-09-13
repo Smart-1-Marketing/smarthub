@@ -111,6 +111,63 @@ CADENCE_LABELS = {"monthly": "every month", "weekly": "every week",
 # row carries its own lead time where one applies.
 LEAD_DAYS_CREATIVE = 14
 
+# ---------------------------------------------------------------------------
+# What a monthly promise is, and what proves it landed.
+#
+# Every monthly recipe row names one of these. The kind is what joins a
+# promise to the work log: `content` is proved by the SEO section writing a
+# blog or filing schema, `social_post` by the planner exporting or pushing a
+# batch, `video` by a commercial being approved -- each a module
+# `hub/client_brand.WORK_KINDS` can already name, because a row the work log
+# cannot attribute to a client is one this cannot read either. A kind with no
+# evidence modules is **recorded by hand only**: nothing here logs that a
+# report was sent to a client, so a person marks the month and the schedule
+# says that is how it was recorded.
+#
+# `deliverable` is the line between what a client notices when it stops and
+# what is our own housekeeping. A report, the month's content, a video, the
+# posts, the sends: those are raised when a month goes by without them.
+# Reviewing bids, checking frequency and confirming a game schedule are
+# drawn on the plan and never raised as a finding -- a report that fires on
+# "review search terms" for every client every month is the crying-wolf
+# failure `QR_CODE_RULES` paid for, and it takes the real findings with it.
+# Only spellings actually in use, the `ALIASES` rule: a kind is added here
+# the day a recipe row or an evidence source needs it.
+# ---------------------------------------------------------------------------
+PROMISE_KINDS: dict[str, dict] = {
+    "report": {"label": "Report to the client", "deliverable": True, "evidence": ()},
+    "content": {"label": "SEO + AI work delivered", "deliverable": True,
+                "evidence": (("seo", ("seo_blog_write", "seo_publish_instructions", "faq_page_saved",
+                                      "schema_answers_saved", "seo_alt_write", "seo_task_created")),
+                             ("seo_intelligence", ()),
+                             ("suite", ("llms_txt_published",)))},
+    "video": {"label": "Video produced", "deliverable": True,
+              "evidence": (("commercial_builder", ("commercial_approved",)),
+                           ("video_tools", ("_saved",)),
+                           ("vox_explainer", ()), ("paint_animation", ()))},
+    "social_plan": {"label": "Social calendar approved", "deliverable": True,
+                    "evidence": (("social_planner", ("batch_approved", "sent_to_client")),)},
+    "social_post": {"label": "Posts scheduled", "deliverable": True,
+                    "evidence": (("social_planner", ("exported", "post_pushed")),)},
+    "email": {"label": "Email sent", "deliverable": True,
+              "evidence": (("skills360", ("email_batch_sent",)),)},
+    "web": {"label": "Site maintenance", "deliverable": True, "evidence": ()},
+    "creative_refresh": {"label": "Creative refresh", "deliverable": False,
+                         "evidence": (("display_ads", ("creative_attached", "animation_attached")),
+                                      ("magic_resize", ()), ("image_creator", ()))},
+    "optimize": {"label": "Optimization", "deliverable": False, "evidence": ()},
+    "review": {"label": "Promise review", "deliverable": False, "evidence": ()},
+}
+# A monthly item with no kind -- one the model found or a person typed -- is
+# a promise somebody wrote down, so it is a deliverable recorded by hand: the
+# Hub has no way to see it land and no grounds to call it housekeeping.
+PROMISE_KIND_UNKNOWN = {"label": "Promise", "deliverable": True, "evidence": ()}
+
+
+def promise_kind(kind: str) -> dict:
+    """The table's entry for a kind, or the unknown-kind entry. Never raises."""
+    return PROMISE_KINDS.get(str(kind or "")) or PROMISE_KIND_UNKNOWN
+
 
 # ---------------------------------------------------------------------------
 # The recipes: what each channel the analyzer can detect always needs.
@@ -136,8 +193,8 @@ RECIPES: dict[str, dict] = {
             ("Click every banner size through to the landing page before launch", ""),
         ],
         "monthly": [
-            ("Report retargeting delivery and click-through to the client", ""),
-            ("Check frequency and refresh the banners if the audience is seeing them too often", ""),
+            ("Report retargeting delivery and click-through to the client", "", "report"),
+            ("Check frequency and refresh the banners if the audience is seeing them too often", "", "creative_refresh"),
         ],
     },
     "paid_search": {
@@ -154,8 +211,8 @@ RECIPES: dict[str, dict] = {
             ("Get the ad copy approved before the campaign is enabled", "", 5),
         ],
         "monthly": [
-            ("Review search terms, add negatives and adjust bids", ""),
-            ("Report Paid Search spend, clicks, conversions and cost per lead", ""),
+            ("Review search terms, add negatives and adjust bids", "", "optimize"),
+            ("Report Paid Search spend, clicks, conversions and cost per lead", "", "report"),
         ],
     },
     "seo_ai": {
@@ -168,8 +225,8 @@ RECIPES: dict[str, dict] = {
             ("Record the baseline rankings and traffic the monthly work is measured against", ""),
         ],
         "monthly": [
-            ("Deliver the month's SEO + AI work: on-page fixes, schema, content and AI-search optimization", ""),
-            ("Report rankings, organic traffic and what was changed this month", ""),
+            ("Deliver the month's SEO + AI work: on-page fixes, schema, content and AI-search optimization", "", "content"),
+            ("Report rankings, organic traffic and what was changed this month", "", "report"),
         ],
     },
     "stadium_audio": {
@@ -183,8 +240,8 @@ RECIPES: dict[str, dict] = {
             ("Traffic the audio and companion banners with tagged destination links", ""),
         ],
         "monthly": [
-            ("Confirm the coming month's game schedule and adjust the flight", ""),
-            ("Report audio delivery, completion rate and companion banner clicks", ""),
+            ("Confirm the coming month's game schedule and adjust the flight", "", "optimize"),
+            ("Report audio delivery, completion rate and companion banner clicks", "", "report"),
         ],
     },
     "meta": {
@@ -200,8 +257,8 @@ RECIPES: dict[str, dict] = {
             ("Get the carousel and image creative approved before the campaign is enabled", "", 7),
         ],
         "monthly": [
-            ("Report Meta reach, clicks, leads and cost per lead", ""),
-            ("Refresh creative that is fatiguing and pause the weakest ads", ""),
+            ("Report Meta reach, clicks, leads and cost per lead", "", "report"),
+            ("Refresh creative that is fatiguing and pause the weakest ads", "", "creative_refresh"),
         ],
     },
     "youtube_ads": {
@@ -214,7 +271,7 @@ RECIPES: dict[str, dict] = {
             ("Confirm view and conversion tracking before the campaign is enabled", ""),
         ],
         "monthly": [
-            ("Report YouTube views, view rate, clicks and cost per view", ""),
+            ("Report YouTube views, view rate, clicks and cost per view", "", "report"),
         ],
     },
     "social": {
@@ -231,8 +288,8 @@ RECIPES: dict[str, dict] = {
             ("Agree the posting channels, the mix and the first month's calendar", ""),
         ],
         "monthly": [
-            ("Build next month's social content calendar and get it approved", ""),
-            ("Schedule the approved posts", ""),
+            ("Build next month's social content calendar and get it approved", "", "social_plan"),
+            ("Schedule the approved posts", "", "social_post"),
         ],
     },
     "youtube_video": {
@@ -246,7 +303,7 @@ RECIPES: dict[str, dict] = {
             ("Agree the sales video format, length and who appears on camera", ""),
         ],
         "monthly": [
-            ("Script, produce and publish this month's YouTube sales video", ""),
+            ("Script, produce and publish this month's YouTube sales video", "", "video"),
         ],
     },
     "youtube_optimization": {
@@ -270,7 +327,7 @@ RECIPES: dict[str, dict] = {
             ("Set up the AI advertising test with the approved budget, destination and tracking", ""),
         ],
         "monthly": [
-            ("Report AI advertising delivery and results, and decide whether the test continues", ""),
+            ("Report AI advertising delivery and results, and decide whether the test continues", "", "report"),
         ],
     },
     # ----------------------------------------------------------------------
@@ -291,8 +348,8 @@ RECIPES: dict[str, dict] = {
             ("Traffic the display campaign with tagged destination links", ""),
         ],
         "monthly": [
-            ("Report display delivery, viewability and click-through to the client", ""),
-            ("Rotate or refresh the banners where a size is under-performing", ""),
+            ("Report display delivery, viewability and click-through to the client", "", "report"),
+            ("Rotate or refresh the banners where a size is under-performing", "", "creative_refresh"),
         ],
     },
     "ctv": {
@@ -307,8 +364,8 @@ RECIPES: dict[str, dict] = {
             ("Traffic the spot and confirm the completion tracking", ""),
         ],
         "monthly": [
-            ("Report impressions, completion rate and the households reached", ""),
-            ("Check the spot is not wearing out and plan the next cut if it is", ""),
+            ("Report impressions, completion rate and the households reached", "", "report"),
+            ("Check the spot is not wearing out and plan the next cut if it is", "", "optimize"),
         ],
     },
     "digital_radio": {
@@ -323,7 +380,7 @@ RECIPES: dict[str, dict] = {
             ("Traffic the audio and any companion banner with tagged destination links", ""),
         ],
         "monthly": [
-            ("Report audio delivery, completion rate and companion banner clicks", ""),
+            ("Report audio delivery, completion rate and companion banner clicks", "", "report"),
         ],
     },
     "paid_social": {
@@ -339,8 +396,8 @@ RECIPES: dict[str, dict] = {
             ("Get the creative approved before the campaign is enabled", "", 7),
         ],
         "monthly": [
-            ("Report paid social reach, clicks, leads and cost per lead", ""),
-            ("Refresh creative that is fatiguing and pause the weakest ads", ""),
+            ("Report paid social reach, clicks, leads and cost per lead", "", "report"),
+            ("Refresh creative that is fatiguing and pause the weakest ads", "", "creative_refresh"),
         ],
     },
     "email": {
@@ -356,7 +413,7 @@ RECIPES: dict[str, dict] = {
             ("Schedule the send and confirm the tracking on every link", ""),
         ],
         "monthly": [
-            ("Report delivered, opened and clicked, and what the month's sends said", ""),
+            ("Send the month's email and report delivered, opened and clicked", "", "email"),
         ],
     },
     "dooh": {
@@ -369,7 +426,7 @@ RECIPES: dict[str, dict] = {
             ("Traffic the artwork and confirm the flight dates with the network", ""),
         ],
         "monthly": [
-            ("Report plays, venues and estimated impressions to the client", ""),
+            ("Report plays, venues and estimated impressions to the client", "", "report"),
         ],
     },
     "web": {
@@ -385,7 +442,7 @@ RECIPES: dict[str, dict] = {
             ("Point the domain, confirm analytics and forms, and launch", ""),
         ],
         "monthly": [
-            ("Confirm hosting, backups and updates ran, and report any site changes made", ""),
+            ("Confirm hosting, backups and updates ran, and report any site changes made", "", "web"),
         ],
     },
 }
@@ -398,9 +455,9 @@ GENERIC_LAUNCH = [
     ("Send the client a launch confirmation saying what goes live and when", ""),
 ]
 GENERIC_MONTHLY = [
-    ("Send the client the monthly performance report covering every channel", ""),
-    ("Check that spend is pacing to the monthly budget in the proposal", ""),
-    ("Review what the proposal promised for this month against what was delivered", ""),
+    ("Send the client the monthly performance report covering every channel", "", "report"),
+    ("Check that spend is pacing to the monthly budget in the proposal", "", "optimize"),
+    ("Review what the proposal promised for this month against what was delivered", "", "review"),
 ]
 
 
@@ -448,6 +505,11 @@ def _item(list_name: str, title: str, detail: str = "", *, channel: str = "",
         # always ours to write, and asking who supplies the ad copy is the
         # question that teaches people to stop reading the list.
         row["kind"] = kind or "file"
+    if list_name == "monthly":
+        # Which promise this is -- a report, the month's content, a video --
+        # read by `hub/proposal_promises.py` to decide what proves it landed.
+        # Blank for an item the model found or a person typed.
+        row["kind"] = kind if kind in PROMISE_KINDS else ""
     return row
 
 
@@ -462,6 +524,17 @@ def _launch_rows(rows) -> list[tuple[str, str, int]]:
         title, detail = row[0], row[1] if len(row) > 1 else ""
         lead = row[2] if len(row) > 2 else 0
         out.append((title, detail, lead))
+    return out
+
+
+def _monthly_rows(rows) -> list[tuple[str, str, str]]:
+    """A recipe's monthly rows as (title, detail, kind) -- a row may be
+    written without its kind, and an unknown kind reads as none."""
+    out = []
+    for row in rows or []:
+        title, detail = row[0], row[1] if len(row) > 1 else ""
+        kind = row[2] if len(row) > 2 else ""
+        out.append((title, detail, kind if kind in PROMISE_KINDS else ""))
     return out
 
 
@@ -606,8 +679,9 @@ def rule_items(analysis: dict, client: str = "") -> tuple[dict, list[str]]:
         for title, detail, lead in _launch_rows(recipe.get("launch")):
             out["launch"].append(_item("launch", title, detail, channel=key, channel_name=name,
                                        lead_days=lead))
-        for title, detail in recipe.get("monthly") or []:
-            out["monthly"].append(_item("monthly", title, detail, channel=key, channel_name=name))
+        for title, detail, kind in _monthly_rows(recipe.get("monthly")):
+            out["monthly"].append(_item("monthly", title, detail, channel=key, channel_name=name,
+                                        kind=kind))
     if quote:
         # Lines on the quote that are not a campaign -- a production line,
         # a tracking number, a list purchase -- are still work somebody does
@@ -625,8 +699,8 @@ def rule_items(analysis: dict, client: str = "") -> tuple[dict, list[str]]:
                 out["launch"].append(_item("launch", f"Set up {label}",
                                            line.get("description") or "A line on the quote that is not a campaign of its own.",
                                            lead_days=3))
-    for title, detail in GENERIC_MONTHLY:
-        out["monthly"].append(_item("monthly", title, detail))
+    for title, detail, kind in _monthly_rows(GENERIC_MONTHLY):
+        out["monthly"].append(_item("monthly", title, detail, kind=kind))
     return out, notes
 
 

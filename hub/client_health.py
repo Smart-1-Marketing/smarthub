@@ -201,6 +201,15 @@ ISSUE_KINDS = {
         "where": "Proposal Execution",
         "href": "/proposal-execution",
     },
+    "plan_promise": {
+        "label": "Monthly promise not kept",
+        "blurb": "Something the proposal promises every month -- the report, "
+                 "the content, the video, the posts -- that nothing landed for "
+                 "and nobody marked done: by the 25th for this month, or at all "
+                 "for a month that is over.",
+        "where": "Proposal Execution",
+        "href": "/proposal-execution",
+    },
     "proof_waiting": {
         "label": "Proof answered, not acted on",
         "blurb": "The client replied to a review round and no cut has been "
@@ -695,7 +704,29 @@ def _plan_issues(plans: list[dict]) -> list[dict]:
                               f"{unassigned} creative item{'' if unassigned == 1 else 's'} "
                               "with nobody named to supply them.", link=link,
                               at=str(plan.get("updated_at") or "")))
+        # One issue per missed promise-month, never one per plan: "the report
+        # for August" and "the sales video for August" are two different
+        # pieces of work for two different people. The subject is the mark
+        # key `hub/proposal_promises.py` files a hand mark under, so a month
+        # somebody marks done on the plan page is one `_apply_overlay()` can
+        # take off this list on read rather than at tomorrow's rebuild.
+        for miss in (plan.get("promises") or {}).get("missed_items") or []:
+            out.append(_issue("plan_promise", str(miss.get("key") or ""),
+                              f"{miss.get('title') or 'Promise'} — {miss.get('month_label') or ''}",
+                              "Nothing landed for it and nobody marked it done.",
+                              link=link, at=str(plan.get("updated_at") or "")))
     return out
+
+
+def _promise_marks() -> dict:
+    """`{mark key: mark}` from the promise schedule, read per request so a
+    month marked done on the plan page leaves this report at once. Never
+    raises: a store that would not answer costs the overlay, not the page."""
+    try:
+        from hub import proposal_promises
+        return proposal_promises.marks()
+    except Exception:                                   # noqa: BLE001
+        return {}
 
 
 def _audits(domains) -> tuple[dict, str]:
@@ -1133,7 +1164,8 @@ def cached(force: bool = False) -> dict:
 
 
 def _apply_overlay(data: dict, *, owner_index: dict, mark_index: dict,
-                   note_index: dict, user_index: dict) -> list[dict]:
+                   note_index: dict, user_index: dict,
+                   promise_index: dict | None = None) -> list[dict]:
     """Owners, marks and notes onto today's run — on read, never into it.
 
     Nothing is mutated in place: the cached payload is shared between this
@@ -1168,6 +1200,15 @@ def _apply_overlay(data: dict, *, owner_index: dict, mark_index: dict,
         open_issues, handled = [], []
         for issue in row.get("issues") or ():
             mark = mark_index.get(f"{key}|{issue['key']}")
+            if not mark and issue.get("kind") == "plan_promise" and promise_index:
+                # A month marked done on the plan page is the same statement
+                # as Done here, made on the other screen; reading it lets the
+                # press take effect today rather than at the next rebuild.
+                pm = promise_index.get(str(issue.get("subject") or ""))
+                if pm:
+                    mark = {"state": "done", "by": pm.get("by") or "",
+                            "at": pm.get("at") or "", "note": pm.get("note") or "",
+                            "seen": issue.get("fingerprint") or ""}
             if not mark:
                 open_issues.append(issue)
                 continue
@@ -1223,7 +1264,7 @@ def report(*, owner: str = "", scope: str = "", q: str = "",
 
     rows = _apply_overlay(data, owner_index=owner_index,
                           mark_index=marks(), note_index=notes_by_client(),
-                          user_index=user_index)
+                          user_index=user_index, promise_index=_promise_marks())
 
     owner = str(owner or "").strip().lower()
     scope = (str(scope or "").strip().lower()

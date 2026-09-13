@@ -4146,6 +4146,15 @@ function loadPlan(name){
         if(p.open_questions) todo.push(p.open_questions+' question'+(p.open_questions===1?'':'s')+' open');
         if(p.creative_unassigned) todo.push(p.creative_unassigned+' creative item'
           + (p.creative_unassigned===1?'':'s')+' with no supplier named');
+        /* The monthly promises, month by month, are on the plan; what the
+           record says is whether any is missed or still due this month. A
+           schedule with no launch date to measure from says nothing here --
+           the plan's own line names that gap. */
+        var pr=p.promises||{};
+        if(pr.measured!==false){
+          if(pr.missed) todo.push(pr.missed+' monthly promise'+(pr.missed===1?'':'s')+' missed');
+          if(pr.due) todo.push(pr.due+' due this month');
+        }
         var kept=p.kept||{};
         h+='<tr><td><b>'+esc(p.title||'Proposal')+'</b> <span class="pill neutral">'
           + esc(String(p.state||'').replace(/_/g,' '))+'</span>'

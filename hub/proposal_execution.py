@@ -143,6 +143,10 @@ class ProposalExecutionRun(db.Model):
             plan = proposal_plan.with_actions(plan, client=self.client,
                                               task_keys=[t.task_key for t in tasks],
                                               upload=_upload_link(self.client))
+            # The monthly promises month by month since launch, against the
+            # work log -- derived here and stored nowhere, the same rule as
+            # the due dates beside it.
+            plan["schedule"] = _promise_schedule(self, plan)
             row.update(analysis=self.analysis(), context=self.context(), inputs=self.inputs(),
                        summary=summary(self), missing_inputs=missing_input_manifest(self),
                        plan=plan)
@@ -732,17 +736,34 @@ def provision_upload_link(run_id, *, base="", actor=""):
     return run, got
 
 
-def _run_plan_summary(run):
+def _promise_schedule(run, plan, *, work=None, marks_index=None):
+    """The run's monthly promises against the calendar and the work log.
+    Never raises: a schedule that could not be built costs the strip and
+    says so, never the plan it sits on."""
+    try:
+        from hub import proposal_promises
+        return proposal_promises.schedule(plan, run_id=run.id, client=run.client,
+                                          work=work, marks_index=marks_index)
+    except Exception as exc:                             # noqa: BLE001
+        return {"measured": False, "why": f"The schedule could not be built ({type(exc).__name__}).",
+                "items": [], "months": [], "counts": {}, "missed_items": []}
+
+
+def _run_plan_summary(run, *, work=None, marks_index=None):
     """One run's plan as the numbers a record or a report reads.
 
     Counts only, never the items: this is what a card prints beside a link
     to the plan, and what `hub/client_health.py` turns into an issue.
     `creative_unassigned` is the creative items still in play (not dropped)
     that nobody has said who supplies -- nothing can be requested or built
-    for those, so they are the plan's own outstanding work.
+    for those, so they are the plan's own outstanding work. `promises` is
+    the monthly schedule's counts: due this month, missed this month or
+    last, landed, marked -- and the missed promise-months by key, which is
+    what the health report raises one issue per.
     """
-    from hub import proposal_plan
+    from hub import proposal_plan, proposal_promises
     plan = proposal_plan.resolve(plan_for(run))
+    sched = _promise_schedule(run, plan, work=work, marks_index=marks_index)
     s = plan.get("summary") or {}
     kept = {name: (s.get("lists") or {}).get(name, {}).get("kept", 0) for name in proposal_plan.LISTS}
     unassigned = sum(1 for it in plan.get("creative") or []
@@ -759,11 +780,22 @@ def _run_plan_summary(run):
         "unverified": int(s.get("unverified") or 0),
         "creative_unassigned": unassigned,
         "kept": kept,
+        "promises": proposal_promises.counts(sched),
         "updated_at": run.updated_at.isoformat() if run.updated_at else "",
     }
 
 
 _OPEN_STATES_EXCLUDED = (RUN_SUPERSEDED, RUN_COMPLETED)
+
+
+def open_runs(limit=2000):
+    """Every run still in play, newest first -- the one reading of "open"
+    the client record, the health report and the promise schedule share.
+    Raises where the table will not answer; each caller says so its own way."""
+    return (ProposalExecutionRun.query
+            .filter(~ProposalExecutionRun.state.in_(_OPEN_STATES_EXCLUDED))
+            .order_by(ProposalExecutionRun.updated_at.desc())
+            .limit(max(1, min(int(limit), 2000))).all())
 
 
 def plan_summary_for_client(client):
@@ -782,15 +814,49 @@ def plan_summary_for_client(client):
 
 def open_plan_summaries(limit=500):
     """Every open plan across the book, one query, for the client health
-    report. The same shape per run as `plan_summary_for_client()`."""
+    report. The same shape per run as `plan_summary_for_client()`. The work
+    log and the promise marks are read once for the whole book rather than
+    once per run -- one tail of the log per client is fifty reads of one file."""
     try:
-        rows = (ProposalExecutionRun.query
-                .filter(~ProposalExecutionRun.state.in_(_OPEN_STATES_EXCLUDED))
-                .order_by(ProposalExecutionRun.updated_at.desc())
-                .limit(max(1, min(int(limit), 2000))).all())
-        return {"measured": True, "error": "", "runs": [_run_plan_summary(r) for r in rows]}
+        rows = open_runs(limit)
+        from hub import client_brand, proposal_promises
+        work = client_brand.work_index()
+        mk = proposal_promises.marks()
+        return {"measured": True, "error": "",
+                "runs": [_run_plan_summary(r, work=work, marks_index=mk) for r in rows]}
     except Exception as exc:                             # noqa: BLE001
         return {"measured": False, "error": f"{type(exc).__name__}", "runs": []}
+
+
+def mark_promise(run_id, item_id, month, *, done=True, note="", actor=""):
+    """Record a monthly promise as kept for one month, or take that back.
+
+    The item has to be a monthly promise this plan still keeps: a mark on an
+    item nobody kept, or on a creative item, would be a tick on nothing.
+    Refused by name rather than filed, the rule every write in this module
+    works to.
+    """
+    run = get_run(run_id)
+    if not run:
+        raise ValueError("That execution run could not be found.")
+    from hub import proposal_plan, proposal_promises
+    plan = plan_for(run)
+    item_id = str(item_id or "").strip()
+    kept = {it.get("id"): it for it in proposal_plan.kept_items(plan, "monthly")}
+    if item_id not in kept:
+        raise ValueError("That is not a monthly promise this plan keeps.")
+    if done:
+        out = proposal_promises.mark(run.id, item_id, month, actor=actor, note=note)
+    else:
+        out = proposal_promises.unmark(run.id, item_id, month)
+    if not out.get("ok"):
+        raise ValueError(out.get("error") or "The mark could not be saved.")
+    title = str(kept[item_id].get("title") or item_id)
+    _event(run.id, run.state,
+           (f"Marked done for {proposal_promises.month_label(month)}: {title}." if done
+            else f"Took back the mark for {proposal_promises.month_label(month)}: {title}."),
+           actor=actor)
+    return run
 
 
 def update_inputs(run_id, values, *, actor=""):
@@ -1177,8 +1243,8 @@ def install_scheduler_bridge():
 __all__ = ["ProposalExecutionRun", "ProposalExecutionTask", "ProposalExecutionEvent",
            "ProposalRunConflict", "create_run", "get_run", "list_runs", "tasks_for_run",
            "proposal_choices", "update_inputs", "update_plan", "plan_for", "provision_upload_link",
-           "plan_summary_for_client", "open_plan_summaries", "start_run", "pause_run",
-           "retry_failed", "run_one",
+           "plan_summary_for_client", "open_plan_summaries", "open_runs", "mark_promise",
+           "start_run", "pause_run", "retry_failed", "run_one",
            "approve_task", "request_changes", "rerun_task", "mark_task", "events_for_run",
            "missing_input_manifest", "summary", "adapters", "build_task_specs", "analyze_text",
            "install_scheduler_bridge", "add_missing_columns",
