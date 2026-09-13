@@ -390,6 +390,8 @@ saved = client.post("/api/ads/save", json={
                         {"text": "Booked in under a minute."}],
              "ctas": [{"text": "Book Now"}, {"text": "Learn More"}]},
 }).get_json()
+saved = client.post("/api/ads/save", json={"id": pack_id, "selected_copy": {
+    kind: saved["ad"]["copy"][kind][0]["text"] for kind in ("headlines", "bodies", "ctas")}}).get_json()
 copy_section = [s for s in saved["readiness"]["sections"] if s["key"] == "copy"][0]
 check("with the invented line gone, the copy deliverable is complete",
       copy_section["state"] == "ok", copy_section)
@@ -629,6 +631,37 @@ check("the manifest records why the image is absent",
 
 
 # ---------------------------------------------------------------------------
+section("Reusable drafts and history")
+current = client.post("/api/ads/load", json={"id": pack_id}).get_json()["ad"]
+original_campaign = current["campaign"]
+changed = client.post("/api/ads/save", json={"id": pack_id, "revision": current["revision"], "campaign": "Revised campaign"}).get_json()["ad"]
+check("changes record a recoverable version", changed["history"][-1]["snapshot"]["campaign"] == original_campaign)
+conflict = client.post("/api/ads/save", json={"id": pack_id, "revision": current["revision"], "campaign": "Stale overwrite"})
+check("stale autosave cannot overwrite newer edits", conflict.status_code == 409 and mod.load_pack(pack_id)["campaign"] == "Revised campaign")
+restored = client.post("/api/ads/restore", json={"id": pack_id, "restore_revision": changed["history"][-1]["revision"]}).get_json()["ad"]
+check("restoring recovers old campaign", restored["campaign"] == original_campaign)
+check("restoring resets approvals and landing checks", not restored["image"].get("visual_approved") and not restored["landing"]["check"])
+check("restoring is itself undoable", restored["history"][-1]["snapshot"]["campaign"] == "Revised campaign")
+duplicated = client.post("/api/ads/duplicate", json={"id": pack_id}).get_json()["ad"]
+check("duplicate is a separate draft", duplicated["id"] != pack_id and duplicated["status"] == "draft")
+check("duplicate keeps copy and image", all([r["text"] for r in duplicated["copy"][k]] == [r["text"] for r in restored["copy"][k]] for k in ("headlines", "bodies", "ctas")) and duplicated["image"]["url"] == restored["image"]["url"])
+check("duplicate clears offer, tracking and selections", not duplicated["offer"]["expires"] and not duplicated["offer"]["pricing"] and not duplicated["offer"]["summary"] and not duplicated["landing"]["tracking"] and not duplicated["selected_copy"])
+client.post("/api/ads/delete", json={"id": duplicated["id"]})
+client.post("/api/ads/save", json={"id": pack_id, "brand": {"tone": "Friendly and direct", "approver_name": "QA approver"}})
+check("brand defaults can be saved", client.post("/api/ads/brand-defaults", json={"id": pack_id}).get_json()["ok"])
+fresh = client.post("/api/ads/create", json={"client": restored["client"]}).get_json()["ad"]
+check("new packs inherit saved brand defaults", fresh["brand"]["tone"] == "Friendly and direct" and fresh["brand"]["approver_name"] == "QA approver")
+client.post("/api/ads/delete", json={"id": fresh["id"]})
+check("final selection is explicit in CSV", "Selection" in spec.copy_csv(current) and "FINAL" in spec.copy_csv(current))
+check("final selection is in manifest", spec.manifest(current)["selected_copy"] == current["selected_copy"])
+other = client.post("/api/ads/create", json={"client": "Different client"}).get_json()["ad"]
+check("brand defaults do not leak to another client", other["brand"]["approver_name"] != "QA approver")
+client.post("/api/ads/delete", json={"id": other["id"]})
+invalid = client.post("/api/ads/save", json={"id": pack_id, "selected_copy": {"headlines": "Not in this pack"}}).get_json()
+check("final copy must belong to this pack", not invalid["ad"]["selected_copy"])
+for i in range(23):
+    client.post("/api/ads/save", json={"id": pack_id, "notes": f"Version {i}"})
+check("history retains the most recent twenty versions", len(mod.load_pack(pack_id)["history"]) == 20)
 section("Storage")
 # ---------------------------------------------------------------------------
 index = client.get("/api/ads").get_json()["ads"]
