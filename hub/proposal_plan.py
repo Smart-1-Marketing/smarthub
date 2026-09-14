@@ -111,6 +111,63 @@ CADENCE_LABELS = {"monthly": "every month", "weekly": "every week",
 # row carries its own lead time where one applies.
 LEAD_DAYS_CREATIVE = 14
 
+# ---------------------------------------------------------------------------
+# What a monthly promise is, and what proves it landed.
+#
+# Every monthly recipe row names one of these. The kind is what joins a
+# promise to the work log: `content` is proved by the SEO section writing a
+# blog or filing schema, `social_post` by the planner exporting or pushing a
+# batch, `video` by a commercial being approved -- each a module
+# `hub/client_brand.WORK_KINDS` can already name, because a row the work log
+# cannot attribute to a client is one this cannot read either. A kind with no
+# evidence modules is **recorded by hand only**: nothing here logs that a
+# report was sent to a client, so a person marks the month and the schedule
+# says that is how it was recorded.
+#
+# `deliverable` is the line between what a client notices when it stops and
+# what is our own housekeeping. A report, the month's content, a video, the
+# posts, the sends: those are raised when a month goes by without them.
+# Reviewing bids, checking frequency and confirming a game schedule are
+# drawn on the plan and never raised as a finding -- a report that fires on
+# "review search terms" for every client every month is the crying-wolf
+# failure `QR_CODE_RULES` paid for, and it takes the real findings with it.
+# Only spellings actually in use, the `ALIASES` rule: a kind is added here
+# the day a recipe row or an evidence source needs it.
+# ---------------------------------------------------------------------------
+PROMISE_KINDS: dict[str, dict] = {
+    "report": {"label": "Report to the client", "deliverable": True, "evidence": ()},
+    "content": {"label": "SEO + AI work delivered", "deliverable": True,
+                "evidence": (("seo", ("seo_blog_write", "seo_publish_instructions", "faq_page_saved",
+                                      "schema_answers_saved", "seo_alt_write", "seo_task_created")),
+                             ("seo_intelligence", ()),
+                             ("suite", ("llms_txt_published",)))},
+    "video": {"label": "Video produced", "deliverable": True,
+              "evidence": (("commercial_builder", ("commercial_approved",)),
+                           ("video_tools", ("_saved",)),
+                           ("vox_explainer", ()), ("paint_animation", ()))},
+    "social_plan": {"label": "Social calendar approved", "deliverable": True,
+                    "evidence": (("social_planner", ("batch_approved", "sent_to_client")),)},
+    "social_post": {"label": "Posts scheduled", "deliverable": True,
+                    "evidence": (("social_planner", ("exported", "post_pushed")),)},
+    "email": {"label": "Email sent", "deliverable": True,
+              "evidence": (("skills360", ("email_batch_sent",)),)},
+    "web": {"label": "Site maintenance", "deliverable": True, "evidence": ()},
+    "creative_refresh": {"label": "Creative refresh", "deliverable": False,
+                         "evidence": (("display_ads", ("creative_attached", "animation_attached")),
+                                      ("magic_resize", ()), ("image_creator", ()))},
+    "optimize": {"label": "Optimization", "deliverable": False, "evidence": ()},
+    "review": {"label": "Promise review", "deliverable": False, "evidence": ()},
+}
+# A monthly item with no kind -- one the model found or a person typed -- is
+# a promise somebody wrote down, so it is a deliverable recorded by hand: the
+# Hub has no way to see it land and no grounds to call it housekeeping.
+PROMISE_KIND_UNKNOWN = {"label": "Promise", "deliverable": True, "evidence": ()}
+
+
+def promise_kind(kind: str) -> dict:
+    """The table's entry for a kind, or the unknown-kind entry. Never raises."""
+    return PROMISE_KINDS.get(str(kind or "")) or PROMISE_KIND_UNKNOWN
+
 
 # ---------------------------------------------------------------------------
 # The recipes: what each channel the analyzer can detect always needs.
@@ -136,8 +193,8 @@ RECIPES: dict[str, dict] = {
             ("Click every banner size through to the landing page before launch", ""),
         ],
         "monthly": [
-            ("Report retargeting delivery and click-through to the client", ""),
-            ("Check frequency and refresh the banners if the audience is seeing them too often", ""),
+            ("Report retargeting delivery and click-through to the client", "", "report"),
+            ("Check frequency and refresh the banners if the audience is seeing them too often", "", "creative_refresh"),
         ],
     },
     "paid_search": {
@@ -154,8 +211,8 @@ RECIPES: dict[str, dict] = {
             ("Get the ad copy approved before the campaign is enabled", "", 5),
         ],
         "monthly": [
-            ("Review search terms, add negatives and adjust bids", ""),
-            ("Report Paid Search spend, clicks, conversions and cost per lead", ""),
+            ("Review search terms, add negatives and adjust bids", "", "optimize"),
+            ("Report Paid Search spend, clicks, conversions and cost per lead", "", "report"),
         ],
     },
     "seo_ai": {
@@ -168,8 +225,8 @@ RECIPES: dict[str, dict] = {
             ("Record the baseline rankings and traffic the monthly work is measured against", ""),
         ],
         "monthly": [
-            ("Deliver the month's SEO + AI work: on-page fixes, schema, content and AI-search optimization", ""),
-            ("Report rankings, organic traffic and what was changed this month", ""),
+            ("Deliver the month's SEO + AI work: on-page fixes, schema, content and AI-search optimization", "", "content"),
+            ("Report rankings, organic traffic and what was changed this month", "", "report"),
         ],
     },
     "stadium_audio": {
@@ -183,8 +240,8 @@ RECIPES: dict[str, dict] = {
             ("Traffic the audio and companion banners with tagged destination links", ""),
         ],
         "monthly": [
-            ("Confirm the coming month's game schedule and adjust the flight", ""),
-            ("Report audio delivery, completion rate and companion banner clicks", ""),
+            ("Confirm the coming month's game schedule and adjust the flight", "", "optimize"),
+            ("Report audio delivery, completion rate and companion banner clicks", "", "report"),
         ],
     },
     "meta": {
@@ -200,8 +257,8 @@ RECIPES: dict[str, dict] = {
             ("Get the carousel and image creative approved before the campaign is enabled", "", 7),
         ],
         "monthly": [
-            ("Report Meta reach, clicks, leads and cost per lead", ""),
-            ("Refresh creative that is fatiguing and pause the weakest ads", ""),
+            ("Report Meta reach, clicks, leads and cost per lead", "", "report"),
+            ("Refresh creative that is fatiguing and pause the weakest ads", "", "creative_refresh"),
         ],
     },
     "youtube_ads": {
@@ -214,7 +271,7 @@ RECIPES: dict[str, dict] = {
             ("Confirm view and conversion tracking before the campaign is enabled", ""),
         ],
         "monthly": [
-            ("Report YouTube views, view rate, clicks and cost per view", ""),
+            ("Report YouTube views, view rate, clicks and cost per view", "", "report"),
         ],
     },
     "social": {
@@ -231,8 +288,8 @@ RECIPES: dict[str, dict] = {
             ("Agree the posting channels, the mix and the first month's calendar", ""),
         ],
         "monthly": [
-            ("Build next month's social content calendar and get it approved", ""),
-            ("Schedule the approved posts", ""),
+            ("Build next month's social content calendar and get it approved", "", "social_plan"),
+            ("Schedule the approved posts", "", "social_post"),
         ],
     },
     "youtube_video": {
@@ -246,7 +303,7 @@ RECIPES: dict[str, dict] = {
             ("Agree the sales video format, length and who appears on camera", ""),
         ],
         "monthly": [
-            ("Script, produce and publish this month's YouTube sales video", ""),
+            ("Script, produce and publish this month's YouTube sales video", "", "video"),
         ],
     },
     "youtube_optimization": {
@@ -270,7 +327,7 @@ RECIPES: dict[str, dict] = {
             ("Set up the AI advertising test with the approved budget, destination and tracking", ""),
         ],
         "monthly": [
-            ("Report AI advertising delivery and results, and decide whether the test continues", ""),
+            ("Report AI advertising delivery and results, and decide whether the test continues", "", "report"),
         ],
     },
     # ----------------------------------------------------------------------
@@ -291,8 +348,8 @@ RECIPES: dict[str, dict] = {
             ("Traffic the display campaign with tagged destination links", ""),
         ],
         "monthly": [
-            ("Report display delivery, viewability and click-through to the client", ""),
-            ("Rotate or refresh the banners where a size is under-performing", ""),
+            ("Report display delivery, viewability and click-through to the client", "", "report"),
+            ("Rotate or refresh the banners where a size is under-performing", "", "creative_refresh"),
         ],
     },
     "ctv": {
@@ -307,8 +364,8 @@ RECIPES: dict[str, dict] = {
             ("Traffic the spot and confirm the completion tracking", ""),
         ],
         "monthly": [
-            ("Report impressions, completion rate and the households reached", ""),
-            ("Check the spot is not wearing out and plan the next cut if it is", ""),
+            ("Report impressions, completion rate and the households reached", "", "report"),
+            ("Check the spot is not wearing out and plan the next cut if it is", "", "optimize"),
         ],
     },
     "digital_radio": {
@@ -323,7 +380,7 @@ RECIPES: dict[str, dict] = {
             ("Traffic the audio and any companion banner with tagged destination links", ""),
         ],
         "monthly": [
-            ("Report audio delivery, completion rate and companion banner clicks", ""),
+            ("Report audio delivery, completion rate and companion banner clicks", "", "report"),
         ],
     },
     "paid_social": {
@@ -339,8 +396,8 @@ RECIPES: dict[str, dict] = {
             ("Get the creative approved before the campaign is enabled", "", 7),
         ],
         "monthly": [
-            ("Report paid social reach, clicks, leads and cost per lead", ""),
-            ("Refresh creative that is fatiguing and pause the weakest ads", ""),
+            ("Report paid social reach, clicks, leads and cost per lead", "", "report"),
+            ("Refresh creative that is fatiguing and pause the weakest ads", "", "creative_refresh"),
         ],
     },
     "email": {
@@ -356,7 +413,7 @@ RECIPES: dict[str, dict] = {
             ("Schedule the send and confirm the tracking on every link", ""),
         ],
         "monthly": [
-            ("Report delivered, opened and clicked, and what the month's sends said", ""),
+            ("Send the month's email and report delivered, opened and clicked", "", "email"),
         ],
     },
     "dooh": {
@@ -369,7 +426,7 @@ RECIPES: dict[str, dict] = {
             ("Traffic the artwork and confirm the flight dates with the network", ""),
         ],
         "monthly": [
-            ("Report plays, venues and estimated impressions to the client", ""),
+            ("Report plays, venues and estimated impressions to the client", "", "report"),
         ],
     },
     "web": {
@@ -385,7 +442,7 @@ RECIPES: dict[str, dict] = {
             ("Point the domain, confirm analytics and forms, and launch", ""),
         ],
         "monthly": [
-            ("Confirm hosting, backups and updates ran, and report any site changes made", ""),
+            ("Confirm hosting, backups and updates ran, and report any site changes made", "", "web"),
         ],
     },
 }
@@ -398,9 +455,9 @@ GENERIC_LAUNCH = [
     ("Send the client a launch confirmation saying what goes live and when", ""),
 ]
 GENERIC_MONTHLY = [
-    ("Send the client the monthly performance report covering every channel", ""),
-    ("Check that spend is pacing to the monthly budget in the proposal", ""),
-    ("Review what the proposal promised for this month against what was delivered", ""),
+    ("Send the client the monthly performance report covering every channel", "", "report"),
+    ("Check that spend is pacing to the monthly budget in the proposal", "", "optimize"),
+    ("Review what the proposal promised for this month against what was delivered", "", "review"),
 ]
 
 
@@ -448,6 +505,11 @@ def _item(list_name: str, title: str, detail: str = "", *, channel: str = "",
         # always ours to write, and asking who supplies the ad copy is the
         # question that teaches people to stop reading the list.
         row["kind"] = kind or "file"
+    if list_name == "monthly":
+        # Which promise this is -- a report, the month's content, a video --
+        # read by `hub/proposal_promises.py` to decide what proves it landed.
+        # Blank for an item the model found or a person typed.
+        row["kind"] = kind if kind in PROMISE_KINDS else ""
     return row
 
 
@@ -462,6 +524,17 @@ def _launch_rows(rows) -> list[tuple[str, str, int]]:
         title, detail = row[0], row[1] if len(row) > 1 else ""
         lead = row[2] if len(row) > 2 else 0
         out.append((title, detail, lead))
+    return out
+
+
+def _monthly_rows(rows) -> list[tuple[str, str, str]]:
+    """A recipe's monthly rows as (title, detail, kind) -- a row may be
+    written without its kind, and an unknown kind reads as none."""
+    out = []
+    for row in rows or []:
+        title, detail = row[0], row[1] if len(row) > 1 else ""
+        kind = row[2] if len(row) > 2 else ""
+        out.append((title, detail, kind if kind in PROMISE_KINDS else ""))
     return out
 
 
@@ -606,8 +679,9 @@ def rule_items(analysis: dict, client: str = "") -> tuple[dict, list[str]]:
         for title, detail, lead in _launch_rows(recipe.get("launch")):
             out["launch"].append(_item("launch", title, detail, channel=key, channel_name=name,
                                        lead_days=lead))
-        for title, detail in recipe.get("monthly") or []:
-            out["monthly"].append(_item("monthly", title, detail, channel=key, channel_name=name))
+        for title, detail, kind in _monthly_rows(recipe.get("monthly")):
+            out["monthly"].append(_item("monthly", title, detail, channel=key, channel_name=name,
+                                        kind=kind))
     if quote:
         # Lines on the quote that are not a campaign -- a production line,
         # a tracking number, a list purchase -- are still work somebody does
@@ -625,8 +699,8 @@ def rule_items(analysis: dict, client: str = "") -> tuple[dict, list[str]]:
                 out["launch"].append(_item("launch", f"Set up {label}",
                                            line.get("description") or "A line on the quote that is not a campaign of its own.",
                                            lead_days=3))
-    for title, detail in GENERIC_MONTHLY:
-        out["monthly"].append(_item("monthly", title, detail))
+    for title, detail, kind in _monthly_rows(GENERIC_MONTHLY):
+        out["monthly"].append(_item("monthly", title, detail, kind=kind))
     return out, notes
 
 
@@ -966,13 +1040,20 @@ def _all_items(plan: dict) -> list[dict]:
     return [it for name in LISTS for it in (plan.get(name) or [])]
 
 
-def apply_decisions(plan: dict, decisions: dict) -> dict:
+def apply_decisions(plan: dict, decisions: dict, *, known_owners=None) -> dict:
     """A person's review of the plan, applied in one press.
 
     `decisions` may carry `accept` ({id: true|false|null}), `add`
-    ([{list, title, detail}]), `remove` ([ids], manual items only) and
-    `answers` ({key: value}). Anything it cannot apply is refused by name
+    ([{list, title, detail}]), `remove` ([ids], manual items only),
+    `answers` ({key: value}) and `owners` ({id: email}, blank to follow
+    the client's owner again). Anything it cannot apply is refused by name
     with a ValueError, and nothing is half-applied.
+
+    `known_owners` is the set of account emails an item may be given to.
+    Handed in by the caller that can read the account table, because this
+    module reads no database; `None` means the table could not be read,
+    and a well-formed address is then taken as typed rather than every
+    assignment being refused over a table that blinked.
     """
     plan = json.loads(json.dumps(plan or {}))
     decisions = decisions or {}
@@ -1036,6 +1117,28 @@ def apply_decisions(plan: dict, decisions: dict) -> dict:
             q["answer"], q["from_text"] = stored[q["key"]], False
         elif not q.get("from_text"):
             q["answer"] = ""
+
+    # An owner set on the item itself. Stored as `owner_override` and
+    # nothing else: the default -- the client's owner, through
+    # hub/client_owner.py -- is laid over on read by `resolve()`, so a
+    # handover of the client moves every item that was following them and
+    # leaves the ones somebody named by hand exactly where they were.
+    owners = decisions.get("owners") or {}
+    if not isinstance(owners, dict):
+        raise ValueError("owners must map item ids to an email address, or blank to follow the client's owner.")
+    for ident, value in owners.items():
+        it = by_id.get(str(ident))
+        if not it:
+            raise ValueError(f"No plan item has the id {ident!r}.")
+        addr = " ".join(str(value if value is not None else "").split()).lower()
+        if addr and "@" not in addr:
+            raise ValueError(f"{addr!r} is not an email address.")
+        if addr and known_owners is not None and addr not in known_owners:
+            raise ValueError(f"{addr} is not a Hub account this can be given to.")
+        if addr:
+            it["owner_override"] = addr
+        else:
+            it.pop("owner_override", None)
     plan["reviewed_at"] = _now_iso()
     plan["summary"] = summarize(plan)
     return plan
@@ -1061,6 +1164,10 @@ def carry_forward(new_plan: dict, old_plan: dict) -> dict:
             prior = old_by_id.get(it["id"])
             if prior is not None and prior.get("accepted") is not None:
                 it["accepted"] = prior["accepted"]
+            # An owner named on the item travels with the verdict: it was a
+            # decision about this piece of work, and the work is still here.
+            if prior is not None and prior.get("owner_override"):
+                it["owner_override"] = prior["owner_override"]
         for prior in old_plan.get(name) or []:
             if prior.get("source") == SOURCE_MANUAL and prior["id"] not in ids:
                 plan.setdefault(name, []).append(json.loads(json.dumps(prior)))
@@ -1143,7 +1250,18 @@ def _answer_of(plan: dict, key: str) -> str:
     return ""
 
 
-def resolve(plan: dict) -> dict:
+def owner_label(email: str, names: dict | None = None) -> str:
+    """The name to print for an owner, or the address where no account is
+    known -- `hub/client_owner.display_name()`'s rule, read from a
+    `{email: name}` index handed in so this module opens no table. Never
+    invents a name from the address: `todd@` is not "Todd"."""
+    email = str(email or "").strip().lower()
+    if not email:
+        return ""
+    return str((names or {}).get(email) or "") or email
+
+
+def resolve(plan: dict, *, owner: dict | None = None, names: dict | None = None) -> dict:
     """The plan with its answers applied, for reading -- never for storing.
 
     A launch date becomes a due date on every launch task and creative item
@@ -1153,11 +1271,19 @@ def resolve(plan: dict) -> dict:
     report tasks. `resolved` carries the answers themselves so a brief or a
     packet reads one dict rather than walking the questions.
 
+    `owner` is the client's owner as `hub/client_owner.owner_of()` answers
+    it (or None), and `names` an `{email: name}` index; both are handed in
+    because this module reads no table. Every item then carries `owner`,
+    `owner_label` and `owner_source` -- `item` where somebody named one on
+    the item, `client` where it follows the client's owner -- and an item
+    with neither carries no owner at all rather than a guess.
+
     Derived on every read and written nowhere: a date baked into the items
     would outlive the answer that produced it, and there are two gunicorn
     workers to disagree about which copy is current.
     """
     plan = json.loads(json.dumps(plan or {}))
+    default = str((owner or {}).get("email") or "").strip().lower()
     launch_raw = _answer_of(plan, "launch_date")
     launch = parse_day(launch_raw)
     cadence = _answer_of(plan, "reporting_cadence")
@@ -1199,8 +1325,54 @@ def resolve(plan: dict) -> dict:
         if cadence and "report" in str(it.get("title") or "").lower():
             it["cadence"] = cadence
             it["cadence_label"] = CADENCE_LABELS.get(cadence, cadence)
+    resolved["owner"] = ({"email": default, "label": owner_label(default, names),
+                          "source": str((owner or {}).get("source") or ""),
+                          "partner": str((owner or {}).get("partner") or "")}
+                         if default else {})
+    for it in _all_items(plan):
+        over = str(it.get("owner_override") or "").strip().lower()
+        if over:
+            it["owner"], it["owner_label"], it["owner_source"] = over, owner_label(over, names), "item"
+        elif default:
+            it["owner"], it["owner_label"], it["owner_source"] = default, resolved["owner"]["label"], "client"
     plan["resolved"] = resolved
     return plan
+
+
+# ---------------------------------------------------------------------------
+# The questions that are the client's to answer
+# ---------------------------------------------------------------------------
+# The plan asks about what the proposal does not say, and most of it is ours:
+# a budget the parser missed, a channel with no recipe, whatever the model
+# was unsure of. Three are genuinely the client's call and are the only ones
+# the page a client reads may carry, each reworded for the person being
+# asked -- "who is supplying the display creative?" is a question about the
+# client and "who is producing the display creative, your team or Smart 1?"
+# is a question to them.
+CLIENT_QUESTION_WORDING = {
+    "launch_date": "When would you like the campaign to launch?",
+    "creative_supply": "Who is producing the {name} creative -- your team, or Smart 1?",
+    "reporting_cadence": "How often would you like a performance report?",
+}
+
+
+def client_questions(plan: dict) -> list[dict]:
+    """The open questions a client can answer, in the client's own words.
+    Anything answered is left out; anything not on `CLIENT_QUESTION_WORDING`
+    is ours to answer and never reaches them."""
+    out: list[dict] = []
+    for q in (plan or {}).get("questions") or []:
+        key = str(q.get("key") or "")
+        if _answer_of(plan, key):
+            continue
+        if key == "launch_date" or key == "reporting_cadence":
+            out.append({"key": key, "question": CLIENT_QUESTION_WORDING[key]})
+        elif key.startswith("creative_supply:"):
+            channel = key.split(":", 1)[1]
+            name = next((it.get("channel_name") or channel for it in (plan or {}).get("creative") or []
+                         if it.get("channel") == channel), channel)
+            out.append({"key": key, "question": CLIENT_QUESTION_WORDING["creative_supply"].format(name=name)})
+    return out
 
 
 def answers_for(plan: dict, channel: str = "") -> dict:
@@ -1338,4 +1510,5 @@ def with_actions(plan: dict, *, client: str = "", task_keys=(), upload: dict | N
 __all__ = ["LISTS", "LIST_LABELS", "RECIPES", "SUPPLY_CHOICES", "SUPPLY_LABELS", "CADENCE_LABELS",
            "LEAD_DAYS_CREATIVE", "CREATIVE_TOOLS", "COPY_TASKS", "build_plan", "rule_items",
            "ai_items", "questions", "apply_decisions", "carry_forward", "summarize", "kept_items",
-           "resolve", "answers_for", "parse_day", "tool_for", "item_actions", "with_actions"]
+           "resolve", "answers_for", "parse_day", "tool_for", "item_actions", "with_actions",
+           "owner_label", "client_questions", "CLIENT_QUESTION_WORDING"]

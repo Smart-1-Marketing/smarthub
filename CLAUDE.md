@@ -6625,6 +6625,150 @@ finished, and `plan_creative` for creative nobody has said who supplies.
 Both carry the run's own link. A superseded or completed run raises nothing,
 which is what `_OPEN_STATES_EXCLUDED` says in one place for both readers.
 
+### A monthly promise kept once, and nothing asked about month two
+
+Every-month items were kept on the plan and that was the end of it: a kept
+"monthly sales video" was a fact about the plan and never a question about
+the calendar, and the things a client notices when they stop are exactly
+these. `hub/proposal_promises.py` turns each kept monthly item into a row
+per month since launch -- the month after the launch date, the same reading
+`resolve()` puts on the items as `starts` -- and says one of five things
+about each: **landed**, the activity log holds work of that kind for this
+client in that month, named by tool and day; **marked**, a person recorded
+it done, with who and when; **due**, this month before the 25th; **missed**,
+the month is over or this month is past the 25th with nothing; or **not
+measured**. `/qa/monthly-promises` lists this month and last across the
+book, Client 360 prints missed and due as pills on the plan card, and
+`hub/client_health.py` raises `plan_promise` once per missed promise-month
+with the plan's own link -- "the report for August" and "the sales video for
+August" are two pieces of work for two people.
+
+**What proves a promise landed is a table, and every module in it is one
+the work log can name.** Each monthly recipe row carries a kind now --
+`report`, `content`, `video`, `social_plan`, `social_post`, `email`, `web`,
+`creative_refresh`, `optimize`, `review` -- and `proposal_plan.PROMISE_KINDS`
+maps each to the modules and events that count as evidence.
+`test_proposal_promises.py` holds every module there to
+`client_brand.WORK_KINDS`, because a row `work_log()` drops on the way to the
+record is one this cannot see either: the `display_ads` failure, one reader
+over. A kind with **no** evidence modules is recorded by hand only -- nothing
+here logs that a report was sent to a client -- and the row says so rather
+than reading a missing mark as a missing report. An item the model found or
+a person typed has no kind and reads as a deliverable recorded by hand: the
+Hub has no way to see it land and no grounds to call it housekeeping.
+
+**Housekeeping is drawn and never raised.** `deliverable` is the line
+between what a client notices when it stops and what is our own upkeep.
+Reviewing bids, checking frequency, confirming a game schedule and the
+generic "review what was promised" get their month strip on the plan and
+reach no report, no issue and no count -- a finding that fires on "review
+search terms" for every client every month is the crying-wolf failure
+`QR_CODE_RULES` paid for, and it takes the missed sales video with it.
+
+**A month the log cannot answer for is not a miss.**
+`client_brand.work_index()` reads the log once for the whole book -- one
+tail per client is fifty reads of one file -- and reports the oldest entry
+it reached. A tracked promise's month before that horizon is *not
+measured*, with the horizon named; a log that could not be read at all makes
+every tracked month not measured and leaves the hand-recorded ones
+answering. Reading either as "nothing landed" would be a report accusing the
+whole team on the strength of a rotated file. `work_log()` and `work_index()`
+read one `_work_row()`, because two walks over the same entries with their
+own idea of which key names the client is how the record and the schedule
+come to disagree about whether a blog was written this month.
+
+**Derived on read; the mark is the one thing written.** The schedule is
+arithmetic over the launch date, the calendar and the log, served on
+`as_dict()` as `plan["schedule"]` and never stored -- `hub/creative_evergreen.py`'s
+rule, since a stored copy would outlive the launch date being corrected and
+the two workers would disagree. A mark is keyed on the run, the item and the
+month (`mark_key()`), written through `jsonstore.update_json` so two workers
+cannot drop each other's, and it drops the QA report's cached copy **beside
+the write**. The same key is the `subject` of the health issue, so
+`_apply_overlay()` reads the promise marks per request and a month marked
+done on the plan page leaves `/my-clients` on the next read rather than at
+tomorrow's rebuild. The QA report and the health issue look at **this month
+and last** (`REPORT_MONTHS`); older misses are counted and named, and the
+plan page still shows twelve months, because a plan nobody has marked for a
+year would otherwise raise twelve rows per promise on a report whose job is
+to say what to act on this week.
+
+### Whose item it is, and the two documents the day the proposal is signed
+
+The plan said what had to happen and when, and nothing said **whose** it
+was -- so a kept launch task belonged to the plan rather than to a person,
+which on the day is the same as belonging to nobody. And nothing came off
+the plan as a thing to hand somebody: the team walked the kickoff call from
+the screen, and the client had the rep's email.
+
+**Every item follows the client's owner, and only a hand-named one is
+stored.** `proposal_plan.resolve()` takes the client's owner from
+`hub/client_owner.owner_of()` -- a direct assignment or a standing partner
+rule -- and lays it over every item on read, marked `owner_source: client`;
+an owner named on one item through the same plan route (`owners` beside
+`accept`, `add`, `remove` and `answers`) is stored as `owner_override` and
+reads as `item`. Derived because a handover is the ordinary case: reassign
+the client on the Client Owners report and every item that was following
+them moves, while the one somebody named by hand stays exactly where it
+was. Nothing but the override reaches the column, and `test_proposal_kickoff.py`
+asserts the stored plan carries no `owner` at all. **An account the Hub
+does not know is refused by name**, against the same `assignable_users()`
+the picker is drawn from -- a typed address that matches nobody is a plan
+item owned by a string. A roster that could not be read is the one case a
+well-formed address is taken as typed: refusing every assignment over a
+table that blinked is a check somebody switches off. The picker's blank
+option reads *Follows <the client's owner>* rather than *none*, because
+those are different states and only one of them is a gap.
+
+**The kickoff document is built from the kept plan, and counts what is
+not.** `kickoff_document()` serves `/proposal-execution/run/<id>/kickoff`:
+the launch date, each channel with its budget and who supplies its
+creative, the creative with its due date, owner and the tool that makes it,
+the launch tasks in the order they fall due, the monthly promises with their
+kind, the open questions, the client's link and the upload link. What it
+leaves off it **counts at the top** -- items nobody has reviewed, items
+found by AI with no matching line, creative with no supplier, items with no
+owner -- because a document that quietly leaves items off is the list that
+gets shorter with nothing saying so, on the one page printed for the room.
+It owns its own `<body>` so it prints as a document, and the Hub's injected
+chrome is hidden by its print rules rather than by putting a staff page in
+`CHROMELESS`.
+
+**The client's page carries the fields and nothing else.** `client_needs()`
+serves `/proposal-execution/needs/<token>`: the files the client agreed to
+supply with the date each is wanted by, their upload link where one exists
+(never created by a page load -- `provisioning.py`'s rule), the questions
+that are theirs to answer, and their Smart 1 contact by name. Built
+server-side as a subset rather than left to a template to omit, the
+`modules/scans` rule, so no dropped item, no item Smart 1 is producing, no
+internal note, no flag about how an item was found and no staff email can
+reach it. `CLIENT_QUESTION_WORDING` is the whole list of questions a client
+may be asked -- the launch date, who produces each channel's creative, the
+report cadence -- reworded for the person being asked; a missing budget or
+a channel we have no recipe for is our reading problem and stays ours.
+
+**The token is stored on the plan and never derived**, the opposite of
+`hub/client_key.py`'s rule and for `hub/llms_hosting.py`'s reason: it is
+going into an email on somebody else's side, so it has to outlive a restart
+and a rotated `SECRET_KEY`, and revoking it has to make *that* address
+answer 404 rather than a second copy of what it used to say. Minted by
+`POST .../client-link` -- a press, because a link that exists is one
+somebody may have sent, and a second press hands back the live one rather
+than a second address. **Revoked, unknown and malformed answer the same
+404**, since a client-facing URL that says "this one expired" tells somebody
+probing which are real; a store that would not answer is a **503**, because
+a client meeting a 404 concludes the link expired and one meeting a 503
+tries again. The revoked token stays on the plan as the record that a link
+was sent.
+
+**Both halves of public, because this is a blueprint.** The route is named
+in `install_guard(bp, public=("/needs/",))` and in `CHROMELESS`, and
+`test_blueprint_guards.PUBLIC_DYNAMIC` names it with its reason -- the
+Commercial Builder's review link paid for this: exempt from the login and
+not from the chrome is a client reading our staff nav, and the other way
+round is a sign-in form in front of somebody with no account. The staff
+kickoff sits under the guarded mount and is in neither list.
+
 ## Opportunistic migration — read this before editing any module
 
 `hub/storage.py` (Cloudinary), `hub/images.py` (resize/convert),
@@ -13185,6 +13329,150 @@ public: every route names a member of staff, what they were asked to check and
 what they said about it. `test_qa_tasks.py` asserts all of it.
 
 
+## What the ad-report syncs propose, and the person who stands behind each
+
+`modules/reports` is the ad-performance fact table -- every platform's
+campaign-days, the map from a campaign to a Hub client, the budgets those
+campaigns pace against, and the one page a client reads at a link of their
+own. It was mounted, reviewed and merged with seven defects fixed on the way
+in (`docs/reports-review-and-next-steps.md` is the review), and then
+hardened around one idea: **a sync proposes, and a person stands behind
+what reaches a client's page.** Five gates, each its own file and test, and
+each closing a way the module could be confidently wrong with every screen
+internally consistent.
+
+**Production is Postgres and the tests were not.** Two of the seven review
+findings were Postgres-only -- `Numeric(8, 4)` refusing a pace of 10,000x
+and failing the whole hourly insert, and `substr()` over a timestamp, which
+Postgres has no function for -- and SQLite cannot see either by construction.
+`_reports_testdb.py` is the one place a reports test binds its database:
+the SQLite file by default, `REPORTS_TEST_DATABASE_URL` when set, and
+`checks.yml` runs every `test_reports_*.py` a second time against the job's
+Postgres. `reset()` drops and recreates the module's own tables there so a
+run starts from an empty book -- `test_jsonstore.py`'s note about a fresh
+directory in front of an inherited database, one engine over.
+
+**Feed health is one reading drawn three ways.** Every platform's watermark
+and newest fact day sat on `/reports/` and only there, so a pull failing for
+three days was visible to whoever opened that page and did the arithmetic
+per row -- the scheduler-panel failure above, wearing a feed.
+`modules/reports/health.py` gives each platform one of four states (never,
+failing, stale past `STALE_DAYS`, ok) and `/status`, the dashboard's feeds
+card and the module's own index all read it; a store that will not answer is
+*not measured*, never a healthy-looking empty list. It also refuses the
+SQLite fallback in production: with neither database variable set the module
+lands on a file on the data disk that every deploy wipes, and `/status` says
+so as an **error** naming the variable. And the client's page says the day
+its figures run through, under the title and on the PDF, and says in words
+when that day is more than `DATA_STALE_DAYS` old -- a client reading "this
+month" on the 13th with rows through the 8th was reading a smaller number as
+the whole.
+
+**A campaign filed from its name is a proposal.** The auto-mapper reads
+`S1M | <ClientKey> | <Product> | ...` off the campaign name and files it,
+and a name is somebody's typing in somebody else's platform: a typo files
+one client's spend under another, on the client's own page. So the mapping
+row carries `confirmed_by` / `confirmed_at` -- LATE columns, because
+`create_all()` never adds one -- and `store.facts_for()`, the one reader the
+client's page, its PDF, its data.json, the pacing board and the cost report
+go through, returns confirmed mappings and nothing else. A person's own
+mapping is confirmed by the making; the auto-mapper's waits on
+`/reports/unmapped` and the client's staff page, counted on the index, the
+dashboard and the pacing board (a sold line whose only campaigns are pending
+reads unmapped and says how many are one press away, laid over the snapshot
+rather than stored in it). **Not theirs needed memory**: refusing deletes the
+row and the auto-mapper considers every campaign with no row, so without
+`reports_map_refusals` the next hourly run would file the same name under the
+same client again and the button would undo itself. A refusal remembers the
+name it was refused under; renamed, the campaign is a new decision.
+
+**A provider map that resolves is not read until a person confirms it.**
+`provider_map.py`'s column names are placeholders until the first Windsor
+sync lands, and the dangerous case is the one that resolves: `spend` is a
+plausible name for a column holding micros. `/reports/provider-check` prints
+the newest raw row under each mapped column with the spend **as it would be
+filed** after the divisor, and a Confirm button; the normalize reads confirmed
+platforms and nothing else. The confirmation is against
+`provider_map.fingerprint()` -- the table, every column and the divisor, and
+deliberately not `restate_days` -- so editing the map retires it and the page
+reads *map changed since confirmed*, naming who confirmed the old one. A
+platform that has synced and now cannot says so on its watermark; one awaiting
+its first confirmation records nothing, because on a fresh deployment that is
+every platform and twelve red rows for a queue about to be worked is the
+check that gets switched off.
+
+**A fact row that cannot be true is held, not filed and not refused whole.**
+`modules/reports/quarantine.py` stands in `store.upsert_rows()`, the one door
+every writer goes through. Four rules with their source written down: more
+clicks than impressions, a negative figure, a day after today, and spend over
+`SPIKE_MULTIPLIER` times the campaign's own trailing average given
+`BASELINE_MIN_DAYS` of history averaging `BASELINE_MIN_SPEND` -- the divisor
+rule, and those three numbers are **house**. A zero is deliberately not a
+rule. The held row is kept exactly as it would have been written and the
+rest of the batch goes in; `report=` on the call carries how many were held
+and why. **A decision is about the row as it was**: Accept writes that row
+and the same figure passes next time, Discard drops it and the same figure is
+dropped in silence and counted, a different figure under the same key is a
+new proposal either way, and a clean restatement from the provider supersedes
+a held row by itself. The screen takes the sync's own clock (`today=`), which
+is how `test_reports_pacing.py`, which drives the date, writes the days it is
+about -- and its fixture stopped spending $900 on a $10/day campaign to test
+"over", because that is exactly what the spike rule holds.
+
+**The fact table's month is reconciled against the platform's own total.**
+Everything a client reads is campaign-days summed, and nothing could say
+whether that sum was the month the platform would invoice.
+`modules/reports/reconcile.py` asks nightly, this month and the last,
+**through yesterday on both sides** -- today is partial at two different
+moments. Two kinds of source, and the row says which because they catch
+different mistakes: Google's customer-level query (`FROM customer`, the
+window as a range, nothing segmented) is *independent*, the only kind that
+can catch a systematic error; a confirmed provider table summed whole or
+StackAdapt's month fetched again is a *re-read*, which catches what we
+dropped or never read and not the feed being wrong. The Trade Desk is not
+measurable by design -- the MyReports file is the pull's own input -- and
+says so. Ours counts every row of the platform, mapped or not; held rows for
+the month ride on the row as the likeliest explanation of a drift;
+`TOLERANCE_PCT` is house and the page says so; and a state **change** is
+logged, never a state.
+
+**Everything the module knew about a client was on a page reached by
+knowing the client's key.** The campaigns filed under them, this month's
+spend beside what they are billed, whether the sold lines are pacing, the
+days held in quarantine, the live link and whether it was opened -- all on
+`/reports/client/<key>`, and the record a rep actually opens for a client
+said nothing. `modules/reports/client_card.py` is the one reading behind
+Client 360's *Ad performance* card (`/api/client/ad-performance`, under
+`/api/client/` so it draws inside the Suite frame), and two things in it
+are decisions rather than plumbing. **A client is filed under more than
+one spelling, and all of them are read**: the staff screens and the
+auto-mapper file under the `hub/client_key.py` key, and
+`hub/proposal_adapters/reports.py` mints its link and budget lines under
+the display name -- both are real rows about one business, so
+`candidate_keys()` gathers the registry key, the name key, the raw name and
+any key whose stored display name is an exact normalized match, and never
+a substring. And **four kinds of nothing are kept apart** -- the store would
+not answer, nothing is filed, everything filed is waiting for a person to
+confirm it, and the confirmed campaigns spent nothing this period --
+because a card that draws the first three as the fourth is a report
+answering zero when it could not look. Every figure is `client_view`'s own,
+so the card and the module's page cannot disagree about a month.
+
+**And the two queues inside the module were where a queue goes unworked.**
+The unmapped list and the pacing board are pages inside a module, which is
+the reason six chase lists moved to `/qa` -- so *Campaigns With No Client*
+and *Lines Pacing Under* are QA reports now, reading the same persisted
+store the module's pages read. A store that will not answer is
+`_unmeasured()`, and a pacing job that has never run is too, because every
+line reading as on pace on the strength of no reading is the confident
+wrong answer. **The CSV parser has a door.** `parsers/audiogo_csv.py`
+was written for AudioGo and reads the ordinary columns every export
+carries, so it is the one reader behind *Upload a CSV* on `/reports/` for
+any platform; the rows go through `store.upsert_rows` like a sync's, the
+watermark says `csv` wrote them because a hand upload is not the feed, and
+the notice names what was written, held and skipped. `test_reports_pages.py`
+asserts all three, on SQLite and again on Postgres.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.
@@ -13300,6 +13588,17 @@ python3 test_sales_status.py       # the pipeline on the dashboard: five signals
 python3 test_knack_map.py          # what is mapped in Knack and what is
                                    #   assumed: read from the owning modules,
                                    #   a confirmation retired when repinned
+python3 test_proposal_promises.py  # what a plan promises every month, month
+                                   #   by month against the work log: landed,
+                                   #   marked, due, missed or not measured,
+                                   #   housekeeping never raised, and a mark
+                                   #   that clears the health issue on read
+python3 test_proposal_kickoff.py   # whose each plan item is, following the
+                                   #   client's owner unless one is named on
+                                   #   the item; the kickoff document built
+                                   #   from the kept plan and counting what
+                                   #   is not; and the client's page at a
+                                   #   stored token, carrying the fields only
 python3 test_io_reconcile.py       # the orders we sent against the campaigns
                                    #   Knack has: a stale source never reads as
                                    #   proof, a row can be settled, and the
@@ -13632,6 +13931,26 @@ python3 test_linkcheck_helpers.py # the URLs linkcheck could not see: a
                                    #   module's own request helper, and
                                    #   sendBeacon; and prose is not a
                                    #   call site
+python3 test_reports_store.py      # the ad-report fact table and what sits beside it
+python3 test_reports_pages.py      # every /reports screen refused and served
+python3 test_reports_ttd.py        # the native Trade Desk pull and the MyReports CSV
+python3 test_reports_google_perf.py # the native Google Ads pull
+python3 test_reports_stackadapt.py # the native StackAdapt pull
+python3 test_reports_audiogo.py    # the config-driven AudioGo pull and its check page
+python3 test_reports_seo.py        # the organic search section for SEO clients
+python3 test_reports_normalize.py  # the provider normalize, provider check and auto-mapper
+python3 test_reports_public.py     # the client's live report page, its link and the spend rule
+python3 test_reports_crossover.py  # the product-level crossover and the forbidden-word sweep
+python3 test_reports_pacing.py     # the pacing board and the cost report
+python3 test_reports_health.py     # feed health drawn three ways, and the day the
+                                   #   figures run through
+python3 test_reports_confirmations.py # a campaign filed from its name waiting for a
+                                   #   person, and a provider map read only once confirmed
+python3 test_reports_quarantine.py # a fact row that cannot be true held, not filed
+python3 test_reports_reconcile.py  # each platform's month against the platform's own
+                                   #   total, independent or re-read, through yesterday
+                                   #   (checks.yml runs all of these a second time
+                                   #   against Postgres, through _reports_testdb.py)
 python3 test_ci_gate.py            # the gate runs every check a person runs
 ```
 

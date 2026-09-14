@@ -19,6 +19,7 @@ so there is nothing to keep in sync and nothing to migrate.
 """
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime, timezone
 
@@ -906,6 +907,80 @@ def brand_guide_payload(client: str, domain: str = "") -> dict:
 # Work log
 # ---------------------------------------------------------------------------
 
+def _work_row(e: dict):
+    """One activity-log entry as a work row -- `(normalized client, row)` --
+    or None where the entry is not work the record can name.
+
+    The one reading of what a work row is. `work_log()` reads it for one
+    client and `work_index()` for the whole log, because two walks over the
+    same entries with their own idea of which key names the client is how the
+    record and the promise schedule come to disagree about whether a blog was
+    written this month.
+    """
+    mod = e.get("module") or ""
+    if mod not in WORK_KINDS:
+        return None
+    # A client can be named under any of several keys depending on the tool.
+    named = ""
+    for key in CLIENT_KEYS:
+        if e.get(key):
+            named = str(e[key])
+            break
+    norm_named = _norm(named) if named else ""
+    if not norm_named:
+        return None
+    label, source = WORK_KINDS[mod]
+    return norm_named, {
+        "when": e.get("time", ""),
+        "kind": label, "source": source, "module": mod,
+        "action": e.get("type", ""),
+        "actor": e.get("actor") or "",
+        "detail": str(e.get("detail") or e.get("title") or "")[:160],
+    }
+
+
+def work_index(limit: int = 6000) -> dict:
+    """Every work row in the newest `limit` activity-log entries, bucketed by
+    normalized client name, read once for a page that asks about the whole
+    book -- `hub/proposal_promises.py` asks which month each client's promises
+    landed in, and one tail of the log per client is fifty reads of one file.
+
+    `horizon` is the oldest entry the read reached. A month before it is one
+    the log cannot answer for -- rotated away, or older than the window -- and
+    a caller that read its absence as "nothing landed" would be reporting a
+    miss about a month nobody looked at. `error` names a log that could not
+    be read, which is a different answer from a log with nothing in it.
+    Never raises.
+    """
+    try:
+        entries = audit.tail(limit=limit)
+    except Exception as exc:                            # noqa: BLE001
+        return {"rows": {}, "horizon": "", "scanned": 0,
+                "error": f"The activity log could not be read ({type(exc).__name__})."}
+    by: dict[str, list] = {}
+    horizon = ""
+    for e in entries:
+        when = str(e.get("time") or "")
+        if when and (not horizon or when < horizon):
+            horizon = when
+        got = _work_row(e)
+        if not got:
+            continue
+        norm, row = got
+        by.setdefault(norm, []).append(row)
+    error = ""
+    if not entries:
+        # tail() answers [] for a file it could not open as well as for an
+        # empty one; a live file with bytes in it and no rows is the first.
+        try:
+            path = audit._path()
+            if os.path.exists(path) and os.path.getsize(path) > 0:
+                error = "The activity log could not be read."
+        except Exception:                               # noqa: BLE001
+            pass
+    return {"rows": by, "horizon": horizon, "scanned": len(entries), "error": error}
+
+
 def work_log(client: str, limit: int = 60, also: list[str] | None = None) -> dict:
     """Everything the Hub has produced for one client, newest first.
 
@@ -928,28 +1003,12 @@ def work_log(client: str, limit: int = 60, also: list[str] | None = None) -> dic
             extra[n] = str(other)
     rows = []
     for e in audit.tail(limit=6000):
-        mod = e.get("module") or ""
-        if mod not in WORK_KINDS:
+        got = _work_row(e)
+        if not got:
             continue
-        # A client can be named under any of several keys depending on the tool.
-        named = ""
-        for key in ("client", "client_name", "company", "business_name", "tool_client"):
-            if e.get(key):
-                named = str(e[key])
-                break
-        norm_named = _norm(named) if named else ""
-        if not norm_named:
-            continue
+        norm_named, row = got
         if norm_named != want and norm_named not in extra:
             continue
-        label, source = WORK_KINDS[mod]
-        row = {
-            "when": e.get("time", ""),
-            "kind": label, "source": source, "module": mod,
-            "action": e.get("type", ""),
-            "actor": e.get("actor") or "",
-            "detail": str(e.get("detail") or e.get("title") or "")[:160],
-        }
         if norm_named != want:
             row["member"] = extra[norm_named]
         rows.append(row)

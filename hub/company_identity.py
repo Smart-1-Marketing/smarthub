@@ -12,7 +12,7 @@ virtual rows carrying the canonical row's URL/domain/metadata and its existing
 client key.
 
 Safety rules:
-* domain/exact-normalised-name evidence may auto-link;
+* domain/exact-normalized-name evidence may auto-link;
 * fuzzy name-only matches need >= .96 and an >= .08 lead over runner-up;
 * .90-.959 needs corroborating domain/email evidence;
 * .82-.899 goes to review;
@@ -358,7 +358,7 @@ def _rank(obs: dict, canonical: list[dict]) -> list[dict]:
             evidence.append("email-domain")
         if normalise(name) == normalise(c["name"]):
             score = 1.0
-            evidence.append("normalised-name")
+            evidence.append("normalized-name")
         ranked.append({**c, "score": round(score, 4), "evidence": evidence})
     ranked.sort(key=lambda x: (-x["score"], x["name"].lower()))
     return ranked
@@ -370,7 +370,7 @@ def _decision(ranked: list[dict]) -> tuple[str, dict | None, float]:
     first = ranked[0]
     second = ranked[1]["score"] if len(ranked) > 1 else 0.0
     margin = first["score"] - second
-    corroborated = bool(set(first.get("evidence") or []) & {"domain", "email-domain", "normalised-name"})
+    corroborated = bool(set(first.get("evidence") or []) & {"domain", "email-domain", "normalized-name"})
     if first["score"] >= _AUTO_NAME and margin >= _MIN_MARGIN:
         return "auto", first, margin
     if first["score"] >= _AUTO_WITH_EVIDENCE and corroborated and margin >= _MIN_MARGIN:

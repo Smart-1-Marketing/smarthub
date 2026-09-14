@@ -41,7 +41,7 @@ from flask import (Flask, Response, jsonify, redirect, render_template,
 
 from hub.webargs import clamp_int
 
-from . import client_pdf, client_view, organic, pacing, products, store
+from . import client_pdf, client_view, organic, pacing, products, quarantine, reconcile, store
 
 try:                                   # the shared last-hop rule for a caller's address
     from hub import leads as hub_leads
@@ -153,6 +153,9 @@ def index():
         "reports_index.html",
         platforms=store.platform_status(),
         unmapped=store.unmapped_count(),
+        pending=store.pending_count(),
+        held=quarantine.counts(),
+        drifting=reconcile.drifting(),
         facts=store.fact_count(),
         binding=store.binding(),
         markups=[m for m in store.markups()
@@ -161,7 +164,35 @@ def index():
         clients=store.clients_with_campaigns(),
         native=_native_status(),
         rate_card=products.rate_card_products(),
+        health=_health_by_platform(),
+        provider=_provider_gate(),
+        error=request.args.get("error", ""), saved=request.args.get("saved", ""),
     )
+
+
+def _provider_gate() -> dict:
+    """Which platforms resolve against the provider schema and are waiting
+    for somebody to confirm the map -- the reason a table that is plainly
+    there has 'Not run yet' beside it. {platform: state} plus a count, or
+    {} when the schema cannot be read: the index must render either way."""
+    try:
+        from . import normalize
+        by = {c["platform"]: c for c in normalize.check_sources()}
+    except Exception:                      # noqa: BLE001
+        return {}
+    waiting = {p: c["confirmation"]["state"] for p, c in by.items()
+               if c["status"] == "resolved" and c["confirmation"]["state"] != "confirmed"}
+    return {"waiting": waiting, "count": len(waiting)}
+
+
+def _health_by_platform() -> dict:
+    """health.feeds() keyed by platform, or {} -- the index must render
+    when the health reading cannot."""
+    try:
+        from . import health
+        return {p["platform"]: p for p in health.feeds()["platforms"]}
+    except Exception:                      # noqa: BLE001
+        return {}
 
 
 NATIVE_PULLS = (("ttd", "ttd"), ("google", "google_ads_perf"),
@@ -196,10 +227,209 @@ def provider_check():
     """
     from . import normalize, provider_map
     tables = normalize.schema_tables()
+    sources = normalize.check_sources(tables)
+    # A sample row under each resolved platform's map: the confirmation is
+    # taken against real values, never against plausible names.
+    samples = {s["platform"]: normalize.sample_row(s["platform"])
+               for s in sources if s["status"] == "resolved"}
     return render_template(
         "reports_provider_check.html",
         schema=provider_map.schema(), tables=tables,
-        sources=normalize.check_sources(tables))
+        sources=sources, samples=samples,
+        error=request.args.get("error", ""), saved=request.args.get("saved", ""))
+
+
+@app.route("/provider-check/confirm", methods=["POST"])
+def provider_confirm():
+    """A person has looked at the sample row under a platform's map and
+    stands behind it. Recorded against the map's fingerprint, so editing
+    the map afterwards retires this rather than carrying it onto columns
+    nobody looked at. Only a RESOLVED map can be confirmed -- confirming a
+    map whose columns are not on the table is confirming nothing."""
+    from . import normalize, provider_map
+    platform = (request.form.get("platform") or "").strip().lower()
+    back = url_for("provider_check")
+    if platform not in provider_map.PLATFORM_SOURCES:
+        return redirect(back + "?error=" + f"Unknown platform {platform!r}.".replace(" ", "+"))
+    src = next(c for c in normalize.check_sources() if c["platform"] == platform)
+    if src["status"] != "resolved":
+        return redirect(back + "?error=" + (
+            f"{src['label']} does not resolve ({src['status'].replace('_', ' ')}), so there is "
+            "nothing to confirm yet.").replace(" ", "+"))
+    row = store.confirm_provider(platform, by=actor_name(),
+                                 fingerprint=provider_map.fingerprint(platform), table=src["table"])
+    _log("provider_map_confirmed", platform=platform, table=src["table"],
+         fingerprint=row["fingerprint"],
+         detail=f"{src['label']}'s provider column map ({src['table']}) confirmed against a "
+                f"sample row; the hourly normalize reads it from the next run")
+    return redirect(back + f"?saved={platform}")
+
+
+@app.route("/provider-check/withdraw", methods=["POST"])
+def provider_withdraw():
+    """Take a confirmation back: the normalize stops reading the platform
+    on its next run and says so on the watermark."""
+    platform = (request.form.get("platform") or "").strip().lower()
+    back = url_for("provider_check")
+    try:
+        gone = store.withdraw_provider(platform)
+    except ValueError as exc:
+        return redirect(back + "?error=" + str(exc).replace(" ", "+"))
+    if gone is None:
+        return redirect(back + "?error=" + f"{store.platform_label(platform)} was not confirmed.".replace(" ", "+"))
+    _log("provider_map_withdrawn", platform=platform,
+         detail=f"{store.platform_label(platform)}'s provider column map confirmation "
+                f"(by {gone['by']}) withdrawn; the normalize stops reading it")
+    return redirect(back + f"?saved={platform}-withdrawn")
+
+
+# --------------------------------------------------------------- reconcile
+@app.route("/reconcile")
+def reconcile_page():
+    """Our month against the platform's own, per platform, as the nightly
+    run last measured it -- and a button to measure now."""
+    rows = store.reconcile_rows(months=3)
+    months = sorted({r["month"] for r in rows}, reverse=True)
+    return render_template(
+        "reports_reconcile.html",
+        rows=rows, months=months, labels=reconcile.STATE_LABELS,
+        tolerance=reconcile.TOLERANCE_PCT, source=reconcile.TOLERANCE_SOURCE,
+        not_measurable=reconcile.NOT_MEASURABLE,
+        error=request.args.get("error", ""), saved=request.args.get("saved", ""))
+
+
+@app.route("/reconcile/run", methods=["POST"])
+def reconcile_run():
+    """Measure now. A POST, because it reaches Google and the platforms:
+    a GET that spends API calls is one a reload or a prefetch fires."""
+    try:
+        res = reconcile.run(actor=actor_name())
+    except Exception as exc:                   # noqa: BLE001
+        app.logger.exception("reports: reconcile run failed")
+        return redirect(url_for("reconcile_page") + "?error="
+                        + f"The reconcile could not run ({type(exc).__name__}).".replace(" ", "+"))
+    _log("reports_reconcile_run",
+         detail=f"reconciled {', '.join(res['months'])}: {res['agree']} agree, {res['drift']} drift, "
+                f"{res['not_measured']} not measured")
+    return redirect(url_for("reconcile_page") + "?saved=run")
+
+
+# -------------------------------------------------------------- quarantine
+@app.route("/quarantine")
+def quarantine_page():
+    """Rows a sync proposed that cannot be true, held for a person: the
+    figures, the rule each broke with the numbers behind it, how many
+    hourly runs have proposed it, and Accept / Discard."""
+    return render_template(
+        "reports_quarantine.html",
+        held=quarantine.held(), decided=quarantine.decided(),
+        rules=quarantine.RULES, source=quarantine.RULES_SOURCE,
+        multiplier=quarantine.SPIKE_MULTIPLIER, baseline_days=quarantine.BASELINE_DAYS,
+        baseline_min_days=quarantine.BASELINE_MIN_DAYS,
+        baseline_min_spend=quarantine.BASELINE_MIN_SPEND,
+        error=request.args.get("error", ""), saved=request.args.get("saved", ""))
+
+
+@app.route("/quarantine/decide", methods=["POST"])
+def quarantine_decide():
+    """Accept writes the held row -- that row -- into the fact table;
+    discard drops it. Either remembers the figures, so the same figure
+    arriving again on the next sync is not raised again."""
+    f = request.form
+    back = url_for("quarantine_page")
+    try:
+        row = quarantine.decide(f.get("platform", ""), f.get("account_id", ""),
+                                f.get("campaign_id", ""), f.get("date", ""),
+                                action=f.get("action", ""), by=actor_name())
+    except ValueError as exc:
+        return redirect(back + "?error=" + str(exc).replace(" ", "+"))
+    _log("quarantine_" + row["status"], platform=row["platform"], campaign_id=row["campaign_id"],
+         day=row["date"], rule=row["rule"],
+         detail=f"{row['platform_label']} campaign {row['campaign_name'] or row['campaign_id']} "
+                f"on {row['date']} ({row['rule_label']}: {row['reason']}) {row['status']}")
+    if row["status"] == "accepted":
+        # The accepted row may be a confirmed campaign's, and the client's
+        # page holds its answer for a quarter of an hour per worker.
+        for m in store.mapped_campaigns(limit=5000):
+            if (m["platform"], m["account_id"], m["campaign_id"]) == \
+                    (row["platform"], row["account_id"], row["campaign_id"]):
+                link = store.link_for_client(m["client"])
+                if link:
+                    client_view.forget(link.token)
+    return redirect(back + f"?saved={row['status']}")
+
+
+# ---------------------------------------------------------------- upload
+# A CSV export is the one feed every platform has, whatever its API does.
+# 20 MB is a year of campaign-days for the biggest account here several
+# times over; a file past it is refused by name rather than read into
+# memory on a worker two gunicorn processes share.
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
+
+@app.route("/upload", methods=["POST"])
+def upload_csv():
+    """A platform's own CSV export, into the fact table, as ``source="csv"``.
+
+    The parser was written for AudioGo and reads the ordinary columns every
+    export carries, so it is the one reader here for every platform; the
+    platform is the form's and is checked before anything lands. The rows
+    go through ``store.upsert_rows`` -- the one door, so a row that cannot
+    be true is held in quarantine rather than filed -- and the watermark
+    says ``csv`` wrote it, because a hand upload is not the sync and the
+    index should not read as though the feed had run. The result is named
+    in the notice: written, held, skipped, all three, because "uploaded" is
+    a claim about the file and the client's page shows what was written.
+    """
+    from datetime import date
+    from urllib.parse import quote
+    from .parsers import audiogo_csv
+    back = url_for("index")
+
+    def refuse(msg: str):
+        return redirect(back + "?error=" + quote(msg))
+
+    try:
+        platform = store.check_platform(request.form.get("platform", ""))
+    except ValueError as exc:
+        return refuse(str(exc))
+    f = request.files.get("file")
+    if f is None or not (f.filename or "").strip():
+        return refuse("Choose a CSV file to upload.")
+    name = (f.filename or "").strip()[:160]
+    data = f.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        return refuse(f"{name} is over {MAX_UPLOAD_BYTES // (1024 * 1024)} MB; "
+                      "split the export by month and upload each part.")
+    parsed = audiogo_csv.parse(data, platform=platform)
+    if parsed["error"]:
+        return refuse(f"{name}: {parsed['error']}")
+    if not parsed["rows"]:
+        return refuse(f"{name} carried no usable row ({parsed['skipped']} skipped for "
+                      "a missing day, account or campaign).")
+    report: dict = {}
+    written = store.upsert_rows(parsed["rows"], report=report, today=date.today())
+    store.record_sync(platform, rows=written, error="", source="csv")
+    # A written row may be a confirmed campaign's, and the client's page
+    # holds its answer for a quarter of an hour per worker.
+    touched = {(r["platform"], r["account_id"], r["campaign_id"]) for r in parsed["rows"]}
+    for m in store.mapped_campaigns(limit=5000):
+        if (m["platform"], m["account_id"], m["campaign_id"]) in touched:
+            link = store.link_for_client(m["client"])
+            if link:
+                client_view.forget(link.token)
+    held = int(report.get("quarantined") or 0)
+    _log("csv_uploaded", platform=platform, filename=name, rows=written,
+         quarantined=held, skipped=int(parsed["skipped"]), size=len(data),
+         detail=f"{store.platform_label(platform)}: {written} campaign-days written from "
+                f"{name}, {held} held in quarantine, {parsed['skipped']} skipped")
+    msg = (f"{name}: {written} campaign-day{'' if written == 1 else 's'} written for "
+           f"{store.platform_label(platform)}")
+    if held:
+        msg += f", {held} held in quarantine for a person to decide"
+    if parsed["skipped"]:
+        msg += f", {parsed['skipped']} skipped for a missing day, account or campaign"
+    return redirect(back + "?saved=" + quote(msg + "."))
 
 
 @app.route("/audiogo-check")
@@ -247,6 +477,7 @@ def unmapped():
     return render_template(
         "reports_unmapped.html",
         rows=store.unmapped_campaigns(days=days, limit=limit),
+        pending=store.pending_mappings(),
         days=days, shape=store.RENAME_SHAPE,
         products=products.catalog(),
         defaults=products.DEFAULT_PRODUCT_FOR_PLATFORM,
@@ -280,6 +511,64 @@ def map_campaign():
                 f"{f.get('campaign_name') or row.campaign_id} mapped to "
                 f"{client_name or client_key}")
     return redirect(url_for("unmapped", saved=row.campaign_id))
+
+
+def _mapping_back(f) -> str:
+    """Where a Confirm / Not theirs press goes back to: the client's own
+    staff page when it was pressed there, the queue otherwise. Read from a
+    form field naming which, never a URL the browser supplied."""
+    if f.get("back") == "client" and f.get("client"):
+        return url_for("client_page", client=f.get("client"))
+    return url_for("unmapped")
+
+
+@app.route("/unmapped/confirm", methods=["POST"])
+def confirm_mapping():
+    """A person stands behind a mapping the auto-mapper proposed. From this
+    press the campaign's rows reach the client's page, its PDF and its
+    data -- store.facts_for() reads confirmed mappings and nothing else."""
+    f = request.form
+    back = _mapping_back(f)
+    try:
+        row = store.confirm_mapping(f.get("platform", ""), f.get("account_id", ""),
+                                    f.get("campaign_id", ""), by=actor_name())
+    except ValueError as exc:
+        return redirect(back + "?error=" + str(exc).replace(" ", "+"))
+    if row is None:
+        return redirect(back + "?error=That+campaign+is+not+mapped.")
+    name = row.client_name or row.client
+    _log("campaign_confirmed", client=name, client_key=row.client,
+         platform=row.platform, campaign_id=row.campaign_id, product=row.product or None,
+         detail=f"{store.platform_label(row.platform)} campaign {row.campaign_id} confirmed "
+                f"as {name}'s ({row.product or 'no product'}); it is on their page from now")
+    return redirect(back + "?saved=confirmed")
+
+
+@app.route("/unmapped/refuse", methods=["POST"])
+def refuse_mapping():
+    """Not theirs: the proposal is deleted, the refusal remembered so the
+    auto-mapper does not re-file the same name under the same client, and
+    the campaign is back on the unmapped queue for a person to file."""
+    f = request.form
+    back = _mapping_back(f)
+    try:
+        gone = store.refuse_mapping(f.get("platform", ""), f.get("account_id", ""),
+                                    f.get("campaign_id", ""), by=actor_name())
+    except ValueError as exc:
+        return redirect(back + "?error=" + str(exc).replace(" ", "+"))
+    if gone is None:
+        return redirect(back + "?error=That+campaign+is+not+mapped.")
+    name = gone["client_name"] or gone["client"]
+    _log("campaign_refused", client=name, client_key=gone["client"],
+         platform=gone["platform"], campaign_id=gone["campaign_id"],
+         product=gone["product"] or None,
+         detail=f"{store.platform_label(gone['platform'])} campaign "
+                f"{gone['campaign_name'] or gone['campaign_id']} is not {name}'s; "
+                f"the auto-mapper's filing was refused and it is back on the unmapped queue")
+    for token in [l.token for l in [store.link_for_client(gone["client"])] if l]:
+        client_view.forget(token)
+    return redirect(url_for("unmapped") + "?saved=refused" if f.get("back") != "client"
+                    else back + "?saved=refused")
 
 
 @app.route("/api/clients")
@@ -567,6 +856,7 @@ def client_page(client):
     link = store.link_for_client(client)
     period = (request.args.get("period") or "mtd")[:12]
     rng = client_view.period_range(period, today)
+    held = quarantine.held_for_client(client)
     return render_template(
         "reports_client.html",
         client=client, client_name=_client_name_for(client),
@@ -576,6 +866,12 @@ def client_page(client):
         period=rng, period_key=period,
         preview=client_view.aggregate(link, period) if link else None,
         campaigns=store.mapped_campaigns_for(client),
+        pending=[m for m in store.mapped_campaigns_for(client) if m.get("pending")],
+        # The notice names three held rows and says how many more there are.
+        # That count is arithmetic the route does, not the template: CodeQL
+        # reads {{ a|b - 3 }} in an HTML file as the filter call (b - 3)(a) and
+        # reports a number being invoked, on every push, for ever.
+        held=held, held_more=max(0, len(held) - 3),
         blank_products=client_view.blank_products(client),
         products=products.catalog(),
         pacing=client_view.pacing(client, today),

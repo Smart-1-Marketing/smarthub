@@ -219,7 +219,7 @@ const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href=
    twenty-two into the first section. */
 /* ---- c360 sections (lifted and driven in node by test_client360_layout.py) ---- */
 const C360_SECTIONS=[
-  {key:'overview', label:'Overview',          match:['products','orders we have sent','smart 1 suite','proposals','client notes','target audience']},
+  {key:'overview', label:'Overview',          match:['products','orders we have sent','ad performance','smart 1 suite','proposals','client notes','target audience']},
   {key:'billing',  label:'Billing',           match:['invoices']},
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
@@ -493,6 +493,14 @@ function render(g,q){
     .map(p=>String(p.io||'').replace(/[^0-9a-z]+/gi,'').toLowerCase())
     .filter(Boolean));
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Orders we have sent</h3><a class="open-link" href="/tools/io/">Open the IO Builder →</a></div><div class="card-b" id="c-orders"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+
+  // ---------- Ad performance ----------
+  // What the Reports module holds for this client: the campaigns filed
+  // under them, this month's spend by platform beside what they are billed,
+  // whether the sold lines are pacing, days held in quarantine, and the
+  // live link. It lived on /reports/client/<key>, reached by knowing the
+  // client's key; the record said nothing about any of it.
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Ad performance {{ help_dot('hub.client360.adperf') if help_dot is defined else '' }}</h3><a class="open-link" href="/reports/">Open Reports →</a></div><div class="card-b" id="c-adperf"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   // ---------- Execution plan ----------
   // What the proposal committed us to -- creative, launch and monthly lists
@@ -4083,6 +4091,7 @@ function loadBrandAndWork(name){
   loadGroup(name);
   loadOwner(name);
   loadOrders(name);
+  loadAdPerformance(name);
   loadPlan(name);
   fetch('/api/client/utm?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderUtm).catch(function(){});
@@ -4146,6 +4155,15 @@ function loadPlan(name){
         if(p.open_questions) todo.push(p.open_questions+' question'+(p.open_questions===1?'':'s')+' open');
         if(p.creative_unassigned) todo.push(p.creative_unassigned+' creative item'
           + (p.creative_unassigned===1?'':'s')+' with no supplier named');
+        /* The monthly promises, month by month, are on the plan; what the
+           record says is whether any is missed or still due this month. A
+           schedule with no launch date to measure from says nothing here --
+           the plan's own line names that gap. */
+        var pr=p.promises||{};
+        if(pr.measured!==false){
+          if(pr.missed) todo.push(pr.missed+' monthly promise'+(pr.missed===1?'':'s')+' missed');
+          if(pr.due) todo.push(pr.due+' due this month');
+        }
         var kept=p.kept||{};
         h+='<tr><td><b>'+esc(p.title||'Proposal')+'</b> <span class="pill neutral">'
           + esc(String(p.state||'').replace(/_/g,' '))+'</span>'
@@ -4163,6 +4181,131 @@ function loadPlan(name){
       var b=document.getElementById('c-plan');
       if(b) b.innerHTML='<div class="empty">The execution plans could not be read. '
         + 'That is not the same as no plan existing.</div>';
+    });
+}
+/* ---- c360 ad performance (lifted and driven in node by test_reports_pages.py) ---- */
+/* Draws /api/client/ad-performance's payload. Pure: takes the payload and the
+   client's name and returns markup, so the test can run it without a
+   browser. Four kinds of nothing are drawn apart -- the store would not
+   answer, nothing is filed, everything filed is waiting for a person, and
+   the confirmed campaigns spent nothing this period -- because a card that
+   draws the first three as the fourth is a report answering zero when it
+   could not look. Nothing here is a figure the card computed: every number
+   is the server's, and the server's is client_view's, so the card and the
+   Reports page cannot disagree about a client's month. */
+function adMoney(v){
+  var n=Number(v);
+  if(!isFinite(n)) return '—';
+  return '$'+n.toLocaleString(undefined,{maximumFractionDigits:0});
+}
+function adInt(v){ var n=Number(v); return isFinite(n)?n.toLocaleString():'—'; }
+function renderAdPerformance(d,name){
+  if(!d||d.measured===false){
+    return '<div class="empty">The ad-performance store could not be read'
+      + (d&&d.error?' &mdash; '+esc(d.error):'')
+      + '. That is not the same as no campaign running for this client.</div>';
+  }
+  var c=d.campaigns||{};
+  var unmapped=esc(d.unmapped_url||'/reports/unmapped');
+  var staff=esc(d.staff_url||'/reports/');
+  var open='<div class="muted" style="margin-top:8px;font-size:12.5px"><a href="'+staff+'">Open this client in Reports &rarr;</a></div>';
+  if(d.state==='no_campaigns'){
+    var lines=Number(d.budget_lines||0);
+    return '<div class="empty">No advertising campaign is filed under this client in Reports'
+      + (lines?', and '+lines+' budget line'+(lines===1?' is':'s are')+' set up waiting on one to pace against':'')
+      + '. A campaign is filed on <a href="'+unmapped+'">the unmapped queue</a>, or files itself '
+      + 'when it is named <code>S1M | &lt;ClientKey&gt; | &lt;Product&gt; | &hellip;</code> in the platform '
+      + 'and a person confirms it.</div>'+open;
+  }
+  if(d.state==='all_pending'){
+    var pn=Number(c.pending||0);
+    return '<div class="empty">'+pn+' campaign'+(pn===1?' is':'s are')+' filed under this client from '
+      + 'the campaign name and waiting for a person to confirm the filing. Nothing reaches this card '
+      + 'or the client\'s page until then. <a href="'+unmapped+'">Confirm on the unmapped queue</a>.</div>'+open;
+  }
+  var per=d.period||{};
+  var h='<div class="muted" style="font-size:12.5px;margin-bottom:8px">'+esc(per.label||'This month')
+    + ' &middot; '+Number(c.confirmed||0)+' confirmed campaign'+(Number(c.confirmed)===1?'':'s')
+    + (c.platforms&&c.platforms.length?' on '+esc(c.platforms.join(', ')):'')
+    + (c.pending?' &middot; <a href="'+unmapped+'">'+c.pending+' more waiting for confirmation</a>':'')
+    + '</div>';
+  if(d.state==='nothing_this_period'){
+    h+='<div class="empty">No spend is recorded for '+esc(per.label||'this period')
+      + ' on the confirmed campaigns yet.</div>';
+  }else{
+    h+='<table><thead><tr><th>Platform</th><th>Spend</th><th>Impressions</th><th>Clicks</th>'
+      + '<th>CTR</th><th>Billed</th></tr></thead><tbody>';
+    (d.totals||[]).forEach(function(t){
+      h+='<tr><td>'+esc(t.label||t.platform)+'</td><td>'+adMoney(t.raw_spend)+'</td>'
+        + '<td>'+adInt(t.impressions)+'</td><td>'+adInt(t.clicks)+'</td>'
+        + '<td>'+(t.ctr==null?'—':Number(t.ctr).toFixed(2)+'%')+'</td>'
+        + '<td>'+(t.client_price==null
+            ?'<span class="muted" title="No markup or CPM is set for this platform, so there is no billed figure to show">not priced</span>'
+            :adMoney(t.client_price))+'</td></tr>';
+    });
+    h+='<tr><td><b>Total</b></td><td><b>'+adMoney(d.spend_total)+'</b></td><td></td><td></td><td></td>'
+      + '<td><b>'+(d.billed_total==null?'—':adMoney(d.billed_total))+'</b></td></tr></tbody></table>';
+  }
+  /* The sold lines against the month, from the pacing board's own rows. */
+  if(d.pacing&&d.pacing.length){
+    h+='<div style="margin-top:10px;font-size:12.5px"><b>Pacing</b> ';
+    d.pacing.forEach(function(p){
+      var cls=p.band==='on'?'ok':(p.band==='under'||p.band==='stalled')?'bad':'warn';
+      var txt=(p.product||p.platform_label||'line')+': '+(p.band_label||p.band)
+        + (p.pace!=null?' '+Number(p.pace).toFixed(2)+'×':'')
+        + (p.alert?' for '+p.trend_days+' days':'')
+        + (p.band==='unmapped'&&p.pending_campaigns?' ('+p.pending_campaigns+' waiting for confirmation)':'');
+      var title=adMoney(p.spent)+' spent of '+adMoney(p.expected)+' expected by now; '
+        + adMoney(p.monthly_budget)+' a month; '+p.days_remaining+' days left';
+      h+='<span class="pill '+cls+'" title="'+esc(title)+'">'+esc(txt)+'</span> ';
+    });
+    h+='<a href="'+esc(d.pacing_url||'/reports/pacing')+'">board &rarr;</a></div>';
+  }
+  /* A day held in quarantine is a day missing from the figures above. */
+  if(d.held===null||d.held===undefined){
+    h+='<div class="muted" style="margin-top:6px;font-size:12px">Quarantine could not be read, so '
+      + 'whether a day is held out of these figures is not measured.</div>';
+  }else if(d.held){
+    h+='<div class="muted" style="margin-top:6px;font-size:12px"><span class="pill warn">'+d.held
+      + ' day'+(d.held===1?'':'s')+' held in quarantine</span> and missing from the figures above '
+      + '&mdash; <a href="/reports/quarantine">decide them</a>.</div>';
+  }
+  /* A feed that is not current explains a low figure better than the figure does. */
+  if(d.feeds===null||d.feeds===undefined){
+    h+='<div class="muted" style="margin-top:6px;font-size:12px">Feed health could not be read.</div>';
+  }else if(d.feeds.length){
+    h+='<div style="margin-top:6px;font-size:12px">'+d.feeds.map(function(f){
+      return '<span class="pill warn" title="'+esc(f.detail||'')+'">'+esc(f.label)+' feed '
+        + esc(f.state_label||f.state)+'</span>';
+    }).join(' ')+' <span class="muted">&mdash; the figures stop where the feed did.</span></div>';
+  }
+  if(d.link){
+    var v=Number(d.link.views||0);
+    h+='<div class="muted" style="margin-top:8px;font-size:12.5px">Client link: '
+      + (v?'opened '+v+' time'+(v===1?'':'s')+(d.link.last_viewed_at?', last on '+esc(String(d.link.last_viewed_at).slice(0,10)):''):'never opened')
+      + (d.link.show_spend?'':' &middot; delivery only, no spend shown')
+      + ' &middot; <a href="'+esc(d.link.url)+'" target="_blank" rel="noopener">open</a></div>';
+  }else{
+    h+='<div class="muted" style="margin-top:8px;font-size:12.5px">No live client link yet &mdash; '
+      + '<a href="'+staff+'">create one in Reports</a>.</div>';
+  }
+  return h+open;
+}
+/* ---- end c360 ad performance ---- */
+function loadAdPerformance(name){
+  var box=document.getElementById('c-adperf');
+  if(!box) return;
+  if(!name){box.innerHTML='<div class="empty">No client selected.</div>';return;}
+  fetch('/api/client/ad-performance?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      box=document.getElementById('c-adperf');
+      if(box) box.innerHTML=renderAdPerformance(d,name);
+    })
+    .catch(function(){
+      var b=document.getElementById('c-adperf');
+      if(b) b.innerHTML='<div class="empty">The ad-performance store could not be read. '
+        + 'That is not the same as no campaign running for this client.</div>';
     });
 }
 function loadOrders(name){

@@ -39,7 +39,8 @@ TMP = tempfile.mkdtemp(prefix="s1reports_ttd_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["AUDIT_LOG_PATH"] = os.path.join(TMP, "audit.jsonl")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "hub.sqlite3")
-os.environ["REPORTS_DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "reports.sqlite3")
+import _reports_testdb                                               # noqa: E402
+REPORTS_DB = _reports_testdb.bind(TMP)
 os.environ["REPORTS_PROVIDER_SCHEMA"] = ""
 os.environ["SECRET_KEY"] = "reports-ttd-test"
 for k in ("TTD_API_TOKEN", "TTD_PARTNER_ID", "TTD_REPORT_TEMPLATE_ID", "TTD_API_BASE"):
@@ -64,6 +65,7 @@ def section(title):
 
 
 from modules.reports import normalize, store, ttd                    # noqa: E402
+_reports_testdb.reset(store)
 from modules.reports.parsers import ttd_myreports                   # noqa: E402
 
 TOKEN = "sekrit-long-lived-token-9f8e7d"
