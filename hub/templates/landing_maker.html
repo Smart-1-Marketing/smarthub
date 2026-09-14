@@ -572,7 +572,7 @@ function lpLoad(){
       d.pages.forEach(function(p){ LP_ROWS[p.id] = p; });
       $('lpList').innerHTML =
         '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
-        '<thead><tr>'+['For','Campaign','Headline','Style','Built','Opens',''].map(function(h){
+        '<thead><tr>'+['For','Campaign','Headline','Style','Built','Opens','Rate',''].map(function(h){
           return '<th style="text-align:left;padding:6px;font-size:11px;color:#94a3b8;'+
                  'text-transform:uppercase;letter-spacing:.5px">'+h+'</th>';}).join('')+
         '</tr></thead><tbody>'+
@@ -617,6 +617,14 @@ function lpLoad(){
                         (p.views.phone ? '<span class="muted" style="font-size:11px"> · '+
                            Number(p.views.phone)+' phone</span>' : '')
                       : '<span class="muted">—</span>'))+'</td>'+
+            /* The number Tier 2 made computable, and the four states that
+               are not a percentage. Every one of them prints its own
+               sentence on hover rather than a bare figure: a rate somebody
+               repeats to a client has to be one they can see the workings
+               of. hub/landing_views.conversion() decides; this draws. */
+            '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;white-space:nowrap"'+
+              ' title="'+esc((p.conversion||{}).line||'')+'">'+
+              rateCell(p.conversion||{})+'</td>'+
             '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;text-align:right;white-space:nowrap">'+
               '<a class="btn-ghost" href="/sales/landing/p/'+esc(p.slug)+'" target="_blank">Open</a> '+
               (p.url ? '<button class="btn-ghost" onclick="lpCopy(this,\''+esc(p.url)+'\')">Copy link</button> ' : '')+
@@ -695,6 +703,21 @@ function opensTitle(v, days){
   }
   if(v.last) out += ' · last ' + String(v.last).replace('T',' ').slice(0,16);
   return out + '. Staff previews, link scanners and reloads are not counted.';
+}
+
+/* Five states, one of them a percentage. Drawn apart because they are five
+   different things to do: nothing to see yet, not enough to judge, a real
+   rate, a denominator we know is wrong, and a reading that never happened.
+   Folding any of them into "0%" would be a page reading as a failure when
+   nobody has opened it. */
+function rateCell(c){
+  if(c.measured === false) return '<span class="muted" style="font-size:11px">not measured</span>';
+  if(c.state === 'none_yet') return '<span class="muted">—</span>';
+  if(c.state === 'too_early')
+    return '<span class="muted" style="font-size:11px">too early</span>';
+  if(c.state === 'over')
+    return '<span style="font-size:11px;color:#9a6700">opens undercounted</span>';
+  return '<b>'+Number(c.rate)+'%</b>';
 }
 
 /* --- what is still open on a page -------------------------------------

@@ -751,6 +751,83 @@ def _picks_for_revision(row: dict, brief: dict, benefits: int) -> tuple[dict, st
         " This page predates stored photography, so the pictures were chosen "
         "again — from now on a rewrite will keep them.")
 
+
+def _lead_counts(slugs, firsts: dict) -> tuple[dict, dict, bool]:
+    """Leads per page, split at the first open each page recorded.
+
+    One pass over the lead store for the whole page of rows, not one read
+    per row: `leads._read_all()` walks the file, and `listing()` draws up to
+    three hundred.
+
+    The split is what makes the rate honest. Opens have only been counted
+    since `hub/landing_views.py` shipped, so a page that ran a campaign
+    before then carries leads with no visits behind them -- counted into the
+    numerator they would read as converting several hundred per cent, and
+    dropped they would vanish from a screen somebody is using to judge the
+    page. They are counted apart, and `landing_views.conversion()` names
+    them.
+
+    Returns `(after, before, measured)`. A lead store that will not answer is
+    **not measured**, never a page of noughts: "nobody filled the form in"
+    and "we could not look" send somebody to opposite conclusions about a
+    campaign they are paying for.
+    """
+    from datetime import datetime, timezone
+
+    def _at(value: str):
+        """One reading of a timestamp, because these come from two stores.
+
+        `hub/leads.py` writes `...+00:00` to the second and
+        `hub/landing_views.py` writes a naive UTC stamp with microseconds.
+        Compared as STRINGS -- which the first version of this did -- "+"
+        sorts before ".", so every lead landed on the wrong side of the
+        split and every page read as having taken all its leads before
+        counting began. Both screens stayed internally consistent and the
+        only symptom was a rate that never arrived.
+        """
+        try:
+            dt = datetime.fromisoformat(str(value or ""))
+        except ValueError:
+            return None
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+    want = {str(s or "") for s in (slugs or []) if s}
+    after = {s: 0 for s in want}
+    before = {s: 0 for s in want}
+    if not want:
+        return after, before, True
+    try:
+        from hub import leads as _leads
+        rows = _leads._read_all()
+    except Exception:                                       # noqa: BLE001
+        return after, before, False
+    for r in rows:
+        if r.get("merged_into"):
+            # A row merged into another is not a second lead -- the rule
+            # `leads.listing()` already applies, read from the other end.
+            continue
+        page = str(r.get("page") or "")
+        if page not in want:
+            continue
+        first = _at(firsts.get(page))
+        # Floored to the second, because `hub/leads.py` stamps to the second
+        # and `hub/landing_views.py` keeps microseconds: compared at the
+        # finer store's precision, a lead captured in the SAME second as the
+        # page's first open reads as having come before it. That is
+        # precision the coarser store does not have, and claiming it puts a
+        # real lead on the wrong side of the split.
+        if first:
+            first = first.replace(microsecond=0)
+        created = _at(r.get("created"))
+        # No open recorded at all, a stamp neither store could parse, or a
+        # lead older than the first open: all of them are leads this page
+        # took outside anything we counted.
+        if first and created and created >= first:
+            after[page] += 1
+        else:
+            before[page] += 1
+    return after, before, True
+
 def _endpoints(slug: str) -> tuple[str, str]:
     """Where a built page posts its leads, and where it reports being read.
 
@@ -1179,11 +1256,21 @@ def listing(client: str = "", q: str = "") -> dict:
     # stop spending on the campaign.
     try:
         from hub import landing_views as lv
+        lv_conversion = lv.conversion
         counts = lv.summary_for([r.get("slug") for r in shown])
     except Exception as exc:                                # noqa: BLE001
+        lv_conversion = None
         counts = {"measured": False, "pages": {},
                   "error": f"The visit counts could not be read. ({type(exc).__name__})"}
     seen = counts.get("pages") or {}
+    # The rate the whole of Tier 2 made computable. Joined here rather than
+    # in either store, because it is the one place that already holds both
+    # halves -- and the numerator and the denominator have to cover the same
+    # period or the answer is a wrong number with two right ones either side
+    # of it.
+    _after, _before, _leads_ok = _lead_counts(
+        [r.get("slug") for r in shown],
+        {s: (v or {}).get("first", "") for s, v in seen.items()})
     return {
         # `url` is derived per row rather than stored, so a corrected
         # PUBLIC_BASE_URL reaches every page already built. "" means the Hub
@@ -1202,8 +1289,19 @@ def listing(client: str = "", q: str = "") -> dict:
                    # Absent rather than zero where nothing could be read:
                    # the screen says "not measured" instead of telling a rep
                    # nobody has opened a page that may be doing fine.
-                   "views": (seen.get(r.get("slug")) or {}) if counts.get("measured") else None}
+                   "views": (seen.get(r.get("slug")) or {}) if counts.get("measured") else None,
+                   "conversion": (
+                       lv_conversion(seen.get(r.get("slug")) or {},
+                                     _after.get(r.get("slug"), 0),
+                                     _before.get(r.get("slug"), 0))
+                       if counts.get("measured") and _leads_ok
+                       else {"measured": False, "state": "not_measured",
+                             "line": ("The lead store could not be read, so "
+                                      "there is no rate.") if not _leads_ok
+                                     else ("Opens were not measured, so there "
+                                           "is no rate.")})}
                   for r in shown],
+        "conversion_measured": bool(counts.get("measured") and _leads_ok),
         "views_measured": bool(counts.get("measured")),
         "views_error": counts.get("error", ""),
         "views_recent_days": counts.get("recent_days", 0),

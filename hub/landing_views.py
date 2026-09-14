@@ -208,3 +208,84 @@ def line_for(counts: dict) -> str:
     if phone:
         out += f" · {phone} on a phone"
     return out + "."
+
+
+# How many opens before a percentage means anything. Nobody publishes a
+# figure for this, so it is **ours** and the screen says so -- the rule
+# `services/abcd_service.py` applies to its own house threshold. Under it a
+# page with two opens and one lead would read as converting at fifty per
+# cent, which is a number somebody would repeat to a client.
+MIN_OPENS = 25
+MIN_OPENS_SOURCE = "house"
+
+
+def conversion(counts: dict, leads: int = 0, leads_before: int = 0) -> dict:
+    """What share of the people who opened this page became a lead.
+
+    The number the whole of Tier 2 existed to make computable: before opens
+    were counted this was a ratio with no denominator, and four leads read
+    the same off two hundred visits as off four thousand.
+
+    Five answers, because there are five situations and only one of them is
+    a percentage:
+
+      * **not measured** -- the view table would not answer. A rate of
+        nought over a denominator nobody could read is the confident wrong
+        answer this Hub keeps having to undo.
+      * **nothing yet** -- nobody has opened it. Not a rate of nought:
+        a page nobody has seen has not failed to convert anybody.
+      * **too early** -- fewer than `MIN_OPENS`. The counts are shown and
+        no percentage is, because the percentage would be noise with a
+        decimal point on it.
+      * **over** -- more leads than opens. That is not a page converting
+        above a hundred per cent; it means the opens are undercounted,
+        which happens when a privacy extension or a host's CSP blocks the
+        beacon while the form still posts. Saying so is the only honest
+        reading, and rounding it down to 100% would hide the one state
+        that tells somebody the denominator is wrong.
+      * a **rate**, with the two numbers it came from beside it.
+
+    `leads_before` is the load-bearing one and it is why the numerator is
+    not simply "every lead this page has taken". Opens have only been
+    counted since this shipped, so a page that ran a campaign before then
+    has leads with no visits behind them -- divided by the opens since, it
+    would read as converting several hundred per cent. Those are counted
+    apart and named rather than folded in or dropped.
+    """
+    if not counts:
+        return {"measured": False, "state": "not_measured",
+                "line": "Opens were not measured, so there is no rate."}
+    opens = int(counts.get("views") or 0)
+    leads = max(0, int(leads or 0))
+    earlier = max(0, int(leads_before or 0))
+    out = {"measured": True, "opens": opens, "leads": leads,
+           "leads_before": earlier, "min_opens": MIN_OPENS,
+           "min_opens_source": MIN_OPENS_SOURCE, "rate": None}
+    tail = (f" {earlier} lead{'' if earlier == 1 else 's'} came in before "
+            "opens were counted and are not in this."
+            if earlier else "")
+    if not opens:
+        out["state"] = "none_yet"
+        out["line"] = "Nobody has opened it yet, so there is no rate." + tail
+        return out
+    if leads > opens:
+        out["state"] = "over"
+        out["line"] = (
+            f"{leads} leads from {opens} recorded opens — more leads than "
+            "opens, so the opens are undercounted rather than the page "
+            "converting above 100%. A privacy extension or the host's own "
+            "content policy can block the beacon while the form still "
+            "posts." + tail)
+        return out
+    if opens < MIN_OPENS:
+        out["state"] = "too_early"
+        out["line"] = (
+            f"{leads} from {opens} open{'' if opens == 1 else 's'} — too "
+            f"early to call a rate. Under {MIN_OPENS} opens a percentage is "
+            "noise with a decimal point on it." + tail)
+        return out
+    out["state"] = "measured"
+    out["rate"] = round(leads * 100.0 / opens, 1)
+    out["line"] = (f"{out['rate']}% — {leads} lead"
+                   f"{'' if leads == 1 else 's'} from {opens} opens." + tail)
+    return out

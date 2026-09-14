@@ -1038,6 +1038,115 @@ check("the page is the one from before the last edit, not the one before that",
       (lm.get(_uid) or {}).get("page_html"), "<html>first edit</html>")
 
 
+section("The rate — leads over a denominator that finally exists")
+# The number the visit counting was for. Five answers, and only one of them
+# is a percentage: folding the other four into "0%" is a page reading as a
+# failure when nobody has opened it, or a wrong rate over a denominator
+# nobody could read.
+
+check("no counts at all is not measured, rather than nought per cent",
+      lv.conversion({}, 3)["state"], "not_measured")
+check("and it says so rather than printing a figure",
+      lv.conversion({}, 3).get("rate"), None)
+check("a page nobody has opened has not failed to convert anybody",
+      lv.conversion({"views": 0}, 0)["state"], "none_yet")
+check("and still no rate", lv.conversion({"views": 0}, 0).get("rate"), None)
+
+# Two opens and one lead is not fifty per cent. This is the one that would
+# be repeated to a client.
+check("under the floor there is no percentage",
+      lv.conversion({"views": 2}, 1)["state"], "too_early")
+check("and the counts are still shown",
+      "1 from 2 opens" in lv.conversion({"views": 2}, 1)["line"], True)
+check("the floor is ours and the answer says so",
+      lv.conversion({"views": 2}, 1)["min_opens_source"], "house")
+
+check("at the floor a real rate is computed",
+      lv.conversion({"views": lv.MIN_OPENS}, 5)["rate"],
+      round(500.0 / lv.MIN_OPENS, 1))
+check("and it is stated as a rate", lv.conversion({"views": 40}, 4)["rate"], 10.0)
+check("with the two numbers it came from beside it",
+      "4 leads from 40 opens" in lv.conversion({"views": 40}, 4)["line"], True)
+
+# More leads than opens is a fact about the DENOMINATOR, and rounding it
+# down to 100% hides the one state that says the counting is wrong.
+_over = lv.conversion({"views": 4}, 9)
+check("more leads than opens is not a page converting above 100%",
+      _over["state"], "over")
+check("it is named as the opens being undercounted",
+      "undercounted" in _over["line"], True)
+check("and no rate is printed over it", _over.get("rate"), None)
+
+# Leads taken before opens were ever counted are the load-bearing case: in
+# the numerator they read as several hundred per cent, and dropped they
+# vanish from the screen somebody judges the page on.
+_mixed = lv.conversion({"views": 40}, 4, leads_before=6)
+check("leads from before counting began are not in the rate",
+      _mixed["rate"], 10.0)
+check("and are named rather than dropped",
+      "before opens were counted" in _mixed["line"], True)
+check("the count of them travels with the answer",
+      _mixed["leads_before"], 6)
+
+# The join, driven end to end rather than asserted about: a real lead
+# against a real page, split at that page's own first open.
+import pathlib                                                  # noqa: E402
+from datetime import datetime, timedelta, timezone             # noqa: E402
+
+from hub import leads as _leads                                # noqa: E402
+
+_cb = lm.create(client="Rate Marine", direction="trust",
+                goal="Request a quote", actor="Test")
+_cslug = _cb.get("slug", "")
+# One lead from BEFORE opens were ever counted, and one after. The early one
+# is dated back on disk rather than being captured a moment earlier: this
+# whole file runs inside one second, so wall-clock ordering here would prove
+# nothing about a split whose real cases are days apart -- and the first
+# version of this check did exactly that and passed on the wrong answer.
+_leads.capture("landing", _cslug, {"name": "Early", "email": "e@x.test"})
+_lpath = pathlib.Path(_leads._path())
+_lines = _lpath.read_text().splitlines()
+_back = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat(timespec="seconds")
+for _i, _ln in enumerate(_lines):
+    _r = json.loads(_ln)
+    if _r.get("page") == _cslug:
+        _r["created"] = _back
+        _lines[_i] = json.dumps(_r)
+_lpath.write_text("\n".join(_lines) + "\n")
+
+anon.post(f"/sales/landing/p/{_cslug}/opened",
+          headers={**BROWSER, "X-Forwarded-For": "203.0.113.20"})
+_leads.capture("landing", _cslug, {"name": "Later", "email": "l@x.test"})
+
+with _hub_app.app_context():
+    _CL = lm.listing()
+_crow = next((p for p in _CL["pages"] if p["slug"] == _cslug), {})
+_conv = _crow.get("conversion") or {}
+check("the listing carries a rate per page", _conv.get("measured"), True)
+check("the lead taken after the first open is counted", _conv.get("leads"), 1)
+check("the one taken before it is counted apart",
+      _conv.get("leads_before"), 1)
+check("one open is under the floor, so no percentage is claimed",
+      _conv.get("state"), "too_early")
+check("and the page says the counts were joined",
+      _CL.get("conversion_measured"), True)
+# A lead belonging to another page must never land in this one's numerator.
+_leads.capture("landing", "some-other-page-entirely",
+               {"name": "Elsewhere", "email": "x@x.test"})
+with _hub_app.app_context():
+    _CL2 = lm.listing()
+_conv2 = (next((p for p in _CL2["pages"] if p["slug"] == _cslug), {})
+          .get("conversion") or {})
+check("another page's lead is not in this page's count",
+      _conv2.get("leads"), 1)
+
+check("the table draws a column for it", "'Rate'" in _TEMPLATE, True)
+check("and each state has its own cell rather than one number",
+      "function rateCell(" in _TEMPLATE, True)
+check("a state that is not a rate is never drawn as nought per cent",
+      "0%" in _TEMPLATE.split("function rateCell(")[1].split("}")[0], False)
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")
