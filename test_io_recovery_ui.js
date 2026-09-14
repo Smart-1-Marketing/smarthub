@@ -19,6 +19,17 @@ async function run(){
  vm.runInContext(source.slice(source.indexOf('function esc('),source.indexOf('function editorEmailError(')),c);
  vm.runInContext(source.slice(source.indexOf('function renderPreflight('),source.indexOf('function render(){')),c);
  c.renderPreflight();assert.match(box.innerHTML,/e-client/);assert.match(box.innerHTML,/e-products/);assert.match(box.innerHTML,/e-management-fee/);assert.match(box.innerHTML,/Fee &lt;missing&gt;/);
- console.log('PASS: saved timestamps, browser/account save failures, late draft responses, preserved older drafts, escaped actionable checklist.');
+ // The modal's delayed default focus must not steal the checklist's field focus.
+ const outside={},field={},close={focus(){focusContext.document.activeElement=close}};
+ const pending=[];
+ const focusContext={document:{activeElement:outside},setTimeout:fn=>pending.push(fn)};
+ const modal={setAttribute(){},querySelector:s=>s==='h2,h3'?null:close,contains:e=>e===field||e===close};
+ vm.createContext(focusContext);
+ vm.runInContext(source.slice(source.indexOf('let _lastFocus=null;'),source.indexOf('document.addEventListener("keydown",e=>{',source.indexOf('let _lastFocus=null;'))),focusContext);
+ focusContext.openModalA11y(modal);focusContext.document.activeElement=field;pending.shift()();
+ assert.equal(focusContext.document.activeElement,field);
+ focusContext.document.activeElement=outside;focusContext.openModalA11y(modal);pending.shift()();
+ assert.equal(focusContext.document.activeElement,close);
+ console.log('PASS: draft recovery, actionable checklist, and deliberate modal field focus preserved.');
 }
 run().catch(e=>{console.error(e);process.exitCode=1});
