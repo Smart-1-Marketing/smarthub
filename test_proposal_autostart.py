@@ -283,7 +283,8 @@ r = staff.post("/api/proposal-execution/start-won")
 check("a member of staff can", r.status_code, 200)
 d = r.get_json()
 check("and reads the sweep's own counts", d["ok"] is True and d["result"]["measured"] is True)
-tmpl = open(os.path.join(ROOT, "hub", "templates", "proposal_execution.html"), encoding="utf-8").read()
+with open(os.path.join(ROOT, "hub", "templates", "proposal_execution.html"), encoding="utf-8") as fh:
+    tmpl = fh.read()
 check("the plan page offers the press", "startWon()" in tmpl and "/api/proposal-execution/start-won" in tmpl)
 
 print(f"\n{PASS} passed, {FAIL} failed")
