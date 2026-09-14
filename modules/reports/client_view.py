@@ -401,7 +401,7 @@ def build(link, period: str, today: date | None = None) -> dict:
         "updated": store.iso(synced),
         "updated_et": eastern(synced),
         "data_through": data_through.isoformat() if data_through else None,
-        "data_through_label": f"{data_through:%B %-d}" if data_through else "",
+        "data_through_label": f"{data_through:%B} {data_through.day}" if data_through else "",
         "data_lag_days": lag,
         "data_stale": bool(lag is not None and lag > DATA_STALE_DAYS),
         "logo_url": view.get("logo_url") or _safe("logo", lambda: _client_logo(link), ""),

@@ -3402,6 +3402,8 @@ jobs:
       - name: Ask SmartHub role and tool boundary
         if: matrix.group == 8
         run: python3 test_ask_smarthub.py
+      - name: YouTube Ads workflows
+        run: python3 test_youtube_ads.py
       - name: Local Services Ads setup and reporting
         if: matrix.group == 8
         run: python3 test_ads_local_services.py

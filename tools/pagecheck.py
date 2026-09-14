@@ -77,6 +77,7 @@ NODE = subprocess.run(["node", "--version"],
 # unless it is named — which is why Commercial Builder, a ~4,000-line tool
 # whose storyboard builds scene cards from a <template>, went unchecked.
 HUB_PAGES = [
+    "/tools/youtube-ads/",
     "/", "/client360", "/tools", "/creative", "/qa", "/seo", "/activity",
     "/diagnostics", "/clients", "/status", "/sales/leads",
     "/tools/commercial-builder/",

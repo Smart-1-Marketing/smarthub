@@ -202,12 +202,12 @@ link = store.create_link("n:acme-co", client_name="Acme Co", created_by="Todd")
 agg = client_view.aggregate(link, "mtd", TODAY) if TODAY.day > 1 else client_view.aggregate(link, "90d", TODAY)
 yday = TODAY - timedelta(days=1)
 check("data_through is the newest day with a figure", agg["data_through"], yday.isoformat())
-check("...labeled the way a person says a date", agg["data_through_label"], f"{yday:%B %-d}")
+check("...labeled the way a person says a date", agg["data_through_label"], f"{yday:%B} {yday.day}")
 check("...one day old is not stale", (agg["data_lag_days"], agg["data_stale"]), (1, False))
 check("the threshold is two days", client_view.DATA_STALE_DAYS, 2)
 
 pub = anon.get(f"/reports/r/c/{link.token}?period=90d", headers=H).get_data(as_text=True)
-check("the page prints the through-date under the title", f"figures through {yday:%B %-d}" in pub)
+check("the page prints the through-date under the title", f"figures through {yday:%B} {yday.day}" in pub)
 check("...and no stale note while it is fresh", "still arriving" not in pub)
 
 # A client whose newest row is a week old: the page says so, and so does the PDF.
@@ -221,7 +221,7 @@ old = client_view.aggregate(old_link, "90d", TODAY)
 check("a week-old newest day is stale", (old["data_lag_days"], old["data_stale"]), (7, True))
 pub = anon.get(f"/reports/r/c/{old_link.token}?period=90d", headers=H).get_data(as_text=True)
 check("the page says so in words, naming the day", "the days since are still arriving" in pub
-      and f"Figures run through {(TODAY - timedelta(days=7)):%B %-d}" in pub)
+      and f"Figures run through {(TODAY - timedelta(days=7)):%B} {(TODAY - timedelta(days=7)).day}" in pub)
 check("...naming no platform and no plumbing", not any(w in pub for w in ("sync", "feed", "provider", "Trade Desk")))
 pdf = anon.get(f"/reports/r/c/{old_link.token}.pdf?period=90d", headers=H)
 check("the PDF builds", (pdf.status_code, pdf.mimetype), (200, "application/pdf"))

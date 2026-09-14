@@ -83,6 +83,7 @@
     "widgets": "Scan Widgets",
     "google-access": "Google Access", "utm": "UTM Builder",
     "youtube": "YouTube Studio",
+    "youtube-ads": "YouTube Ads",
     "ad-assets": "Ad Assets",
     "ga-tools": "GA4 Tools", "gtm-tools": "GTM Tools",
     "webmaster-tools": "Webmaster Tools", "gmb-tools": "Business Profile",
