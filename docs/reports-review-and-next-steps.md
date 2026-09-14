@@ -208,15 +208,15 @@ the provider's table once Windsor's connector for it is switched on, or
 the platform's own export through the CSV door. What neither has is a
 **native pull**, and that is the item on this list.
 
-**Microsoft Ads.** `BING_AD_DEVELOPER_TOKEN` is set on Render, and a
-developer token is one of four things the Microsoft Advertising API asks
-for on every call -- the other three are what still has to exist before a
-pull can run. Nothing in the Hub reads that variable yet: Smart 1 Ads
-carries a *phase two* stub (`/api/bing/*` answers "not implemented") and
-nothing else names it. The spelling stays exactly as set -- the
-`hub/config.py` ALIASES rule is only spellings in use, and inventing a
-`BING_ADS_` twin beside it is how thirteen correct modules once became
-findings.
+**Microsoft Ads.** Built -- the four numbered points below are the plan
+it was built to, kept because each names a decision the code now carries
+(`modules/ads_builder/bing_ads.py`, `modules/reports/bing.py`,
+`test_reports_bing.py`). `BING_AD_DEVELOPER_TOKEN` is one of four things
+the Microsoft Advertising API asks for on every call. The spelling stays
+exactly as set -- the `hub/config.py` ALIASES rule is only spellings in
+use, and inventing a `BING_ADS_` twin beside it is how thirteen correct
+modules once became findings. Campaign management (`/api/bing/*`) still
+answers 501, in words that say what is built.
 
 1. **An app registration on the Microsoft identity platform** --
    `BING_AD_CLIENT_ID` and, for a web app, `BING_AD_CLIENT_SECRET`, with a
@@ -329,9 +329,15 @@ under its own name rather than folded into conversions.
 8. ~~File the proposal adapter's link and lines under the module's own key.~~
    Done, with the bounded pricing rule, the pacing alerts on `/my-clients`
    and the cached PDF.
-9. Microsoft Ads native pull -- the developer token and the manager
-   account id and number are set; the app registration and the consent
-   are what is still needed (the section above). About two days.
+9. ~~Microsoft Ads native pull.~~ Done: `modules/ads_builder/bing_ads.py`
+   (the consent, the token, the four headers, Reporting v13 submit/poll/
+   download), `modules/reports/bing.py` (the pull on the StackAdapt shape,
+   CampaignType filing the default product), the Connect card on
+   `/tools/ads/settings`, the eighth OAuth row on `/diagnostics`, and the
+   reconcile's account-report re-read. What is still to do is the first
+   live pull: press Connect with the account that can see the manager,
+   watch `/reports/` after the next six-hourly tick, and correct anything
+   the transcription got wrong (`list_accounts()` names its assumptions).
 10. GroundTruth native pull -- blocked on API access; the CSV door and
     the Windsor table are the routes until then. Sized once the
     document can be read.

@@ -21,8 +21,8 @@ What it holds:
     first;
   * a pull lands rows as platform ttd / source native and stamps the native
     watermark, so the provider normalize then skips ttd for a day;
-  * the scheduler job is registered every six hours and isolates the two
-    platforms.
+  * the scheduler job is registered nightly -- the 3 AM Eastern ledger in
+    hub/report_schedule.py drives it -- and isolates the two platforms.
 """
 import json
 import os
@@ -316,7 +316,7 @@ from hub import scheduler                                            # noqa: E40
 
 check("the job is registered", "reports_native" in scheduler.JOBS)
 every, fn, desc = scheduler.JOBS["reports_native"]
-check("...every six hours", every, 360)
+check("...nightly: the interval the 3 AM Eastern ledger drives", every, 1440)
 check("...as the thin function", fn.__name__, "job_reports_native_pull")
 check("...apart from the provider job", scheduler.JOBS["reports_normalize"][1].__name__, "job_reports_normalize")
 src = (ROOT / "hub" / "scheduler.py").read_text(encoding="utf-8")
@@ -329,7 +329,7 @@ out = fn(Flask("t"))
 check("the job returns the shape the panel reads",
       sorted(out), ["automapped", "errors", "pending", "platforms", "rows", "skipped"])
 check("...with every unconfigured platform skipped cleanly on this deployment's state",
-      sorted(out["skipped"]), ["audiogo", "google", "stackadapt", "ttd"])
+      sorted(out["skipped"]), ["audiogo", "bing", "google", "stackadapt", "ttd"])
 check("...and no errors", out["errors"], {})
 check("...and the automap ran", out["automapped"] >= 0)
 

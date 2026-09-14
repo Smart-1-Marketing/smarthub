@@ -122,6 +122,23 @@ GOOGLE_CHANNEL_PRODUCTS: dict[str, str] = {
     "DISPLAY": "Programmatic Display",
 }
 
+# The same rule for Microsoft Advertising's ``CampaignType``, which the
+# native pull carries on the row as ``channel_type``: Search is the
+# platform's own product and Audience (the Microsoft Audience Network --
+# native and display placements) is a display buy. Shopping,
+# DynamicSearchAds, Hotel and PerformanceMax take the platform default and
+# the mapping row says nobody chose, for the reason above.
+BING_CHANNEL_PRODUCTS: dict[str, str] = {
+    "SEARCH": "Paid Search",
+    "AUDIENCE": "Programmatic Display",
+}
+
+# One reading of which platforms report a channel type this table maps.
+CHANNEL_PRODUCTS: dict[str, dict[str, str]] = {
+    "google": GOOGLE_CHANNEL_PRODUCTS,
+    "bing": BING_CHANNEL_PRODUCTS,
+}
+
 # Vendor and platform names a campaign name is stripped of for its default
 # display name. Longer phrases first so "The Trade Desk" goes before
 # "Trade Desk". Matched case-insensitively on word boundaries.
@@ -232,10 +249,9 @@ def default_for(platform: str, channel: str = "") -> str:
     the channel type's, where the platform reports one this table maps,
     else the platform's. ``channel_decided()`` says which answered."""
     plat = str(platform or "").lower()
-    if plat == "google":
-        hit = GOOGLE_CHANNEL_PRODUCTS.get(str(channel or "").upper())
-        if hit:
-            return hit
+    hit = CHANNEL_PRODUCTS.get(plat, {}).get(str(channel or "").upper())
+    if hit:
+        return hit
     return DEFAULT_PRODUCT_FOR_PLATFORM.get(plat, "")
 
 
@@ -243,8 +259,7 @@ def channel_decided(platform: str, channel: str = "") -> bool:
     """Whether ``default_for(platform, channel)`` answered from the channel
     type rather than the platform default -- what the mapping row records,
     so a filed-from-the-channel product can be told from a guess."""
-    return (str(platform or "").lower() == "google"
-            and str(channel or "").upper() in GOOGLE_CHANNEL_PRODUCTS)
+    return str(channel or "").upper() in CHANNEL_PRODUCTS.get(str(platform or "").lower(), {})
 
 
 def rate_card_products() -> dict:

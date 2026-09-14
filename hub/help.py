@@ -1461,6 +1461,15 @@ REGISTRY: list[Help] = [
        "an API can read it, so a value typed here is a claim and this check is "
        "the only observation \u2014 which is why it is a button: it spends an "
        "operation against the cap a deploy also needs."),
+    _h("ads_builder.settings.bing", "One consent, and the reports module pulls",
+       "Connect signs in to the Microsoft account that can see the manager "
+       "account and keeps its refresh token, the way the Google connection "
+       "does. Nothing here manages a Bing campaign: what the connection "
+       "buys is the native pull on /reports/, nightly at 3 AM Eastern, for every "
+       "advertiser account under the manager. The four variables are read "
+       "under exactly the names set on Render, and a customer id that is "
+       "not digits is refused here by name \u2014 the API answers a wrong id "
+       "with the same bare failure as a bad token."),
     _h("ads_builder.settings.openai", "The key is the deployment\u2019s, not yours",
        "The generator reads OPENAI_API_KEY from this service at call time — the "
        "same key the SEO, FAQ and proposal tools use. This page will never ask "
