@@ -84,5 +84,21 @@ with patch("hub.quotas.record_google") as meter, patch("requests.post", side_eff
         pass
     check("GA4 timeout is attributed", meter.call_args.kwargs, {"module": "unassigned_traffic", "ok": False})
 
+# Attribute the requested analysis without recording tokens or GA4 detail rows.
+import importlib
+diagnostic = importlib.import_module("modules.unassigned_traffic.app")
+with patch.object(diagnostic, "live_analysis", return_value={"ok": True, "days": 30, "unassigned_sessions": 12}), patch("hub.auth.user_from_environ", return_value="QA staff"), patch("hub.audit.log") as activity:
+    response = diagnostic.app.test_client().get("/api/analyze?client=QA")
+    check("successful analysis responds", response.status_code, 200)
+    check("analysis records its module and action", activity.call_args.args, ("unassigned_traffic", "analysis"))
+    check("analysis records its client and actor", activity.call_args.kwargs,
+          {"actor": "QA staff", "client": "QA", "ok": True, "days": 30, "unassigned_sessions": 12})
+with patch.object(diagnostic, "live_analysis", side_effect=requests.Timeout("upstream detail")), patch("hub.auth.user_from_environ", return_value="QA staff"), patch("hub.audit.log") as activity:
+    response = diagnostic.app.test_client().get("/api/analyze?client=QA")
+    check("failed analysis responds", response.status_code, 502)
+    check("failed analysis is attributable", activity.call_args.args, ("unassigned_traffic", "analysis_failed"))
+    check("activity keeps only the error type", activity.call_args.kwargs,
+          {"actor": "QA staff", "client": "QA", "error": "Timeout"})
+
 print(f"\n{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

@@ -15,8 +15,10 @@ from urllib.parse import urlparse
 
 import requests
 from flask import Flask, jsonify, render_template_string, request
+from hub import audit, auth
 
 app = Flask(__name__)
+log = audit.for_module("unassigned_traffic", lambda: auth.user_from_environ(request.environ))
 
 RECOGNIZED_MEDIA = {
     "affiliate", "cpc", "cpm", "cpv", "display", "email", "organic",
@@ -352,8 +354,12 @@ def api_analyze():
         days = 30
     try:
         out = live_analysis(client, domain, days)
+        log("analysis", client=client, ok=bool(out.get("ok")),
+            days=out.get("days", max(7, min(days, 365))),
+            unassigned_sessions=out.get("unassigned_sessions"))
         return jsonify(out), 200 if out.get("ok") else 404
     except Exception as exc:  # noqa: BLE001
+        log("analysis_failed", client=client, error=type(exc).__name__)
         return jsonify({"ok": False, "error": str(exc)[:500]}), 502
 
 

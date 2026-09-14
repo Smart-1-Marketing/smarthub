@@ -32,3 +32,16 @@ Logs filtered for SmartForecast from September 13 through this audit returned bo
 5. Supply pilot identity/content/placement/rollback and CRM test-account choices. Record observed events and reconciliation evidence before closing either gate.
 
 No deployment, production setting, publication, token rotation, CRM write, or client activation was performed during this verification.
+
+## Production recovery addendum — 15:55 UTC
+
+The merge/deploy continuation established additional evidence after the audit above:
+
+- Main commit `a3f34689c50baf28fca31e2ad68d2d794e5aeb25` was live in Render deployment `dep-dak19j0ae00c73emuk6g`, completed at 15:39:17 UTC. Its boot log again confirmed the durable SmartForecast database path. The larger combined review release was still in CI at this checkpoint.
+- Read-only Postgres inspection located the Hub mirror in `smart1sitesdata` (`dpg-d9lp695bedkc73c1ipr0-a`). The `smartforecast/latest-backup.json` snapshot was created at 14:24:57 UTC, mirrored at 15:39:36 UTC, and carried schema version 3 with a matching SQL SHA-256 checksum.
+- That exact production SQL snapshot restored into a disposable local SQLite database. Full integrity check returned `ok`, foreign-key check returned no violations, and every dumped table's row count matched the restored database. Included: 1 site, 13 approved publications, 13 content variants, 1 embed token, 3 engagement events, 36 history rows, and 426 weather snapshots. Temporary backup and recovery files were removed afterward.
+- The snapshot contains 425 real `WeatherAPI` observations (latest at 14:24:57 UTC) and one explicitly labeled demo observation. This proves historical provider activity; a backup does not prove current job freshness.
+- A read-only `pg_locks` query found exactly one granted scheduler advisory lock for the application's stable lock key at the time inspected.
+- The combined release's focused SmartForecast suite passed all 31 tests.
+
+These findings close the missing production mirror/checksum and isolated snapshot-restoration evidence, and establish a single lease holder at the inspection time. Still required: current scheduler results and weather freshness, maintenance freshness, authenticated live mobile/accessibility QA, named/approved HVAC pilot with observation, and CRM test-account reconciliation. A successful backup snapshot alone does not establish the complete scheduled-job outcome or guarantee future recovery cadence.
