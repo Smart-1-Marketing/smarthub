@@ -69,6 +69,7 @@ import re
 import time as _time
 from functools import lru_cache
 
+import requests
 from sqlalchemy import (Column, Date, DateTime, Integer, LargeBinary, String,
                         Text)
 
@@ -746,6 +747,10 @@ def autoclaim() -> dict:
 _IMAGE_URL_RE = re.compile(r"https?://\S+\.(?:png|jpe?g|gif|webp)(?:\?\S*)?", re.I)
 _SCREENSHOT_HOST_RE = re.compile(
     r"https?://(?:www\.)?awesomescreenshot\.com/image/\S+", re.I)
+_OG_IMAGE_RE = re.compile(
+    r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
+    re.I)
+_SCREENSHOT_UA = "Mozilla/5.0 (compatible; Smart1Hub/1.0; +https://smart1-hub.onrender.com)"
 
 
 def _image_urls(text: str) -> list[str]:
@@ -754,6 +759,41 @@ def _image_urls(text: str) -> list[str]:
     # Trailing punctuation a sentence puts after a bare URL is not part of it.
     cleaned = {u.rstrip(").,;:!?") for u in found}
     return sorted(cleaned)[:4]
+
+
+def _resolve_screenshot_url(url: str) -> str:
+    """A share link (`awesomescreenshot.com/image/<id>`) is an HTML viewer
+    page, not the screenshot itself. `hub.ai.vision()` hands the URL straight
+    to OpenAI, which fetches it server-side expecting image bytes back --
+    against a share page it gets HTML instead, and refuses the whole request
+    with HTTP 400. This was invisible until describe_images()'s own
+    AIUnavailable handler started logging, at which point every task in the
+    table was failing on it, silently, for as long as the tool has existed.
+
+    The share page's own preview card publishes the real screenshot as
+    `og:image` -- that is how a link posted in Slack or iMessage renders a
+    thumbnail -- so this reads that tag rather than guessing at the host's
+    CDN layout, which would be a second thing to keep in step with a vendor
+    that owes this codebase nothing.
+
+    A URL that already ends in an image extension needs none of this and is
+    returned unchanged. Anything this cannot resolve -- a network failure, a
+    page carrying no og:image tag -- falls back to the *original* URL rather
+    than dropping the task: still wrong in the way it always was, never
+    worse for having tried.
+    """
+    if _IMAGE_URL_RE.fullmatch(url):
+        return url
+    try:
+        resp = requests.get(url, timeout=10, headers={
+            "User-Agent": _SCREENSHOT_UA, "Accept": "text/html"})
+        resp.raise_for_status()
+        match = _OG_IMAGE_RE.search(resp.text)
+        if match:
+            return match.group(1)
+    except Exception as exc:                            # noqa: BLE001
+        _warn(f"_resolve_screenshot_url({url}) could not read the share page", exc)
+    return url
 
 
 def describe_images(task_id: int) -> dict:
@@ -769,10 +809,11 @@ def describe_images(task_id: int) -> dict:
 
     Idempotent by construction: a task already carrying a `kind=VISION`
     response is skipped, so a repeat sweep costs nothing and nothing is
-    described twice. The image itself is never fetched here either --
-    `hub.ai.vision()` hands the URL straight to OpenAI, which fetches it
-    server-side, so a screenshot host blocked from wherever the Hub happens
-    to be reached from makes no difference to this call.
+    described twice. A bare image URL is never fetched here -- `hub.ai.
+    vision()` hands it straight to OpenAI, which fetches it server-side, so a
+    screenshot host blocked from wherever the Hub happens to be reached from
+    makes no difference to that one. A share-page URL is the one exception:
+    see `_resolve_screenshot_url()` for why it has to be read here first.
     """
     task = QaTask.query.get(int(task_id))
     if task is None:
@@ -782,6 +823,8 @@ def describe_images(task_id: int) -> dict:
         return {"skipped": "no image link in the instructions"}
     if QaResponse.query.filter_by(task_id=task.id, kind=VISION).first():
         return {"skipped": "already described"}
+
+    resolved = [_resolve_screenshot_url(u) for u in urls]
 
     from hub import ai
     try:
@@ -793,7 +836,7 @@ def describe_images(task_id: int) -> dict:
             "something specific. Quote visible text exactly rather than "
             "paraphrasing it. If more than one image was given, describe "
             "each in turn, numbered.",
-            urls, module="qa_tasks", purpose="screenshot_read")
+            resolved, module="qa_tasks", purpose="screenshot_read")
     except ai.AIUnavailable as exc:
         # This is the one exit from this function that costs an attempt and
         # produces nothing anybody can see: no QaResponse row, and idempotency
