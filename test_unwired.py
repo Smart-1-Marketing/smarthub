@@ -129,12 +129,6 @@ ALLOW = {
         "the retired builder's archive is read-only today; its writer is kept "
         "beside the reader rather than half a store being left behind",
     "hub/clients_registry.py:update_house_client": "house client store: the update",
-    "hub/master_identity.py:add_role":
-        "master identity store: additive role update, covered by the identity "
-        "store tests; current onboarding supplies roles through ensure_entity",
-    "hub/master_identity.py:add_relationship":
-        "master identity store: relationship writer paired with relationships; "
-        "covered by identity tests, with no staff relationship editor yet",
 
     # --- computed and reported as a count rather than a list ----------------
     "hub/target_areas.py:dropped_zips":

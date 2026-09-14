@@ -103,3 +103,31 @@ def test_client_alias_rows_share_master_id(monkeypatch, tmp_path):
     again = mi.attach_client_master_ids(rows)
     assert again[0]["master_id"] == "S1-000001"
     assert mi.status()["entities"] == 1
+
+
+def test_role_update_preserves_identity_and_existing_roles(monkeypatch, tmp_path):
+    _isolated_store(monkeypatch, tmp_path)
+    person = mi.ensure_salesperson("Alex", natural_key="staff:42")
+    updated = mi.add_role(person["master_id"], "partner")
+    assert updated["master_id"] == person["master_id"]
+    assert set(updated["roles"]) == {"salesperson", "partner"}
+    assert mi.status()["entities"] == 1
+    with pytest.raises(KeyError):
+        mi.add_role("S1-999999", "partner")
+
+
+def test_relationship_update_is_idempotent_and_rejects_unknown_target(monkeypatch, tmp_path):
+    _isolated_store(monkeypatch, tmp_path)
+    person = mi.ensure_salesperson("Alex", natural_key="staff:42")
+    client = mi.ensure_entity(entity_kind="organization", canonical_name="Acme",
+                              roles=["client"], natural_key="client:acme")
+    first = mi.add_relationship(person["master_id"], "account owner",
+                                client["master_id"], {"source": "review"})
+    updated = mi.add_relationship(person["master_id"], "account owner",
+                                  client["master_id"], {"verified": True})
+    assert updated["id"] == first["id"]
+    assert updated["metadata"] == {"source": "review", "verified": True}
+    assert mi.relationships(client["master_id"]) == [updated]
+    with pytest.raises(KeyError):
+        mi.add_relationship(person["master_id"], "account owner", "S1-999999")
+    assert mi.relationships(person["master_id"]) == [updated]
