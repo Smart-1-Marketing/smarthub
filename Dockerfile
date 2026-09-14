@@ -7,7 +7,7 @@ FROM python:3.12-slim
 # for every tool, to serve a single module. Tourism now builds its PDF with
 # reportlab like the other six landing pages, so the browser is gone.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ghostscript qpdf curl ca-certificates \
+    && apt-get install -y --no-install-recommends ghostscript qpdf curl ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
