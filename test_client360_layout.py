@@ -80,6 +80,7 @@ WANT = {
     "Coming up": "overview",
 
     "Ad performance": "overview",
+    "Google listing": "overview",
     "Smart 1 Suite Account": "overview",
     "Pipeline & leads": "overview",
     "Proposals": "overview",

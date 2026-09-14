@@ -440,6 +440,17 @@ REGISTRY: list[Help] = [
        "pipeline's archive, and cannot be undone. The count is this client's, "
        "not the whole archive's.", step=4,
        selector="[data-tour='client-images']"),
+    _h("hub.client360.places", "Their Google listing, read last night",
+       "The rating and review count Google Places answered for the listing "
+       "somebody confirmed as this client's, with the change over thirty "
+       "days once a reading that old exists. Read once a night and on the "
+       "Refresh press, never on a page load, because each read is billed. "
+       "The Site Health card's rating is what the last audit observed on "
+       "the day it ran; this is what Google said last night, and the two "
+       "are kept apart because they are two dates. Find their listing "
+       "proposes one only when exactly one matches -- the only result, or "
+       "the only result whose website is theirs -- and a person confirms; "
+       "a wrong listing here is somebody else's reviews under their name."),
     _h("hub.client360.adperf", "What their advertising is doing",
        "What the Reports module holds for this client: the campaigns filed "
        "under them, this month's spend by platform beside what they are "

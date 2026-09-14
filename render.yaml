@@ -83,6 +83,8 @@ services:
         sync: false
       - key: BRANDFETCH_API_KEY
         sync: false
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
       # ---- Sites (Simvoly) ----
       - key: SIMVOLY_API_KEY
         sync: false
