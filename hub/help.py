@@ -45,6 +45,9 @@ def _h(*a, **kw) -> Help:
 
 
 REGISTRY: list[Help] = [
+    _h("youtube.studio.workflow", "Connect, review, then publish a client video",
+       "Choose the client and confirm the channel before requesting owner access. Adding a public channel does not authorize changes; its owner must connect through Google. Save and review the video draft, then upload it privately. Editing a draft requires a new approval. Check processing and playback in YouTube before publishing. If an upload has an uncertain result, check YouTube before trying again to avoid a duplicate. Larger files can be uploaded directly in YouTube Studio.",
+       link="/tools/youtube/", link_text="Open YouTube Studio"),
     _h("customer_voices.library.recordings", "Save a customer's voice",
        "Upload clear recordings of one speaker with their permission, or save an existing voice from the connected ElevenLabs account. The Hub stores the voice details for reuse across audio tools; recordings are sent to ElevenLabs for cloning."),
     _h("customer_voices.library.status", "When a voice is ready",

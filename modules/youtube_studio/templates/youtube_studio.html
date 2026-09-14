@@ -3,7 +3,7 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('youtube_studio.static', filename='studio.css') }}">
 <main id="ytStudio" data-csrf="{{ csrf }}">
-  <header class="yt-hero"><div><p class="yt-eyebrow">CLIENT CHANNELS</p><h1>YouTube Studio</h1><p>Connect an account, improve its content, and take a video from draft to published.</p></div><a href="https://studio.youtube.com/" target="_blank" rel="noopener">Open YouTube Studio ↗</a></header>
+  <header class="yt-hero"><div><p class="yt-eyebrow">CLIENT CHANNELS</p><h1>YouTube Studio {{ help_dot('youtube.studio.workflow') if help_dot is defined else '' }}</h1><p>Connect an account, improve its content, and take a video from draft to published.</p></div><a href="https://studio.youtube.com/" target="_blank" rel="noopener">Open YouTube Studio ↗</a></header>
   <form id="clientForm" class="yt-client"><label>Client name<input id="clientName" list="ytClients" value="{{ client }}" required maxlength="200" placeholder="Search Client 360 names"><datalist id="ytClients"></datalist></label><button>Open client</button><a id="client360Link" href="/client360">Client 360</a></form>
   <p id="ytMessage" role="status" aria-live="polite"></p>
   <div id="ytSetup" class="yt-note" hidden></div>
