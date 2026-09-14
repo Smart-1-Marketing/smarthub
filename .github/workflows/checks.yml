@@ -104,6 +104,9 @@ jobs:
           python test_io_template.py
           python test_io_media_mix.py
           node test_io_media_mix.js
+          python test_io_delivery.py
+          python test_io_completion.py
+          node test_io_recovery_ui.js
 
       # The PDF Optimizer is a wrapper around these two, and they were in the
       # Dockerfile and nowhere else -- so the compression the tool exists for
