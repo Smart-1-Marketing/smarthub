@@ -22,7 +22,7 @@ import { enqueue, getJob, listJobs, startWorkerLoop, recoverJobs, startWatchdog 
 import { renderPreview, renderAnimatedPreview, renderOne } from './render';
 import { CampaignConflict, campaignRevision, artworkFingerprint, readCampaign, saveCampaignDocument } from './campaign-state';
 import { captureVersion, versions, changes, comparisonVersions, resolveVersion } from './history';
-import { beginReview, readReview, approveReview, fileUrl } from './review-set';
+import { beginReview, readReview, approveReview, fileUrl, latestReview, recoverReviews } from './review-set';
 import { copySmokeTest } from './ai-health';
 import { buildCampaign, type Submission } from './intake';
 import { loadPlatforms, loadTemplates, acceptPlatforms, renderableSizes } from './registry';
@@ -41,6 +41,7 @@ import { renderDiagnostics } from './diagnostics-page';
 import { scheduleSweep, sweep } from './retention';
 import { deliverProject, latestManifest } from './deliver';
 import { renderProof } from './proof';
+import { clientProofs, createClientProof, getClientProof, recordProofSent, decideClientProof, proofDownload, clientProofHtml, recoverProofDeliveries } from './workflow';
 import { suggestCopy, critiqueCopy } from './copy-approval';
 import { searchPixabay, generateHero } from './imagery';
 import { reworkLogo } from './logo-tools';
@@ -869,6 +870,45 @@ const server = http.createServer(async (req, res) => {
     // Overview ad images must be publicly viewable via their /files paths —
     // covered below by the renders exemption added to the admin gate.
 
+    const frozenProof = url.pathname.match(/^\/client-proof\/([a-f0-9-]{36})(?:\/(decision|download))?$/);
+    if (frozenProof) {
+      const [, token, action] = frozenProof;
+      if(req.method==='GET' && !action) {
+        res.writeHead(200, {'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer'});
+        return res.end(withBase(req,clientProofHtml(getClientProof(OUT,token))));
+      }
+      if(req.method==='GET' && action==='download') {
+        const file=proofDownload(OUT,token);
+        res.writeHead(200,{'content-type':'application/zip','content-disposition':'attachment; filename="approved-display-ads.zip"','cache-control':'private, no-store'});
+        return fs.createReadStream(file).pipe(res);
+      }
+      if(req.method==='POST' && action==='decision') {
+        const body=JSON.parse(await readBody(req,10_000));
+        const result=decideClientProof(OUT,ROOT,projects,token,body);
+        return json(res,200,{status:result.status,download:result.download});
+      }
+      return json(res,405,{error:'Unsupported proof action.'});
+    }
+    const workflowMatch=url.pathname.match(/^\/api\/project\/([\w.-]+)\/workflow$/);
+    if(workflowMatch) {
+      const project=projects.get(workflowMatch[1]);if(!project)return json(res,404,{error:'No such campaign.'});
+      if(req.method==='POST') {
+        const body=JSON.parse(await readBody(req,10_000));
+        const proof=body.action==='sent'
+          ?recordProofSent(OUT,projects,project,body.token,body.messageId)
+          :createClientProof(OUT,ROOT,project,body.reviewId);
+        return json(res,200,{token:proof.token,revision:proof.revision,status:proof.status,proofUrl:'/client-proof/'+proof.token});
+      }
+      if(req.method==='GET') {
+        const proofs=clientProofs(OUT,project.projectId);
+        const latest=proofs[0];
+        const next=latest?.status==='changes-requested'?'Smart 1: update the requested sizes':latest?.status==='sent'?'Client: review the emailed proof':latest?.status==='complete'?'Complete: approved files are ready':'Smart 1: review the sizes and send a proof';
+        return json(res,200,{projectId:project.projectId,requestId:project.requestId,client:project.client,domain:project.domain,campaign:project.projectName,next,
+          events:[{at:project.createdAt,label:'Draft created'},...project.notes.map(note=>({at:note.match(/^\[([^\]]+)\]/)?.[1]||project.updatedAt,label:note.replace(/^\[[^\]]+\]\s*/, '')}))],
+          proofs:proofs.map(p=>({token:p.token,reviewId:p.reviewId,revision:p.revision,createdAt:p.createdAt,status:p.status,sentAt:p.sentAt,decisionAt:p.decisionAt,notes:p.notes,size:p.size,download:p.download,proofUrl:'/client-proof/'+p.token}))});
+      }
+      return json(res,405,{error:'Unsupported workflow action.'});
+    }
     const proofMatch = url.pathname.match(/^\/proof\/([\w-]+)$/);
     if (proofMatch && req.method === 'GET') {
       const requestId = proofMatch[1];
@@ -972,7 +1012,12 @@ const server = http.createServer(async (req, res) => {
       const [, , action, id] = reviewMatch;
       const file = path.join(OUT, 'campaigns', project.requestId + '.json');
       if (action === 'review-set' && req.method === 'POST') return json(res, 202, { id: beginReview(OUT, ROOT, project) });
-      if (action === 'review-set' && req.method === 'GET' && id) return json(res, 200, readReview(OUT, id, project.projectId));
+      if (action === 'review-set' && req.method === 'GET') {
+        const review=id ? readReview(OUT,id,project.projectId) : latestReview(OUT,project.projectId);
+        const current=review && campaignRevision(readCampaign(file))===review.revision;
+        const result=review && {...review,cells:review.cells.map(c=>({...c,approved:Boolean(current && project.approvals?.some(a=>a.conceptId===c.conceptId && a.platform===c.platform && a.size===c.size && a.fileHash===c.fileHash && a.inputHash===c.inputHash))}))};
+        return json(res,200,id?result:{review:result});
+      }
       if (action === 'bulk-approve' && req.method === 'POST') {
         const body = JSON.parse(await readBody(req, 20_000));
         return json(res, 200, approveReview(OUT, ROOT, projects, project, body.id, body.revision, req.headers['x-s1-user'] as string));
@@ -3054,7 +3099,7 @@ const server = http.createServer(async (req, res) => {
     return json(res, 404, { error: `No route for ${route}` });
   } catch (err: any) {
     console.error(`[error] ${route}`, err);
-    return json(res, err instanceof CampaignConflict ? 409 : 500, { error: err?.message ?? 'Internal error' });
+    return json(res, err instanceof CampaignConflict ? 409 : (Number.isInteger(err?.statusCode) && err.statusCode >= 400 && err.statusCode < 500 ? err.statusCode : 500), { error: err?.message ?? 'Internal error' });
   }
 });
 
@@ -3071,6 +3116,8 @@ sharp.cache(false); // rendered buffers are never re-read; caching them only hol
 // Recover anything left mid-render by a prior restart before the loop starts
 // draining, so a Render deploy cannot silently drop a customer's job.
 const recovery = recoverJobs(OUT);
+recoverProofDeliveries(OUT, projects);
+recoverReviews(OUT, ROOT, projects);
 if (recovery.recovered) console.log(`[boot] requeued ${recovery.recovered} job(s) interrupted by the last restart`);
 
 if (process.env.WORKER_MODE !== 'external') startWorkerLoop();

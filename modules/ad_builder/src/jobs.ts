@@ -1,14 +1,6 @@
 /**
- * Job queue.
- *
- * In-memory for now, which is honest about what it is: fine for a single
- * instance, wrong the moment there are two. The plan calls for Render Key Value
- * as the queue, and this module is the seam where that swap happens — nothing
- * outside it knows how jobs are stored.
- *
- * Jobs do not survive a restart. On Render that matters, because a deploy
- * restarts the service, so anything in flight is lost. Persist to Render Key
- * Value or Postgres before this handles customer work.
+ * Single-instance render queue with atomic disk checkpoints. Interrupted jobs
+ * are requeued on startup. Multiple service instances require a shared queue.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -113,7 +105,9 @@ function persist(id: string): void {
   if (!job) return;
   try {
     fs.mkdirSync(jobsDir, { recursive: true });
-    fs.writeFileSync(jobFile(id), JSON.stringify({ job, input }, null, 2));
+    const target=jobFile(id), temp=target+'.'+randomUUID()+'.tmp';
+    try { fs.writeFileSync(temp, JSON.stringify({ job, input }, null, 2)); fs.renameSync(temp,target); }
+    finally { if(fs.existsSync(temp))fs.unlinkSync(temp); }
   } catch (e: any) {
     console.warn(`[jobs] could not persist ${id}: ${e?.message ?? e}`);
   }
@@ -209,7 +203,7 @@ export function enqueue(input: JobInput): Job {
           try {
             const t = getTemplate(c.layoutFamily);
             return m + Object.keys(t.sizes)
-              .filter((s) => (cfg.sizes as any)[s] && (!wanted || wanted.has(s)))
+              .filter((s) => (cfg.sizes as any)[s] && (cfg.sizes as any)[s].enabled !== false && (!wanted || wanted.has(s)))
               .length;
           } catch {
             return m;

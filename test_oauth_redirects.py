@@ -261,6 +261,9 @@ BUILDERS = {
     # a consent screen failing in front of somebody for reasons that have
     # nothing to do with them.
     "ads_grader": ("modules.ads_grader.grading", "redirect_uri"),
+    # Smart 1 Ads' Microsoft Advertising callback: PUBLIC_BASE_URL's origin
+    # plus the mount's own path, read at call time in bing_ads.redirect_uri().
+    "bing_ads": ("modules.ads_builder.bing_ads", "redirect_uri"),
 }
 
 

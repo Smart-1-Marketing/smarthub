@@ -90,8 +90,13 @@ jobs:
       - name: Google Access offline route and OAuth regression tests
         run: python test_google_access_flow.py
 
+      - name: YouTube client access and publishing safeguards
+        run: python test_youtube_studio.py
+
       - name: Client email contact mapping and GHL history
         run: python test_client_email.py
+      - name: Display ad proof email safety and duplicate protection
+        run: python test_ad_proof_email.py
 
       - name: Client 360 proposal-to-IO navigation
         run: node test_client360_proposal_io.js
@@ -2046,8 +2051,19 @@ jobs:
       - name: Background jobs report whether they are working
         run: python3 test_scheduler_health.py
 
+      - name: Nightly reporting and historical imports
+        run: python3 test_reports_nightly.py
+
       # SmartForecast is a stateful public experience: verify lifecycle rules,
       # immutable history, public embeds, and Render disk recovery together.
+      - name: GA4 unassigned traffic diagnostics and usage
+        run: python3 test_unassigned_traffic.py
+
+      - name: Canonical company identity and master links
+        run: |
+          python -m pip install pytest==8.4.2
+          python -m pytest -q tests/test_company_identity.py tests/test_master_identity.py tests/test_master_identity_backfill.py tests/test_master_links.py
+
       - name: SmartForecast lifecycle, storage and embed tests
         run: python3 test_smartforecast.py
 
@@ -2069,12 +2085,23 @@ jobs:
       - name: Weather Trigger Setup campaigns, copy and the public wizard
         run: python3 test_weather_setup.py
 
+      # The Coming up card and the Last activity pill on Client 360: orders
+      # ending, domains renewing, the gap since anything was done -- dates
+      # read never guessed, exact client match, never raises.
+      - name: Client 360 coming-up card and last-activity pill
+        run: python3 test_client360_upcoming.py
+
       # Client 360 pipeline card: the client's own Suite pipelines, counted
       # from raw rows; tri-state on the sub-account token; no token in the
       # answer; paging capped and flagged.
       - name: Client 360 pipeline card
         run: python3 test_client360_pipeline.py
 
+
+      # The Social suggestions card on Client 360: reads the planner's idea
+      # store, keeps its three empties apart, and writes through the planner.
+      - name: Client 360 social suggestions card
+        run: python3 test_client360_social_ideas.py
       # 360 Skills: the per-client skill store (verify-then-activate, masked
       # secrets), the Ecwid hotsheet maths, the Suite email send path, the
       # three blueprints and the gate Client 360 draws its skill cards behind.
@@ -2980,6 +3007,15 @@ jobs:
       # keyless record is counted), pages followed and Progress polled.
       - name: The native StackAdapt pull
         run: python3 test_reports_stackadapt.py
+      # Microsoft Ads: one consent kept the way Google's is, every call
+      # carrying the bearer token, the developer token and the manager
+      # customer id and none of them reaching a result or a log line, ONE
+      # daily campaign report submitted for every account under the
+      # manager and polled inside the StackAdapt budget, pending kept apart
+      # from failed, CampaignType filing a default product, and the
+      # Settings card, callback and disconnect in Smart 1 Ads.
+      - name: The native Microsoft Ads pull and its connection
+        run: python3 test_reports_bing.py
       # AudioGo: the call shaped by audiogo_map.py's placeholders and by
       # nothing else, the check page printing the raw keys an endpoint
       # answered with, a map that does not resolve refused by name, and
@@ -3085,7 +3121,7 @@ jobs:
                    test_reports_seo.py test_reports_ttd.py test_reports_stackadapt.py \
                    test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
                    test_reports_confirmations.py test_reports_quarantine.py \
-                   test_reports_reconcile.py; do
+                   test_reports_reconcile.py test_reports_bing.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1
           done
 

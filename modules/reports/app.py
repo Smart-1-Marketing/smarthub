@@ -197,7 +197,8 @@ def _health_by_platform() -> dict:
 
 
 NATIVE_PULLS = (("ttd", "ttd"), ("google", "google_ads_perf"),
-                ("stackadapt", "stackadapt"), ("audiogo", "audiogo"))
+                ("stackadapt", "stackadapt"), ("audiogo", "audiogo"),
+                ("bing", "bing"))
 
 
 def _native_status() -> list[dict]:

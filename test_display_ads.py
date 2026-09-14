@@ -842,8 +842,8 @@ def test_the_toolbar_appears_in_the_order_the_work_happens():
     check("the render button starts hidden",
           'id="renderAll" style="display:none"' in screen)
     check("and says why it is not there yet", 'id="saveHint"' in screen)
-    check("save is the primary action on arrival",
-          'class="btn primary" id="save"' in screen)
+    check("review is the primary next action after autosaving",
+          'class="btn primary" id="reviewSet"' in screen and "Next: review all sizes" in screen)
     check("one function decides what is on the toolbar",
           "function refreshStage" in screen)
     check("render stays visible and identifies unsaved work",
@@ -853,7 +853,7 @@ def test_the_toolbar_appears_in_the_order_the_work_happens():
     check("the gate lives in saveCampaign, so every door opens it",
           "state.saved = true;\n      refreshStage();" in screen)
     check("an existing saved campaign does not require a redundant write",
-          "state.saved = false;" not in screen and "Saved version loaded" in screen)
+          "state.saved = false;" not in screen and "state.saved = true;" in screen and "state.dirty = false;" in screen)
 
 
 def test_the_render_button_offers_the_four_real_jobs():

@@ -45,6 +45,9 @@ def _h(*a, **kw) -> Help:
 
 
 REGISTRY: list[Help] = [
+    _h("youtube.studio.workflow", "Connect, review, then publish a client video",
+       "Choose the client and confirm the channel before requesting owner access. Adding a public channel does not authorize changes; its owner must connect through Google. Save and review the video draft, then upload it privately. Editing a draft requires a new approval. Check processing and playback in YouTube before publishing. If an upload has an uncertain result, check YouTube before trying again to avoid a duplicate. Larger files can be uploaded directly in YouTube Studio.",
+       link="/tools/youtube/", link_text="Open YouTube Studio"),
     _h("customer_voices.library.recordings", "Save a customer's voice",
        "Upload clear recordings of one speaker with their permission, or save an existing voice from the connected ElevenLabs account. The Hub stores the voice details for reuse across audio tools; recordings are sent to ElevenLabs for cloning."),
     _h("customer_voices.library.status", "When a voice is ready",
@@ -1454,6 +1457,15 @@ REGISTRY: list[Help] = [
        "an API can read it, so a value typed here is a claim and this check is "
        "the only observation \u2014 which is why it is a button: it spends an "
        "operation against the cap a deploy also needs."),
+    _h("ads_builder.settings.bing", "One consent, and the reports module pulls",
+       "Connect signs in to the Microsoft account that can see the manager "
+       "account and keeps its refresh token, the way the Google connection "
+       "does. Nothing here manages a Bing campaign: what the connection "
+       "buys is the native pull on /reports/, nightly at 3 AM Eastern, for every "
+       "advertiser account under the manager. The four variables are read "
+       "under exactly the names set on Render, and a customer id that is "
+       "not digits is refused here by name \u2014 the API answers a wrong id "
+       "with the same bare failure as a bad token."),
     _h("ads_builder.settings.openai", "The key is the deployment\u2019s, not yours",
        "The generator reads OPENAI_API_KEY from this service at call time — the "
        "same key the SEO, FAQ and proposal tools use. This page will never ask "

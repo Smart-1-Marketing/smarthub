@@ -762,11 +762,15 @@ def _write_values(values: list[dict]) -> int:
         if is_postgres():
             from sqlalchemy.dialects.postgresql import insert as pg_insert
             table = AdPerfDaily.__table__
-            for v in values:
-                stmt = pg_insert(table).values(**v)
+            unique = list({tuple(v[k] for k in _FACT_KEY): v for v in values}.values())
+            # One database round trip per batch instead of per campaign-day.
+            # Preserve the former last-row-wins behavior for repeated keys.
+            for offset in range(0, len(unique), 500):
+                batch = unique[offset:offset + 500]
+                stmt = pg_insert(table).values(batch)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=list(_FACT_KEY),
-                    set_={k: stmt.excluded[k] for k in v if k not in _FACT_KEY})
+                    set_={k: stmt.excluded[k] for k in batch[0] if k not in _FACT_KEY})
                 db.execute(stmt)
         else:
             for v in values:

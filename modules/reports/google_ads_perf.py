@@ -26,7 +26,7 @@ from . import store
 
 log = logging.getLogger(__name__)
 
-DAYS = 7
+DAYS = 30
 NOT_CONNECTED = "not connected — Connect Google Ads in /tools/ads/settings"
 
 
@@ -47,7 +47,7 @@ def gaql(start: date, end: date) -> str:
         "SELECT campaign.id, campaign.name, campaign.advertising_channel_type, "
         "segments.date, "
         "metrics.cost_micros, metrics.impressions, metrics.clicks, "
-        "metrics.conversions, metrics.video_views, metrics.video_quartile_p100_rate "
+        "metrics.conversions, metrics.video_trueview_views, metrics.video_quartile_p100_rate "
         "FROM campaign "
         f"WHERE segments.date BETWEEN '{start.isoformat()}' AND '{end.isoformat()}' "
         "AND campaign.status != 'REMOVED'"
@@ -103,7 +103,7 @@ def _facts(account_id: str, rows: list[dict], micros) -> list[dict]:
         if not day or not cid:
             continue
         imps = int(float(m.get("impressions") or 0))
-        views = int(float(m.get("videoViews") or 0))
+        views = int(float(m.get("videoTrueviewViews", m.get("videoViews")) or 0))
         channel = str(c.get("advertisingChannelType") or "").strip().upper()
         fact = {
             "platform": "google", "source": "native", "date": day,

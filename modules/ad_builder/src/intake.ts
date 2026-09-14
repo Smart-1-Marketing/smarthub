@@ -70,6 +70,7 @@ export interface Submission {
   pickedLogoUrl?: string;
   /** Customer overrides, when they edited the discovered values. */
   colorOverrides?: Partial<Brand['colors']>;
+  fontOverrides?: Partial<Brand['fonts']>;
   uploads?: {
     logo?: { publicId?: string; url?: string; name?: string }[];
     image?: { publicId?: string; url?: string; name?: string }[];
@@ -526,8 +527,8 @@ export async function buildCampaign(
     domain: domain || sub.business.toLowerCase().replace(/\W+/g, '-'),
     colors,
     fonts: {
-      headline: pickFont(discovered?.fonts?.headline, 'Montserrat', 'headline', notes),
-      body: pickFont(discovered?.fonts?.body, 'Open Sans', 'body', notes),
+      headline: pickFont(sub.fontOverrides?.headline || discovered?.fonts?.headline, 'Montserrat', 'headline', notes),
+      body: pickFont(sub.fontOverrides?.body || discovered?.fonts?.body, 'Open Sans', 'body', notes),
     },
     logos: { primary: '' },
   };

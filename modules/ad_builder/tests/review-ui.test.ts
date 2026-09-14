@@ -1,0 +1,20 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as vm from 'node:vm';
+test('printing includes the whole set and restores the problem filter afterward',()=>{
+  const html=fs.readFileSync(path.resolve(__dirname,'../public/review.html'),'utf8');
+  let code=html.match(/<script>([\s\S]*?)<\/script>/)![1];
+  const end=code.lastIndexOf('})();');code=code.slice(0,end)+'window.showReview=value=>{review=value;showSheet();};'+code.slice(end);
+  const nodes=new Map<string,any>(),events=new Map<string,()=>void>();
+  const node=(id:string)=>{if(!nodes.has(id))nodes.set(id,{checked:false,disabled:false,innerHTML:''});return nodes.get(id);};
+  const window:any={addEventListener:(name:string,fn:()=>void)=>events.set(name,fn)};
+  vm.runInNewContext(code,{document:{getElementById:node},window,location:{search:''},URLSearchParams,console,encodeURIComponent});
+  node('problems-only').checked=true;
+  const cells=[{conceptId:'A',platform:'google',size:'300x250',status:'pass',qa:[],approved:false},{conceptId:'A',platform:'google',size:'300x600',status:'fail',qa:[],approved:false}];
+  window.showReview({status:'ready',cells});assert.doesNotMatch(node('sheet').innerHTML,/300x250/);assert.equal(node('send-next').disabled,true);
+  events.get('beforeprint')!();assert.match(node('sheet').innerHTML,/300x250/);assert.match(node('sheet').innerHTML,/300x600/);
+  events.get('afterprint')!();assert.equal(node('problems-only').checked,true);assert.doesNotMatch(node('sheet').innerHTML,/300x250/);
+  window.showReview({status:'ready',cells:[{...cells[0],approved:true}]});assert.equal(node('send-next').disabled,false);
+});

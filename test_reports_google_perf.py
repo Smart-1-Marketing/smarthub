@@ -89,7 +89,7 @@ check("it selects the campaign and the day",
       all(f in q for f in ("campaign.id", "campaign.name", "segments.date")))
 check("...and the five metrics",
       all(f in q for f in ("metrics.cost_micros", "metrics.impressions", "metrics.clicks",
-                           "metrics.conversions", "metrics.video_views")))
+                           "metrics.conversions", "metrics.video_trueview_views")))
 check("...the channel type, which tells a YouTube buy from a search one",
       "campaign.advertising_channel_type" in q)
 check("...and the video completion rate, for the completes tile",

@@ -165,6 +165,11 @@ check("who confirmed it is on the record",
 
 picked = brand_template.get("Acme Plumbing")
 check("picked is now True", picked["picked"], True)
+font_pick = brand_template.save("Acme Plumbing", "acmeplumbing.com",
+                                "font_heading", "Inter", actor="jane")
+check("an offered font can be approved for a role", font_pick["ok"], True)
+check("the heading font role is retained", font_pick["template"]["fonts"]["heading"],
+      "Inter")
 
 
 # =====================================================================
@@ -241,6 +246,41 @@ nothing = brand_template.get("Nobody Ltd")
 check("still an honest empty shell", nothing["picked"], False)
 no_client = brand_template.save("", "", "logo", "https://x")
 check("no client named is refused, not a 500", no_client["ok"], False)
+
+# The scan-only case used to stop at the card: even after a rep confirmed the
+# observed logo, every builder and Suite push still saw no brand. A confirmed
+# observation is now authoritative while an unconfirmed one remains a candidate.
+original_observed = client_brand._observed
+client_brand._observed = lambda _domain: {
+    "found": True, "logo_url": "https://nobody.example/site-logo.svg",
+    "colors": [{"hex": "#123456", "type": "observed"}],
+}
+observed_candidate = client_brand.brand_kit("Nobody Ltd", "nobody.example")
+check("an unapproved observed logo is not authoritative",
+      observed_candidate["authoritative"], False)
+confirmed_observed = brand_template.save(
+    "Nobody Ltd", "nobody.example", "logo", "https://nobody.example/site-logo.svg")
+check("the observed candidate can be explicitly approved", confirmed_observed["ok"], True)
+observed_guide = client_brand.brand_guide_payload("Nobody Ltd", "nobody.example")
+check("an approved observed-only logo reaches the shared brand guide",
+      observed_guide["brand_logo_url"], "https://nobody.example/site-logo.svg")
+client_brand._observed = original_observed
+
+many_payload = {
+    "name": "Many Assets Co", "domain": "many.example",
+    "logos": [{"type": "icon", "theme": "light", "formats": [
+        {"src": f"https://many.example/logo-{i}.png", "format": "png",
+         "width": 100 + i, "height": 100}]} for i in range(12)],
+    "colors": [{"hex": f"#{i:06X}", "type": "brand"} for i in range(1, 17)],
+    "fonts": [{"name": f"Font {i}", "type": "body"} for i in range(8)],
+}
+seo.save_brandfetch("many.example", many_payload, client="Many Assets Co")
+many = client_brand.brand_kit("Many Assets Co", "many.example")
+check("the Brand Kit no longer hides logos after the eighth candidate",
+      len(many["logo_tiles"]), 12)
+check("the Brand Kit no longer hides colors after the old palette cap",
+      len(many["palette"]), 16)
+check("the Brand Kit shows every discovered font", len(many["fonts"]), 8)
 
 
 # =====================================================================
