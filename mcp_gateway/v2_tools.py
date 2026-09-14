@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from hub import audit, client_key as hub_client_key, clients_registry, quickbooks
+from mcp_gateway.metadata import READ_ONLY_TOOL_ANNOTATIONS
 
 
 MCP_ACTOR = "SmartHub MCP"
@@ -479,7 +480,7 @@ def register(mcp) -> None:
     if getattr(mcp, "_smarthub_v2_registered", False):
         return
 
-    @mcp.tool()
+    @mcp.tool(title="Explain client identity", annotations=READ_ONLY_TOOL_ANNOTATIONS)
     def explain_client_identity(client_name: str = "", url: str = "") -> dict:
         """Explain SmartHub's canonical client match, key, domain and confidence."""
         ident = resolve_identity(client_name, url)
@@ -487,14 +488,14 @@ def register(mcp) -> None:
                status="ok" if ident.get("known") else "not_found")
         return ident
 
-    @mcp.tool()
+    @mcp.tool(title="Search clients with identity", annotations=READ_ONLY_TOOL_ANNOTATIONS)
     def search_clients_v2(query: str = "", limit: int = 20) -> dict:
         """Search SmartHub's canonical client registry with stable client keys."""
         result = search_registry(query, limit)
         _audit("search_clients_v2", result_count=result.get("count"))
         return result
 
-    @mcp.tool()
+    @mcp.tool(title="Check QuickBooks status", annotations=READ_ONLY_TOOL_ANNOTATIONS)
     def get_quickbooks_status() -> dict:
         """Get sanitized QuickBooks connection health; never returns credentials."""
         result = quickbooks_status()
@@ -502,22 +503,22 @@ def register(mcp) -> None:
                status="ok" if result.get("available") else "unavailable")
         return result
 
-    @mcp.tool()
+    @mcp.tool(title="Get client QuickBooks summary", annotations=READ_ONLY_TOOL_ANNOTATIONS)
     def get_client_quickbooks(client_name: str, invoice_limit: int = 8) -> dict:
         """Get a client's QuickBooks customer, balance and recent invoice data."""
         return client_quickbooks(client_name, invoice_limit)
 
-    @mcp.tool()
+    @mcp.tool(title="Get Google access summary", annotations=READ_ONLY_TOOL_ANNOTATIONS)
     def get_google_access_summary(client_name: str) -> dict:
         """Get recorded GA4/GTM/Search Console access state for a client."""
         return google_access_summary(client_name)
 
-    @mcp.tool()
+    @mcp.tool(title="List client GA4 properties", annotations=READ_ONLY_TOOL_ANNOTATIONS)
     def get_client_ga4_properties(client_name: str) -> dict:
         """List GA4 properties mapped to a canonical SmartHub client."""
         return client_ga4_properties(client_name)
 
-    @mcp.tool()
+    @mcp.tool(title="Get client GA4 summary", annotations=READ_ONLY_TOOL_ANNOTATIONS)
     def get_client_ga4_summary(client_name: str, property_id: str = "",
                                start_date: str = "28daysAgo",
                                end_date: str = "yesterday",
@@ -527,12 +528,12 @@ def register(mcp) -> None:
         return client_ga4_summary(client_name, property_id, start_date, end_date,
                                   compare_start, compare_end)
 
-    @mcp.tool()
+    @mcp.tool(title="List client proposals", annotations=READ_ONLY_TOOL_ANNOTATIONS)
     def get_client_proposals(client_name: str) -> dict:
         """Get saved-builder and uploaded proposal summaries for a client."""
         return client_proposals(client_name)
 
-    @mcp.tool()
+    @mcp.tool(title="List client insertion orders", annotations=READ_ONLY_TOOL_ANNOTATIONS)
     def get_client_insertion_orders(client_name: str, limit: int = 20) -> dict:
         """Get submitted insertion-order summaries for a client."""
         return client_insertion_orders(client_name, limit)

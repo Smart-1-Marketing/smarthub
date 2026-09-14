@@ -26,6 +26,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 
 from hub import audit, knack_data, knack_products
+from mcp_gateway.metadata import READ_ONLY_TOOL_ANNOTATIONS
 
 
 SERVER_NAME = "SmartHub MCP"
@@ -140,7 +141,7 @@ def _not_found(requested: str, suggestions: list[str]) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(title="Search clients", annotations=READ_ONLY_TOOL_ANNOTATIONS)
 def search_clients(query: str = "", limit: int = 20) -> dict:
     """Search SmartHub clients by name across products and website records."""
     limit = max(1, min(int(limit or 20), 50))
@@ -157,7 +158,7 @@ def search_clients(query: str = "", limit: int = 20) -> dict:
     return {"query": query, "count": len(result), "clients": result}
 
 
-@mcp.tool()
+@mcp.tool(title="Get client overview", annotations=READ_ONLY_TOOL_ANNOTATIONS)
 def get_client(client_name: str) -> dict:
     """Get a concise Client 360-style summary for one SmartHub client."""
     resolved, suggestions = _resolve_client(client_name)
@@ -206,7 +207,7 @@ def get_client(client_name: str) -> dict:
     return result
 
 
-@mcp.tool()
+@mcp.tool(title="List client services", annotations=READ_ONLY_TOOL_ANNOTATIONS)
 def get_client_services(client_name: str, include_inactive: bool = False) -> dict:
     """List a client's SmartHub/Knack products with dates, status and billing."""
     resolved, suggestions = _resolve_client(client_name)
@@ -247,7 +248,7 @@ def get_client_services(client_name: str, include_inactive: bool = False) -> dic
     }
 
 
-@mcp.tool()
+@mcp.tool(title="List client websites", annotations=READ_ONLY_TOOL_ANNOTATIONS)
 def get_client_websites(client_name: str) -> dict:
     """List website records SmartHub associates with one client."""
     resolved, suggestions = _resolve_client(client_name)
@@ -280,7 +281,7 @@ def get_client_websites(client_name: str) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(title="Get campaign inventory", annotations=READ_ONLY_TOOL_ANNOTATIONS)
 def get_campaign_inventory(client_name: str, active_only: bool = True) -> dict:
     """Group one client's product rows into campaigns for a quick inventory."""
     resolved, suggestions = _resolve_client(client_name)
@@ -340,7 +341,7 @@ def get_campaign_inventory(client_name: str, active_only: bool = True) -> dict:
     }
 
 
-@mcp.tool()
+@mcp.tool(title="Get MCP activity", annotations=READ_ONLY_TOOL_ANNOTATIONS)
 def get_mcp_activity(limit: int = 50) -> dict:
     """Return recent MCP audit events from SmartHub's append-only activity log."""
     limit = max(1, min(int(limit or 50), 200))
