@@ -12,13 +12,38 @@
 {% endblock %}
 
 {% block body %}
+{% if pending %}
+<div class="s1d-card" style="border-color:#d9a300; margin-bottom:14px">
+  <div class="s1d-cardhead"><h2>This change reaches live client pages</h2>
+    <span class="s1d-muted">Nothing has been saved yet.</span></div>
+  <ul style="margin:8px 0 12px 18px">
+  {% for c in pending %}
+    <li><b>{{ c.label }}</b>: {{ c.before }} &rarr; {{ c.after }} &mdash; read by
+      {{ c.pages|length }} client page{{ '' if c.pages|length == 1 else 's' }} showing Investment
+      ({{ c.pages|map(attribute='client_name')|join(', ') }})</li>
+  {% endfor %}
+  </ul>
+  <p class="s1d-hint">The figure under <i>Investment</i> on each of those pages moves the
+    moment this is saved, with nothing on the page saying it did. A client's own
+    override on their link is unaffected and is not counted here.</p>
+  <form method="post" action="/reports/markup" id="confirmForm">
+    {% for name, value in posted %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+    <input type="hidden" name="confirm" value="1">
+    <div class="row">
+      <button type="submit" class="s1d-btn">Save anyway</button>
+      <a class="s1d-btn ghost" href="/reports/markup">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endif %}
 <form method="post" action="/reports/markup" id="markupForm">
 <div class="s1d-card">
   <div class="s1d-cardhead"><h2>Markup by platform {{ help_dot('reports.markup.columns') if help_dot is defined else '' }}</h2>
     <span class="s1d-muted">Leave both boxes blank to bill at cost.</span></div>
   <div class="s1d-scroll">
   <table class="s1d-t">
-    <thead><tr><th>Platform</th><th>Markup %</th><th>Fixed CPM</th><th>Last set</th></tr></thead>
+    <thead><tr><th>Platform</th><th>Markup %</th><th>Fixed CPM</th><th>Last set</th>
+      <th>Client pages {{ help_dot('reports.markup.pages') if help_dot is defined else '' }}</th></tr></thead>
     <tbody>
     {% for r in rows %}
       <tr data-platform="{{ r.platform }}">
@@ -31,6 +56,10 @@
                    placeholder="e.g. 12.50"></td>
         <td>{% if r.updated_at %}{{ r.updated_by or '—' }} &middot; <time datetime="{{ r.updated_at }}">{{ r.updated_at }}</time>
             {% else %}<span class="s1d-muted">Not set &mdash; billed at cost</span>{% endif %}</td>
+        <td>{% if pages is none %}<span class="s1d-muted">not measured</span>
+            {% else %}{% set pg = pages.get(r.platform) or [] %}
+            {% if pg %}<span title="{{ pg|map(attribute='client_name')|join(', ') }}">{{ pg|length }} showing Investment</span>
+            {% else %}<span class="s1d-muted">none</span>{% endif %}{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>
@@ -43,7 +72,12 @@
   <p class="s1d-hint">Markup is a percentage on the platform's cost: 15 means
     $100 of spend bills as $115. A fixed CPM bills impressions at that rate
     and ignores cost. The two answer the same question, which is why a
-    platform may carry only one.</p>
+    platform may carry only one. A markup above {{ max_pct }}% or a CPM above
+    ${{ cpm_max }} is refused &mdash; no platform publishes a ceiling, so those
+    two are ours, and the ordinary slip (1500 typed for 15) would otherwise
+    reach every client page that reads the rule at once. <i>Client pages</i>
+    counts the live pages showing Investment that read each platform's rule
+    today; a change to one of those is confirmed before it is saved.</p>
 </div>
 </form>
 {% endblock %}

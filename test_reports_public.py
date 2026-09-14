@@ -280,6 +280,44 @@ check("...and it says the current month is to date", b"to date" in pdf)
 agg = client_view.aggregate(store.get_link(link.token), "mtd")
 check("client_pdf.build() takes the aggregate as is", client_pdf.build(agg)[:5], b"%PDF-")
 
+# ---- cached like the page. The PDF used to be rebuilt on every request
+# while the page beside it was served from cache: a client refreshing the
+# download was a reportlab render each time, on a route a stranger can
+# reach with no login. Same key as the aggregate, so it moves when the
+# page moves and never serves numbers the page has stopped showing.
+_real_build = client_pdf.build
+_builds = []
+
+
+def _counting_build(agg):
+    _builds.append(1)
+    return _real_build(agg)
+
+
+client_pdf.build = _counting_build
+try:
+    client_view.forget(link.token)
+    first = anon.get(URL + ".pdf").get_data()
+    second = anon.get(URL + ".pdf").get_data()
+    check("the second request is served from the cache, not rebuilt", len(_builds), 1)
+    check("...byte for byte", first == second)
+    anon.get(URL + ".pdf?period=last_month")
+    check("a different period is its own entry", len(_builds), 2)
+    store.set_markup("ttd", cpm="19.00", updated_by="Todd")
+    anon.get(URL + ".pdf")
+    check("a markup saved on /reports/markup reaches the PDF with no forget(), like the page",
+          len(_builds), 3)
+    store.set_markup("ttd", cpm="18.00", updated_by="Todd")
+    anon.get(URL + ".pdf")
+    client_view.forget(link.token)
+    anon.get(URL + ".pdf")
+    check("forget() drops the PDF with the aggregate", len(_builds), 5)
+    check("client_view.pdf_bytes is what the route reads",
+          client_view.pdf_bytes(store.get_link(link.token), "mtd")[:5], b"%PDF-")
+finally:
+    client_pdf.build = _real_build
+    client_view.forget(link.token)
+
 
 # ------------------------------------------------------- a replaced link
 section("A replaced link")
@@ -412,6 +450,15 @@ check("the public page reads them at once", "Todd Swickard" in html and "mailto:
 r = staff.post(f"/reports/client/{CLIENT}/link", data={
     "action": "save", "link_markup_google": "40", "link_cpm_google": "5"})
 check("both boxes on one platform is refused", "not+both" in r.headers.get("Location", ""))
+r = staff.post(f"/reports/client/{CLIENT}/link", data={
+    "action": "save", "show_spend": "1", "link_markup_google": "1500"})
+check("a per-link markup over the ceiling is refused by name, at the same door as the platform rule",
+      "outside+the+0-300%" in r.headers.get("Location", ""))
+r = staff.post(f"/reports/client/{CLIENT}/link", data={
+    "action": "save", "show_spend": "1", "link_cpm_ttd": "9999"})
+check("...and a per-link CPM over it", "$0-$250" in r.headers.get("Location", ""))
+check("...with the link's settings exactly as they were",
+      store.link_for_client(CLIENT).markups.get("google"), {"markup": "0.4000"})
 check("the settings and the link writes reached the activity log under the client",
       "report_link_settings" in {e.get("type") for e in entries() if e.get("client") == NAME})
 staff.post(f"/reports/client/{CLIENT}/link", data={"action": "regenerate"})

@@ -30,6 +30,16 @@ product and this exact monthly figure is left alone rather than duplicated,
 the same "already existed and were left as-is" shape `utm.py` uses against
 the UTM book.
 
+**Filed under the module's own key.** ``store.resolve_client()`` is the
+reading the Budgets and Client Links screens use, so the link and the lines
+land under the same spelling the auto-mapper files the client's campaigns
+under (``d:acme.com``, or a name key when the registry cannot see the
+client). For a release this adapter filed them under ``run.client`` -- the
+display name -- because the resolver lived in the Flask app and this code
+has no request; every reader that takes a key then found one of the two.
+A link or a line already sitting under the display name is reused, never
+re-minted, and nothing new goes under it.
+
 ``execution_mode="auto"``: nothing here is client-facing copy or a live
 campaign change -- a dashboard link and a budget figure to pace against are
 housekeeping a person reviews on the Reports screens, not a document a
@@ -91,12 +101,38 @@ def run(run, task):
             "against yet. Add one under Budget & flight calendar, then re-run "
             "this task.")
 
-    link = reports_store.link_for_client(run.client)
+    # Filed under the module's own key -- the same reading the Budgets and
+    # Client Links screens use -- so the client's campaigns, their link and
+    # their budget lines sit under one spelling. run.client is the Hub
+    # client name; the registry resolves it to `d:<domain>` where it can
+    # and a name key where it cannot, and either is a key the module's
+    # every reader finds.
+    key, display = reports_store.resolve_client(run.client, "")
+    display = display or run.client
+
+    # A link or a line minted before this resolver existed sits under the
+    # raw display name. It is reused rather than re-minted: a second live
+    # link for one client is the thing create_link() exists to prevent,
+    # and a second line for one product and figure doubles the pacing.
+    # Nothing is moved -- the card and the staff screens read both
+    # spellings -- but nothing new is written under the old one either.
+    # Found by the display name rather than by guessing the old key: the
+    # name is stored on every link and line and is the one field both
+    # spellings share. It also covers a registry that answers differently
+    # between two runs -- Knack down on the retry resolves the client to a
+    # name key, and a link minted under the domain key yesterday must still
+    # be the one reused rather than a second live link under the new key.
+    link = reports_store.link_for_client(key)
+    if link is None:
+        named = reports_store.links_named(display)
+        link = named[0] if named else None
     if link is None:
         link = reports_store.create_link(
-            run.client, client_name=run.client, created_by="proposal-execution")
+            key, client_name=display, created_by="proposal-execution")
 
-    existing = reports_store.budget_lines_for(run.client)
+    existing = reports_store.budget_lines_for(key)
+    seen_ids = {b["id"] for b in existing}
+    existing += [b for b in reports_store.budget_lines_named(display) if b["id"] not in seen_ids]
     # Compared as amounts, not as strings: the stored column is Numeric(12,2)
     # and reads back "500.00" against a freshly-parsed Decimal("500") -- the
     # same figure, two different strings, which would have minted a
@@ -110,7 +146,7 @@ def run(run, task):
             kept.append(product)
             continue
         reports_store.add_budget_line(
-            client=run.client, client_name=run.client, product=product,
+            client=key, client_name=display, product=product,
             monthly_budget=amount, created_by="proposal-execution",
             notes=f"From Proposal Execution run #{run.id}.",
             source={"proposal_execution_run": run.id})
@@ -124,6 +160,11 @@ def run(run, task):
                        "quoted figure" if unpriced else "") + "."),
         "token": link.token,
         "artifact_url": f"/reports/r/c/{link.token}",
+        "client_key": key,
+        # Which spelling the reused link sits under, so a link minted under
+        # the display name before the resolver existed is visible as such
+        # rather than read as this run having filed it under the key.
+        "link_filed_under": link.client,
         "budget_lines_added": created,
         "budget_lines_existing": kept,
         "channels_without_a_figure": unpriced,

@@ -925,6 +925,42 @@ def last_synced_at() -> datetime | None:
 # Per-client reads
 # ---------------------------------------------------------------------------
 
+def resolve_client(name: str, key: str = "") -> tuple[str, str]:
+    """The (key, display name) a row is filed under -- the one reading for
+    every writer, the module's own screens and the proposal adapter alike.
+
+    The picker hands over both. A key typed by hand, or a name with no key
+    beside it, is resolved through the client registry so the row carries
+    the same key every other module's record uses -- and falls back to a
+    name key when the registry cannot see the client, which is a row that
+    still works and is marked as name-backed by its prefix.
+
+    It lives here rather than in app.py because app.py is the Flask app:
+    ``hub/proposal_adapters/reports.py`` mints a link and budget lines from
+    the Proposal Execution queue, with no request in play, and for a
+    release it filed them under the client's display name because the
+    resolver was only reachable through the app. Two spellings of one
+    client in the store is a client whose page reads their campaigns under
+    one and their budget lines under the other.
+    """
+    name = (name or "").strip()
+    key = (key or "").strip()
+    if key and name:
+        return key[:200], name[:300]
+    try:
+        from hub import client_key as ck
+        from hub import clients_registry
+        hit = clients_registry.find_client(name) if name else None
+        if hit:
+            return (ck.client_key(hit.get("name") or name, hit.get("url") or hit.get("domain") or "")
+                    or ck.name_key(name), hit.get("name") or name)
+        if key:
+            return key[:200], (name or ck.key_label(key))[:300]
+        return ck.name_key(name), name
+    except Exception:                  # noqa: BLE001 - registry unavailable
+        return (key or ("n:" + name.lower().replace(" ", "-")))[:200], name[:300]
+
+
 def clients_with_campaigns() -> list[dict]:
     """Every client a campaign is filed under: key, name, campaigns, and
     whether a live link exists. What the staff index lists."""
@@ -996,6 +1032,47 @@ def facts_for(client: str, start: date, end: date) -> list[dict]:
 
 def budget_lines_for(client: str) -> list[dict]:
     return [b for b in budget_lines(limit=5000) if b["client"] == client]
+
+
+def _same_name(a: str, b: str) -> bool:
+    """Two display names for one client: exact on the normalised form, never
+    a substring -- the `hub/client_key.py` rule."""
+    try:
+        from hub.client_key import normalise_name
+        return bool(a) and normalise_name(a) == normalise_name(b)
+    except Exception:                  # noqa: BLE001
+        return bool(a) and str(a).strip().casefold() == str(b).strip().casefold()
+
+
+def links_named(name: str) -> list[ReportLink]:
+    """The live links whose stored display name is this client's, whatever
+    key each sits under. What lets a writer that resolved the client to
+    one key today find the link it minted under another spelling
+    yesterday -- the display name is stored on every link and is the one
+    field the spellings share."""
+    name = _text(name, 300)
+    if not name:
+        return []
+    db = SessionLocal()
+    try:
+        rows = (db.query(ReportLink).filter(ReportLink.enabled.is_(True))
+                  .order_by(ReportLink.id.desc()).all())
+        out = [r for r in rows if _same_name(r.client_name or "", name)]
+        for r in out:
+            db.expunge(r)
+        return out
+    finally:
+        db.close()
+
+
+def budget_lines_named(name: str) -> list[dict]:
+    """Every budget line carrying this client's display name, under
+    whichever key. The dedupe reading for a writer that must not double a
+    line already filed under another spelling."""
+    name = _text(name, 300)
+    if not name:
+        return []
+    return [b for b in budget_lines(limit=5000) if _same_name(b.get("client_name") or "", name)]
 
 
 def mapped_campaigns_for(client: str) -> list[dict]:
@@ -1098,15 +1175,9 @@ def _clean_markups(raw: dict) -> dict:
         if has_m and has_c:
             raise ValueError(f"{platform_label(p)}: set a markup or a fixed CPM, not both")
         if has_m:
-            m = _dec(v["markup"], 4)
-            if m < 0:
-                raise ValueError("A markup cannot be negative")
-            out[p] = {"markup": str(m)}
+            out[p] = {"markup": str(check_markup(v["markup"]))}
         elif has_c:
-            c = _dec(v["cpm"], 2)
-            if c <= 0:
-                raise ValueError("A fixed CPM has to be more than zero")
-            out[p] = {"cpm": str(c)}
+            out[p] = {"cpm": str(check_cpm(v["cpm"]))}
     return out
 
 
@@ -1652,6 +1723,47 @@ def prune_snapshots(keep_days: int = 120) -> int:
 # PlatformMarkup
 # ---------------------------------------------------------------------------
 
+# The range a pricing rule may take, and it is ours: no platform publishes
+# one. A markup is typed as a percentage and stored as a fraction, so "15"
+# mistyped as "1500" is sixteen times cost -- and a platform rule reaches
+# every client page that reads it, live, the moment it is saved. Refused by
+# name rather than saved. 300% is four times cost, well past anything this
+# book has ever carried; $250 is many times the dearest CTV rate on the
+# rate card. A rule that genuinely needs more is a rule somebody should
+# have to widen here, with the reason beside these two lines.
+MARKUP_MAX_PCT = Decimal("300")
+CPM_MAX = Decimal("250")
+BOUNDS_SOURCE = "house"
+
+
+def _plain(d: Decimal) -> str:
+    """A Decimal without trailing zeros or exponent, for a sentence."""
+    return f"{d.normalize():f}"
+
+
+def check_markup(fraction) -> Decimal:
+    """The stored fraction, or a refusal naming the ceiling. One door for
+    the platform rule, the per-link override and the percent box."""
+    m = _dec(fraction, 4)
+    if m < 0:
+        raise ValueError("A markup cannot be negative")
+    if m * 100 > MARKUP_MAX_PCT:
+        raise ValueError(f"A markup of {_plain(m * 100)}% is outside the 0-"
+                         f"{_plain(MARKUP_MAX_PCT)}% this Hub accepts; 15 means 15%")
+    return m
+
+
+def check_cpm(value) -> Decimal:
+    """The stored CPM in dollars, or a refusal naming the ceiling."""
+    c = _dec(value, 2)
+    if c <= 0:
+        raise ValueError("A fixed CPM has to be more than zero")
+    if c > CPM_MAX:
+        raise ValueError(f"A fixed CPM of ${c:,.2f} is outside the $0-${_plain(CPM_MAX)} "
+                         "this Hub accepts")
+    return c
+
+
 def set_markup(platform: str, *, markup=None, cpm=None, updated_by: str = "") -> PlatformMarkup:
     """Exactly one of ``markup`` (a fraction, 0.15 for 15%) or ``cpm``.
 
@@ -1667,12 +1779,8 @@ def set_markup(platform: str, *, markup=None, cpm=None, updated_by: str = "") ->
                          "CPM, not both")
     if not has_markup and not has_cpm:
         raise ValueError(f"{platform_label(platform)}: set a markup or a fixed CPM")
-    m = _dec(markup, 4) if has_markup else None
-    c = _dec(cpm, 2) if has_cpm else None
-    if m is not None and m < 0:
-        raise ValueError("A markup cannot be negative")
-    if c is not None and c <= 0:
-        raise ValueError("A fixed CPM has to be more than zero")
+    m = check_markup(markup) if has_markup else None
+    c = check_cpm(cpm) if has_cpm else None
     db = SessionLocal()
     try:
         row = db.get(PlatformMarkup, platform)
@@ -1693,7 +1801,7 @@ def set_markup(platform: str, *, markup=None, cpm=None, updated_by: str = "") ->
 def markup_from_percent(pct) -> Decimal:
     """The fraction the column stores, from the percentage the screen asks
     for: "15" and "15.5" become 0.1500 and 0.1550."""
-    return (_dec(pct, 4) / 100).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    return check_markup((_dec(pct, 4) / 100).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP))
 
 
 def clear_markup(platform: str) -> bool:
@@ -1889,6 +1997,44 @@ def withdraw_provider(platform: str) -> dict | None:
         return out
     finally:
         db.close()
+
+
+def pages_on_platform_rule() -> dict[str, list[dict]]:
+    """``{platform: [{client, client_name, token}]}`` -- the live client
+    pages whose Investment figure for that platform reads the PLATFORM
+    rule: an enabled link showing Investment, at least one confirmed
+    campaign on that platform filed under its client, and no override of
+    its own for the platform. What a change on /reports/markup reaches,
+    said before it is saved rather than discovered on a client's page.
+
+    Every platform is a key, so a caller can ask about one that no page
+    reads and get an empty list rather than a KeyError. Never raises past
+    the store: a count that cannot be taken is a count of nothing, and the
+    caller decides whether that is grounds to refuse a save."""
+    db = SessionLocal()
+    try:
+        links = db.query(ReportLink).filter(ReportLink.enabled.is_(True)).all()
+        plats = (db.query(CampaignMap.client, CampaignMap.platform)
+                   .filter(CampaignMap.confirmed_at.isnot(None)).distinct().all())
+        rows = [(l.client, l.client_name or "", l.token, bool(l.show_spend),
+                 l.markup_json if isinstance(l.markup_json, dict) else {}) for l in links]
+    finally:
+        db.close()
+    by_client: dict[str, set] = {}
+    for c, p in plats:
+        by_client.setdefault(c, set()).add(p)
+    out: dict[str, list[dict]] = {p: [] for p in PLATFORMS}
+    for client, cname, token, show_spend, own in rows:
+        if not show_spend:
+            continue
+        for p in sorted(by_client.get(client) or ()):
+            rule = own.get(p) if isinstance(own, dict) else None
+            if isinstance(rule, dict) and (rule.get("markup") not in (None, "")
+                                           or rule.get("cpm") not in (None, "")):
+                continue
+            out.setdefault(p, []).append({"client": client, "client_name": cname or client,
+                                          "token": token})
+    return out
 
 
 def markups() -> list[dict]:

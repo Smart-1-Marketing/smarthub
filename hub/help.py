@@ -911,6 +911,15 @@ REGISTRY: list[Help] = [
        "spend as $115. A fixed CPM bills impressions at that rate and ignores "
        "cost. They are two answers to one question, so a platform may carry "
        "only one and a row with both is refused whole."),
+    _h("reports.markup.pages", "How many client pages read this rule",
+       "The live client pages showing Investment whose figure for this "
+       "platform comes from the platform rule rather than an override on "
+       "their own link. A platform rule is global: saving one moves the "
+       "Investment figure on every one of those pages at once, with nothing "
+       "on the page saying it did, so a change to a platform any of them "
+       "reads is shown and confirmed before it is written. Pages hiding "
+       "Investment, and links carrying their own override for the platform, "
+       "are not counted -- the change does not reach them."),
     _h("reports.client.link", "One live link per client",
        "The client's page lives at this link with no login. Regenerating "
        "issues a new token and the old one renders a short 'this link has "

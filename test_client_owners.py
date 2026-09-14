@@ -667,11 +667,98 @@ check("a run that could not read the products is not measured",
 # Every reader answers (answer, error): "nobody has one" and "we could not
 # look" are different answers and only the first says anything about a client.
 for name in ("_products", "_registry", "_asset_asks", "_creative",
-             "_pipeline", "_proofs"):
+             "_pipeline", "_proofs", "_plans", "_pacing"):
     fn = getattr(client_health, name)
     check(f"{name} answers a pair", fn.__annotations__.get("return"),
           "tuple[dict, str]")
 
+
+# ---------------------------------------------------------------------------
+section("Sold lines off pace reach the owner's desk")
+# ---------------------------------------------------------------------------
+
+# The pacing board computes a three-day alert on every off-pace line and,
+# until this, told nobody: a page inside a module is where a queue goes
+# unworked. The reading is the board's own persisted run, joined on the
+# client NAME the line carries -- the store files a client under
+# `d:acme.com` or, where the proposal adapter minted the line, under the
+# display name, and only the name joins either spelling to the row here.
+PACED = "Paced Co"
+PACED_KEY = client_health._client_key(PACED)
+
+
+def _snap(**over):
+    row = {"line_id": 71, "client": "d:pacedco.com", "client_name": PACED,
+           "product": "Streaming TV", "platform_labels": ["The Trade Desk"],
+           "band": "under", "alert": True, "trend_days": 4, "days_remaining": 12,
+           "monthly_budget": 3000.0, "actual_to_date": 1200.0, "expected_to_date": 1800.0,
+           "as_of": "2026-09-14"}
+    row.update(over)
+    return row
+
+
+_real_pacing = client_health._pacing
+_real_products_fn = client_health._products
+client_health._products = lambda: ({PACED: {"live": [{"io": "IO-71"}], "partners": ["Moto"],
+                                            "sales": [], "live_total": 3000.0,
+                                            "last_end": None, "has_dash": True}}, "")
+client_health._pacing = lambda: ({PACED_KEY: [_snap(), _snap(line_id=72, product="Paid Search",
+                                                            band="unmapped", platform_labels=[])]}, "")
+try:
+    built = client_health.build()
+    check("the pacing source is named on the run",
+          built["sources"]["pacing"]["measured"], True)
+    row = next((r for r in built["rows"] if r["client"] == PACED), None)
+    check("the client has a row", row is not None, True)
+    paced = [i for i in (row or {}).get("issues", []) if i["kind"] == "pacing_alert"]
+    check("one issue per alerting line", len(paced), 2)
+    under = next(i for i in paced if i["subject"] == "71")
+    check("the title carries the band, the days running and the figures",
+          under["title"],
+          "Streaming TV — under pace, 4 days running: $1,200.00 spent against "
+          "$1,800.00 expected, 12 days left")
+    check("the detail carries what a person decides on: the line, its budget, the band",
+          under["detail"],
+          "The Streaming TV line ($3,000.00/mo on The Trade Desk) has been under pace "
+          "for 3 days or more on the pacing board's latest run.")
+    check("it is fixed on the pacing board, and the link opens that client's lines",
+          (under["where"], under["link"]), ("Pacing board", "/reports/pacing?client=d%3Apacedco.com"))
+    check("...dated the day of the run", under["at"], "2026-09-14")
+    unmapped = next(i for i in paced if i["subject"] == "72")
+    check("a line with nothing to pace against says so rather than printing a pace",
+          "no campaign filed to pace against" in unmapped["title"]
+          and "Campaign Mapping" in unmapped["detail"], True)
+    # Tomorrow's spend figure must not retire a mark somebody made today:
+    # the moving figures are in the title, the fingerprint is over the
+    # detail, so a Done or Ignored mark stands while the line is in the
+    # same trouble and is superseded when the trouble changes kind.
+    client_health._pacing = lambda: ({PACED_KEY: [_snap(actual_to_date=1450.0, trend_days=5)]}, "")
+    again = next(i for r in client_health.build()["rows"] for i in r["issues"]
+                 if i["kind"] == "pacing_alert" and i["subject"] == "71")
+    check("a day's spend moving does not change the fingerprint",
+          again["fingerprint"], under["fingerprint"])
+    client_health._pacing = lambda: ({PACED_KEY: [_snap(band="stalled")]}, "")
+    stalled = next(i for r in client_health.build()["rows"] for i in r["issues"]
+                   if i["kind"] == "pacing_alert" and i["subject"] == "71")
+    check("...and the band changing does", stalled["fingerprint"] != under["fingerprint"], True)
+    # A run that could not read the board raises nothing and is named.
+    client_health._pacing = lambda: ({}, "the pacing job has not run yet")
+    built = client_health.build()
+    check("a pacing job that has never run is named, never an empty book",
+          (built["sources"]["pacing"]["measured"], built["sources"]["pacing"]["error"]),
+          (False, "the pacing job has not run yet"))
+    check("...and raises nothing", any(i["kind"] == "pacing_alert"
+                                       for r in built["rows"] for i in r["issues"]), False)
+    check("...and the note says so", "pacing" in built["note"], True)
+finally:
+    client_health._pacing = _real_pacing
+    client_health._products = _real_products_fn
+
+# The real reader, against this test's own empty store: no run has ever
+# been written, and that is an error rather than "nothing is off pace".
+rows, err = client_health._pacing()
+check("the real reader says the job has not run rather than answering clear",
+      (rows, "not run" in err), ({}, True))
 
 # ---------------------------------------------------------------------------
 section("Traffic health says which kind of nothing it is")
