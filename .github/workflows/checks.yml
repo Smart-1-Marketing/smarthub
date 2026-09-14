@@ -1345,6 +1345,20 @@ jobs:
             echo "test_seo_page.py not on this branch — nothing to run."
           fi
 
+      - name: SEO Intelligence recommendations
+        # SEORecommendation declared a column named `query`, which shadows
+        # Flask-SQLAlchemy's Model.query on that one class: every weekly
+        # refresh rolled back and the action queue answered 500, with every
+        # screen looking fine. The test drives the refresh, the routes, the
+        # job's verdict and the integrity sweep that refuses the next one.
+        # Needs no network -- Search Console is stubbed.
+        run: |
+          if [ -f test_seo_intelligence.py ]; then
+            python test_seo_intelligence.py
+          else
+            echo "test_seo_intelligence.py not on this branch — nothing to run."
+          fi
+
       - name: Client 360 workspace layout
         # The record's cards are moved into rail sections by title, and the
         # matching is driven in node against the template's own card titles —

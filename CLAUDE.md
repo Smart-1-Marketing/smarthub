@@ -2145,6 +2145,42 @@ every check after it out of the file.
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
 
+**A column named `query` on a Flask-SQLAlchemy model hides `Model.query` on
+that one class, and nothing errors until the first read.** `db.Model` carries
+the `query` descriptor every `Model.query.filter_by(...)` in this Hub reads;
+`SEORecommendation` declared a **column** called `query` -- a Search Console
+search term is the obvious thing to call one -- so `SEORecommendation.query`
+answered the column's `InstrumentedAttribute` and `.filter_by()` on it raised
+`AttributeError`. The model imported, `create_all()` made the table, and every
+screen looked fine. Behind that one line: `_save_recommendations()` reaches
+it unconditionally, so **every weekly Search Console refresh rolled back**
+before the snapshot or the memory was written, with the error recorded on
+the property row where no page drew it; the action queue and the client
+overview answered **500**, and the overview page `await r.json()`-ed the
+HTML, rejected unhandled, and left the Agency Action Queue blank -- not even
+its own empty state; and the daily job folded each property's failure into
+a list and returned normally, so the scheduler panel drew a **green pill
+over a run that had refreshed nobody**. The only place it ever surfaced was
+a traceback swallowed in `test_hub_help_layer.py`'s page sweep, which
+requests every route and asserts nothing about a 500.
+
+The attribute is `search_query` and the **column keeps its name**
+(`db.Column("query", …)`), so the table already on the live Postgres needs
+no migration -- the `audit.LOG_NAMES` rule, wearing a column. The wire key
+stays `query` too, because the page reads `x.query` and nothing about the
+JSON changed. `hub/integrity.check_shadowed_model_query()` refuses the next
+one at **high**, from the AST -- prose is not a mapping -- and scoped to a
+base spelled `Model`, since a classic declarative `Base` has no `query` to
+shadow; `query_class` is deliberately not on its list, because assigning one
+is how Flask-SQLAlchemy is *told* to use a custom query. The job **raises**
+now when it attempted refreshes and landed none, because `_run_job` reads an
+exception as a failure and a returned dict as success; one property failing
+beside others that landed stays that row's own state, drawn on the overview
+page with its error, or a job red for one client's revoked grant is the
+check people learn to skip. `test_seo_intelligence.py` drives the refresh
+against a stubbed Search Console, the routes, the page, the job's verdict
+and the sweep -- and was confirmed red against the unfixed model first.
+
 **Two blueprints must not offer a template of the same name.** Module Jinja
 environments are separate *for a dispatcher-mounted module* — a blueprint
 registered on the hub app shares the hub's environment, and that environment
@@ -13680,6 +13716,12 @@ python3 test_seo_tasks.py          # one page, however its URL was written:
                                    #   the ticket dedupe compared the raw
                                    #   string while the title beside it was
                                    #   already canonical
+python3 test_seo_intelligence.py   # the Search Console recommendation path:
+                                   #   a column named query no longer hides
+                                   #   Model.query, the weekly refresh lands,
+                                   #   the queue answers, the page says when
+                                   #   it cannot, and the job reads red when
+                                   #   every refresh failed
 python3 test_seo_page.py           # the SEO list and record: a pill with four
                                    #   answers, a name nobody gave, a failed
                                    #   record that is not an empty one, SEO
