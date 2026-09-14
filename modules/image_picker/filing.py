@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 
 from . import ghl, taxonomy
-from .models import PickerClient, SavedImage, new_token, session, slugify, unique_slug
+from .models import PickerClient, SavedImage, new_token, session, slugify, unique_slug, provider_identity
 
 logger = logging.getLogger(__name__)
 
@@ -574,7 +574,7 @@ def resolve_duplicate(db, row, choice: str, *, kind: str = "", key: str = "",
             # A kept row points at the original asset, so its provider id has
             # to differ or the unique constraint refuses it. A duplicate is a
             # genuinely new asset and carries its own.
-            provider_image_id=(copy["public_id"][:120] if copy
+            provider_image_id=(provider_identity(copy["public_id"]) if copy
                                else _project_ref(row.provider_image_id, key or project_name or kind)),
             source_url=(copy["url"] if copy else row.source_url),
             author=row.author,
@@ -703,8 +703,7 @@ def file_asset(*, client_name: str, public_id: str, url: str,
     # Provider identity is bounded to 120 characters in Postgres. Preserve the
     # full delivery identity separately; truncation would merge distinct assets
     # whose folder/name prefixes happen to match.
-    provider_id = (public_id if len(public_id) <= 120 else
-                   "sha256:" + hashlib.sha256(public_id.encode("utf-8")).hexdigest())
+    provider_id = provider_identity(public_id)
 
     kind = (kind or "upload").strip().lower()[:20]
     provider = (provider or kind).strip().lower()[:40]
