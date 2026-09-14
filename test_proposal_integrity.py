@@ -3,9 +3,28 @@ import unittest
 from unittest.mock import patch
 from hub import current_marketing, proposal_spec, business_description
 from hub.proposal_integrity import readiness
+from hub import proposal_flow
 
 
 class ProposalIntegrityTests(unittest.TestCase):
+    def test_approval_snapshot_survives_nested_edits(self):
+        state = {'items': [{'product': 'PPC', 'dollars': 1000}], 'months': 3}
+        self.assertIsNone(proposal_flow.approval_changes(state))
+        state['_approvedScope'] = proposal_flow.scope(state)
+        self.assertEqual(proposal_flow.approval_changes(state), [])
+        state['items'][0]['dollars'] = 1500
+        self.assertEqual(proposal_flow.approval_changes(state), ['Products and prices'])
+
+    def test_checklist_routes_actual_blockers_and_separates_io_details(self):
+        state = {'client': 'QA', 'startDate': '2026-10-10', 'endDate': '2026-10-01',
+                 'targetAreas': [{'zips': '43215', 'zipVerified': False}]}
+        result = proposal_flow.checklist(state, ['Rebuild packages with positive, finite prices.',
+                                                'Retry or edit the failed section: Goals'])
+        self.assertEqual([r['step'] for r in result['delivery']], [11, 12])
+        self.assertTrue(any(r['field'] == 'endDate' for r in result['io']))
+        self.assertTrue(any(r['step'] == 5 for r in result['io']))
+        self.assertTrue(any(r['field'] == 'verifier' for r in result['io']))
+
     def test_unknown_is_not_a_gap(self):
         state={'mkt':{q['key']:'Unknown' for q in current_marketing.QUESTIONS}}
         self.assertEqual(current_marketing.suggestions(state),[])

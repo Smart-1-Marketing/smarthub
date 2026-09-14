@@ -335,6 +335,7 @@ def log_activity(db, quote_id, icon, text):
 #  with or without AI)
 # =====================================================================
 from hub.proposal_integrity import readiness as proposal_readiness, package_readiness
+from hub import proposal_flow
 
 
 def compute_gaps(state):
@@ -587,6 +588,9 @@ def quote_json(q, include_data=False, sent_at=_UNSET):
         "growth": growth_options(state),
         "guardrails": compute_guardrails(state),
         "readiness": proposal_readiness(state),
+        "checklist": proposal_flow.checklist(state, proposal_readiness(state)),
+        "approval_changes": proposal_flow.approval_changes(state),
+        "investment": investment_lines(state, q),
         # Computed here rather than stored, exactly like `growth` above: it is
         # derived from the KPIs and the media mix, and a stale copy of it is a
         # measurement framework that no longer matches the plan under it.
@@ -602,6 +606,22 @@ def quote_json(q, include_data=False, sent_at=_UNSET):
     }
     if include_data:
         out["data"] = state
+        out["package_investments"] = []
+        for package in state.get("packages") or []:
+            candidate = dict(state)
+            lines = package.get("lines") or []
+            candidate["items"] = []
+            matched = 0
+            for item in state.get("packageItems") or state.get("items") or []:
+                line = next((line for line in lines
+                             if (line.get("name") or line.get("product")) in (item.get("product"), hub_rate_card.quote_label(item.get("product"), item.get("category")))
+                             and (line.get("cat") or line.get("category")) == item.get("category")), None)
+                if line:
+                    matched += 1
+                    candidate["items"].append({**item, "dollars": line.get("amt", line.get("dollars", 0))})
+                elif item.get("basis") == "one_time":
+                    candidate["items"].append(item)
+            out["package_investments"].append(investment_lines(candidate, q) if lines and matched == len(lines) else None)
         # The plan as the PDF and the Word export draw it, so the builder's
         # preview shows the delivery figures rather than carrying a fourth
         # copy of the arithmetic. Only on a single quote: the list does not
@@ -979,6 +999,7 @@ def _creative_sizes() -> dict:
 def create_quote():
     body = request.get_json(force=True) or {}
     state = body.get("data") or {}
+    state.pop("_approvedScope", None)
     db = SessionLocal()
     try:
         q = Quote(quote_number=next_quote_number(db),
@@ -1216,6 +1237,10 @@ def update_quote(qid):
             return jsonify({"ok": False, "error": "Quote not found"}), 404
         if "data" in body:
             state = body.get("data") or {}
+            approved_scope = _state_of(q).get("_approvedScope")
+            state.pop("_approvedScope", None)
+            if approved_scope is not None:
+                state["_approvedScope"] = approved_scope
             q.data = json.dumps(state, ensure_ascii=False)
             summarize_into(q, state)
             q.revision = (q.revision or 1) + (1 if body.get("bump_revision") else 0)
@@ -1227,7 +1252,12 @@ def update_quote(qid):
                 log_activity(db, q.id, {"Sent": "📤", "Approved": "✅", "Lost": "❌",
                                         "Converted": "🔁", "Expired": "⏰"}.get(new_status, "•"),
                              f"{q.quote_number} → {new_status} — {q.client}")
+            first_approval = new_status == "Approved" and q.status != "Approved"
             q.status = new_status
+            if first_approval:
+                state = _state_of(q)
+                state["_approvedScope"] = proposal_flow.scope(state)
+                q.data = json.dumps(state, ensure_ascii=False)
         db.commit()
         return jsonify({"ok": True, "quote": quote_json(q, include_data=True)})
     finally:
@@ -1288,7 +1318,7 @@ def duplicate_quote(qid):
             return jsonify({"ok": False, "error": "Quote not found"}), 404
         state = json.loads(src.data or "{}")
         # New quotes start clean of decision/IO fields
-        for k in ("startDate", "ioPayload",):
+        for k in ("startDate", "ioPayload", "_approvedScope"):
             state.pop(k, None)
         # A duplicate is a new proposal, so it is credited to whoever made
         # it rather than to whoever wrote the one it was copied from.
@@ -1314,6 +1344,8 @@ def conversion_check(qid):
         q = db.get(Quote, qid)
         if not q:
             return jsonify(ok=False, error="Quote not found"), 404
+        if q.status == "Converted" or q.io_number:
+            return jsonify(ok=False, error="This proposal already has an IO. Open Insertion Orders to review it."), 409
         # SQLite reads UTC timestamps back without an offset; Postgres keeps it.
         # Compare instants, so reopening the same version works on both stores.
         def as_utc(value):
@@ -2239,8 +2271,8 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
             # later totalled what was actually being bought. The licence and
             # any one-time production are added in the Investment Summary,
             # which says so; the two same-scope figures now agree exactly.
-            ["Monthly campaign investment", _money(q.monthly_budget)],
-            [f"Total campaign investment ({q.months} months)",
+            ["Monthly media & services subtotal", _money(q.monthly_budget)],
+            [f"Media & services subtotal ({q.months} months)",
              _money(q.total_budget)]]
     # An empty row is dropped rather than printed as a labelled blank -- a
     # "Campaign Goals" row with nothing beside it reads as a question the
@@ -2248,7 +2280,7 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
     meta = [row for row in meta if str(row[1] or "").strip()]
     # Both cells are Paragraphs so both WRAP. The label used to be a bare
     # string in a 1.55in column, and reportlab does not wrap a bare string:
-    # "Monthly campaign investment" ran under the value column and printed
+    # "Monthly media & services subtotal" ran under the value column and printed
     # over the figure -- "investme$8,050", on the cover of a real proposal.
     st_meta = ParagraphStyle("ML", parent=st_body, textColor=NAVY,
                              fontName="Helvetica-Bold", spaceAfter=0)
@@ -2729,8 +2761,8 @@ def build_proposal_docx(q, state, sent_at=_UNSET):
                        ("Target Area" if len(areas) < 2 else f"Target Areas ({len(areas)})",
                         "\n".join(hub_areas.names(areas)) or q.geo_summary),
                        ("Term", f"{q.months} months"),
-                       ("Monthly campaign investment", _money(q.monthly_budget)),
-                       (f"Total campaign investment ({q.months} months)",
+                       ("Monthly media & services subtotal", _money(q.monthly_budget)),
+                       (f"Media & services subtotal ({q.months} months)",
                         _money(q.total_budget))]:
         # An empty row is dropped, the same reading the PDF's cover applies:
         # a labelled blank is a question the document forgot to answer.
@@ -5108,6 +5140,8 @@ def api_client_accept(token):
             name=name, email=email,
             visitor=hub_views.visitor_hash(_client_ip(), hub_config.secret_key)))
         q.status = "Approved"
+        state["_approvedScope"] = proposal_flow.scope(state)
+        q.data = json.dumps(state, ensure_ascii=False)
         log_activity(db, q.id, "✅", f"Accepted by {name} — revision {revision}")
         db.commit()
         _audit("quote_accepted", client=q.client, quote=q.quote_number,
