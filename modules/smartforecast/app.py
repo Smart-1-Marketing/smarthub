@@ -23,6 +23,49 @@ app = Flask(__name__, template_folder=str(BASE_DIR / "templates"),
 # and its read-only JSON payload are public.
 PUBLIC_PREFIXES = ("/embed/", "/api/public/")
 
+# The "Font" setting on a site's branding is one of these two named choices,
+# or "inherit" -- resolved here into a real CSS font stack rather than
+# templated as a raw string. Two reasons. A cross-origin iframe cannot read
+# the embedding page's computed font: `embed.html` is its own standalone
+# document served with `frame-ancestors *`, and CSS `inherit` on its own
+# <body> inherits from nothing -- it silently falls back to the browser
+# default, which is Times New Roman on every browser this was checked
+# against. "Inherit website" was therefore never deliverable as written, on
+# every site it has ever been embedded on, and DEFAULT_FONT_STACK is the
+# honest answer: a modern system stack that will not match the host site
+# exactly but stops the widget reading as broken. And a raw value from the
+# stored branding JSON is not otherwise validated on write
+# (`branding.update(body.get("branding") or {})` in store.py takes whatever
+# a request sends), so templating it straight into a <style> block would let
+# an arbitrary string reach un-escaped CSS -- Jinja's autoescape is
+# HTML-aware and does not block `{`, `}`, `:` or `;`. A value outside this
+# table is refused the same way an unrecognised one is: it falls through to
+# the default rather than being trusted.
+DEFAULT_FONT_STACK = ("-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,"
+                      "Helvetica,Arial,sans-serif")
+FONT_STACKS = {
+    "DM Sans": ("'DM Sans'," + DEFAULT_FONT_STACK, "DM+Sans:wght@400;500;700;800"),
+    "Manrope": ("'Manrope'," + DEFAULT_FONT_STACK, "Manrope:wght@400;500;700;800"),
+}
+
+
+def _resolve_font(branding: dict) -> dict:
+    """(font_stack, font_google) for the <style> block and the Google Fonts
+    <link>, never the raw stored value."""
+    stack, google_family = FONT_STACKS.get(
+        (branding or {}).get("font", ""), (DEFAULT_FONT_STACK, None))
+    branding = {**(branding or {}), "font_stack": stack, "font_google": google_family}
+    # The headline tag reaches the template as an actual HTML tag name, not
+    # text content, so it has to come from a closed set resolved here --
+    # never the stored string rendered directly, which for a tag-name
+    # position is an HTML-injection hole rather than a styling one. Same
+    # `branding.update(body.get("branding") or {})` write path as `font`
+    # above, so the same rule applies: an unrecognised value falls through to
+    # the existing default (h1) rather than being trusted.
+    branding["heading_tag"] = branding.get("heading_tag") if branding.get(
+        "heading_tag") in ("h1", "h2") else "h1"
+    return branding
+
 
 @lru_cache(maxsize=4)
 def _store_for_path(path: str) -> SmartForecastStore:
@@ -297,7 +340,8 @@ def embed(token: str):
     payload = store().embed_payload(token)
     if not payload:
         return render_template("embed_missing.html"), 404
-    payload = {**payload, "embed_token": token}
+    payload = {**payload, "embed_token": token,
+              "branding": _resolve_font(payload.get("branding"))}
     # Stored local assets use their production mount. Keep the module runnable
     # by itself for development without creating a second copy of content data.
     image_mount = "/tools/smartforecast"

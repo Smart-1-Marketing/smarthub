@@ -1,0 +1,51 @@
+<section class="cb-card" id="finishing-root" data-project-id="{{ project.id }}">
+  <h2>Rehearse your commercial</h2>
+  <p class="cb-hint">Scrub the timeline to check pacing, spoken text, captions and the end card before paying for a render. This layout rehearsal uses your scene assets; watch the finished video for exact animation and lip-sync.</p>
+  <div class="cb-finishing-controls">
+    <label>Preview size <select id="timeline-format">{% for f in project.formats %}<option>{{ f }}</option>{% endfor %}</select></label>
+    <label><input id="timeline-captions" type="checkbox"> Include spoken captions in the render</label>
+  </div>
+  <p class="cb-hint">Caption phrases use estimated timing. Review their alignment against the finished speech.</p>
+  <div id="timeline-error" role="status"></div>
+  <div class="cb-rehearsal-layout">
+    <div id="timeline-stage" class="cb-timeline-stage" aria-label="Scene layout preview">
+      <div id="timeline-media"></div><div id="timeline-safe" class="cb-timeline-safe"><span>Keep important content inside</span></div>
+      <div id="timeline-overlay"></div><div id="timeline-caption" class="cb-timeline-caption"></div>
+    </div>
+    <div><label for="timeline-scrub">Playhead <output id="timeline-time">0.0s</output></label>
+      <input id="timeline-scrub" type="range" min="0" max="30" step="0.1" value="0" style="width:100%">
+      <div id="timeline-tracks"></div><p id="timeline-speech"></p><p id="timeline-guide" class="cb-hint"></p>
+    </div>
+  </div>
+</section>
+<div class="cb-grid cb-grid-2">
+  <details class="cb-card"><summary><strong>Approved brand &amp; casting presets</strong></summary>
+    <p>Save the brand profile, pronunciation, presenter choices and end card for this client. Applying a preset changes the draft settings; it does not generate new media.</p>
+    <label for="preset-name">Preset name</label><input id="preset-name" type="text" maxlength="120" placeholder="e.g. Autumn campaign">
+    <label><input id="preset-approve" type="checkbox"> I have reviewed and approve these brand and casting settings</label>
+    <button id="preset-save" class="cb-btn">Save approved preset</button>
+    <label for="preset-select">This client’s presets</label><select id="preset-select"><option value="">Choose a preset</option></select>
+    <div id="preset-detail" class="cb-hint"></div><button id="preset-apply" class="cb-btn" disabled>Apply to this draft</button>
+    <p id="preset-status" role="status"></p>
+  </details>
+  <details class="cb-card"><summary><strong>Production time &amp; spending</strong></summary>
+    <div id="production-cost" role="status">Loading production totals…</div>
+    <h3>Project spending limit</h3>
+    <p id="budget-status" role="status"></p>
+    <label for="budget-limit">Total limit ($)</label><input id="budget-limit" type="number" min="0" max="100000" step="0.01" value="15">
+    <label for="budget-prior">Confirmed ceiling for all earlier charges ($; leave blank if unknown)</label><input id="budget-prior" type="number" min="0" max="100000" step="0.01">
+    <label><input id="budget-confirm" type="checkbox"> I verified that this amount covers all earlier project charges, including pending charges.</label>
+    <button id="budget-save" class="cb-btn cb-btn-sm">Save spending limit</button>
+    <p class="cb-hint">A limit blocks paid actions whose costs cannot be bounded. Setting a limit does not establish what earlier calls cost.</p>
+    <button id="cost-refresh" class="cb-btn cb-btn-sm">Refresh totals</button>
+    <h3>Creative script review</h3><p class="cb-hint">Get suggestions for the hook, delivery, brand claims and CTA. Uses the configured creative model; a new review uses OpenAI credits. An unchanged review is reused.</p>
+    <button id="creative-review" class="cb-btn">Review script</button><div id="creative-result" role="status"></div>
+  </details>
+</div>
+<details class="cb-card"><summary><strong>Controlled campaign variations</strong></summary>
+  <p>Start from an approved commercial. Write alternate hooks or offers below, one per line. Preview the exact changes and paid regeneration needed before creating draft variations. Unchanged assets are reused.</p>
+  <label for="variation-scene">Scene to change</label><select id="variation-scene"></select>
+  <label for="variation-lines">Alternate spoken text (up to 5 versions)</label><textarea id="variation-lines" rows="4" maxlength="15000"></textarea>
+  <button id="variation-preview" class="cb-btn">Preview changes</button><button id="variation-create" class="cb-btn cb-btn-primary" disabled>Create these drafts</button>
+  <div id="variation-preview-result" role="status"></div>
+</details>

@@ -93,6 +93,9 @@ def section(title):
 
 
 from modules.bg_remover import app as bg                       # noqa: E402
+from unittest.mock import patch
+_cloud_mock = patch.object(bg.providers, "cloud_ready", return_value=True)
+_cloud_mock.start()
 from modules.utm_builder import app as utm                     # noqa: E402
 
 # Imported here, before a single request is made. wsgi.py registers an error
@@ -450,7 +453,9 @@ check("and an empty file is named too",
       "empty file" in empty.get_json()["error"], True)
 
 # A key that is not set is a 503 pointing at what to do, never a spent call.
-_key = os.environ.pop("REMOVE_BG_API")
+_cloud_mock.stop()
+_missing_cloud = patch.object(bg.providers, "cloud_ready", return_value=False)
+_missing_cloud.start()
 try:
     from hub import config as _cfg
     _cfg.settings.__dict__.pop("remove_bg_key", None)
@@ -459,7 +464,8 @@ try:
     check("no key answers 503 rather than failing at the provider",
           unset.status_code, 503)
 finally:
-    os.environ["REMOVE_BG_API"] = _key
+    _missing_cloud.stop()
+    _cloud_mock.start()
     try:
         _cfg.settings.__dict__.pop("remove_bg_key", None)
     except Exception:                                            # noqa: BLE001

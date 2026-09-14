@@ -254,6 +254,7 @@
     $$("#businessGoals input").forEach(input => input.checked = (site.business_goals || []).includes(input.value));
     const brand = site.branding || {};
     $("#brandFont").value = brand.font || "inherit";
+    $("#brandHeadingTag").value = brand.heading_tag || "h1";
     $("#brandHeadline").value = brand.headline_color || "#ffffff";
     $("#brandBody").value = brand.body_color || "#dce7f2";
     $("#brandButton").value = brand.button_color || "#f6b544";
@@ -577,6 +578,7 @@
     body.branding = {
       ...model.site.branding,
       font: $("#brandFont").value,
+      heading_tag: $("#brandHeadingTag").value,
       headline_color: $("#brandHeadline").value,
       body_color: $("#brandBody").value,
       button_color: $("#brandButton").value,

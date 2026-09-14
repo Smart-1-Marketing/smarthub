@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Spot Library — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>Spot Library {{ help_dot('creative_studio.library') if help_dot is defined else '' }}</h2>
+  <p>Approved spots, any client, as starting points -- filter by industry or
+     archetype. A client's own spots are hidden from this list wherever
+     their Brand Kit's "Hide from Spot Library" is checked.</p>
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    <div class="row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <select id="libIndustry" style="padding:8px;">
+        <option value="">All industries</option>
+        {% for ind in industries %}
+        <option value="{{ ind }}">{{ ind }}</option>
+        {% endfor %}
+      </select>
+      <select id="libArchetype" style="padding:8px;">
+        <option value="">All archetypes</option>
+        {% for a in archetypes %}
+        <option value="{{ a.key }}">{{ a.label }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" id="libClient" placeholder="Client" style="padding:8px;flex:1 1 200px;">
+      <button class="btn" id="libSearch">Filter</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="libGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;"></div>
+    <p id="libEmpty" style="color:var(--muted,#64748B);display:none;">No approved spots match yet.</p>
+  </div>
+</div>
+
+<script>
+(function(){
+  var grid = document.getElementById('libGrid');
+  var empty = document.getElementById('libEmpty');
+
+  function esc(s){ var d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+
+  function card(spot){
+    var el = document.createElement('div');
+    el.className = 'card';
+    el.style.padding = '10px';
+    var thumb = spot.thumbnail_url
+      ? '<img src="' + esc(spot.thumbnail_url) + '" style="width:100%;border-radius:6px;display:block;">'
+      : '<div style="width:100%;aspect-ratio:16/9;background:#eef2f7;border-radius:6px;"></div>';
+    el.innerHTML = thumb +
+      '<div style="margin-top:8px;font-weight:600;">' + esc(spot.name) + '</div>' +
+      '<div style="color:var(--muted,#64748B);font-size:12.5px;">' + esc(spot.client_name || '—') + '</div>' +
+      '<div style="margin-top:4px;">' +
+        (spot.industry ? '<span class="pill info">' + esc(spot.industry) + '</span> ' : '') +
+        (spot.archetype ? '<span class="pill info">' + esc(spot.archetype) + '</span>' : '') +
+      '</div>' +
+      '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">' +
+        '<button class="btn" data-use-template="' + spot.id + '">Use as template</button>' +
+        '<button class="btn" data-use-reference="' + spot.id + '">Use as reference</button>' +
+      '</div>' +
+      '<div class="lib-status" style="font-size:12.5px;color:var(--muted,#64748B);margin-top:4px;"></div>';
+    return el;
+  }
+
+  function load(){
+    grid.innerHTML = '';
+    empty.style.display = 'none';
+    var q = new URLSearchParams({
+      industry: document.getElementById('libIndustry').value,
+      archetype: document.getElementById('libArchetype').value,
+      client: document.getElementById('libClient').value,
+    });
+    fetch('/creative-studio/api/library?' + q.toString())
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var spots = (d && d.spots) || [];
+        if (!spots.length) { empty.style.display = 'block'; return; }
+        spots.forEach(function(spot){ grid.appendChild(card(spot)); });
+      });
+  }
+
+  grid.addEventListener('click', function(ev){
+    var useTemplate = ev.target.getAttribute('data-use-template');
+    var useReference = ev.target.getAttribute('data-use-reference');
+    var status = ev.target.closest('.card').querySelector('.lib-status');
+    if (useTemplate) {
+      ev.target.disabled = true;
+      status.textContent = 'Building a template…';
+      fetch('/creative-studio/api/projects/' + useTemplate + '/library/abstract', {method: 'POST'})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          status.textContent = (d && d.ok)
+            ? 'Building -- check Templates shortly.' : ((d && d.error) || 'Could not start.');
+        });
+    } else if (useReference) {
+      var newId = window.prompt('Project id to attach this reference to (open the new project '
+        + 'in another tab first, and copy its id from the URL):');
+      if (!newId) return;
+      status.textContent = 'Attaching…';
+      fetch('/creative-studio/api/projects/' + useReference + '/library/reference', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({new_project_id: newId}),
+      })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          status.textContent = (d && d.ok) ? 'Attached.' : ((d && d.error) || 'Could not attach.');
+        });
+    }
+  });
+
+  document.getElementById('libSearch').addEventListener('click', load);
+  load();
+})();
+</script>
+{% endblock %}

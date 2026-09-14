@@ -4,10 +4,79 @@
 <div class="page-head s1d-page">
   <h2>Brand Kit — {{ client }} {{ help_dot('creative_studio.brand_kit') if help_dot is defined else '' }}</h2>
   <p>{% if kit.found %}Logos, colors and fonts on file from Brandfetch and the
-     last site scan. {% else %}{{ kit.note or 'No brand data on file yet.' }}{% endif %}</p>
+     last site scan. {% else %}{{ kit.note or 'No brand data on file yet.' }}{% endif %}
+     Research can draft the remaining fields from the client's public footprint; a person approves them.</p>
 </div>
 
 <div class="s1d-page">
+  <div class="card" id="bkReviewCard">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
+      <div>
+        <h3 style="margin:0 0 5px">Research &amp; approval
+          {% if review.status == 'in_review' %}<span class="pill warn">In review</span>
+          {% elif review.status == 'approved' %}<span class="pill ok">Approved</span>
+          {% elif review.status == 'changed' %}<span class="pill neutral">Changed since approval</span>{% endif %}
+        </h3>
+        {% if review.status == 'in_review' %}
+        <p style="margin:0;color:var(--muted,#64748B);font-size:12.5px">Suggested values are shown in the form below. They are not in the shared Brand Kit until someone approves them.</p>
+        {% elif review.status == 'approved' %}
+        <p style="margin:0;color:var(--muted,#64748B);font-size:12.5px">Approved{% if review.approved_by %} by {{ review.approved_by }}{% endif %}{% if review.approved_at %} on {{ review.approved_at[:10] }}{% endif %}.</p>
+        {% elif review.status == 'changed' %}
+        <p style="margin:0;color:var(--muted,#64748B);font-size:12.5px">The live kit was edited after its last research approval. Run research again when it should be re-reviewed.</p>
+        {% else %}
+        <p style="margin:0;color:var(--muted,#64748B);font-size:12.5px">Reviews the client website, the latest site scan, known social profiles and web search. Nothing is saved to the Brand Kit until approval.</p>
+        {% endif %}
+      </div>
+      <button class="btn" id="bkResearch">{% if review.status == 'none' %}Research &amp; draft Brand Kit{% else %}Research again{% endif %}</button>
+    </div>
+
+    {% if review.status != 'none' and review.sources %}
+    <div style="margin-top:14px">
+      <div style="font-size:12px;font-weight:650;margin-bottom:6px">Sources reviewed</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        {% for source in review.sources %}
+        <a class="pill neutral" href="{{ source.url }}" target="_blank" rel="noopener" title="{{ source.kind }}">{{ source.label }}</a>
+        {% endfor %}
+      </div>
+      <div style="color:var(--muted,#64748B);font-size:11.5px;margin-top:7px">
+        {{ review.source_summary.website_pages or 0 }} website page(s) read &middot;
+        {{ review.source_summary.social_profiles or 0 }} social profile(s) &middot;
+        {{ review.source_summary.search_results or 0 }} search result(s)
+        {% if review.source_summary.website_error %}&middot; the website could not be read directly{% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if review.status == 'in_review' and review.field_evidence %}
+    <details style="margin-top:12px">
+      <summary style="cursor:pointer;font-size:12.5px;font-weight:650">Why these fields were suggested</summary>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:10px">
+        {% for field, entries in review.field_evidence.items() %}
+        <div style="border:1px solid var(--line-soft,#E2E8F0);border-radius:8px;padding:9px">
+          <div style="font-size:12px;font-weight:650">{{ brand_field_labels.get(field, field|replace('_',' ')|title) }}</div>
+          {% for item in entries %}
+          <div style="font-size:11.5px;color:var(--muted,#64748B);margin-top:4px">
+            {% if item.confidence %}<span class="pill neutral">{{ item.confidence }}</span>{% endif %}
+            {{ item.note }}{% if item.url %} <a href="{{ item.url }}" target="_blank" rel="noopener">source &rarr;</a>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+
+    {% if review.status == 'in_review' and review.open_questions %}
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-size:12.5px;font-weight:650">Still needs confirmation ({{ review.open_questions|length }})</summary>
+      <ul style="font-size:12px;color:var(--muted,#64748B);margin-bottom:0">
+        {% for question in review.open_questions %}<li>{{ question }}</li>{% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+    <div id="bkResearchStatus" style="margin-top:8px;color:var(--muted,#64748B);font-size:12.5px"></div>
+  </div>
+
   <div class="card">
     <h3 style="margin-top:0">Logos &amp; colors <span style="font-weight:400;color:var(--muted,#64748B);font-size:12.5px">(read from Brandfetch / the client's own site — not edited here)</span></h3>
     {% if kit.logo_tiles %}
@@ -48,8 +117,8 @@
         ('certifications', 'Certifications (one per line)', 'BBB A+'),
         ('locations', 'Locations / phone (one per line)', '(614) 555-0100'),
       ] %}
-      <label>{{ label }}
-        <textarea id="bk_{{ f }}" rows="4" placeholder="{{ ph }}" style="width:100%">{{ kit.ext[f]|join('\n') }}</textarea>
+      <label>{{ label }}{% if f in drafted_fields %} <span class="pill warn">Suggested</span>{% endif %}
+        <textarea id="bk_{{ f }}" rows="4" placeholder="{{ ph }}" style="width:100%">{{ form_ext[f]|join('\n') }}</textarea>
       </label>
       {% endfor %}
     </div>
@@ -59,38 +128,53 @@
     <h3 style="margin-top:0">Creative preferences</h3>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
       <label>Logo position
-        <input type="text" id="bk_logo_position" value="{{ kit.ext.logo_position }}" placeholder="Bottom right">
+        {% if 'logo_position' in drafted_fields %}<span class="pill warn">Suggested</span>{% endif %}
+        <input type="text" id="bk_logo_position" value="{{ form_ext.logo_position }}" placeholder="Bottom right">
       </label>
       <label>CTA style
-        <input type="text" id="bk_cta_style" value="{{ kit.ext.cta_style }}" placeholder="Bold with phone number">
+        {% if 'cta_style' in drafted_fields %}<span class="pill warn">Suggested</span>{% endif %}
+        <input type="text" id="bk_cta_style" value="{{ form_ext.cta_style }}" placeholder="Bold with phone number">
       </label>
       <label>Image style
-        <input type="text" id="bk_image_style" value="{{ kit.ext.image_style }}" placeholder="Bright, real customers, no stock people">
+        {% if 'image_style' in drafted_fields %}<span class="pill warn">Suggested</span>{% endif %}
+        <input type="text" id="bk_image_style" value="{{ form_ext.image_style }}" placeholder="Bright, real customers, no stock people">
       </label>
       <label>Brand voice
-        <input type="text" id="bk_brand_voice" value="{{ kit.ext.brand_voice }}" placeholder="Friendly, local, no jargon">
+        {% if 'brand_voice' in drafted_fields %}<span class="pill warn">Suggested</span>{% endif %}
+        <input type="text" id="bk_brand_voice" value="{{ form_ext.brand_voice }}" placeholder="Friendly, local, no jargon">
       </label>
       <label>Preferred music style
-        <input type="text" id="bk_preferred_music_style" value="{{ kit.ext.preferred_music_style }}" placeholder="Upbeat acoustic">
+        {% if 'preferred_music_style' in drafted_fields %}<span class="pill warn">Suggested</span>{% endif %}
+        <input type="text" id="bk_preferred_music_style" value="{{ form_ext.preferred_music_style }}" placeholder="Upbeat acoustic">
       </label>
       <label>Preferred spokesperson id
-        <input type="text" id="bk_preferred_spokesperson_id" value="{{ kit.ext.preferred_spokesperson_id }}" placeholder="HeyGen avatar id">
+        <input type="text" id="bk_preferred_spokesperson_id" value="{{ form_ext.preferred_spokesperson_id }}" placeholder="HeyGen avatar id">
       </label>
       <label>Preferred voice id
-        <input type="text" id="bk_preferred_voice_id" value="{{ kit.ext.preferred_voice_id }}" placeholder="ElevenLabs voice id">
+        <input type="text" id="bk_preferred_voice_id" value="{{ form_ext.preferred_voice_id }}" placeholder="ElevenLabs voice id">
       </label>
     </div>
+    <label style="display:block;margin-top:14px;">
+      <input type="checkbox" id="bk_library_opt_out" {% if kit.ext.library_opt_out %}checked{% endif %}>
+      Hide this client's approved spots from the Spot Library
+      <span style="color:var(--muted,#64748B);font-size:12.5px;">(other reps will not see them as
+        starting points)</span>
+    </label>
   </div>
 
   <div class="card">
     <h3 style="margin-top:0">Pronunciation dictionary</h3>
     <p style="color:var(--muted,#64748B);font-size:12.5px">One per line, <code>word = how it's said</code>. Used
        by voiceover generation so a client's own name is never mispronounced.</p>
-    <textarea id="bk_pronunciation" rows="4" style="width:100%" placeholder="Gahanna = guh-HAN-uh">{% for k, v in kit.ext.pronunciation_dict.items() %}{{ k }} = {{ v }}
+    <textarea id="bk_pronunciation" rows="4" style="width:100%" placeholder="Gahanna = guh-HAN-uh">{% for k, v in form_ext.pronunciation_dict.items() %}{{ k }} = {{ v }}
 {% endfor %}</textarea>
   </div>
 
+  {% if review.status == 'in_review' %}
+  <button class="btn btn-primary" id="bkApprove">Approve reviewed Brand Kit</button>
+  {% else %}
   <button class="btn btn-primary" id="bkSave">Save Brand Kit</button>
+  {% endif %}
   <span id="bkStatus" style="margin-left:10px;color:var(--muted,#64748B);font-size:12.5px"></span>
 </div>
 
@@ -108,7 +192,7 @@
         .catch(function(){ lookupBtn.disabled = false; lookupBtn.textContent = 'Look up'; });
     });
   }
-  document.getElementById('bkSave').addEventListener('click', function(){
+  function formBody(){
     var listFields = ['services','products','promotions','disclaimers','legal','certifications','locations'];
     var body = {};
     listFields.forEach(function(f){
@@ -118,6 +202,7 @@
      'preferred_spokesperson_id','preferred_voice_id'].forEach(function(f){
       body[f] = document.getElementById('bk_' + f).value || '';
     });
+    body.library_opt_out = document.getElementById('bk_library_opt_out').checked;
     var pron = {};
     (document.getElementById('bk_pronunciation').value || '').split('\n').forEach(function(line){
       var i = line.indexOf('=');
@@ -127,6 +212,51 @@
       }
     });
     body.pronunciation_dict = pron;
+    return body;
+  }
+
+  var researchBtn = document.getElementById('bkResearch');
+  if (researchBtn) researchBtn.addEventListener('click', function(){
+    var status = document.getElementById('bkResearchStatus');
+    researchBtn.disabled = true;
+    researchBtn.textContent = 'Reviewing website, social & search…';
+    status.textContent = 'This can take a minute. The current Brand Kit will not be changed.';
+    fetch('/creative-studio/api/brand-kits/' + encodeURIComponent(client) + '/research', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'
+    }).then(function(r){
+      return r.json().then(function(d){ return {ok:r.ok, data:d}; });
+    }).then(function(out){
+      if (!out.ok || !out.data.ok) throw new Error(out.data.error || 'Research could not be completed.');
+      window.location.reload();
+    }).catch(function(err){
+      researchBtn.disabled = false;
+      researchBtn.textContent = 'Try research again';
+      status.textContent = err.message || 'Research could not be completed.';
+    });
+  });
+
+  var approveBtn = document.getElementById('bkApprove');
+  if (approveBtn) approveBtn.addEventListener('click', function(){
+    var status = document.getElementById('bkStatus');
+    approveBtn.disabled = true;
+    status.textContent = 'Approving…';
+    fetch('/creative-studio/api/brand-kits/' + encodeURIComponent(client) + '/approve', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(formBody())
+    }).then(function(r){
+      return r.json().then(function(d){ return {ok:r.ok, data:d}; });
+    }).then(function(out){
+      if (!out.ok || !out.data.ok) throw new Error(out.data.error || 'Could not approve.');
+      window.location.reload();
+    }).catch(function(err){
+      approveBtn.disabled = false;
+      status.textContent = err.message || 'Could not approve.';
+    });
+  });
+
+  var saveBtn = document.getElementById('bkSave');
+  if (saveBtn) saveBtn.addEventListener('click', function(){
+    var body = formBody();
     var status = document.getElementById('bkStatus');
     status.textContent = 'Saving…';
     fetch('/creative-studio/api/brand-kits/' + encodeURIComponent(client), {

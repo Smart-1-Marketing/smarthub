@@ -42,6 +42,21 @@ Colours and font names arrive from a third party and land unquoted inside a
 `<style>` block, so both are validated rather than escaped: anything that is
 not literally a hex colour, or a plain family name, is dropped for the
 fallback. It loses a brand colour; it does not get to close the style element.
+
+## Reviews and tracking follow the same rule as the offer
+
+George's spec for this kind of page treats a Google review the way this file
+already treats an offer or a credential: real, or absent -- never a
+placeholder banner shown to a prospect, because a visible "[PLACEHOLDER --
+REPLACE WITH REAL REVIEW]" on a page somebody actually opens reads as an
+agency that shipped unfinished work. A rep can paste in one or two real
+reviews when building the page; with none, the social-proof section is simply
+omitted, the way an empty benefits list already omits its section, and the
+gap is named in the build response rather than on the page.
+
+A GA4 measurement id is the same shape: wired if a real one is given, dropped
+silently if what arrived does not look like `G-XXXXXXX`, and the page ships
+with no tracking script rather than a broken one pointed at nothing.
 """
 from __future__ import annotations
 
@@ -116,6 +131,118 @@ def _img_url(img) -> str:
     return u if u.startswith("https://") else ""
 
 
+def _share_tags(client: str, title: str, description: str,
+                slug: str, image: str) -> str:
+    """The Open Graph and Twitter card block, or as much of it as is true.
+
+    A landing page is built to be *sent*: pasted into a text, a Facebook post,
+    a LinkedIn message, the ad that points at it. With no share tags at all --
+    which is what this page shipped with -- every one of those renders as a
+    bare URL or as whatever the platform scrapes off the top of the markup,
+    which on this layout is a sticky header. The one thing a rep is handing a
+    client is the thing with no picture on it.
+
+    Every tag here is absolute or absent, because that is the only form these
+    have. A relative `og:image` is not resolved by most scrapers and a
+    relative `og:url` is meaningless off-site, so a missing origin drops the
+    tag rather than emitting a path -- the rule this file already applies to a
+    review with no rating and a GA4 id that is not one. `og:image` likewise
+    comes from `_img_url`, so it is an https URL or it is not written: a share
+    card pointing at a 404 is worse than one with no picture, because the
+    platform caches the miss.
+    """
+    tags = [
+        ('<meta property="og:type" content="website">'),
+        (f'<meta property="og:title" content="{esc(title)}">' if title else ""),
+        (f'<meta property="og:site_name" content="{esc(client)}">'
+         if client else ""),
+        (f'<meta property="og:description" content="{esc(description)}">'
+         if description else ""),
+        (f'<meta property="og:image" content="{esc(image)}">' if image else ""),
+        (f'<meta name="twitter:card" content="'
+         f'{"summary_large_image" if image else "summary"}">'),
+    ]
+    # The page's own address, which only this Hub knows. `public_base_origin`
+    # is read at call time for the reason hub/config.py gives: it is the one
+    # variable somebody corrects mid-incident, and a page built before the
+    # correction should not have to be rebuilt to carry the right URL.
+    if slug:
+        try:
+            from hub.config import public_base_origin
+            origin = public_base_origin()
+        except Exception:                                   # noqa: BLE001
+            origin = ""
+        if origin.startswith("https://"):
+            url = f"{origin}/sales/landing/p/{slug}"
+            tags.append(f'<meta property="og:url" content="{esc(url)}">')
+            tags.append(f'<link rel="canonical" href="{esc(url)}">')
+    return "\n".join(t for t in tags if t)
+
+
+_GA4_ID = re.compile(r"^G-[A-Z0-9]{4,20}$")
+
+
+def is_valid_ga4_id(v: str) -> bool:
+    """A real-looking GA4 measurement id, never trusted further than looking."""
+    return bool(_GA4_ID.match(str(v or "").strip().upper()))
+
+
+def _ga4_script(ga4_id: str) -> str:
+    """Phone-click and form-submit tracking, wired to a real id or not at all.
+
+    Google Tag Manager already tracks staff activity across this Hub; this is
+    a *client's* landing page, so the id -- if there is one -- is the one on
+    their own GA4 property, never invented and never the agency's own.
+    """
+    gid = str(ga4_id or "").strip().upper()
+    if not _GA4_ID.match(gid):
+        return ""
+    # Validated against the pattern above, so the charset is already safe to
+    # place directly in a <script src> and a JS string literal.
+    return (f'<script async src="https://www.googletagmanager.com/gtag/js?'
+            f'id={gid}"></script>\n'
+            f'<script>window.dataLayer=window.dataLayer||[];'
+            f'function gtag(){{dataLayer.push(arguments);}}'
+            f'gtag("js",new Date());gtag("config","{gid}");</script>')
+
+
+def _reviews_html(reviews: list[dict] | None) -> str:
+    """Real, attributed reviews, or no social-proof section at all.
+
+    Never a fabricated quote, and never a "placeholder -- add a review"
+    banner shown to a prospect: the gap is reported to the rep who can fix
+    it, not printed on a page somebody actually opens. Capped at two, which
+    is what the section has room for and what a visitor will actually read.
+    """
+    items = [r for r in (reviews or [])
+             if isinstance(r, dict) and str(r.get("quote") or "").strip()]
+    if not items:
+        return ""
+    cards = ""
+    for r in items[:2]:
+        quote = esc(r.get("quote"))
+        # No name is no byline. This used to fall back to the literal string
+        # "Google review" -- an attribution to a source nobody supplied, on
+        # the one input the tool tells reps is never invented.
+        author = esc(r.get("author"))
+        # A whole 1-5 or no stars at all. hub/landing_maker._parse_reviews()
+        # already refuses anything else by name and says so in the build
+        # note, so a rating reaching here is either absent or real -- this is
+        # the second gate, because the renderer is also reached by revise()
+        # over a row stored before that parser existed.
+        rating = r.get("rating")
+        stars = rating if isinstance(rating, int) and 1 <= rating <= 5 else 0
+        star_row = (f'<div class="stars" role="img" '
+                    f'aria-label="{stars} out of 5">'
+                    f'{"&#9733;" * stars}{"&#9734;" * (5 - stars)}</div>'
+                    if stars else "")
+        cite = f'<cite>{author}</cite>' if author else ""
+        cards += (f'<blockquote class="review">{star_row}'
+                  f'<p>&ldquo;{quote}&rdquo;</p>{cite}</blockquote>')
+    return (f'<section class="sec social"><h2>What clients say</h2>'
+            f'<div class="reviews">{cards}</div></section>')
+
+
 _AUTOCOMPLETE = {"name": "name", "phone": "tel", "email": "email",
                  "postcode": "postal-code"}
 
@@ -152,7 +279,10 @@ def _lead_fields(fields: list[dict]) -> str:
 
 
 def render_page(brief: dict, copy: dict, direction: dict,
-                images: dict | None = None, goal_id: str = "") -> str:
+                images: dict | None = None, goal_id: str = "",
+                reviews: list[dict] | None = None, ga4_id: str = "",
+                slug: str = "", offer: str = "",
+                offer_usable: bool = False) -> str:
     images = images or {}
     # The form is the goal. "Book an appointment" needs a preferred time and
     # "Call now" needs almost nothing, and asking every visitor the same four
@@ -161,14 +291,35 @@ def render_page(brief: dict, copy: dict, direction: dict,
     from hub import landing_spec as _spec
     goal_id = goal_id or copy.get("goal_id") or ""
     fields_html = _lead_fields(_spec.form_fields(goal_id))
+    # The fine print under the button, derived from the fields actually
+    # drawn rather than hard-coded -- `call` draws no email box, and the
+    # page still offered the visitor a choice it could not honour.
+    contact_note = esc(_spec.contact_note(goal_id))
+    # The identity a lead is filed under. The form used to post the client's
+    # own business name as `page`, so every landing page ever built for one
+    # client landed in one undifferentiated bucket and no lead could name
+    # the page that produced it. Falls back to the client name so a row
+    # rendered before slugs were passed still files somewhere.
+    json_page = _json.dumps(str(slug or brief.get("client") or ""))
+    # The offer, printed once, immediately above the submit button, and only
+    # when the rep's own words were read as usable. It reached the prospect
+    # before this solely by whatever the model chose to do with
+    # `offer_guidance` -- a request, not evidence, which is the failure this
+    # module names in its own docstring about reviews and tracking ids.
+    offer_line = (f'<p class="offer-line">{esc(offer.strip())}</p>'
+                  if offer_usable and str(offer or "").strip() else "")
     p = _palette(brief)
     font = _font_stack(brief)
     client = esc(brief.get("client"))
     json_client = _json.dumps(str(brief.get("client") or ""))
     phone = esc(brief.get("phone"))
     cta = esc(copy.get("cta") or "Get started")
-    area = esc(brief.get("geo") or
-               f"{brief.get('city','')} {brief.get('state','')}".strip())
+    # The service area a person confirmed on the client record, or their
+    # city -- never `brief["geo"]`, which is the media plan's own targeting
+    # string. See hub/landing_maker.brief_from_proposal(). Empty is a real
+    # answer: the "Serving ..." line and the "in <area>" clause are both
+    # omitted rather than filled with something nobody stands behind.
+    area = esc(brief.get("service_area") or "")
 
     hero_img = _img_url(images.get("hero"))
     band_img = _img_url(images.get("band"))
@@ -228,7 +379,7 @@ def render_page(brief: dict, copy: dict, direction: dict,
                 f'<div class="band-in"><h2>{cta}</h2>'
                 f'<a class="btn" href="#enquire">{cta}</a></div></div>')
 
-    logo = (f'<img src="{esc(brief.get("logo"))}" alt="{client}" class="logo">'
+    logo = (f'<img src="{esc(brief.get("logo"))}" alt="{client} logo" class="logo">'
             if str(brief.get("logo") or "").startswith("https://")
             else f'<b class="wordmark">{client}</b>')
 
@@ -257,6 +408,11 @@ def render_page(brief: dict, copy: dict, direction: dict,
         credits = ('<p class="credit">Photography: ' +
                    esc(", ".join(images["credits"])) + "</p>")
 
+    reviews_html = _reviews_html(reviews)
+    ga4_head = _ga4_script(ga4_id)
+    share_head = _share_tags(client, copy.get("headline") or "",
+                             copy.get("subhead") or "", slug, hero_img)
+
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -264,6 +420,8 @@ def render_page(brief: dict, copy: dict, direction: dict,
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(copy.get('headline'))} | {client}</title>
 <meta name="description" content="{esc(copy.get('subhead'))}">
+{share_head}
+{ga4_head}
 <style>
   :root{{--primary:{p['primary']};--accent:{p['accent']};
         --on-accent:{p['on_accent']};--radius:{direction['radius']};
@@ -290,6 +448,8 @@ def render_page(brief: dict, copy: dict, direction: dict,
         box-shadow:0 6px 18px rgba(15,23,42,.16);transition:transform .12s ease}}
   .btn:hover{{transform:translateY(-1px)}}
   .btn.sm{{padding:10px 18px;font-size:15px;box-shadow:none}}
+  .btn:focus-visible,.tel:focus-visible,a:focus-visible{{
+    outline:2px solid var(--accent);outline-offset:2px}}
 
   .hero{{{hero_style};color:{hero_ink};padding:{direction['hero_pad']}}}
   .hero h1{{font-size:clamp(32px,5.4vw,54px);line-height:1.1;margin:0 0 16px;
@@ -334,6 +494,14 @@ def render_page(brief: dict, copy: dict, direction: dict,
       height:8px;border-left:3px solid var(--accent);
       border-bottom:3px solid var(--accent);transform:rotate(-45deg)}}
 
+  .reviews{{display:grid;gap:18px}}
+  @media(min-width:640px){{.reviews{{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}}}}
+  .review{{margin:0;padding:20px 22px;border:1px solid var(--line);
+           border-radius:var(--radius);background:#fbfcfe}}
+  .review .stars{{color:var(--accent);font-size:16px;letter-spacing:1px;margin-bottom:6px}}
+  .review p{{margin:0 0 10px;color:var(--ink)}}
+  .review cite{{font-style:normal;font-size:13px;color:var(--muted)}}
+
   .band{{background-size:cover;background-position:center;position:relative;
          padding:88px 22px;text-align:center;color:#fff}}
   .band:before{{content:"";position:absolute;inset:0;
@@ -355,6 +523,10 @@ def render_page(brief: dict, copy: dict, direction: dict,
                   border-radius:var(--radius);font:16px inherit;width:100%}}
   input:focus,textarea:focus{{outline:2px solid var(--accent);outline-offset:1px}}
   .fine{{font-size:12.5px;opacity:.72;margin:14px 0 0}}
+  /* The offer, once, immediately above the button that acts on it. */
+  .offer-line{{margin:2px 0 0;font-weight:600;font-size:15px;
+    background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);
+    border-radius:8px;padding:10px 13px;text-align:center}}
   footer{{padding:26px 0 92px;font-size:13px;color:var(--muted);text-align:center}}
   .credit{{font-size:11.5px;color:var(--muted);opacity:.8;margin:8px 0 0}}
 
@@ -399,6 +571,7 @@ def render_page(brief: dict, copy: dict, direction: dict,
 
 <div class="wrap">
   {faqs}
+  {reviews_html}
 </div>
 
 <div class="final" id="enquire"><div class="wrap">
@@ -407,12 +580,14 @@ def render_page(brief: dict, copy: dict, direction: dict,
      straight back to you.</p>
   <!-- Posts to the Hub's lead panel: stored first, forwarded to Smart 1
        Suite second, so an outage delays a lead rather than losing it. -->
-  <form onsubmit="return sendLead(event)">
+  <form id="leadForm" onsubmit="return sendLead(event)">
     {fields_html}
-    <button class="btn" type="submit">{cta}</button>
-    <p id="leadMsg" style="font-size:14px;margin:0"></p>
+    {offer_line}
+    <button class="btn" type="submit" id="leadBtn">{cta}</button>
+    <p id="leadMsg" role="status" aria-live="polite"
+       style="font-size:14px;margin:0"></p>
   </form>
-  <p class="fine">A phone number or an email is enough — whichever you prefer.</p>
+  {f'<p class="fine">{contact_note}</p>' if contact_note else ''}
 </div></div>
 
 <footer>
@@ -427,27 +602,91 @@ def render_page(brief: dict, copy: dict, direction: dict,
 
 <script>
 document.getElementById('yr').textContent = new Date().getFullYear();
+/* Everything the visitor arrived with, so a lead can name the advert that
+   paid for it. The form used to send none of this, so every lead the tool
+   produced was unattributable. Read off the address bar and the referrer
+   only -- nothing here is typed by anybody, and each value is capped, since
+   these reach an unauthenticated endpoint from a page anyone can open with
+   any query string they like. Written under their own keys and never into
+   `tags`, which is the controlled segmentation field a workflow triggers
+   on: a campaign name is not a thing a stranger may put into an audience. */
+var CLICK_KEYS = ['utm_source','utm_medium','utm_campaign','utm_term',
+                  'utm_content','gclid','fbclid','msclkid','ttclid'];
+function arrivalMeta(){{
+  var out = {{}}, q;
+  try {{ q = new URLSearchParams(location.search); }} catch(e){{ return out; }}
+  CLICK_KEYS.forEach(function(k){{
+    var v = q.get(k);
+    if(v) out[k] = String(v).slice(0, 200);
+  }});
+  if(document.referrer) out.referrer = String(document.referrer).slice(0, 400);
+  out.landing_url = String(location.origin + location.pathname).slice(0, 400);
+  return out;
+}}
+
 function sendLead(ev){{
   ev.preventDefault();
   var f = ev.target, msg = document.getElementById('leadMsg');
+  var btn = document.getElementById('leadBtn');
+  /* A double-submit guard, because one tap-tap on a phone was two lead rows
+     and two contacts in the client's CRM for one person. In flight is a
+     property of this page rather than of the server: the capture endpoint
+     takes no idempotency key, so nothing downstream can tell the second
+     post from a genuine second submission. */
+  if(f.dataset.sending === '1') return false;
   var data = {{}};
   new FormData(f).forEach(function(v,k){{ data[k]=v; }});
   if(!data.email && !data.phone){{ msg.textContent='A phone or email is needed.'; return false; }}
+  f.dataset.sending = '1';
+  if(btn) btn.disabled = true;
   msg.textContent = 'Sending…';
   fetch('{{LEAD_ENDPOINT}}', {{
     method:'POST', headers:{{'Content-Type':'application/json'}},
     body: JSON.stringify({{
-      source:'landing', page:{json_client}, client:{json_client},
-      fields:data
+      source:'landing', page:{json_page}, client:{json_client},
+      fields:data, meta:arrivalMeta()
     }})
-  }}).then(function(r){{ return r.json(); }})
-    .then(function(){{ f.innerHTML =
-      '<p style="font-size:18px;font-weight:600">Thanks — we have your details '+
-      'and someone will be in touch shortly.</p>'; }})
-    .catch(function(){{ msg.textContent =
-      'That did not send. Please call us instead.'; }});
+  }}).then(function(r){{
+      return r.json().catch(function(){{ return {{}}; }})
+              .then(function(d){{ return {{ok:r.ok, d:d||{{}}}}; }});
+    }})
+    .then(function(res){{
+      /* The server's answer is read rather than thrown away. A rate limit
+         (three an hour per address -- one shared office or one mobile
+         network) and a validation refusal both come back as valid JSON, so
+         the old `.then(r => r.json())` ran the success branch on them: the
+         visitor was told their details had been received, the form was
+         destroyed so they could not retry, and a Google Analytics
+         conversion fired. Nobody called them, and the only number the page
+         is judged on counted them as converted. */
+      if(!res.ok || res.d.ok === false){{
+        f.dataset.sending = '';
+        if(btn) btn.disabled = false;
+        /* The server's own sentence, never its `hint` -- that names
+           environment variables and is written for whoever runs the Hub. */
+        msg.textContent = res.d.error ||
+          'That did not send. Please call us instead.';
+        return;
+      }}
+      f.innerHTML =
+        '<p style="font-size:18px;font-weight:600">Thanks — we have your details '+
+        'and someone will be in touch shortly.</p>';
+      if(typeof gtag === 'function'){{ gtag('event','generate_lead',
+        {{event_category:'landing_page'}}); }}
+    }})
+    .catch(function(){{
+      f.dataset.sending = '';
+      if(btn) btn.disabled = false;
+      msg.textContent = 'That did not send. Please call us instead.';
+    }});
   return false;
 }}
+/* Guarded on gtag existing at all, so a page with no GA4 id given -- the
+   ordinary case -- runs this with nothing to call. */
+Array.prototype.forEach.call(document.querySelectorAll('a[href^="tel:"]'),
+  function(a){{ a.addEventListener('click', function(){{
+    if(typeof gtag === 'function'){{ gtag('event','phone_click',
+      {{event_category:'landing_page'}}); }} }}); }});
 </script>
 </body>
 </html>"""

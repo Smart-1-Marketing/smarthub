@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+{% block title %}{{ campaign.name }} — Creative Studio{% endblock %}
+{% block content %}
+<div class="page-head s1d-page">
+  <h2>{{ campaign.name }} {{ help_dot('creative_studio.campaigns') if help_dot is defined else '' }}</h2>
+  <p>{{ campaign.client_name or 'Generic Smart 1 asset' }}
+     &middot; <span class="pill {{ 'ok' if status == 'Approved' else ('err' if status == 'Changes Requested' else 'info') }}">{{ status }}</span></p>
+</div>
+
+<div class="s1d-page">
+  <div class="card">
+    <h3 style="margin-top:0">Details</h3>
+    <table>
+      <tr><td style="width:180px;color:var(--muted,#64748B)">Offer</td><td>{{ campaign.offer or '—' }}</td></tr>
+      <tr><td style="color:var(--muted,#64748B)">Call to action</td><td>{{ campaign.cta or '—' }}</td></tr>
+      <tr><td style="color:var(--muted,#64748B)">Flight</td>
+        <td>{{ campaign.start or '—' }} &ndash; {{ campaign.end or '—' }}</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Assets {{ help_dot('creative_studio.campaigns') if help_dot is defined else '' }}</h3>
+    {% if assets %}
+    <table>
+      <thead><tr><th></th><th>Asset</th><th>Channel</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        {% for a in assets %}
+        <tr>
+          <td><input type="checkbox" class="ccdAssetPick" value="{{ a.project_id }}"
+                    {% if not a.project.cb_project_id %}disabled title="Not opened in the Storyboard Editor yet"{% endif %}></td>
+          <td><a href="/creative-studio/projects/{{ a.project_id }}">{{ a.project.name }}</a>
+            {% if a.differs.offer %}<span class="pill warn" title="This asset's own offer differs from the campaign's">offer differs</span>{% endif %}
+            {% if a.differs.cta %}<span class="pill warn" title="This asset's own CTA differs from the campaign's">cta differs</span>{% endif %}
+          </td>
+          <td>{{ channel_labels.get(a.channel, a.channel) or '—' }}</td>
+          <td><span class="pill {{ 'ok' if a.project.status == 'Approved' else ('err' if a.project.status == 'Changes Requested' else 'info') }}">{{ a.project.status }}</span></td>
+          <td>{% if not a.project.cb_project_id %}<span class="muted" style="font-size:12px">Not opened yet</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--muted,#64748B)">No assets yet.</p>
+    {% endif %}
+
+    <h4>Add asset</h4>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;">
+      <div><label style="display:block;font-size:12px">Channel</label>
+        <select id="ccdChannel">
+          <option value="">—</option>
+          {% for ch in channels %}<option value="{{ ch }}">{{ channel_labels.get(ch, ch) }}</option>{% endfor %}
+        </select></div>
+      <div><label style="display:block;font-size:12px">Industry</label>
+        <input type="text" id="ccdIndustry" value="general" style="width:110px;padding:6px;"></div>
+      <div><label style="display:block;font-size:12px">Duration</label>
+        <select id="ccdDuration"><option value="15">:15</option><option value="30" selected>:30</option><option value="60">:60</option></select></div>
+      <div><label style="display:block;font-size:12px">Aspect</label>
+        <select id="ccdAspect"><option value="16:9" selected>16:9</option><option value="9:16">9:16</option></select></div>
+      <div><label style="display:block;font-size:12px">Type</label>
+        <select id="ccdType"><option value="video_commercial" selected>Video Commercial</option><option value="social_video">Social Video</option></select></div>
+      <div><button class="btn" id="ccdAddAsset">Add asset</button></div>
+    </div>
+    <div id="ccdAddStatus" style="color:var(--muted,#64748B);font-size:12.5px;margin-top:6px"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Generate all drafts</h3>
+    <p style="color:var(--muted,#64748B);font-size:12.5px;margin-top:0">
+      One AI call writes the campaign's shared headline, offer and CTA;
+      every asset added above then derives its own brief from it and its
+      storyboard is built automatically. Nothing renders.
+    </p>
+    <button class="btn" id="ccdGenerateAll">Generate all drafts</button>
+    <span id="ccdGenStatus" style="color:var(--muted,#64748B);font-size:12.5px;margin-left:8px"></span>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Batch render</h3>
+    <p style="color:var(--muted,#64748B);font-size:12.5px;margin-top:0">
+      Tick the assets above to render, then press Render selected. A single
+      failing asset never cancels the rest.
+    </p>
+    <button class="btn btn-primary" id="ccdBatchRender">Render selected</button>
+    <span id="ccdBatchStatus" style="color:var(--muted,#64748B);font-size:12.5px;margin-left:8px"></span>
+    <div id="ccdConfirmBox" style="display:none;margin-top:10px;">
+      <input type="text" id="ccdConfirmName" placeholder="Type the campaign's name to confirm"
+             style="padding:8px;width:320px;">
+      <button class="btn" id="ccdConfirmGo">Confirm and render</button>
+    </div>
+    <table id="ccdBatchTable" style="margin-top:12px;display:none;">
+      <thead><tr><th>Asset</th><th>Status</th></tr></thead>
+      <tbody id="ccdBatchBody"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Send for approval {{ help_dot('creative_studio.versions') if help_dot is defined else '' }}</h3>
+    <button class="btn" id="ccdSendApproval">Send campaign for approval</button>
+    <span id="ccdShareStatus" style="color:var(--muted,#64748B);font-size:12.5px;margin-left:8px"></span>
+  </div>
+
+  <div class="card" id="ccdShareDialog" style="display:none;">
+    <h3 style="margin-top:0">Review link</h3>
+    <p id="ccdShareNote" style="color:var(--muted,#64748B)"></p>
+    <input type="text" id="ccdShareUrl" readonly style="width:100%;padding:8px;">
+    <div style="margin-top:8px"><button class="btn btn-sm" id="ccdShareCopy">Copy link</button>
+    <button class="btn btn-sm" id="ccdShareClose">Close</button></div>
+  </div>
+
+  {% if radio_assets %}
+  <div class="card">
+    <h3 style="margin-top:0">Radio assets <span class="pill info">Read-only</span></h3>
+    <p style="color:var(--muted,#64748B);font-size:12.5px;margin-top:0">
+      Matched to this campaign's client from the Radio Ad Creator. Managed
+      there -- this is a link, not an editor.
+    </p>
+    <table>
+      <thead><tr><th>Set</th><th>Market</th><th>Package</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+        {% for rs in radio_assets %}
+        <tr>
+          <td>Script set #{{ rs.id }}</td>
+          <td>{{ rs.market or '—' }}</td>
+          <td>{{ rs.package or '—' }}</td>
+          <td>{{ rs.created_at[:10] if rs.created_at else '' }}</td>
+          <td><a href="/tools/radio-promo/" target="_blank" rel="noopener">Open in Radio Ad Creator</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+(function(){
+  var campaignId = {{ campaign.id|tojson }};
+  var campaignName = {{ campaign.name|tojson }};
+  var base = '/creative-studio/api/campaigns/' + campaignId;
+
+  document.getElementById('ccdAddAsset').addEventListener('click', function(){
+    var btn = this;
+    var status = document.getElementById('ccdAddStatus');
+    btn.disabled = true;
+    status.textContent = 'Adding…';
+    fetch(base + '/assets', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        channel: document.getElementById('ccdChannel').value,
+        industry: document.getElementById('ccdIndustry').value.trim() || 'general',
+        duration: parseInt(document.getElementById('ccdDuration').value, 10),
+        aspect_ratio: document.getElementById('ccdAspect').value,
+        creative_type: document.getElementById('ccdType').value
+      })})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        btn.disabled = false;
+        if (d.ok) { window.location.reload(); }
+        else { status.textContent = d.error || 'Could not add the asset.'; }
+      })
+      .catch(function(){ btn.disabled = false; status.textContent = 'Could not add the asset.'; });
+  });
+
+  document.getElementById('ccdGenerateAll').addEventListener('click', function(){
+    var btn = this;
+    var status = document.getElementById('ccdGenStatus');
+    btn.disabled = true;
+    status.textContent = 'Starting…';
+    fetch(base + '/generate-all', {method: 'POST'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.ok) { btn.disabled = false; status.textContent = d.error || 'Could not start.'; return; }
+        poll(d.job.id);
+      })
+      .catch(function(){ btn.disabled = false; status.textContent = 'Could not start.'; });
+    function poll(jobId){
+      fetch('/creative-studio/api/jobs/' + jobId).then(function(r){ return r.json(); })
+        .then(function(d){
+          if (!d.ok) { status.textContent = 'Could not read job status.'; return; }
+          var job = d.job;
+          if (job.state === 'complete') {
+            status.textContent = 'Done.';
+            setTimeout(function(){ window.location.reload(); }, 600);
+          } else if (job.state === 'failed') {
+            btn.disabled = false;
+            status.textContent = job.error || 'The job failed.';
+          } else {
+            status.textContent = (job.stage || job.state) + '…';
+            setTimeout(function(){ poll(jobId); }, 1500);
+          }
+        }).catch(function(){ status.textContent = 'Could not read job status.'; });
+    }
+  });
+
+  function pickedAssetIds(){
+    return Array.prototype.slice.call(document.querySelectorAll('.ccdAssetPick:checked'))
+      .map(function(el){ return el.value; });
+  }
+
+  function runBatch(confirmValue){
+    var status = document.getElementById('ccdBatchStatus');
+    var ids = pickedAssetIds();
+    if (!ids.length) { status.textContent = 'Tick at least one asset first.'; return; }
+    status.textContent = 'Queuing…';
+    var body = {project_ids: ids};
+    if (confirmValue) { body.confirm = confirmValue; }
+    fetch(base + '/render', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)})
+      .then(function(r){ return r.json().then(function(d){ return {status: r.status, d: d}; }); })
+      .then(function(res){
+        if (res.status === 409 && res.d.error === 'confirm_required') {
+          status.textContent = res.d.message;
+          document.getElementById('ccdConfirmBox').style.display = '';
+          return;
+        }
+        if (!res.d.ok) { status.textContent = res.d.error || 'Could not start the batch.'; return; }
+        document.getElementById('ccdConfirmBox').style.display = 'none';
+        status.textContent = res.d.rendered.length + ' of ' + ids.length + ' queued'
+          + (res.d.refused.length ? ', ' + res.d.refused.length + ' refused' : '') + '.';
+        var table = document.getElementById('ccdBatchTable');
+        var body2 = document.getElementById('ccdBatchBody');
+        body2.innerHTML = '';
+        table.style.display = '';
+        res.d.rendered.forEach(function(r){
+          var tr = document.createElement('tr');
+          tr.innerHTML = '<td>#' + r.project_id + '</td><td>Queued…</td>';
+          body2.appendChild(tr);
+        });
+        res.d.refused.forEach(function(r){
+          var tr = document.createElement('tr');
+          tr.innerHTML = '<td>#' + r.project_id + '</td><td><span class="pill err">' + (r.error || 'Refused') + '</span></td>';
+          body2.appendChild(tr);
+        });
+      })
+      .catch(function(){ status.textContent = 'Could not start the batch.'; });
+  }
+
+  document.getElementById('ccdBatchRender').addEventListener('click', function(){ runBatch(null); });
+  document.getElementById('ccdConfirmGo').addEventListener('click', function(){
+    runBatch(document.getElementById('ccdConfirmName').value.trim());
+  });
+
+  document.getElementById('ccdSendApproval').addEventListener('click', function(){
+    var btn = this;
+    var status = document.getElementById('ccdShareStatus');
+    btn.disabled = true;
+    status.textContent = 'Sending…';
+    fetch(base + '/share', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        btn.disabled = false;
+        if (!d.ok) { status.textContent = d.error || 'Could not send for approval.'; return; }
+        status.textContent = '';
+        document.getElementById('ccdShareUrl').value = d.share.url;
+        document.getElementById('ccdShareNote').textContent = (d.share.delivery && d.share.delivery.note) || 'Link created.';
+        document.getElementById('ccdShareDialog').style.display = '';
+      })
+      .catch(function(){ btn.disabled = false; status.textContent = 'Could not send for approval.'; });
+  });
+
+  document.getElementById('ccdShareCopy').addEventListener('click', function(){
+    var box = document.getElementById('ccdShareUrl');
+    box.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(box.value).catch(function(){});
+    }
+  });
+  document.getElementById('ccdShareClose').addEventListener('click', function(){
+    document.getElementById('ccdShareDialog').style.display = 'none';
+  });
+})();
+</script>
+{% endblock %}

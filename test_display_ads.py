@@ -891,7 +891,7 @@ def test_a_download_is_not_a_delivery():
     server = (MODULE / "src" / "server.ts").read_text()
     screen = BUILD_HTML.read_text()
     check("the route can package without recording",
-          "if (body.record === false) return json(res, 200, { ...out, recorded: false });"
+          "if (body.record === false || body.mode === 'draft') return json(res, 200, { ...out, recorded: false, mode: body.mode });"
           in server)
     check("and says which it did", "recorded: true" in server)
     check("the download asks for the unrecorded one", '"record": false' in screen or

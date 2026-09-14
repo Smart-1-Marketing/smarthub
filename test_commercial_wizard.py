@@ -336,25 +336,43 @@ check("and still reports the room",
 # ---------------------------------------------------------------------------
 # 5. gpt-image-1 returns b64_json, and never a url
 # ---------------------------------------------------------------------------
-section("A generated still is read whichever way the model returns it")
+section("A generated still is read through hub.ai.image(), always as bytes")
+
+# hub.ai.image() decodes b64_json unconditionally -- gpt-image-1 never
+# returns a hosted url, and older dall-e-* urls expire within the hour
+# anyway -- so generate_ai_stills() has no url/b64 branch left to get wrong.
+# is_live() gates on the OpenAI key being set; patch it live and mock the
+# call hub.ai.image() actually makes.
+from hub import ai as _hub_ai_for_stills                               # noqa: E402
+
+_real_is_live = openai_service.is_live
+_real_hub_ai_image = _hub_ai_for_stills.image
+
+openai_service.is_live = lambda: True
+_hub_ai_for_stills.image = lambda *a, **kw: b"fake-png-bytes"
+try:
+    live_options = openai_service.generate_ai_stills("a van in a driveway",
+                                                      {"business_name": "Acme"})
+finally:
+    pass
+check("two options in live mode", len(live_options), 2)
+check("both are data URLs, decoded from the mocked bytes",
+      all((o.get("url") or "").startswith("data:image/png;base64,") for o in live_options), True)
+check("neither is flagged as mock", any(o.get("_mock") for o in live_options), False)
 
 
-class _B64Item:
-    b64_json = "aGVsbG8="
-    url = None
+def _raise_refused(*a, **kw):
+    raise RuntimeError("refused")
 
 
-class _UrlItem:
-    b64_json = None
-    url = "https://example.com/frame.png"
-
-
-check("b64_json becomes a data URL",
-      openai_service._image_result_url(_B64Item()).startswith("data:image/png;base64,"), True)
-check("a hosted url is passed through",
-      openai_service._image_result_url(_UrlItem()), "https://example.com/frame.png")
-check("neither is None, not an exception",
-      openai_service._image_result_url(type("E", (), {"b64_json": None, "url": None})()), None)
+_hub_ai_for_stills.image = _raise_refused
+try:
+    failed_options = openai_service.generate_ai_stills("a van in a driveway", {})
+finally:
+    openai_service.is_live = _real_is_live
+    _hub_ai_for_stills.image = _real_hub_ai_image
+check("a refused option carries its own error, not a batch failure",
+      all(o.get("url") is None and o.get("error") for o in failed_options), True)
 
 # Mock mode still hands back two pickable options, so the picker can be
 # exercised without a key — and each is flagged as mock.
@@ -421,6 +439,8 @@ def get_json(path):
 
 
 def post_json(path, body=None, method="post"):
+    if path.endswith('/approve'):
+        body = {**(body or {}), 'acknowledge_unverified_video': True}
     fn = client.post if method == "post" else client.put
     return fn(path, data=json.dumps(body or {}),
               headers={"Content-Type": "application/json"})
@@ -697,7 +717,10 @@ section("Severity is the server's answer, not each screen's")
 for js_file in ("blueprint.js", "preview.js"):
     text = (ROOT / "modules/commercial_builder/static/js" / js_file).read_text()
     check(f"{js_file} keeps no advisory list of its own", "ADVISORY = new Set" in text, False)
-    check(f"{js_file} reads the level off the result", "result.level" in text, True)
+    check(f"{js_file} uses the shared severity renderer", "CB.renderChecks(list," in text, True)
+shared_checks = (ROOT / "modules/commercial_builder/static/js/common.js").read_text()
+check("the shared renderer keeps no advisory list", "ADVISORY = new Set" in shared_checks, False)
+check("the shared renderer reads the server's level", "const level = result.level ||" in shared_checks, True)
 qc_lv = post_json(MOUNT + f"/api/projects/{pid}/qc").get_json()["qc_results"]
 levels = {v.get("level") for k, v in qc_lv.items()
           if not k.startswith("_") and isinstance(v, dict)}
@@ -956,6 +979,14 @@ check("the same size twice is one render", dupe.status_code, 200)
 check("and one job", len(dupe.get_json()["render_jobs"]), 1)
 check("no size at all is refused", post_json(
     MOUNT + f"/api/projects/{pid}/render", {"formats": []}).status_code, 400)
+
+# These fixtures exercise filing/compliance; decoder and stale-cut gates have
+# independent integration coverage in test_video_workflow.py.
+from unittest.mock import patch as _patch_video
+_video_status = _patch_video("modules.commercial_builder.services.finished_video.creative_status", return_value="current")
+_video_inspection = _patch_video("modules.commercial_builder.services.finished_video.inspect_job", return_value={"status": "passed", "checks": []})
+_video_status.start()
+_video_inspection.start()
 
 section("Approving is what files it, and only a real file can be approved")
 # Approving a mock would file nothing into the client's library and log it as

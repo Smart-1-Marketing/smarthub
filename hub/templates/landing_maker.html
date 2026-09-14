@@ -102,6 +102,27 @@
             Only put something here if it's real. The page won't invent an
             offer, a review or a guarantee that isn't in the material.</p>
         </div>
+
+        <div>
+          <label class="lp-l">Real Google reviews <span class="muted">(optional)</span></label>
+          <textarea id="lpReviews" class="lp-i" rows="3"
+                    placeholder="Jane D. | 5 | They showed up same day and fixed it right the first time."></textarea>
+          <p class="muted" style="font-size:12px;margin:5px 0 0">
+            One per line: <code>Name | star rating | quote</code> — the name
+            and rating are optional. Up to two are used. Leave this blank
+            rather than paste one that isn't real; the page simply has no
+            reviews section without it.</p>
+        </div>
+
+        <div>
+          <label class="lp-l">GA4 measurement ID <span class="muted">(optional)</span></label>
+          <input id="lpGa4" class="lp-i" placeholder="G-XXXXXXX">
+          <p class="muted" style="font-size:12px;margin:5px 0 0">
+            The client's own GA4 property, if they have one on file — never
+            the agency's. Wires phone-click and form-submit events. Left
+            blank, the page ships with no tracking script rather than a
+            broken one.</p>
+        </div>
       </div>
 
       <div>
@@ -468,6 +489,8 @@ function lpCreate(){
     goal: $('lpGoal').value.trim(),
     offer: $('lpOffer').value.trim(),
     promoting: $('lpPromoting').value.trim(),
+    reviews: $('lpReviews').value,
+    ga4_id: $('lpGa4').value.trim(),
     direction: (document.querySelector('input[name=lpDir]:checked')||{}).value || 'trust'
   };
   /* One select carries both kinds, so the prefix says which id this is. */
@@ -510,7 +533,17 @@ function lpCreate(){
       btn.disabled = false;
       if(d.error){ msg.style.color='#b42318'; msg.textContent = d.error; return; }
       msg.style.color = '#147d52';
-      msg.textContent = d.note || 'Built.';
+      /* The link, not just a tab. The build opened the page and said nothing
+         about where it is, so the way to send one was to open it and copy the
+         address bar -- on the screen whose whole output is an address. */
+      msg.innerHTML = esc(d.note || 'Built.');
+      if(d.url){
+        msg.innerHTML +=
+          '<span style="display:block;margin-top:6px">'+
+          '<code style="font-size:12px">'+esc(d.url)+'</code> '+
+          '<button class="btn-ghost" onclick="lpCopy(this,\''+esc(d.url)+'\')">'+
+          'Copy link</button></span>';
+      }
       window.open(d.preview, '_blank');
       lpLoad();
     })
@@ -555,13 +588,23 @@ function lpLoad(){
               esc((p.created||'').replace('T',' ').slice(0,16))+'</td>'+
             '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;text-align:right;white-space:nowrap">'+
               '<a class="btn-ghost" href="/sales/landing/p/'+esc(p.slug)+'" target="_blank">Open</a> '+
+              (p.url ? '<button class="btn-ghost" onclick="lpCopy(this,\''+esc(p.url)+'\')">Copy link</button> ' : '')+
+              (p.versions ? '<button class="btn-ghost" onclick="lpHistory(\''+esc(p.id)+'\',\''+
+                 esc(p.client).replace(/'/g,"") + '\')">History ('+p.versions+')</button> ' : '')+
               '<button class="btn-ghost" onclick="lpRevise(\''+esc(p.id)+'\',\''+
                  esc(p.client).replace(/'/g,"") + '\')">Change…</button> '+
               '<button class="btn-ghost" onclick="lpDelete(\''+esc(p.id)+'\',\''+
                  esc(p.client).replace(/'/g,"") + '\')">Delete</button></td>'+
             '</tr>';
         }).join('')+'</tbody></table>'+
-        '<p class="muted" style="font-size:12px;margin-top:8px">'+d.count+' page(s).</p>';
+        '<p class="muted" style="font-size:12px;margin-top:8px">'+
+          (d.shown < d.count
+             ? 'Showing the first '+d.shown+' of '+d.count+' page(s).'
+             : d.count+' page(s).')+
+          (d.pages.length && !d.pages[0].url
+             ? ' No link to copy — PUBLIC_BASE_URL is not set, so the Hub '+
+               'cannot name its own address.' : '')+
+        '</p>';
     })
     .catch(function(){ $('lpList').innerHTML = '<p class="muted">Could not load.</p>'; });
 }
@@ -593,6 +636,122 @@ function lpRevise(id, name){
       msg.style.color = '#147d52';
       msg.textContent = d.note || 'Rewritten.';
       window.open(d.preview, '_blank');
+      lpLoad();
+    })
+    .catch(function(){
+      msg.style.color='#b42318';
+      msg.textContent = 'That did not go through.';
+    });
+}
+
+/* --- handing the page over -------------------------------------------
+   The maker has always opened the built page in a tab and stopped there, so
+   the way a rep sent a link was to open it and copy the address bar. The
+   address is the deliverable: it goes in a text, an email, a funnel, the ad
+   that points at it.
+
+   navigator.clipboard is unavailable on http and refusable everywhere, so
+   this tries three things and only ever claims what actually happened. A
+   button that says "Copied" without copying is worse than one that asks --
+   the rule Smart 1 Ads' own copy control already works to. */
+function lpCopy(btn, url){
+  var was = btn.textContent;
+  function said(word){
+    btn.textContent = word;
+    setTimeout(function(){ btn.textContent = was; }, 1600);
+  }
+  function fallback(){
+    /* execCommand over a textarea we own, then -- if even that is refused --
+       hand the link over on screen for a human to copy. prompt() preselects
+       its value, which is the whole reason it is the last resort here. */
+    try{
+      var ta = document.createElement('textarea');
+      ta.value = url;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      if(ok){ said('Copied'); return; }
+    }catch(e){ /* fall through -- an exception here is not a copy */ }
+    said('Copy it');
+    window.prompt('Copy this link (Ctrl-C, then Enter)', url);
+  }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url)
+      .then(function(){ said('Copied'); })
+      .catch(fallback);
+    return;
+  }
+  fallback();
+}
+
+/* --- the versions that were already being kept ------------------------
+   revise() has answered "Rewritten. The previous version is kept." since the
+   day it was written and has kept ten of them on every row. Nothing could
+   read one back, so the sentence was a promise the tool could not honor. */
+function lpHistory(id, name){
+  var msg = $('lpMsg');
+  msg.style.color = '';
+  msg.textContent = 'Reading the history…';
+  fetch('/api/landing/' + encodeURIComponent(id) + '/versions',
+        {credentials:'same-origin'})
+    .then(function(r){ return r.json().catch(function(){ return {}; }); })
+    .then(function(d){
+      if(!d || d.error){
+        msg.style.color='#b42318';
+        msg.textContent = (d && d.error) || 'Could not read the history.';
+        return;
+      }
+      if(!d.versions || !d.versions.length){
+        msg.textContent = 'No earlier version of this page is kept.';
+        return;
+      }
+      var lines = d.versions.map(function(v){
+        var when = (v.saved || '').replace('T',' ').slice(0,16);
+        var why = v.why ? ' — ' + esc(v.why) : '';
+        var who = v.by ? ' (' + esc(v.by) + ')' : '';
+        var caveat = v.has_copy ? ''
+          : ' <span class="muted">page only — a later rewrite starts from '+
+            'the current wording</span>';
+        return '<li style="margin:5px 0">'+
+          '<button class="btn-ghost" onclick="lpRestore(\''+esc(id)+'\','+v.index+')">'+
+          'Put back</button> '+
+          '<span class="muted">'+esc(when || 'undated')+who+'</span>'+
+          esc(v.headline ? ' · ' + v.headline : '')+why+caveat+'</li>';
+      }).join('');
+      msg.innerHTML =
+        '<b>'+esc(name || 'This page')+' — earlier versions</b>'+
+        '<ul style="margin:6px 0 0;padding-left:0;list-style:none">'+lines+'</ul>'+
+        '<p class="muted" style="font-size:12px;margin:6px 0 0">The last '+
+        d.limit+' are kept, newest first. Putting one back keeps the page as '+
+        'it stands now, so a restore is one more press to reverse.</p>';
+    })
+    .catch(function(){
+      msg.style.color='#b42318';
+      msg.textContent = 'Could not read the history.';
+    });
+}
+
+function lpRestore(id, index){
+  var msg = $('lpMsg');
+  msg.style.color = '';
+  msg.textContent = 'Putting it back…';
+  fetch('/api/landing/' + encodeURIComponent(id) + '/restore', {
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({index: index})
+  }).then(function(r){ return r.json().catch(function(){ return {}; }); })
+    .then(function(d){
+      if(!d || d.error){
+        msg.style.color='#b42318';
+        msg.textContent = (d && d.error) || 'That did not go through.';
+        return;
+      }
+      msg.style.color = '#147d52';
+      msg.textContent = d.note || 'Put back.';
       lpLoad();
     })
     .catch(function(){

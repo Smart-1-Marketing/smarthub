@@ -140,13 +140,16 @@ PREFIXES: dict[str, str] = {
     # A hub route rather than a mounted module, so its keys are `hub.ad_assets.*`
     # for the same reason the Website Audit's are `hub.website_audit.*`.
     "/tools/ad-assets": "hub.ad_assets",
+    "/tools/sites-builder": "sites_builder",
     "/sales/builder/": "sales_builder",
     "/tools/io/": "io_builder",
     "/tools/weather-setup/": "weather_setup",
+    "/tools/360-skills/": "skills360",
     "/sales/landing": "landing_maker",
     "/tools/pdf/": "pdf_optimizer",
     "/tools/short-links": "short_links",
     "/tools/ads/": "ads_builder",
+    "/reports/": "reports",
     "/tools/gpt-ads/": "gpt_ads",
     "/tools/social/": "social",
     "/tools/site-blocks/": "site_blocks",
@@ -196,6 +199,13 @@ CLIENT_FACING: dict[str, str] = {
     # test_ads_explainer.py already holds the public estimate to.
     "/tools/ads-grader/": "a lead magnet a prospect connects their own "
                           "Google Ads account to",
+    # The accounting-partner audit tool -- tiled for staff to find and test,
+    # served end to end to somebody with no Hub account. It is also not
+    # Python: a second Node process proxied whole (hub/marketing_audit_proxy.py),
+    # so there is no Jinja environment on it for help_dot() to register into
+    # even if a bubble belonged on a page a partner reads.
+    "/tools/marketing-audit/": "the accounting-partner lead form a partner "
+                               "fills in, with no staff screen anywhere in it",
 }
 
 
@@ -205,6 +215,8 @@ CLIENT_FACING: dict[str, str] = {
 # record, and `demo` is the walkthrough layer's own copy. Named here so
 # `stray_prefixes()` can tell them from a prefix that has drifted.
 NOT_A_TOOL: dict[str, str] = {
+    "proposal_execution": "Proposal Execution Center, reached through its sidebar entry and proposal handoff",
+    "seo_intelligence": "SEO Intelligence client overview and agency action queue, reached from the SEO navigation",
     "hub": "the dashboard and Client 360 -- the Hub itself, not a tool tile",
     "qa": "the QA report index, reached from its own page",
     "client_health": "My Clients, reached from the nav and the QA index "

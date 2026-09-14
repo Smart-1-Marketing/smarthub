@@ -47,7 +47,7 @@
   // is right for "site-blocks" and wrong for "io" and "msa" -- so every tool
   // that has a tile is named here, spelled the way its tile spells it.
   var LABELS = {
-    "tools": "Tools", "qa": "QA Reports", "scans": "Site Scans",
+    "tools": "Tools", "qa": "QA Reports", "scans": "Site Scans", "reports": "Reports",
     "client360": "Client 360", "seo": "SEO Clients", "diagnostics": "Diagnostics",
     "activity": "Activity Log", "status": "System Status", "sites": "Sites",
     "suite": "Suite", "google": "Google Finder", "clients": "Clients",
@@ -69,12 +69,14 @@
     "radio-promo": "Radio Ad Creator", "fan-radio": "Fan Radio",
     "radio-scripts": "Radio Scripts",
     // Tools
-    "website-audit": "Website Audit", "builder": "Proposal Builder",
+    "website-audit": "Website Audit", "sites-builder": "Smart 1 Sites Builder",
+    "builder": "Proposal Builder",
     "io": "IO Builder", "landing": "Landing Page Maker",
     "msa": "Master Services Agreement", "pdf": "PDF Optimizer",
     "short-links": "Client Link Masking",
     "ads": "Smart 1 Ads", "ads-grader": "Google Ads Grader",
     "calculators": "Media Calculators",
+    "marketing-audit": "Marketing Efficiency Audit",
     "gpt-ads": "GPT Ads Builder", "social": "Social Content Planner",
     "site-blocks": "Website Blocks",
     "smartforecast": "SmartForecast Dynamic Website",
@@ -106,7 +108,7 @@
   // /qa/stale-creative is Stale Creative rather than QA Reports twice over.
   // Only /tools was read this way before, which is why every page under
   // /sales, /qa and /scans drew its own mount's name as both crumbs.
-  var CONTAINERS = ["tools", "sales", "qa", "scans", "google", "land"];
+  var CONTAINERS = ["tools", "sales", "qa", "scans", "google", "land", "reports"];
 
   // Which index page each tool is tiled on, so the trail is meaningful rather
   // than a copy of the URL — and, more to the point, so "back" lands on a
@@ -114,6 +116,9 @@
   // mount it sits under, which is right for a tool tiled where its URL says.
   var PARENT = {
     "tools": null, "qa": null, "scans": null, "client360": null,
+    // Tiled on Tools beside Smart 1 Ads, and in the nav; back goes to the
+    // index the tile is on.
+    "reports": ["/tools", "Tools"],
     "diagnostics": null, "activity": null, "status": null,
     // In the nav AND tiled on Tools (Web Development / SEO groups) -- the
     // my-clients rule below: back goes to the index the tool is listed on
@@ -334,8 +339,32 @@
     bar.className = "s1-c360-back";
     bar.setAttribute("data-for", name);
     var a = document.createElement("a");
+    // The href is the fallback -- a middle-click, a right-click "open in a
+    // new tab", and the no-prior-entry case handled in the click listener
+    // below all still need a real destination, not just a history pop.
     a.href = C360_PATH + "?q=" + encodeURIComponent(name);
     a.textContent = "\u2190 Back to " + name;
+    a.onclick = function (e) {
+      // A plain left-click can use the browser's own "back" instead of
+      // re-running the search Client 360 already ran once. That matters
+      // because a fresh navigation to the same URL is not the same page:
+      // scroll position and anything expanded on Client 360 survive an
+      // actual history pop and do not survive a reload of it.
+      //
+      // Only when there is somewhere to go back TO. A link opened in a new
+      // tab, or a page reached straight from a bookmark or a reload, has no
+      // same-origin entry before it in this tab's history -- popping there
+      // would leave the tab on about:blank or send it wherever this Hub was
+      // opened from, neither of which is "back to the client". The href
+      // above is exactly right for those and is left to fire normally.
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey ||
+          e.shiftKey || e.altKey) return;
+      if (history.length > 1 && document.referrer &&
+          document.referrer.indexOf(location.origin) === 0) {
+        e.preventDefault();
+        history.back();
+      }
+    };
     var x = document.createElement("button");
     x.type = "button";
     x.className = "s1-c360-x";

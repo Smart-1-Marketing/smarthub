@@ -66,6 +66,7 @@ from __future__ import annotations
 import datetime as _dt
 import os
 import re
+import time as _time
 from functools import lru_cache
 
 from sqlalchemy import (Column, Date, DateTime, Integer, LargeBinary, String,
@@ -96,6 +97,19 @@ STATUS_LABEL = {
 # not appear in one queue and silently vanish from the other.
 ASSIGNEE_STATES = (OPEN, NEEDS_MORE)
 OWNER_STATES = (ANSWERED,)
+
+# The assignee's answer -- named here too, alongside the kinds added after
+# it, because activity_log() below has to pick it out from among them.
+REPLY = "reply"
+
+# A response nobody has to act on, the third `kind` the module docstring
+# already names as the obvious next addition -- a "claim" is a reassignment
+# recorded where the answer will be, not a reply and not a request.
+CLAIM = "claim"
+
+# A fourth: an automatic read of a screenshot linked in the task's own
+# instructions -- see describe_images() below.
+VISION = "vision"
 
 
 def _now() -> _dt.datetime:
@@ -516,7 +530,7 @@ def respond(task_id: int, *, body: str, actor_email: str, actor_name: str,
         # which happens, because the owner is sometimes also the assignee —
         # is a reply too, and only an owner who is NOT the assignee is asking
         # for more.
-        kind="reply" if is_assignee else "request",
+        kind=REPLY if is_assignee else "request",
         body=body,
         file_name=(file_name or "")[:255], file_type=(file_type or "")[:120],
         file_size=len(file_bytes) if file_bytes else 0,
@@ -574,6 +588,262 @@ def reopen(task_id: int, *, actor_email: str) -> QaTask:
     db.session.commit()
     _log("reopened", actor=actor_email, task=task.id, target=task.target_label)
     return task
+
+
+def _delegates() -> dict[str, set[str]]:
+    """delegate email -> the principals' tasks they may pick up.
+
+    `QA_TASK_DELEGATES` is "delegate:principal,delegate:principal,...". Unset
+    means nobody may claim anybody's task -- claiming is off by construction
+    until somebody names who stands in for whom, the way `NOT_REQUESTED` and
+    `WRITE_EXEMPT` elsewhere in this Hub name an absence rather than leaving
+    it to be inferred. Read fresh on every call rather than cached: this is a
+    small string, and a cache here is one more thing that would need
+    invalidating the day the mapping changes.
+    """
+    raw = os.environ.get("QA_TASK_DELEGATES", "")
+    out: dict[str, set[str]] = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if not pair or ":" not in pair:
+            continue
+        delegate, principal = pair.split(":", 1)
+        delegate = delegate.strip().lower()
+        principal = principal.strip().lower()
+        if delegate and principal:
+            out.setdefault(delegate, set()).add(principal)
+    return out
+
+
+def may_claim(delegate_email: str, principal_email: str) -> bool:
+    delegate_email = (delegate_email or "").strip().lower()
+    principal_email = (principal_email or "").strip().lower()
+    return bool(principal_email) and principal_email in _delegates().get(delegate_email, set())
+
+
+def claim(task_id: int, *, actor_email: str, actor_name: str) -> QaTask:
+    """Take over somebody else's task. A named stand-in, never a guess.
+
+    This is not "anyone can", the way raising a task is: handing somebody's
+    work to an account they never chose is the confident wrong answer this
+    codebase keeps undoing, one queue over. `respond()` already trusts
+    exactly two people with a task -- the assignee and the assigner -- and a
+    delegate is neither, so the caller has to be named in `QA_TASK_DELEGATES`
+    for the task's *current* assignee, checked here rather than left to
+    whichever caller remembers to ask.
+
+    The old assignee is not silently dropped: the claim is posted into the
+    task's own thread, so anyone who opens it later -- including the person
+    it was originally for -- can see what happened and who did it, rather
+    than the task simply reading as though it had always belonged to whoever
+    holds it now.
+    """
+    task = QaTask.query.get(int(task_id))
+    if task is None:
+        raise QaTaskError("That task could not be found.")
+    if task.status not in ASSIGNEE_STATES:
+        raise QaTaskError("This task is not waiting on an answer, so there "
+                          "is nothing to pick up.")
+
+    email = (actor_email or "").strip().lower()
+    if not may_claim(email, task.assigned_to_email):
+        raise QaTaskError(
+            "You are not on file as standing in for "
+            f"{task.assigned_to_name or task.assigned_to_email or 'this assignee'}.")
+
+    from_email = task.assigned_to_email
+    from_name = task.assigned_to_name or from_email
+    now = _now()
+    task.assigned_to_email = email[:255]
+    task.assigned_to_name = (actor_name or "").strip()[:160]
+    # Freshly assigned, so it is unread for whoever holds it now.
+    task.assignee_seen_at = None
+    task.last_activity_at = now
+    db.session.add(QaResponse(
+        task_id=task.id, author_email=email[:255],
+        author_name=(actor_name or "").strip()[:160], kind=CLAIM,
+        body=f"Picked this up on {from_name}'s behalf.", created_at=now))
+    db.session.commit()
+    _log("claimed", actor=email, task=task.id, target=task.target_label,
+         from_assignee=from_email)
+    return task
+
+
+def _display_name(email: str) -> str:
+    """Best-effort name for a delegate account, for the claim note's byline.
+
+    Falls back to the address itself rather than raising -- a scheduler job
+    with no account table to read must still be able to post the claim.
+    """
+    try:
+        from hub.users import User
+        row = User.query.filter_by(email=(email or "").strip().lower()).first()
+        if row and row.name:
+            return row.name
+    except Exception:                                   # noqa: BLE001
+        pass
+    return email
+
+
+def autoclaim() -> dict:
+    """Claim, for each delegate `QA_TASK_DELEGATES` names, every task still
+    open for somebody they stand in for.
+
+    This is `claim()` run from the scheduler rather than from a request --
+    the in-process half of "anything assigned to Todd, Yoda picks up",
+    alongside `tools/yoda_qa.py pickup`, which does the identical thing over
+    HTTP for an account that has to reach the Hub from outside it. Both read
+    the same `QA_TASK_DELEGATES` mapping and go through the same `claim()`,
+    so there is one rule for who may pick up whose work rather than two.
+
+    Off by construction until that variable names a delegate, the same as
+    `claim()` itself -- an empty mapping means nothing runs, never a guess at
+    who should stand in for whom.
+
+    Safe to run on a schedule and to run twice: a task claimed on the last
+    tick is no longer assigned to its old owner, so the next tick's query
+    will not find it again. Each claim is independent, so one that fails --
+    the task moved on between the query and the write, or the mapping names
+    an account that has since been deactivated -- is recorded and does not
+    cost the rest of the sweep.
+    """
+    mapping = _delegates()
+    if not mapping:
+        return {"skipped": "QA_TASK_DELEGATES is not set"}
+
+    claimed, failed = [], []
+    for delegate, principals in mapping.items():
+        try:
+            rows = (QaTask.query
+                    .filter(QaTask.assigned_to_email.in_(principals))
+                    .filter(QaTask.status.in_(ASSIGNEE_STATES))
+                    .all())
+        except Exception as exc:                        # noqa: BLE001
+            failed.append({"delegate": delegate, "error": type(exc).__name__})
+            continue
+        name = _display_name(delegate)
+        for task in rows:
+            from_email = task.assigned_to_email
+            try:
+                claim(task.id, actor_email=delegate, actor_name=name)
+            except QaTaskError as exc:
+                failed.append({"task": task.id, "delegate": delegate,
+                              "error": str(exc)})
+                continue
+            claimed.append({"task": task.id, "delegate": delegate,
+                            "from": from_email})
+    return {"claimed": len(claimed), "failed": len(failed),
+            "details": claimed[:20], "errors": failed[:20]}
+
+
+# ---------------------------------------------------------------------------
+# Reading a screenshot for someone
+# ---------------------------------------------------------------------------
+
+# A bare image URL, or the one screenshot host actually in use on tasks
+# raised against this Hub -- its share links carry no file extension, so the
+# first pattern alone would miss every one of them.
+_IMAGE_URL_RE = re.compile(r"https?://\S+\.(?:png|jpe?g|gif|webp)(?:\?\S*)?", re.I)
+_SCREENSHOT_HOST_RE = re.compile(
+    r"https?://(?:www\.)?awesomescreenshot\.com/image/\S+", re.I)
+
+
+def _image_urls(text: str) -> list[str]:
+    text = text or ""
+    found = set(_IMAGE_URL_RE.findall(text)) | set(_SCREENSHOT_HOST_RE.findall(text))
+    # Trailing punctuation a sentence puts after a bare URL is not part of it.
+    cleaned = {u.rstrip(").,;:!?") for u in found}
+    return sorted(cleaned)[:4]
+
+
+def describe_images(task_id: int) -> dict:
+    """Read every image link in one task's own instructions and post what a
+    model sees into its thread -- so a human, or Yoda's own next pass, never
+    has to open the screenshot host to know what a task is actually about.
+
+    Runs from the scheduler (see job_qa_task_vision in hub/scheduler.py),
+    never from a request: a vision call has no useful ceiling on how long it
+    takes, and posting one from inside claim() -- the obvious first place to
+    put it -- would hold up both a delegate's click on the claim button and
+    every other job sharing the scheduler's one thread.
+
+    Idempotent by construction: a task already carrying a `kind=VISION`
+    response is skipped, so a repeat sweep costs nothing and nothing is
+    described twice. The image itself is never fetched here either --
+    `hub.ai.vision()` hands the URL straight to OpenAI, which fetches it
+    server-side, so a screenshot host blocked from wherever the Hub happens
+    to be reached from makes no difference to this call.
+    """
+    task = QaTask.query.get(int(task_id))
+    if task is None:
+        return {"skipped": "not found"}
+    urls = _image_urls(task.instructions)
+    if not urls:
+        return {"skipped": "no image link in the instructions"}
+    if QaResponse.query.filter_by(task_id=task.id, kind=VISION).first():
+        return {"skipped": "already described"}
+
+    from hub import ai
+    try:
+        text = ai.vision(
+            "This is a screenshot attached to an internal QA report about a "
+            "web application called Smart 1 Hub. Describe exactly what is "
+            "shown -- any error message, label, broken control, or "
+            "annotation (an arrow, a circle, highlighted text) pointing at "
+            "something specific. Quote visible text exactly rather than "
+            "paraphrasing it. If more than one image was given, describe "
+            "each in turn, numbered.",
+            urls, module="qa_tasks", purpose="screenshot_read")
+    except ai.AIUnavailable as exc:
+        # This is the one exit from this function that costs an attempt and
+        # produces nothing anybody can see: no QaResponse row, and idempotency
+        # means the next sweep tries the identical task again. Without this
+        # line a provider outage or a missing key reads, from every screen,
+        # as "nothing to describe yet" -- indistinguishable from success --
+        # for as long as it persists.
+        _warn(f"describe_images(task={task.id}) vision call failed", exc)
+        return {"skipped": f"vision unavailable ({exc})"}
+
+    now = _now()
+    db.session.add(QaResponse(
+        task_id=task.id, author_email="", author_name="Smart 1 Hub Yoda",
+        kind=VISION, body=text.strip()[:8000], created_at=now))
+    task.last_activity_at = now
+    db.session.commit()
+    _log("described_images", task=task.id, target=task.target_label,
+        images=len(urls))
+    return {"described": len(urls)}
+
+
+def describe_image_backlog(limit: int = 5, budget_seconds: int = 90) -> dict:
+    """Sweep open tasks for an undescribed screenshot, bounded on both count
+    and wall clock -- the same two-axis budget job_index_video_backlog and
+    job_describe_client_uploads use, and for the same reason: a vision call
+    has no ceiling on how long it takes and this shares one thread with
+    every other scheduled job.
+    """
+    started = _time.time()
+    described = skipped = 0
+    try:
+        candidates = (QaTask.query.filter(QaTask.status != COMPLETE)
+                     .order_by(QaTask.last_activity_at.desc()).limit(200).all())
+    except Exception as exc:                            # noqa: BLE001
+        _warn("describe_image_backlog could not read the table", exc)
+        return {"described": 0, "skipped": 0,
+                "error": "the QA task list could not be read"}
+    for task in candidates:
+        if described >= limit or (_time.time() - started) > budget_seconds:
+            break
+        if not _image_urls(task.instructions):
+            continue
+        if QaResponse.query.filter_by(task_id=task.id, kind=VISION).first():
+            continue
+        result = describe_images(task.id)
+        if result.get("described"):
+            described += 1
+        else:
+            skipped += 1
+    return {"described": described, "skipped": skipped}
 
 
 def mark_seen(task_id: int, *, actor_email: str) -> bool:
@@ -714,6 +984,93 @@ def board(limit: int = 300) -> dict:
         return {"measured": False, "error": "the QA task list could not be read",
                 "tasks": []}
     out["tasks"] = [t.as_dict() for t in rows]
+    return out
+
+
+def activity_log(limit: int = 100) -> dict:
+    """Question, solution, and when -- across the whole team, not just mine.
+
+    "Mine", "Everyone" and "Completed" all answer a version of *what is
+    outstanding*; none of them answers *what has been solved and how*, which
+    is the question this exists for. It reads the same `reply` responses
+    `respond()` already writes rather than a second record of the same fact
+    -- the drift `hub/storage.py` exists to stop, wearing a log. A task can
+    still read `answered` here rather than `complete`: solving it and Todd
+    ticking it off on the review are two different moments, and this is the
+    first one.
+
+    Only `REPLY` counts as a solution. A `vision` post describes a screenshot
+    and nothing more -- counting it here would log a task as solved the
+    moment somebody merely looked at the picture.
+    """
+    from hub import dates
+    out = {"measured": True, "error": "", "rows": []}
+    try:
+        replies = (QaResponse.query.filter(QaResponse.kind == REPLY)
+                   .order_by(QaResponse.created_at.desc()).limit(limit * 3).all())
+    except Exception as exc:                            # noqa: BLE001
+        _warn("activity_log could not read the table", exc)
+        return {"measured": False,
+                "error": "the QA task list could not be read", "rows": []}
+    seen: set[int] = set()
+    rows: list[dict] = []
+    for r in replies:
+        if r.task_id in seen:
+            continue
+        seen.add(r.task_id)
+        task = QaTask.query.get(r.task_id)
+        if task is None:
+            continue
+        status = task.status or OPEN
+        rows.append({
+            "task_id": task.id,
+            "target_label": task.target_label or "(not named)",
+            "question": (task.instructions or "")[:400],
+            "solution": (r.body or "")[:2000],
+            "solved_by": r.author_name or r.author_email or "",
+            "solved_at": _iso(r.created_at),
+            "solved_on_pretty": dates.fmt(r.created_at),
+            "status": status,
+            "status_label": STATUS_LABEL.get(status, status),
+        })
+        if len(rows) >= limit:
+            break
+    out["rows"] = rows
+    return out
+
+
+def delegate_status() -> dict:
+    """How much work a stand-in is carrying right now, and how much they
+    cleared today.
+
+    Scoped to whoever `QA_TASK_DELEGATES` names, not every assignee -- this
+    answers "how much is Yoda carrying", which the dashboard's own QA tasks
+    card cannot, since after `autoclaim()` reassigns a task away from Todd it
+    drops out of his own queue entirely. `configured` is False with nothing
+    measured when no delegate is named, so a deployment that has never turned
+    delegation on sees nothing rather than a permanent zero on its dashboard.
+    """
+    delegates = set(_delegates().keys())
+    out = {"measured": True, "error": "", "configured": bool(delegates),
+           "in_progress": 0, "resolved_today": 0}
+    if not delegates:
+        return out
+    try:
+        out["in_progress"] = QaTask.query.filter(
+            QaTask.assigned_to_email.in_(delegates),
+            QaTask.status.in_(ASSIGNEE_STATES)).count()
+        since = _now().replace(hour=0, minute=0, second=0, microsecond=0)
+        out["resolved_today"] = (
+            QaResponse.query.filter(
+                QaResponse.kind == REPLY,
+                QaResponse.author_email.in_(delegates),
+                QaResponse.created_at >= since)
+            .count())
+    except Exception as exc:                            # noqa: BLE001
+        _warn("delegate_status could not read the table", exc)
+        return {"measured": False, "configured": bool(delegates),
+                "error": "the QA task list could not be read",
+                "in_progress": 0, "resolved_today": 0}
     return out
 
 

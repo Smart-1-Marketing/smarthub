@@ -24,13 +24,9 @@ import json
 import os
 import re
 
-import requests
-
 from hub import radio_spec, voice_casting
 
 from . import catalog, phrases
-
-API_URL = "https://api.openai.com/v1/chat/completions"
 
 
 def model() -> str:
@@ -47,40 +43,23 @@ class AIUnavailable(RuntimeError):
 
 
 def _chat(system: str, user: str, timeout: int = 60,
-          max_tokens: int = 1200) -> dict:
-    key = (os.environ.get("OPENAI_API_KEY") or "").strip()
-    if not key:
+          max_tokens: int = 1200, client: str = "", domain: str = "") -> dict:
+    """One JSON call, through ``hub.ai`` -- the one wrapper, so a call here
+    gets the client brief injected (``client=``, where the caller has one)
+    and writes a usage row the same as every other AI feature in the Hub.
+    """
+    from hub import ai as _hub_ai
+    if not _hub_ai.ready():
         raise AIUnavailable("OPENAI_API_KEY is not set.")
     try:
-        r = requests.post(
-            API_URL,
-            headers={"Authorization": f"Bearer {key}",
-                     "Content-Type": "application/json"},
-            json={"model": model(), "temperature": 0.8,
-                  "max_tokens": max_tokens,
-                  "response_format": {"type": "json_object"},
-                  "messages": [{"role": "system", "content": system},
-                               {"role": "user", "content": user}]},
-            timeout=timeout)
-    except requests.RequestException as exc:
-        raise AIUnavailable(f"Couldn't reach OpenAI ({exc.__class__.__name__}).")
-    if r.status_code != 200:
-        # Deliberately does not carry the provider body forward — the audit
-        # found an API key prefix reaching a public page this way.
-        raise AIUnavailable(f"OpenAI returned {r.status_code}.")
-    try:
-        try:  # record spend so /diagnostics doesn't under-report
-            from hub import ai as _hub_ai
-            _hub_ai.note_usage("fan_radio", r.json(), purpose="script")
-        except Exception:  # noqa: BLE001
-            pass
-        body = r.json()
-        choice = body["choices"][0]
-        if choice.get("finish_reason") == "length":
-            raise AIUnavailable("The model's answer was cut short. Try again.")
-        return json.loads(choice["message"]["content"])
-    except (KeyError, IndexError, ValueError):
-        raise AIUnavailable("OpenAI sent back something unreadable.")
+        return _hub_ai.chat_json(
+            [{"role": "system", "content": system},
+             {"role": "user", "content": user}],
+            module="fan_radio", purpose="script", model=model(),
+            temperature=0.8, max_tokens=max_tokens, timeout=timeout,
+            client=client or None, domain=domain, audience="audio")
+    except _hub_ai.AIUnavailable as exc:
+        raise AIUnavailable(str(exc)) from exc
 
 
 # ------------------------------------------------------------------ brief
@@ -110,7 +89,7 @@ def read_brief(company: str, url: str, page_text: str,
             f"Notes from the account manager: {notes or '(none)'}\n\n"
             f"Page text:\n{page_text[:9000]}")
     try:
-        out = _chat(_BRIEF_SYSTEM, user, max_tokens=900)
+        out = _chat(_BRIEF_SYSTEM, user, max_tokens=900, client=company, domain=url)
         out["ai"] = True
         return out
     except AIUnavailable as exc:

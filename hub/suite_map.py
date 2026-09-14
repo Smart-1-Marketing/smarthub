@@ -27,12 +27,22 @@ has to move them.
 
 ## The rules, each a way to be quietly wrong
 
-**A location belongs to one client and a client to one location.** Two
-clients claiming one sub-account makes "whose data may this person see"
-unanswerable, which is the worst outcome any tool here can produce; two
-sub-accounts for one client makes "where do we post" unanswerable. Both are
-named and refused rather than picked between -- the refusal
-`hub/suite_accounts.py` already makes in both directions.
+**A location belongs to one client, and a client may hold several
+locations.** Two clients claiming one sub-account makes "whose data may this
+person see" unanswerable, which is the worst outcome any tool here can
+produce, and stays refused and named -- the refusal `hub/suite_accounts.py`
+makes in `client_for_location()`. The other direction used to be refused the
+same way, on the reasoning that two sub-accounts for one client makes "where
+do we post" unanswerable -- and that reasoning was wrong about the shape of
+the book: a multi-location business (Healthy Pets, with a Suite sub-account
+per storefront) is not an error to refuse, it is the ordinary case, and a
+client that can never record a second location has no way to represent one.
+So a client may hold several, and exactly one is **primary** -- the answer
+`location_for()` and everything built on it (`token_for()`, the Forms card,
+the Social Planner push) reads when it needs a single target. The first
+location linked becomes primary automatically; a rep changes it with
+`set_primary()`. Attaching a second location never silently changes which
+one is primary -- that is a choice, not a side effect of a search result.
 
 **A proposal matches exactly or not at all.** Canonical domain first, then an
 exact normalised name, through `hub/client_key.py`. Never a substring:
@@ -93,30 +103,66 @@ def _norm(name: str) -> str:
     return str(name or "").strip().lower()
 
 
+def _entries(rec) -> list[dict]:
+    """One client's stored record, normalized to a list of location entries.
+
+    Reads two shapes. The one written from here on is `{"client":...,
+    "locations": [{"location_id","by","at","primary"}, ...]}` -- a client may
+    hold several. Everything written before a client could hold more than one
+    is the single-record shape `{"client","location_id","by","at"}`, and it is
+    read as-is rather than migrated, the way `audit.LOG_NAMES` and
+    `video_library.TAG_ALIASES` go on matching a spelling already on disk.
+    """
+    if not isinstance(rec, dict):
+        return []
+    locs = rec.get("locations")
+    if isinstance(locs, list):
+        return [dict(l) for l in locs
+                if isinstance(l, dict) and str(l.get("location_id") or "").strip()]
+    loc = str(rec.get("location_id") or "").strip()
+    if loc:
+        return [{"location_id": loc, "by": rec.get("by", ""),
+                 "at": rec.get("at", 0), "primary": True}]
+    return []
+
+
 def links() -> list[dict]:
-    """Every recorded pairing, newest first."""
+    """Every recorded pairing, newest first. One row per client per location."""
     rows = []
     for key, rec in (_read()["links"] or {}).items():
-        if not isinstance(rec, dict):
-            continue
-        loc = str(rec.get("location_id") or "").strip()
-        if not loc:
-            continue
-        rows.append({"client": str(rec.get("client") or key),
-                     "location_id": loc,
-                     "by": str(rec.get("by") or ""),
-                     "at": rec.get("at") or 0})
+        client_name = str((rec or {}).get("client") or key)
+        for e in _entries(rec):
+            rows.append({"client": client_name,
+                         "location_id": str(e["location_id"]).strip(),
+                         "by": str(e.get("by") or ""),
+                         "at": e.get("at") or 0,
+                         "primary": bool(e.get("primary"))})
     rows.sort(key=lambda r: -(r["at"] or 0))
     return rows
 
 
-def link(client: str, location_id: str, by: str = "") -> dict:
-    """Record one pairing. Refuses rather than overwriting a different client.
+def client_locations(client: str) -> list[dict]:
+    """Every location recorded for one client, primary first."""
+    blob = _read()
+    rec = blob["links"].get(_norm(client))
+    entries = _entries(rec)
+    entries.sort(key=lambda e: (0 if e.get("primary") else 1, -(e.get("at") or 0)))
+    return entries
 
-    The refusal is the point: a sub-account already recorded against somebody
-    else is either a mistake in this press or a mistake in the earlier one,
-    and quietly taking the newer answer is how one client's posts reach
-    another client's page with nothing on any screen saying so.
+
+def link(client: str, location_id: str, by: str = "") -> dict:
+    """Record one pairing. Refuses only a location already claimed elsewhere.
+
+    A client may already hold other locations -- a multi-location business is
+    the ordinary case here, not an error -- so this adds to what is on file
+    rather than replacing it. The refusal that remains is the one that
+    matters: a sub-account already recorded against a *different* client is
+    either a mistake in this press or a mistake in the earlier one, and
+    quietly taking the newer answer is how one client's posts reach another
+    client's page with nothing on any screen saying so. The first location a
+    client is given becomes primary automatically -- some answer has to be
+    "the" location for token_for() and the Social Planner push, and the first
+    one recorded is the least arbitrary default there is.
     """
     client = str(client or "").strip()
     location_id = str(location_id or "").strip()
@@ -126,29 +172,72 @@ def link(client: str, location_id: str, by: str = "") -> dict:
         return {"ok": False, "detail": "No sub-account was named."}
 
     blob = _read()
-    held = {}
-    for key, rec in (blob["links"] or {}).items():
-        if isinstance(rec, dict) and str(rec.get("location_id") or "") == location_id:
-            held[key] = rec
-    for key, rec in held.items():
-        if key != _norm(client):
-            return {"ok": False, "conflict": "location",
-                    "detail": f"That sub-account is already recorded against "
-                              f"{rec.get('client') or key}. Unlink it there "
-                              f"first if this one is right."}
+    key = _norm(client)
+    for other_key, rec in (blob["links"] or {}).items():
+        if other_key == key:
+            continue
+        for e in _entries(rec):
+            if e["location_id"] == location_id:
+                owner = (rec or {}).get("client") or other_key
+                return {"ok": False, "conflict": "location",
+                        "detail": f"That sub-account is already recorded against "
+                                  f"{owner}. Unlink it there first if this one "
+                                  f"is right."}
 
-    blob["links"][_norm(client)] = {"client": client, "location_id": location_id,
-                                    "by": str(by or ""), "at": int(time.time())}
+    entries = _entries(blob["links"].get(key))
+    if any(e["location_id"] == location_id for e in entries):
+        return {"ok": True, "client": client, "location_id": location_id,
+                "already": True}
+    entries.append({"location_id": location_id, "by": str(by or ""),
+                    "at": int(time.time()), "primary": not entries})
+    blob["links"][key] = {"client": client, "locations": entries}
     _write(blob)
     return {"ok": True, "client": client, "location_id": location_id}
 
 
-def unlink(client: str) -> dict:
+def set_primary(client: str, location_id: str) -> dict:
+    """Which of a client's several locations is "the" one automated single-
+    target consumers (token_for(), the Social Planner push) use. Never a side
+    effect of attaching a second one -- that is a choice a rep makes."""
+    client = str(client or "").strip()
+    location_id = str(location_id or "").strip()
     blob = _read()
     key = _norm(client)
-    if key not in (blob["links"] or {}):
+    entries = _entries(blob["links"].get(key))
+    if not any(e["location_id"] == location_id for e in entries):
+        return {"ok": False,
+                "detail": "That sub-account is not recorded for this client."}
+    for e in entries:
+        e["primary"] = (e["location_id"] == location_id)
+    blob["links"][key] = {"client": client, "locations": entries}
+    _write(blob)
+    return {"ok": True, "client": client, "location_id": location_id}
+
+
+def unlink(client: str, location_id: str = "") -> dict:
+    """Remove one location (or, with no `location_id`, every location this
+    client holds -- the old single-account behavior)."""
+    blob = _read()
+    key = _norm(client)
+    rec = blob["links"].get(key)
+    entries = _entries(rec)
+    if not entries:
         return {"ok": False, "detail": "That client has no sub-account recorded."}
-    blob["links"].pop(key, None)
+    location_id = str(location_id or "").strip()
+    if location_id:
+        kept = [e for e in entries if e["location_id"] != location_id]
+        if len(kept) == len(entries):
+            return {"ok": False,
+                    "detail": "That sub-account is not recorded for this client."}
+    else:
+        kept = []
+    if kept and not any(e.get("primary") for e in kept):
+        kept[0]["primary"] = True
+    if kept:
+        blob["links"][key] = {"client": (rec or {}).get("client") or client,
+                              "locations": kept}
+    else:
+        blob["links"].pop(key, None)
     _write(blob)
     return {"ok": True, "client": client}
 
@@ -165,23 +254,28 @@ def unlink(client: str) -> dict:
 
 
 def recorded_location(client: str, url: str = "") -> dict:
-    """This store's answer, or nothing. `(state, location_id)`."""
+    """This store's answer for a single-target caller, or nothing.
+
+    A client holding several locations is not ambiguous any more -- it is a
+    multi-location business, and refusing to answer forever is not a service
+    to it. The **primary** location is what a single-target caller (a token,
+    a Social Planner push) gets; `others` carries the rest for a caller that
+    wants to show or choose among them, the way Client 360's Suite Account
+    card does.
+    """
     from . import client_key
     client = str(client or "").strip()
     if not client:
         return {"state": NOT_CONNECTED, "location_id": ""}
     hits = [r for r in links()
             if client_key.same_client(client, url, r["client"], "")]
+    if not hits:
+        return {"state": NOT_CONNECTED, "location_id": ""}
     ids = sorted({r["location_id"] for r in hits})
-    if len(ids) > 1:
-        # Named, never picked between: which of two accounts a client's posts
-        # go to is not a question this Hub can answer from the data.
-        return {"state": AMBIGUOUS, "location_id": "", "candidates": ids,
-                "detail": "More than one Smart 1 Suite sub-account is "
-                          "recorded for this client."}
-    if ids:
-        return {"state": CONNECTED, "location_id": ids[0]}
-    return {"state": NOT_CONNECTED, "location_id": ""}
+    primary = next((r for r in hits if r.get("primary")), hits[0])
+    others = [i for i in ids if i != primary["location_id"]]
+    return {"state": CONNECTED, "location_id": primary["location_id"],
+           "others": others}
 
 
 def recorded_client(location_id: str) -> dict:

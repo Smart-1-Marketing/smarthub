@@ -87,6 +87,10 @@ def _install_login_guard(bp):
 
 
 def create_blueprint():
+    from . import history
+    from .routes import production, finishing
+    from . import usage
+    history.install()
     bp = Blueprint(
         "commercial_builder", __name__,
         url_prefix="/tools/commercial-builder",
@@ -95,6 +99,12 @@ def create_blueprint():
         static_url_path="/static",
     )
     _install_login_guard(bp)
+    usage.install(bp)
+    from .budget import BudgetBlocked
+    from flask import jsonify
+    @bp.errorhandler(BudgetBlocked)
+    def budget_blocked(error):
+        return jsonify(ok=False, error=error.description, budget_blocked=True), 409
     bp.register_blueprint(pages.bp)
     bp.register_blueprint(clients.bp)
     bp.register_blueprint(projects.bp)
@@ -110,6 +120,8 @@ def create_blueprint():
     bp.register_blueprint(voice_capture.bp)
     bp.register_blueprint(suite.bp)
     bp.register_blueprint(vox.bp)
+    bp.register_blueprint(production.bp)
+    bp.register_blueprint(finishing.bp)
     return bp
 
 

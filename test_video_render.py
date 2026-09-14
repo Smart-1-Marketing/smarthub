@@ -32,6 +32,51 @@ with patch.object(builder, "_hub_auth", None):
     app.register_blueprint(builder.create_blueprint())
 
 
+class CompositionTests(unittest.TestCase):
+    def test_end_card_is_visible_timed_composition(self):
+        project = {"length_seconds": 6, "platform": "youtube",
+                   "cta": {"business_name": "Test Brand", "headline": "Bring ideas to life",
+                           "website": "https://example.test"}}
+        scene = {"id": 2, "start": 3, "end": 6, "is_cta": True}
+        source = creatomate_service.build_source(project, [scene], "16:9")
+        self.assertEqual((source["width"], source["height"], source["duration"]), (1920, 1080, 6))
+        card = source["elements"][0]
+        self.assertEqual((card["type"], card["time"], card["duration"]), ("composition", 3, 3))
+        layers = card["elements"]
+        self.assertEqual(layers[0]["type"], "shape")
+        self.assertEqual(layers[0]["fill_color"], "#10243a")
+        self.assertTrue(all(layer["time"] == 0 for layer in layers))
+        self.assertEqual(len({layer["track"] for layer in layers}), len(layers))
+        text = [layer for layer in layers if layer["type"] == "text"]
+        self.assertIn("Test Brand", [layer["text"] for layer in text])
+        self.assertIn("example.test", [layer["text"] for layer in text])
+        self.assertTrue(all(layer["fill_color"] == "#ffffff" for layer in text))
+        self.assertNotIn("overlay", card)
+
+    def test_studio_overlay_keeps_background_and_local_timing(self):
+        scene = {"id": 3, "start": 4, "end": 8, "asset_type": "stock",
+                 "asset_url": "https://example.test/clip.mp4",
+                 "asset_meta": {"text_overlay": [{"type": "text", "text": "Hello", "time": 1}]}}
+        source = creatomate_service.build_source({"length_seconds": 8}, [scene], "9:16")
+        card = source["elements"][0]
+        self.assertEqual((source["width"], source["height"]), (1080, 1920))
+        self.assertEqual(card["time"], 4)
+        self.assertEqual(card["elements"][0]["source"], scene["asset_url"])
+        self.assertEqual(card["elements"][0]["time"], 0)
+        self.assertEqual(card["elements"][1]["time"], 1)
+
+    def test_paid_submit_explicitly_requests_full_resolution(self):
+        response = unittest.mock.Mock()
+        response.json.return_value = {"id": "full-resolution", "status": "planned"}
+        with patch.object(creatomate_service, "is_live", return_value=True), \
+             patch.object(creatomate_service, "_headers", return_value={}), \
+             patch.object(creatomate_service, "_meter"), \
+             patch.object(creatomate_service.requests, "post", return_value=response) as post:
+            source = {"width": 1920, "height": 1080, "elements": []}
+            creatomate_service.submit_render(source)
+        self.assertEqual(post.call_args.kwargs["json"], {"source": source, "render_scale": 1})
+
+
 class ReliabilityTests(unittest.TestCase):
     def setUp(self):
         self.context = app.app_context()

@@ -85,10 +85,11 @@ READ: tuple[Scope, ...] = (
     Scope("forms.readonly", "Forms on a sub-account, and their submission counts",
           ("hub/ghl_forms.py",), True),
 
-    Scope("contacts.readonly", "Finding the contact a proposal is filed against",
-          ("modules/suite_panel/app.py", "hub/suite_opportunity.py"), True),
-    Scope("opportunities.readonly", "Pipeline discovery, and the opportunity list",
-          ("modules/suite_panel/app.py", "hub/suite_opportunity.py"), True),
+    Scope("contacts.readonly", "Finding contacts and suppressing existing prospects",
+          ("modules/suite_panel/app.py", "hub/suite_opportunity.py", "hub/industry_prospect_providers.py"), True),
+    Scope("opportunities.readonly", "Pipeline discovery, the opportunity list, and the "
+          "client's own pipeline card on Client 360",
+          ("modules/suite_panel/app.py", "hub/suite_opportunity.py", "hub/suite_pipeline.py"), True),
     Scope("calendars.readonly", "Calendar counts in the sub-account analytics panel",
           ("modules/suite_panel/app.py",), True),
     Scope("conversations.readonly", "Conversation counts in the same panel",
@@ -103,8 +104,15 @@ READ: tuple[Scope, ...] = (
 # work, which is the only reason the Marketplace app exists.
 # --------------------------------------------------------------------------
 WRITE: tuple[Scope, ...] = (
+    # modules/landing_ads/prospect_builder.py joined this after the table was
+    # written: a prospect import upserts a contact per row and then adds its
+    # tags through /contacts/{id}/tags, because `tags` on /contacts/upsert
+    # replaces the whole tag set. The coverage check below found it by walking
+    # the tree, which is the whole reason that check reads call sites rather
+    # than re-confirming a hand-written list.
     Scope("contacts.write", "Lead delivery — every Hub form writes a contact",
-          ("hub/ghl_contacts.py", "hub/suite_opportunity.py"), True),
+          ("hub/ghl_contacts.py", "hub/suite_opportunity.py",
+           "modules/landing_ads/prospect_builder.py", "hub/industry_prospect_providers.py"), True),
     # hub/qa.py joined this months after the table was written: the accounting
     # QA report moves an opportunity's stage with PUT /opportunities/{id}/status.
     # Nothing named it until the coverage check below started discovering call
@@ -148,6 +156,22 @@ WRITE: tuple[Scope, ...] = (
            "modules/social_planner/suite_client.py"), True),
     Scope(SCOPE_SOCIAL_READ, "Reading back what Social Planner scheduled",
           ("modules/social_planner/app.py",), True),
+
+    # 360 Skills' Email Creator (modules/skills360/suite_email.py): a message
+    # composed on Client 360 is saved into the client's own sub-account Email
+    # Builder, sent as a test, or sent to chosen contacts through
+    # /conversations/messages -- every call on a location token minted by
+    # hub/suite_accounts.token_for, never an env-var location. Unverified
+    # until an agency owner re-consents; until then readiness() reports the
+    # scopes as missing and the card says so rather than 401-ing quietly.
+    # The strings are HighLevel's own console names (AVAILABLE below).
+    Scope("emails/builder.readonly", "Proving a client's sub-account email builder answers before "
+          "the Email Creator skill is switched on",
+          ("modules/skills360/suite_email.py",), False),
+    Scope("emails/builder.write", "Saving an email composed on Client 360 into the client's Email Builder",
+          ("modules/skills360/suite_email.py",), False),
+    Scope("conversations/message.write", "Sending an Email Creator test or batch from the client's sub-account",
+          ("modules/skills360/suite_email.py",), False),
 )
 
 REQUESTED: tuple[Scope, ...] = READ + WRITE
@@ -217,8 +241,12 @@ AVAILABLE: frozenset = frozenset({
     "companies.readonly",
     # Contacts
     "contacts.readonly", "contacts.write",
-    # Conversations
-    "conversations.readonly",
+    # Conversations. The two message scopes are not on the console's picker
+    # page but are what HighLevel's own OpenAPI (apps/conversations.json,
+    # POST /conversations/messages) names for sending -- read there on
+    # 2026-09-12 for 360 Skills' Email Creator.
+    "conversations.readonly", "conversations.write",
+    "conversations/message.readonly", "conversations/message.write",
     # Custom Fields
     "locations/customFields.readonly", "locations/customFields.write",
     # Custom Menus

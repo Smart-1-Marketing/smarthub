@@ -6,15 +6,9 @@ product or a person off their background, turning a photographed logo into
 something usable, and producing the transparent asset the Image Creator then
 places on a canvas.
 
-Cut-outs come from remove.bg. It is a paid API, so the module is deliberately
-careful with credits:
-
-* The account balance is read and shown before you spend anything.
-* Files are validated and pre-resized locally, so a credit is never spent on
-  something that was going to fail.
-* Results are cached by content hash for the session — re-running the same
-  image (a double-click, a retry after a resize tweak) is free.
-* Batch is capped and reports exactly what each image cost.
+Cloudinary isolates subjects; OpenAI edits backgrounds from a description.
+Validated inputs and a shared result cache keep malformed files and ordinary
+retries from causing unnecessary provider calls.
 """
 from __future__ import annotations
 
@@ -26,8 +20,8 @@ import threading
 import time
 from pathlib import Path
 
-import requests
 from flask import Flask, Response, jsonify, render_template, request
+from . import providers
 
 try:
     from hub import audit as hub_audit
@@ -58,7 +52,6 @@ MAX_BYTES = 12 * 1024 * 1024
 MAX_BATCH_BYTES = MAX_FILES * MAX_BYTES
 app.config["MAX_CONTENT_LENGTH"] = MAX_BATCH_BYTES + 2 * 1024 * 1024
 ALLOWED = {"image/jpeg", "image/png", "image/webp"}
-API = "https://api.remove.bg/v1.0/removebg"
 
 SIZE_PRESETS = {
     "auto": ("Full available resolution", 0),
@@ -208,26 +201,8 @@ except ImportError:                                   # pragma: no cover
 FOLDER = os.environ.get("BG_REMOVER_FOLDER", "smart1-cutouts")
 
 
-def api_key() -> str:
-    """The remove.bg key, under whichever name it is set.
-
-    Read through hub.config at call time, not os.environ at import: this
-    deployment names provider keys three different ways (REMOVE_BG_API,
-    REMOVE_BG_API_KEY, REMOVEBG_API_KEY) and a module that knows one of them
-    reports "not configured" over a key that is plainly there, with the
-    Background Remover disabled and nothing saying why.
-    """
-    try:
-        from hub.config import settings
-        return (settings.remove_bg_key or "").strip()
-    except Exception:                                 # noqa: BLE001
-        return (os.environ.get("REMOVE_BG_API")
-                or os.environ.get("REMOVE_BG_API_KEY")
-                or os.environ.get("REMOVEBG_API_KEY") or "").strip()
-
-
 def configured() -> bool:
-    return bool(api_key())
+    return providers.cloud_ready()
 
 
 def actor_name() -> str:
@@ -280,8 +255,7 @@ def _sweep():
 
 
 def resize_max_edge(data: bytes, max_edge: int) -> tuple[bytes, dict]:
-    """Cap the longest edge before upload. remove.bg charges by output
-    resolution, so this controls cost as well as file size."""
+    """Cap the longest edge before uploading to an image service."""
     info = {"resized": False, "from": None, "to": None}
     if not max_edge:
         return data, info
@@ -324,37 +298,6 @@ def _post_resize(png: bytes, max_edge: int) -> bytes:
         return png
 
 
-def call_remove_bg(data: bytes, size: str = "auto") -> bytes:
-    key = api_key()
-    if not key:
-        raise RuntimeError("REMOVE_BG_API_KEY is not set.")
-    r = requests.post(API, headers={"X-Api-Key": key},
-                      files={"image_file": ("image", data)},
-                      data={"size": size, "format": "png"}, timeout=90)
-    if r.status_code == 402:
-        raise RuntimeError("remove.bg is out of credits on this account.")
-    if r.status_code == 403:
-        raise RuntimeError("remove.bg rejected the API key.")
-    if not r.ok:
-        detail = ""
-        try:
-            errs = r.json().get("errors") or []
-            detail = errs[0].get("title") or errs[0].get("detail") or ""
-        except Exception:                             # noqa: BLE001
-            detail = r.text[:140]
-        raise RuntimeError(f"remove.bg {r.status_code}: {detail}")
-    if not r.content.startswith(b"\x89PNG"):
-        raise RuntimeError("remove.bg returned something that isn't a PNG.")
-    # Preview calls use the free allowance, not paid cutout credits.
-    if size != "preview":
-        try:
-            from hub import quotas as _q
-            _q.record("removebg", module="bg_remover")
-        except Exception:                             # noqa: BLE001
-            pass
-    return r.content
-
-
 # =====================================================================
 # Pages
 # =====================================================================
@@ -362,6 +305,7 @@ def call_remove_bg(data: bytes, size: str = "auto") -> bytes:
 def index():
     return render_template("index.html", version=_version(),
                            configured=configured(), cloud=CLOUD_READY,
+                           ai_configured=providers.ai_ready(),
                            presets=SIZE_PRESETS,
                            client=request.args.get("client", ""))
 
@@ -378,6 +322,7 @@ def _too_large(_exc):
 @app.route("/health")
 def health():
     return jsonify({"ok": True, "configured": configured(),
+                    "provider": "cloudinary", "ai_configured": providers.ai_ready(),
                     "cloudinary": CLOUD_READY, "version": _version(),
                     "max_files": MAX_FILES,
                     "max_file_mb": MAX_BYTES // (1024 * 1024),
@@ -386,24 +331,10 @@ def health():
 
 @app.route("/api/account")
 def api_account():
-    """Credit balance, so nobody starts a batch of 10 with 3 credits left."""
-    key = api_key()
-    if not key:
-        return jsonify({"configured": False})
-    try:
-        r = requests.get("https://api.remove.bg/v1.0/account",
-                         headers={"X-Api-Key": key}, timeout=15)
-        if not r.ok:
-            return jsonify({"configured": True, "error": f"remove.bg {r.status_code}"})
-        attrs = (r.json().get("data") or {}).get("attributes") or {}
-        credits = attrs.get("credits") or {}
-        return jsonify({"configured": True,
-                        "total": credits.get("total"),
-                        "subscription": credits.get("subscription"),
-                        "payg": credits.get("payg"),
-                        "free_calls": (attrs.get("api") or {}).get("free_calls")})
-    except Exception as exc:                          # noqa: BLE001
-        return jsonify({"configured": True, "error": str(exc)})
+    # Configuration is not an account balance or an entitlement check.
+    return jsonify({"configured": configured(), "provider": "cloudinary",
+                    "ai_configured": providers.ai_ready(),
+                    "message": "Image processing uses your connected service plan. No remove.bg credits are used."})
 
 
 # =====================================================================
@@ -411,26 +342,40 @@ def api_account():
 # =====================================================================
 @app.route("/api/remove", methods=["POST"])
 def api_remove():
-    if not configured():
-        return jsonify({"error": "REMOVE_BG_API_KEY isn't set, so cut-outs are "
-                                 "unavailable. Add it and redeploy."}), 503
-
+    if "quality" in request.form and "mode" not in request.form:
+        return jsonify({"error": "The background options have changed. Refresh this page before processing an image."}), 400
     uploads = [f for f in request.files.getlist("images") if f and f.filename]
-    if not uploads:
+    image_url = (request.form.get("image_url") or "").strip()
+    if not uploads and not image_url:
         return jsonify({"error": "Choose at least one image."}), 400
-    if len(uploads) > MAX_FILES:
+    if len(uploads) + bool(image_url) > MAX_FILES:
         return jsonify({"error": f"Up to {MAX_FILES} images at a time."}), 400
+
+    mode = (request.form.get("mode") or "cutout").strip()
+    prompt = (request.form.get("prompt") or "").strip()
+    if mode not in ("cutout", "replace"):
+        return jsonify({"error": "Choose Remove background or Replace background with AI."}), 400
+    if mode == "replace" and not 1 <= len(prompt) <= 2000:
+        return jsonify({"error": "Describe the new background in 1 to 2000 characters."}), 400
+    if not (configured() if mode == "cutout" else providers.ai_ready()):
+        return jsonify({"error": "This image service is not connected. Ask an administrator to check "
+                       + ("Cloudinary." if mode == "cutout" else "OpenAI.")}), 503
+    if image_url:
+        from werkzeug.datastructures import FileStorage
+        from urllib.parse import urlsplit
+        try:
+            raw = providers.saved_image(image_url)
+            name = Path(urlsplit(image_url).path).name[:200] or "saved-image.png"
+            uploads.append(FileStorage(stream=io.BytesIO(raw), filename=name, content_type="image/png"))
+        except providers.BackgroundError as exc:
+            return jsonify({"error": str(exc)}), 400
 
     pre_key = (request.form.get("pre_resize") or "auto").strip()
     post_key = (request.form.get("post_resize") or "auto").strip()
     pre_edge = SIZE_PRESETS.get(pre_key, ("", 0))[1]
     post_edge = SIZE_PRESETS.get(post_key, ("", 0))[1]
-    rb_size = (request.form.get("quality") or "auto").strip()
-    if rb_size not in ("preview", "auto", "full"):
-        rb_size = "auto"
-
     _sweep()
-    results, errors, credits_used, preview_calls = [], [], 0, 0
+    results, errors, provider_calls = [], [], 0
 
     for up in uploads:
         raw = up.read()
@@ -444,20 +389,29 @@ def api_remove():
             errors.append(f"{up.filename}: only JPG, PNG and WebP are supported.")
             continue
 
-        sized, pre_info = resize_max_edge(raw, pre_edge)
-        digest = hashlib.sha256(sized + rb_size.encode()).hexdigest()
+        try:
+            normalized = providers.normalize(raw)
+        except providers.BackgroundError as exc:
+            errors.append(f"{up.filename}: {exc}")
+            continue
+        sized, pre_info = resize_max_edge(normalized, pre_edge)
+        # Include the provider, operation, model and prompt; a cutout can never
+        # satisfy a scene edit, and a new description must produce a new scene.
+        from hub.config import settings
+        variant = "cloudinary-cutout-v1" if mode == "cutout" else "openai-replace-v1:" + settings.openai_image_model + ":" + prompt
+        digest = hashlib.sha256(sized + variant.encode()).hexdigest()
 
         cached = _cache_get(digest)
         if cached:
-            png, billed = cached, False
+            png = cached
         else:
             try:
-                png = call_remove_bg(sized, rb_size)
-                billed = rb_size != "preview"
-                credits_used += int(billed)
-                preview_calls += int(not billed)
+                png = providers.cloud_cutout(sized) if mode == "cutout" else providers.replace_background(sized, prompt)
+                provider_calls += 1
             except Exception as exc:                  # noqa: BLE001
-                errors.append(f"{up.filename}: {exc}")
+                message = str(exc) if isinstance(exc, providers.BackgroundError) else "The image could not be processed. Please try again later."
+                app.logger.warning("Background processing failed (%s)", type(exc).__name__)
+                errors.append(f"{up.filename}: {message}")
                 continue
             _cache_put(digest, png)
 
@@ -469,24 +423,24 @@ def api_remove():
         results.append({
             "id": digest[:16],
             "original_name": up.filename[:200],
-            "name": _slug(Path(up.filename).stem, "cutout") + ".png",
+            "name": _slug(Path(up.filename).stem, "image") + ("-cutout.png" if mode == "cutout" else "-ai-background.png"),
             "image": "data:image/png;base64," + base64.b64encode(out).decode(),
             "bytes": len(out),
             "original_bytes": len(raw),
             "dimensions": dims,
             "pre_resize": pre_info,
-            "billed": billed,
+            "provider": "cloudinary" if mode == "cutout" else "openai",
+            "mode": mode,
             "cached": bool(cached),
-            "preview": rb_size == "preview",
         })
 
     if not results:
         return jsonify({"error": "Nothing could be processed. " + " ".join(errors)}), 400
 
-    _log("backgrounds_removed", count=len(results), credits=credits_used,
-         preview_calls=preview_calls)
+    _log("backgrounds_removed" if mode == "cutout" else "backgrounds_replaced",
+         count=len(results), provider_calls=provider_calls, provider="cloudinary" if mode == "cutout" else "openai")
     return jsonify({"ok": True, "results": results, "errors": errors,
-                    "credits_used": credits_used, "preview_calls": preview_calls})
+                    "provider_calls": provider_calls})
 
 
 @app.route("/api/save", methods=["POST"])
@@ -506,6 +460,7 @@ def api_save():
 
     client = str(body.get("client") or "").strip()[:200]
     name = _slug(body.get("name") or "cutout", "cutout")
+    edited = body.get("mode") == "replace"
     # Measured here, from the bytes about to be stored, because the row this
     # files into the client's gallery carries a width and a height and every
     # cut-out this tool has ever filed carried neither. The call below asked a
@@ -549,9 +504,9 @@ def api_save():
             from modules.image_picker.filing import file_asset
             gallery = file_asset(
                 client_name=client, public_id=res.get("public_id", ""),
-                url=res.get("secure_url", ""), kind="cutout",
+                url=res.get("secure_url", ""), kind="image" if edited else "cutout",
                 filename=f"{name}.png",
-                alt=f"{name.replace('-', ' ')} cut-out for {client}",
+                alt=f"{name.replace('-', ' ')} {'background edit' if edited else 'cut-out'} for {client}",
                 provider="bg_remover", saved_by=actor_name(),
                 width=width, height=height,
                 size_bytes=res.get("bytes"))

@@ -83,13 +83,12 @@ def location_for(name: str, url: str = "") -> dict:
     except Exception:                                     # noqa: BLE001
         found = {"state": "not_connected", "location_id": ""}
     if str(found.get("location_id") or "").strip():
+        # A multi-location client's other sub-accounts ride along rather than
+        # being dropped on the way to a single-target answer -- Client 360's
+        # Suite Account card reads them to show the rest of the book.
         return _answer("connected", "", location_id=found["location_id"],
-                       matched_name=name, source="suite_map")
-    if found.get("state") == "ambiguous":
-        # Two sub-accounts for one client is not a thing to pick between.
-        return _answer("not_measured", found.get("detail") or
-                       "More than one sub-account is recorded for this client.",
-                       candidates=found.get("candidates") or [])
+                       matched_name=name, source="suite_map",
+                       other_locations=found.get("others") or [])
     try:
         from modules.image_picker.models import PickerClient
     except Exception as exc:                              # noqa: BLE001

@@ -102,12 +102,12 @@ export function acceptPlatforms(
 export function renderableSizes(templateId: string, platformId: string): SizeKey[] {
   const t = getTemplate(templateId);
   const p = getPlatform(platformId);
-  return (Object.keys(t.sizes) as SizeKey[]).filter((s) => p.sizes[s]);
+  return (Object.keys(t.sizes) as SizeKey[]).filter((s) => p.sizes[s] && p.sizes[s]!.enabled !== false);
 }
 
 /** Sizes the platform wants that this template has no layout for. */
 export function missingSizes(templateId: string, platformId: string): SizeKey[] {
   const t = getTemplate(templateId);
   const p = getPlatform(platformId);
-  return (Object.keys(p.sizes) as SizeKey[]).filter((s) => !t.sizes[s]);
+  return (Object.keys(p.sizes) as SizeKey[]).filter((s) => p.sizes[s]!.enabled !== false && !t.sizes[s]);
 }

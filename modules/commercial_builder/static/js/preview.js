@@ -40,21 +40,7 @@
       list.textContent = error.message || "Checks could not run. Try again.";
       return;
     }
-    list.innerHTML = "";
-    let blocking = 0;
-    Object.entries(qc_results).forEach(([key, result]) => {
-      if (key === "_all_passed" || !QC_LABELS[key]) return;
-      const level = result.level || (result.passed ? "pass" : "fail");
-      const tone = level === "pass" ? "pass" : level;
-      const mark = level === "pass" ? "✓" : (level === "warn" ? "!" : "✕");
-      if (level === "fail") blocking += 1;
-      const item = CB.el(`<div class="cb-qc-item">
-        <div class="cb-qc-icon ${tone}">${mark}</div>
-        <div class="cb-qc-text"><strong>${QC_LABELS[key]}</strong>
-        <span>${CB.escapeHtml(result.message)}</span></div>
-      </div>`);
-      list.appendChild(item);
-    });
+    const blocking = CB.renderChecks(list, qc_results, QC_LABELS);
     if (qc_results._all_passed && !(qc_results._warnings || []).length) {
       CB.toast("All checks passed — ready to render.");
     } else if (!blocking) {
@@ -229,6 +215,11 @@
       <span class="cb-muted job-elapsed" style="font-size:12px;"></span>
     </div>`));
 
+    const metadata = document.createElement('p'); metadata.className = 'cb-hint';
+    const match = {current: 'Matches current script and settings', outdated: 'Outdated — script or settings changed', unknown: 'Older cut — script match unknown'};
+    metadata.textContent = `Cut ${job.version || job.id} · ${job.created_at ? new Date(job.created_at).toLocaleString() : 'Creation time unknown'} · ${match[job.creative_status] || match.unknown}`;
+    card.append(metadata);
+    let approveButton;
     if (working) {
       // A status word that never changes reads as a page that has stopped.
       card.appendChild(CB.el('<div class="cb-render-bar"><span></span></div>'));
@@ -256,10 +247,49 @@
         row.appendChild(CB.el('<span class="cb-badge cb-badge-free">✓ approved</span>'));
       } else {
         const btn = CB.el('<button class="cb-btn cb-btn-primary cb-btn-sm">Approve &amp; file</button>');
+        approveButton = btn;
         btn.addEventListener("click", () => approve(job, btn));
         row.appendChild(btn);
       }
       card.appendChild(row);
+      const report = document.createElement('div'); report.className = 'cb-note';
+      const paint = inspection => {
+        job.inspection = inspection;
+        report.replaceChildren();
+        const ready = ['passed', 'review'].includes(inspection?.status) && job.creative_status === 'current';
+        if (approveButton) {
+          approveButton.disabled = !ready;
+          approveButton.title = ready ? 'Watch the entire cut before approval' : 'A current cut with completed finished-file checks is required';
+        }
+        if (inspection?.measured) {
+          const measured = document.createElement('p');
+          measured.textContent = `Actual output: ${inspection.measured.width} × ${inspection.measured.height} · ${inspection.measured.duration.toFixed(2)} seconds`;
+          report.append(measured);
+        } else {
+          const unknown = document.createElement('p'); unknown.textContent = 'Actual resolution and duration: not measured'; report.append(unknown);
+        }
+        const label = document.createElement('strong'); label.textContent = `Finished-file checks: ${(inspection || {}).status || 'pending'}`; report.append(label);
+        const checks = document.createElement('div');
+        const results = {}, labels = {};
+        ((inspection || {}).checks || []).forEach((check, index) => {
+          labels[`file_${index}`] = check.label;
+          results[`file_${index}`] = {passed: check.passed, message: check.detail};
+        });
+        ((inspection || {}).warnings || []).forEach((warning, index) => {
+          labels[`warning_${index}`] = 'Watch this section';
+          results[`warning_${index}`] = {passed: false, level: 'warn', message: warning};
+        });
+        CB.renderChecks(checks, results, labels); report.append(checks);
+        const note = document.createElement('p'); note.textContent = (inspection || {}).note || 'Automatic checks will run in the background. You can check now.'; report.append(note);
+      };
+      paint(job.inspection); card.append(report);
+      const check = CB.el('<button class="cb-btn cb-btn-sm">Check finished file</button>');
+      check.addEventListener('click', async () => {
+        check.disabled = true; check.textContent = 'Inspecting video…';
+        try { const d = await CB.api(`/api/projects/${projectId}/render-jobs/${job.id}/inspect`, {method: 'POST'}); paint(d.inspection); }
+        catch (e) { report.textContent = e.message; }
+        finally { check.disabled = false; check.textContent = 'Check finished file'; }
+      }); card.append(check);
       if (approved) card.appendChild(filingReport(approved));
     }
     return card;
@@ -303,16 +333,23 @@
       + "</p>";
   }
 
-  async function approve(job, btn, override) {
+  async function approve(job, btn, override, acknowledgeVideo = false) {
     btn.disabled = true;
     btn.textContent = "Filing…";
     let data;
     try {
       data = await CB.api(`/api/projects/${projectId}/render-jobs/${job.id}/approve`,
-                          { method: "POST", body: { override: !!override } });
+                          { method: "POST", body: { override: !!override, acknowledge_unverified_video: acknowledgeVideo } });
     } catch (e) {
       btn.disabled = false;
       btn.textContent = "Approve & file";
+      if (e.data && e.data.needs_video_acknowledgment) {
+        const box = document.createElement('div'); box.className = 'cb-note';
+        const p = document.createElement('p'); p.textContent = e.message; box.append(p);
+        const go = CB.el('<button class="cb-btn cb-btn-sm">I watched the whole cut and verified picture, timing and audio — file it</button>');
+        go.addEventListener('click', () => { box.remove(); approve(job, btn, override, true); });
+        box.append(go); btn.parentNode.parentNode.append(box);
+      }
       // The client asked for changes. That is a decision to put in front of
       // somebody, not a failure to swallow into a three-second toast — and
       // it is overridable, because a rep who has settled it on the phone
@@ -452,7 +489,7 @@
       state.innerHTML = '<p class="cb-hint" style="margin:0;">Nothing has been sent to '
         + "the client for this spot yet.</p>";
       send.style.display = "";
-      document.getElementById("review-send-btn").textContent = "Create a review link";
+      document.getElementById("review-send-btn").textContent = "Send for review";
       return;
     }
 
@@ -480,7 +517,7 @@
     // bad, the note modules/ads_builder/spec.py makes about its own hub.
     if (!v.outcome) {
       answers.appendChild(CB.el('<div class="cb-note"><strong>No answer yet</strong>'
-        + "<p>Nothing is blocked — this is what a link that has been sent looks like.</p></div>"));
+        + "<p>The review link exists. No client response has been recorded.</p></div>"));
     } else {
       const tone = OUTCOME_TONE[v.outcome] === undefined ? "" : OUTCOME_TONE[v.outcome];
       answers.appendChild(CB.el(`<div class="cb-note ${tone}">`
@@ -513,7 +550,7 @@
     send.style.display = "";
     const next = data.next_round;
     document.getElementById("review-send-btn").textContent =
-      `Send ${next.label.toLowerCase()}`;
+      `Send ${next.label.toLowerCase()} for review`;
     if (next.over) {
       // Flagged, never refused. Stopping the rep here is what pushes the
       // whole conversation back into email, where none of this is recorded.
@@ -545,15 +582,20 @@
 
   const sendBtn = document.getElementById("review-send-btn");
   if (sendBtn) {
-    sendBtn.addEventListener("click", async () => {
-      sendBtn.disabled = true;
+    const linkBtn = document.getElementById('review-create-btn');
+    const submitReview = async mode => {
+      const email = document.getElementById('review-email').value.trim();
+      if (mode === 'send' && !document.getElementById('review-email').reportValidity()) return;
+      if (mode === 'send' && !email) return CB.toast('Enter the reviewer’s email before sending.', true);
+      sendBtn.disabled = true; linkBtn.disabled = true;
       try {
         const res = await CB.api(`/api/projects/${projectId}/reviews`, {
           method: "POST",
           body: {
+            delivery_mode: mode,
             message: document.getElementById("review-message").value.trim(),
             reviewer_name: (document.getElementById("review-name") || {}).value || "",
-            reviewer_email: (document.getElementById("review-email") || {}).value || "",
+            reviewer_email: mode === "send" ? email : "",
           },
         });
         document.getElementById("review-message").value = "";
@@ -570,9 +612,11 @@
         }
         await loadReviews();
       } finally {
-        sendBtn.disabled = false;
+        sendBtn.disabled = false; linkBtn.disabled = false;
       }
-    });
+    };
+    sendBtn.addEventListener('click', () => submitReview('send'));
+    linkBtn.addEventListener('click', () => submitReview('link'));
   }
 
   loadReviews();

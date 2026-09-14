@@ -55,6 +55,7 @@ import time
 import uuid
 import hashlib
 import json
+import copy
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -125,6 +126,7 @@ def load_batch(batch_id: str) -> dict | None:
     if not isinstance(batch, dict) or not batch.get("id") or batch.get("_deleted"):
         return None
     batch.setdefault("revision", 0)
+    batch.pop("_history", None)
     return batch
 
 
@@ -186,7 +188,14 @@ def save_batch(batch: dict) -> dict:
         batch["revision"] = (expected or 0) + 1
         batch["updated_at"] = _now()
         social_plan.validate_batch(batch)
-        return batch
+        stored = copy.deepcopy(batch)
+        history = (current or {}).get("_history", [])
+        if current:
+            snapshot = {k: copy.deepcopy(current.get(k)) for k in
+                        ("revision", "updated_at", "brief", "slots")}
+            history = (history + [snapshot])[-20:]
+        stored["_history"] = history
+        return stored
     with _lock:
         jsonstore.update_json(_batch_path(batch["id"]), replace, default=None, indent=1)
         def index(rows):
@@ -226,12 +235,17 @@ def _new_id() -> str:
     return format(int(time.time() * 1000), "x")[-9:] + os.urandom(2).hex()
 
 
-def _log(event: str, **extra):
+def _log(event: str, actor: str | None = None, **extra):
     if hub_audit is None:
         return
     try:
         # audit.log()'s first positional is `module`; extras use tool=.
-        hub_audit.log(MODULE, event, actor=actor_name(), **extra)
+        # actor_name() reads the request -- only evaluated when no actor was
+        # given, so a caller outside a request (the Proposal Execution
+        # scheduler) that passes its own actor never touches it. The `or`
+        # short-circuits: this is the same fix UTM Builder's own _log()
+        # needed for the identical reason.
+        hub_audit.log(MODULE, event, actor=actor or actor_name(), **extra)
     except Exception:                                 # noqa: BLE001
         pass
 
@@ -246,6 +260,14 @@ def _version() -> str:
 
 def _fail(message: str, status: int = 400):
     return jsonify({"ok": False, "error": message}), status
+
+
+def _blocking_message(slots: list[dict]) -> str:
+    affected = [s for s in slots if any(f.get("level") == "block" for f in s.get("flags", []))]
+    reasons = list(dict.fromkeys(f["message"] for s in affected
+                               for f in s.get("flags", []) if f.get("level") == "block"))
+    return (f"{len(affected)} post(s) need attention. " + " ".join(reasons[:3])
+            + " Review the flagged posts and fix these issues before continuing.")
 
 
 def _str(value, limit: int = 4000) -> str:
@@ -282,7 +304,7 @@ def index():
     # into JavaScript. That keeps the page's real script block free of {{ }},
     # so tools/jscheck.py can hand it to node --check — the strict parser —
     # instead of skipping it for checktemplates' balance check.
-    boot = {"spec": social_plan.spec_payload(), "today": _planning_today().isoformat(),
+    boot = {"spec": social_plan.spec_payload(), "today": _planning_today().isoformat(), "actor": actor_name(),
             "client": request.args.get("client", "")[:200],
             "url": request.args.get("url", "")[:300]}
     return render_template("index.html", version=_version(), boot=boot)
@@ -587,51 +609,54 @@ def api_create_photo(batch_id):
                                    "source": source})
 
 
-@app.route("/api/batches", methods=["POST"])
-def api_create_batch():
-    data = request.get_json(silent=True) or {}
-    client = _str(data.get("client"), 200).strip()
+def create_batch(client: str, month: str, channels, *, per_week=3, mix=None,
+                 blackout=(), holidays=(), selected_ideas=(), brief=None,
+                 url: str = "", use_holidays: bool = False, actor: str = "") -> dict:
+    """Build and save a real month plan. Raises ValueError, named, on anything
+    the form would otherwise have refused -- the shape every other real-tool
+    adapter in this Hub uses, so a caller with no Flask response to return
+    (the Proposal Execution scheduler) gets the same refusal a person would.
+
+    `actor` is required by every caller outside a request: `actor_name()`
+    reads the request environ, which does not exist on the scheduler's own
+    thread.
+    """
+    client = _str(client, 200).strip()
     if not client:
-        return _fail("Pick a client first.")
-    month = _str(data.get("month"), 10).strip()
-    channels = [c for c in (data.get("channels") or [])
-                if c in social_plan.CHANNELS]
+        raise ValueError("Pick a client first.")
+    month = _str(month, 10).strip()
+    channels = [c for c in (channels or []) if c in social_plan.CHANNELS]
     if not channels:
-        return _fail("Pick at least one channel.")
+        raise ValueError("Pick at least one channel.")
     try:
-        per_week = int(data.get("per_week") or 3)
+        per_week = int(per_week or 3)
     except (TypeError, ValueError):
         per_week = 3
-    mix = data.get("mix") if isinstance(data.get("mix"), dict) else None
-    blackout = [_str(d, 10) for d in (data.get("blackout") or [])][:31]
-
-    holidays = [h for h in (data.get("holidays") or [])
+    mix = mix if isinstance(mix, dict) else None
+    blackout = [_str(d, 10) for d in (blackout or [])][:31]
+    holidays = [h for h in (holidays or [])
                 if isinstance(h, dict) and h.get("date") and h.get("name")][:40]
-    try:
-        slots = social_plan.build_grid(month, channels=channels,
-                                       per_week=per_week, mix=mix,
-                                       blackout=blackout, holidays=holidays,
-                                       start_date=_planning_today())
-    except ValueError as exc:
-        return _fail(str(exc))
+    slots = social_plan.build_grid(month, channels=channels, per_week=per_week,
+                                   mix=mix, blackout=blackout, holidays=holidays,
+                                   start_date=_planning_today())
     if not slots:
-        return _fail("No posting days remain from today onward. Choose a later month or a different posting frequency.")
+        raise ValueError("No posting days remain from today onward. Choose a later month or a different posting frequency.")
 
-    selected = data.get("selected_ideas") or []
-    if not isinstance(selected, list):
-        return _fail("Choose ideas from the suggestions.")
-    selected = [s for s in selected if isinstance(s, dict) and s.get("title")]
+    selected_ideas = selected_ideas or []
+    if not isinstance(selected_ideas, list):
+        raise ValueError("Choose ideas from the suggestions.")
+    selected = [s for s in selected_ideas if isinstance(s, dict) and s.get("title")]
     available = [s for s in slots if not s.get("holiday")]
     if len(selected) > len(available):
-        return _fail(f"There are {len(available)} open posting dates. Select fewer ideas or increase posts per week.")
+        raise ValueError(f"There are {len(available)} open posting dates. Select fewer ideas or increase posts per week.")
     for slot, idea in zip(available, selected):
         slot["idea_title"] = _str(idea["title"], 300)
         slot["origin"] = "staff_selected"
         if idea.get("type") in social_plan.POST_TYPES:
             slot["type"] = idea["type"]
 
-    brief = data.get("brief") if isinstance(data.get("brief"), dict) else {}
-    context = _client_context(client, _str(data.get("url"), 300))
+    brief = brief if isinstance(brief, dict) else {}
+    context = _client_context(client, _str(url, 300))
     batch = {
         "id": _new_id(),
         "client": client,
@@ -652,7 +677,7 @@ def api_create_batch():
             "tone": _str(brief.get("tone"), 200),
             "promote": [_str(x, 200) for x in (brief.get("promote") or [])
                         if str(x).strip()][:12],
-            "use_holidays": bool(data.get("use_holidays")),
+            "use_holidays": bool(use_holidays),
             "offers": _str(brief.get("offers"), 2000),
             "notes": _str(brief.get("notes"), 4000),
             "phone": _str(brief.get("phone"), 40),
@@ -665,11 +690,26 @@ def api_create_batch():
                     ("industry", "description", "products", "colors", "logo")},
         "slots": slots,
         "created_at": _now(),
-        "created_by": actor_name(),
+        "created_by": actor or actor_name(),
     }
     save_batch(batch)
-    _log("batch_created", client=client, month=month, slots=len(slots),
-         channels=",".join(channels))
+    _log("batch_created", actor=actor or None, client=client, month=month,
+         slots=len(slots), channels=",".join(channels))
+    return batch
+
+
+@app.route("/api/batches", methods=["POST"])
+def api_create_batch():
+    data = request.get_json(silent=True) or {}
+    try:
+        batch = create_batch(
+            data.get("client"), data.get("month"), data.get("channels"),
+            per_week=data.get("per_week"), mix=data.get("mix"),
+            blackout=data.get("blackout"), holidays=data.get("holidays"),
+            selected_ideas=data.get("selected_ideas"), brief=data.get("brief"),
+            url=data.get("url"), use_holidays=bool(data.get("use_holidays")))
+    except ValueError as exc:
+        return _fail(str(exc))
     return jsonify({"ok": True, "batch": batch})
 
 
@@ -679,9 +719,91 @@ def api_batch(batch_id: str):
     if not batch:
         return _fail("That plan no longer exists.", 404)
     social_plan.validate_batch(batch)
-    return jsonify({"ok": True, "batch": batch,
-                    "context": _client_context(batch.get("client", ""),
-                                               batch.get("url", ""))})
+    # Saved copy is available without waiting on external client research.
+    context = None if request.args.get("context") == "0" else _client_context(
+        batch.get("client", ""), batch.get("url", ""))
+    return jsonify({"ok": True, "batch": batch, "context": context})
+
+
+@app.route("/api/batches/<batch_id>/history")
+def api_history(batch_id):
+    batch = load_batch(batch_id)
+    if not batch:
+        return _fail("Plan not found.", 404)
+    history = jsonstore.read_json(_batch_path(batch_id), default={}).get("_history", [])
+    return jsonify(ok=True, versions=[{"revision": h["revision"], "updated_at": h.get("updated_at"),
+                                     "written": sum(bool(s.get("copy")) for s in h.get("slots", []))}
+                                    for h in reversed(history)])
+
+
+@app.route("/api/batches/<batch_id>/restore", methods=["POST"])
+def api_restore(batch_id):
+    batch = load_batch(batch_id)
+    if not batch:
+        return _fail("Plan not found.", 404)
+    data = request.get_json(silent=True) or {}
+    if data.get("revision") != batch["revision"]:
+        raise PlanConflict()
+    if any(s.get("ghl_post_id") for s in batch["slots"]):
+        return _fail("This plan has posts in Suite. Edit those posts there; version restore cannot change scheduled or published posts.")
+    history = jsonstore.read_json(_batch_path(batch_id), default={}).get("_history", [])
+    version = next((h for h in history if h["revision"] == data.get("version")), None)
+    if not version:
+        return _fail("That version is no longer available.", 404)
+    batch["brief"] = copy.deepcopy(version["brief"])
+    old_slots = {s["id"]: s for s in version["slots"]}
+    for slot in batch["slots"]:
+        old = old_slots.get(slot["id"], {})
+        for key in ("copy", "hashtags", "link", "image_url", "image_public_id", "image_source", "image_credit"):
+            if key in old:
+                slot[key] = copy.deepcopy(old[key])
+            else:
+                slot.pop(key, None)
+        slot["status"] = "edited" if slot.get("copy") else "empty"
+        if slot.get("client_state") == "approved":
+            slot["client_state"] = "pending_client_approval"
+            slot.pop("client_answered_at", None)
+    batch["status"] = "review"
+    save_batch(batch)
+    _log("version_restored", batch=batch_id, version=version["revision"])
+    return jsonify(ok=True, batch=batch)
+
+
+@app.route("/api/coverage", methods=["POST"])
+def api_coverage():
+    data = request.get_json(silent=True) or {}
+    client = _str(data.get("client"), 200).strip()
+    month = _str(data.get("month"), 10)
+    if not client or not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        return _fail("Choose a client and month first.")
+    rows, known_ids = [], set()
+    for entry in _read_index():
+        if entry.get("client", "").casefold() != client.casefold() or entry.get("month") != month:
+            continue
+        batch = load_batch(entry["id"])
+        if not batch:
+            continue
+        for slot in batch.get("slots", []):
+            if slot.get("ghl_post_id"):
+                known_ids.add(slot["ghl_post_id"])
+            if batch["id"] != data.get("exclude"):
+                rows.append({"date": slot["date"], "title": slot.get("idea_title") or slot.get("copy", "")[:200],
+                             "type": slot.get("type"), "source": "Saved plan", "batch": batch["id"],
+                             "delivery": slot.get("delivery", "draft"), "channels": slot.get("channels", [])})
+    note = "Includes saved plans and Suite posts already tracked by this planner."
+    if data.get("suite"):
+        result = suite_client.performance(client, _str(data.get("url"), 300), limit=100)
+        note = "Suite checked (up to 100 returned posts; this is not a complete calendar audit)." if result.get("ok") else "Suite calendar unavailable: " + result.get("error", "Could not read posts.")
+        for item in result.get("rows", []) if result.get("ok") else []:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("status", "")).lower() not in ("scheduled", "published", "posted") or item.get("id") in known_ids:
+                continue
+            when = str(item.get("scheduleDate") or "")
+            if when.startswith(month):
+                rows.append({"date": when[:10], "title": str(item.get("summary") or "")[:200],
+                             "type": "", "source": "Suite", "delivery": item.get("status"), "channels": []})
+    return jsonify(ok=True, posts=rows, note=note)
 
 
 @app.route("/api/batches/<batch_id>", methods=["PUT"])
@@ -764,9 +886,7 @@ def api_batch_status(batch_id: str):
         return _fail("Unknown status.")
     counts = social_plan.validate_batch(batch)
     if wanted == "approved" and counts["block"]:
-        return _fail(f"{counts['block']} post(s) still have a blocking flag. "
-                     "Those are the ones that could publish something the "
-                     "client never authorized.")
+        return _fail(_blocking_message(batch["slots"]))
     if wanted == "approved":
         empty = sum(not s.get("copy", "").strip() for s in batch.get("slots", []))
         if empty or not batch.get("slots"):
@@ -783,22 +903,17 @@ def api_batch_status(batch_id: str):
 # =====================================================================
 # Drafting — one request per slot
 # =====================================================================
-@app.route("/api/batches/<batch_id>/draft", methods=["POST"])
-def api_draft(batch_id: str):
-    """Write one slot. The browser loops so the loader can name what it is on
-    and one failed slot costs one slot."""
-    batch = load_batch(batch_id)
-    if not batch:
-        return _fail("That plan no longer exists.", 404)
-    data = request.get_json(silent=True) or {}
-    if "revision" in data and data["revision"] != batch["revision"]:
-        raise PlanConflict()
-    slot_id = _str((request.get_json(silent=True) or {}).get("slot"), 12)
+def draft_slot(batch: dict, slot_id: str) -> tuple[dict | None, str, int]:
+    """Write one slot's real copy. (slot, error, status) rather than a Flask
+    response, so a caller with no request to answer -- a scheduler drafting a
+    dozen slots in one pass -- gets the identical refusal a person would, and
+    one bad slot costs only itself: never raises.
+    """
     slot = next((s for s in batch["slots"] if s["id"] == slot_id), None)
     if not slot:
-        return _fail("Unknown slot.", 404)
+        return None, "Unknown slot.", 404
     if slot.get("status") == "approved":
-        return _fail("That post is approved — unapprove it before rewriting.")
+        return None, "That post is approved — unapprove it before rewriting.", 400
 
     from hub import ai
     context = dict(batch.get("context") or {})
@@ -811,17 +926,34 @@ def api_draft(batch_id: str):
     except Exception as exc:                          # noqa: BLE001
         # The provider's own wording never reaches the screen — it has echoed
         # key prefixes before. hub/ai.py already logged the real error.
-        return _fail(f"Couldn't write that post ({type(exc).__name__}). The "
-                     "other posts are unaffected — try this one again.", 502)
+        return None, (f"Couldn't write that post ({type(exc).__name__}). The "
+                      "other posts are unaffected — try this one again."), 502
 
     copy = _str(result.get("copy"), 6000).strip()
     if not copy:
-        return _fail("The model returned an empty post. Try again.", 502)
+        return None, "The model returned an empty post. Try again.", 502
     tags = [_str(t, 60) for t in (result.get("hashtags") or []) if str(t).strip()]
     slot["copy"] = copy
     slot["hashtags"] = tags[:30]
     slot["status"] = "drafted"
     slot["flags"] = social_plan.validate_slot(slot, batch.get("brief"))
+    return slot, "", 200
+
+
+@app.route("/api/batches/<batch_id>/draft", methods=["POST"])
+def api_draft(batch_id: str):
+    """Write one slot. The browser loops so the loader can name what it is on
+    and one failed slot costs one slot."""
+    batch = load_batch(batch_id)
+    if not batch:
+        return _fail("That plan no longer exists.", 404)
+    data = request.get_json(silent=True) or {}
+    if "revision" in data and data["revision"] != batch["revision"]:
+        raise PlanConflict()
+    slot_id = _str(data.get("slot"), 12)
+    slot, error, status = draft_slot(batch, slot_id)
+    if error:
+        return _fail(error, status)
     save_batch(batch)
     return jsonify({"ok": True, "slot": slot, "batch": batch})
 
@@ -1305,9 +1437,7 @@ def api_push(batch_id: str):
         return _fail("That post is already in Social Planner. Pushing it again "
                      "would post it twice — edit it there instead.", 409)
     if [f for f in (slot.get("flags") or []) if f.get("level") == "block"]:
-        return _fail("That post still has a blocking flag on it. Those are the "
-                     "ones that could publish something the client never "
-                     "authorized.")
+        return _fail(_blocking_message([slot]))
 
     result = suite_client.push(batch, slot, batch.get("client", ""),
                                batch.get("url", ""))

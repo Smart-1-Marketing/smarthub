@@ -87,6 +87,7 @@ def collapses_by_default(path: str) -> bool:
 
 _ITEMS = [
     ("dashboard", "/", "&#127968;", "Dashboard"),
+    ("ask_smarthub", "/ask-smarthub", "&#10024;", "Ask SmartHub"),
     ("c360", "/client360", "&#127919;", "Client 360"),
     # Directly under Client 360, and above the sections: that page answers
     # "what do we know about this client" and this one answers "which of them
@@ -109,8 +110,10 @@ _ITEMS = [
     # for it only because that is where its URL happens to live. The mount
     # stays at /tools/io so every existing link keeps working.
     ("io_builder", "/tools/io/", "&#128221;", "IO Builder"),
+    ("industry_prospects", "/sales/industry-prospects", "&#128269;", "Industry Prospects"),
     ("leads", "/sales/leads", "&#128229;", "Leads"),
     ("landing", "/sales/landing", "&#128187;", "Landing Pages"),
+    ("industry_factory", "/sales/industry-factory", "&#127968;", "Industry Factory"),
     # Creative Studio is the front door over the tools below it -- a client
     # picker, a project record and a template layer, not a replacement for
     # any one of them. It is its own section rather than folded into
@@ -120,7 +123,9 @@ _ITEMS = [
     ("_seccs", "", "", "Creative Studio"),
     ("cs_dashboard", "/creative-studio/", "&#127912;", "Create"),
     ("cs_projects", "/creative-studio/projects", "&#128196;", "Projects"),
+    ("cs_campaigns", "/creative-studio/campaigns", "&#128188;", "Campaigns"),
     ("cs_templates", "/creative-studio/templates", "&#128209;", "Templates"),
+    ("cs_library", "/creative-studio/library", "&#128218;", "Spot Library"),
     ("cs_ai_tools", "/creative-studio/ai-tools", "&#129302;", "AI Tools"),
     ("cs_brand_kits", "/creative-studio/brand-kits", "&#127912;", "Brand Kits"),
     ("cs_media", "/creative-studio/media", "&#128247;", "Media Library"),
@@ -136,6 +141,16 @@ _ITEMS = [
     # it is the one tool here that can start spend in a client's own
     # account, and it is opened directly rather than looked up.
     ("ads", "/tools/ads/", "&#128227;", "Smart 1 Ads"),
+    # Directly under Smart 1 Ads because it is the other half of the same
+    # question: that screen starts the spend, this one says what it did --
+    # every platform's performance, the campaigns not yet filed under a
+    # client, and the budgets they pace against.
+    ("reports", "/reports/", "&#128202;", "Reports"),
+    # Under Reports, the two internal reports it holds: how every sold line
+    # is spending against its budget, and what the month cost against what
+    # the client pays. Staff only, and never linked from a client's page.
+    ("reports_pacing", "/reports/pacing", "&#9201;", "Pacing"),
+    ("reports_cost", "/reports/cost", "&#128181;", "Cost Report"),
     ("qa", "/qa", "&#9989;", "QA Reports"),
     # Directly under QA Reports, because it is the other half of the same
     # question: those pages say what is wrong, and this one is how somebody

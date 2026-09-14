@@ -249,6 +249,17 @@
       </div>
     </div>
 
+    {# Ad-performance reports: whether the feeds every client dashboard is
+       drawn from are actually arriving. A pull that had been failing for
+       three days was visible only on /reports/, to whoever opened it. Same
+       shape as the three cards above, for the same reason. #}
+    <div class="card">
+      <div class="card-h"><h3>Ad report feeds {{ help_dot('hub.dashboard.reports') if help_dot is defined else '' }}</h3><div class="right"><a class="open-link" href="/reports/">Open Reports →</a></div></div>
+      <div class="card-b">
+        <div id="reportsboard"><span class="muted">Reading the feeds… <span class="spin"></span></span></div>
+      </div>
+    </div>
+
     {# Stale Creative, above System status for the reason the birthdays block
        is: a key that is set is housekeeping and a client we have made nothing
        for is work. The partial brings its own styles, loads its own data and
@@ -689,6 +700,53 @@ fetch('/api/sales/scoreboard').then(r=>r.json()).then(d=>{
    first two are drawn red — never-swept and out-of-date are our own coverage
    rather than something wrong in a client's account, and a page of red is a
    page people scroll past. */
+/* The ad-performance feeds. A count of feeds is not a count of problems:
+   never-synced is our own coverage (a platform nobody has switched on),
+   failing and stale are the feed, and unmapped, waiting-for-confirmation,
+   held-in-quarantine and alerting are work. Only those and failing and
+   stale are drawn red. */
+fetch('/api/reports/scoreboard').then(r=>r.json()).then(d=>{
+  const box=document.getElementById('reportsboard');
+  if(!box) return;
+  if(!d || d.measured===false){
+    box.innerHTML='<span class="muted" style="color:#b3312d">'+esc((d&&d.error)||'Not measured.')+'</span>';
+    return;
+  }
+  const stat=(label,value,href,warn)=>{
+    const shown=(value===null||value===undefined)?'—':value;
+    const color=(warn&&value)?'#dc2626':'var(--navy,#1a2e58)';
+    const inner='<div style="font-size:24px;font-weight:700;line-height:1.15;color:'
+      +color+'">'+shown+'</div><div class="muted" style="font-size:11.5px">'+esc(label)+'</div>';
+    return href?'<a href="'+esc(href)+'" style="text-decoration:none;display:block">'+inner+'</a>':'<div>'+inner+'</div>';
+  };
+  const c=d.counts||{},u=d.urls||{};
+  if(d.empty==='no_feeds'){
+    box.innerHTML='<span class="muted">'+esc(d.line||'')+'</span>';
+    return;
+  }
+  let h='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">'
+    + stat('Feeds current',c.ok||0,u.feeds)
+    + stat('Failing',c.failing||0,u.feeds,true)
+    + stat('Stale',c.stale||0,u.feeds,true)
+    + stat('Never synced',c.never||0,u.feeds)
+    + '</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:10px">'
+    + stat('Filed under nobody',c.unmapped,u.unmapped,true)
+    + stat('Waiting for confirmation',c.pending,u.pending,true)
+    + stat('Held in quarantine',c.held,u.held,true)
+    + stat('Pacing off 3+ days',c.alerts,u.pacing,true)
+    + '</div>';
+  h+='<div class="muted" style="font-size:12px;margin-top:10px">'+esc(d.line||'')+'</div>';
+  if((d.platforms||[]).length){
+    h+='<ul style="margin:8px 0 0;padding-left:18px;font-size:12.5px">';
+    d.platforms.forEach(p=>{h+='<li><b>'+esc(p.label)+'</b> — '+esc(p.state)+': '+esc(p.detail)+'</li>';});
+    h+='</ul>';
+  }
+  box.innerHTML=h;
+}).catch(()=>{
+  const box=document.getElementById('reportsboard');
+  if(box) box.innerHTML='<span class="muted">Could not read the feeds.</span>';
+});
+
 fetch('/api/ads/scoreboard').then(r=>r.json()).then(d=>{
   const box=document.getElementById('adsboard');
   if(!box) return;
@@ -843,6 +901,25 @@ fetch('/api/qa-tasks/summary').then(r=>r.json()).then(d=>{
     h+='</table>';
   }
   box.innerHTML=h;
+  /* A stand-in like Yoda drops out of "Asked of you" the moment autoclaim
+     reassigns a task away from Todd, so the grid above has nothing to show
+     for work that is still very much in progress. Read only when a delegate
+     is actually configured -- a deployment that has never turned this on
+     must not see a permanent zero here. */
+  fetch('/api/qa-tasks/delegate-status').then(r=>r.json()).then(s=>{
+    if(!s || !s.configured) return;
+    const div=document.createElement('div');
+    div.style.cssText='font-size:12px;margin-top:10px;padding-top:10px;border-top:1px solid #eee';
+    if(s.measured===false){
+      div.innerHTML='<span class="muted">'+esc(s.error
+        ||'Not measured — this is not the same as nothing being worked on.')+'</span>';
+    } else {
+      div.innerHTML='<a href="/qa-tasks" style="text-decoration:none;color:inherit">'
+        +'Yoda: <b>'+(s.in_progress||0)+'</b> in progress &middot; <b>'
+        +(s.resolved_today||0)+'</b> resolved today</a>';
+    }
+    box.appendChild(div);
+  }).catch(()=>{});
 }).catch(()=>{
   const box=document.getElementById('qatasks');
   if(box) box.innerHTML='<span class="muted">Your QA tasks could not be read. '

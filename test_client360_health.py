@@ -7,9 +7,14 @@ stores, never from the hand ticks. Client 360 -- nineteen cards, header
 badges, a Site Health card -- had nothing that said what needs doing.
 hub/record_health.client360() is that strip, its own reading because a 360
 record spans products, billing, the website and its audit, the Google
-accounts, open proposals and the outstanding work beside the SEO half; the
-SEO half is seo.record_health() called rather than restated, and the blogs
-rule is seo.blogs_health(), which both strips read.
+accounts and open proposals, beside the SEO half; the SEO half is
+seo.record_health() called rather than restated, and the blogs rule is
+seo.blogs_health(), which both strips read.
+
+The strip used to carry an "Outstanding" pill fed by /my-clients's own
+issues_for_client() -- George flagged it as confusing rather than
+actionable from here, and it is gone from this strip. That report still
+computes and works its own queue; this file no longer asserts a "work" pill.
 
 What this file holds, worst first:
 
@@ -135,8 +140,6 @@ def store_with(posts, setup=None):
 
 
 BASE_SEO = {"client": "Acme Boats", "products": ["SEO Blogs"], "blogs": True}
-ISSUES_OK = {"ok": True, "measured": True, "complete": True, "issues": [],
-             "issue_count": 0, "missing_sources": [], "warning": ""}
 NO_QUOTES = {"measured": True, "error": "", "clients": {}}
 
 # ------------------------------------------------------------ 1. derived values
@@ -147,8 +150,6 @@ with Stub(**{
     "upsell.audits_for": lambda domains: (audit(12), ""),
     "sales_status.by_client": lambda: {"measured": True, "error": "", "clients": {
         "Acme Boats": [{"signal": "unopened"}, {"signal": "expiring"}]}},
-    "client_health.issues_for_client": lambda name: dict(ISSUES_OK, issue_count=2, issues=[
-        {"kind": "asset_ask", "title": "Waiting on banners"}, {"kind": "io_ending", "title": "IO ends"}]),
     "seo._client_base": lambda name: BASE_SEO,
     "seo.load_store": lambda name: store_with(
         [{"date": day(-20), "posted": True}, {"date": day(-13), "posted": True},
@@ -170,7 +171,8 @@ check("google: GTM missing from the website record is a finding",
       (p["google"]["state"], p["google"]["value"]), ("warn", "No GTM recorded"))
 check("proposals: two waiting, by signal",
       (p["proposals"]["state"], p["proposals"]["value"]), ("warn", "2 waiting: not opened, price lapsing"))
-check("outstanding: the /my-clients count", (p["work"]["state"], p["work"]["value"]), ("warn", "2 issues"))
+check("no Outstanding pill -- that queue lives on /my-clients now",
+      "work" not in p)
 check("seo: schema against the sitemap", (p["seo"]["state"], p["seo"]["value"]),
       ("warn", "schema 1 of 3 pages"))
 check("blogs: one planned post past its date and not marked posted",
@@ -214,7 +216,6 @@ with Stub(**{
     "knack_data.search_client": lambda q, limit=8: [GROUP],
     "upsell.audits_for": lambda domains: (audit(12), ""),
     "sales_status.by_client": lambda: NO_QUOTES,
-    "client_health.issues_for_client": lambda name: ISSUES_OK,
     "seo._client_base": lambda name: BASE_SEO,
     "seo.load_store": lambda name: store_with(
         [{"date": day(-40), "posted": True}, {"date": day(-33), "posted": True}],
@@ -233,7 +234,6 @@ with Stub(**{
     "knack_data.search_client": lambda q, limit=8: [GROUP],
     "upsell.audits_for": lambda domains: (audit(12), ""),
     "sales_status.by_client": lambda: NO_QUOTES,
-    "client_health.issues_for_client": lambda name: ISSUES_OK,
     "seo._client_base": lambda name: BASE_SEO,
     "seo.load_store": lambda name: store_with([{"date": day(-40), "posted": True}], setup={}),
 }):
@@ -293,8 +293,6 @@ with Stub(**{
     "knack_data.search_client": boom,
     "upsell.audits_for": lambda domains: ({}, "OperationalError: scans"),
     "sales_status.by_client": lambda: {"measured": False, "error": "quotes table gone", "clients": {}},
-    "client_health.issues_for_client": lambda name: {"ok": True, "measured": False, "error": "report failed",
-                                                     "issues": [], "issue_count": 0, "missing_sources": []},
     "seo._client_base": boom,
 }):
     out = rh.client360("Acme Boats", today=TODAY)
@@ -311,8 +309,6 @@ with Stub(**{
     "knack_data.search_client": lambda q, limit=8: [GROUP],
     "upsell.audits_for": lambda domains: ({}, ""),
     "sales_status.by_client": lambda: NO_QUOTES,
-    "client_health.issues_for_client": lambda name: dict(ISSUES_OK, missing_sources=["proofs"],
-                                                         warning="proofs not read"),
     "seo._client_base": lambda name: BASE_SEO,
     "seo.load_store": lambda name: store_with([], setup={}),
 }):
@@ -320,8 +316,6 @@ with Stub(**{
 p = pills(out)
 check("a website never audited is a warning, not a clean bill",
       (p["site"]["state"], p["site"]["value"]), ("warn", "Never audited"))
-check("no outstanding issues with a source unread is not a clean bill either",
-      (p["work"]["state"], "not read" in p["work"]["value"]), ("warn", True))
 
 # --------------------------------------------------- 4. nothing on file is unknown
 section("4. A client with no data renders as unknown, never as clear")
@@ -331,14 +325,13 @@ with Stub(**{
     "knack_data.products_error": lambda: "",
     "upsell.audits_for": lambda domains: ({}, ""),
     "sales_status.by_client": lambda: NO_QUOTES,
-    "client_health.issues_for_client": lambda name: ISSUES_OK,
     "seo._client_base": lambda name: {"client": "Nobody", "products": [], "blogs": False},
     "seo.load_store": lambda name: {"client": "Nobody", "setup": {}, "pages": {}, "sitemap": [], "blogs": {}},
 }):
     out = rh.client360("Nobody Co", today=TODAY)
 p = pills(out)
-check("no pill reads ok except the one source that was genuinely measured clean",
-      [k for k, x in p.items() if x["state"] == "ok"], ["work"])
+check("no pill reads ok on a client with nothing on file",
+      [k for k, x in p.items() if x["state"] == "ok"], [])
 check("products, billing, site, google, proposals, seo and blogs are idle",
       sorted(k for k, x in p.items() if x["state"] == "idle"),
       ["billing", "blogs", "google", "products", "proposals", "seo", "site"])
@@ -348,7 +341,6 @@ with Stub(**{
     "knack_data.products_error": lambda: "the products export could not be read",
     "upsell.audits_for": lambda domains: ({}, ""),
     "sales_status.by_client": lambda: NO_QUOTES,
-    "client_health.issues_for_client": lambda name: ISSUES_OK,
     "seo._client_base": lambda name: {"client": "Nobody", "products": [], "blogs": False},
     "seo.load_store": lambda name: {"client": "Nobody", "setup": {}, "pages": {}, "sitemap": [], "blogs": {}},
 }):
@@ -412,11 +404,11 @@ check("staff gets the strip", r.status_code, 200)
 body = r.get_json() or {}
 check("...with the pill keys the renderer expects",
       sorted(p["key"] for p in body.get("pills", [])),
-      ["billing", "blogs", "google", "products", "proposals", "seo", "site", "work"])
+      ["billing", "blogs", "google", "products", "proposals", "seo", "site"])
 check("...every pill in a state the renderer knows",
       all(p["state"] in rh.STATES for p in body.get("pills", [])))
 check("...and none of them ok on a client nobody has heard of",
-      not any(p["state"] == "ok" for p in body.get("pills", []) if p["key"] != "work"))
+      not any(p["state"] == "ok" for p in body.get("pills", [])))
 r = staff.get("/api/client/health")
 check("a missing name is a 400, not a strip about nobody", r.status_code, 400)
 from hub import suite_embed                                      # noqa: E402

@@ -330,6 +330,79 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["site"]["branding"]["headline_color"], "#ffffff")
 
+    def test_inherit_font_does_not_ship_as_literal_css_inherit(self):
+        # embed.html is its own standalone document served with
+        # frame-ancestors * for a cross-origin iframe; CSS `inherit` on its
+        # own <body> inherits from nothing and silently falls back to the
+        # browser default (Times New Roman) rather than the host site's
+        # font, however the "Font" setting is spelled.
+        site = self.client.get("/api/bootstrap").get_json()["site"]
+        self.assertEqual(site["branding"]["font"], "inherit")
+        token = site["embed_token"]
+        html = self.client.get(f"/embed/{token}").get_data(as_text=True)
+        self.assertNotIn("font-family:inherit", html)
+        self.assertIn("-apple-system", html)
+        self.assertNotIn("fonts.googleapis.com", html)
+
+    def test_named_font_loads_and_renders(self):
+        site = self.client.get("/api/bootstrap").get_json()["site"]
+        response = self.client.post("/api/setup", json={
+            **site, "branding": {**site["branding"], "font": "DM Sans"},
+        })
+        self.assertEqual(response.status_code, 200)
+        token = response.get_json()["site"]["embed_token"]
+        html = self.client.get(f"/embed/{token}").get_data(as_text=True)
+        # Jinja autoescapes the quotes around the family name (&#39;) in this
+        # <style>-block text context, which a browser decodes correctly
+        # before CSS ever sees it -- the substring survives either way.
+        self.assertIn("DM Sans", html)
+        self.assertIn("fonts.googleapis.com/css2?family=DM+Sans", html)
+
+    def test_an_unrecognised_font_value_falls_back_rather_than_being_trusted(self):
+        # branding.update(body.get("branding") or {}) takes whatever a
+        # request sends -- a value outside FONT_STACKS must not reach the
+        # <style> block un-checked.
+        site = self.client.get("/api/bootstrap").get_json()["site"]
+        response = self.client.post("/api/setup", json={
+            **site, "branding": {**site["branding"],
+                                 "font": "Arial;}body{display:none"},
+        })
+        token = response.get_json()["site"]["embed_token"]
+        html = self.client.get(f"/embed/{token}").get_data(as_text=True)
+        self.assertIn("-apple-system", html)
+        self.assertNotIn("display:none", html)
+
+    def test_headline_tag_defaults_h1_and_can_be_set_h2(self):
+        site = self.client.get("/api/bootstrap").get_json()["site"]
+        self.assertEqual(site["branding"].get("heading_tag", "h1"), "h1")
+        token = site["embed_token"]
+        html = self.client.get(f"/embed/{token}").get_data(as_text=True)
+        self.assertIn('<h1 class="sf-headline">', html)
+        self.assertNotIn("<h2", html)
+
+        response = self.client.post("/api/setup", json={
+            **site, "branding": {**site["branding"], "heading_tag": "h2"},
+        })
+        token = response.get_json()["site"]["embed_token"]
+        html = self.client.get(f"/embed/{token}").get_data(as_text=True)
+        self.assertIn('<h2 class="sf-headline">', html)
+        self.assertNotIn("<h1", html)
+
+    def test_an_unrecognised_heading_tag_cannot_inject_a_tag(self):
+        # This value reaches the template as an HTML tag *name*, which is a
+        # different risk from a CSS value: it has to come from a closed set
+        # resolved server-side, or an arbitrary string here is markup
+        # injection rather than a styling bug.
+        site = self.client.get("/api/bootstrap").get_json()["site"]
+        response = self.client.post("/api/setup", json={
+            **site, "branding": {**site["branding"],
+                                 "heading_tag": "script onload=alert(1)"},
+        })
+        token = response.get_json()["site"]["embed_token"]
+        html = self.client.get(f"/embed/{token}").get_data(as_text=True)
+        self.assertIn('<h1 class="sf-headline">', html)
+        self.assertNotIn("onload", html)
+
     def test_rotating_embed_token_invalidates_the_old_token(self):
         old = self.client.get("/api/bootstrap").get_json()["site"]["embed_token"]
         rotated = self.client.post("/api/embed-token/rotate", json={}).get_json()

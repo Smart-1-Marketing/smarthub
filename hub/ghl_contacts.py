@@ -279,6 +279,21 @@ def payload_for(row: dict) -> dict:
               for k in links["sent"]]
     if custom:
         body["customFields"] = custom
+    # Field IDs are installation-specific; retain all metadata locally even
+    # when a Suite account has not configured these optional custom fields.
+    meta = row.get("meta") or {}
+    if row.get("source") == "landing" and meta.get("industry_id"):
+        keys = ("industry_id", "industry_family", "page_id", "page_version", "service", "market",
+                "radius", "trigger_profile", "trigger_ids", "creative_profile", "conversion_goal",
+                "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "referrer",
+                "publication_id", "audience_id", "audience_name")
+        for key in keys:
+            field_id = os.environ.get("GHL_INDUSTRY_" + key.upper() + "_FIELD_ID", "").strip()
+            if field_id and meta.get(key) not in (None, "", []):
+                value = meta[key]
+                if isinstance(value, list):
+                    value = ",".join(value)
+                body.setdefault("customFields", []).append({"id": field_id, "field_value": str(value)})
     return {k: v for k, v in body.items() if v not in ("", None, [])} | {"locationId": loc}
 
 

@@ -89,6 +89,7 @@ import datetime as _dt
 import logging
 import os
 import re
+import time
 
 from flask import Blueprint, jsonify, render_template, request
 
@@ -637,7 +638,8 @@ def migrate(client: str, *, apply: bool = False, actor: str = "",
         try:
             items = drive_files.files_for(token, link["url"])
         except drive_files.DriveRefused as exc:
-            failed.append({**link, "error": exc.detail, "reason": exc.reason})
+            failed.append({**link, "error": exc.detail, "reason": exc.reason,
+                           "google_reason": getattr(exc, "google", "")})
             continue
         except Exception as exc:                        # noqa: BLE001
             failed.append({**link, "error": f"{type(exc).__name__}: {exc}"[:200],
@@ -709,16 +711,39 @@ def _verdict(result: dict) -> dict:
     if len(reasons) != 1:
         return {}
     reason = reasons.pop()
-    if reason not in ("refused", "missing"):
+    if reason not in ("refused", "missing", "ratelimited"):
         return {}
     account = result.get("account") or ""
-    detail = (f"All {len(failed)} Drive link(s) were refused by Google, "
+    n = len(failed)
+
+    # Google's own word for it, where every row agreed on one. It is what
+    # separates "this login may not read these files" from "you asked too
+    # fast" -- both of which Drive answers 403 to, and both of which used to
+    # reach this sentence as the single word "refused".
+    said = {str(f.get("google_reason") or "") for f in failed}
+    google = said.pop() if len(said) == 1 else ""
+
+    if reason == "ratelimited":
+        # Not a login problem at all, so it must not be worded as one: the
+        # folders and the grant are fine and the run wants doing again.
+        detail = (f"Drive rate-limited all {n} link(s) rather than refusing "
+                  f"them. Nothing is wrong with the creative, the folders or "
+                  f"the {account} login.")
+        return {"kind": reason, "count": n, "account": account, "others": [],
+                "google": google,
+                "fix": "Run it again -- it goes in chunks and keeps its "
+                       "place, so nothing already copied is copied twice.",
+                "detail": detail}
+
+    detail = (f"All {n} Drive link(s) were refused by Google, "
               if reason == "refused" else
-              f"None of the {len(failed)} Drive link(s) could be found, ")
+              f"None of the {n} Drive link(s) could be found, ")
     detail += (f"reading as {account}. That is one login failing on every "
-               f"folder rather than {len(failed)} broken links: either the "
+               f"folder rather than {n} broken links: either the "
                f"creative is shared with a different Google login, or these "
                f"folders have moved.")
+    if google:
+        detail += f" Google's own reason on every one of them: {google}."
     # The other connected logins, named rather than left to be guessed at --
     # the answer `access()` gives one layer up, and the page draws a picker
     # from the same list. Deliberately *not* "we read as the wrong one": with
@@ -729,8 +754,25 @@ def _verdict(result: dict) -> dict:
     if others:
         detail += (f" {len(others)} other Google login(s) are connected to "
                    f"the Hub: {', '.join(others[:4])}.")
+    # What to actually do, decided here rather than by whichever screen draws
+    # this. A reconnect is the fix for `access()` refusing an account, which
+    # is a different refusal with the same word: that one is the token not
+    # carrying Drive at all, and it is ruled out before a single file is read
+    # -- `_has_drive()` asks Google what the grant is. Offering a reconnect
+    # here sends somebody to re-consent a login that was never the problem.
+    if reason == "missing":
+        fix = ("Nothing here is a permission problem -- Google says these "
+               "items are gone. Check the Drive links on the product records "
+               "rather than the login.")
+    else:
+        fix = ("Reconnecting the login will not help: it was checked for "
+               "Drive access before any file was read, and it has it. Either "
+               "share these folders with " + (account or "that login")
+               + ", or run it again as the login that owns them.")
+        if others:
+            fix += " Use the account box above to read as a different login."
     return {"kind": reason, "count": len(failed), "account": account,
-            "others": others, "detail": detail}
+            "others": others, "google": google, "fix": fix, "detail": detail}
 
 
 def _folder_for(client: str, link: dict, item: dict) -> str:
@@ -962,6 +1004,158 @@ def apply_proposals(keys: list, *, actor: str = "") -> dict:
 # The catch-up sweep
 # ---------------------------------------------------------------------------
 
+BATCH_BUDGET_SECONDS = 25
+BATCH_MAX_CLIENTS = 25
+
+
+def batch(*, apply: bool = False, after: str = "", limit_clients: int = 0,
+          budget_seconds: int = 0, actor: str = "", account: str = "",
+          live_only: bool = False) -> dict:
+    """The whole book, one chunk at a time, resumable.
+
+    `migrate()` is one client. This is every client carrying a Drive creative
+    link, in one pass -- the backfill, rather than somebody selecting a
+    client, waiting, and selecting the next one several hundred times. It is
+    the *same* `migrate()` per client and therefore the same folder shape,
+    `filing.ad_asset_folder()`: Ad Assets, then the IO, then the product. A
+    second description of what a copy is would be the one that drifts, so
+    there is not one.
+
+    Four things it has to get right, and each is a way a batch lies.
+
+    **It is a chunk and says so.** A few hundred clients times their folders
+    is hours of Drive and Cloudinary calls, which no single request survives
+    -- so it runs until a wall-clock budget and hands back `next_after`, and
+    the caller comes straight back for the rest. `remaining` is on every
+    answer: `sweep()` took `candidates()[:25]` and reported `clients: 25`,
+    which is a page reporting its own length as the total, and on a backfill
+    it reads as a book of 25 clients that is fully migrated.
+
+    **The budget is a floor between clients, never a ceiling inside one.**
+    It is checked between clients, so a client with a hundred folders
+    overruns it, and saying otherwise would be a precision this cannot
+    deliver -- the note `hub/video_library.py` makes about a vision call
+    having no useful ceiling. What makes that survivable is the dedupe: every
+    copy writes `gdrive:<id>` onto the row as it goes, so a request killed
+    mid-client loses the *report* and not the files, and coming back skips
+    what already landed.
+
+    **A refusal is one refusal.** The access check runs once, before the first
+    client, so a batch that cannot read Drive says so once and stops -- rather
+    than several hundred clients each producing the identical "not connected"
+    row, which is the wall of `refused` this module already had to undo one
+    layer down. It is deliberately *not* the only check: each client's copy
+    still resolves its own token inside `migrate()`, exactly as a single run
+    does, so a token that dies in the middle of a long backfill costs that
+    client rather than being assumed good for the rest of the book. The cost
+    of that is a token refresh per client, which is the right trade on a job
+    measured in hours.
+
+    **A dry run covers the same ground.** `apply=False` walks every folder
+    and writes nothing, which is the only way to see what a backfill across
+    the whole book would do before it does it -- and the reason this is not
+    simply `sweep()` with the cap lifted, which is apply-only.
+    """
+    started = time.monotonic()
+    budget = max(1, int(budget_seconds or BATCH_BUDGET_SECONDS))
+    cap = max(1, int(limit_clients or BATCH_MAX_CLIENTS))
+    wanted = str(account or "").strip() or drive_account()
+
+    auth = drive_files.access(wanted)
+    if not auth["ok"]:
+        return {"ok": False, "apply": apply, "reason": auth["reason"],
+                "error": auth["detail"], "account_wanted": wanted,
+                "connected": auth.get("connected") or [],
+                "total": 0, "processed": 0, "remaining": 0,
+                "next_after": after, "results": [],
+                "counts": {"copied": 0, "skipped": 0, "failed": 0},
+                "note": "Nothing was read from Drive, so this is not a report "
+                        "that the book has nothing left to migrate."}
+
+    found = candidates(live_only=live_only)
+    names = [n for n in found.get("clients", []) if n]
+    # Sorted already, so a name cursor resumes correctly and survives a client
+    # being added between chunks -- an index would quietly skip or repeat one.
+    todo = [n for n in names if not after or n > after]
+
+    results = []
+    totals = {"copied": 0, "skipped": 0, "failed": 0}
+    reasons: dict = {}
+    per_client: dict = {}
+    last = after
+    for name in todo:
+        if len(results) >= cap or time.monotonic() - started >= budget:
+            break
+        try:
+            res = migrate(name, apply=apply, actor=actor, account=wanted,
+                          live_only=live_only)
+        except Exception as exc:                        # noqa: BLE001
+            # One client's failure is not the book's: the batch goes on and
+            # the row says what happened, or a single bad folder costs every
+            # client after it in the alphabet.
+            results.append({"client": name, "copied": 0, "skipped": 0,
+                            "failed": 0, "reason": "error",
+                            "error": f"{type(exc).__name__}: {exc}"[:200]})
+            per_client = {}
+            last = name
+            continue
+        counts = res.get("counts") or {}
+        for key in totals:
+            totals[key] += int(counts.get(key) or 0)
+        # Why, not just how many. `migrate()` works out per link whether Drive
+        # refused it, could not find it or fell over, and a batch that kept
+        # only the counts would report "49 failed" across the book with the
+        # cause computed and thrown away -- the wall of identical `refused`
+        # rows this module already had to undo one layer down, one layer up.
+        # The rows themselves are not kept: several hundred clients of them is
+        # a payload nobody reads. The tally is.
+        for row in res.get("failed") or []:
+            why = str(row.get("reason") or "error")
+            reasons[why] = reasons.get(why, 0) + 1
+            per_client[why] = per_client.get(why, 0) + 1
+        top = max(per_client, key=per_client.get) if per_client else ""
+        results.append({"client": name,
+                        "copied": int(counts.get("copied") or 0),
+                        "skipped": int(counts.get("skipped") or 0),
+                        "failed": int(counts.get("failed") or 0),
+                        "links": int(res.get("links") or 0),
+                        "reason": top,
+                        "error": res.get("error", "")})
+        per_client = {}
+        last = name
+
+    done_names = {r["client"] for r in results}
+    remaining = [n for n in todo if n not in done_names]
+    out = {"ok": True, "apply": apply, "account": auth["email"],
+           "account_wanted": wanted,
+           "connected": auth.get("connected") or [],
+           # Which product source answered, and how old it is. `candidates()`
+           # has always carried both and the batch reported neither: a run
+           # reading a stale export covers a different book from the one the
+           # single-client lookup reads, and "18 of 18 clients" is a complete
+           # sweep of whichever book answered. `links` is the other half --
+           # a client whose lookup showed a hundred links, in a whole-book run
+           # that found fifty, is two readings of one question and only the
+           # count makes that visible.
+           "source": found.get("source"),
+           "age_minutes": found.get("age_minutes"),
+           "links": len(found.get("links") or []),
+           "total": len(names), "processed": len(results),
+           "remaining": len(remaining),
+           "next_after": last if remaining else "",
+           "results": results, "counts": totals, "reasons": reasons}
+    # The same rule `migrate()` applies to one client, applied to the book:
+    # a run that authenticated and then failed on everything is one cause, not
+    # a list of broken links. Read through `_verdict()` rather than worded
+    # again here, or the two come to say different things about one failure.
+    out["verdict"] = _verdict({
+        "copied": [1] if totals["copied"] else [],
+        "skipped": [1] if totals["skipped"] else [],
+        "failed": [{"reason": why} for why, n in reasons.items() for _ in range(n)],
+        "account": auth["email"], "connected": auth.get("connected") or []})
+    return out
+
+
 def sweep(limit_clients: int = 25, actor: str = "scheduler") -> dict:
     """Clients with Drive creative that is not in their library yet.
 
@@ -969,23 +1163,25 @@ def sweep(limit_clients: int = 25, actor: str = "scheduler") -> dict:
     is the point: a tool that only ever runs when somebody remembers is a
     backfill, and the folder full of new creative from last Thursday is
     exactly the one nobody remembers.
+
+    One chunk of `batch()` rather than a loop of its own -- two readings of
+    what a batch is drift the day either is edited, and this one used to be
+    the reading that never said how much of the book it had left alone.
     """
-    auth = drive_files.access(drive_account())
-    if not auth["ok"]:
-        return {"ok": False, "reason": auth["reason"], "error": auth["detail"],
-                "account_wanted": drive_account(),
-                "connected": auth.get("connected") or [],
+    got = batch(apply=True, limit_clients=limit_clients, actor=actor,
+                budget_seconds=BATCH_BUDGET_SECONDS)
+    if not got.get("ok"):
+        return {"ok": False, "reason": got.get("reason"),
+                "error": got.get("error"),
+                "account_wanted": got.get("account_wanted"),
+                "connected": got.get("connected") or [],
                 "clients": 0}
-    names = candidates().get("clients", [])[:max(1, int(limit_clients or 25))]
-    results, copied = [], 0
-    for name in names:
-        res = migrate(name, apply=True, actor=actor)
-        counts = res.get("counts", {})
-        copied += counts.get("copied", 0)
-        results.append({"client": name, **counts,
-                        "error": res.get("error", "")})
-    return {"ok": True, "clients": len(names), "copied": copied,
-            "results": results}
+    return {"ok": True, "clients": got["processed"],
+            "copied": got["counts"]["copied"],
+            # What a nightly sweep left for tomorrow, rather than a count of
+            # what it happened to reach reported as the whole book.
+            "remaining": got["remaining"], "total": got["total"],
+            "results": got["results"]}
 
 
 # ---------------------------------------------------------------------------
@@ -1121,6 +1317,31 @@ def api_migrate():
                            live_only=bool(body.get("live_only")),
                            account=str(body.get("account") or ""),
                            actor=_actor()))
+
+
+@bp.route("/api/ad-assets/batch", methods=["POST"])
+def api_batch():
+    """One chunk of the whole-book run.
+
+    A POST because it copies files and spends Drive and Cloudinary calls: a
+    GET that does either is one a reload, a prefetch or a link preview fires
+    without anybody asking, the rule `hub/domain_purchase.py` settled for the
+    domain calendar.
+
+    The two numbers a caller can set are clamped rather than trusted --
+    `clamp_int` is here for exactly this, and an unbounded `clients` from a
+    request body is an unbounded fan-out at two billed providers.
+    """
+    from hub.webargs import clamp_int
+    body = request.get_json(silent=True) or {}
+    return jsonify(batch(
+        apply=bool(body.get("apply")),
+        after=str(body.get("after") or ""),
+        limit_clients=clamp_int(body.get("clients"), BATCH_MAX_CLIENTS, 1, 100),
+        budget_seconds=clamp_int(body.get("budget"), BATCH_BUDGET_SECONDS, 5, 120),
+        live_only=bool(body.get("live_only")),
+        account=str(body.get("account") or ""),
+        actor=_actor()))
 
 
 @bp.route("/api/ad-assets/proposals")

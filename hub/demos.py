@@ -70,6 +70,23 @@ class Scenario:
 
 
 SCENARIOS: list[Scenario] = [
+    Scenario(key="creative_studio.render_review", module="creative_studio",
+        title="Open a storyboard and send a rendered version for review",
+        goal="Understand the path from a template-backed project to a version-specific approval.",
+        minutes=5, path="/creative-studio/projects", steps=[
+            Step("Choose a project with a template", "Open the project and check its template and required variables.", "A project without a template cannot open the Storyboard Editor."),
+            Step("Continue in the Storyboard Editor", "Use Open in Storyboard Editor or Continue in Storyboard Editor to review scenes and copy.", "Generating a script is separate from rendering the finished video."),
+            Step("Review the finished version", "Render from the editor, then find its completed output under Versions on the project.", "Wait for the render to finish before sending it for approval."),
+            Step("Send the chosen version for approval", "Use Send for Approval on the version you want reviewed.", "The review belongs to that version, so check its output first.")]),
+    Scenario(key="google_access.cleanup_review", module="google_access",
+        title="Review an inactive Google account scan",
+        goal="Separate measured inactivity from missing evidence before deciding what to clean up.",
+        minutes=4, path="/tools/google-access/qa-inactive/", steps=[
+            Step("Start a fresh scan", "Open Inactive Google Accounts QA and use Update scan. Choose Full rescan only when you need every resource checked live.", "Existing results may describe an earlier scan."),
+            Step("Wait for complete evidence", "Read the progress and partial results while connected accounts are scanned.", "A paused, partial or failed scan is not evidence that unseen resources are inactive."),
+            Step("Check the resource and account", "Review the inactivity evidence for each GA4 property or GTM container.", "GTM has no traffic-reporting API; uncertain containers remain in Needs Review."),
+            Step("Decide before confirming", "Confirm the specific resource only when its evidence justifies cleanup.", "GA4 goes to the Analytics trash; GTM container deletion is permanent. This walkthrough does not delete anything.")]),
+
 
     # ------------------------------------------------------------------
     Scenario(
@@ -336,16 +353,14 @@ SCENARIOS: list[Scenario] = [
     # ------------------------------------------------------------------
     Scenario(
         key="bg_remover.logo_cutout", module="bg_remover",
-        title="Cut out a logo the cheap way first",
-        goal="A transparent PNG of a client logo, ideally without spending a "
-             "credit.",
+        title="Remove or replace an image background",
+        goal="A checked cutout or a new AI background saved for reuse.",
         minutes=3, path="/tools/bg-remover",
-        spends=["removebg.cutout"],
+        spends=["cloudinary.write", "openai.image"],
         steps=[
-            Step("Look at the credit balance before anything else",
-                 "It's shown at the top, and it says when it is running low.",
-                 "Every full-resolution cutout spends one. The balance is "
-                 "deliberately shown *before* you can click, not after.",
+            Step("Choose the result you need",
+                 "Remove background makes a transparent cutout; Replace background with AI creates a new scene.",
+                 "Both use connected services and usage charges may apply.",
                  action="look", selector="[data-demo='credit-balance']"),
             Step("Upload the logo",
                  "A client logo on a plain white background.",
@@ -353,27 +368,20 @@ SCENARIOS: list[Scenario] = [
                  "ten go through at once.",
                  action="upload", selector="[data-demo='cutout-file']",
                  sample="demo/logo-white-bg"),
-            Step("Take the free cut first",
-                 "Set 'Cut-out resolution' to Preview.",
-                 "A preview cut costs no credit. It comes back at a quarter of a "
-                 "megapixel, which is too small to deliver and perfectly big "
-                 "enough to see whether the edges came out clean.",
+            Step("Choose Remove background",
+                 "Keep the subject and make the background transparent.",
+                 "Use the original photo without a border. Completed results are cached briefly for retries.",
                  action="choose", selector="[data-demo='cutout-quality']",
-                 value="preview"),
+                 value="cutout"),
             Step("Check the edges on it",
                  "Zoom in on the curves and any drop shadow.",
-                 "If the preview's edges are clean the full cut will be too, and "
-                 "you have learned that for nothing. A halo, or a soft shadow "
-                 "chewed off, is what tells you this one is worth a credit — or "
-                 "is not worth running at all.",
+                 "Check fine edges and transparent areas before saving to the gallery.",
                  action="look", selector="[data-demo='cutout-results']"),
-            Step("Only then take the one you will deliver",
-                 "Set the resolution to Auto or Full and run it again.",
-                 "Identical images are cached by content hash, so re-running the "
-                 "same file never charges twice. Photographs and complicated "
-                 "edges — hair, glass, foliage — are what the credit is for.",
+            Step("Try a new scene when you need one",
+                 "Choose Replace background with AI and describe the background.",
+                 "AI can change small details. Check faces, product labels and logos before using the result.",
                  action="choose", selector="[data-demo='cutout-quality']",
-                 value="auto", simulated=True),
+                 value="replace", simulated=True),
         ]),
 
     # ------------------------------------------------------------------
@@ -1492,6 +1500,9 @@ SCENARIOS: list[Scenario] = [
                  "one line before committing the whole spot — regenerating "
                  "audio costs credits.",
                  action="look", selector="[data-demo='rp-voice']"),
+            Step("Render and save the final music mix",
+                 "Choose the bed, Render the mix, listen, then use Save mix for customer.",
+                 "A preview or download is not the saved customer version. Re-render and save after changing the voice or music.", action="look"),
             Step("Save it to the library",
                  "So the next spot for this client starts from something.",
                  "Most spots are a variation on the last one. The library is "

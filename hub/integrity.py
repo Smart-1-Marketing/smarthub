@@ -42,6 +42,11 @@ from . import help_audit as _help_audit
 # the same reason: one reading of "which module names count", read by
 # /api/integrity and by test_client_images.py.
 from . import client_brand as _client_brand
+# The client-brief AI-caller sweep: which files reach OpenAI without going
+# through hub.ai, so the client brief is never injected and no usage row is
+# written. Beside client_brand for the same reason -- one reading, read by
+# /api/integrity and by test_ai_callers.py.
+from . import client_brief as _client_brief
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -1320,6 +1325,14 @@ CHECKS = [
     # the sixth -- and the fix is one line.
     ("unnamed_client_work", "Client work the record cannot name", "high",
      _client_brand.check_work_kinds),
+    # High, and it went in green. 14 call sites reached OpenAI directly
+    # before this; each one skipped the client brief (so it wrote generic,
+    # plausible copy for a business the Hub had files on) and skipped the
+    # usage log (so its spend was invisible on the usage page) at once. A
+    # finding here is a call site with both defects, not one -- so the fix
+    # is never "record the spend" alone.
+    ("ai_callers_unwrapped", "A call to OpenAI that skips hub.ai", "high",
+     _client_brief.check_ai_callers),
     # The same question from the other end, and the half nothing was asking.
     # check_work_kinds() finds a name that logs against a client and the table
     # cannot name. This finds a name the table *does* know whose rows can

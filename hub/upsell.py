@@ -45,6 +45,27 @@ wrong about a client who pays us:
   table cannot be read, which is what stops `hub/report_cache.py` freezing
   "we could not look" into the shape of "there is nothing to sell" for the
   rest of the day.
+
+* **The finding points at a real Smart 1 product, not a category we
+  invented.** `website_audit.OPPORTUNITIES` names the exact rate-card
+  product (`hub/rate_card.py` — "Local Business Boost", "Website
+  Retargeting", "Pay Per Click", "Social Media Management") or, where the
+  fix is a platform rather than a media buy, the named Smart 1 product it
+  is ("Smart 1 Suite" for a missing chat widget or booking tool, "Smart 1
+  Sites" for a site that is not mobile-ready). A rep reading this row can
+  quote the exact line the client would see on a proposal, rather than
+  translating "Local listings" into whatever the card happens to call it.
+
+* **A client already has more than one product, so "who do we call" is the
+  partner, not a single answer.** `Partner` is the join every other report
+  on this page already reads (`hub/qa.py`'s `_client_groups()` /
+  `_join()`), so a client billed through two partners shows both rather
+  than whichever came first in the export. It is a plain column rather than
+  a grouping band: this report's bands are the coverage story (sellable,
+  stale, never audited, no website, clean) and that ordering is the finding
+  — sorting by partner is offered as a click on the column header
+  (`qa_report.html`'s generic per-band sort), which reorders rows within
+  each band rather than collapsing the bands into one partner-only list.
 """
 from __future__ import annotations
 
@@ -199,7 +220,8 @@ def build(active_days: int = 60) -> dict:
             cov = qa._google_coverage(name, g)               # noqa: PLC2701
         except Exception:                                    # noqa: BLE001
             cov = {"has_ga": None, "has_gtm": None, "domain": ""}
-        clients.append((name, g, cov))
+        partner = qa._join(g.get("partners") or ())          # noqa: PLC2701
+        clients.append((name, g, cov, partner))
 
     if not clients:
         return _unmeasured("No client is running a product, so there is "
@@ -214,11 +236,11 @@ def build(active_days: int = 60) -> dict:
                            f"not the same as nothing to sell.")
 
     current, stale, never, no_site = [], [], [], []
-    for name, g, cov in clients:
+    for name, g, cov, partner in clients:
         domain = canonical_domain(cov.get("domain") or "")
         monthly = g.get("live_total") or g.get("this_total") or 0
         base = {"name": name, "g": g, "cov": cov, "domain": domain,
-                "monthly": monthly}
+                "monthly": monthly, "partner": partner}
         if not domain:
             no_site.append(base)
             continue
@@ -241,7 +263,7 @@ def build(active_days: int = 60) -> dict:
 
     def band(text, tone, n):
         rows.append([{"group": True, "tone": tone, "text": f"{text} ({n})"},
-                     "", "", "", "", ""])
+                     "", "", "", "", "", ""])
         styles.append(None)
 
     sellable = [r for r in current if r["findings"] or r["disagreements"]]
@@ -276,8 +298,11 @@ def build(active_days: int = 60) -> dict:
 
     measured_n = len(current) + len(stale)
     return {
-        "columns": ["Client", "Website", "What the audit found", "Read",
-                    "Monthly", ""],
+        "columns": ["Client", "Partner", "Website", "What the audit found",
+                    "Read", "Monthly", ""],
+        # Sorted by coverage band by default (sellable first, then stale,
+        # never-audited, no-website, clean) -- clicking "Partner" on screen
+        # reorders the rows inside each band, it does not flatten them.
         "rows": rows,
         "row_styles": styles,
         "measured": True,
@@ -324,8 +349,11 @@ def _row(r: dict, *, stale: bool = False, never: bool = False,
              "action": "upsell_rescan", "client": r["domain"],
              "confirm": (f"Run a fresh audit of {r['domain']}?\n\nThis spends "
                          f"one Insites credit and takes a few minutes.")})
-    return [qa._c360_link(name), site, found, read,                # noqa: PLC2701
-            qa._money(r["monthly"]), actions]                      # noqa: PLC2701
+    partner = r.get("partner") or "—"
+    return [qa._c360_link(name),                                   # noqa: PLC2701
+            {"text": partner} if partner != "—"
+            else {"muted": True, "text": partner},
+            site, found, read, qa._money(r["monthly"]), actions]   # noqa: PLC2701
 
 
 def _sells(r: dict) -> str:
@@ -404,6 +432,6 @@ def _unmeasured(note: str) -> dict:
     """A report that could not look. `measured: False` keeps it out of the
     day's cache, so connecting the source an hour later is not lost until
     tomorrow."""
-    return {"columns": ["Client", "Website", "What the audit found", "Read",
-                        "Monthly", ""],
+    return {"columns": ["Client", "Partner", "Website", "What the audit found",
+                        "Read", "Monthly", ""],
             "rows": [], "row_styles": [], "measured": False, "note": note}

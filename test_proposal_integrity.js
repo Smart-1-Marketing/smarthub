@@ -58,3 +58,31 @@ assert.equal(context.ioItems.filter(i=>i.retainer).length,1);
 assert.equal(context.ioItems.find(i=>i.retainer).campaignBudget,1350);
 assert.equal(context.ioItems.find(i=>i.retainer).description,'Monthly strategy scope');
 console.log('PASS: merged consulting formula and retainer scope');
+
+// Exercise delayed saves: only one create, final totals repaint, and Finish
+// cannot claim success or navigate while its write is outstanding.
+(async()=>{
+ const review={innerHTML:''};let active=0,maxActive=0,posts=0;const pending=[];
+ const c={S:{items:[],months:3},QUOTE_ID:null,QUOTE_NUMBER:null,step:13,_saveT:null,
+  clearTimeout:()=>{},creativeSummary:()=>'',setSave:()=>{},drawQuoteTag:()=>{},
+  document:{getElementById:id=>id==='reviewSummary'?review:null},
+  reviewSummaryHtml:()=>String(c.S._invest?.campaign_total),
+  api:async(path,opts)=>{active++;maxActive=Math.max(maxActive,active);if(opts.method==='POST')posts++;
+   await new Promise(resolve=>pending.push(resolve));active--;
+   return {quote:{id:7,quote_number:'QA',investment:{lines:[],campaign_total:14632},campaign_cost:{campaign:13500}}};}};
+ vm.createContext(c);
+ vm.runInContext('let _saveQueue=Promise.resolve();'+functionSource('saveNow','setSave'),c);
+ const first=c.saveNow(),second=c.saveNow();
+ await new Promise(r=>setImmediate(r));assert.equal(pending.length,1);pending.shift()();
+ await first;await new Promise(r=>setImmediate(r));pending.shift()();await second;
+ assert.equal(maxActive,1);assert.equal(posts,1);assert.equal(review.innerHTML,'14632');
+ let finish;let navCount=0;
+ c.STEPS=Array.from({length:14},()=>()=>({valid:()=>true}));c.clearResumeNote=()=>{};c.toast=()=>{};
+ c.nav=()=>navCount++;c.renderStep=()=>{};c.saveNow=()=>new Promise(r=>finish=r);
+ vm.runInContext('let _advancing=false;async '+functionSource('nextStep','prevStep'),c);
+ const finishing=c.nextStep();assert.equal(navCount,0);finish(false);await finishing;assert.equal(navCount,0);
+ const success=c.nextStep();await c.nextStep();finish(true);await success;assert.equal(navCount,1);
+ assert.ok(html.includes("row('Campaign total — all-in',(S._invest?money(S._invest.campaign_total)"));
+ assert.ok(!html.includes('already have every part of the Suite'));
+ console.log('PASS: serialized saves, refreshed review totals and finish failure handling');
+})().catch(error=>{console.error(error);process.exitCode=1;});

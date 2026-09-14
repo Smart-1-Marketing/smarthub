@@ -19,6 +19,7 @@ so there is nothing to keep in sync and nothing to migrate.
 """
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime, timezone
 
@@ -37,6 +38,11 @@ WORK_KINDS = {
     "bg_remover":           ("Cut-out produced", "Background Remover"),
     "scans":                ("Site audit", "Site Scans"),
     "seo":                  ("Schema / FAQ", "SEO"),
+    # Its own name rather than folded into `seo`: what this module files
+    # is a change made inside the client's own Google Search Console --
+    # a sitemap submitted or withdrawn -- and reading as schema work on
+    # their record would say we wrote something we did not.
+    "seo_intelligence":     ("Search Console change", "SEO Intelligence"),
     "proposals":            ("Proposal", "Proposals"),
     "proposal_builder":     ("Proposal generated", "Proposal Builder"),
     "sales_builder":        ("Quote", "Sales Builder"),
@@ -52,6 +58,10 @@ WORK_KINDS = {
     "display_ads":          ("Display ads", "Display Ad Builder"),
     "fan_radio":            ("Radio spot", "Fan Radio"),
     "commercial_builder":   ("Commercial", "Commercial Builder"),
+    # 360 Skills files a client's skill activations, hotsheet links and
+    # Email Creator sends -- an email that went out to the client's contacts
+    # is work done for them, and the record should say so.
+    "skills360":            ("Skill / email", "360 Skills"),
     # The two HyperFrames tools. Their own names rather than folded into
     # commercial_builder: both are also reachable inside that wizard, but a
     # standalone paint animation is not a commercial and reading as one on a
@@ -147,6 +157,11 @@ WORK_KINDS = {
     # join the list this file already counts of work filed and then dropped
     # for naming a module the record cannot answer to.
     "creative_studio":      ("Creative Studio", "Creative Studio"),
+    # A question asked with client context is attributable account work. The
+    # assistant records only the question metadata/result status here; the
+    # same audit row should therefore be visible on that client's timeline
+    # instead of being silently discarded as an unknown module.
+    "ask_smarthub":         ("AI question", "Ask SmartHub"),
 }
 
 # The other side of the same question, written down rather than left as an
@@ -179,6 +194,10 @@ NOT_WORK = {
     # A join we recorded, not something the client received. Attaching a GA4
     # property says who owns it; it does not say we made anything.
     "google_index": "a resource joined to a client, not work delivered",
+    # A campaign filed under a client, or a budget line typed against one, is
+    # the same shape: a join the Hub recorded so the reports can read it, not
+    # something the client received.
+    "reports":      "a campaign or budget joined to a client, not work delivered",
     # Hub housekeeping: a domain attached, an SEO task ticked. Same reason.
     "hub":          "housekeeping — a join or a status, not a deliverable",
     "qa":           "a report row acted on, not work produced",
@@ -569,6 +588,20 @@ def _tag_confirmed(tiles: list[dict], palette: list[dict], tmpl: dict) -> None:
         c["confirmed"] = bool(roles)
         c["role"] = roles[0] if roles else ""
 
+def _add_manual_colors(palette: list[dict], tmpl: dict) -> None:
+    """A colour a rep typed straight in (`hub/brand_template.py`) may not be
+    one either source ever observed — that is the whole reason a rep can
+    override one. It still has to be on the card to be shown as confirmed and
+    to be cleared later, so it is added here as its own swatch rather than
+    left for `_tag_confirmed` to tag a tile that was never built."""
+    have = {c.get("hex") for c in palette}
+    for hx in (tmpl.get("colors") or {}).values():
+        hx = str(hx or "").upper()
+        if hx and hx not in have:
+            palette.append({"hex": hx, "type": "", "origin": "manual"})
+            have.add(hx)
+
+
 def _hex(value: str) -> str:
     v = str(value or "").strip()
     if not v:
@@ -688,6 +721,7 @@ def brand_kit(client: str, domain: str = "") -> dict:
             note = f"No brand data on file yet. Look it up from {dom}."
         tiles, palette = _merge([], [], observed)
         tmpl = _template_for(client)
+        _add_manual_colors(palette, tmpl)
         _tag_confirmed(tiles, palette, tmpl)
         return {"found": False, "client": client, "domain": domain,
                 "logos": [], "colors": [], "fonts": [],
@@ -750,10 +784,20 @@ def brand_kit(client: str, domain: str = "") -> dict:
     # both take [0] outright. Promoting the confirmed pick there means
     # neither has to change to start reading it.
     logos = _promote(logos, "url", tmpl.get("logo_url") or "")
-    colors = _promote(colors, "hex", (tmpl.get("colors") or {}).get("primary") or "")
+    primary_hex = (tmpl.get("colors") or {}).get("primary") or ""
+    colors = _promote(colors, "hex", primary_hex)
+    # A logo can only ever be one already on offer, so `_promote` finding
+    # nothing to reorder is always a stale pick. A colour can be one nobody
+    # ever observed — that is the whole point of letting a rep type theirs in
+    # over a wrong auto-detected one — so it is inserted at the front rather
+    # than left unfindable, which is what makes it reach client_context.py
+    # and brand_guide_payload() as "the" colour and not only the card.
+    if primary_hex and not any(c.get("hex") == primary_hex for c in colors):
+        colors = [{"hex": primary_hex, "type": "", "brightness": None}] + colors
 
     observed = _observed(domain or payload.get("domain") or "")
     tiles, palette = _merge(logos[:8], colors[:10], observed)
+    _add_manual_colors(palette, tmpl)
     _tag_confirmed(tiles, palette, tmpl)
 
     return {
@@ -863,6 +907,80 @@ def brand_guide_payload(client: str, domain: str = "") -> dict:
 # Work log
 # ---------------------------------------------------------------------------
 
+def _work_row(e: dict):
+    """One activity-log entry as a work row -- `(normalized client, row)` --
+    or None where the entry is not work the record can name.
+
+    The one reading of what a work row is. `work_log()` reads it for one
+    client and `work_index()` for the whole log, because two walks over the
+    same entries with their own idea of which key names the client is how the
+    record and the promise schedule come to disagree about whether a blog was
+    written this month.
+    """
+    mod = e.get("module") or ""
+    if mod not in WORK_KINDS:
+        return None
+    # A client can be named under any of several keys depending on the tool.
+    named = ""
+    for key in CLIENT_KEYS:
+        if e.get(key):
+            named = str(e[key])
+            break
+    norm_named = _norm(named) if named else ""
+    if not norm_named:
+        return None
+    label, source = WORK_KINDS[mod]
+    return norm_named, {
+        "when": e.get("time", ""),
+        "kind": label, "source": source, "module": mod,
+        "action": e.get("type", ""),
+        "actor": e.get("actor") or "",
+        "detail": str(e.get("detail") or e.get("title") or "")[:160],
+    }
+
+
+def work_index(limit: int = 6000) -> dict:
+    """Every work row in the newest `limit` activity-log entries, bucketed by
+    normalized client name, read once for a page that asks about the whole
+    book -- `hub/proposal_promises.py` asks which month each client's promises
+    landed in, and one tail of the log per client is fifty reads of one file.
+
+    `horizon` is the oldest entry the read reached. A month before it is one
+    the log cannot answer for -- rotated away, or older than the window -- and
+    a caller that read its absence as "nothing landed" would be reporting a
+    miss about a month nobody looked at. `error` names a log that could not
+    be read, which is a different answer from a log with nothing in it.
+    Never raises.
+    """
+    try:
+        entries = audit.tail(limit=limit)
+    except Exception as exc:                            # noqa: BLE001
+        return {"rows": {}, "horizon": "", "scanned": 0,
+                "error": f"The activity log could not be read ({type(exc).__name__})."}
+    by: dict[str, list] = {}
+    horizon = ""
+    for e in entries:
+        when = str(e.get("time") or "")
+        if when and (not horizon or when < horizon):
+            horizon = when
+        got = _work_row(e)
+        if not got:
+            continue
+        norm, row = got
+        by.setdefault(norm, []).append(row)
+    error = ""
+    if not entries:
+        # tail() answers [] for a file it could not open as well as for an
+        # empty one; a live file with bytes in it and no rows is the first.
+        try:
+            path = audit._path()
+            if os.path.exists(path) and os.path.getsize(path) > 0:
+                error = "The activity log could not be read."
+        except Exception:                               # noqa: BLE001
+            pass
+    return {"rows": by, "horizon": horizon, "scanned": len(entries), "error": error}
+
+
 def work_log(client: str, limit: int = 60, also: list[str] | None = None) -> dict:
     """Everything the Hub has produced for one client, newest first.
 
@@ -885,28 +1003,12 @@ def work_log(client: str, limit: int = 60, also: list[str] | None = None) -> dic
             extra[n] = str(other)
     rows = []
     for e in audit.tail(limit=6000):
-        mod = e.get("module") or ""
-        if mod not in WORK_KINDS:
+        got = _work_row(e)
+        if not got:
             continue
-        # A client can be named under any of several keys depending on the tool.
-        named = ""
-        for key in ("client", "client_name", "company", "business_name", "tool_client"):
-            if e.get(key):
-                named = str(e[key])
-                break
-        norm_named = _norm(named) if named else ""
-        if not norm_named:
-            continue
+        norm_named, row = got
         if norm_named != want and norm_named not in extra:
             continue
-        label, source = WORK_KINDS[mod]
-        row = {
-            "when": e.get("time", ""),
-            "kind": label, "source": source, "module": mod,
-            "action": e.get("type", ""),
-            "actor": e.get("actor") or "",
-            "detail": str(e.get("detail") or e.get("title") or "")[:160],
-        }
         if norm_named != want:
             row["member"] = extra[norm_named]
         rows.append(row)

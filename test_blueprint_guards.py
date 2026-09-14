@@ -190,6 +190,16 @@ PUBLIC: dict[str, str] = {
                            "is a prefix rather than a route list",
     "/scans/embed.js": "the resizer a client's website loads beside an "
                        "embedded scan widget",
+    "/tools/marketing-audit*": "the whole Marketing Efficiency Audit -- the "
+                               "accounting-partner lead form. An accounting "
+                               "or bookkeeping partner running it has no Hub "
+                               "account and never should need one, and there "
+                               "is no staff-only screen anywhere in the tool "
+                               "(hub/marketing_audit_proxy.py), which is why "
+                               "this is a prefix rather than a route list, "
+                               "the same shape as the Ads Grader above. The "
+                               "bare prefix (no trailing slash) is only a "
+                               "redirect to the one it serves from",
 }
 
 
@@ -238,6 +248,10 @@ PUBLIC_WRITES: dict[str, str] = {
                         "that a tour step was shown and carries no client "
                         "data",
     "/api/help/tour-event": "the same, for the help layer",
+    "/tools/marketing-audit/": "the proxy's own root, which accepts every "
+                               "method because it forwards to the Node "
+                               "process behind it -- see the "
+                               "/tools/marketing-audit* entry above",
 }
 
 
@@ -266,7 +280,17 @@ def _allowed_write(path: str) -> bool:
 # must not quietly cover a parameterized route added under the same prefix
 # later.
 PUBLIC_DYNAMIC: dict[str, str] = {
+    "/industry/p/<page_id>": "a published industry page for prospects; drafts return 404",
+    "/industry/p/<page_id>/report": "the published page's printable planning guide",
+    "/industry/widget/<page_id>": "the published opportunity widget on a client's website",
+    "/industry/widget/<page_id>/embed": "the published widget's iframe alias",
+    "/industry/widget/<page_id>/embed.js": "the shared loader for that public widget",
     "/tools/commercial-builder/review/voice/<token>": "client recording page authorized by a random, expiring capture token; no staff login required",
+    "/proposal-execution/needs/<token>": "what we need from the client, at "
+                                         "the random token stored on their "
+                                         "execution plan -- read-only, built "
+                                         "from the kept items, and a revoked "
+                                         "or unknown token answers the same 404",
     # --- files, rather than answers about anybody ---
     "/static/<path:filename>": "the hub app's own stylesheets and scripts, "
                                "which every page including the sign-in page "
@@ -326,6 +350,12 @@ PUBLIC_DYNAMIC: dict[str, str] = {
     "/tools/ads/r/<token>": "the monthly Google Ads performance report a "
                             "client is sent",
     "/tools/ads/r/<token>.pdf": "the same report as a document",
+    "/reports/r/c/<token>": "a client's live ad-performance dashboard, at "
+                            "their own unguessable link",
+    "/reports/r/c/<token>.pdf": "the same dashboard as a document",
+    "/reports/r/c/<token>/data.json": "the aggregate that dashboard is drawn "
+                                      "from, with the spend rule already "
+                                      "applied",
     "/tools/calculators/c/<slug>": "the standalone media calculator an ad can "
                                    "point at",
     "/tools/calculators/embed/<slug>": "the framed copy on "
@@ -341,6 +371,10 @@ PUBLIC_DYNAMIC: dict[str, str] = {
                                                        "already exempts",
     "/tools/image-creator/review/<token>": "the graphic a client watches and "
                                            "signs off, ported from Commercial "
+                                           "Builder's review link",
+    "/tools/radio-scripts/review/<token>": "the script concepts a client "
+                                           "reads and signs off (build spec "
+                                           "WO-3), ported from Commercial "
                                            "Builder's review link",
     "/review/<token>": "the Creative Studio version a client watches and "
                        "signs off (WO-CS6) -- bare, not under /tools/, "
@@ -380,6 +414,14 @@ PUBLIC_DYNAMIC: dict[str, str] = {
                     "opens with a lead's unguessable token and no Hub "
                     "account at all -- the page itself and its own read "
                     "APIs (campaign state, stock search, their gallery)",
+    "/tools/marketing-audit/<path:path>": "every asset and read route of the "
+        "Marketing Efficiency Audit, proxied whole to the Node process "
+        "behind it -- see the /tools/marketing-audit* entry in PUBLIC",
+    "/hot/<token>*": "a client's own store hotsheet from 360 Skills "
+                     "(modules/skills360), reached by an unguessable token "
+                     "that dies with the skill -- the page and its one read "
+                     "API. A wrong token is a 404 that says the link is not "
+                     "active, never a login form",
 }
 
 
@@ -425,6 +467,13 @@ PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
                                                        "or no",
     "/tools/commercial-builder/review/<token>/comment": "a timecoded note "
                                                         "against the cut",
+    "/tools/radio-scripts/review/<token>/decide": "the client's approve, "
+                                                  "approve-with-changes or no "
+                                                  "on a radio script set",
+    "/tools/radio-scripts/review/<token>/comment": "a note against one "
+                                                    "concept and length in "
+                                                    "the set, or the set as "
+                                                    "a whole",
     "/tools/commercial-builder/review/voice/<token>/submit": "the client's "
                                                              "recorded or "
                                                              "uploaded voice "
@@ -459,6 +508,10 @@ PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
                     "approving, and requesting a change. Every write is "
                     "scoped to the token in the URL, the same shape "
                     "/scans/api/w/<slug>/* already uses",
+    "/tools/marketing-audit/<path:path>": "the same tool's writes -- the "
+        "results gate, the lead delivery, the AI analysis, the website scan "
+        "and the PDF report -- proxied whole for the reason PUBLIC_DYNAMIC's "
+        "matching entry gives",
 }
 
 

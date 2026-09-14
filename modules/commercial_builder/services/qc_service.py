@@ -557,6 +557,12 @@ def _check_spelling(project_dict, client_dict, scenes):
     script_text = " ".join((s.get("narration") or "") for s in scenes)
     if not script_text.strip():
         return {"passed": False, "message": "No narration to check yet."}
+    from ..usage import _scope
+    from ..budget import status as budget_status
+    active = _scope.get()
+    if active and budget_status(active[0])["configured"]:
+        return {"passed": False, "level": LEVEL_WARN,
+                "message": "Paid spelling review is paused by the spending limit. Check spelling and business names manually."}
     issues = openai_service.qc_spelling_check(script_text, client_dict)
     ok = len(issues) == 0
     return {"passed": ok,

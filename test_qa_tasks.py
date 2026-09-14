@@ -217,6 +217,188 @@ with app.app_context():
           qa_tasks.NEEDS_MORE)
     check("...and clears the completion stamp", task.completed_at, None)
 
+    print("\n-- claiming, on somebody's behalf --")
+    yoda = _account("yoda@smart1marketing.com", "Yoda")
+    for_boss = qa_tasks.create(
+        target_key="other", target_other="The Proposal Builder",
+        instructions="Run a quote through it.",
+        assigned_to_email=boss.email, due_on="",
+        actor_email=rev.email, actor_name=rev.name)
+
+    try:
+        qa_tasks.claim(for_boss.id, actor_email=yoda.email, actor_name=yoda.name)
+        check("claiming is off with no delegate named", "claimed", "refused")
+    except qa_tasks.QaTaskError as exc:
+        check_true("claiming is off with no delegate named",
+                   "standing in for" in str(exc))
+
+    os.environ["QA_TASK_DELEGATES"] = f"{other.email}:{boss.email}"
+    try:
+        qa_tasks.claim(for_boss.id, actor_email=yoda.email, actor_name=yoda.name)
+        check("a delegate for somebody else cannot claim", "claimed", "refused")
+    except qa_tasks.QaTaskError as exc:
+        check_true("a delegate for somebody else cannot claim",
+                   "standing in for" in str(exc))
+
+    os.environ["QA_TASK_DELEGATES"] = f"{yoda.email}:{boss.email}"
+    for_boss_id = for_boss.id
+    claimed = qa_tasks.claim(for_boss.id, actor_email=yoda.email,
+                             actor_name=yoda.name)
+    check("the named delegate can claim it", claimed.assigned_to_email, yoda.email)
+    check("...and it is unread for the new holder",
+          claimed.unread_for(yoda.email), True)
+
+    thread = qa_tasks.get(for_boss.id, viewer_email=yoda.email)["responses"]
+    check_true("the claim is posted into the thread",
+               any(r["kind"] == "claim" and boss.name in r["body"]
+                   for r in thread))
+
+    boss_now = qa_tasks.for_person(boss.email)
+    check_true("it leaves the original assignee's queue",
+               all(t["id"] != for_boss.id for t in boss_now["to_do"]))
+    yoda_now = qa_tasks.for_person(yoda.email)
+    check_true("...and lands in the delegate's queue",
+               any(t["id"] == for_boss.id for t in yoda_now["to_do"]))
+
+    try:
+        qa_tasks.claim(9999999, actor_email=yoda.email, actor_name=yoda.name)
+        check("claiming a task that does not exist is refused",
+              "claimed", "refused")
+    except qa_tasks.QaTaskError as exc:
+        check_true("claiming a task that does not exist is refused",
+                   "could not be found" in str(exc))
+
+    done_task = qa_tasks.create(
+        target_key="other", target_other="Something already closed",
+        instructions="Check it.", assigned_to_email=boss.email, due_on="",
+        actor_email=rev.email, actor_name=rev.name)
+    qa_tasks.respond(done_task.id, body="Looks fine.", actor_email=boss.email,
+                     actor_name=boss.name)
+    qa_tasks.complete(done_task.id, actor_email=rev.email)
+    try:
+        qa_tasks.claim(done_task.id, actor_email=yoda.email, actor_name=yoda.name)
+        check("a completed task cannot be claimed", "claimed", "refused")
+    except qa_tasks.QaTaskError as exc:
+        check_true("a completed task cannot be claimed",
+                   "nothing to pick up" in str(exc))
+
+    print("\n-- autoclaim, the scheduler's half --")
+    del os.environ["QA_TASK_DELEGATES"]
+    result = qa_tasks.autoclaim()
+    check("autoclaim is off with no delegates named",
+          result.get("skipped"), "QA_TASK_DELEGATES is not set")
+
+    os.environ["QA_TASK_DELEGATES"] = f"{yoda.email}:{boss.email}"
+    for_autoclaim = qa_tasks.create(
+        target_key="other", target_other="Client 360 forms card",
+        instructions="Check it against a client with a Suite sub-account.",
+        assigned_to_email=boss.email, due_on="",
+        actor_email=rev.email, actor_name=rev.name)
+    result = qa_tasks.autoclaim()
+    check_true("it claims what a delegate stands in for",
+               any(d["task"] == for_autoclaim.id for d in result["details"]))
+    db.session.refresh(for_autoclaim)
+    check("...and the task now belongs to the delegate",
+          for_autoclaim.assigned_to_email, yoda.email)
+    thread = qa_tasks.get(for_autoclaim.id, viewer_email=yoda.email)["responses"]
+    check_true("...with the handoff posted into its thread",
+               any(r["kind"] == "claim" and boss.name in r["body"]
+                   for r in thread))
+
+    again = qa_tasks.autoclaim()
+    check_true("a task already claimed is not claimed a second time",
+               all(d["task"] != for_autoclaim.id for d in again["details"]))
+
+    print("\n-- reading a screenshot for somebody --")
+    from hub import ai as hub_ai
+
+    def stub_vision(prompt, urls, **kw):
+        stub_vision.calls.append((prompt, tuple(urls)))
+        return "The dashboard shows a stat labeled 'Unhooked: 4' with no tooltip."
+    stub_vision.calls = []
+    hub_ai.vision = stub_vision
+    hub_ai.ready = lambda: True
+
+    # Assigned to the bystander rather than boss -- boss's queue is asserted
+    # empty two sections down, and these would otherwise sit there unanswered.
+    no_image = qa_tasks.create(
+        target_key="other", target_other="Dashboard",
+        instructions="Something about a stat, no idea what it's from.",
+        assigned_to_email=other.email, due_on="",
+        actor_email=rev.email, actor_name=rev.name)
+    result = qa_tasks.describe_images(no_image.id)
+    check("a task with no image link is skipped",
+          result.get("skipped"), "no image link in the instructions")
+
+    with_image = qa_tasks.create(
+        target_key="other", target_other="Dashboard",
+        instructions=("Unsure of this stat: "
+                     "https://www.awesomescreenshot.com/image/63309254?key=abc "
+                     "and see also https://example.com/chart.png."),
+        assigned_to_email=other.email, due_on="",
+        actor_email=rev.email, actor_name=rev.name)
+    result = qa_tasks.describe_images(with_image.id)
+    check("both image links are read", result.get("described"), 2)
+    check_true("the model was actually asked",
+               len(stub_vision.calls) == 1 and len(stub_vision.calls[0][1]) == 2)
+    thread = qa_tasks.get(with_image.id, viewer_email=other.email)["responses"]
+    vision_posts = [r for r in thread if r["kind"] == "vision"]
+    check("the reading is posted into the thread", len(vision_posts), 1)
+    check_true("...naming Yoda as the author",
+               vision_posts[0]["author_name"] == "Smart 1 Hub Yoda")
+    check_true("...and carrying what the model actually said",
+               "Unhooked: 4" in vision_posts[0]["body"])
+
+    again = qa_tasks.describe_images(with_image.id)
+    check("a task already described is not described twice",
+          again.get("skipped"), "already described")
+    check("...and the model is not asked again", len(stub_vision.calls), 1)
+
+    def fail_vision(prompt, urls, **kw):
+        raise hub_ai.AIUnavailable("OPENAI_API_KEY is not set.")
+    hub_ai.vision = fail_vision
+    unavailable = qa_tasks.create(
+        target_key="other", target_other="Dashboard",
+        instructions="See https://example.com/broken.png",
+        assigned_to_email=other.email, due_on="",
+        actor_email=rev.email, actor_name=rev.name)
+    result = qa_tasks.describe_images(unavailable.id)
+    check_true("an AI outage is reported rather than raised",
+               "vision unavailable" in (result.get("skipped") or ""))
+    check("...and nothing is posted", len(qa_tasks.get(
+        unavailable.id, viewer_email=other.email)["responses"]), 0)
+    hub_ai.vision = stub_vision
+
+    print("\n-- the scheduler's sweep, bounded --")
+    stub_vision.calls = []
+    # A second undescribed task, more recently touched than the one above --
+    # with the limit at 1, this is the one the first pass reaches, and
+    # `unavailable` (whose earlier attempt raised and posted nothing) is what
+    # the limit leaves behind for the next sweep to pick up.
+    second_pending = qa_tasks.create(
+        target_key="other", target_other="Dashboard",
+        instructions="Another one: https://example.com/second.png",
+        assigned_to_email=other.email, due_on="",
+        actor_email=rev.email, actor_name=rev.name)
+    swept = qa_tasks.describe_image_backlog(limit=1, budget_seconds=90)
+    check("the sweep stops at its own limit", swept["described"], 1)
+    check("...and only one model call was made", len(stub_vision.calls), 1)
+    check_true("...and it was the more recently touched of the two",
+               qa_tasks.QaResponse.query.filter_by(
+                   task_id=second_pending.id, kind=qa_tasks.VISION).first()
+               is not None)
+    check_true("...leaving the earlier failure undescribed for now",
+               not qa_tasks.QaResponse.query.filter_by(
+                   task_id=unavailable.id, kind=qa_tasks.VISION).first())
+    # Running it again picks up exactly what the limit left behind.
+    swept = qa_tasks.describe_image_backlog(limit=5, budget_seconds=90)
+    check("a second sweep clears what the first left over",
+          swept["described"], 1)
+    check_true("...and now the earlier failure has been described too",
+               qa_tasks.QaResponse.query.filter_by(
+                   task_id=unavailable.id, kind=qa_tasks.VISION).first()
+               is not None)
+
     print("\n-- the two queues --")
     mine = qa_tasks.for_person(rev.email)
     check_true("the reviewer's list is measured", mine["measured"])
@@ -258,6 +440,61 @@ with app.app_context():
     check_true("...and holds only open work",
                all(t["status"] != qa_tasks.COMPLETE for t in board["tasks"]))
 
+    print("\n-- question, solution, when --")
+    # `with_image` was answered by nobody in this file -- only described.
+    # Give the log something real to find: the reviewer answers one of their
+    # own outstanding tasks.
+    solved = qa_tasks.create(
+        target_key="other", target_other="The rate card",
+        instructions="The 'Learn more' button 404s.",
+        assigned_to_email=rev.email, due_on="",
+        actor_email=boss.email, actor_name=boss.name)
+    qa_tasks.respond(solved.id, body="Fixed the cross-link in PR #503.",
+                     actor_email=rev.email, actor_name=rev.name)
+    log = qa_tasks.activity_log()
+    check_true("it is measured", log["measured"])
+    row = next((r for r in log["rows"] if r["task_id"] == solved.id), None)
+    check_true("the solved task is on it", row is not None)
+    check("...with the question", row["question"], "The 'Learn more' button 404s.")
+    check("...and the solution",
+          row["solution"], "Fixed the cross-link in PR #503.")
+    check("...naming who solved it", row["solved_by"], rev.name)
+    check_true("...and when", bool(row["solved_on_pretty"]))
+    check("...and the task's current status", row["status"], qa_tasks.ANSWERED)
+
+    # A screenshot read is not a solution: describing the picture is not the
+    # same as fixing anything, and the log must not read one as the other.
+    check_true("a vision-only task is not on the log",
+               all(r["task_id"] != with_image.id for r in log["rows"]))
+
+    # Answering it again keeps the task on the log exactly once, at its
+    # latest reply.
+    qa_tasks.respond(solved.id, body="Actually, PR #504.",
+                     actor_email=rev.email, actor_name=rev.name)
+    log = qa_tasks.activity_log()
+    matches = [r for r in log["rows"] if r["task_id"] == solved.id]
+    check("a re-answered task appears once", len(matches), 1)
+    check("...at its latest answer", matches[0]["solution"], "Actually, PR #504.")
+
+    print("\n-- how much a stand-in is carrying --")
+    del os.environ["QA_TASK_DELEGATES"]
+    off = qa_tasks.delegate_status()
+    check("delegation off reads as not configured", off["configured"], False)
+    check("...and measured, not a permanent zero", off["measured"], True)
+
+    os.environ["QA_TASK_DELEGATES"] = f"{yoda.email}:{boss.email}"
+    # `for_autoclaim` is still sitting with Yoda, unanswered -- that alone is
+    # "in progress". Answering the *other* claimed task is what "resolved
+    # today" has to find.
+    qa_tasks.respond(claimed.id, body="Fixed the back link.",
+                     actor_email=yoda.email, actor_name=yoda.name)
+    status = qa_tasks.delegate_status()
+    check_true("it is configured once a delegate is named", status["configured"])
+    check_true("it counts what the delegate is still carrying",
+               status["in_progress"] >= 1)
+    check_true("...and what they answered today",
+               status["resolved_today"] >= 1)
+
     print("\n-- one sentence, every screen --")
     line = qa_tasks.summary_line({"to_do": 2, "overdue": 1, "waiting_on_you": 1})
     check_true("it names both queues",
@@ -275,11 +512,14 @@ print("\n-- the login gate --")
 # hub app has no blanket gate: this repo has paid for that four times.
 client = app.test_client()
 for path in ("/qa-tasks", "/api/qa-tasks", "/api/qa-tasks/board",
-             "/api/qa-tasks/summary", "/api/qa-tasks/new"):
+             "/api/qa-tasks/summary", "/api/qa-tasks/new",
+             "/api/qa-tasks/log", "/api/qa-tasks/delegate-status"):
     resp = client.get(path)
     check(f"{path} refuses a stranger", resp.status_code in (301, 302, 401), True)
 resp = client.post("/api/qa-tasks", json={})
 check("POST /api/qa-tasks refuses a stranger", resp.status_code, 401)
+resp = client.post(f"/api/qa-tasks/{for_boss_id}/claim")
+check("the claim route refuses a stranger", resp.status_code, 401)
 
 print("\n-- the tile, the nav and the trail --")
 from hub import qa as qa_reports                                 # noqa: E402

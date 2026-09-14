@@ -458,6 +458,11 @@ document.querySelectorAll('[data-close]').forEach(b => b.onclick = () =>
 document.querySelectorAll('.modal').forEach(m => m.onclick = e => {
   if(e.target===m) m.classList.remove('open'); });
 
+/* A link built elsewhere in the Hub (the Proposal Execution tracking_plan
+   adapter) points here with ?q=<client>, and used to land on whatever the
+   table happened to hold rather than what was just saved -- the search box
+   read only what somebody had typed into it since the page loaded. */
+if('{{ q }}'){ $('q').value = '{{ q }}'; }
 loadTable();
 </script>
 </body>

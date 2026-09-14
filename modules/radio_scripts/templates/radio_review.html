@@ -1,0 +1,348 @@
+{# The page a client opens to sign off a set of radio scripts.
+
+   Deliberately does NOT extend base.html — a client has no Hub account and
+   no business seeing the staff sidebar, help layer or feedback tab, the same
+   choice modules/commercial_builder/templates/commercial_review.html makes
+   for the identical reason.
+
+   It is also self-contained: no Hub stylesheet, no Hub script. This is
+   opened from an email on somebody else's machine, and every asset it
+   depends on is one more thing that can fail to load on the one page whose
+   whole job is to load. The chrome injector is told to leave it alone in
+   hub/__init__.py's CHROMELESS, and the login guard in
+   modules/radio_scripts/__init__.py lets it through — both halves, or it is
+   a login form or a staff sidebar. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ row.client_name or 'Radio scripts' }} — review</title>
+{# Nothing here is a crawler's business. hub/no_crawl.py sets the header on
+   every response; this is the belt to that braces, because the page carries
+   a client's unreleased creative. #}
+<meta name="robots" content="noindex, nofollow">
+<style>
+  :root{
+    --ink:#111a24; --muted:#5d6b7d; --line:#e2e8f0; --bg:#f6f8fb;
+    --card:#fff; --accent:#0f9d6b; --amber:#c98a00; --red:#c2352c;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:820px;margin:0 auto;padding:28px 18px 64px;}
+  header{margin-bottom:20px;}
+  h1{font-size:22px;margin:0 0 4px;}
+  .sub{color:var(--muted);font-size:14px;margin:0;}
+  .round{display:inline-block;margin-top:10px;background:#eef2f7;color:var(--muted);
+    border-radius:99px;padding:3px 11px;font-size:12px;font-weight:700;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:18px;margin-bottom:16px;}
+  .card h2{font-size:15px;margin:0 0 10px;}
+  .concept-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;}
+  .concept-tab{border:1px solid var(--line);background:#fff;border-radius:7px;
+    padding:5px 12px;font-size:13px;font-weight:640;cursor:pointer;color:var(--muted);}
+  .concept-tab.on{border-color:var(--ink);color:var(--ink);}
+  .concept-panel{display:none;}
+  .concept-panel.on{display:block;}
+  .hint{color:var(--muted);font-size:12.5px;font-weight:700;margin-top:10px;}
+  .concept-panel p{white-space:pre-wrap;margin:4px 0 0;}
+  label{display:block;font-size:12.5px;font-weight:700;margin-bottom:4px;}
+  input,textarea,select{width:100%;font:inherit;padding:9px 10px;border:1px solid var(--line);
+    border-radius:7px;background:#fff;color:var(--ink);}
+  textarea{resize:vertical;min-height:74px;}
+  .row{display:flex;gap:10px;flex-wrap:wrap;}
+  .row>div{flex:1 1 220px;}
+  .field{margin-bottom:12px;}
+  button.go{background:var(--ink);color:#fff;border:0;border-radius:8px;
+    padding:10px 18px;font:inherit;font-weight:700;cursor:pointer;}
+  button.go:disabled{opacity:.45;cursor:default;}
+  .choice{display:block;width:100%;text-align:left;border:1px solid var(--line);
+    background:#fff;border-radius:9px;padding:12px 14px;margin-bottom:8px;
+    font:inherit;cursor:pointer;}
+  .choice.on{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink);}
+  .choice b{display:block;font-size:14px;}
+  .choice.green b{color:var(--accent);} .choice.yellow b{color:var(--amber);}
+  .choice.red b{color:var(--red);}
+  .note{background:#f2f6fb;border-left:3px solid #c7d4e4;border-radius:0 7px 7px 0;
+    padding:10px 13px;font-size:13.5px;margin:0 0 14px;}
+  .note.done{background:#eefaf4;border-left-color:var(--accent);}
+  .said{border-top:1px solid var(--line);padding-top:10px;margin-top:12px;font-size:13.5px;}
+  .said li{margin-bottom:6px;}
+  ul{padding-left:18px;margin:6px 0 0;}
+  .tag{display:inline-block;background:#eef2f7;border-radius:5px;padding:0 6px;
+    font-size:12px;font-weight:700;margin-right:6px;}
+  .muted{color:var(--muted);font-size:12.5px;}
+  footer{color:var(--muted);font-size:12px;text-align:center;margin-top:28px;}
+  @media (prefers-color-scheme: dark){
+    :root{--ink:#e8eef6;--muted:#9aa8ba;--line:#2a3441;--bg:#111820;--card:#18212b;}
+    input,textarea,select,.choice,.concept-tab{background:#131b24;color:var(--ink);}
+    button.go{background:#3b82f6;}
+    .note{background:#1b2530;border-left-color:#33455a;}
+    .note.done{background:#16281f;}
+    .tag{background:#22303d;}
+    .round{background:#22303d;}
+  }
+</style>
+{# The mark that says something is running. This page is in CHROMELESS, so
+   the hub app's injector puts no chrome on it and hub-thinking.js rides in
+   with that chrome — which left a client pressing a button that grayed out
+   and said nothing. Guarded, so a Jinja environment without the global
+   loses the mark rather than the page. #}
+{{ s1_wait_assets() if s1_wait_assets is defined else '' }}
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>{{ row.client_name or 'Radio scripts' }}</h1>
+  <p class="sub">Three concepts, written for review</p>
+  <span class="round">{{ round_label }}</span>
+</header>
+
+{% if message %}
+<div class="note">{{ message }}</div>
+{% endif %}
+
+<div class="card">
+  <h2>Read the concepts</h2>
+  {% if concepts %}
+    <div class="concept-tabs" id="concept-tabs">
+      {% for c in concepts %}
+        <button type="button" class="concept-tab {{ 'on' if loop.first else '' }}"
+                data-index="{{ loop.index0 }}">Concept {{ loop.index }}</button>
+      {% endfor %}
+    </div>
+    {% for c in concepts %}
+      <div class="concept-panel {{ 'on' if loop.first else '' }}" data-index="{{ loop.index0 }}">
+        <p style="font-weight:700;margin:0;">{{ c.idea or '(untitled)' }}</p>
+        {% for length in ('60', '30', '15') %}
+          {% if c.scripts and c.scripts[length] %}
+            <div class="hint">{{ length_labels.get(length, ':' + length) }}</div>
+            <p>{{ c.scripts[length] }}</p>
+          {% endif %}
+        {% endfor %}
+        {% if c.tag %}
+          <div class="hint">Tag</div>
+          <p>{{ c.tag.name or '' }}{% if c.tag.offer %} — {{ c.tag.offer }}{% endif %}.
+             {{ c.tag.cta or '' }} {{ c.tag.phone_spoken or '' }} {{ c.tag.url_spoken or '' }}</p>
+        {% endif %}
+      </div>
+    {% endfor %}
+  {% else %}
+    {# Should not be reachable: send_for_review refuses a link with nothing
+       generated. Said out loud rather than left as an empty box. #}
+    <p class="muted">There is nothing here yet. Please reply to the person who
+      sent this link — nothing is wrong at your end.</p>
+  {% endif %}
+</div>
+
+{% if concepts %}
+<div class="card">
+  <h2>Leave a note</h2>
+  <div class="field">
+    <label for="c-text">What would you change?</label>
+    <textarea id="c-text" placeholder="The :15 feels too pushy."></textarea>
+  </div>
+  <div class="row">
+    <div class="field"><label for="c-concept">Which concept <span class="muted">(optional)</span></label>
+      <select id="c-concept">
+        <option value="">The whole set</option>
+        {% for c in concepts %}<option value="{{ loop.index0 }}">Concept {{ loop.index }}</option>{% endfor %}
+      </select></div>
+    <div class="field"><label for="c-length">Which length <span class="muted">(optional)</span></label>
+      <select id="c-length">
+        <option value="">Any</option>
+        <option value="60">:60</option>
+        <option value="30">:30</option>
+        <option value="15">:15</option>
+      </select></div>
+  </div>
+  <div class="row">
+    <div class="field"><label for="c-name">Your name</label>
+      <input id="c-name" type="text" autocomplete="name"></div>
+    <div class="field"><label for="c-email">Your email <span class="muted">(optional)</span></label>
+      <input id="c-email" type="email" autocomplete="email"></div>
+  </div>
+  <p style="margin:12px 0 0;"><button type="button" class="go" id="c-send">Add note</button></p>
+  <div id="c-said" class="said" {% if not comments %}style="display:none;"{% endif %}>
+    <strong>Notes so far</strong>
+    <ul id="c-list">
+      {% for c in comments %}
+        <li>{% if c.concept_label %}<span class="tag">{{ c.concept_label }}</span>{% endif %}
+          {% if c.length_label %}<span class="tag">{{ c.length_label }}</span>{% endif %}
+          {{ c.text }} <span class="muted">— {{ c.reviewer_name }}</span></li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Your answer</h2>
+  {# Three answers, not two. "Yes, but drop the discount line" forced into an
+     approve/reject pair goes to whichever end is nearest, and both are
+     wrong. The middle one is what most sign-offs actually are. #}
+  <div id="outcomes">
+    {% for key, label, color, note, again in outcomes %}
+      <button type="button" class="choice {{ color }}" data-value="{{ key }}">
+        <b>{{ label }}</b>
+      </button>
+    {% endfor %}
+  </div>
+  <div class="row">
+    <div class="field"><label for="d-name">Your name</label>
+      <input id="d-name" type="text" autocomplete="name"></div>
+    <div class="field"><label for="d-email">Your email</label>
+      <input id="d-email" type="email" autocomplete="email"></div>
+  </div>
+  <div class="field">
+    <label for="d-note">Anything to add <span class="muted">(optional)</span></label>
+    <textarea id="d-note" rows="2"></textarea>
+  </div>
+  <p class="muted" style="margin:0 0 12px;">We record who signed scripts off,
+    so both are needed. If somebody else has already answered on this link,
+    your answer is kept beside theirs rather than replacing it.</p>
+  <p style="margin:0;"><button type="button" class="go" id="d-send" disabled>Send my answer</button></p>
+  <div id="d-done" class="note done" style="display:none;margin-top:14px;"></div>
+
+  {% if said %}
+  <div class="said">
+    <strong>Already answered</strong>
+    <ul>
+      {% for s in said %}
+        <li>{{ s.reviewer_name }} — {{ s.outcome_label }}{% if s.note %}: {{ s.note }}{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+<footer>Smart 1 Marketing</footer>
+</div>
+
+<script>
+(function () {
+  var token = {{ token|tojson }};
+  var base = {{ (request.script_root or '')|tojson }} + "/tools/radio-scripts/review/" + encodeURIComponent(token);
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c];
+    });
+  }
+
+  function post(path, body) {
+    return fetch(base + path, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      return r.json().catch(function () {
+        return {ok: false, error: "Something went wrong at our end. Please reply to the email instead."};
+      });
+    });
+  }
+
+  // --------------------------------------------------------- the concepts
+  var tabs = document.getElementById("concept-tabs");
+  if (tabs) {
+    tabs.addEventListener("click", function (e) {
+      var b = e.target.closest(".concept-tab");
+      if (!b) return;
+      [].forEach.call(tabs.children, function (c) { c.classList.remove("on"); });
+      b.classList.add("on");
+      document.querySelectorAll(".concept-panel").forEach(function (p) {
+        p.classList.toggle("on", p.dataset.index === b.dataset.index);
+      });
+      var picker = document.getElementById("c-concept");
+      if (picker) picker.value = b.dataset.index;
+    });
+  }
+
+  // ------------------------------------------------------------- a note
+  var send = document.getElementById("c-send");
+  if (send) {
+    send.addEventListener("click", function () {
+      var text = document.getElementById("c-text").value.trim();
+      var name = document.getElementById("c-name").value.trim();
+      if (!text) { alert("Type your note first."); return; }
+      if (!name) { alert("Please add your name so we know who to come back to."); return; }
+      var w = window.S1Wait
+        ? S1Wait.busy(send, {kind: "wait", label: "Sending your note…"})
+        : {done: function () { send.disabled = false; }};
+      if (!window.S1Wait) { send.disabled = true; }
+      var concept = document.getElementById("c-concept").value;
+      post("/comment", {
+        text: text, name: name,
+        email: document.getElementById("c-email").value.trim(),
+        concept_index: concept === "" ? null : concept,
+        length_key: document.getElementById("c-length").value
+      }).then(function (data) {
+        w.done();
+        if (!data.ok) { alert(data.error || "That did not save."); return; }
+        var li = document.createElement("li");
+        li.innerHTML = (data.comment.concept_label
+            ? '<span class="tag">' + esc(data.comment.concept_label) + "</span> " : "")
+          + (data.comment.length_label
+            ? '<span class="tag">' + esc(data.comment.length_label) + "</span> " : "")
+          + esc(data.comment.text)
+          + ' <span class="muted">— ' + esc(data.comment.reviewer_name) + "</span>";
+        document.getElementById("c-list").appendChild(li);
+        document.getElementById("c-said").style.display = "";
+        document.getElementById("c-text").value = "";
+      });
+    });
+  }
+
+  // --------------------------------------------------------- the answer
+  var chosen = null;
+  var outcomes = document.getElementById("outcomes");
+  var decide = document.getElementById("d-send");
+  if (outcomes) {
+    outcomes.addEventListener("click", function (e) {
+      var b = e.target.closest(".choice");
+      if (!b) return;
+      [].forEach.call(outcomes.children, function (c) { c.classList.remove("on"); });
+      b.classList.add("on");
+      chosen = b.dataset.value;
+      if (decide) decide.disabled = false;
+    });
+  }
+
+  if (decide) {
+    decide.addEventListener("click", function () {
+      var name = document.getElementById("d-name").value.trim();
+      var email = document.getElementById("d-email").value.trim();
+      if (!chosen) { alert("Pick one of the three answers."); return; }
+      if (!name || !email) { alert("Please add your name and email."); return; }
+      var w = window.S1Wait
+        ? S1Wait.busy(decide, {kind: "wait", label: "Recording your answer…"})
+        : {done: function () { decide.disabled = false; }};
+      if (!window.S1Wait) { decide.disabled = true; }
+      post("/decide", {
+        outcome: chosen, name: name, email: email,
+        note: document.getElementById("d-note").value.trim()
+      }).then(function (data) {
+        w.done();
+        if (!data.ok) {
+          alert(data.error || "That did not send.");
+          return;
+        }
+        decide.disabled = true;
+        var box = document.getElementById("d-done");
+        box.style.display = "";
+        box.innerHTML = "<strong>Thank you — recorded as “" + esc(data.label)
+          + "”.</strong><p style=\"margin:6px 0 0;\">"
+          + (chosen === "changes_required"
+              ? "We will make the changes and send you a new set."
+              : "Your account manager has been told. Nothing else is needed from you.")
+          + "</p>";
+        box.scrollIntoView({behavior: "smooth", block: "nearest"});
+      });
+    });
+  }
+})();
+</script>
+</body>
+</html>

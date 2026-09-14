@@ -21,19 +21,28 @@ from __future__ import annotations
 
 from flask import Blueprint, render_template
 
-from . import api
+from . import api, review
 from .db import db, STANDALONE
 
 PREFIX = "/tools/radio-scripts"
 
 
 def _guard(bp) -> None:
-    """Staff only. Never raises -- standalone there is no Hub to log in to."""
+    """Staff only, except the client review link. Never raises -- standalone
+    there is no Hub to log in to.
+
+    `public` is `review.PUBLIC_PATHS`, read from there rather than restated
+    here: a route added to that file must not be able to be public in one
+    place and refused in the other -- the rule
+    `modules/commercial_builder/__init__.py::_install_login_guard` states at
+    length for the identical reason. Exempting the login is only half; the
+    chrome exemption is the `CHROMELESS` entry in `hub/__init__.py`.
+    """
     try:
         from hub.blueprint_guard import install as _install
     except Exception:                                 # noqa: BLE001
         return
-    _install(bp, mount=PREFIX)
+    _install(bp, mount=PREFIX, public=review.PUBLIC_PATHS)
 
 
 def create_blueprint() -> Blueprint:
@@ -47,6 +56,7 @@ def create_blueprint() -> Blueprint:
         return render_template("radio_scripts.html", word_budgets=WORD_BUDGETS)
 
     api.attach(bp)
+    review.attach(bp)
     return bp
 
 

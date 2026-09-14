@@ -26,7 +26,7 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 
 from . import VERSION, VERSION_DATE
-from . import ai, store
+from . import ai, prospect_builder, store
 from .catalog import (BANNER_SIZES, FORMATS, OBJECTIVES, page_by_slug)
 
 try:
@@ -342,6 +342,12 @@ def api_export(sid):
     name = store.slugify(f"{row.get('page_name')}-{row.get('client') or 'spec'}", "ads")
     return Response(buf.getvalue(), mimetype="text/csv", headers={
         "Content-Disposition": f'attachment; filename="{name}-ads.csv"'})
+
+
+# The prospect builder lives beside the industry landing-page campaign builder
+# because it is the audience half of the same job. Registration is explicit
+# here so the mounted Flask app keeps one auth boundary and one GHL connection.
+prospect_builder.register(app, pages_fn=store.pages, version_fn=_version, log_fn=log)
 
 
 if __name__ == "__main__":

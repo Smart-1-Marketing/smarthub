@@ -143,6 +143,18 @@ def api_summary():
     })
 
 
+@bp.route("/api/qa-tasks/log")
+def api_activity_log():
+    """Question, solution, when -- the whole team's, not just mine."""
+    return jsonify(qa_tasks.activity_log())
+
+
+@bp.route("/api/qa-tasks/delegate-status")
+def api_delegate_status():
+    """How much a stand-in like Yoda is carrying, for the dashboard card."""
+    return jsonify(qa_tasks.delegate_status())
+
+
 @bp.route("/api/qa-tasks/<int:task_id>")
 def api_task(task_id):
     email, _name = _who()
@@ -228,6 +240,23 @@ def api_respond(task_id):
                     "task": qa_tasks.get(task_id, viewer_email=email)})
 
 
+@bp.route("/api/qa-tasks/<int:task_id>/claim", methods=["POST"])
+def api_claim(task_id):
+    """Take over a task assigned to somebody this account stands in for.
+
+    See `qa_tasks.claim` for why this is not "anyone can": the caller has to
+    be named in `QA_TASK_DELEGATES` for the task's current assignee.
+    """
+    email, name = _who()
+    if not email:
+        return _no_account()
+    try:
+        task = qa_tasks.claim(task_id, actor_email=email, actor_name=name)
+    except qa_tasks.QaTaskError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "task": task.as_dict(viewer_email=email)})
+
+
 @bp.route("/api/qa-tasks/<int:task_id>/complete", methods=["POST"])
 def api_complete(task_id):
     email, _name = _who()
@@ -274,4 +303,17 @@ def download_attachment(response_id):
 
 def register_qa_tasks(app):
     app.register_blueprint(bp)
+    # Proposal Execution is another staff workflow backed by the same shared
+    # database. Register it here so its models exist before create_all() later
+    # in the Hub factory, and so the feature can be shipped without creating a
+    # second scheduler or a second login boundary.
+    try:
+        from .proposal_execution_routes import register_proposal_execution
+        register_proposal_execution(app)
+    except Exception as exc:                              # noqa: BLE001
+        try:
+            from . import errors
+            errors.log_exception("proposal_execution", exc)
+        except Exception:                                # noqa: BLE001
+            pass
     return app

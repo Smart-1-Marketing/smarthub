@@ -130,6 +130,7 @@
       "_verifiedAgainst": "Amazon DSP desktop static display specs, re-checked 2026-08-30: the 40 KB rule for all non-billboard static desktop units is what covers this size. Previously carried as an assumption by analogy with 728x90 and 160x600, which the rule confirms."
     },
     "250x250": {
+      "enabled": false,
       "w": 250,
       "h": 250,
       "maxFileBytes": 51200,

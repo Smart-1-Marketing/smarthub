@@ -91,7 +91,8 @@ PROJECT_STATUSES = (
 # dict is refused at enqueue time rather than sitting in the queue forever
 # looking like a stuck job -- the sweep this file's own JOBS entry describes.
 JOB_KINDS = ("index", "script", "storyboard", "image", "voice", "heygen",
-             "render", "variant", "pdf")
+             "render", "variant", "pdf", "campaign_draft", "weather_set",
+             "library_abstract", "product_lifestyle")
 
 # Stages shown to the user, in the order Section 11 gives. A job's `stage`
 # is free text so a kind can name its own step, but these are the ones the
@@ -106,7 +107,8 @@ STAGE_ORDER = (
 # before the sweep gives up on it.
 JOB_TIMEOUT_MINUTES = {
     "index": 10, "script": 5, "storyboard": 5, "image": 8, "voice": 8,
-    "heygen": 20, "render": 30, "variant": 15, "pdf": 5,
+    "heygen": 20, "render": 30, "variant": 15, "pdf": 5, "campaign_draft": 10,
+    "weather_set": 12, "library_abstract": 5, "product_lifestyle": 10,
 }
 
 # Renders bill; a generation retried three times over is still cheaper than
@@ -158,3 +160,191 @@ PROVIDER_RATES = {
     ("heygen", "spokesperson"): 1.50,
     ("creatomate", "render"): 0.50,
 }
+
+
+# WO-CS8. What an asset is FOR on a campaign, distinct from its aspect ratio
+# or duration -- a 9:16 can be a "social" asset or a "ctv" bumper, and the
+# channel is what a media plan actually buys against. A closed vocabulary
+# for the reason `hub/creative_specs.py` keeps one for a unit id: free text
+# here is a filter that means something different on every campaign.
+CHANNELS = ("ctv", "youtube", "social", "ott", "display", "audio")
+CHANNEL_LABELS = {
+    "ctv": "Connected TV", "youtube": "YouTube", "social": "Social",
+    "ott": "OTT", "display": "Display", "audio": "Audio",
+}
+
+
+def batch_confirm_threshold_usd() -> float:
+    """The estimated cost, in dollars, above which a batch render needs the
+    rep to type the number rather than just click a button -- WO-CS8 item 4.
+    `CS_BATCH_CONFIRM_USD` on the deployment, defaulting to 25 (the spec's
+    own number). Read at call time, never cached: this is exactly the kind
+    of value somebody corrects mid-incident, the reason
+    `hub/config.py.public_base_origin()` reads its own setting per call
+    rather than once at import."""
+    import os
+    try:
+        return float(os.environ.get("CS_BATCH_CONFIRM_USD", "25") or "25")
+    except (TypeError, ValueError):
+        return 25.0
+
+
+# WO-CS9. Seven conditions rather than SmartForecast's own fourteen-trigger
+# vocabulary (`hub/weather_triggers.py`) -- the two answer different
+# questions. That file names precise business moments for one vertical
+# ("storm-watch", "first-cool-night") to decide WHEN an ad should run; this
+# is a broad classification of WHICH creative variant to show once
+# something has decided the moment is now, and it has to hold for every
+# industry this module ever serves, not one. `WO-CS9`'s own reading list
+# points at both systems and says to decide the join with whoever owns the
+# other one -- built here as the manifest this file's own item 5 describes,
+# left loosely coupled on purpose rather than merged into one vocabulary.
+WEATHER_CONDITIONS = ("normal", "hot", "cold", "rain", "snow", "humidity", "severe")
+
+# There is no `cs_industry_packs.seed.json` in this repo (WO-CS10's own
+# `cs_archetypes.seed.json` does not exist either) -- a rich pack taxonomy
+# is a later work order's table to build, not this one's to invent early.
+# What this order actually needs is small: which industries have a weather
+# angle worth writing copy for, which conditions do not apply to them, and
+# what to tell the model about each one that does. `_KIT_UNREAD`'s shape
+# from `hub/blog_spec.py` one repo over -- a table declaring only what has
+# been thought through, read by name rather than guessed at.
+#
+# `weather_ready` false (the default via `industry_pack()`'s fallback) is
+# not silence: `api_create_weather_set` refuses by name rather than
+# building a generic set nobody asked for the shape of.
+INDUSTRY_PACKS: dict[str, dict] = {
+    "general": {"weather_ready": False, "suppress": (), "weather_copy": {}},
+    "hvac": {
+        "weather_ready": True, "suppress": (),
+        "weather_copy": {
+            "hot": "AC failing in the heat -- urgency, same-day repair.",
+            "cold": "Furnace/heat pump failure risk -- warmth restored fast.",
+            "rain": "Humidity and drainage around the unit -- a routine check.",
+            "snow": "Heating system strain in the cold snap.",
+            "humidity": "Indoor air quality and a dehumidifier tune-up.",
+            "normal": "A seasonal tune-up before the next swing in weather.",
+            "severe": "Safety first -- if severe weather knocks out power or heat, we answer.",
+        },
+    },
+    "restaurant": {
+        "weather_ready": True, "suppress": (),
+        "weather_copy": {
+            "hot": "Cold drinks and AC comfort -- come in out of the heat.",
+            "cold": "Warm food, a cozy dining room -- comfort food weather.",
+            "rain": "A dry, comfortable place to eat while it pours.",
+            "snow": "Delivery and takeout when driving is the last thing anyone wants.",
+            "humidity": "An air-conditioned dining room, cold drinks.",
+            "normal": "Whatever is on special this week.",
+            "severe": "Safety first -- please check conditions before heading out.",
+        },
+    },
+    "home_services": {
+        "weather_ready": True, "suppress": (),
+        "weather_copy": {
+            "hot": "Yard and exterior work before the heat gets worse.",
+            "cold": "Winterizing and cold-weather prep.",
+            "rain": "Drainage, gutters and roof checks before the next storm.",
+            "snow": "Snow removal and cold-weather readiness.",
+            "humidity": "Moisture and mold prevention around the home.",
+            "normal": "A seasonal maintenance visit.",
+            "severe": "Safety first -- stay safe, we will be here when it clears.",
+        },
+    },
+    # Named even though no seed template exists for either yet -- the
+    # suppression rule the work order states outright ("marine/rv suppress
+    # cold/snow/severe") needs somewhere to live, and a pack with nothing
+    # behind it is still worth declaring rather than guessed at the day a
+    # marine or rv template is finally written.
+    "marine": {
+        "weather_ready": True, "suppress": ("cold", "snow", "severe"),
+        "weather_copy": {
+            "hot": "Get out on the water while the weather holds.",
+            "rain": "Covered storage and maintenance while the boat sits.",
+            "humidity": "Off-season maintenance and detailing.",
+            "normal": "Whatever is moving this week -- inventory, service, a slip.",
+        },
+    },
+    "rv": {
+        "weather_ready": True, "suppress": ("cold", "snow", "severe"),
+        "weather_copy": {
+            "hot": "Beat the heat -- get on the road.",
+            "rain": "Weatherproofing and seal checks before the next trip.",
+            "humidity": "AC service before a summer trip.",
+            "normal": "Whatever is moving this week -- inventory, service, a trip booked.",
+        },
+    },
+}
+
+
+def industry_pack(industry: str) -> dict:
+    return INDUSTRY_PACKS.get(industry or "general", INDUSTRY_PACKS["general"])
+
+
+# --------------------------------------------------------------- WO-CS11
+
+# Product Lifestyle's environment picker (build spec section 6, "12
+# seeded"). Data, the same reason `WEATHER_CONDITIONS`/`INDUSTRY_PACKS`
+# above are: a thirteenth environment is a fixture, never a template edit.
+# `prompt` is the scene-setting half of what reaches gpt-image-1; the
+# product photo itself (background already removed) is the image input,
+# so the prompt never has to describe the product -- only where it sits.
+ENVIRONMENTS: list[dict] = [
+    {"key": "restaurant_table", "label": "Restaurant table",
+     "prompt": "A softly lit restaurant table setting, warm ambient light, "
+               "shallow depth of field."},
+    {"key": "luxury_kitchen", "label": "Luxury kitchen",
+     "prompt": "A bright, modern luxury kitchen counter, natural light "
+               "from a window, clean marble surface."},
+    {"key": "outdoor_campsite", "label": "Outdoor campsite",
+     "prompt": "An outdoor campsite at golden hour, a campfire glowing "
+               "softly in the background, natural woodland setting."},
+    {"key": "modern_office", "label": "Modern office",
+     "prompt": "A modern office desk, clean and minimal, soft daylight "
+               "through a large window."},
+    {"key": "retail_shelf", "label": "Retail shelf",
+     "prompt": "A well-lit retail store shelf, clean product display "
+               "lighting, shallow depth of field on the shelf edge."},
+    {"key": "home_exterior", "label": "Home exterior",
+     "prompt": "The exterior of a well-kept suburban home, daylight, "
+               "a porch or driveway setting."},
+    {"key": "showroom_floor", "label": "Showroom floor",
+     "prompt": "A polished showroom floor, bright even lighting, a clean "
+               "reflective surface."},
+    {"key": "marina_dock", "label": "Marina dock",
+     "prompt": "A marina dock at sunset, boats softly out of focus in the "
+               "background, warm coastal light."},
+    {"key": "holiday", "label": "Holiday",
+     "prompt": "A warm holiday setting, string lights softly out of focus, "
+               "a festive but uncluttered background."},
+    {"key": "summer", "label": "Summer",
+     "prompt": "A bright summer outdoor setting, clear blue sky, natural "
+               "sunlight."},
+    {"key": "winter", "label": "Winter",
+     "prompt": "A crisp winter setting, soft falling snow out of focus, "
+               "cool natural light."},
+    {"key": "studio_white", "label": "Studio white",
+     "prompt": "A clean white studio backdrop, professional product "
+               "lighting, no shadows."},
+]
+_ENVIRONMENT_BY_KEY = {e["key"]: e for e in ENVIRONMENTS}
+
+
+def environment_by_key(key: str) -> dict | None:
+    return _ENVIRONMENT_BY_KEY.get(key)
+
+
+# The build spec's own numbers: "max 4 items per :15 and 8 per :30" -- an
+# extracted PDF (a menu, a listing sheet) is routinely longer than either,
+# and silently rendering all twelve items is a scene per item nobody asked
+# for and a spot that runs three minutes. `pdf_scene_cap()` is the one
+# reading, so the job runner and any later screen showing "N of M items
+# will be used" cannot drift into two different ceilings.
+PDF_ITEM_CAPS = {15: 4, 30: 8}
+
+
+def pdf_scene_cap(duration) -> int:
+    try:
+        return PDF_ITEM_CAPS[int(duration)]
+    except (KeyError, TypeError, ValueError):
+        return max(PDF_ITEM_CAPS.values())

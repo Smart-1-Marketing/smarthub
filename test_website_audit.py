@@ -245,7 +245,18 @@ check("a claimed one is not",
 
 found = wa.opportunities({"analytics": {"has_analytics": False}})
 check("every finding says what it costs them", bool(found[0]["means"]), True)
-check("and names what it sells", found[0]["sells"], "Analytics setup")
+check("and names what it sells", found[0]["sells"], "Google Analytics Consultation")
+
+# Every finding points at a real Smart 1 product: either an exact rate-card
+# label (hub/rate_card.py) or one of the company's own named platforms
+# (Suite, Sites) for a fix the card has no line for.
+from hub import rate_card                                      # noqa: E402
+
+_card_labels = {p["product"] for p in rate_card.products()}
+_platform_products = {"Smart 1 Suite", "Smart 1 Sites"}
+_all_sells = {rule["sells"] for rule in wa.OPPORTUNITIES}
+check("every 'sells' is on the rate card or a named Smart 1 platform",
+      _all_sells <= (_card_labels | _platform_products), True)
 
 
 # =====================================================================

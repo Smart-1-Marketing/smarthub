@@ -1,8 +1,8 @@
 """AI campaign generator and budget viability engine.
 
-Calls OpenAI over plain ``requests`` so the module adds no new dependency to
-the Hub — it reuses OPENAI_API_KEY / OPENAI_MODEL exactly like the SEO, FAQ
-and proposal tools do.
+Calls OpenAI through ``hub.ai.chat_json()`` — the one wrapper, so a call here
+gets the client brief injected and a usage row written the same as everywhere
+else in the Hub — rather than a client this module built itself.
 
 **The key is the Hub's and is never asked for.** The generator used to carry an
 "OpenAI key override" box, which is the wrong question in two directions: it
@@ -19,13 +19,10 @@ from __future__ import annotations
 import json
 import os
 
-import requests
-
 from hub import target_areas
 
 from . import ad_intel, pmax_spec, spec
 
-OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 TIMEOUT = 180
 
 
@@ -199,57 +196,32 @@ def openai_model() -> str:
 
 
 def _chat(system: str, user: str, *, purpose: str, model: str = None,
-          max_tokens: int = 8000, temperature: float = 0.7) -> dict:
+          max_tokens: int = 8000, temperature: float = 0.7,
+          client: str = "", domain: str = "") -> dict:
     """One JSON call to OpenAI, with the failure modes named.
 
     Every AI feature in this module goes through here — generation, the landing
     page read, competitor research, the budget tiers and the re-check after an
     edit — so retry, cost recording and "the model returned prose" are handled
-    once rather than five times differently.
+    once rather than five times differently. Routed through hub.ai now, which
+    is what makes ``client=``/``domain=`` inject the client brief as its own
+    system message rather than this module building one itself.
     """
-    key = openai_key()
-    if not key:
+    from hub import ai as _hub_ai
+    if not _hub_ai.ready():
         raise GenerationError(
             "No OpenAI API key on this deployment. Set OPENAI_API_KEY on the Hub service — "
             "the generator uses the Hub's key and does not accept one from the browser."
         )
-
-    resp = requests.post(
-        OPENAI_URL,
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json={
-            "model": model or openai_model(),
-            "messages": [{"role": "system", "content": system},
-                         {"role": "user", "content": user}],
-            "response_format": {"type": "json_object"},
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        },
-        timeout=TIMEOUT,
-    )
-
-    if not resp.ok:
-        try:
-            detail = resp.json()["error"]["message"]
-        except Exception:  # noqa: BLE001
-            detail = resp.text[:400]
-        raise GenerationError(f"OpenAI rejected the request: {detail}")
-
-    try:  # record spend so /diagnostics doesn't under-report
-        from hub import ai as _hub_ai
-        _hub_ai.note_usage("ads_builder", resp.json(), purpose=purpose)
-    except Exception:  # noqa: BLE001
-        pass
-
     try:
-        content = resp.json()["choices"][0]["message"]["content"]
-    except (KeyError, IndexError):
-        raise GenerationError("OpenAI returned an unexpected response shape.")
-
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        raise GenerationError("The model returned malformed JSON. Try again.")
+        return _hub_ai.chat_json(
+            [{"role": "system", "content": system},
+             {"role": "user", "content": user}],
+            module="ads_builder", purpose=purpose, model=model or openai_model(),
+            temperature=temperature, max_tokens=max_tokens, timeout=TIMEOUT,
+            client=client or None, domain=domain, audience="strategy")
+    except _hub_ai.AIUnavailable as exc:
+        raise GenerationError(str(exc)) from exc
 
 
 PMAX_SYSTEM = """You build Google Performance Max asset groups. This is NOT a search campaign.
@@ -342,14 +314,15 @@ Target areas: {geography}
 
 WHAT THE REP ASKED THE CLIENT — build around these, do not restate them back:
 {spec.for_prompt({"intake": intake}) or '- Nothing further was captured.'}
-{_client_block(payload.get('businessName', ''), payload.get('websiteUrl', ''))}{_page_block(observed_page)}
+{_page_block(observed_page)}
 Independent budget check already run (use it, do not contradict it):
 {viability['status']} — {viability['advice']}
 
 Remember: no keywords, and at least one description of 60 characters or fewer."""
 
     data = _chat(PMAX_SYSTEM, user_prompt, purpose="campaign_pmax", model=model,
-                 max_tokens=8000)
+                 max_tokens=8000, client=payload.get("businessName", ""),
+                 domain=payload.get("websiteUrl", ""))
     campaign = normalise_pmax(data, payload, viability)
     campaign["intake"] = intake
     campaign["targetAreas"] = areas
@@ -438,8 +411,6 @@ def generate_campaign(payload: dict, model: str = None, *,
 
     page_block = _page_block(observed_page)
     intake_block = spec.for_prompt({"intake": intake})
-    client_block = _client_block(payload.get("businessName", ""),
-                                 payload.get("websiteUrl", ""))
 
     user_prompt = f"""Build a Google Ads search campaign for:
 
@@ -454,7 +425,7 @@ Target areas: {geography}{area_rule}
 
 WHAT THE REP ASKED THE CLIENT — build around these, do not restate them back:
 {intake_block or '- Nothing further was captured.'}
-{client_block}{page_block}
+{page_block}
 Independent budget check already run (use it, do not contradict it):
 {viability['status']} — {viability['advice']}
 Typical CPC range for this sector: ${viability['cpc_low']} to ${viability['cpc_high']}.
@@ -463,36 +434,21 @@ account — never present them as this client's actual cost per click.
 
 Remember: 20 to 50 keywords in EVERY ad group, with match types tagged."""
 
-    data = _chat(SYSTEM_PROMPT, user_prompt, purpose="campaign", model=model)
+    data = _chat(SYSTEM_PROMPT, user_prompt, purpose="campaign", model=model,
+                 client=payload.get("businessName", ""),
+                 domain=payload.get("websiteUrl", ""))
     campaign = normalise(data, payload, viability)
     campaign["intake"] = intake
     campaign["targetAreas"] = areas
     return campaign
 
 
-def _client_block(business: str, url: str) -> str:
-    """What the Hub already holds about this client, as facts for the model.
-
-    The form asks a rep for a business name, a URL and a sector. Everything
-    else about a client we have had for years — the industry on their Knack
-    record, the city they trade in, the palette their own site paints, the
-    products already running with us — was on file and reached the model
-    never. What comes back then is plausible and generic, which on a keyword
-    set is the hardest kind of wrong to notice: every term is a real term, and
-    none of them is about this business.
-
-    `hub/client_context.for_prompt()` is the one reader, so a fact added to it
-    reaches every AI feature rather than this one. It carries what is *not* on
-    file too, and says not to invent it — a gap a model cannot see is a gap it
-    fills in, which is the rule `hub/social_plan.py` enforces one step later
-    by flagging any claim a human did not supply.
-    """
-    try:
-        from hub.client_context import for_prompt
-        block = for_prompt(business, url)
-    except Exception:                                   # noqa: BLE001
-        return ""
-    return f"\nWHAT WE ALREADY HOLD ON THIS CLIENT:\n{block}\n" if block else ""
+# What the Hub already holds about this client used to be assembled here and
+# spliced into the user prompt by hand (`hub.client_context.for_prompt()`,
+# read once per call). It is `hub.ai.chat_json(..., client=, domain=)` now —
+# `_chat()` passes both through, which injects the same facts as a system
+# message rather than this module building its own block and reaching a
+# second reader of `hub/client_brief.py`'s sources.
 
 
 def _page_block(observed: dict) -> str:

@@ -177,6 +177,11 @@ def _claim_leadership(app) -> bool:
 # Jobs
 # ---------------------------------------------------------------------------
 
+def job_ai_comparisons(app) -> dict:
+    from hub import ai_comparison_queue
+    return ai_comparison_queue.kick(app)
+
+
 def job_clear_stuck_scans(app) -> dict:
     """Resolve or error any scan running longer than the grace window.
 
@@ -757,10 +762,242 @@ def job_creative_jobs_sweep(app) -> dict:
     except Exception as exc:                            # noqa: BLE001
         return {"skipped": f"unavailable ({type(exc).__name__})"}
     with app.app_context():
-        return creative_jobs.run_one()
+        out = creative_jobs.run_one()
+        # The Proposal Execution Center advances one task on this same tick,
+        # deliberately: the leader lock, the cadence and the deploy safety are
+        # already here and a second scheduler would be a second answer to when
+        # a queue runs. It rides here rather than rebinding
+        # `creative_jobs.run_one` -- doing that changed what that function
+        # returns for every reader of it, this panel included.
+        #
+        # Its own half is labelled and never merged into the creative counts:
+        # two queues reporting one `claimed` is a number nobody can act on.
+        # A failure in it costs its own line and never the creative result.
+        try:
+            from hub import proposal_execution
+            out = dict(out)
+            out["proposal_execution"] = proposal_execution.run_one()
+        except Exception as exc:                        # noqa: BLE001
+            out = dict(out)
+            out["proposal_execution"] = {
+                "skipped": f"unavailable ({type(exc).__name__})"}
+        return out
+
+
+def job_qa_task_autoclaim(app) -> dict:
+    """Claim QA tasks on behalf of whoever `QA_TASK_DELEGATES` names as a
+    delegate, for whoever it names as their principal.
+
+    In-process rather than over HTTP: `tools/yoda_qa.py pickup` does the
+    identical thing (same mapping, same `qa_tasks.claim()`) for an account
+    that has to reach the live Hub from outside it. Run here under the leader
+    lock, the pickup happens on a schedule with no outbound call at all --
+    nothing external to run, nothing that can be blocked by a network policy
+    between wherever a script runs and this one.
+
+    Ten minutes: cheap (one query per delegate plus a write per claimed
+    task, no provider call), so there is no reason to make somebody wait an
+    hour to see a task move off their desk.
+    """
+    try:
+        from hub import qa_tasks
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        return qa_tasks.autoclaim()
+
+
+def job_qa_task_vision(app) -> dict:
+    """Read the screenshot linked in a QA task's own instructions and post
+    what a model sees into its thread.
+
+    Bounded the way job_index_video_backlog and job_describe_client_uploads
+    are: a vision call is billed and has no useful ceiling on how long it
+    takes, and this thread is shared with every other job. Skipped entirely
+    with no OpenAI key configured -- not an error and not silence, the
+    job_index_video_backlog rule: an unconfigured Hub would otherwise write
+    an identical "unavailable" line into the activity log every ten minutes
+    for ever.
+    """
+    try:
+        from hub import ai, qa_tasks
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    if not ai.ready():
+        return {"skipped": "OPENAI_API_KEY is not set"}
+    with app.app_context():
+        return qa_tasks.describe_image_backlog()
+
+
+def job_industry_prospect_sync(app):
+    from hub.industry_prospects import scheduled_step
+    return scheduled_step(app)
+
+
+def job_commercial_recovery(app) -> dict:
+    """Continue saved commercial jobs after the browser closes."""
+    with app.app_context():
+        from modules.commercial_builder.recovery import recover_pending
+        return recover_pending()
+
+
+def job_reports_normalize(app) -> dict:
+    """Turn the provider's raw tables into fact rows, and file what the names say.
+
+    modules/reports/normalize.run() does the work: every platform whose raw
+    table is present in the provider schema is read back restate_days and
+    upserted, each platform isolated from the others so one renamed column
+    costs one platform; then the auto-mapper files any unmapped campaign
+    whose name follows the rename shape. The watermark per platform is on
+    /reports/, which is where a failing one is seen.
+
+    Safe to run late, skip and repeat: the upsert is idempotent by key, so a
+    day read twice is the same spend, not twice the spend.
+    """
+    try:
+        from modules.reports import normalize
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        # An app context: the automap reaches hub/clients_registry and the
+        # activity rows reach hub/audit -- the flask.g trap that had the
+        # Google sweep reporting an empty book from a background thread.
+        res = normalize.run(actor="scheduler")
+    platforms = {k: v for k, v in res.items() if k != "automap"}
+    return {"platforms": len(platforms),
+            "synced": sum(1 for v in platforms.values() if not v.get("error")),
+            "rows": sum(v.get("rows", 0) for v in platforms.values()),
+            "errors": {k: v["error"] for k, v in platforms.items()
+                       if v.get("error") and not v.get("skipped")},
+            "skipped": [k for k, v in platforms.items() if v.get("skipped")],
+            "automapped": (res.get("automap") or {}).get("mapped", 0)}
+
+
+def job_reports_native_pull(app) -> dict:
+    """Pull the Trade Desk, Google Ads, StackAdapt and AudioGo from their own
+    APIs, then automap.
+
+    The provider normalize (above) reads a copy of these figures a day late;
+    this reads them from the platforms themselves, every six hours, and the
+    rows it writes win over the provider's for the same campaign-day --
+    ``store.record_sync(..., source="native")`` is the watermark the
+    normalize reads before it touches a platform. The two jobs are kept
+    apart on purpose: a provider outage must not cost the native pull, and
+    the other way round.
+
+    Each platform runs in its own try, so a Trade Desk token that has expired
+    costs the Trade Desk and nothing else. Not connected is the ordinary
+    state for Google Ads on this deployment and it is a sentence on
+    ``/reports/``, never a traceback here; so is not configured for
+    StackAdapt and AudioGo until their keys are set.
+
+    Safe to run late, skip and repeat: every row is an upsert by key, so a
+    day read twice is the same spend.
+    """
+    try:
+        from modules.reports import audiogo, automap, google_ads_perf, stackadapt, ttd
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    out: dict = {"platforms": {}, "rows": 0, "errors": {}, "skipped": []}
+    with app.app_context():
+        # An app context: the automap reaches hub/clients_registry and the
+        # activity rows reach hub/audit -- the flask.g trap that had the
+        # Google sweep reporting an empty book from a background thread.
+        for name, fn in (("ttd", ttd.pull), ("google", google_ads_perf.pull),
+                         ("stackadapt", stackadapt.pull), ("audiogo", audiogo.pull)):
+            try:
+                res = fn()
+            except Exception as exc:                    # noqa: BLE001 - one platform, not the job
+                res = {"ok": False, "rows": 0, "error": f"{type(exc).__name__}: {exc}"[:300]}
+            out["platforms"][name] = res
+            out["rows"] += int(res.get("rows") or 0)
+            if res.get("error") and str(res["error"]).startswith("not configured"):
+                out["skipped"].append(name)
+            elif res.get("error") and str(res["error"]).startswith("not connected"):
+                out["skipped"].append(name)
+            elif res.get("error"):
+                out["errors"][name] = res["error"]
+        try:
+            out["automapped"] = (automap.run(actor="scheduler") or {}).get("mapped", 0)
+        except Exception as exc:                        # noqa: BLE001
+            out["automapped"] = 0
+            out["errors"]["automap"] = f"{type(exc).__name__}: {exc}"[:300]
+    return out
+
+
+def job_reports_pacing(app) -> dict:
+    """Snapshot every sold line's pacing, hourly, after the pulls.
+
+    modules/reports/pacing.run() reads every active budget line whose
+    flight includes today, computes the spec's arithmetic against the
+    mapped campaigns' raw spend, writes one PacingSnapshot row per line
+    stamped with one computed_at, prunes rows older than four months, and
+    writes one activity row per client with its band summary so the run
+    shows on Client 360. The pacing board and the cost report read the
+    latest run rather than summing the fact table on every open -- two
+    workers summing live would answer differently, and the 3-day trend
+    the alert needs is a history nothing live can supply.
+
+    Safe to run late, skip and repeat: a second run in an hour is a second
+    snapshot with the same figures, and the pages read the newest.
+    """
+    try:
+        from modules.reports import pacing
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        # An app context: the activity rows reach hub/audit -- the flask.g
+        # trap that had the Google sweep reporting an empty book from a
+        # background thread.
+        return pacing.run(actor="scheduler")
+
+
+def job_reports_reconcile(app) -> dict:
+    """Nightly: does each platform's month in the fact table add up to the
+    platform's own total? modules/reports/reconcile.run() asks Google's
+    customer-level query (independent) and the provider's raw tables and
+    StackAdapt (re-reads), for this month and the last, and writes one
+    ledger row per platform-month; /reports/reconcile and /status read it.
+
+    Safe to run late, skip and repeat: every row is a comparison as of now,
+    and a state is logged only when it changes.
+    """
+    try:
+        from modules.reports import reconcile
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        # An app context: the activity rows reach hub/audit and the Google
+        # client reaches its own store -- the flask.g trap.
+        res = reconcile.run(actor="scheduler")
+    return {"months": res["months"], "agree": res["agree"], "drift": res["drift"],
+            "not_measured": res["not_measured"],
+            "changed": [f"{p} {m}: {a} -> {b}" for p, m, a, b in res["changed"]]}
 
 
 JOBS = {
+    "industry_prospect_sync": (1, job_industry_prospect_sync,
+                               "Advance the opt-in GHL to Apollo suppression sync."),
+    "commercial_recovery": (1, job_commercial_recovery,
+                            "Check saved commercials and retry storing presenter clips."),
+    # Placed here rather than at the bottom of this dict on purpose: `_loop`
+    # runs every due job synchronously, in this insertion order, on one
+    # thread, and google_index below routinely spends 20+ minutes retrying
+    # rate-limited GTM calls across every connected account -- which is due
+    # immediately on every fresh boot, same as everything else. A ten-minute
+    # job sitting after it in the dict does not get a turn until that finishes,
+    # which on a deploy-heavy day is never: measured live, qa_task_vision went
+    # over three hours without running a single time because google_index (and
+    # the other slow network sweeps after it) never returned before the next
+    # redeploy reset the whole queue. Both QA-task jobs are cheap, bounded and
+    # read nothing but this Hub's own database, so moving them ahead of every
+    # slow provider sweep costs the rest of the list nothing and guarantees
+    # these two get to run on every tick regardless of what else is stuck.
+    "qa_task_autoclaim": (10, job_qa_task_autoclaim,
+                          "Claim QA tasks for whoever QA_TASK_DELEGATES names "
+                          "as standing in."),
+    "qa_task_vision":    (10, job_qa_task_vision,
+                          "Read screenshots linked in QA task instructions."),
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
     "clear_stuck_scans": (15, job_clear_stuck_scans,
@@ -804,6 +1041,18 @@ JOBS = {
                           "concept/script/image generation)."),
     "creative_jobs":     (1, job_creative_jobs_sweep,
                           "Run one queued lead-triggered creative job (radio scripts)."),
+    "ai_comparisons":   (1, job_ai_comparisons,
+                          "Start one budget-reserved model comparison in its own worker."),
+    "reports_normalize": (60, job_reports_normalize,
+                          "Normalize the provider's raw ad rows into the reporting fact table."),
+    "reports_native":    (360, job_reports_native_pull,
+                          "Pull the Trade Desk, Google Ads, StackAdapt and AudioGo from their "
+                          "own APIs (native wins)."),
+    "reports_pacing":    (60, job_reports_pacing,
+                          "Snapshot every sold line's pacing against its budget (the board reads this)."),
+    "reports_reconcile": (1440, job_reports_reconcile,
+                          "Compare each platform's month in the fact table against the platform's "
+                          "own total."),
 }
 
 

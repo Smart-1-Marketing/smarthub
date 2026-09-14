@@ -12,7 +12,9 @@ const CB = (() => {
     try { data = await res.json(); } catch (e) { data = { ok: false, error: "Bad response from server." }; }
     if (!res.ok || data.ok === false) {
       toast(data.error || `Request failed (${res.status})`, true);
-      throw new Error(data.error || `Request failed (${res.status})`);
+      const error = new Error(data.error || `Request failed (${res.status})`);
+      error.data = data;
+      throw error;
     }
     noteMock(path, data);
     return data;
@@ -247,5 +249,53 @@ const CB = (() => {
     return d.innerHTML;
   }
 
-  return { api, toast, fmtTime, el, debounce, working, escapeHtml, API_ROOT };
+  function renderChecks(list, results, labels) {
+    list.replaceChildren();
+    const passed = [];
+    let blocking = 0;
+    const fixes = {
+      brand: ['Add logo or review end card', 'cta'], cta: ['Edit end card', 'cta'],
+      compliance: ['Review flagged wording', 'blueprint#compliance-card'],
+      media_integrity: ['Review scenes and narration', 'blueprint'],
+      scene_assets: ['Choose scene footage', 'blueprint'], resolution: ['Replace low-resolution footage', 'blueprint'],
+      voice_fits: ['Edit narration', 'blueprint'], music_length_mismatch: ['Review music', 'voice'],
+      sfx_gain_conflict: ['Adjust sound levels', 'blueprint'], render_service: ['Check render service', '/diagnostics']
+    };
+    const project = document.querySelector('[data-project-id]')?.dataset.projectId;
+    const severity = r => (r.level || (r.passed ? 'pass' : 'fail'));
+    const order = {fail: 0, warn: 1, pass: 2};
+    Object.entries(results).filter(([key]) => Object.prototype.hasOwnProperty.call(labels, key)).sort((a, b) => (order[severity(a[1])] ?? 0) - (order[severity(b[1])] ?? 0)).forEach(([key, result]) => {
+      if (!Object.prototype.hasOwnProperty.call(labels, key)) return;
+      const level = result.level || (result.passed ? "pass" : "fail");
+      const tone = level === "pass" || level === "warn" ? level : "fail";
+      const mark = tone === "pass" ? "✓" : (tone === "warn" ? "!" : "✕");
+      if (tone === "fail") blocking += 1;
+      const item = el(`<div class="cb-qc-item">
+        <div class="cb-qc-icon ${tone}">${mark}</div>
+        <div class="cb-qc-text"><strong>${escapeHtml(labels[key])}</strong>
+        <span>${escapeHtml(result.message)}</span></div>
+      </div>`);
+      if (tone !== 'pass' && project) {
+        const [label, step] = fixes[key] || ['Review this check', 'blueprint'];
+        const link = document.createElement('a'); link.className = 'cb-btn cb-btn-sm';
+        link.textContent = label;
+        link.href = step.startsWith('/') ? step : `${API_ROOT}/project/${encodeURIComponent(project)}/${step}`;
+        item.querySelector('.cb-qc-text').append(link);
+      }
+      if (tone === "pass") passed.push(item);
+      else list.appendChild(item);
+    });
+    if (passed.length) {
+      const details = document.createElement("details");
+      details.className = "cb-qc-passed";
+      const summary = document.createElement("summary");
+      summary.textContent = `${passed.length} passed ${passed.length === 1 ? "check" : "checks"}`;
+      details.appendChild(summary);
+      passed.forEach((item) => details.appendChild(item));
+      list.appendChild(details);
+    }
+    return blocking;
+  }
+
+  return { api, toast, fmtTime, el, debounce, working, escapeHtml, renderChecks, API_ROOT };
 })();

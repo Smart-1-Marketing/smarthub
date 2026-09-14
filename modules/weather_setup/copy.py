@@ -18,9 +18,54 @@ alike, the same shape `hub/proposal_spec.client_safe()` and
   is not invented; a draft that reads as carrying one is flagged rather than
   silently rewritten, because inventing a *different* wrong answer is worse
   than leaving the placeholder visible for a rep to confirm before launch.
-* **Storms are not a promotion.** `storm-watch` copy is checked against a
-  small blocklist — no jokes, no urgency language that could read as
-  encouraging someone to drive in a warned area.
+* **Storms are not a promotion.** Any alert-driven trigger's copy — not
+  only `storm-watch`, but `hvac`'s `storm-power-risk` and `retail`'s
+  `storm-prep` too — is checked against a small blocklist: no jokes, no
+  urgency language that could read as encouraging someone to drive in a
+  warned area.
+
+**The angle is written to the vertical, not to a swapped-in name.** A
+restaurant ad invites ("come sit outside"), an HVAC ad warns or reminds
+("book this before it fails"), a retail ad is a purchase trigger ("stock
+up before it's gone"), an auto-service ad names the specific system a
+condition puts under strain ("get your battery checked before it strands
+you"), a landscaping ad is a service reminder like HVAC's but keyed to the
+season's task ("book your spring cleanup"), a pool/spa ad is the same
+shape again but keyed to chemical balance and opening/closing rather than
+an appliance, a roofing ad names the specific risk a condition puts a
+roof under ("get your roof checked before wind damage becomes a leak"),
+and a pest-control ad names the specific pest a condition drives toward or
+away from a building ("get ahead of it before the first freeze sends
+rodents looking for a way in"). A moving-company ad is different again:
+most of its rows are an advisory about a move already booked rather than a
+reason to book a new one ("get an early start before the heat makes
+loading harder"), with only its own shoulder-season and perfect-day rows
+reading as an invitation to book at all. A tree-service ad is closest to
+roofing's shape — a tree does not fail on a comfortable day, so the copy
+names the specific hazard a condition puts a limb, a trunk or a root
+system under and the inspection or pruning call that heads it off. A
+golf-course / outdoor-recreation ad is closer to moving's shape: most of
+its rows are an advisory about a round already on the tee sheet rather
+than an invitation to book a new one ("check before you head out"), with
+only its ideal-day and shoulder-season rows actually trying to fill the
+calendar. A concrete & paving ad splits into two psychologies at once:
+half its rows are an operational advisory about a pour or a sealcoat job
+already on the schedule ("get it before the truck leaves the plant"), and
+the other half are the inspection call a driveway or a parking lot
+generates on its own with no job booked at all ("get that crack looked at
+before it's a pothole") — only the "promo" tag marks a row actually trying
+to book new work. One generic house template with the business name dropped in
+would answer a hard-freeze ad with "The weather's right for Acme Heating &
+Air" — grammatical, and wrong for what the ad is for — so
+`_house_draft_restaurant()`, `_house_draft_hvac()`, `_house_draft_retail()`,
+`_house_draft_auto()`, `_house_draft_landscaping()`,
+`_house_draft_pool_spa()`, `_house_draft_roofing()`,
+`_house_draft_pest_control()`, `_house_draft_moving()`,
+`_house_draft_tree_service()`, `_house_draft_golf_recreation()` and
+`_house_draft_concrete_paving()` are twelve separate templates per angle,
+and `_house_draft()` dispatches on
+`Trigger.vertical` rather than guessing from the trigger's tags. The model
+prompt carries the same split, through `_PROMPT_CONTEXT`.
 """
 from __future__ import annotations
 
@@ -47,14 +92,21 @@ _STORM_BLOCKLIST = (
 )
 
 
+# What the reader of a draft is being asked to do differs by vertical: a
+# restaurant ad is an invitation ("come sit outside"), an HVAC ad is a
+# warning or a reminder ("book this before it fails"). Each house-draft
+# branch below writes to its own vertical's psychology rather than one
+# generic template with the business name swapped in — a swapped-name
+# template is what produced "The weather's right for Acme Heating & Air"
+# on a hard-freeze ad before this branch existed.
+_URGENT_TAGS = ("emergency", "safety", "backup")
+
+
 def _clean(text: str, limit: int = 220) -> str:
     return " ".join(str(text or "").split())[:limit]
 
 
-def _house_draft(trigger_id: str, client_name: str, angle: str) -> dict:
-    """A deterministic, no-model draft. Always available, always safe."""
-    trig = TRIGGERS[trigger_id]
-    name = client_name or "your table"
+def _house_draft_restaurant(trig, name: str, angle: str) -> tuple[str, str]:
     by_angle = {
         "Direct": (f"{trig.name} at {name}",
                   f"{trig.condition_label} — {name} is open and ready."),
@@ -65,7 +117,234 @@ def _house_draft(trigger_id: str, client_name: str, angle: str) -> dict:
         "Invitation": (f"{name} is calling your name",
                        f"{trig.reason} Stop by today."),
     }
-    headline, primary = by_angle.get(angle, by_angle["Direct"])
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+def _house_draft_hvac(trig, name: str, angle: str) -> tuple[str, str]:
+    urgent = any(t in _URGENT_TAGS for t in trig.tags)
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has appointments today."),
+        "Comfort": ((f"Don't wait for a breakdown, {name}" if urgent
+                    else f"Get ahead of it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Schedule your visit today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+def _house_draft_retail(trig, name: str, angle: str) -> tuple[str, str]:
+    # Neither an invitation nor a service reminder -- a purchase trigger,
+    # closer to a stock-up call. "stock-up" and "emergency" tags get the
+    # urgent framing; everything else (a mood lift, a seasonal browse) gets
+    # the softer one.
+    stock_up = "stock-up" in trig.tags or "emergency" in trig.tags
+    by_angle = {
+        "Direct": (f"{trig.name} at {name}",
+                  f"{trig.condition_label} — {name} has what you need today."),
+        "Comfort": ((f"Stock up before it's gone, {name}" if stock_up
+                    else f"New for your home at {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready for this weather",
+                       f"{trig.reason} Stop by or shop online today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+def _house_draft_auto(trig, name: str, angle: str) -> tuple[str, str]:
+    # Between HVAC's warning and retail's stock-up call: a car does not
+    # fail on a comfortable day, so the copy names the specific system a
+    # condition puts under strain rather than inviting anyone anywhere.
+    urgent = any(t in _URGENT_TAGS for t in trig.tags)
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has appointments today."),
+        "Comfort": ((f"Don't get stranded, {name}" if urgent
+                    else f"Get ahead of it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Schedule your visit today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+def _house_draft_landscaping(trig, name: str, angle: str) -> tuple[str, str]:
+    # A service reminder like HVAC's, but keyed to the season's task rather
+    # than an appliance under strain: book the mow, the cleanup, the
+    # winterizing visit before the weather makes it urgent.
+    urgent = any(t in _URGENT_TAGS for t in trig.tags) or trig.cadence == "alert_driven"
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has appointments today."),
+        "Comfort": ((f"Get it checked before it's a bigger job, {name}" if urgent
+                    else f"Book it before the season gets away, {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Schedule your visit today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+def _house_draft_pool_spa(trig, name: str, angle: str) -> tuple[str, str]:
+    # The same service-reminder shape again, keyed to chemical balance and
+    # opening/closing rather than an appliance under strain.
+    urgent = any(t in _URGENT_TAGS for t in trig.tags) or trig.cadence == "alert_driven"
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has appointments today."),
+        "Comfort": ((f"Don't let it get out of balance, {name}" if urgent
+                    else f"Get ahead of it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Schedule your visit today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+def _house_draft_roofing(trig, name: str, angle: str) -> tuple[str, str]:
+    # Almost entirely a damage-inspection reminder: a roof does not fail on
+    # a comfortable day, so the copy names the specific risk a condition
+    # puts a shingle, a seal or a structure under.
+    urgent = any(t in _URGENT_TAGS for t in trig.tags) or trig.cadence == "alert_driven"
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has appointments today."),
+        "Comfort": ((f"Get it checked before it's a bigger repair, {name}" if urgent
+                    else f"Get ahead of it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Schedule your visit today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+def _house_draft_pest_control(trig, name: str, angle: str) -> tuple[str, str]:
+    # Closest to auto's shape: a pest does not move on a comfortable day,
+    # so the copy names the specific pest a condition drives toward or
+    # away from a building.
+    urgent = any(t in _URGENT_TAGS for t in trig.tags) or trig.cadence == "alert_driven"
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has appointments today."),
+        "Comfort": ((f"Get ahead of it before it's inside, {name}" if urgent
+                    else f"Get ahead of it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Schedule your visit today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+def _house_draft_moving(trig, name: str, angle: str) -> tuple[str, str]:
+    # Unlike every other vertical, most rows here advise on a move already
+    # booked rather than invite a new one -- only the "booking" tag marks
+    # a row that is actually trying to fill the calendar.
+    booking = "booking" in trig.tags
+    urgent = any(t in _URGENT_TAGS for t in trig.tags) or trig.cadence == "alert_driven"
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has appointments today."),
+        "Comfort": ((f"Book it before the calendar fills up, {name}" if booking
+                    else f"Plan ahead with {name}" if urgent
+                    else f"Get ahead of it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Schedule your move today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+def _house_draft_tree_service(trig, name: str, angle: str) -> tuple[str, str]:
+    # Closest to roofing's shape: a tree does not fail on a comfortable
+    # day, so the copy names the specific hazard a condition puts a limb,
+    # a trunk or a root system under.
+    urgent = any(t in _URGENT_TAGS for t in trig.tags) or trig.cadence == "alert_driven"
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has appointments today."),
+        "Comfort": ((f"Get it checked before it comes down, {name}" if urgent
+                    else f"Get ahead of it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Schedule your visit today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+def _house_draft_golf_recreation(trig, name: str, angle: str) -> tuple[str, str]:
+    # Closer to moving's shape than roofing's: most rows here are an
+    # advisory about a round already on the tee sheet, and only the
+    # "promo" tag marks a row actually trying to fill it -- the ideal-day
+    # push and the two shoulder-season opens.
+    booking = "promo" in trig.tags
+    urgent = any(t in _URGENT_TAGS for t in trig.tags) or trig.cadence == "alert_driven"
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has tee times today."),
+        "Comfort": ((f"Book your tee time, {name}" if booking
+                    else f"Check before you head out, {name}" if urgent
+                    else f"Plan around it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Book your tee time today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+def _house_draft_concrete_paving(trig, name: str, angle: str) -> tuple[str, str]:
+    # Splits into two psychologies neither of the other verticals combines:
+    # half the rows are an operational advisory about a pour or a sealcoat
+    # job already on the schedule, and the other half are the inspection
+    # call a driveway or a parking lot generates on its own with no job
+    # booked at all -- only the "promo" tag marks a row actually trying to
+    # book new work.
+    booking = "promo" in trig.tags
+    urgent = any(t in _URGENT_TAGS for t in trig.tags) or trig.cadence == "alert_driven"
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has appointments today."),
+        "Comfort": ((f"Schedule your pour, {name}" if booking
+                    else f"Get it checked before it's a bigger repair, {name}" if urgent
+                    else f"Plan around it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Schedule your visit today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+_HOUSE_DRAFT_BY_VERTICAL = {
+    "restaurant": _house_draft_restaurant,
+    "hvac": _house_draft_hvac,
+    "retail": _house_draft_retail,
+    "auto": _house_draft_auto,
+    "landscaping": _house_draft_landscaping,
+    "pool_spa": _house_draft_pool_spa,
+    "roofing": _house_draft_roofing,
+    "pest_control": _house_draft_pest_control,
+    "moving": _house_draft_moving,
+    "tree_service": _house_draft_tree_service,
+    "golf_recreation": _house_draft_golf_recreation,
+    "concrete_paving": _house_draft_concrete_paving,
+}
+
+_FALLBACK_NAME = {"restaurant": "your table", "hvac": "your business",
+                  "retail": "your store", "auto": "your shop",
+                  "landscaping": "your business", "pool_spa": "your business",
+                  "roofing": "your business", "pest_control": "your business",
+                  "moving": "your business", "tree_service": "your business",
+                  "golf_recreation": "your course",
+                  "concrete_paving": "your business"}
+
+
+def _house_draft(trigger_id: str, client_name: str, angle: str) -> dict:
+    """A deterministic, no-model draft. Always available, always safe."""
+    trig = TRIGGERS[trigger_id]
+    fallback_name = _FALLBACK_NAME.get(trig.vertical, "your business")
+    name = client_name or fallback_name
+    write = _HOUSE_DRAFT_BY_VERTICAL.get(trig.vertical, _house_draft_restaurant)
+    headline, primary = write(trig, name, angle)
     return {"angle": angle, "headline": _clean(headline, 40),
             "primary_text": _clean(primary, 125), "source": "house"}
 
@@ -92,15 +371,45 @@ def _guardrail(draft: dict, trigger_id: str) -> dict:
         draft.setdefault("note", "This draft carries a specific offer or "
                                  "price — confirm it before launch.")
 
-    if TRIGGERS[trigger_id].id == "storm-watch":
+    # Checked by cadence rather than by this one id, because storm-watch is
+    # not the only alert-driven trigger any more: hvac's storm-power-risk
+    # carries the identical reasoning ("never run as an invitation to be
+    # outside in it") and needs the identical blocklist. Keying this on
+    # `trigger_id == "storm-watch"` would have left the second one unchecked
+    # the day it was added -- the same class of miss `check_work_kinds()`
+    # exists to catch when a second module logs under a wrapper nobody
+    # taught the walk to resolve.
+    if TRIGGERS[trigger_id].cadence == "alert_driven":
         lowered = text.lower()
         if any(phrase in lowered for phrase in _STORM_BLOCKLIST):
             replacement = _house_draft(trigger_id, "", draft.get("angle", "Direct"))
             replacement["note"] = ("The generated draft read as an invitation "
-                                   "to go out in a warned storm, so it was "
-                                   "replaced.")
+                                   "to go out during a severe alert, so it "
+                                   "was replaced.")
             return replacement
     return draft
+
+
+# What to call the business in the prompt, and what a per-trigger "notes"
+# field is asking about -- both read differently by vertical, and a
+# restaurant-flavoured prompt sent for an HVAC trigger is how a model comes
+# back describing "tonight's specials" on a furnace-repair ad.
+_PROMPT_CONTEXT = {
+    "restaurant": {"noun": "restaurant", "notes_label": "Menu or voice notes"},
+    "hvac": {"noun": "HVAC / home comfort company", "notes_label": "Service notes"},
+    "retail": {"noun": "retail / home goods store", "notes_label": "Inventory or promo notes"},
+    "auto": {"noun": "auto repair / service shop", "notes_label": "Service notes"},
+    "landscaping": {"noun": "landscaping / lawn care company", "notes_label": "Service notes"},
+    "pool_spa": {"noun": "pool & spa service company", "notes_label": "Service notes"},
+    "roofing": {"noun": "roofing & exterior company", "notes_label": "Service notes"},
+    "pest_control": {"noun": "pest control company", "notes_label": "Service notes"},
+    "moving": {"noun": "moving company", "notes_label": "Move notes"},
+    "tree_service": {"noun": "tree service company", "notes_label": "Service notes"},
+    "golf_recreation": {"noun": "golf course / outdoor recreation venue",
+                        "notes_label": "Course or event notes"},
+    "concrete_paving": {"noun": "concrete & paving contractor",
+                        "notes_label": "Job or service notes"},
+}
 
 
 def generate_drafts(trigger_id: str, client_name: str, menu_note: str = "") -> dict:
@@ -115,17 +424,18 @@ def generate_drafts(trigger_id: str, client_name: str, menu_note: str = "") -> d
         return {"drafts": [], "source": "none",
                 "error": f"Unknown trigger {trigger_id!r}."}
     trig = TRIGGERS[trigger_id]
+    ctx = _PROMPT_CONTEXT.get(trig.vertical, _PROMPT_CONTEXT["restaurant"])
 
     drafts: list[dict] = []
     source = "house"
     try:
         from hub import ai as hub_ai
         prompt = (
-            f"Write three short ad drafts for a restaurant, one per angle: "
+            f"Write three short ad drafts for a {ctx['noun']}, one per angle: "
             f"{', '.join(ANGLES)}. The weather condition triggering this ad is "
-            f"\"{trig.name}\" ({trig.condition_label}). The restaurant is "
-            f"\"{client_name or 'the restaurant'}\". "
-            f"{('Menu or voice notes: ' + menu_note) if menu_note else ''} "
+            f"\"{trig.name}\" ({trig.condition_label}). The business is "
+            f"\"{client_name or ('the ' + ctx['noun'])}\". "
+            f"{(ctx['notes_label'] + ': ' + menu_note) if menu_note else ''} "
             "Each draft needs a headline (<=40 characters) and primary text "
             "(<=125 characters). Never invent a price, a discount, an hour of "
             "operation, or a specific claim about the premises that was not "

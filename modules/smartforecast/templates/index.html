@@ -109,9 +109,12 @@
 
           <aside class="sf-stack">
             <section class="sf-card sf-form-card">
-              <div class="sf-section-title"><span>03</span><div><h2>Branding</h2><p>Inherit the website by default.</p></div></div>
+              <div class="sf-section-title"><span>03</span><div><h2>Branding</h2><p>A modern system font by default.</p></div></div>
               <div class="sf-fields two compact">
-                <label class="wide"><span>Font</span><select id="brandFont"><option value="inherit">Inherit website</option><option value="DM Sans">DM Sans</option><option value="Manrope">Manrope</option></select></label>
+                <label class="wide"><span>Font</span><select id="brandFont"><option value="inherit">Auto (system font)</option><option value="DM Sans">DM Sans</option><option value="Manrope">Manrope</option></select></label>
+                <p class="sf-note">The widget is served in an iframe, which cannot read the host site's own font — "Auto" uses a neutral system stack rather than pretending to match. Pick DM Sans or Manrope for a closer, deliberate match.</p>
+                <label class="wide"><span>Headline tag</span><select id="brandHeadingTag"><option value="h1">Featured hero (H1)</option><option value="h2">Supplemental widget (H2)</option></select></label>
+                <p class="sf-note">Pick H2 if this widget sits alongside the page's own H1 — a second H1 on the page can weaken SEO signals.</p>
                 <label><span>Headline color</span><input id="brandHeadline" type="color"></label>
                 <label><span>Body color</span><input id="brandBody" type="color"></label>
                 <label><span>Button color</span><input id="brandButton" type="color"></label>

@@ -334,6 +334,12 @@ def file_asset(*, client_name: str, public_id: str, url: str,
     if not public_id or not url.startswith("https://"):
         return {"ok": False, "error": "That asset has no stored URL."}
 
+    # Provider identity is bounded to 120 characters in Postgres. Preserve the
+    # full delivery identity separately; truncation would merge distinct assets
+    # whose folder/name prefixes happen to match.
+    provider_id = (public_id if len(public_id) <= 120 else
+                   "sha256:" + hashlib.sha256(public_id.encode("utf-8")).hexdigest())
+
     kind = (kind or "upload").strip().lower()[:20]
     provider = (provider or kind).strip().lower()[:40]
     spec = spec if isinstance(spec, dict) else {}
@@ -351,6 +357,7 @@ def file_asset(*, client_name: str, public_id: str, url: str,
         io_number=io_number, product_number=product_number,
         project_name=project_name)
 
+    db = None
     try:
         db = session()
         client = gallery_for_name(db, client_name, create=create_client)
@@ -360,7 +367,7 @@ def file_asset(*, client_name: str, public_id: str, url: str,
         existing = db.execute(
             select(SavedImage).where(SavedImage.client_id == client.id,
                                      SavedImage.provider == provider,
-                                     SavedImage.provider_image_id == public_id)
+                                     SavedImage.provider_image_id.in_([provider_id, public_id]))
         ).scalar_one_or_none()
         if existing:
             return {"ok": True, "duplicate": True, "image": existing.to_dict(),
@@ -370,7 +377,7 @@ def file_asset(*, client_name: str, public_id: str, url: str,
         img = SavedImage(
             client_id=client.id,
             provider=provider,
-            provider_image_id=public_id,
+            provider_image_id=provider_id,
             source_url=url,
             filename=str(filename or "")[:300] or None,
             alt_text=str(alt or "")[:500] or None,
@@ -399,6 +406,13 @@ def file_asset(*, client_name: str, public_id: str, url: str,
         db.add(img)
         db.commit()
     except Exception as exc:                            # noqa: BLE001
+        if db is not None:
+            # This session is reused by background batches. A failed flush
+            # must not poison every later asset in the same worker.
+            try:
+                db.rollback()
+            except Exception:                           # noqa: BLE001
+                logger.warning("gallery filing rollback failed", exc_info=True)
         logger.warning("gallery filing failed for %s: %s", client_name, exc)
         return {"ok": False, "error": str(exc)}
 

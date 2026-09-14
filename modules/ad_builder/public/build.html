@@ -639,6 +639,7 @@
   -->
   <button class="btn primary" id="save">Save</button>
   <span class="hint" id="saveHint">Save first — everything after this works from the saved build, not from what is on screen.</span>
+  <a class="btn" id="clientEmailLink" style="display:none">Email client in GHL</a>
   <a class="btn" id="proofLink" href="#" target="_blank" style="display:none">Open proof</a>
   <button class="btn" id="deliver" style="display:none;border-color:var(--pass);color:var(--pass)">Deliver final files</button>
   <!-- Only when this is running inside the Smart 1 Hub, and only once there
@@ -651,6 +652,7 @@
        size and lives in the browser, and this is what writes the actual files
        every other step reads. It now asks what to do rather than assuming, so
        the label is the question rather than one of its answers. -->
+  <button class="btn" id="reviewSet">Contact sheet &amp; versions</button>
   <button class="btn primary" id="renderAll" style="display:none"
     title="Build the finished files for this set. The preview is a live sketch; these are what the proof, the delivery ZIP and the client gallery all read.">Render…</button>
   <!-- Saved, so it acts on the build that is written down. A preset cut from
@@ -1962,6 +1964,15 @@
         '<input type="range" id="bgZoom" min="100" max="300" step="5" value="' +
           Math.round(zoom * 100) + '">' +
       '</div>' +
+      '<div class="bgsuggest" style="margin:8px 0 2px">' +
+        '<button type="button" class="btn ghost" id="bgSuggestBtn">Suggest crop' +
+          help('Asks Cloudinary\u2019s own subject detection for a better framing, ' +
+               'computed once against the largest size this family builds and ' +
+               'offered to the whole set. Nothing changes until you press Use it.') +
+        '</button>' +
+        '<div id="bgSuggestNote" style="font-size:11px;color:var(--ink-2);' +
+          'line-height:1.4;margin-top:6px"></div>' +
+      '</div>' +
       '<details class="advanced"><summary>Advanced \u2014 type the numbers</summary>' +
         '<div class="bsrow">' +
           '<label>Across (-1 left \u2026 1 right)' +
@@ -2052,7 +2063,91 @@
       '</details>';
   }
 
+  /* The largest size the current family actually builds -- one suggestion
+     computed against one canvas, offered to the whole size set, rather than a
+     different framing per size that would read as eight crops of eight
+     photos rather than one ad in eight sizes. Falls back to the size on
+     screen if the family's own list is not there yet. */
+  function referenceCanvas() {
+    var t = (state.templates || []).filter(function (x) {
+      return x.id === concept().layoutFamily;
+    })[0];
+    var sizes = (t && t.sizes && t.sizes.length) ? t.sizes : [state.size];
+    var best = null;
+    sizes.forEach(function (sz) {
+      var parts = String(sz).split('x');
+      var w = Number(parts[0]), h = Number(parts[1]);
+      if (!isFinite(w) || !isFinite(h) || w <= 0 || h <= 0) return;
+      if (!best || w * h > best.w * best.h) best = { w: w, h: h, size: sz };
+    });
+    return best;
+  }
+
+  function setSuggestNote(text) {
+    var note = $('bgSuggestNote');
+    if (note) note.textContent = text;
+  }
+
+  /* A suggestion is shown, never applied. Use it writes the offset/zoom onto
+     the concept exactly as the pad and the slider would, then redraws the
+     panel so the arrows and the number show where it landed -- the same
+     confirmation a manual nudge gets. Dismiss leaves the concept untouched. */
+  function showSuggestion(d, ref) {
+    var note = $('bgSuggestNote');
+    if (!note) return;
+    note.innerHTML =
+      'Cloudinary’s subject detection suggests a different crop — computed ' +
+      'against ' + ref.w + '×' + ref.h + ', ' + Math.round(d.confidence * 100) +
+      '% confidence.<br>' +
+      '<button type="button" class="btn primary" id="bgSuggestUse"' +
+        ' style="margin:6px 6px 0 0">Use it</button>' +
+      '<button type="button" class="btn ghost" id="bgSuggestDismiss"' +
+        ' style="margin-top:6px">Dismiss</button>';
+    var use = $('bgSuggestUse');
+    if (use) use.addEventListener('click', function () {
+      var c = concept();
+      c.backgroundOffset = { x: d.offset.x, y: d.offset.y };
+      c.backgroundZoom = d.zoom;
+      delete c.backgroundPosition;
+      state.dirty = true;
+      drawControls();
+      preview();
+    });
+    var dismiss = $('bgSuggestDismiss');
+    if (dismiss) dismiss.addEventListener('click', function () { note.textContent = ''; });
+  }
+
   function wireBackgroundAdjust() {
+    var suggestBtn = $('bgSuggestBtn');
+    if (suggestBtn) suggestBtn.addEventListener('click', function () {
+      var ref = referenceCanvas();
+      var src = concept().backgroundImageSource;
+      if (!ref) { setSuggestNote('No size to suggest a crop for yet.'); return; }
+      if (!src) {
+        setSuggestNote('No suggestion available for this picture.');
+        return;
+      }
+      var was = suggestBtn.textContent;
+      suggestBtn.disabled = true;
+      suggestBtn.textContent = 'Asking Cloudinary…';
+      post('/api/background/suggest-crop', { url: src, targetW: ref.w, targetH: ref.h })
+        .then(function (d) {
+          suggestBtn.disabled = false;
+          suggestBtn.textContent = was;
+          if (!d || !d.ok) {
+            setSuggestNote('No suggestion available' +
+              (d && d.reason ? ' (' + d.reason + ').' : '.'));
+            return;
+          }
+          showSuggestion(d, ref);
+        })
+        .catch(function () {
+          suggestBtn.disabled = false;
+          suggestBtn.textContent = was;
+          setSuggestNote('Could not reach Cloudinary for a suggestion.');
+        });
+    });
+
     var slider = $('bgOpacity');
     if (slider) slider.addEventListener('input', function () {
       var pct = Number(this.value);
@@ -3202,6 +3297,12 @@
           return;
         }
         concept().backgroundImage = d.path;
+        // The picked URL, kept alongside the local file the renderer draws
+        // from. "Suggest crop" needs Cloudinary's own address for the
+        // picture -- the download above already threw that away -- and
+        // whether this is one is exactly what the suggest route checks, so
+        // nothing here has to guess ahead of it.
+        concept().backgroundImageSource = url;
         state.dirty = true;
         // Redraw: the crop grid and the overlay controls only exist while
         // there is a picture, and they are what somebody reaches for next.
@@ -3338,7 +3439,7 @@
         $('canvas').classList.remove('busy');
         if (!res.ok) { $('dims').textContent = 'Preview unavailable'; drawQa([{ check: 'preview', status: 'fail', detail: res.b.error }]); return; }
         $('preview').src = res.b.image;
-        $('preview').alt = 'Preview for ' + state.size;
+        $('preview').alt = (res.b.replacement ? 'Actual replacement for ' : 'Preview for ') + state.size;
         state.previewReady = res.b.status !== 'fail';
         $('dims').textContent = res.b.width + ' x ' + res.b.height;
         state.sizeStatus[state.size] = { status: res.b.status };
@@ -3558,6 +3659,7 @@
       .then(function (doc) {
         state.requestId = id;
         state.doc = doc;
+        state.baseDoc = JSON.parse(JSON.stringify(doc));
         state.conceptId = doc.campaign.concepts[0].conceptId;
         state.sizeStatus = {};
         state.approvals = [];
@@ -3693,10 +3795,11 @@
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: sent
     }).then(function (r) { return r.json().then(function (body) {
-      if (!r.ok) throw new Error(body.error || 'The campaign could not be saved.');
+      if (!r.ok) { if (r.status === 409 && requestId === state.requestId) recoverEdits(); throw new Error(body.error || 'The campaign could not be saved.'); }
       if (requestId !== state.requestId) return body;
       state.dirty = JSON.stringify(state.doc) !== sent;
       state.doc.revision = body.revision;
+      state.baseDoc = JSON.parse(sent); state.baseDoc.revision = body.revision;
       /* Here rather than in the Save button's handler, because every other
          path that saves -- switching size with unsaved edits, duplicating a
          set, starting a render -- leaves the server holding exactly what is
@@ -3814,7 +3917,8 @@
        state.rendered
          ? 'File the files already rendered onto ' + clientLabel() + '\u2019s record. No rebuild.'
          : 'Nothing has been rendered yet, so there is nothing to file.'],
-      ['zip', 'Download the full ZIP', state.rendered,
+      ['final', 'Download approved files', state.rendered, 'Only files with a current approval are included.'],
+      ['zip', 'Download draft ZIP', state.rendered,
        state.rendered
          ? 'Every finished file in one zip, in platform folders and named for ' +
            'upload. Packaging ' + count + ' files can take a minute.'
@@ -3967,7 +4071,8 @@
       return askRenderAction();
     }).then(function (act) {
       if (!act) return;
-      if (act === 'zip') return packageZip();
+      if (act === 'zip') return packageZip('draft');
+      if (act === 'final') return packageZip('final');
       if (act === 'file') return fileOnlyStep();
       chooseSizes().then(function (sizes) {
         if (sizes === false) return;
@@ -4073,7 +4178,8 @@
      files, and marking the project handed over because a file was downloaded
      is a status nobody set. A QA-failing size is left out, as it is in a real
      delivery, and named here rather than silently missing from the folder. */
-  function packageZip() {
+  function packageZip(mode) {
+    mode = mode || 'draft';
     var pid = projectIdOf();
     if (!pid) {
       showNextSteps('This build has no project record, so there is nothing to package.', true);
@@ -4083,7 +4189,7 @@
                   'the zip is built from the rendered files, not from the preview.');
     fetch('/api/project/' + encodeURIComponent(pid) + '/deliver', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ concept: state.conceptId, record: false })
+      body: JSON.stringify({ concept: state.conceptId, record: false, mode: mode })
     })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
       .then(function (res) {
@@ -4388,6 +4494,8 @@
       }
     }
 
+    var emailLink=$('clientEmailLink');
+    if(emailLink){var entry=(window.__campaignList||[]).find(function(c){return c.requestId===state.requestId;});var client=entry&&entry.client;emailLink.style.display=window.S1_BASE&&client?'':'none';if(client)emailLink.href=location.origin+'/client-email?client='+encodeURIComponent(client)+'&domain='+encodeURIComponent(entry.domain||(state.doc&&state.doc.campaign.brand.domain)||'');}
     var proofBtn = $('proofLink');
     if (proofBtn && state.rendered) { proofBtn.href = proofUrl(); proofBtn.style.display = ''; }
   }
@@ -4435,7 +4543,7 @@
     var btn = this; btn.disabled = true; btn.textContent = 'Packaging…';
     fetch('/api/project/' + encodeURIComponent(pid) + '/deliver', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ concept: state.conceptId })
+      body: JSON.stringify({ concept: state.conceptId, mode: 'final' })
     })
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
       .then(function (res) {
@@ -4480,14 +4588,14 @@
         })[0];
         if (o) {
           note.style.display = '';
-          note.innerHTML = 'This size ships a manually edited file: <b>' + o.originalName +
+          note.innerHTML = 'This size ships a manually edited file: <b>' + esc(o.originalName) +
             '</b> &nbsp;<a href="#" id="dropOverride" style="color:inherit">remove</a>';
           note.querySelector('#dropOverride').addEventListener('click', function (e) {
             e.preventDefault();
             fetch('/api/project/' + encodeURIComponent(pid) + '/override', {
               method: 'POST', headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ conceptId: state.conceptId, platform: state.platform, size: state.size, remove: true })
-            }).then(function () { refreshOverrideNote(); });
+            }).then(function (r) { if (!r.ok) return r.json().then(function (b) { throw Error(b.error); }); refreshOverrideNote(); preview(); }).catch(function (e) { showNextSteps(e.message, true); });
           });
         } else {
           note.style.display = 'none';
@@ -5204,6 +5312,49 @@
     check();
     setInterval(check, 5 * 60 * 1000);
   })();
+
+  $('reviewSet').addEventListener('click', function () {
+    Promise.resolve(state.dirty ? saveCampaign() : null).then(function () {
+      if (state.dirty) throw Error('Save the newest edits before opening review.');
+      var pid = projectIdOf(); if (!pid) throw Error('This campaign needs a project record.');
+      location.href = (window.S1_BASE || '') + '/review?project=' + encodeURIComponent(pid);
+    }).catch(function (e) { showNextSteps(e.message, true); });
+  });
+
+  function recoverEdits() {
+    var request = state.requestId;
+    var local = JSON.parse(JSON.stringify(state.doc));
+    var base = state.baseDoc;
+    fetch('/api/campaign/' + encodeURIComponent(request)).then(function (r) { if (!r.ok) throw Error('Cannot load the saved version.'); return r.json(); }).then(function (remote) {
+      if (request !== state.requestId) return;
+      var conflicts = [];
+      function equal(a,b){ return JSON.stringify(a) === JSON.stringify(b); }
+      function merge(b,l,r,keys) {
+        if(equal(l,b))return r;
+        if(equal(r,b)||equal(l,r))return l;
+        if(b&&l&&r&&typeof b==='object'&&typeof l==='object'&&typeof r==='object'&&Array.isArray(b)===Array.isArray(l)&&Array.isArray(l)===Array.isArray(r)&&(!Array.isArray(l)||(b.length===l.length&&l.length===r.length))){
+          var result=Array.isArray(l)?[]:{};
+          Array.from(new Set(Object.keys(b).concat(Object.keys(l),Object.keys(r)))).forEach(function(k){if(k==='__proto__'||k==='constructor'||k==='prototype')return;var value=merge(b[k],l[k],r[k],keys.concat(k));if(value!==undefined)result[k]=value;});return result;
+        }
+        conflicts.push({keys:keys,mine:l,theirs:r});return r;
+      }
+      var merged=Object.assign({},remote);
+      ['campaign','platforms'].forEach(function(k){merged[k]=merge(base&&base[k],local[k],remote[k],[k]);});
+      var wrap=document.createElement('div');wrap.className='ask';
+      wrap.innerHTML='<div class="askbox" role="dialog" aria-modal="true" aria-label="Recover your edits" style="max-width:900px;max-height:85vh;overflow:auto"><h4>Recover your edits</h4><p>Your draft is still on screen. Non-conflicting edits can be combined with the saved version. For each conflict, choose whether to keep your change.</p><div>'+conflicts.map(function(c,i){return '<label style="display:block;padding:10px;border-bottom:1px solid #ccc"><input type="checkbox" data-conflict="'+i+'"> Use my change to '+esc(c.keys.join('.'))+'<pre style="white-space:pre-wrap;overflow-wrap:anywhere">Saved: '+esc(JSON.stringify(c.theirs))+'\nMine: '+esc(JSON.stringify(c.mine))+'</pre></label>';}).join('')+'</div><p>Approved-size locks still apply when you save.</p><div class="askacts"><button class="btn" data-download>Download my draft</button><button class="btn primary" data-combine>Review combined edits</button><button class="btn" data-latest>Load saved version</button><button class="btn" data-close>Keep editing</button></div><p data-error role="alert"></p></div>';
+      function close(){wrap.remove();}
+      wrap.querySelector('[data-close]').onclick=close;
+      wrap.querySelector('[data-download]').onclick=function(){var a=document.createElement('a');var url=URL.createObjectURL(new Blob([JSON.stringify(local,null,2)],{type:'application/json'}));a.href=url;a.download=request+'-recovered-draft.json';a.click();setTimeout(function(){URL.revokeObjectURL(url);},1000);};
+      wrap.querySelector('[data-latest]').onclick=function(){if(confirm('Load the saved version and discard the edits currently on screen? Download your draft first if you need it.')){close();loadCampaign(request);}};
+      wrap.querySelector('[data-combine]').onclick=function(){
+        if(request!==state.requestId||!equal(local,state.doc)){wrap.querySelector('[data-error]').textContent='The on-screen draft changed. Close this dialog and save again to compare the newest edits.';return;}
+        wrap.querySelectorAll('[data-conflict]:checked').forEach(function(el){var c=conflicts[Number(el.dataset.conflict)],o=merged;for(var i=0;i<c.keys.length-1;i++)o=o[c.keys[i]];if(c.mine===undefined)delete o[c.keys[c.keys.length-1]];else o[c.keys[c.keys.length-1]]=c.mine;});
+        state.doc=merged;state.platforms=merged.platforms||['google'];if(!merged.campaign.concepts.some(function(c){return c.conceptId===state.conceptId;}))state.conceptId=merged.campaign.concepts[0].conceptId;state.baseDoc=JSON.parse(JSON.stringify(remote));state.dirty=true;state.saved=true;close();drawControls();drawRail();preview();refreshStage();showNextSteps('Recovered edits are on screen. Review them, then Save.',false);
+      };
+      document.body.appendChild(wrap);
+    }).catch(function(e){showNextSteps(e.message+' Your draft is still on screen.',true);});
+  }
+
 })();
 </script>
 </body>
