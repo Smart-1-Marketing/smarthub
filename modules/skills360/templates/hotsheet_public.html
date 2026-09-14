@@ -77,6 +77,15 @@ function renderHotsheet(d){
   h+=`<div class="tile"><div class="k">This year</div><div class="v">${money(y.revenue)}</div><div class="d">${y.orders||0} orders</div></div>`;
   if(d.abandoned){const a=d.abandoned; h+=`<div class="tile"><div class="k">Abandoned carts</div><div class="v">${(a.month||{}).carts||0}</div><div class="d">${money(( a.month||{}).value)} left in carts this month · ${(a.week||{}).carts||0} this week</div></div>`;}
   h+='</div>';
+  const W=d.windows||{}; if(Object.keys(W).length){
+    const pick=String(window.__hotDays||'30'); const w=W[pick]||W[Object.keys(W)[0]]||{};
+    h+='<div class="card"><h2 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">Rolling view <span class="pills">'+Object.keys(W).map(k=>'<button type="button" class="refresh" data-days="'+k+'"'+(k===pick?' style="background:var(--acc);color:#fff;border-color:var(--acc)"':'')+'>Last '+k+' days</button>').join('')+'</span></h2>';
+    h+='<div class="grid" style="margin-bottom:8px">'
+      +'<div class="tile"><div class="k">Revenue</div><div class="v">'+money(w.revenue)+'</div>'+(w.change_pct===null||w.change_pct===undefined?'<div class="d">no prior period to compare</div>':'<div class="d '+(w.change_pct>=0?'up':'down')+'">'+(w.change_pct>=0?'▲':'▼')+' '+Math.abs(w.change_pct)+'% vs the '+w.days+' days before ('+money(w.prev_revenue)+')</div>')+'</div>'
+      +'<div class="tile"><div class="k">Orders</div><div class="v">'+(w.orders||0)+'</div><div class="d">'+(w.prev_orders||0)+' in the '+w.days+' days before</div></div>'
+      +'<div class="tile"><div class="k">Average order</div><div class="v">'+money2(w.avg_order)+'</div></div></div>';
+    h+=(w.top_products&&w.top_products.length?'<table><tr><th>Top products, last '+w.days+' days</th><th class="n">Qty</th><th class="n">Revenue</th></tr>'+w.top_products.map(r=>'<tr><td>'+esc(r.name)+'</td><td class="n">'+r.quantity+'</td><td class="n">'+money2(r.revenue)+'</td></tr>').join('')+'</table>':'<div class="empty">Nothing sold in this window.</div>')+'</div>';
+  }
   const ms=d.monthly||[]; const max=Math.max(1,...ms.map(x=>x.revenue||0));
   h+='<div class="card"><h2>Last 12 months</h2><div class="bars">'+ms.map(x=>`<div class="bar" title="${esc(x.month)}: ${money2(x.revenue)} · ${x.orders} orders"><small>${x.revenue?money(x.revenue):''}</small><i style="height:${Math.max(2,Math.round(100*(x.revenue||0)/max))}%"></i><b>${esc(x.month)}</b></div>`).join('')+'</div></div>';
   h+='<div class="two">';
@@ -97,10 +106,13 @@ function renderHotsheet(d){
 async function load(){
   document.getElementById('body').innerHTML='<div class="empty">Reading the store…</div>';
   const d=await fetch('/hot/'+encodeURIComponent(TOKEN)+'/data',{cache:'no-store'}).then(r=>r.json()).catch(()=>({ok:false,error:'The store did not answer.'}));
+  window.__hotData=d;
   document.getElementById('body').innerHTML=renderHotsheet(d);
+  wireDays();
   if(d&&d.store_name) document.getElementById('title').textContent=d.store_name;
   if(d&&d.generated_at) document.getElementById('stamp').textContent='as of '+new Date(d.generated_at).toLocaleString();
 }
+function wireDays(){ document.querySelectorAll('[data-days]').forEach(b=>{ b.onclick=()=>{ window.__hotDays=b.dataset.days; document.getElementById('body').innerHTML=renderHotsheet(window.__hotData); wireDays(); }; }); }
 document.getElementById('refresh').onclick=load;
 load();
 </script>
