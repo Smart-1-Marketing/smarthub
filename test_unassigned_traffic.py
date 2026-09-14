@@ -70,5 +70,19 @@ check("resolver page is wired", "/unassigned-traffic/" in rules, True)
 check("resolver client API is wired", "/unassigned-traffic/api/clients" in rules, True)
 check("resolver analysis API is wired", "/unassigned-traffic/api/analyze" in rules, True)
 
+# Both successful reads and timeouts must reach the shared usage ledger.
+from unittest.mock import Mock, patch
+import requests
+from modules.unassigned_traffic.app import _run_report
+with patch("hub.quotas.record_google") as meter, patch("requests.post", return_value=Mock(ok=True, json=lambda: {"rows": []})):
+    _run_report("synthetic", "123", {})
+    check("successful GA4 read is attributed", meter.call_args.kwargs, {"module": "unassigned_traffic", "ok": True})
+with patch("hub.quotas.record_google") as meter, patch("requests.post", side_effect=requests.Timeout):
+    try:
+        _run_report("synthetic", "123", {})
+    except requests.Timeout:
+        pass
+    check("GA4 timeout is attributed", meter.call_args.kwargs, {"module": "unassigned_traffic", "ok": False})
+
 print(f"\n{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

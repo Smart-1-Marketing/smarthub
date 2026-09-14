@@ -2036,6 +2036,14 @@ jobs:
 
       # SmartForecast is a stateful public experience: verify lifecycle rules,
       # immutable history, public embeds, and Render disk recovery together.
+      - name: GA4 unassigned traffic diagnostics and usage
+        run: python3 test_unassigned_traffic.py
+
+      - name: Canonical company identity and master links
+        run: |
+          python -m pip install pytest==8.4.2
+          python -m pytest -q tests/test_company_identity.py tests/test_master_identity.py tests/test_master_identity_backfill.py tests/test_master_links.py
+
       - name: SmartForecast lifecycle, storage and embed tests
         run: python3 test_smartforecast.py
 
