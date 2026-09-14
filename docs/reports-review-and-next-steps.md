@@ -178,7 +178,11 @@ whose channel we manage (Social Media Management, Online Video):
 
 - **YouTube Data API v3** (key, public, free within quota): subscriber,
   view and video counts for the channel. A daily snapshot gives the trend
-  with no consent, the same shape as the Places snapshot.
+  with no consent, the same shape as the Places snapshot. **Built**:
+  `hub/youtube.py` reads it on `YOUTUBE_API_KEY`, falling back to
+  `GOOGLE_PLACES_API_KEY` (the same Cloud project) and naming which
+  answered; a link on the SEO record resolves for one unit before a
+  search spends a hundred.
 - **YouTube Analytics API** (OAuth, `yt-analytics.readonly`): views, watch
   time, subscribers gained per day, top videos, traffic sources. The scope
   is added to Google Finder's list, and every login connected before that
@@ -316,7 +320,12 @@ under its own name rather than folded into conversions.
    the client's page and PDF reading it in place of the coming-soon
    note. The Performance API half (calls, directions, website clicks)
    is not built; the upsell report still reads the scan.
-7. YouTube organic section.
+7. ~~YouTube organic section.~~ Done, for the keyed half: `hub/youtube.py`,
+   the Client 360 card, the nightly reading on the same key as Places, and
+   the client's page and PDF gated on a video or social product and a
+   confirmed channel. The Analytics API half (watch time, subscribers
+   gained per day, traffic sources) is not built; it is a scope on Google
+   Finder's list and every connected login re-consents for it.
 8. ~~File the proposal adapter's link and lines under the module's own key.~~
    Done, with the bounded pricing rule, the pacing alerts on `/my-clients`
    and the cached PDF.
