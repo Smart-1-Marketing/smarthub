@@ -89,7 +89,7 @@ check("no duplicate keys", len(keys), len(set(keys)))
 check("pinned rows come first", keys[:5], [r[0] for r in sidebar.PINNED])
 check("both section headers are present", [k for k in keys if k.startswith("_sec")], ["_sec0", "_sec1"])
 check("every row is a 5-tuple", all(len(r) == 5 for r in sidebar._ITEMS))
-check("/tools/ads/ is labelled PPC Builder",
+check("/tools/ads/ is labeled PPC Builder",
       next(r[3] for r in sidebar._ITEMS if r[1] == "/tools/ads/"), "PPC Builder")
 check("Utilities rows are admin-only",
       {r[4] for r in sidebar._ITEMS if r[1] in ("/diagnostics", "/status", "/views/manage", "/views/utilities")},
