@@ -10,6 +10,7 @@ DATABASE_URL -- the Scans module review flagged exactly that risk.
 from __future__ import annotations
 
 import logging
+import hashlib
 import os
 import re
 import secrets
@@ -503,11 +504,21 @@ def unique_slug(db, name: str) -> str:
     return slug
 
 
+def provider_identity(value: str) -> str:
+    """Bound the lookup key without truncating distinct provider identities.
+
+    Delivery URLs and Cloudinary public IDs remain unchanged on the asset row.
+    Keep the spelling used by existing background imports for compatibility.
+    """
+    value = str(value or "")
+    return value if len(value) <= 120 else "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 def already_saved(db, client_id: int, provider: str, provider_image_id: str) -> SavedImage | None:
     return db.execute(
         select(SavedImage).where(
             SavedImage.client_id == client_id,
             SavedImage.provider == provider,
-            SavedImage.provider_image_id == str(provider_image_id),
+            SavedImage.provider_image_id.in_([provider_identity(provider_image_id), str(provider_image_id)]),
         )
     ).scalar_one_or_none()
