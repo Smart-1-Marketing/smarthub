@@ -529,7 +529,7 @@ def _take_flock(path: str):
 
 
 @contextlib.contextmanager
-def _exclusive(path: str):
+def exclusive(path: str):
     """Hold one file against every other thread AND every other worker.
 
     Two locks because there are two ways to lose a write. A ``threading.Lock``
@@ -558,6 +558,15 @@ def _exclusive(path: str):
         if handle is not None:
             handle.close()
         thread_lock.release()
+
+
+# The old private spelling, kept because this module's own callers use it and
+# renaming a name is not worth a diff across them. It is public now because
+# hub/leads.py needs the same two locks over a file this module does not own:
+# a second implementation of "hold this against the other worker" is the
+# drift this codebase keeps having to undo, and the half that would have been
+# missing is the flock.
+_exclusive = exclusive
 
 
 def update_json(path: str, mutate, *, default=None, durable: bool = True,
