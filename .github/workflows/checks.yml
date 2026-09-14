@@ -2958,6 +2958,11 @@ jobs:
       # carrying the same figures.
       - name: The organic search section for SEO clients
         run: python3 test_reports_seo.py
+      # A client's Google listing read live: a person confirms it, one
+      # billed read a night, four kinds of nothing kept apart, and the
+      # coming-soon promise retired from the client's page.
+      - name: The Google Business Profile reading
+        run: python3 test_places.py
       # The provider normalize: raw provider tables read through
       # provider_map's placeholder column names, spend divided on the way in,
       # one platform's failure isolated on its own watermark, the provider

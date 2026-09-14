@@ -236,7 +236,18 @@
         {% if o.work.latest_score is not none %}<p class="hint" style="margin:12px 0 0">Latest site audit score: <b>{{ o.work.latest_score }}</b>{% if o.work.latest_scan_at %} ({{ o.work.latest_scan_at[:10] }}){% endif %}</p>{% endif %}
         {% elif not o.work.measured %}<p class="empty">Some of this period's work could not be counted yet.</p>
         {% else %}<p class="empty">Nothing to show for this period yet.</p>{% endif %}</div>
-      <div class="card soon"><h2>{{ o.gbp.label }}</h2><p class="hint">{{ o.gbp.note }}</p></div>
+      {% if o.gbp %}
+      <div class="card"><h2>{{ o.gbp.label }}</h2>
+        <div class="big">{{ '%.1f'|format(o.gbp.rating) if o.gbp.rating is not none else '—' }} &#9733;</div>
+        <p class="hint">from {{ '{:,}'.format(o.gbp.review_count) if o.gbp.review_count is not none else '—' }} {{ o.gbp.reviews_label }}{% if o.gbp.status_label %} &middot; {{ o.gbp.status_label }}{% endif %}</p>
+        {% if o.gbp.change and o.gbp.change.measured %}
+        <p class="hint">Over the last {{ o.gbp.change.days }} days:
+          {% if o.gbp.change.rating_delta is not none %}{{ '%+.1f'|format(o.gbp.change.rating_delta) if o.gbp.change.rating_delta else 'no change in rating' }}{% if o.gbp.change.rating_delta %} &#9733;{% endif %}{% endif %}{% if o.gbp.change.reviews_delta is not none %}, {{ '{:+,}'.format(o.gbp.change.reviews_delta) if o.gbp.change.reviews_delta else 'no new' }} reviews{% endif %}
+          (since {{ o.gbp.change.since }}).</p>
+        {% endif %}
+        <p class="hint">Read {{ o.gbp.as_of }}{% if o.gbp.maps_url %} &middot; <a href="{{ o.gbp.maps_url }}" target="_blank" rel="noopener">See the listing</a>{% endif %}</p>
+      </div>
+      {% endif %}
     </div>
   </section>
   {% endif %}

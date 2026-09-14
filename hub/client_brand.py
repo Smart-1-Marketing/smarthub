@@ -172,6 +172,10 @@ WORK_KINDS = {
 # runs. The rule `tools/spellcheck.py`'s ALLOW works to: per name, with the
 # reason beside it.
 NOT_WORK = {
+    # hub/places.py records which Google listing is the client's -- a join
+    # a person confirmed, not a deliverable -- so a confirmation on the
+    # record would read as work we did for them.
+    "places":       "a Google listing confirmed as the client's: a join, not work",
     # Every landing module files the prospect's own business name from the
     # form. A prospect is not a client, and putting a lead on a client record
     # would be the Hub inventing a relationship — the distinction

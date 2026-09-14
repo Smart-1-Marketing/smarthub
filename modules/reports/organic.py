@@ -74,7 +74,7 @@ LABELS = {
     "work": "What we did this period",
     "trend": "Visits from Google search, last 12 months",
     "gbp": "Google Business Profile",
-    "gbp_note": "Coming soon: calls, direction requests and profile views.",
+    "gbp_reviews": "Google reviews",
 }
 # The same labels with the products named, for a link whose view_json says so.
 LABELS_NAMED = {**LABELS,
@@ -487,8 +487,35 @@ def section(link, rng: dict, today: date | None = None, gate_: dict | None = Non
         "analytics": _ga4(g, rng, today),
         "search": _gsc(g, rng),
         "work": _work(g, rng),
-        "gbp": {"coming_soon": True, "label": labels["gbp"], "note": labels["gbp_note"]},
+        "gbp": _gbp(link, labels, today),
     }
+
+
+def _gbp(link, labels: dict, today: date) -> dict:
+    """The Business Profile block: the listing's rating and review count
+    as Google answered last night, from hub/places.py, or a block that
+    says it is not measured -- which public_view() drops, because this
+    card used to read "Coming soon: calls, direction requests and profile
+    views" on a page a client reads, and a promise about our tooling is
+    not a fact about their business. The staff page keeps the reason."""
+    out = {"label": labels["gbp"], "reviews_label": labels.get("gbp_reviews", "Google reviews"),
+           "measured": False, "staff_note": ""}
+    try:
+        from hub import places
+        from hub.client_key import key_label
+        name = (link.client_name or "").strip() or key_label(link.client)
+        r = places.reading(name, today=today)
+    except Exception as exc:                            # noqa: BLE001
+        out["staff_note"] = f"The listing store could not be read ({type(exc).__name__})."
+        return out
+    card = places.public_view(r)
+    if not card:
+        out["staff_note"] = r.get("staff_note") or r.get("error") or "No reading."
+        out["state"] = r.get("state") or ""
+        return out
+    out.update(card)
+    out["staff_note"] = r.get("staff_note") or ""
+    return out
 
 
 def public_view(block: dict | None) -> dict | None:
@@ -507,4 +534,11 @@ def public_view(block: dict | None) -> dict | None:
     work = dict(block.get("work") or {})
     work.pop("errors", None)
     out["work"] = work
+    # A Business Profile block with nothing measured is absent from the
+    # client's page, not a sentence about why: "not connected" and "coming
+    # soon" are about our tooling, on a document about their business.
+    gbp = dict(block.get("gbp") or {})
+    gbp.pop("staff_note", None)
+    gbp.pop("state", None)
+    out["gbp"] = gbp if gbp.get("measured") else None
     return out

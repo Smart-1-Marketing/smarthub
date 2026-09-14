@@ -1075,6 +1075,11 @@ GOOGLE_APIS: dict[str, tuple[str, int, str, str]] = {
               "of Drive. Google publishes a per-user rate limit rather than a "
               "flat daily one, so this is counted and not capped unless "
               "GOOGLE_DRIVE_DAILY_QUOTA is set."),
+    "places": ("Places API", 0, "GOOGLE_PLACES_DAILY_QUOTA",
+               "Billed per request rather than quota-limited: hub/places.py reads "
+               "each confirmed client listing once a night (the Pro SKU) and a "
+               "Confirm or Refresh press is one more. Counted here so the usage "
+               "page can name it; no ceiling until GOOGLE_PLACES_DAILY_QUOTA is set."),
     "other": ("Other Google APIs", 0, "", "Anything not matched above."),
 }
 
@@ -1084,6 +1089,7 @@ _GOOGLE_HOSTS = (
     ("analyticsadmin.googleapis.com", "ga4"),
     ("analyticsdata.googleapis.com", "ga4"),
     ("mybusiness", "gbp"),
+    ("places.googleapis.com", "places"),
     ("oauth2.googleapis.com", "oauth"),
     ("openidconnect.googleapis.com", "oauth"),
 )
