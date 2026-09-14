@@ -219,7 +219,7 @@ const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href=
    twenty-two into the first section. */
 /* ---- c360 sections (lifted and driven in node by test_client360_layout.py) ---- */
 const C360_SECTIONS=[
-  {key:'overview', label:'Overview',          match:['products','orders we have sent','ad performance','smart 1 suite','pipeline & leads','proposals','client notes','target audience']},
+  {key:'overview', label:'Overview',          match:['products','orders we have sent','ad performance','google listing','smart 1 suite','pipeline & leads','proposals','client notes','target audience']},
   {key:'billing',  label:'Billing',           match:['invoices']},
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
@@ -501,6 +501,7 @@ function render(g,q){
   // live link. It lived on /reports/client/<key>, reached by knowing the
   // client's key; the record said nothing about any of it.
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Ad performance {{ help_dot('hub.client360.adperf') if help_dot is defined else '' }}</h3><a class="open-link" href="/reports/">Open Reports →</a></div><div class="card-b" id="c-adperf"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Google</span><h3>Google listing {{ help_dot('hub.client360.places') if help_dot is defined else '' }}</h3><span class="right" id="c-places-acts"></span></div><div class="card-b" id="c-places"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   // ---------- Execution plan ----------
   // What the proposal committed us to -- creative, launch and monthly lists
@@ -4098,6 +4099,7 @@ function loadBrandAndWork(name){
   loadOrders(name);
   loadAdPerformance(name);
   loadPipeline(name);
+  loadPlaces(name);
   loadPlan(name);
   fetch('/api/client/utm?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderUtm).catch(function(){});
@@ -4302,6 +4304,164 @@ function renderAdPerformance(d,name){
   return h+open;
 }
 /* ---- end c360 ad performance ---- */
+/* ---- c360 google listing (lifted and driven in node by test_places.py) ---- */
+/* Draws /api/client/places' payload. Pure: takes the payload, the client's
+   name and any candidates a lookup returned, and returns markup. Five kinds
+   of nothing are drawn apart -- the key is not set, no listing is confirmed,
+   the listing is confirmed and not yet read, the last read failed, and the
+   store would not answer -- and a rating is never printed without its review
+   count. Every figure is the server's reading; nothing here computes one. */
+function plStars(v){
+  var n=Number(v);
+  if(!isFinite(n)) return '—';
+  return n.toFixed(1)+' \u2605';
+}
+function plInt(v){
+  var n=Number(v);
+  return isFinite(n)?n.toLocaleString():'—';
+}
+function plDelta(v,unit){
+  if(v===null||v===undefined||!isFinite(Number(v))) return '';
+  var n=Number(v);
+  if(n===0) return 'no change';
+  return (n>0?'+':'')+(unit==='star'?n.toFixed(1)+' \u2605':n.toLocaleString())+(unit==='star'?'':' reviews');
+}
+function renderPlaces(d,name,cands){
+  d=d||{}; cands=cands||null;
+  var st=d.state||'unread';
+  var rec=d.record||null;
+  var h='';
+  if(st==='unconfigured'){
+    return '<div class="empty">Google Places is not set up on this deployment, so no listing can be read. '
+      + '<a href="/status">System status</a> names the setting.</div>';
+  }
+  if(st==='unread'&&!rec){
+    return '<div class="empty">'+esc(d.error||'The listing store could not be read.')
+      + ' That is not the same as this client having no listing.</div>';
+  }
+  if(cands){
+    if(cands.error){
+      h+='<div class="empty">'+esc(cands.error)+'</div>';
+    }else if(!cands.candidates||!cands.candidates.length){
+      h+='<div class="empty">Google returned no listing for &ldquo;'+esc(cands.query||name)+'&rdquo;. '
+        + 'Add the city or the street and search again.</div>';
+    }else{
+      h+='<div class="mini" style="margin-bottom:6px">'+esc(cands.candidates.length)+' listing'+(cands.candidates.length===1?'':'s')
+        + ' for &ldquo;'+esc(cands.query||name)+'&rdquo;'
+        + (cands.proposed?' &mdash; one proposed: '+esc(cands.why||''):' &mdash; '+esc(cands.why||''))+'</div>';
+      h+='<ul class="plain" style="margin:0;padding:0;list-style:none">';
+      cands.candidates.forEach(function(c){
+        var prop=cands.proposed&&c.place_id===cands.proposed;
+        h+='<li style="padding:6px 0;border-top:1px solid #eef1f5'+(prop?';background:#f3faf6':'')+'">'
+          + '<b>'+esc(c.name||c.place_id)+'</b>'+(prop?' <span class="pill ok">proposed</span>':'')
+          + (c.domain_match?' <span class="pill ok">their website</span>':'')
+          + '<div class="mini">'+esc(c.address||'')
+          + (c.rating!==null&&c.rating!==undefined?' &middot; '+plStars(c.rating)+' from '+plInt(c.review_count)+' reviews':'')
+          + (c.status_label?' &middot; '+esc(c.status_label):'')
+          + (c.website?' &middot; '+esc(c.domain||c.website):'')+'</div>'
+          + '<button class="btn small" data-act="confirm" data-id="'+esc(c.place_id)+'">This is their listing</button>'
+          + '</li>';
+      });
+      h+='</ul>';
+    }
+    h+='<div class="mini" style="margin-top:8px"><a href="#" data-act="cancel">Cancel</a></div>';
+    return h;
+  }
+  if(st==='no_place'){
+    return '<div class="empty">No Google listing has been confirmed for this client.</div>'
+      + '<div class="row" style="margin-top:8px;gap:6px;align-items:center">'
+      + '<input type="text" id="pl-q" placeholder="Add a city or street to narrow it" style="flex:1;min-width:120px">'
+      + '<button class="btn small" data-act="lookup">Find their listing</button></div>'
+      + '<div class="mini" style="margin-top:6px">One billed lookup. It proposes a listing only when exactly one matches; you confirm.</div>';
+  }
+  var recLine='';
+  if(rec){
+    recLine='<div class="mini">'+esc(rec.name||rec.place_id||'')+(rec.address?' &middot; '+esc(rec.address):'')
+      + (rec.maps_url?' &middot; <a href="'+esc(rec.maps_url)+'" target="_blank" rel="noopener">Open on Google</a>':'')
+      + (rec.confirmed_by?' &middot; confirmed by '+esc(rec.confirmed_by)+(rec.confirmed_at?' on '+esc(String(rec.confirmed_at).slice(0,10)):''):'')
+      + '</div>';
+  }
+  if(st==='no_snapshot'){
+    return recLine+'<div class="empty">Confirmed and not read yet. The nightly read will take it, or press Refresh reading.</div>';
+  }
+  if(st==='unread'){
+    return recLine+'<div class="empty">The last read failed: '+esc(d.error||'')+' The listing is still confirmed.</div>';
+  }
+  h+='<div style="font-size:26px;font-weight:600;line-height:1.1">'+plStars(d.rating)
+    + ' <span style="font-size:14px;font-weight:400;color:var(--muted)">from '+plInt(d.review_count)+' Google reviews'
+    + (d.status_label?' &middot; '+esc(d.status_label):'')+'</span></div>';
+  var ch=d.change||{};
+  if(ch.measured){
+    h+='<div class="mini" style="margin-top:4px">Over the last '+esc(ch.days)+' days: '
+      + esc(plDelta(ch.rating_delta,'star')||'rating not measured')+', '
+      + esc(plDelta(ch.reviews_delta,'reviews')||'reviews not measured')
+      + ' (since '+esc(ch.since||'')+').</div>';
+  }else if(ch.note){
+    h+='<div class="mini" style="margin-top:4px">'+esc(ch.note)+'</div>';
+  }
+  h+='<div class="mini" style="margin-top:4px">Read '+esc(d.as_of||'')+' from Google.'+(d.note?' '+esc(d.note):'')+'</div>';
+  if(d.staff_note) h+='<div class="mini" style="color:#a15c00">'+esc(d.staff_note)+'</div>';
+  h+=recLine;
+  h+='<div class="row" style="margin-top:8px;gap:6px">'
+    + '<button class="btn small" data-act="refresh">Refresh reading</button>'
+    + '<button class="btn small ghost" data-act="clear">Not this listing</button></div>';
+  return h;
+}
+/* ---- end c360 google listing ---- */
+var _plCands=null;
+function loadPlaces(name){
+  var box=document.getElementById('c-places');
+  if(!box) return;
+  if(!name){box.innerHTML='<div class="empty">No client selected.</div>';return;}
+  _plCands=null;
+  fetch('/api/client/places?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      box=document.getElementById('c-places');
+      if(!box) return;
+      box.innerHTML=renderPlaces(d,name,null);
+      box.onclick=function(e){plAct(e,name);};
+    })
+    .catch(function(){
+      var b=document.getElementById('c-places');
+      if(b) b.innerHTML='<div class="empty">The listing store could not be read. That is not the same as this client having no listing.</div>';
+    });
+}
+function plPost(path,body){
+  return fetch(path,{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json();});
+}
+function plAct(e,name){
+  var t=e.target.closest('[data-act]'); if(!t) return;
+  e.preventDefault();
+  var act=t.getAttribute('data-act');
+  var box=document.getElementById('c-places'); if(!box) return;
+  var wait=(window.S1Think&&S1Think.attach)?S1Think.attach(t,{kind:'scan'}):{done:function(){}};
+  if(act==='cancel'){wait.done();loadPlaces(name);return;}
+  if(act==='lookup'){
+    var q=(document.getElementById('pl-q')||{}).value||'';
+    plPost('/api/client/places/lookup',{name:name,query:q}).then(function(c){
+      wait.done(); box.innerHTML=renderPlaces({state:'no_place'},name,c);
+    }).catch(function(){wait.done();box.innerHTML='<div class="empty">The lookup could not be made.</div>';});
+    return;
+  }
+  if(act==='confirm'){
+    plPost('/api/client/places/confirm',{name:name,place_id:t.getAttribute('data-id')}).then(function(){wait.done();loadPlaces(name);})
+      .catch(function(){wait.done();loadPlaces(name);});
+    return;
+  }
+  if(act==='refresh'){
+    plPost('/api/client/places/refresh',{name:name}).then(function(){wait.done();loadPlaces(name);})
+      .catch(function(){wait.done();loadPlaces(name);});
+    return;
+  }
+  if(act==='clear'){
+    if(!confirm('Clear the confirmed Google listing for '+name+'? The readings are kept; nothing draws them until a listing is confirmed again.')){wait.done();return;}
+    plPost('/api/client/places/clear',{name:name}).then(function(){wait.done();loadPlaces(name);})
+      .catch(function(){wait.done();loadPlaces(name);});
+  }
+}
 function loadAdPerformance(name){
   var box=document.getElementById('c-adperf');
   if(!box) return;

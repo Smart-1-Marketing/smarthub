@@ -107,6 +107,7 @@ client's page. `CLAUDE.md` carries the reasoning; this is the map.
 | A YouTube buy reads as YouTube | `google_ads_perf.py`, `automap.py`, the client's page | Every Google Ads campaign with no product in its name filing as Paid Search, so a TrueView campaign read as search on the client's own page; and the "Video ads completed" tile having nothing to draw for Google. The channel type Google reports decides the default product, and completes are the p100 rate times impressions on the rows that served video. |
 | The first-week projection | `pacing.py` | The daily rate divided by seven however few days the flight had run. |
 | The StackAdapt wait, bounded | `stackadapt.py`, the native pull job | Up to thirty seconds asleep on the one scheduler thread while the platform prepared a report; now twenty seconds at most, then pending, asked again next tick. |
+| The client's Google listing, read live | Client 360's *Google Business Profile* card, `/api/client/places*`, the scheduler's `places_snapshot`, the client's page and PDF | A rating weeks old on the record and a *coming soon* promise on the page a client reads. A place is proposed once (the only candidate, or the only one on the client's own domain) and a person confirms it; one billed read a night inside a window, never on a page load; a rating never printed without its count; four kinds of nothing kept apart; scan and snapshot never folded together. |
 
 ## Where Google Places fits
 
@@ -210,7 +211,11 @@ that reason or the forbidden-word sweep will refuse it. About two days.
    row), the unmapped queue opens on the channel's product, and completes
    are the rate times impressions -- carried only on a row that served
    video, so a search-only client's page draws no "Video ads completed 0".
-6. Google Places → the Business Profile card.
+6. ~~Google Places → the Business Profile card.~~ Done, for the keyed
+   half: `hub/places.py`, the Client 360 card, the nightly reading, and
+   the client's page and PDF reading it in place of the coming-soon
+   note. The Performance API half (calls, directions, website clicks)
+   is not built; the upsell report still reads the scan.
 7. YouTube organic section.
 8. ~~File the proposal adapter's link and lines under the module's own key.~~
    Done, with the bounded pricing rule, the pacing alerts on `/my-clients`

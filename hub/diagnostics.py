@@ -152,6 +152,32 @@ def check_brandfetch() -> Check:
     return Check("brandfetch", "Brandfetch", state, detail, ms)
 
 
+def check_places() -> Check:
+    if not settings.google_places_key:
+        return _off("places", "Google Places", "google_places_key",
+                    "a client's Business Profile rating and review count are not read.")
+    def go():
+        # Place Details asking for the id alone is the IDs Only SKU, which
+        # Google does not bill -- so this is a free authenticated call
+        # against a listing that is not going anywhere (Google's Sydney
+        # office), the brandfetch.com shape one provider over.
+        r = requests.get("https://places.googleapis.com/v1/places/ChIJN1t_tDeuEmsRUsoyG83frY4",
+                         headers={"X-Goog-Api-Key": settings.google_places_key,
+                                  "X-Goog-FieldMask": "id"},
+                         timeout=TIMEOUT)
+        if r.status_code in (401, 403):
+            return ("error", f"Key rejected ({r.status_code}) -- check the key's API "
+                             "restrictions allow Places API (New).")
+        if r.status_code == 429:
+            return ("warn", "Rate limited (429).")
+        if not r.ok:
+            return ("error", f"HTTP {r.status_code}.")
+        return ("ok", "Key valid.")
+    (state, detail), ms = _timed(go)
+    return Check("places", "Google Places", state, detail, ms,
+                 fix="Enable Places API (New) on the key's project, or rotate the key.")
+
+
 def check_insites() -> Check:
     if not settings.insites_key:
         return _off("insites", "Insites", "insites_key",
@@ -638,7 +664,7 @@ def check_google_accounts() -> list[Check]:
 CHECKS = [
     check_database, check_json_backup, check_public_base_url,
     check_openai, check_cloudinary,
-    check_brandfetch, check_insites, check_removebg, check_pexels,
+    check_brandfetch, check_places, check_insites, check_removebg, check_pexels,
     check_pixabay, check_unsplash, check_google_fonts, check_ghl,
     check_ghl_app, check_knack, check_quickbooks, check_google_oauth,
     check_google_accounts,

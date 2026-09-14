@@ -350,6 +350,25 @@ def job_refresh_google_index(app) -> dict:
         return {"ok": False, "error": type(exc).__name__}
 
 
+def job_places_snapshot(app) -> dict:
+    """Read every confirmed Google listing once a night (hub/places.py).
+
+    Ticks hourly and the module decides: `sweep(force=False)` returns
+    without a call unless the nightly window has passed, so a leader that
+    restarted through the window picks the read up on its next tick rather
+    than skipping a day. Each read is billed, so a listing already read
+    today is skipped and the run is under a wall-clock budget; what it did
+    not reach is named and picked up next tick.
+    """
+    try:
+        from hub import places
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        # An app context: the activity rows reach hub/audit -- the flask.g trap.
+        return places.sweep(force=False)
+
+
 def job_refresh_purchased_domains(app) -> dict:
     """Re-pull the two sources behind /tools/domains, once a night.
 
@@ -1076,6 +1095,8 @@ JOBS = {
                           "Re-sweep Google and re-join every account to a client."),
     "purchased_domains": (60, job_refresh_purchased_domains,
                           "Re-pull the purchased-domain registry once a night."),
+    "places_snapshot":   (60, job_places_snapshot,
+                          "Read every confirmed Google Business Profile listing once a night."),
     "video_backlog":     (60, job_index_video_backlog,
                           "Describe another batch of the video background library."),
     "picker_describe":   (60, job_describe_client_uploads,

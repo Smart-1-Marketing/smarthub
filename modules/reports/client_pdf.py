@@ -250,9 +250,29 @@ def _organic(d: "_Doc", o: dict | None):
     else:
         d.text("Nothing to show for this period yet.", size=9.5, color=MUTED)
     gbp = o.get("gbp") or {}
-    if gbp:
+    if gbp.get("measured"):
+        # Only a measured reading reaches the document: the page carries no
+        # card at all otherwise, and the PDF is the same document.
         d.space(6)
-        d.text(f"{gbp.get('label', '')}: {gbp.get('note', '')}", size=9, color=MUTED)
+        rating = gbp.get("rating")
+        count = gbp.get("review_count")
+        line = (f"{rating:.1f} out of 5" if rating is not None else "no rating")
+        line += (f" from {count:,} {gbp.get('reviews_label', 'Google reviews')}"
+                 if count is not None else "")
+        if gbp.get("status_label"):
+            line += f", {gbp['status_label'].lower()}"
+        d.text(f"{gbp.get('label', 'Google Business Profile')}: {line} (read {gbp.get('as_of', '')})",
+               size=9.5, color=NAVY)
+        ch = gbp.get("change") or {}
+        if ch.get("measured"):
+            parts = []
+            if ch.get("rating_delta") is not None:
+                parts.append(f"{ch['rating_delta']:+.1f} rating" if ch["rating_delta"] else "rating unchanged")
+            if ch.get("reviews_delta") is not None:
+                parts.append(f"{ch['reviews_delta']:+,} reviews" if ch["reviews_delta"] else "no new reviews")
+            if parts:
+                d.text(f"Over the last {ch.get('days')} days: " + ", ".join(parts)
+                       + f" (since {ch.get('since', '')}).", size=9, color=MUTED)
     d.space(10)
 
 
