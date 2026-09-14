@@ -62,6 +62,16 @@ class YouTubeTests(unittest.TestCase):
         self.assertEqual(result.status_code, 200)
         return result.json["draft_id"]
 
+    def test_studio_work_is_separate_from_channel_confirmation(self):
+        from hub import client_brand
+        with patch("modules.youtube_studio.app.audit.log") as logged:
+            did = self.draft()
+        logged.assert_called_once_with("youtube_studio", "draft_saved",
+            actor="Test staff", client="Alpha", draft_id=did)
+        self.assertIn("youtube_studio", client_brand.WORK_KINDS)
+        self.assertNotIn("youtube_studio", client_brand.NOT_WORK)
+        self.assertIn("youtube", client_brand.NOT_WORK)
+
     def test_google_requests_meter_success_and_failure_without_secrets(self):
         url = yt.ROOT + "upload/private-session?key=secret"
         with patch("hub.quotas.record_google") as meter, patch("requests.get", return_value=response()):

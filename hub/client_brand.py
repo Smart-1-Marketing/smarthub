@@ -88,7 +88,7 @@ WORK_KINDS = {
     "social_planner":       ("Social calendar", "Social Content Planner"),
     "calculators":          ("Calculator published", "Calculators"),
     "google_access":        ("Google access", "Google Access"),
-    "youtube":              ("YouTube channel work", "YouTube Studio"),
+    "youtube_studio":       ("YouTube channel work", "YouTube Studio"),
     "suite_panel":          ("Suite account", "Suite Panel"),
     "sites_admin":          ("Website", "Sites"),
     "hooks":                ("Suite opportunity", "Smart 1 Suite"),
