@@ -130,6 +130,10 @@ def _facts(account_id: str, rows: list[dict], micros) -> list[dict]:
             try:
                 fact["completes"] = int(round(float(rate) * imps))
             except (TypeError, ValueError):
+                # A rate Google sent that is not a number costs the
+                # completes figure and never the row: the key is left
+                # off, which the tile reads as not measured rather than
+                # as a nought.
                 pass
         out.append(fact)
     return out
