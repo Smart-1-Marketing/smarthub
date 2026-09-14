@@ -313,8 +313,13 @@ try:
     # of one -- so the page it moved to is asserted, not merely the move.
     check("the Client Tools page links to it",
           b"/tools/gpt-ads/" in composed.get("/tools").data)
+    # The persistent department sidebar links to every tool from every page
+    # by design (its flyouts are the same tree everywhere), so a blanket
+    # substring search over the whole response no longer isolates the tile
+    # grid -- test_menu_layout.py hit the same thing and settled on the
+    # tile's own <h3>, which is what a tile actually renders.
     check("and the Creative page no longer does, so there is one tile not two",
-          b"/tools/gpt-ads/" not in composed.get("/creative").data)
+          b"<h3>GPT Ads Builder</h3>" not in composed.get("/creative").data)
 except Exception as exc:                                          # noqa: BLE001
     check("the composed app boots with the module mounted", False, exc)
 

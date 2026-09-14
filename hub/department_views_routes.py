@@ -69,6 +69,17 @@ def _selected(mine: list[dict], requested_id: str) -> dict | None:
 
 
 # --------------------------------------------------------------------- pages
+def _all_departments(is_admin: bool) -> list[dict]:
+    """The sidebar's departments as My View's fallback picker: id, name and
+    icon, Utilities dropped for a General account the way the nav drops it."""
+    try:
+        from hub import sidebar
+        return [{"id": d["slug"], "name": d["label"], "icon": d["ico"]}
+                for d in sidebar.departments(is_admin)]
+    except Exception:                                       # noqa: BLE001
+        return []
+
+
 @bp.route("/views")
 def page_my_view():
     _email, name, is_admin = _who()
@@ -76,7 +87,8 @@ def page_my_view():
     dept = _selected(mine, request.args.get("dept") or "")
     return render_template("department_view.html", user=name, active="deptviews",
                            department=dept, is_admin=is_admin, is_mine=True,
-                           my_departments=mine)
+                           my_departments=mine,
+                           all_departments=_all_departments(is_admin))
 
 
 @bp.route("/views/manage")
@@ -94,9 +106,13 @@ def page_view_department(dept_id):
     _email, name, is_admin = _who()
     mine = _my_departments()
     is_mine = any(d.get("id") == dept.get("id") for d in mine)
-    return render_template("department_view.html", user=name, active="deptviews",
+    # A built-in department's page lights its own sidebar row, the way any
+    # tool lights the department it sits under; a curated view is "My View".
+    active = "dept_" + dept["id"].replace("-", "_") if dept.get("builtin") else "deptviews"
+    return render_template("department_view.html", user=name, active=active,
                            department=dept, is_admin=is_admin,
-                           is_mine=is_mine, my_departments=mine)
+                           is_mine=is_mine, my_departments=mine,
+                           all_departments=_all_departments(is_admin))
 
 
 # ---------------------------------------------------------------------- API

@@ -480,7 +480,7 @@ SCENARIOS: list[Scenario] = [
         minutes=4, path="/qa",
         steps=[
             Step("Open Suite Billing, No Active Product",
-                 "Under the Suite (GoHighLevel) group.",
+                 "Under the Smart 1 Suite group.",
                  "Compares live Suite billing in GoHighLevel against products on "
                  "file in Knack.",
                  action="click", selector="[data-demo='qa-report-ghl-billing-no-products']"),

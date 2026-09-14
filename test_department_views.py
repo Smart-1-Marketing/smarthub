@@ -105,7 +105,11 @@ with app.app_context():
     print("\n-- creating a department --")
     sales = dv.create_department("Sales", "The pipeline and the leads.",
                                   actor_email=todd.email)
-    check("the id is a slug", sales["id"], "sales")
+    # "sales" is the sidebar's own Sales department (hub/sidebar.py), so a
+    # curated one named Sales cannot take that slug -- /views/sales must
+    # always be the page the sidebar row opens.
+    check("the id is a slug, and a built-in slug is stepped around",
+          sales["id"], "sales-dept")
     check("the blocks start empty", sales["blocks"], [])
 
     try:
@@ -115,7 +119,7 @@ with app.app_context():
         check_true("a blank name is refused", True)
 
     creative = dv.create_department("Creative")
-    check("a second department gets its own slug", creative["id"], "creative")
+    check("a second department gets its own slug", creative["id"], "creative-dept")
 
     print("\n-- block validation --")
     kept, dropped = dv.save_blocks(sales["id"], [
@@ -180,9 +184,31 @@ with app.app_context():
     check("the roster reports the rep's departments as a list",
           by_email[rep.email]["department_ids"], [creative["id"]])
 
-    print("\n-- the catalog reuses QA Tasks' own picker --")
+    print("\n-- the catalog: the sidebar's departments, then QA Tasks' own picker --")
     groups = dv.catalog()
     check_true("it returns at least one group", len(groups) > 0)
+    check("the first groups are the sidebar's departments, in nav order",
+          [g["group"] for g in groups[:3]], ["Sales", "Client Success", "Product Success"])
+
+    print("\n-- built-in departments --")
+    builtin = dv.get_department("sales")
+    check_true("the sidebar's Sales is a department here", bool(builtin and builtin.get("builtin")))
+    check_true("it carries the nav's tools", any(
+        t["href"] == "/sales/builder/" for g in builtin["groups"] for t in g["tiles"]))
+    try:
+        dv.delete_department("sales")
+        check_true("a built-in cannot be deleted", False)
+    except dv.DepartmentViewError:
+        check_true("a built-in cannot be deleted", True)
+    try:
+        dv.save_blocks("creative", [])
+        check_true("a built-in cannot have blocks saved on it", False)
+    except dv.DepartmentViewError:
+        check_true("a built-in cannot have blocks saved on it", True)
+    dv.set_assignment(rep.email, "seo", on=True, actor_email=todd.email)
+    check_true("a person can be put on a built-in department",
+               "seo" in dv.assignments_for(rep.email))
+    dv.set_assignment(rep.email, "seo", on=False, actor_email=todd.email)
 
     print("\n-- My View's own picker logic --")
     from hub import department_views_routes as dvr
@@ -259,8 +285,10 @@ check("and taking it off is reflected too", rep_row2["department_ids"], [])
 
 with app.app_context():
     dv.delete_department(hr["id"], actor_email="todd@smart1marketing.com")
-    unread = dv.list_departments()
-    check("no departments are left dangling from the test run", unread, [])
+    # The sidebar's built-in departments are always listed; only curated
+    # ones can be left behind by a test.
+    unread = [d for d in dv.list_departments() if not d.get("builtin")]
+    check("no curated departments are left dangling from the test run", unread, [])
 
 print(f"\n{'=' * 60}\n{_passed} passed, {_failed} failed\n")
 sys.exit(1 if _failed else 0)
