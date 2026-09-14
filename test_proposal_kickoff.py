@@ -29,9 +29,7 @@ being confidently wrong:
   outside both the login (the blueprint guard) and the chrome (CHROMELESS),
   because a client-facing hub route needs both halves.
 """
-import json
 import os
-import re
 import sys
 import tempfile
 
@@ -208,7 +206,6 @@ with hub_app.app_context():
 # ---------------------------------------------------------------------------
 section("The kickoff document: built from the kept plan, counting what is not")
 with hub_app.app_context():
-    run = pe.get_run(RUN_ID)
     plan = _plan(RUN_ID)
     creative_ids = [it["id"] for it in plan["creative"]]
     supply_keys = [q["key"] for q in plan["questions"] if q["key"].startswith("creative_supply:")]
