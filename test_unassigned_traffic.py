@@ -58,7 +58,7 @@ check("GA4 exact total wins over detail sum", capped["unassigned_sessions"], 40)
 check("rate uses exact total", capped["unassigned_rate"], 40.0)
 check("diagnosed rows remain honest", capped["diagnosed_sessions"], 25)
 check("coverage names the gap", capped["diagnostic_coverage_pct"], 62.5)
-check("capped detail is labelled", capped["detail_limited"], True)
+check("capped detail is labeled", capped["detail_limited"], True)
 check("historical warning", "not rewritten" in capped["note"], True)
 
 # The central WSGI file already mounts /tools/utm. The package wires this
