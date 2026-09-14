@@ -21,7 +21,7 @@
   <div>
     <div class="s1d-crumb">
       <a href="/">Dashboard</a> /
-      {% if is_mine %}My View{% else %}<a href="/views">My View</a> / {{ department.name }}{% endif %}
+      {% if department and department.builtin %}{{ department.name }}{% elif is_mine %}My View{% else %}<a href="/views">My View</a> / {{ department.name }}{% endif %}
     </div>
     {% if department %}
       <h1>{{ department.name }}</h1>
@@ -48,7 +48,25 @@
 </div>
 {% endif %}
 
-{% if department %}
+{% if department and department.builtin %}
+  {#
+    A built-in department is one of the sidebar's own (hub/sidebar.py):
+    this page is its index -- every tool the flyout lists, as tiles, grouped
+    the same way. Icons are HTML entities authored in that module, not user
+    text, which is the one place |safe is used on this page.
+  #}
+  {% for g in department.groups %}
+    {% if g.label %}<div class="qa-group-label">{{ g.label }}</div>{% endif %}
+    <div class="tool-tiles compact">
+      {% for t in g.tiles %}
+      <a class="tool-tile" href="{{ t.href }}">
+        <div class="t-ico">{{ t.icon|safe }}</div>
+        <h3>{{ t.label|safe }}</h3>
+      </a>
+      {% endfor %}
+    </div>
+  {% endfor %}
+{% elif department %}
   {% set notes = department.blocks | selectattr('type', 'equalto', 'note') | list %}
   {% set tiles = department.blocks | selectattr('type', 'equalto', 'tile') | list %}
 
@@ -75,14 +93,32 @@
   </div>
   {% endif %}
 {% else %}
+  {#
+    Nobody has put this person on a view yet. Rather than a dead end, the
+    departments the sidebar is organised by -- each a link to its index
+    page -- so My View is useful on day one and an admin can still narrow
+    it later from the editor.
+  #}
   <div class="card">
     {% if is_admin %}
-      <p>Create a department, curate its view, and put people on it from
-        <a href="/views/manage">Department Views</a>.</p>
+      <p>Put people on a department from <a href="/views/manage">Department Views</a>
+        and this page shows them that department. Until then, every department:</p>
     {% else %}
-      <p>Ask an admin to put you on a department's view, from Diagnostics
-        &rarr; <b>Department Views</b>.</p>
+      <p>Nobody has put you on a department yet — ask an admin. Until then, every department:</p>
     {% endif %}
   </div>
+  <div class="tool-tiles compact">
+    {% for d in all_departments %}
+    <a class="tool-tile" href="/views/{{ d.id }}">
+      <div class="t-ico">{{ d.icon|safe }}</div>
+      <h3>{{ d.name }}</h3>
+    </a>
+    {% endfor %}
+  </div>
 {% endif %}
+<style>
+.qa-group-label{margin:22px 2px 8px;font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:1px;color:#64748b}
+.qa-group-label:first-of-type{margin-top:4px}
+</style>
 {% endblock %}
