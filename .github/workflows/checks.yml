@@ -412,6 +412,9 @@ jobs:
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
+      - name: Gallery filing identity and failed-transaction recovery
+        run: python test_gallery_filing_regression.py
+
       - name: Industry factory config, routes, leads and creative tests
         run: |
           python test_industry_core.py
@@ -1348,6 +1351,20 @@ jobs:
             echo "test_seo_page.py not on this branch — nothing to run."
           fi
 
+      - name: SEO Intelligence recommendations
+        # SEORecommendation declared a column named `query`, which shadows
+        # Flask-SQLAlchemy's Model.query on that one class: every weekly
+        # refresh rolled back and the action queue answered 500, with every
+        # screen looking fine. The test drives the refresh, the routes, the
+        # job's verdict and the integrity sweep that refuses the next one.
+        # Needs no network -- Search Console is stubbed.
+        run: |
+          if [ -f test_seo_intelligence.py ]; then
+            python test_seo_intelligence.py
+          else
+            echo "test_seo_intelligence.py not on this branch — nothing to run."
+          fi
+
       - name: Client 360 workspace layout
         # The record's cards are moved into rail sections by title, and the
         # matching is driven in node against the template's own card titles —
@@ -2052,6 +2069,12 @@ jobs:
       - name: Weather Trigger Setup campaigns, copy and the public wizard
         run: python3 test_weather_setup.py
 
+      # Client 360 pipeline card: the client's own Suite pipelines, counted
+      # from raw rows; tri-state on the sub-account token; no token in the
+      # answer; paging capped and flagged.
+      - name: Client 360 pipeline card
+        run: python3 test_client360_pipeline.py
+
       # 360 Skills: the per-client skill store (verify-then-activate, masked
       # secrets), the Ecwid hotsheet maths, the Suite email send path, the
       # three blueprints and the gate Client 360 draws its skill cards behind.
@@ -2269,6 +2292,14 @@ jobs:
             python3 test_proposal_kickoff.py
           else
             echo "test_proposal_kickoff.py not on this branch — nothing to run."
+          fi
+
+      - name: Proposal Execution — done, landed and overdue on the launch tasks and the creative
+        run: |
+          if [ -f test_proposal_progress.py ]; then
+            python3 test_proposal_progress.py
+          else
+            echo "test_proposal_progress.py not on this branch — nothing to run."
           fi
 
       # WO-2: real-tool adapters. Every task on the graph used to run as

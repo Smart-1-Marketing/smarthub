@@ -219,7 +219,7 @@ const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href=
    twenty-two into the first section. */
 /* ---- c360 sections (lifted and driven in node by test_client360_layout.py) ---- */
 const C360_SECTIONS=[
-  {key:'overview', label:'Overview',          match:['products','orders we have sent','ad performance','smart 1 suite','proposals','client notes','target audience']},
+  {key:'overview', label:'Overview',          match:['products','orders we have sent','ad performance','smart 1 suite','pipeline & leads','proposals','client notes','target audience']},
   {key:'billing',  label:'Billing',           match:['invoices']},
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
@@ -572,6 +572,11 @@ function render(g,q){
 
   // ---------- Smart 1 Suite Account + Proposals (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+  /* ---------- Pipeline & leads (hub/suite_pipeline.py) ----------
+     The client's OWN pipelines, read from their sub-account: the leads the
+     marketing is producing and where they sit. The card above is about our
+     link to the account; this one is about their business. */
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Pipeline &amp; leads</h3><a class="open-link" id="c-pipeline-open" href="/suite/" style="display:none">Open their pipeline →</a></div><div class="card-b" id="c-pipeline"><div class="empty">Reading their pipeline… <span class="spin"></span></div></div></div>`;
   html+=`<div class="card c360-proposals-card" data-demo="proposals-card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals {{ help_dot('hub.client360.proposals') if help_dot is defined else '' }}</h3>
     <div class="right" style="display:flex;gap:10px;align-items:center">
       <a class="open-link" id="c-props-upload" style="cursor:pointer">&#8679; Upload proposal</a>
@@ -4092,6 +4097,7 @@ function loadBrandAndWork(name){
   loadOwner(name);
   loadOrders(name);
   loadAdPerformance(name);
+  loadPipeline(name);
   loadPlan(name);
   fetch('/api/client/utm?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderUtm).catch(function(){});
@@ -4155,6 +4161,10 @@ function loadPlan(name){
         if(p.open_questions) todo.push(p.open_questions+' question'+(p.open_questions===1?'':'s')+' open');
         if(p.creative_unassigned) todo.push(p.creative_unassigned+' creative item'
           + (p.creative_unassigned===1?'':'s')+' with no supplier named');
+        /* Launch tasks and creative past the date the launch date put on
+           them, with nothing marked done and nothing landed. */
+        var pg=p.progress||{};
+        if(pg.overdue) todo.push(pg.overdue+' launch or creative item'+(pg.overdue===1?'':'s')+' past due');
         /* The monthly promises, month by month, are on the plan; what the
            record says is whether any is missed or still due this month. A
            schedule with no launch date to measure from says nothing here --
@@ -4307,6 +4317,72 @@ function loadAdPerformance(name){
       if(b) b.innerHTML='<div class="empty">The ad-performance store could not be read. '
         + 'That is not the same as no campaign running for this client.</div>';
     });
+}
+/* ---- pipeline (lifted and driven in node by test_client360_pipeline.py) ---- */
+function pipeMoney(n){
+  n=Number(n)||0;
+  return '$'+(n>=1000?Math.round(n).toLocaleString('en-US'):n.toFixed(n%1?2:0));
+}
+function pipeAgo(iso){
+  if(!iso) return '';
+  const d=(Date.now()-Date.parse(iso))/86400000;
+  if(!(d>=0)) return '';
+  return d<1?'today':d<2?'yesterday':Math.floor(d)+' days ago';
+}
+function renderPipeline(d){
+  d=d||{};
+  if(d.state==='not_connected')
+    return '<div class="empty">'+esc(d.detail||'This client has no Smart 1 Suite sub-account attached.')+'<div class="muted" style="font-size:12px;margin-top:6px">Attach one in the Smart 1 Suite Account card and this fills in.</div></div>';
+  if(d.state!=='connected'||d.measured===false)
+    return '<div class="empty">'+esc(d.detail||'The pipeline could not be read.')+'</div>';
+  const t=d.totals||{}, pipes=d.pipelines||[], recent=d.recent||[];
+  if(d.no_pipelines&&!t.all)
+    return '<div class="empty">Their sub-account has no pipeline set up yet.<div class="muted" style="font-size:12px;margin-top:6px">Leads land in a pipeline; without one there is nothing to count. Set one up in Smart 1 Suite.</div></div>';
+  let h='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:14px;margin-bottom:12px">';
+  h+=scStat('Open leads',t.open||0,d.suite_url);
+  h+=scStat('Open value',pipeMoney(t.open_value),d.suite_url);
+  h+=scStat('New this week',t.new_week||0,d.suite_url);
+  h+=scStat('Won, 30 days',(t.won_month||0)+(t.won_value_month?' · '+pipeMoney(t.won_value_month):''),d.suite_url);
+  h+=scStat('Going cold',t.stale||0,d.suite_url,true);
+  h+='</div>';
+  h+='<div class="muted" style="font-size:12px;margin-bottom:10px">'+(t.new_month||0)+' new in the last 30 days · '+(t.lost_month||0)+' lost'
+    +(t.stale?' · <b>'+t.stale+'</b> open with no activity in '+(d.stale_days||30)+' days':'')+'</div>';
+  const shown=pipes.filter(p=>p.open>0);
+  if(shown.length){
+    h+=shown.map(p=>{
+      const max=Math.max.apply(null,p.stages.map(s=>s.count).concat([1]));
+      return '<div style="margin-bottom:10px"><div style="font-size:12.5px;font-weight:600;margin-bottom:4px">'+esc(p.name)+' <span class="muted" style="font-weight:400">· '+p.open+' open · '+pipeMoney(p.value)+'</span></div>'
+        +'<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+p.stages.map(s=>
+          '<tr><td style="padding:2px 8px 2px 0;white-space:nowrap;width:1%">'+esc(s.name)+'</td>'
+          +'<td style="padding:2px 0"><div style="background:var(--line-soft,#e5e7eb);border-radius:4px;height:10px;overflow:hidden"><div style="width:'+Math.round(100*s.count/max)+'%;height:100%;background:var(--brand,#2563eb);min-width:'+(s.count?'3px':'0')+'"></div></div></td>'
+          +'<td style="padding:2px 0 2px 8px;text-align:right;white-space:nowrap" class="muted">'+s.count+(s.value?' · '+pipeMoney(s.value):'')+'</td></tr>').join('')+'</table></div>';
+    }).join('');
+  }
+  const idle=pipes.filter(p=>!(p.open>0));
+  if(idle.length) h+='<div class="muted" style="font-size:12.5px;margin-bottom:10px">Nothing open in '+idle.map(p=>esc(p.name)).join(', ')+'.</div>';
+  if(t.unstaged) h+='<div class="muted" style="font-size:11.5px;margin-bottom:8px">'+t.unstaged+' open lead'+(t.unstaged===1?' is':'s are')+' in a stage that no longer exists.</div>';
+  if(recent.length){
+    const cls={open:'info',won:'ok',lost:'err',abandoned:'neutral'};
+    h+='<div style="font-size:12.5px;font-weight:600;margin:6px 0 4px">Newest leads</div><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+      +recent.map(r=>'<tr><td style="padding:3px 8px 3px 0"><b>'+esc(r.name)+'</b>'+(r.contact&&r.contact!==r.name?' <span class="muted">· '+esc(r.contact)+'</span>':'')
+        +(r.stage?'<div class="muted" style="font-size:11.5px">'+esc(r.stage)+(r.source?' · '+esc(r.source):'')+'</div>':'')+'</td>'
+        +'<td style="padding:3px 8px;white-space:nowrap"><span class="pill '+(cls[r.status]||'neutral')+'" style="font-size:10.5px">'+esc(r.status)+'</span></td>'
+        +'<td style="padding:3px 0;text-align:right;white-space:nowrap" class="muted">'+(r.value?pipeMoney(r.value)+' · ':'')+esc(pipeAgo(r.created))+'</td></tr>').join('')+'</table>';
+  }
+  if(d.truncated) h+='<div class="muted" style="font-size:11.5px;margin-top:8px">Only the newest 1,000 leads were counted.</div>';
+  return h;
+}
+/* ---- end pipeline ---- */
+function loadPipeline(name){
+  const el=$('c-pipeline'); if(!el) return;
+  const gen=c360Generation;
+  fetch('/api/client/pipeline?name='+encodeURIComponent(name)+'&url='+encodeURIComponent(window.__c360domain||''),{credentials:'same-origin'})
+    .then(r=>r.json()).then(d=>{
+      if(gen!==c360Generation) return;
+      el.innerHTML=renderPipeline(d);
+      const o=$('c-pipeline-open'); if(o&&d&&d.suite_url){o.href=d.suite_url;o.style.display='';}
+    })
+    .catch(()=>{ if(gen!==c360Generation) return; el.innerHTML=renderPipeline({state:'not_measured',measured:false,detail:'The pipeline could not be read.'}); });
 }
 function loadOrders(name){
   var box=document.getElementById('c-orders');

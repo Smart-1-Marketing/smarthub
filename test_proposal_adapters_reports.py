@@ -179,14 +179,27 @@ try:
         check("reporting_plan reaches completed (mode=auto)", rp.state, pe.COMPLETED)
 
         result = rp.result()
-        link = reports_store.link_for_client(CLIENT)
-        check("a real ReportLink was minted for this client", link is not None, True)
+        # The module's own key, not the display name: the same reading the
+        # Budgets and Client Links screens file under, so the client's
+        # campaigns, link and lines sit under one spelling. The registry
+        # stub carries a domain, so that is a domain key.
+        KEY = reports_store.resolve_client(CLIENT, "")[0]
+        check("the client resolves to the module's own key, from the registry's domain",
+              KEY, "d:reportsrealrun.example.com")
+        check("the adapter says which key it filed under", result.get("client_key"), KEY)
+        link = reports_store.link_for_client(KEY)
+        check("a real ReportLink was minted for this client, under that key", link is not None, True)
+        check("...carrying the display name", link.client_name if link else None, CLIENT)
+        check("...and nothing under the display name itself",
+              reports_store.link_for_client(CLIENT), None)
         check("the returned token matches the real, stored link",
               result.get("token"), link.token if link else None)
         check("the artifact_url points at the real client dashboard",
               result.get("artifact_url"), f"/reports/r/c/{link.token}" if link else None)
 
-        lines = reports_store.budget_lines_for(CLIENT)
+        lines = reports_store.budget_lines_for(KEY)
+        check("no budget line went under the display name",
+              reports_store.budget_lines_for(CLIENT), [])
         products = sorted(b["product"] for b in lines)
         check("a budget line was written for each channel carrying a real figure",
               products, sorted(["Website Retargeting", "Meta In-Market Home Buyers"]))
@@ -204,24 +217,91 @@ finally:
 section("Idempotent: re-running the adapter reuses the link and skips existing lines")
 # ---------------------------------------------------------------------------
 
+# Deliberately run with the registry stub RESTORED: the real registry does
+# not know this client, so the retry resolves it to a name key rather than
+# the domain key the first run filed under -- which is exactly what a Knack
+# outage on a retry looks like. The link and the lines are found by the
+# display name they carry, so a second live link is never minted under the
+# new spelling and no line is doubled.
 with hub_app.app_context():
     tasks = {t.task_key: t for t in pe.tasks_for_run(run.id)}
-    before_link = reports_store.link_for_client(CLIENT)
-    before_lines = len(reports_store.budget_lines_for(CLIENT))
+    retry_key = reports_store.resolve_client(CLIENT, "")[0]
+    check("on the retry the registry cannot see the client, so the key differs",
+          retry_key != KEY and retry_key.startswith("n:"), True)
+    before_link = reports_store.link_for_client(KEY)
+    before_lines = len(reports_store.budget_lines_named(CLIENT))
 
     second = reports_adapter.run(run, tasks["reporting_plan"])
 
-    after_link = reports_store.link_for_client(CLIENT)
-    after_lines = reports_store.budget_lines_for(CLIENT)
+    after_link = reports_store.link_for_client(KEY)
+    after_lines = reports_store.budget_lines_named(CLIENT)
 
     check("re-running mints no second live link for this client",
           after_link.token, before_link.token)
+    check("...and none under the retry's spelling",
+          reports_store.link_for_client(retry_key), None)
+    check("...and says which spelling the reused link sits under",
+          second.get("link_filed_under"), KEY)
     check("re-running writes no duplicate budget lines",
           len(after_lines), before_lines)
+    check("...under any spelling",
+          sorted({b["client"] for b in after_lines}), [KEY])
     check("re-running reports every priced channel as already on file",
           sorted(second.get("budget_lines_existing") or []),
           sorted(["Website Retargeting", "Meta In-Market Home Buyers"]))
     check("...and adds none", second.get("budget_lines_added"), [])
+
+
+
+
+
+# ---------------------------------------------------------------------------
+section("A link and a line filed under the display name earlier are reused, never re-minted")
+# ---------------------------------------------------------------------------
+
+# For a release the adapter filed under run.client -- the display name --
+# and those rows are real. A run for that client now resolves to the
+# module's key, and must find the old link by its name rather than mint a
+# second live one, and must not double a line already there.
+LEGACY = "Legacy Spelling Co"
+clients_registry.find_client = lambda name: {"name": name, "domain": "legacyspelling.example.com"}
+try:
+    with hub_app.app_context():
+        old_link = reports_store.create_link(LEGACY, client_name=LEGACY, created_by="proposal-execution")
+        reports_store.add_budget_line(client=LEGACY, client_name=LEGACY, product="Website Retargeting",
+                                      monthly_budget="500", created_by="proposal-execution")
+        run = _new_run(LEGACY, "PLAN\nWebsite Retargeting $500\nMeta In-Market Home Buyers $900\n")
+        run = pe.update_inputs(run.id, {"landing_url": "legacyspelling.example.com",
+                                        "target_geography": "Columbus, OH",
+                                        "primary_cta": "Book a tour",
+                                        "conversion_goal": "form fill"}, actor="rep@example.com")
+        run = pe.start_run(run.id, actor="rep@example.com")
+        tasks = _drain(run)
+        rp = tasks["reporting_plan"]
+        check("the run completes", rp.state, pe.COMPLETED)
+        result = rp.result()
+        key = reports_store.resolve_client(LEGACY, "")[0]
+        check("the run resolves to the module's key", key, "d:legacyspelling.example.com")
+        check("the old link is reused rather than a second live one minted",
+              result.get("token"), old_link.token)
+        check("...and the result says which spelling it sits under",
+              result.get("link_filed_under"), LEGACY)
+        check("no link was minted under the key", reports_store.link_for_client(key), None)
+        check("there is still exactly one live link carrying this client's name",
+              len(reports_store.links_named(LEGACY)), 1)
+        by_product = {}
+        for b in reports_store.budget_lines_named(LEGACY):
+            by_product.setdefault(b["product"], []).append(b["client"])
+        check("the legacy line is left alone, not doubled under the key",
+              by_product.get("Website Retargeting"), [LEGACY])
+        check("the new line goes under the key", by_product.get("Meta In-Market Home Buyers"), [key])
+        check("the result counts one kept and one added",
+              (result.get("budget_lines_existing"), result.get("budget_lines_added")),
+              (["Website Retargeting"], ["Meta In-Market Home Buyers"]))
+        check("links_named matches the name exactly, never a substring",
+              reports_store.links_named("Legacy Spelling Supply Co"), [])
+finally:
+    clients_registry.find_client = _real_find_client
 
 
 print(f"\n{_passed} passed, {_failed} failed")

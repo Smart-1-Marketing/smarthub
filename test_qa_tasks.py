@@ -309,6 +309,52 @@ with app.app_context():
     check_true("a task already claimed is not claimed a second time",
                all(d["task"] != for_autoclaim.id for d in again["details"]))
 
+    print("\n-- resolving a share page to its real image --")
+
+    class _FakeResp:
+        def __init__(self, text="", status=200):
+            self.text = text
+            self.status_code = status
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise requests_mod.HTTPError(f"HTTP {self.status_code}")
+
+    import requests as requests_mod
+    _orig_get = requests_mod.get
+
+    HTML_WITH_OG = ('<html><head><meta property="og:image" '
+                    'content="https://cdn.awesomescreenshot.com/real/abc.png">'
+                    '</head></html>')
+
+    def fake_get_with_og(url, **kw):
+        return _FakeResp(HTML_WITH_OG)
+    requests_mod.get = fake_get_with_og
+    check("a share page's og:image is read out",
+          qa_tasks._resolve_screenshot_url(
+              "https://www.awesomescreenshot.com/image/1?key=x"),
+          "https://cdn.awesomescreenshot.com/real/abc.png")
+    check("a bare image URL is never fetched at all",
+          qa_tasks._resolve_screenshot_url("https://example.com/chart.png"),
+          "https://example.com/chart.png")
+
+    def fake_get_raises(url, **kw):
+        raise requests_mod.ConnectionError("blocked")
+    requests_mod.get = fake_get_raises
+    check("a page that could not be read falls back to itself",
+          qa_tasks._resolve_screenshot_url(
+              "https://www.awesomescreenshot.com/image/1?key=x"),
+          "https://www.awesomescreenshot.com/image/1?key=x")
+
+    def fake_get_no_og(url, **kw):
+        return _FakeResp("<html><body>no preview tag here</body></html>")
+    requests_mod.get = fake_get_no_og
+    check("a page with no og:image tag falls back to itself",
+          qa_tasks._resolve_screenshot_url(
+              "https://www.awesomescreenshot.com/image/1?key=x"),
+          "https://www.awesomescreenshot.com/image/1?key=x")
+    requests_mod.get = _orig_get
+
     print("\n-- reading a screenshot for somebody --")
     from hub import ai as hub_ai
 
@@ -330,6 +376,7 @@ with app.app_context():
     check("a task with no image link is skipped",
           result.get("skipped"), "no image link in the instructions")
 
+    requests_mod.get = fake_get_with_og
     with_image = qa_tasks.create(
         target_key="other", target_other="Dashboard",
         instructions=("Unsure of this stat: "
@@ -338,9 +385,15 @@ with app.app_context():
         assigned_to_email=other.email, due_on="",
         actor_email=rev.email, actor_name=rev.name)
     result = qa_tasks.describe_images(with_image.id)
+    requests_mod.get = _orig_get
     check("both image links are read", result.get("described"), 2)
     check_true("the model was actually asked",
                len(stub_vision.calls) == 1 and len(stub_vision.calls[0][1]) == 2)
+    check_true("...with the share link resolved to the real image first",
+               "https://cdn.awesomescreenshot.com/real/abc.png"
+               in stub_vision.calls[0][1])
+    check_true("...and the bare image URL passed through untouched",
+               "https://example.com/chart.png" in stub_vision.calls[0][1])
     thread = qa_tasks.get(with_image.id, viewer_email=other.email)["responses"]
     vision_posts = [r for r in thread if r["kind"] == "vision"]
     check("the reading is posted into the thread", len(vision_posts), 1)

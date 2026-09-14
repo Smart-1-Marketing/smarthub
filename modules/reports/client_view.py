@@ -70,6 +70,26 @@ PLATFORM_LABELS = {
 # Which platforms report a completion, and what a completion is there.
 COMPLETION = {"ttd": "video", "stackadapt": "video", "amazon_dsp": "video", "audiogo": "audio"}
 
+
+def _completion_kind(f: dict) -> str | None:
+    """``video`` / ``audio`` / None for one fact row.
+
+    By platform for the platforms that serve one kind of creative and
+    nothing else. By the ROW for Google Ads, because one account serves
+    search and YouTube alike: a row carries ``completes`` only when the
+    native pull read a video campaign, so that row is a video one and a
+    search row is not -- and listing the platform in ``COMPLETION`` would
+    draw "Video ads completed 0" for a search-only client, the measured
+    nought about a product they are not running that the tile's own gate
+    exists to refuse.
+    """
+    kind = COMPLETION.get(f["platform"])
+    if kind:
+        return kind
+    if f["platform"] == "google" and f.get("completes") is not None:
+        return "video"
+    return None
+
 SMART1_LOGO = ("https://content.app-sources.com/s/30680510049142132/uploads/"
                "Our_Products_/logo-final-cmyk-hz1line-white-9562849.png?format=webp")
 SMART1_SITE = "https://smart1marketing.com"
@@ -266,9 +286,10 @@ def build(link, period: str, today: date | None = None) -> dict:
         p["impressions"] += f["impressions"]
         p["clicks"] += f["clicks"]
         p["conversions"] += f["conversions"]
-        if f["platform"] in COMPLETION:
+        kind = _completion_kind(f)
+        if kind:
             p["completes"] += int(f["completes"] or 0)
-            p["kinds"].add(COMPLETION[f["platform"]])
+            p["kinds"].add(kind)
         pp = plat.setdefault((product, f["platform"]), {"_raw": Decimal(0), "impressions": 0})
         pp["_raw"] += f["spend"]
         pp["impressions"] += f["impressions"]
@@ -276,7 +297,9 @@ def build(link, period: str, today: date | None = None) -> dict:
         name = f.get("display_name") or f["campaign_name"] or f["campaign_id"]
         c = camp.setdefault(key, {"product": product, "campaign": name, "impressions": 0,
                                   "clicks": 0, "conversions": Decimal(0), "completes": 0,
-                                  "kind": COMPLETION.get(f["platform"])})
+                                  "kind": kind})
+        if c["kind"] is None and kind:
+            c["kind"] = kind
         c["impressions"] += f["impressions"]
         c["clicks"] += f["clicks"]
         c["conversions"] += f["conversions"]
@@ -332,7 +355,7 @@ def build(link, period: str, today: date | None = None) -> dict:
     # draw "Video ads completed 0" this month, which reads as a measured
     # nought about a product the client is not running.
     period_platforms = {f["platform"] for f in facts}
-    kinds = {COMPLETION[p] for p in period_platforms if p in COMPLETION}
+    kinds = {k for k in (_completion_kind(f) for f in facts) if k}
     if kinds:
         completes = sum(t["completes"] for t in prod.values())
         label = ("Listens" if kinds == {"audio"} else
@@ -471,6 +494,33 @@ def aggregate(link, period: str, today: date | None = None) -> dict:
             oldest = sorted(_CACHE, key=lambda k: _CACHE[k][0])[:250]
             for k in oldest:
                 _CACHE.pop(k, None)
+    return data
+
+
+def pdf_bytes(link, period: str, today: date | None = None) -> bytes:
+    """``client_pdf.build(aggregate(...))`` behind the same cache as the
+    aggregate: the same key with a marker on the end, the same fifteen
+    minutes, and dropped by the same ``forget()``.
+
+    The PDF used to be rebuilt on every request while the page beside it
+    was served from cache -- a client refreshing the download was a
+    reportlab render each time, on the one route a stranger can hit with
+    no login. The key is the aggregate's, so a markup saved on the other
+    worker or a display name corrected on the staff page reaches the
+    document exactly when it reaches the page; nothing here can serve a
+    PDF of numbers the page has stopped showing.
+    """
+    from . import client_pdf
+    key = (link.token, period_range(period, today)["key"], store.iso(link.updated_at),
+           store.pricing_version(), store.mapping_version(link.client), "pdf")
+    now = time.monotonic()
+    with _LOCK:
+        hit = _CACHE.get(key)
+        if hit and now - hit[0] < CACHE_SECONDS:
+            return hit[1]
+    data = client_pdf.build(aggregate(link, period, today))
+    with _LOCK:
+        _CACHE[key] = (now, data)
     return data
 
 

@@ -20,7 +20,7 @@ h1{margin:2px 0 4px;font-size:26px;color:var(--navy)}h2{margin:24px 0 8px;font-s
 .kick-fact{background:var(--soft);border:1px solid var(--line);border-radius:9px;padding:10px 12px}.kick-fact b{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}.kick-fact span{font-size:14px;font-weight:600;color:var(--navy)}
 .kick-note{font-size:12.5px;color:#6b5b16;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:9px 12px;margin:12px 0}
 table{width:100%;border-collapse:collapse;font-size:13px}th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--line)}td{padding:8px;border-bottom:1px solid #eef2f7;vertical-align:top}td.d{color:var(--muted);font-size:12px}
-.kick-who{white-space:nowrap}.kick-none{color:var(--muted);font-style:italic}.kick-detail{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.kick-who{white-space:nowrap}td.kick-st-overdue{color:#991b1b;font-weight:600}td.kick-st-done,td.kick-st-landed{color:#047857}.kick-none{color:var(--muted);font-style:italic}.kick-detail{display:block;color:var(--muted);font-size:12px;margin-top:2px}
 ul.kick-q{margin:6px 0 0;padding-left:20px}ul.kick-q li{margin:4px 0}ul.kick-q small{display:block;color:var(--muted)}
 .kick-foot{margin-top:26px;font-size:11.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px}
 .kick-link{word-break:break-all}
@@ -58,12 +58,14 @@ ul.kick-q{margin:6px 0 0;padding-left:20px}ul.kick-q li{margin:4px 0}ul.kick-q s
     <div class="kick-fact"><b>Background work</b><span>{{ doc.board.task_count }} tasks · {{ doc.board.progress }}% complete</span></div>
   </div>
 
-  {% if doc.to_review or doc.unverified or doc.unowned or doc.creative_unassigned %}
+  {% if doc.to_review or doc.unverified or doc.unowned or doc.creative_unassigned or doc.overdue or doc.progress_note %}
   <div class="kick-note">
     {% if doc.to_review %}<div><b>{{ doc.to_review }}</b> item{{ '' if doc.to_review == 1 else 's' }} on the plan {{ 'has' if doc.to_review == 1 else 'have' }} not been reviewed and {{ 'is' if doc.to_review == 1 else 'are' }} not on this document — review them on the plan first.</div>{% endif %}
     {% if doc.unverified %}<div><b>{{ doc.unverified }}</b> item{{ '' if doc.unverified == 1 else 's' }} found by AI {{ 'has' if doc.unverified == 1 else 'have' }} no matching line in the proposal.</div>{% endif %}
     {% if doc.creative_unassigned %}<div><b>{{ doc.creative_unassigned }}</b> creative item{{ '' if doc.creative_unassigned == 1 else 's' }} {{ 'has' if doc.creative_unassigned == 1 else 'have' }} nobody named as the supplier yet — nothing can be requested or built for those.</div>{% endif %}
     {% if doc.unowned %}<div><b>{{ doc.unowned|length }}</b> item{{ '' if doc.unowned|length == 1 else 's' }} {{ 'has' if doc.unowned|length == 1 else 'have' }} no owner: assign the client an owner, or name one on the item.</div>{% endif %}
+    {% if doc.overdue %}<div><b>{{ doc.overdue }}</b> launch task{{ '' if doc.overdue == 1 else 's' }} or creative item{{ '' if doc.overdue == 1 else 's' }} {{ 'is' if doc.overdue == 1 else 'are' }} past the date the launch date put on {{ 'it' if doc.overdue == 1 else 'them' }}, with nothing marked done and nothing landed — marked in the tables below.</div>{% endif %}
+    {% if doc.progress_note %}<div>{{ doc.progress_note }} Whether the creative has landed is not known from here; the Status column shows the marks people made.</div>{% endif %}
   </div>
   {% endif %}
 
@@ -76,15 +78,15 @@ ul.kick-q{margin:6px 0 0;padding-left:20px}ul.kick-q li{margin:4px 0}ul.kick-q s
 
   <h2>Creative that has to exist</h2>
   {% if doc.creative %}
-  <table><thead><tr><th>What</th><th>Channel</th><th>Supplied by</th><th>Wanted by</th><th>Owner</th><th>Made in</th></tr></thead><tbody>
-  {% for it in doc.creative %}<tr><td>{{ it.title }}{% if it.detail %}<span class="kick-detail">{{ it.detail }}</span>{% endif %}</td><td class="d">{{ it.channel_name or '' }}</td><td class="d">{{ it.supplier_label or 'not answered' }}</td><td class="d">{{ it.due_label or '—' }}</td><td class="kick-who">{{ it.owner_label or '—' }}</td><td class="d">{{ it.tool_label or ('the board' if it.kind == 'copy' else '') }}</td></tr>{% endfor %}
+  <table><thead><tr><th>What</th><th>Channel</th><th>Supplied by</th><th>Wanted by</th><th>Status</th><th>Owner</th><th>Made in</th></tr></thead><tbody>
+  {% for it in doc.creative %}<tr><td>{{ it.title }}{% if it.detail %}<span class="kick-detail">{{ it.detail }}</span>{% endif %}</td><td class="d">{{ it.channel_name or '' }}</td><td class="d">{{ it.supplier_label or 'not answered' }}</td><td class="d">{{ it.due_label or '—' }}</td><td class="d kick-st-{{ it.status or 'open' }}">{% if it.status == 'done' %}done ({{ (it.done or {}).by or 'somebody' }}, {{ ((it.done or {}).at or '')[:10] }}){% elif it.status == 'landed' %}landed ({{ (it.landed or {}).source }}{% if (it.landed or {}).when %} {{ it.landed.when }}{% endif %}){% elif it.status == 'overdue' %}overdue, {{ it.overdue_days }} day{{ '' if it.overdue_days == 1 else 's' }}{% else %}{{ it.status_label or 'open' }}{% endif %}</td><td class="kick-who">{{ it.owner_label or '—' }}</td><td class="d">{{ it.tool_label or ('the board' if it.kind == 'copy' else '') }}</td></tr>{% endfor %}
   </tbody></table>
   {% else %}<p class="kick-none">No creative kept on the plan.</p>{% endif %}
 
   <h2>Before launch</h2>
   {% if doc.launch_tasks %}
-  <table><thead><tr><th>Task</th><th>Due</th><th>Owner</th></tr></thead><tbody>
-  {% for it in doc.launch_tasks %}<tr><td>{{ it.title }}{% if it.detail %}<span class="kick-detail">{{ it.detail }}</span>{% endif %}</td><td class="d">{{ it.due_label or (it.lead_days ~ ' days before launch' if it.lead_days else 'launch day') }}</td><td class="kick-who">{{ it.owner_label or '—' }}</td></tr>{% endfor %}
+  <table><thead><tr><th>Task</th><th>Due</th><th>Status</th><th>Owner</th></tr></thead><tbody>
+  {% for it in doc.launch_tasks %}<tr><td>{{ it.title }}{% if it.detail %}<span class="kick-detail">{{ it.detail }}</span>{% endif %}</td><td class="d">{{ it.due_label or (it.lead_days ~ ' days before launch' if it.lead_days else 'launch day') }}</td><td class="d kick-st-{{ it.status or 'open' }}">{% if it.status == 'done' %}done ({{ (it.done or {}).by or 'somebody' }}, {{ ((it.done or {}).at or '')[:10] }}){% elif it.status == 'overdue' %}overdue, {{ it.overdue_days }} day{{ '' if it.overdue_days == 1 else 's' }}{% else %}{{ it.status_label or 'open' }}{% endif %}</td><td class="kick-who">{{ it.owner_label or '—' }}</td></tr>{% endfor %}
   </tbody></table>
   {% else %}<p class="kick-none">No launch tasks kept on the plan.</p>{% endif %}
 

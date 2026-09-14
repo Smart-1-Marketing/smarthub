@@ -55,6 +55,13 @@ class HandoffTests(unittest.TestCase):
         q=self.quote()
         r=self.client.post(f"/api/quotes/{q['id']}/conversion-check",json={'revision':q['revision'],'updated_at':q['updated_at']})
         self.assertEqual(r.status_code,200,r.json)
+    def test_converted_proposal_cannot_issue_another_io(self):
+        q=self.quote()
+        path=f"/api/quotes/{q['id']}"
+        q=self.client.put(path,json={'status':'Converted'}).json['quote']
+        response=self.client.post(path+'/conversion-check',json={'revision':q['revision'],'updated_at':q['updated_at']})
+        self.assertEqual(response.status_code,409)
+        self.assertIn('already has an IO',response.json['error'])
     def test_unverified_zip_blocks_conversion(self):
         self.state['targetAreas']=[{'type':'City/ZIP + Radius','origin':'Columbus, OH','radius':15,'zips':'43215','zipSource':'AI-assisted — unverified','zipVerified':False}]
         q=self.quote()
@@ -72,6 +79,35 @@ class HandoffTests(unittest.TestCase):
         setup=[l for l in q['investment']['lines'] if l.get('source')=='plan']
         self.assertEqual(len(setup),1)
         self.assertEqual(setup[0]['amount'],100)
+
+    def test_approval_baseline_is_preserved_after_edits(self):
+        q=self.quote()
+        path=f"/api/quotes/{q['id']}"
+        approved=self.client.put(path,json={'status':'Approved'}).json['quote']
+        self.assertEqual(approved['approval_changes'],[])
+        state=approved['data']
+        state['items'][0]['dollars']=4000
+        state['_approvedScope']={}
+        edited=self.client.put(path,json={'data':state}).json['quote']
+        self.assertIn('Products and prices',edited['approval_changes'])
+        self.assertEqual(edited['data']['_approvedScope']['items'][0]['dollars'],3000)
+        self.assertIn('checklist',edited)
+        duplicate=self.client.post(path+'/duplicate').json['quote']
+        self.assertEqual(duplicate['status'],'Draft')
+        self.assertIsNone(duplicate['approval_changes'])
+        self.assertNotIn('_approvedScope',duplicate['data'])
+
+    def test_list_and_package_investment_match_saved_scope(self):
+        self.state['suiteTier']={'name':'Smart 1','monthly':199,'include':True}
+        item=self.state['items'][0]
+        self.state['packages']=[{'name':'Essential','lines':[{'name':item['product'],'cat':item['category'],'amt':2000}]}]
+        self.state['items'].append({'product':'Video shoot','category':'VIDEO PRODUCTION','basis':'one_time','dollars':100})
+        q=self.quote()
+        self.assertEqual(q['investment']['campaign_total'],9697)
+        self.assertEqual(q['package_investments'][0]['campaign_total'],6697)
+        with builder.SessionLocal() as db:
+            row=builder.quote_json(db.get(builder.Quote,q['id']))
+        self.assertEqual(row['investment'],q['investment'])
 
 def tearDownModule():
     builder.engine.dispose()

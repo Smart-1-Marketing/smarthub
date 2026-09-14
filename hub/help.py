@@ -911,6 +911,15 @@ REGISTRY: list[Help] = [
        "spend as $115. A fixed CPM bills impressions at that rate and ignores "
        "cost. They are two answers to one question, so a platform may carry "
        "only one and a row with both is refused whole."),
+    _h("reports.markup.pages", "How many client pages read this rule",
+       "The live client pages showing Investment whose figure for this "
+       "platform comes from the platform rule rather than an override on "
+       "their own link. A platform rule is global: saving one moves the "
+       "Investment figure on every one of those pages at once, with nothing "
+       "on the page saying it did, so a change to a platform any of them "
+       "reads is shown and confirmed before it is written. Pages hiding "
+       "Investment, and links carrying their own override for the platform, "
+       "are not counted -- the change does not reach them."),
     _h("reports.client.link", "One live link per client",
        "The client's page lives at this link with no login. Regenerating "
        "issues a new token and the old one renders a short 'this link has "
@@ -2237,11 +2246,7 @@ REGISTRY: list[Help] = [
        "them blank, never invented. It is a billed AI call, which is why it "
        "is a button rather than part of loading the page."),
     _h("landing_maker.pages.built", "Open the link, not this list",
-       "A built page is served without the staff sidebar, the help "
-       "layer or the feedback tab — deliberately, since a client "
-       "or a prospect is who reads it — so what you see from "
-       "inside the Hub is not quite what they see. Check a page by "
-       "opening its own link, the one you would actually send."),
+       'After building a landing page, use Copy link beside its address or on its saved-page row. Open that direct link to check the page a prospect will receive: public pages omit the staff sidebar, help layer and feedback tab. The page can also be shown in a frame. Test its lead form and read the result; a failed or refused submission shows an error and is not a confirmed lead. Share the public page address rather than the Hub editor address.'),
 
     # ---------------- PDF Optimizer ----------------
     _h("pdf_optimizer.tool.intro", "What an error here is about",
@@ -2488,7 +2493,7 @@ REGISTRY: list[Help] = [
        'An administrator can open Users and choose Add user, enter the name and email, and create a General Access account. Only a super admin can create higher access roles. Supply a password or let the Hub generate one. The created account is active; copy the password when it is shown because that response displays it only once.',
        link='/diagnostics/users', link_text="Open tool"),
     _h('google_access.cleanup.progress', 'Read an incomplete Google cleanup scan',
-       'Open Inactive Google Accounts QA and use Run fresh scan. Results appear as connected accounts are scanned, so partial results do not mean the scan is complete. Tag Manager calls are paced to respect Google limits. If scanning fails, read the error and retry; do not treat an account that could not be read as inactive.',
+       'Open Inactive Google Accounts QA and choose Update scan to reuse recently checked resources and refresh the rest. Full rescan ignores those recent checks and reads every resource live. Watch the progress and last-scan information: partial results do not mean the scan has finished. Resource results are saved so a deployment does not erase the work already done. Tag Manager calls are paced to respect Google limits. Read errors before retrying; a resource that could not be read is not evidence of inactivity.',
        link='/tools/google-access/qa-inactive/', link_text="Open tool"),
     _h('google_access.cleanup.delete', 'Review inactivity before deleting a Google resource',
        'GA4 inactivity is based on measured events and sessions during the displayed window. GTM has no traffic-reporting API: containers without enough evidence stay in Needs Review. Verify the connected account and resource before confirming deletion. GA4 deletion moves a property to the Analytics trash; GTM container deletion is permanent. Use the scan evidence rather than assuming every old resource is unused.',
@@ -2497,7 +2502,7 @@ REGISTRY: list[Help] = [
        'Open SEO Intelligence for client snapshots and the agency Action Queue. Recommendations use weekly Search Console evidence and 28-day comparisons. A connected Google account needs access to the property and may need reconnection to grant Search Console access. Review the evidence behind a recommendation before creating another page, especially when existing pages compete for the same queries. Record completed actions so later snapshots can measure outcomes.',
        link='/seo/intelligence/', link_text="Open tool"),
     _h('proposal_execution.overview.approval', 'Take an approved proposal into execution',
-       'In Proposal Execution Center, choose the client, load an uploaded proposal and select Analyze Proposal. Review the analysis and required inputs before starting the run. Research and internal drafts can run in the background. Publishing, scheduling, changes to live campaigns and starting spend require explicit approval or a handoff. Open task outputs before approving them; Request Changes or Re-run when they need correction. Marking a handoff scheduled or live records its state, rather than performing the external work.',
+       'Choose the client and proposal, then Analyze Proposal. Reopening the same proposal version returns its existing run. If this client already has a different open run, open that run or explicitly supersede it; superseding carries approved or completed work, shared inputs and plan review forward. Review the creative, launch and monthly lists and answer missing inputs before starting. Internal research and drafts can run in the background. Publishing, scheduling, live campaign changes and spend require approval or handoff. Open outputs before approving; Request Changes or Re-run when needed. Marking a handoff scheduled or live records its state rather than doing the external work.',
        link='/proposal-execution', link_text="Open tool"),
     _h('proposal_execution.plan.review', 'Check the plan the proposal produced',
        'Three lists come out of the analysis: the creative that has to exist, what happens once before launch, and what the proposal promises every month. A proposal built in the Proposal Builder is read as data — its line items, start date and creative answers — and an uploaded document is read from its text. Each item is a proposal until you tick it to keep it or mark it not needed; an item found by AI quotes the line it came from, and one with no matching line in the proposal is flagged so you can check it before keeping it. Once the launch date is answered below, every task shows the date it is due and every creative item who is supplying it. Add anything the analysis missed with the box under each list. Only what you keep reaches the working briefs and handoff packets.',
@@ -2517,6 +2522,9 @@ REGISTRY: list[Help] = [
     _h('proposal_execution.plan.client_link', 'The client\'s own page',
        'Create client link makes a page the client can open without a login, at an address nobody can guess, listing only what we need from them: the files they agreed to supply with the date each is wanted by, their upload link, the questions that are theirs to answer, and who at Smart 1 to talk to. Nothing internal reaches it. Copy the link and send it; it updates as the plan changes. Revoke stops the address working, and a new link can be made afterwards.',
        link='/proposal-execution', link_text="Open tool"),
+    _h('proposal_execution.plan.progress', 'Done, landed and overdue',
+       'Once the launch date is answered every kept launch task and creative item has a date, and the plan says where each stands. Done is a press somebody made, with their name and the day on it. Landed is what the Hub saw for itself: creative filed against this client since the plan was made -- a display pack attached, a commercial approved, a mix filed, or the client uploading through their link -- named with the tool and the day, and never written down. Overdue is a kept item past its date with neither. An overdue item reaches its owner\'s My Clients list, and leaves it the moment it is marked done or the file arrives. A log the Hub could not read is said on the item rather than read as nothing having landed.',
+       link='/proposal-execution', link_text="Open tool"),
     _h('hub.client360.links', 'Keep multiple client links and proposal files',
        'Client 360 can retain multiple links for a platform and multiple Smart 1 Suite sub-accounts for one client. Check the specific destination before opening or disconnecting a link. Uploaded proposal PDFs keep their original filenames, making the intended file easier to identify when several proposals are on the client record.',
        link='/client360', link_text="Open tool"),
@@ -2526,7 +2534,7 @@ REGISTRY: list[Help] = [
     _h('landing_ads.prospects.import', 'Preview a prospect import before activating outreach',
        'In Industry Prospect Builder, upload the list and choose Preview & clean list. Review usable contacts before choosing the GHL sub-account and tags. Leave Activate outreach after import off while checking the first import. Enabling it adds the trigger tag and may start a GHL workflow. Read the imported and failed counts; a partially completed contact may still need its tags retried.', link='/tools/landing-ads/prospects', link_text="Open tool"),
     _h('weather_setup.verticals.choose', 'Choose the weather campaign industry',
-       'Weather Trigger Setup supports Restaurant, HVAC, and Retail / Home Goods campaigns. Choose the matching industry when starting a campaign: it determines the available triggers and draft copy. Review the resulting offer and seasonal language before publishing; changing the industry is more than changing the business name.', link='/tools/weather-setup', link_text="Open tool"),
+       'Choose the matching industry when starting a weather campaign. Available industries include Restaurant, HVAC / Home Comfort, Retail / Home Goods, Auto Repair / Service, Landscaping / Lawn Care, Pool & Spa Service, Roofing & Exterior, Pest Control, Moving Company, Tree Service, Golf Course / Outdoor Recreation, and Concrete & Paving. The selected industry determines the available triggers and draft copy. Review the offer and seasonal language before publishing; use the current industry picker as the source of available choices.', link='/tools/weather-setup', link_text="Open tool"),
     _h('skills360.activate', 'Switch a client skill on only after it checks out',
        'In 360 Skills, look up the client, enter what the skill needs (the Ecwid Store ID and secret token, or the from-name and from-address for Email Creator), and choose Check & switch on. The Hub reads the live source first -- the Ecwid store, or the client\'s Smart 1 Suite sub-account and its sending domain -- and switches the skill on only when that passes. The matching card then appears under Skills on Client 360. Switch off keeps the details for next time; Switch off & forget deletes them and retires every client link.', link='/tools/360-skills/', link_text="Open tool"),
     _h('fan_radio.voice.settings', 'Apply Fan Radio voice settings to future recordings',

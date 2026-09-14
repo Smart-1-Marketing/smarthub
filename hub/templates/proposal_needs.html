@@ -44,7 +44,7 @@ h1{margin:4px 0 6px;font-size:28px;color:var(--navy);line-height:1.2}h2{margin:2
   {% if doc.files %}
   <p class="need-quiet">Each one below is something you agreed to supply. The date is when we need it in hand so the campaign launches on time.</p>
   <ul class="need-list">
-  {% for f in doc.files %}<li><b>{{ f.title }}</b>{% if f.detail %}<small>{{ f.detail }}</small>{% endif %}{% if f.due_label %}<span class="need-due">{{ f.due_label }}</span>{% endif %}{% if f.shared %}<span class="need-shared">we produce part of this together</span>{% endif %}</li>{% endfor %}
+  {% for f in doc.files %}<li><b>{{ f.title }}</b>{% if f.detail %}<small>{{ f.detail }}</small>{% endif %}{% if f.due_label %}<span class="need-due">{{ f.due_label }}</span>{% endif %}{% if f.shared %}<span class="need-shared">we produce part of this together</span>{% endif %}{% if f.received %}<span class="need-shared">received — thank you</span>{% endif %}</li>{% endfor %}
   </ul>
   {% if doc.upload_url %}<a class="need-btn" href="{{ doc.upload_url }}">Upload your files</a><p class="need-quiet">The upload page is yours alone; anything you add there reaches us straight away.</p>{% else %}<p class="need-quiet">Send the files to your Smart 1 contact, or ask them for an upload link.</p>{% endif %}
   {% else %}

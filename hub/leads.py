@@ -54,6 +54,7 @@ visible, and can be retried by hand or by the scheduler.
 from __future__ import annotations
 
 import collections
+import contextlib
 import hmac
 import json
 import os
@@ -63,7 +64,6 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
-_LOCK = threading.Lock()
 STORE_NAME = "leads.jsonl"
 # Retired. Read only so the panel can say "this is still set, clear it" — the
 # Hub has no code path that posts to it any more.
@@ -316,7 +316,10 @@ def capture(source: str, page: str, fields: dict, pdf_url: str = "",
         "retryable": True,
     }
     try:
-        with _LOCK:
+        # The same lock the rewrite holds, not a second one: an append
+        # serialised against other appends and not against the rewrite is
+        # the half of this that was missing.
+        with _exclusive():
             with open(_path(), "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row) + "\n")
     except OSError as exc:
@@ -378,12 +381,63 @@ def get(lead_id: str) -> dict | None:
     return None
 
 
+def _exclusive():
+    """Hold the lead file against every other thread and the other worker.
+
+    `hub/jsonstore.py` already owns this — a `threading.Lock` for the threads
+    inside one gunicorn worker and an `flock` on a sidecar for the workers, of
+    which this deployment runs two — and a second implementation of it here
+    would be the drift that module exists to stop. The half a local
+    `threading.Lock` was missing is the flock, and failing to take one still
+    never costs the write: a filesystem that will not take it is a reason to
+    serialise less, never a reason to refuse to store a lead.
+
+    Which is why the import is guarded too. `_path()` already wraps its own
+    `jsonstore` import for exactly this reason — *the lead store must not fail
+    to resolve* — and `capture()` catches only `OSError`, so an `ImportError`
+    raised here would go straight past it and cost a visitor their lead in
+    front of them. Serialising less is the safe direction to be wrong in;
+    refusing to store is not.
+    """
+    try:
+        from hub import jsonstore
+        return jsonstore.exclusive(_path())
+    except Exception:                                   # noqa: BLE001
+        return contextlib.nullcontext()
+
+
 def _rewrite(rows: list[dict]) -> None:
-    tmp = _path() + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        for r in rows:
-            fh.write(json.dumps(r) + "\n")
-    os.replace(tmp, _path())        # atomic — a crash can't truncate the file
+    """Replace the file with `rows`, keeping anything that arrived meanwhile.
+
+    Every caller of this reads the whole file, changes something in it and
+    writes the lot back, which is the read-modify-write `hub/jsonstore.py`
+    documents at length — and on the two writes that matter it is a *lead*
+    that goes missing. A visitor fills in a landing page on worker B while
+    worker A is part-way through a retry sweep: B appends the row, A's
+    `os.replace` lands a file read before that append, and the lead is gone,
+    atomically and silently, with a 200 already in front of the visitor.
+
+    It was survivable while the only rewrites were a staff press somebody
+    rarely made. An hourly scheduled retry is what turns it from unlikely
+    into a matter of traffic.
+
+    So the file is re-read **inside** the lock and any row the caller has
+    never seen is kept. That is safe here rather than generally because this
+    store never deletes: merging keeps the absorbed row, converting marks it,
+    and the module opens by saying a lead we already have is never destroyed.
+    A row in the file the caller does not know about is therefore one that
+    arrived while they were working, and the only correct thing to do with it
+    is let it survive.
+    """
+    with _exclusive():
+        known = {r.get("id") for r in rows if r.get("id")}
+        arrived = [r for r in _read_all()
+                   if r.get("id") and r.get("id") not in known]
+        tmp = _path() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            for r in list(rows) + arrived:
+                fh.write(json.dumps(r) + "\n")
+        os.replace(tmp, _path())    # atomic — a crash can't truncate the file
 
 
 def retired_webhook_url() -> str:
@@ -501,8 +555,7 @@ def _update(row: dict) -> None:
     else:
         rows.append(row)
     try:
-        with _LOCK:
-            _rewrite(rows)
+        _rewrite(rows)
     except OSError:
         pass
 
@@ -830,8 +883,7 @@ def merge(into_id: str, from_ids: list[str], actor: str = "") -> dict:
     survivor["merged_by"] = _clean(actor, 120)
 
     try:
-        with _LOCK:
-            _rewrite(rows)
+        _rewrite(rows)
     except OSError as exc:
         return {"ok": False,
                 "error": f"The lead store could not be written: "
@@ -859,7 +911,16 @@ def merge(into_id: str, from_ids: list[str], actor: str = "") -> dict:
                       "kept against this one so where they came from survives."}
 
 
-def retry_undelivered(limit: int = 50) -> dict:
+# How long one sweep may spend pushing leads. Every retry is an HTTP call to
+# GoHighLevel with no useful ceiling of its own, and scheduler jobs share one
+# thread -- so a count limit alone lets one slow afternoon at the provider
+# hold up every job behind it, which is the note hub/video_library.py already
+# carries about a vision call. Ours, not anybody's published figure.
+RETRY_BUDGET_SECONDS = 240
+
+
+def retry_undelivered(limit: int = 50,
+                      budget_seconds: float = RETRY_BUDGET_SECONDS) -> dict:
     """Re-push anything that hasn't landed. Called by hand or the scheduler.
 
     Rows already carrying a contact id are skipped by `deliver()` itself, so a
@@ -867,25 +928,41 @@ def retry_undelivered(limit: int = 50) -> dict:
     last failure was a configuration or payload problem are skipped too: they
     will fail identically every hour, and burying the real cause under a rising
     attempt count is how the previous silent failure went unnoticed.
+
+    **Bounded on both axes, and never in silence.** `limit` caps the calls and
+    `budget_seconds` caps the wall clock; what the sweep did not reach is
+    counted as `left` and said out loud, because a queue that quietly stops
+    part-way reads identically to one that is drained -- which on this queue
+    means concluding every lead is in Smart 1 Suite when a hundred are not.
     """
+    started = time.monotonic()
     rows = _read_all()
     mode = delivery_mode()
-    sent = failed = blocked = 0
+    sent = failed = blocked = left = 0
+    out_of_time = False
     for r in rows:
-        if r.get("delivered") or sent + failed >= limit:
+        if r.get("delivered"):
             continue
         if not r.get("retryable", True):
             blocked += 1
+            continue
+        if sent + failed >= limit or out_of_time:
+            left += 1
             continue
         deliver(r)
         if r.get("delivered"):
             sent += 1
         else:
             failed += 1
+        # Checked after the call rather than before it: the budget is there to
+        # stop the *next* one starting, and a sweep that refused to make its
+        # first call because the clock had already gone would deliver nothing
+        # at all on a deployment whose provider is simply slow.
+        if time.monotonic() - started >= budget_seconds:
+            out_of_time = True
     if sent or failed:
         try:
-            with _LOCK:
-                _rewrite(rows)
+            _rewrite(rows)
         except OSError:
             pass
 
@@ -898,8 +975,15 @@ def retry_undelivered(limit: int = 50) -> dict:
     if blocked:
         note += (f" {blocked} need attention rather than a retry — their last "
                  "error was a configuration or data problem, not a network one.")
+    if left:
+        note += (f" {left} were not reached this run"
+                 + (" (the sweep ran out of time)" if out_of_time else "")
+                 + " and are still queued.")
     return {"retried": sent + failed, "delivered": sent, "still_failing": failed,
-            "needs_attention": blocked, "route": mode, "note": note.strip()}
+            "needs_attention": blocked, "left": left,
+            "out_of_time": out_of_time,
+            "seconds": round(time.monotonic() - started, 1),
+            "route": mode, "note": note.strip()}
 
 
 def listing(days: int = 30, source: str = "", page: str = "",

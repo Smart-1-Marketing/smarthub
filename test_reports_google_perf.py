@@ -90,6 +90,10 @@ check("it selects the campaign and the day",
 check("...and the five metrics",
       all(f in q for f in ("metrics.cost_micros", "metrics.impressions", "metrics.clicks",
                            "metrics.conversions", "metrics.video_views")))
+check("...the channel type, which tells a YouTube buy from a search one",
+      "campaign.advertising_channel_type" in q)
+check("...and the video completion rate, for the completes tile",
+      "metrics.video_quartile_p100_rate" in q)
 check("...from campaign over an explicit window",
       "FROM campaign" in q and "segments.date BETWEEN '2026-08-30' AND '2026-09-06'" in q)
 check("...excluding removed campaigns", "campaign.status != 'REMOVED'" in q)
@@ -114,6 +118,49 @@ check("...platform google, source native", (facts[0]["platform"], facts[0]["sour
 check("...keyed on the account and the campaign", (facts[0]["account_id"], facts[0]["campaign_id"]), ("123", "c1"))
 check("...with the counts as integers and conversions as a number",
       (facts[0]["impressions"], facts[0]["clicks"], facts[0]["conversions"]), (2000, 35, 3.5))
+check("a row naming no channel carries no extras", "extras" not in facts[0])
+check("...and no completes: absent is not measured, never zero", "completes" not in facts[0])
+
+# The channel type rides on the row, and the completes are the p100 rate
+# times impressions -- for a video campaign. A search campaign's rate is
+# zero, and "0 completes" on it would be a measurement of a metric that
+# does not apply, which the tile would then draw as a nought.
+facts = perf._facts("123", [
+    {"campaign": {"id": "v1", "name": "Brand :30", "advertisingChannelType": "VIDEO"},
+     "segments": {"date": "2026-09-05"},
+     "metrics": {"costMicros": "50000000", "impressions": "10000", "clicks": "40",
+                 "conversions": "0", "videoViews": "6000", "videoQuartileP100Rate": "0.4123"}},
+    {"campaign": {"id": "s1", "name": "Roof repair", "advertisingChannelType": "SEARCH"},
+     "segments": {"date": "2026-09-05"},
+     "metrics": {"costMicros": "50000000", "impressions": "10000", "clicks": "400",
+                 "conversions": "12", "videoViews": "0", "videoQuartileP100Rate": "0"}},
+    {"campaign": {"id": "p1", "name": "PMax", "advertisingChannelType": "PERFORMANCE_MAX"},
+     "segments": {"date": "2026-09-05"},
+     "metrics": {"costMicros": "50000000", "impressions": "10000", "clicks": "100",
+                 "conversions": "3", "videoViews": "250", "videoQuartileP100Rate": "0.02"}},
+], google_ads.micros)
+by = {f["campaign_id"]: f for f in facts}
+check("the channel type is carried on the row", by["v1"]["extras"], {"channel_type": "VIDEO"})
+check("a video campaign's completes are the rate x impressions, rounded", by["v1"]["completes"], 4123)
+check("a search campaign carries its channel and no completes",
+      (by["s1"]["extras"]["channel_type"], "completes" in by["s1"]), ("SEARCH", False))
+check("a campaign of another kind that served video views still counts them",
+      (by["p1"]["extras"]["channel_type"], by["p1"]["completes"]), ("PERFORMANCE_MAX", 200))
+
+# What a campaign with no product in its name is filed under.
+from modules.reports import products as _products                    # noqa: E402
+check("a VIDEO campaign defaults to Online Video, not the platform's Paid Search",
+      _products.default_for("google", "VIDEO"), "Online Video")
+check("...SEARCH to Paid Search, DISPLAY to Programmatic Display",
+      (_products.default_for("google", "SEARCH"), _products.default_for("google", "DISPLAY")),
+      ("Paid Search", "Programmatic Display"))
+check("a channel the table does not map takes the platform default, and says it was not the channel",
+      (_products.default_for("google", "PERFORMANCE_MAX"), _products.channel_decided("google", "PERFORMANCE_MAX")),
+      ("Paid Search", False))
+check("...and the channel says when it decided", _products.channel_decided("google", "VIDEO"), True)
+check("another platform ignores a channel type", _products.default_for("ttd", "VIDEO"), "Streaming TV")
+check("every channel product is a catalog product",
+      [p for p in _products.GOOGLE_CHANNEL_PRODUCTS.values() if p not in _products.PRODUCTS], [])
 
 
 # -------------------------------------------------------- a connected pull
@@ -141,12 +188,21 @@ def fake_search(customer_id, query, *, store=None, login_customer_id=None):
     if customer_id == "333":
         raise google_ads.GoogleAdsError("CUSTOMER_NOT_ENABLED", status=403)
     return [
-        {"campaign": {"id": "g-1", "name": "Winery near me"}, "segments": {"date": "2026-09-05"},
+        {"campaign": {"id": "g-1", "name": "Winery near me", "advertisingChannelType": "SEARCH"},
+         "segments": {"date": "2026-09-05"},
          "metrics": {"costMicros": "40000000", "impressions": "20000", "clicks": "2430",
-                     "conversions": "76", "videoViews": "0"}},
-        {"campaign": {"id": "g-1", "name": "Winery near me"}, "segments": {"date": "2026-09-06"},
+                     "conversions": "76", "videoViews": "0", "videoQuartileP100Rate": "0"}},
+        {"campaign": {"id": "g-1", "name": "Winery near me", "advertisingChannelType": "SEARCH"},
+         "segments": {"date": "2026-09-06"},
          "metrics": {"costMicros": "41000000", "impressions": "21000", "clicks": "2500",
-                     "conversions": "80", "videoViews": "0"}},
+                     "conversions": "80", "videoViews": "0", "videoQuartileP100Rate": "0"}},
+        # A YouTube campaign named in the rename shape with NO product
+        # segment: what the auto-mapper files it under is the whole point.
+        {"campaign": {"id": "g-2", "name": "S1M | Buckeye Lake Winery | | Harvest :15",
+                      "advertisingChannelType": "VIDEO"},
+         "segments": {"date": "2026-09-06"},
+         "metrics": {"costMicros": "30000000", "impressions": "50000", "clicks": "120",
+                     "conversions": "2", "videoViews": "30000", "videoQuartileP100Rate": "0.25"}},
     ]
 
 
@@ -156,7 +212,7 @@ google_ads.search = fake_search
 
 res = perf.pull(days=7, today=date(2026, 9, 6))
 check("the pull lands", res["ok"], True, note=res)
-check("...two rows for the one account that answered", (res["rows"], res["accounts"]), (2, 1))
+check("...three rows for the one account that answered", (res["rows"], res["accounts"]), (3, 1))
 check("...the managers were skipped", sorted(res["skipped"]), ["111", "444"])
 check("...and the refused account is isolated and named",
       "333" in res["errors"] and "CUSTOMER_NOT_ENABLED" in res["errors"]["333"])
@@ -173,13 +229,64 @@ finally:
 check("a row landed as dollars, native", landed, (40.0, 20000, 2430, 76.0, "native"))
 wm = store.sync_status()["google"]
 check("the watermark is native, naming the refused account",
-      (wm["source"], wm["rows"], "333" in wm["error"]), ("native", 2, True))
+      (wm["source"], wm["rows"], "333" in wm["error"]), ("native", 3, True))
 check("...so the normalize skips google for a day", store.native_is_current("google"), True)
 out = normalize.run(today=date(2026, 9, 6))
 check("...and says so", out["google"].get("native"), True)
 
 st = perf.status()
 check("the status line now says connected with the last pull", st["line"].startswith("Google Ads: connected, last pull 20"))
+
+# The YouTube campaign: its completes landed, the queue carries its channel
+# and opens on Online Video, and the auto-mapper files it under Online
+# Video from the channel type -- not under Paid Search from the platform.
+db = store.SessionLocal()
+try:
+    vrow = db.get(store.AdPerfDaily, ("google", "222", "g-2", date(2026, 9, 6)))
+    landed_v = (vrow.completes, vrow.video_views, (vrow.extras_json or {}).get("channel_type"))
+finally:
+    db.close()
+check("the video campaign's completes and channel landed", landed_v, (12500, 30000, "VIDEO"))
+queue = {r["campaign_id"]: r for r in store.unmapped_campaigns(days=3650)}
+check("the unmapped queue carries the channel type",
+      (queue["g-2"]["channel_type"], queue["g-1"]["channel_type"]), ("VIDEO", "SEARCH"))
+check("...and the product box opens on the channel's product",
+      (queue["g-2"]["default_product"], queue["g-1"]["default_product"]), ("Online Video", "Paid Search"))
+from hub import clients_registry                                     # noqa: E402
+from modules.reports import automap                                  # noqa: E402
+_real_all = clients_registry.all_clients
+clients_registry.all_clients = lambda refresh=False: [
+    {"name": "Buckeye Lake Winery", "slug": "buckeye-lake-winery", "url": "", "domain": "",
+     "key": "n:buckeye-lake-winery"}]
+try:
+    am = automap.run(actor="test")
+finally:
+    clients_registry.all_clients = _real_all
+check("the auto-mapper filed the YouTube campaign", am["mapped"], 1)
+m = next(x for x in store.mapped_campaigns(limit=100) if x["campaign_id"] == "g-2")
+check("...under Online Video, from the channel type, and the rule says so",
+      (m["product"], m["auto_rule"]), ("Online Video", "name_v1+channel_product"))
+
+# The completes reach the client's page as the "Video ads completed" tile
+# for the YouTube campaign, and a search-only client gets no such tile --
+# a measured nought about a product they are not running.
+from modules.reports import client_view                              # noqa: E402
+store.map_campaign("google", "222", "g-2", client="n:buckeye-lake-winery",
+                   client_name="Buckeye Lake Winery", product="Online Video", mapped_by="Todd")
+store.map_campaign("google", "222", "g-1", client="n:acme-search", client_name="Acme Search",
+                   product="Paid Search", mapped_by="Todd")
+lk_v = store.create_link("n:buckeye-lake-winery", client_name="Buckeye Lake Winery", created_by="Todd")
+lk_s = store.create_link("n:acme-search", client_name="Acme Search", created_by="Todd")
+agg_v = client_view.build(store.get_link(lk_v.token), "2026-09", date(2026, 9, 6))
+agg_s = client_view.build(store.get_link(lk_s.token), "2026-09", date(2026, 9, 6))
+tiles_v = {t["key"]: t for t in agg_v.get("tiles") or []}
+tiles_s = {t["key"]: t for t in agg_s.get("tiles") or []}
+check("the YouTube client's page draws the completes tile from Google's rate x impressions",
+      (tiles_v.get("completes") or {}).get("value"), 12500)
+check("...labeled as video", (tiles_v.get("completes") or {}).get("label"), "Video ads completed")
+check("the search-only client's page draws no completes tile at all", "completes" in tiles_s, False)
+prod_v = next((r for r in agg_v.get("products") or [] if r.get("product") == "Online Video"), {})
+check("...and the product row carries them", (prod_v.get("completes"), prod_v.get("completion_kind")), (12500, "video"))
 
 # The quota: an exhausted allowance stops the pull by name; an unpublished one does not.
 from hub import quotas                                               # noqa: E402

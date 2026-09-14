@@ -155,6 +155,15 @@ ISSUE_KINDS = {
         "where": "No Dashboards",
         "href": "/qa/no-dashboards",
     },
+    "pacing_alert": {
+        "label": "Sold line off pace",
+        "blurb": "A budget line on the pacing board has been under pace, "
+                 "stalled or over pace for long enough to trip its alert -- "
+                 "delivery the client paid for and is not getting, or spend "
+                 "beyond what was sold.",
+        "where": "Pacing board",
+        "href": "/reports/pacing",
+    },
     "proposal_unopened": {
         "label": "Proposal never opened",
         "blurb": "The link went out and nobody has looked at it — which is a "
@@ -207,6 +216,14 @@ ISSUE_KINDS = {
                  "the content, the video, the posts -- that nothing landed for "
                  "and nobody marked done: by the 25th for this month, or at all "
                  "for a month that is over.",
+        "where": "Proposal Execution",
+        "href": "/proposal-execution",
+    },
+    "plan_overdue": {
+        "label": "Plan item past due",
+        "blurb": "A launch task or a piece of creative the plan keeps, past "
+                 "the date the launch date put on it, that nobody has marked "
+                 "done and nothing has landed for.",
         "where": "Proposal Execution",
         "href": "/proposal-execution",
     },
@@ -715,18 +732,136 @@ def _plan_issues(plans: list[dict]) -> list[dict]:
                               f"{miss.get('title') or 'Promise'} — {miss.get('month_label') or ''}",
                               "Nothing landed for it and nobody marked it done.",
                               link=link, at=str(plan.get("updated_at") or "")))
+        # One issue per launch task or creative item past its date, keyed
+        # on `hub/proposal_progress.done_key()` so a Done pressed on the
+        # plan page clears it on read. The detail is deliberately stable --
+        # the day count is on the title, not in the fingerprint -- or a
+        # mark made here would read as superseded every morning.
+        for late in (plan.get("progress") or {}).get("overdue_items") or []:
+            days = int(late.get("days") or 0)
+            what = "creative" if late.get("list") == "creative" else "launch task"
+            out.append(_issue("plan_overdue", str(late.get("key") or ""),
+                              f"{late.get('title') or 'Plan item'} — {what}, "
+                              f"{days} day{'' if days == 1 else 's'} past due",
+                              "Past the date the launch date put on it; nothing marked done and nothing landed.",
+                              link=link, at=str(plan.get("updated_at") or "")))
+    return out
+
+
+def _pacing() -> tuple[dict, str]:
+    """`{client key: [alerting lines]}` from the pacing board's latest run.
+
+    Read from the persisted snapshots and never recomputed, so this page,
+    the board, the Client 360 card and the QA report answer from one run
+    and cannot disagree about a line. The board computes a three-day
+    alert on every off-pace line and, until this, told nobody: it was a
+    page inside a module, which is where a queue goes unworked.
+
+    Keyed on the line's client **name** rather than the store's own key.
+    The store files a client under `d:acme.com`, or under the display
+    name where the proposal adapter minted the line before it resolved
+    through the module's reader, and only the name joins either spelling
+    to the row this report draws -- the same exact, normalised derivation
+    every other source here uses. A job that has never run is an error
+    rather than an empty book: every line reading as on pace on the
+    strength of no reading is the confident wrong answer.
+    """
+    try:
+        from modules.reports import store as rstore
+        run_at = rstore.latest_run_at()
+        if run_at is None:
+            return {}, "the pacing job has not run yet"
+        rows = rstore.latest_snapshots()
+    except Exception as exc:                            # noqa: BLE001
+        return {}, f"{type(exc).__name__}: {exc}"[:200]
+    out: dict[str, list] = {}
+    for r in rows:
+        if not r.get("alert"):
+            continue
+        name = str(r.get("client_name") or "").strip()
+        if not name:
+            try:
+                from hub.client_key import key_label
+                name = key_label(str(r.get("client") or ""))
+            except Exception:                           # noqa: BLE001
+                name = str(r.get("client") or "")
+        key = _client_key(name)
+        if key:
+            out.setdefault(key, []).append(r)
+    return out, ""
+
+
+def _dollars(value) -> str:
+    try:
+        return f"${float(value or 0):,.2f}"
+    except (TypeError, ValueError):
+        return "$0.00"
+
+
+def _pacing_issues(rows: list[dict]) -> list[dict]:
+    """One issue per alerting line. The figures that move every day -- what
+    was spent against what was expected, how many days running -- are in
+    the title; the detail carries only what a person decides on (the line,
+    its budget, the band), so a Done or Ignored mark stands while the line
+    is still in the same trouble and is superseded when the trouble changes
+    kind. A mark retired by tomorrow's spend figure is a mark nobody can
+    keep, which is the failure `fingerprint()` exists to avoid."""
+    try:
+        from modules.reports import pacing as rpacing
+        labels, alert_days = rpacing.BAND_LABELS, rpacing.ALERT_DAYS
+    except Exception:                                   # noqa: BLE001
+        labels, alert_days = {}, 3
+    out = []
+    for r in rows or []:
+        band = str(r.get("band") or "on")
+        band_label = (labels.get(band) or ("", band.title()))[1]
+        product = str(r.get("product") or "line").strip() or "line"
+        days = int(r.get("trend_days") or 1)
+        left = int(r.get("days_remaining") or 0)
+        plats = ", ".join(r.get("platform_labels") or [])
+        budget = _dollars(r.get("monthly_budget"))
+        running = f"{days} day{'' if days == 1 else 's'} running"
+        if band == "unmapped":
+            title = f"{product} — no campaign filed to pace against, {running}"
+            detail = (f"The {product} line ({budget}/mo) has had no confirmed campaign "
+                      f"under it for {alert_days} days or more, so nothing is pacing it. "
+                      "Map its campaigns under Reports → Campaign Mapping.")
+        else:
+            spent, expected = _dollars(r.get("actual_to_date")), _dollars(r.get("expected_to_date"))
+            title = (f"{product} — {band_label.lower()}, {running}: {spent} spent against "
+                     f"{expected} expected, {left} day{'' if left == 1 else 's'} left")
+            detail = (f"The {product} line ({budget}/mo"
+                      + (f" on {plats}" if plats else "") + f") has been {band_label.lower()} "
+                      f"for {alert_days} days or more on the pacing board's latest run.")
+        link = "/reports/pacing"
+        try:
+            from urllib.parse import quote
+            link += "?client=" + quote(str(r.get("client") or ""), safe="")
+        except Exception:                               # noqa: BLE001
+            pass
+        out.append(_issue("pacing_alert", str(r.get("line_id") or ""), title, detail,
+                          link=link, at=str(r.get("as_of") or "")))
     return out
 
 
 def _promise_marks() -> dict:
-    """`{mark key: mark}` from the promise schedule, read per request so a
-    month marked done on the plan page leaves this report at once. Never
+    """`{mark key: mark}` from the promise schedule and the done marks on
+    the open plans, read per request so a month or an item marked done on
+    the plan page leaves this report at once. The two key spellings cannot
+    collide -- a promise mark has three parts and a done mark two. Never
     raises: a store that would not answer costs the overlay, not the page."""
+    out: dict = {}
     try:
         from hub import proposal_promises
-        return proposal_promises.marks()
+        out.update(proposal_promises.marks())
     except Exception:                                   # noqa: BLE001
-        return {}
+        pass
+    try:
+        from hub import proposal_execution
+        out.update(proposal_execution.done_index())
+    except Exception:                                   # noqa: BLE001
+        pass
+    return out
 
 
 def _audits(domains) -> tuple[dict, str]:
@@ -850,6 +985,8 @@ def build(today: date | None = None) -> dict:
     source("proofs", err_proofs)
     plans, err_plans = _plans()
     source("plans", err_plans, "Open runs in the Proposal Execution Center.")
+    pacing_rows, err_pacing = _pacing()
+    source("pacing", err_pacing, "Alerting lines on the pacing board's latest run.")
 
     try:
         from hub import qa as _qa
@@ -1036,6 +1173,9 @@ def build(today: date | None = None) -> dict:
         # --- the execution plan ----------------------------------------------
         issues.extend(_plan_issues(plans.get(key) or []))
 
+        # --- the sold lines off pace ------------------------------------------
+        issues.extend(_pacing_issues(pacing_rows.get(key) or []))
+
         # --- the website reading ---------------------------------------------
         # A source that would not answer raises nothing at all. An unreadable
         # scans table would otherwise put "never audited" on every client at
@@ -1200,10 +1340,11 @@ def _apply_overlay(data: dict, *, owner_index: dict, mark_index: dict,
         open_issues, handled = [], []
         for issue in row.get("issues") or ():
             mark = mark_index.get(f"{key}|{issue['key']}")
-            if not mark and issue.get("kind") == "plan_promise" and promise_index:
-                # A month marked done on the plan page is the same statement
-                # as Done here, made on the other screen; reading it lets the
-                # press take effect today rather than at the next rebuild.
+            if not mark and issue.get("kind") in ("plan_promise", "plan_overdue") and promise_index:
+                # A month or an item marked done on the plan page is the same
+                # statement as Done here, made on the other screen; reading
+                # it lets the press take effect today rather than at the
+                # next rebuild.
                 pm = promise_index.get(str(issue.get("subject") or ""))
                 if pm:
                     mark = {"state": "done", "by": pm.get("by") or "",

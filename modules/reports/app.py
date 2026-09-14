@@ -34,6 +34,7 @@ import logging
 import os
 import threading
 import time as _time
+from decimal import Decimal
 from pathlib import Path
 
 from flask import (Flask, Response, jsonify, redirect, render_template,
@@ -444,30 +445,11 @@ def audiogo_check():
 
 # ---------------------------------------------------------------- mapping
 def _resolve_client(name: str, key: str) -> tuple[str, str]:
-    """The (key, display name) a mapping is filed under.
-
-    The picker hands over both. A key typed by hand, or a name with no key
-    beside it, is resolved through the client registry so the row carries
-    the same key every other module's record uses -- and falls back to a
-    name key when the registry cannot see the client, which is a mapping
-    that still works and is marked as name-backed by its prefix.
-    """
-    name = (name or "").strip()
-    key = (key or "").strip()
-    if key and name:
-        return key[:200], name[:300]
-    try:
-        from hub import client_key as ck
-        from hub import clients_registry
-        hit = clients_registry.find_client(name) if name else None
-        if hit:
-            return (ck.client_key(hit.get("name") or name, hit.get("url") or hit.get("domain") or "")
-                    or ck.name_key(name), hit.get("name") or name)
-        if key:
-            return key[:200], (name or ck.key_label(key))[:300]
-        return ck.name_key(name), name
-    except Exception:                  # noqa: BLE001 - registry unavailable
-        return (key or ("n:" + name.lower().replace(" ", "-")))[:200], name[:300]
+    """The (key, display name) a mapping or a line is filed under. The rule
+    is ``store.resolve_client`` -- one reader for these two forms and for
+    the proposal adapter, which has no request and cannot import this
+    app. Kept under its old name so the two call sites read as they did."""
+    return store.resolve_client(name, key)
 
 
 @app.route("/unmapped")
@@ -599,11 +581,30 @@ def api_clients():
 
 
 # ---------------------------------------------------------------- markup
+def _rule_text(markup, cpm) -> str:
+    """One pricing rule as a person reads it: "15%", "$12.50 CPM" or "at cost"."""
+    if markup is not None:
+        return f"{store._plain(Decimal(str(markup)) * 100)}%"
+    if cpm is not None:
+        return f"${Decimal(str(cpm)):,.2f} CPM"
+    return "at cost"
+
+
+def _markup_page(**extra):
+    try:
+        pages = store.pages_on_platform_rule()
+    except Exception:                      # noqa: BLE001 - a count is not the page
+        pages = None
+    return render_template("reports_markup.html", rows=store.markups(),
+                           pages=pages, max_pct=store._plain(store.MARKUP_MAX_PCT),
+                           cpm_max=store._plain(store.CPM_MAX),
+                           error=request.args.get("error", ""),
+                           saved=request.args.get("saved", ""), **extra)
+
+
 @app.route("/markup")
 def markup():
-    return render_template("reports_markup.html", rows=store.markups(),
-                           error=request.args.get("error", ""),
-                           saved=request.args.get("saved", ""))
+    return _markup_page()
 
 
 @app.route("/markup", methods=["POST"])
@@ -625,9 +626,37 @@ def markup_save():
             continue
         try:
             markup_frac = store.markup_from_percent(pct) if pct else None
+            cpm_amount = store.check_cpm(cpm) if cpm else None
         except ValueError as exc:
             return redirect(url_for("markup", error=f"{store.platform_label(p)}: {exc}"))
-        wanted.append((p, markup_frac, cpm or None))
+        wanted.append((p, markup_frac, cpm_amount))
+    # What this save changes, and which live client pages read each changed
+    # rule -- said before anything is written. A platform rule is global:
+    # a markup saved here moves the Investment figure on every client page
+    # that reads it, at once, with nothing on those pages saying so. A
+    # change reaching at least one such page is shown and confirmed rather
+    # than saved on the first press; a change reaching none saves as it
+    # always did, because a confirmation on every press is one nobody reads.
+    current = {m["platform"]: m for m in store.markups()}
+    reach = []
+    try:
+        pages = store.pages_on_platform_rule()
+    except Exception:                      # noqa: BLE001
+        pages = {}
+    for p, frac, cpm in wanted:
+        was = current.get(p) or {}
+        was_m = Decimal(str(was["markup"])) if was.get("markup") is not None else None
+        was_c = Decimal(str(was["cpm"])) if was.get("cpm") is not None else None
+        if (frac, cpm) == (was_m, was_c):
+            continue
+        on = pages.get(p) or []
+        if on:
+            reach.append({"platform": p, "label": store.platform_label(p),
+                          "before": _rule_text(was_m, was_c), "after": _rule_text(frac, cpm),
+                          "pages": on})
+    if reach and (f.get("confirm") or "") != "1":
+        posted = [(k, v) for k, v in f.items() if k.startswith(("markup_", "cpm_"))]
+        return _markup_page(pending=reach, posted=posted)
     changed = []
     for p, frac, cpm in wanted:
         try:
@@ -811,7 +840,7 @@ def client_dashboard_pdf(token):
     period = (request.args.get("period") or "mtd")[:12]
     agg = client_view.aggregate(link, period)
     try:
-        pdf = client_pdf.build(agg)
+        pdf = client_view.pdf_bytes(link, period)
     except Exception:                      # noqa: BLE001
         app.logger.exception("client dashboard PDF failed")
         return "We couldn't build that PDF.", 500
@@ -940,7 +969,7 @@ def _parse_markup_form(f) -> dict:
         if pct:
             out[p] = {"markup": str(store.markup_from_percent(pct))}
         elif cpm:
-            out[p] = {"cpm": cpm}
+            out[p] = {"cpm": str(store.check_cpm(cpm))}
     return out
 
 
