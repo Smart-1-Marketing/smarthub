@@ -87,6 +87,43 @@ def platform_label(platform: str) -> str:
     return PLATFORM_LABELS.get(platform, platform)
 
 
+def resolve_client(name: str = "", key: str = "") -> tuple[str, str]:
+    """The (key, display name) a mapping is filed under.
+
+    ``CampaignMap``, ``BudgetLine`` and ``ReportLink`` all key on
+    ``hub/client_key.py``'s Hub-wide key, never a plain display name. A key
+    typed by hand, or a name with no key beside it, is resolved through the
+    client registry so the row carries the same key every other module's
+    record uses -- and falls back to a name key when the registry cannot see
+    the client, which is a mapping that still works and is marked as
+    name-backed by its prefix.
+
+    This was ``modules/reports/app.py``'s own ``_resolve_client``, moved
+    here once a second caller needed the identical rule:
+    ``hub/proposal_adapters/reports.py`` was minting its ``ReportLink`` and
+    every ``BudgetLine`` under the client's plain display name rather than
+    this key, so the two spellings of one client's rows never joined —
+    ``modules/reports/client_card.py``'s own ``candidate_keys()`` reads
+    around that gap for now, and this closes it at the write side instead.
+    """
+    name = (name or "").strip()
+    key = (key or "").strip()
+    if key and name:
+        return key[:200], name[:300]
+    try:
+        from hub import client_key as ck
+        from hub import clients_registry
+        hit = clients_registry.find_client(name) if name else None
+        if hit:
+            return (ck.client_key(hit.get("name") or name, hit.get("url") or hit.get("domain") or "")
+                    or ck.name_key(name), hit.get("name") or name)
+        if key:
+            return key[:200], (name or ck.key_label(key))[:300]
+        return ck.name_key(name), name
+    except Exception:                  # noqa: BLE001 - registry unavailable
+        return (key or ("n:" + name.lower().replace(" ", "-")))[:200], name[:300]
+
+
 # ---------------------------------------------------------------------------
 # Engine
 # ---------------------------------------------------------------------------

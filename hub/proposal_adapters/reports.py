@@ -30,6 +30,15 @@ product and this exact monthly figure is left alone rather than duplicated,
 the same "already existed and were left as-is" shape `utm.py` uses against
 the UTM book.
 
+**Keyed the way every other row in this module is keyed.** ``client`` on
+``CampaignMap``, ``BudgetLine`` and ``ReportLink`` is ``hub/client_key.py``'s
+Hub-wide key, never a plain display name -- a mapping a rep files by hand
+through ``/reports/unmapped`` resolves through ``store.resolve_client()``
+first. This adapter used to pass ``run.client`` straight through instead, so
+its rows landed under a different ``client`` string than the campaigns a rep
+maps for the same business; ``modules/reports/client_card.py``'s own
+``candidate_keys()`` reads around that gap for now, and this closes it here.
+
 ``execution_mode="auto"``: nothing here is client-facing copy or a live
 campaign change -- a dashboard link and a budget figure to pace against are
 housekeeping a person reviews on the Reports screens, not a document a
@@ -91,12 +100,14 @@ def run(run, task):
             "against yet. Add one under Budget & flight calendar, then re-run "
             "this task.")
 
-    link = reports_store.link_for_client(run.client)
+    client_id, client_name = reports_store.resolve_client(run.client)
+
+    link = reports_store.link_for_client(client_id)
     if link is None:
         link = reports_store.create_link(
-            run.client, client_name=run.client, created_by="proposal-execution")
+            client_id, client_name=client_name, created_by="proposal-execution")
 
-    existing = reports_store.budget_lines_for(run.client)
+    existing = reports_store.budget_lines_for(client_id)
     # Compared as amounts, not as strings: the stored column is Numeric(12,2)
     # and reads back "500.00" against a freshly-parsed Decimal("500") -- the
     # same figure, two different strings, which would have minted a
@@ -110,7 +121,7 @@ def run(run, task):
             kept.append(product)
             continue
         reports_store.add_budget_line(
-            client=run.client, client_name=run.client, product=product,
+            client=client_id, client_name=client_name, product=product,
             monthly_budget=amount, created_by="proposal-execution",
             notes=f"From Proposal Execution run #{run.id}.",
             source={"proposal_execution_run": run.id})

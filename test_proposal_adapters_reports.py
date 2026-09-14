@@ -168,6 +168,15 @@ PROPOSAL_TEXT = ("PLAN\nWebsite Retargeting $500\nMeta In-Market Home Buyers $1,
 clients_registry.find_client = lambda name: {"name": name, "domain": "reportsrealrun.example.com"}
 try:
     with hub_app.app_context():
+        # store.resolve_client() is what the adapter (and every other caller
+        # in this module) key rows on -- never the plain client name. The
+        # stub above stands in for clients_registry for the life of this
+        # section, including the idempotency re-run below, so the resolved
+        # key cannot drift between the two calls.
+        client_id, client_name = reports_store.resolve_client(CLIENT)
+        check("the adapter's client resolves to the module's own derived key",
+              client_id, "d:reportsrealrun.example.com")
+
         run = _new_run(CLIENT, PROPOSAL_TEXT)
         run = pe.update_inputs(run.id, {"landing_url": "reportsrealrun.example.com",
                                         "target_geography": "Columbus, OH",
@@ -179,14 +188,15 @@ try:
         check("reporting_plan reaches completed (mode=auto)", rp.state, pe.COMPLETED)
 
         result = rp.result()
-        link = reports_store.link_for_client(CLIENT)
-        check("a real ReportLink was minted for this client", link is not None, True)
+        link = reports_store.link_for_client(client_id)
+        check("a real ReportLink was minted, keyed the way every other row here is",
+              link is not None, True)
         check("the returned token matches the real, stored link",
               result.get("token"), link.token if link else None)
         check("the artifact_url points at the real client dashboard",
               result.get("artifact_url"), f"/reports/r/c/{link.token}" if link else None)
 
-        lines = reports_store.budget_lines_for(CLIENT)
+        lines = reports_store.budget_lines_for(client_id)
         products = sorted(b["product"] for b in lines)
         check("a budget line was written for each channel carrying a real figure",
               products, sorted(["Website Retargeting", "Meta In-Market Home Buyers"]))
@@ -196,32 +206,30 @@ try:
         check("SEO (no quoted figure) is reported, never invented",
               "SEO + AI" in (result.get("channels_without_a_figure") or []) or
               any("seo" in c.lower() for c in result.get("channels_without_a_figure") or []), True)
+
+        # -------------------------------------------------------------------
+        section("Idempotent: re-running the adapter reuses the link and skips existing lines")
+        # -------------------------------------------------------------------
+
+        tasks = {t.task_key: t for t in pe.tasks_for_run(run.id)}
+        before_link = reports_store.link_for_client(client_id)
+        before_lines = len(reports_store.budget_lines_for(client_id))
+
+        second = reports_adapter.run(run, tasks["reporting_plan"])
+
+        after_link = reports_store.link_for_client(client_id)
+        after_lines = reports_store.budget_lines_for(client_id)
+
+        check("re-running mints no second live link for this client",
+              after_link.token, before_link.token)
+        check("re-running writes no duplicate budget lines",
+              len(after_lines), before_lines)
+        check("re-running reports every priced channel as already on file",
+              sorted(second.get("budget_lines_existing") or []),
+              sorted(["Website Retargeting", "Meta In-Market Home Buyers"]))
+        check("...and adds none", second.get("budget_lines_added"), [])
 finally:
     clients_registry.find_client = _real_find_client
-
-
-# ---------------------------------------------------------------------------
-section("Idempotent: re-running the adapter reuses the link and skips existing lines")
-# ---------------------------------------------------------------------------
-
-with hub_app.app_context():
-    tasks = {t.task_key: t for t in pe.tasks_for_run(run.id)}
-    before_link = reports_store.link_for_client(CLIENT)
-    before_lines = len(reports_store.budget_lines_for(CLIENT))
-
-    second = reports_adapter.run(run, tasks["reporting_plan"])
-
-    after_link = reports_store.link_for_client(CLIENT)
-    after_lines = reports_store.budget_lines_for(CLIENT)
-
-    check("re-running mints no second live link for this client",
-          after_link.token, before_link.token)
-    check("re-running writes no duplicate budget lines",
-          len(after_lines), before_lines)
-    check("re-running reports every priced channel as already on file",
-          sorted(second.get("budget_lines_existing") or []),
-          sorted(["Website Retargeting", "Meta In-Market Home Buyers"]))
-    check("...and adds none", second.get("budget_lines_added"), [])
 
 
 print(f"\n{_passed} passed, {_failed} failed")
