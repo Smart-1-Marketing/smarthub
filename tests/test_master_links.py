@@ -6,6 +6,8 @@ from hub import master_links
 
 def _isolated(monkeypatch, tmp_path):
     monkeypatch.setenv("HUB_DATA_DIR", str(tmp_path))
+    # A fresh disk must not restore another test's shared database mirror.
+    monkeypatch.setattr(identity.jsonstore, "_fetch", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(identity.jsonstore, "_upsert", lambda *_a, **_k: True)
     monkeypatch.setattr(master_links.jsonstore, "_upsert", lambda *_a, **_k: True)
 
