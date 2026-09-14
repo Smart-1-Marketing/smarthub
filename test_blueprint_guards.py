@@ -432,6 +432,11 @@ def _allowed_dynamic(pattern: str) -> bool:
 # And the writes among them, its own list again. Nothing but an empty JSON
 # body is ever sent and no id resolves, so the sweep creates nothing.
 PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
+    "/hot/ecwid-hook/<token>": "Ecwid's order webhook for one client's store "
+                               "(modules/skills360), addressed by a token "
+                               "minted at activation. It forgets a cache and "
+                               "reads nothing from the body; a token nobody "
+                               "minted is a 404",
     "/tools/commercial-builder/review/voice/<token>/submit": "client recording submission requires a pending, unrevoked capture token and speaker consent",
     "/connect/<token>/start": "the client starting the Google Access flow",
     "/sales/builder/api/p/<token>/accept": "the client accepting the "
