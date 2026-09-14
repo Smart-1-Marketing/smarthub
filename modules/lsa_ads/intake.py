@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, render_template, request, redirect, url_for, abort
 from sqlalchemy import update
+from hub import audit
 from modules.ads_builder import local_services as lsa
 from modules.ads_builder.google_ads import GoogleAdsError
 
@@ -81,6 +82,7 @@ def manage(pid):
             else:
                 session.add(lsa.store.Setting(key=key(pid), value=json.dumps(data)))
             session.commit()
+            audit.log('ads_builder', 'LSA_INTAKE_LINK_CREATED', actor=lsa.actor(), setup_id=pid)
             return jsonify(path=(request.script_root or '/tools/lsa') + '/intake/' + pid + '/' + token,
                            expires_at=data['expires_at'])
         if not row:
@@ -101,10 +103,12 @@ def manage(pid):
             data.update(imported_at=now().isoformat(), revision=data['revision'] + 1)
             change(session, row, data)
             session.commit()
+            audit.log('ads_builder', 'LSA_INTAKE_IMPORTED', actor=lsa.actor(), setup_id=pid)
             return jsonify(setup=updated)
         else:
             raise GoogleAdsError('Choose create, revoke or apply.', status=400)
         session.commit()
+    audit.log('ads_builder', 'LSA_INTAKE_LINK_REVOKED', actor=lsa.actor(), setup_id=pid)
     return jsonify(ok=True)
 
 
