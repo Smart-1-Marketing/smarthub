@@ -104,7 +104,7 @@
               <input type="hidden" name="client_key" value="">
               <div class="picker-list"></div>
             </div>
-            <input type="text" name="product" class="product" list="s1-products" placeholder="Product" autocomplete="off" value="{{ defaults.get(r.platform, '') }}">
+            <input type="text" name="product" class="product" list="s1-products" placeholder="Product" autocomplete="off" value="{{ r.default_product or defaults.get(r.platform, '') }}">
             <button type="submit" class="s1d-btn small">Map</button>
           </form>
         </td>

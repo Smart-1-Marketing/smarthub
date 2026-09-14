@@ -2210,6 +2210,42 @@ every check after it out of the file.
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
 
+**A column named `query` on a Flask-SQLAlchemy model hides `Model.query` on
+that one class, and nothing errors until the first read.** `db.Model` carries
+the `query` descriptor every `Model.query.filter_by(...)` in this Hub reads;
+`SEORecommendation` declared a **column** called `query` -- a Search Console
+search term is the obvious thing to call one -- so `SEORecommendation.query`
+answered the column's `InstrumentedAttribute` and `.filter_by()` on it raised
+`AttributeError`. The model imported, `create_all()` made the table, and every
+screen looked fine. Behind that one line: `_save_recommendations()` reaches
+it unconditionally, so **every weekly Search Console refresh rolled back**
+before the snapshot or the memory was written, with the error recorded on
+the property row where no page drew it; the action queue and the client
+overview answered **500**, and the overview page `await r.json()`-ed the
+HTML, rejected unhandled, and left the Agency Action Queue blank -- not even
+its own empty state; and the daily job folded each property's failure into
+a list and returned normally, so the scheduler panel drew a **green pill
+over a run that had refreshed nobody**. The only place it ever surfaced was
+a traceback swallowed in `test_hub_help_layer.py`'s page sweep, which
+requests every route and asserts nothing about a 500.
+
+The attribute is `search_query` and the **column keeps its name**
+(`db.Column("query", …)`), so the table already on the live Postgres needs
+no migration -- the `audit.LOG_NAMES` rule, wearing a column. The wire key
+stays `query` too, because the page reads `x.query` and nothing about the
+JSON changed. `hub/integrity.check_shadowed_model_query()` refuses the next
+one at **high**, from the AST -- prose is not a mapping -- and scoped to a
+base spelled `Model`, since a classic declarative `Base` has no `query` to
+shadow; `query_class` is deliberately not on its list, because assigning one
+is how Flask-SQLAlchemy is *told* to use a custom query. The job **raises**
+now when it attempted refreshes and landed none, because `_run_job` reads an
+exception as a failure and a returned dict as success; one property failing
+beside others that landed stays that row's own state, drawn on the overview
+page with its error, or a job red for one client's revoked grant is the
+check people learn to skip. `test_seo_intelligence.py` drives the refresh
+against a stubbed Search Console, the routes, the page, the job's verdict
+and the sweep -- and was confirmed red against the unfixed model first.
+
 **Two blueprints must not offer a template of the same name.** Module Jinja
 environments are separate *for a dispatcher-mounted module* — a blueprint
 registered on the hub app shares the hub's environment, and that environment
@@ -13647,6 +13683,58 @@ key with a marker on the end, so a markup saved on the other worker or a
 display name corrected on the staff page reaches the document exactly
 when it reaches the page, and ``forget()`` drops both.
 
+**A YouTube campaign is a Google Ads campaign, and it read as search.**
+``google_ads_perf.py`` pulled the campaign and the day and no channel
+type, so every Google Ads campaign whose name carried no product segment
+filed under the platform default -- Paid Search -- and a TrueView buy
+read as search on the client's own page. The query reads
+``campaign.advertising_channel_type`` now and carries it on the row's
+``extras``; ``products.GOOGLE_CHANNEL_PRODUCTS`` maps the three types that
+map cleanly (VIDEO is Online Video, SEARCH is Paid Search, DISPLAY is
+Programmatic Display) and **nothing else** -- Performance Max, Demand Gen
+and Shopping take the platform default with the rule on the mapping row
+saying so (``name_v1+default_product`` against ``+channel_product``),
+because a guess filed as a product is a bar on the client's page that no
+budget line can pace. The unmapped queue opens its product box on the
+channel's product for the same reason a rep should not have to know
+what a campaign's channel type is.
+
+**And the completes tile had nothing to draw for Google.** Google
+publishes no completes count; it publishes ``video_quartile_p100_rate``,
+and rate times impressions is the figure the tile draws for the Trade
+Desk. It is carried **only on a row that served video** -- the VIDEO
+channel, or a row carrying views -- because a search campaign's rate is
+zero and "0 completes" on it is a measurement of a metric that does not
+apply. That is also why the client page's completion kind is decided
+**per row** for Google rather than per platform: one account serves
+search and YouTube alike, and listing ``google`` in ``COMPLETION`` would
+draw "Video ads completed 0" for every search-only client, the measured
+nought the tile's own gate exists to refuse.
+
+**The projection's first week was the week it understated.** The daily
+rate for ``projected_month_end`` averaged the last seven completed days
+over seven however few the flight had run, so a line four days into its
+flight at $150 a day projected at $85.71 a day -- on the week a projection
+is read hardest. It averages over the completed days on or after the
+flight start now; a line with no flight start still takes the whole
+window, because nothing says when it should have begun and a zero day
+inside the month is a real zero.
+
+**And the StackAdapt wait came off the scheduler thread.** ``fetch()``
+polled a report the platform was still preparing for up to thirty
+seconds, asleep on the one thread every job shares -- the pacing
+snapshot, the Google sweep and the Knack pulls all behind it. It is
+under ``BUDGET_SECONDS`` now (twenty, house), measured by an injectable
+clock, and past it the report is **pending** rather than failed: nothing
+is stamped on the watermark, because nothing landed and nothing broke and
+the last good pull is still the current one, whose age is what
+``/status`` reads; the module's own note says so on the index line, the
+job counts it apart from the failures, and the next pull asks the same
+query again, which the platform answers from the report it has since
+finished. ``PROGRESS_TRIES`` still caps the polls whatever the clock says,
+since a platform answering Progress instantly for ever must not be polled
+for ever either.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.
@@ -13864,6 +13952,12 @@ python3 test_seo_tasks.py          # one page, however its URL was written:
                                    #   the ticket dedupe compared the raw
                                    #   string while the title beside it was
                                    #   already canonical
+python3 test_seo_intelligence.py   # the Search Console recommendation path:
+                                   #   a column named query no longer hides
+                                   #   Model.query, the weekly refresh lands,
+                                   #   the queue answers, the page says when
+                                   #   it cannot, and the job reads red when
+                                   #   every refresh failed
 python3 test_seo_page.py           # the SEO list and record: a pill with four
                                    #   answers, a name nobody gave, a failed
                                    #   record that is not an empty one, SEO

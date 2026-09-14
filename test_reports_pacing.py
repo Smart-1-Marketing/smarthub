@@ -185,7 +185,18 @@ check("...capped at a full bar, so a 10x line cannot draw off the page",
       max(r["bar_pct"] for r in rows.values() if r["bar_pct"] is not None) <= 100.0)
 check("...and a line with no pace has no bar rather than a zero one",
       all(r["bar_pct"] is None for r in rows.values() if r["pace"] is None))
-check("...projected: 750 + (4 days x 150 / 7) x 10 remaining", br["projected_month_end"], Decimal("1607.14"))
+# The projection's daily rate averages over the days the flight has RUN,
+# not over seven regardless: four completed days at $150 is $150 a day,
+# and dividing by seven read a line four days into its flight as spending
+# $85.71 a day -- 750 + 85.71 x 10 = $1,607.14 projected against a real
+# rate that lands it at $2,250. The first week is when a projection is
+# read hardest and it was the week it understated.
+check("...projected: 750 + (4 days x 150 / 4 days run) x 10 remaining",
+      br["projected_month_end"], Decimal("2250.00"))
+check("...and its daily average is over the four days that have run", br["avg_daily_7"], Decimal("150.00"))
+check("a whole-month flight still averages over seven", tv["avg_daily_7"], Decimal("100.00"))
+check("...and so does a line with no flight start: a zero day inside the month is a real zero",
+      au["avg_daily_7"], Decimal("14.29"))
 check("...daily needed is (1500 - 750) / 10", br["daily_needed"], Decimal("75.00"))
 
 # Product and platform narrowing.

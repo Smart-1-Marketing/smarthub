@@ -44,7 +44,7 @@ def _property_dict(p):
 def _recommendation_dict(r):
     return {
         "id": r.id, "client_id": r.client_id, "property_id": r.property_id,
-        "kind": r.kind, "title": r.title, "page_url": r.page_url, "query": r.query,
+        "kind": r.kind, "title": r.title, "page_url": r.page_url, "query": r.search_query,
         "priority_score": r.priority_score, "impact": r.impact, "effort": r.effort,
         "status": r.status, "evidence": _loads(r.evidence_json, {}),
         "actions": _loads(r.actions_json, []),

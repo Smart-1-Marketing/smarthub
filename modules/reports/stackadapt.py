@@ -76,6 +76,16 @@ PAGE_SIZE = 500
 DAYS = 14
 PROGRESS_TRIES = 6
 PROGRESS_WAIT = 5
+# The most wall-clock one pull may spend waiting on a report, in seconds.
+# The native pull runs on hub/scheduler.py's one thread, which every job
+# shares: a report the platform takes forty seconds to prepare used to be
+# forty seconds in which the pacing snapshot, the Google sweep and the
+# Knack pulls all waited behind it. Past the budget the run stops asking,
+# records the report as PENDING rather than failed -- the platform is
+# still preparing it and the same query answers with the outcome once it
+# is ready -- and the next tick collects it. Bounded by this plus one
+# request's own timeout, never by how long the platform takes. House.
+BUDGET_SECONDS = 20
 
 KEY_ENV = ("STACKADAPT_API_KEY", "STACK_ADAPT_API", "STACK_ADAPT_API_KEY", "STACKADAPT_API")
 NOT_CONFIGURED = "not configured: STACKADAPT_API_KEY (or STACK_ADAPT_API) unset"
@@ -140,6 +150,12 @@ def _redact(text: str) -> str:
 
 class StackAdaptError(Exception):
     """A refusal from the platform, already redacted."""
+
+
+class ReportPending(StackAdaptError):
+    """The platform was still preparing the report when the wait budget
+    ran out. Not a refusal: nothing is wrong at either end, the run simply
+    stopped holding the scheduler thread for it."""
 
 
 def headers() -> dict:
@@ -291,11 +307,21 @@ def _remembered() -> dict:
         return {}
 
 
-def fetch(start: date, end: date, sleep=None) -> dict:
+def fetch(start: date, end: date, sleep=None, clock=None, budget: float | None = None) -> dict:
     """Every record from ``start`` to ``end`` inclusive, paged on the cursor,
-    polled while the platform answers Progress. Returns
-    ``{"rows", "skipped", "pages", "progress_waits"}``."""
+    polled while the platform answers Progress -- inside a wall-clock
+    budget. Returns ``{"rows", "skipped", "pages", "progress_waits"}``;
+    raises ``ReportPending`` when the budget runs out with the report still
+    preparing, and ``StackAdaptError`` after ``PROGRESS_TRIES`` polls
+    whatever the clock says (a platform answering Progress instantly, for
+    ever, must not be polled for ever either).
+
+    ``sleep`` and ``clock`` are injectable so a test drives the wait rather
+    than sitting through it; ``budget`` defaults to ``BUDGET_SECONDS``."""
     sleep = sleep or _time.sleep
+    clock = clock or _time.monotonic
+    budget = BUDGET_SECONDS if budget is None else float(budget)
+    started = clock()
     variables = {"from": start.isoformat(), "to": (end + timedelta(days=1)).isoformat(),
                  "first": PAGE_SIZE, "after": None}
     rows, skipped, pages, waits = [], 0, 0, 0
@@ -308,6 +334,11 @@ def fetch(start: date, end: date, sleep=None) -> dict:
             waits += 1
             if waits > PROGRESS_TRIES:
                 raise StackAdaptError(f"the report was still in progress after {PROGRESS_TRIES} polls")
+            elapsed = clock() - started
+            if elapsed + PROGRESS_WAIT > budget:
+                raise ReportPending(
+                    f"the report was still preparing after {elapsed:.0f}s; the next pull "
+                    "asks again rather than hold the scheduler for it")
             sleep(PROGRESS_WAIT)
             continue
         records = payload.get("records") or {}
@@ -322,17 +353,26 @@ def fetch(start: date, end: date, sleep=None) -> dict:
         return {"rows": rows, "skipped": skipped, "pages": pages, "progress_waits": waits}
 
 
-def pull(days: int = DAYS, today: date | None = None, sleep=None) -> dict:
-    """The trailing ``days`` days for every advertiser the key can see."""
+def pull(days: int = DAYS, today: date | None = None, sleep=None, clock=None,
+         budget: float | None = None) -> dict:
+    """The trailing ``days`` days for every advertiser the key can see.
+
+    A report still preparing when the wait budget runs out answers
+    ``pending: True`` with the sentence in ``error`` and touches NO
+    watermark: nothing landed, nothing failed, and the last good pull is
+    still the current one -- its age is what ``/status`` reads, so a report
+    that never finishes reads as a feed gone stale rather than as a fault
+    stamped every six hours. The module's own note carries ``pending`` so
+    the index line says so."""
     out = {"ok": False, "rows": 0, "advertisers": 0, "campaigns": 0, "skipped": 0,
-           "pages": 0, "error": ""}
+           "pages": 0, "error": "", "pending": False}
     if not configured():
         out["error"] = NOT_CONFIGURED
         return out
     today = today or date.today()
     start = today - timedelta(days=max(1, int(days)) - 1)
     try:
-        got = fetch(start, today, sleep=sleep)
+        got = fetch(start, today, sleep=sleep, clock=clock, budget=budget)
         rows = got["rows"]
         out["skipped"] = got["skipped"]
         out["pages"] = got["pages"]
@@ -341,6 +381,9 @@ def pull(days: int = DAYS, today: date | None = None, sleep=None) -> dict:
         out["rows"] = store.upsert_rows(rows) if rows else 0
         out["ok"] = True
         store.record_sync("stackadapt", rows=out["rows"], error="", source="native")
+    except ReportPending as exc:
+        out["pending"] = True
+        out["error"] = _redact(str(exc))
     except StackAdaptError as exc:
         out["error"] = _redact(str(exc))
         store.record_sync("stackadapt", rows=0, error=out["error"], source="native")
@@ -369,6 +412,8 @@ def status() -> dict:
         line += "last pull " + str(last)
         if native.get("error"):
             line += f" -- {native['error']}"
+        elif remembered.get("pending"):
+            line += f" -- {remembered.get('error') or 'report still preparing'}"
     return {
         "configured": not miss, "connected": not miss, "missing": miss,
         "endpoint": c["endpoint"], "header": c["header"],
