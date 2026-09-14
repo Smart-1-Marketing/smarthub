@@ -145,6 +145,14 @@ class ProposalExecutionRun(db.Model):
             # own roster rather than restating one.
             owner, names, choices, owner_error = _owner_context(self.client)
             plan = proposal_plan.resolve(plan_for(self), owner=owner, names=names)
+            # Where each launch task and creative item stands -- done,
+            # landed, overdue -- derived here against the work log and the
+            # board, and stored nowhere.
+            # One read of the work log for both the progress and the
+            # promise schedule below -- two tails of one file per page
+            # load is the cost `open_plan_summaries()` already refuses.
+            work = _work_index()
+            plan = _with_progress(self, plan, tasks=tasks, work=work)
             plan = proposal_plan.with_actions(plan, client=self.client,
                                               task_keys=[t.task_key for t in tasks],
                                               upload=_upload_link(self.client))
@@ -152,7 +160,7 @@ class ProposalExecutionRun(db.Model):
             # The monthly promises month by month since launch, against the
             # work log -- derived here and stored nowhere, the same rule as
             # the due dates beside it.
-            plan["schedule"] = _promise_schedule(self, plan)
+            plan["schedule"] = _promise_schedule(self, plan, work=work)
             # The client's own link, with its URL built from the host that
             # served this page -- the token is stored, the address is not.
             plan["client_link"] = client_link_view(self, plan)
@@ -705,7 +713,7 @@ def update_plan(run_id, decisions, *, actor=""):
         # that did not is None, and a well-formed address is then taken as
         # typed rather than every assignment refused over a blip.
         known = set(names) if names and not error else None
-    plan = proposal_plan.apply_decisions(plan_for(run), decisions or {}, known_owners=known)
+    plan = proposal_plan.apply_decisions(plan_for(run), decisions or {}, known_owners=known, actor=actor)
     run.plan_json = _dumps(plan)
     db.session.commit()
     what = []
@@ -715,6 +723,11 @@ def update_plan(run_id, decisions, *, actor=""):
     if d.get("remove"): what.append(f"{len(d['remove'])} item(s) removed")
     if d.get("answers"): what.append(f"{len(d['answers'])} question(s) answered")
     if d.get("owners"): what.append(f"{len(d['owners'])} owner(s) set")
+    marks = d.get("done") or {}
+    if isinstance(marks, dict) and marks:
+        finished = sum(1 for v in marks.values() if v)
+        if finished: what.append(f"{finished} item(s) marked done")
+        if len(marks) - finished: what.append(f"{len(marks) - finished} done mark(s) taken back")
     _event(run.id, run.state, "Updated the plan: " + (", ".join(what) or "no change") + ".", actor=actor)
     return run
 
@@ -780,12 +793,64 @@ def _owner_context(client):
         return None, {}, [], f"The account list could not be read ({type(exc).__name__})."
 
 
-def _resolved_plan(run):
-    """The run's plan with its answers and owners applied -- the one
-    reading every document and every brief starts from."""
+def _work_index():
+    """The work log's index, read once per request for whatever asks.
+    Never raises: a log that would not answer hands back the index that
+    says so, which every reader here already knows how to name."""
+    try:
+        from hub import client_brand
+        return client_brand.work_index()
+    except Exception as exc:                             # noqa: BLE001
+        return {"rows": {}, "horizon": "", "scanned": 0,
+                "error": f"The activity log could not be read ({type(exc).__name__})."}
+
+
+def _chain_since(run):
+    """The day the earliest run in this run's supersede chain was made, as
+    an ISO day -- the floor under the creative evidence
+    (`hub/proposal_progress.py`). A plan re-analyzed last week is the same
+    plan, and a pack delivered between the two runs is still this plan's;
+    a pack from a campaign two years ago is not. Bounded, because a cycle
+    written by a bug must show a plan rather than hang the request."""
+    start, cur, seen = run.created_at, run, set()
+    for _ in range(20):
+        prev = getattr(cur, "previous_run_id", None)
+        if not prev or prev in seen:
+            break
+        seen.add(prev)
+        cur = get_run(prev)
+        if not cur:
+            break
+        if cur.created_at and (not start or cur.created_at < start):
+            start = cur.created_at
+    return start.date().isoformat() if start else ""
+
+
+def _with_progress(run, plan, *, work=None, tasks=None, today=None):
+    """The resolved plan with a status on every launch task and creative
+    item -- done, landed, overdue, open -- from `hub/proposal_progress.py`.
+    Never raises: a progress that could not be read costs the marks and
+    says so on `resolved.progress`, never the plan it sits on."""
+    try:
+        from hub import proposal_progress
+        rows = tasks if tasks is not None else tasks_for_run(run.id)
+        states = {t.task_key: t.state for t in rows}
+        return proposal_progress.apply(plan, client=run.client, run_id=run.id, since=_chain_since(run),
+                                       today=today, work=work, task_states=states)
+    except Exception as exc:                             # noqa: BLE001
+        plan.setdefault("resolved", {})["progress"] = {
+            "measured": False, "log_error": f"Progress could not be read ({type(exc).__name__}).",
+            "lists": {}, "overdue": 0, "done": 0, "landed": 0, "open": 0, "overdue_items": []}
+        return plan
+
+
+def _resolved_plan(run, *, work=None, today=None):
+    """The run's plan with its answers, owners and progress applied -- the
+    one reading every document and every brief starts from."""
     from hub import proposal_plan
     owner, names, _choices, _error = _owner_context(run.client)
-    return proposal_plan.resolve(plan_for(run), owner=owner, names=names)
+    plan = proposal_plan.resolve(plan_for(run), owner=owner, names=names)
+    return _with_progress(run, plan, work=work, today=today)
 
 
 # ---------------------------------------------------------------------------
@@ -916,7 +981,7 @@ def kickoff_document(run, *, base=""):
     is counted rather than silently absent, because a document that quietly
     leaves items off is the list that gets shorter with nothing saying so.
     """
-    from hub import proposal_plan
+    from hub import proposal_plan, proposal_progress
     plan = _resolved_plan(run)
     resolved = plan.get("resolved") or {}
     analysis = run.analysis() or {}
@@ -947,6 +1012,7 @@ def kickoff_document(run, *, base=""):
                       for q in plan.get("questions") or []
                       if not str(q.get("answer") or "").strip()]
     unowned = [it["title"] for it in creative + launch + monthly if not it.get("owner")]
+    progress = proposal_progress.counts(plan)
     return {
         "run_id": run.id, "client": run.client, "state": run.state,
         "proposal": run.proposal_title or run.proposal_filename or "",
@@ -966,6 +1032,13 @@ def kickoff_document(run, *, base=""):
         "to_review": int(summary_.get("to_review") or 0),
         "unverified": int(summary_.get("unverified") or 0),
         "dropped": sum(int((lists.get(k) or {}).get("dropped") or 0) for k in proposal_plan.LISTS),
+        # Where the launch tasks and creative stand: past due with nothing
+        # done or landed, done by hand, landed on their own, and a log that
+        # could not be read said rather than read as nothing landed.
+        "overdue": int(progress.get("overdue") or 0),
+        "done": int(progress.get("done") or 0),
+        "landed": int(progress.get("landed") or 0),
+        "progress_note": str(progress.get("log_error") or ""),
         "notes": list(plan.get("notes") or []),
         "board": summary(run),
         "client_link": client_link_view(run, plan, base=base),
@@ -993,7 +1066,12 @@ def client_needs(run, *, base=""):
             continue
         files.append({"title": it.get("title") or "", "detail": it.get("detail") or "",
                       "channel_name": it.get("channel_name") or "", "due_label": it.get("due_label") or "",
-                      "shared": it.get("supplier") == "mixed"})
+                      "shared": it.get("supplier") == "mixed",
+                      # Done by hand or landed on its own: either way it has
+                      # arrived, and a list that goes on asking for a file
+                      # the client already sent reads as us not having
+                      # looked. The evidence itself stays inside.
+                      "received": it.get("status") in ("done", "landed")})
     owner = resolved.get("owner") or {}
     upload = _upload_link(run.client, base=base) or {}
     return {
@@ -1033,8 +1111,8 @@ def _run_plan_summary(run, *, work=None, marks_index=None):
     last, landed, marked -- and the missed promise-months by key, which is
     what the health report raises one issue per.
     """
-    from hub import proposal_plan, proposal_promises
-    plan = proposal_plan.resolve(plan_for(run))
+    from hub import proposal_plan, proposal_progress, proposal_promises
+    plan = _with_progress(run, proposal_plan.resolve(plan_for(run)), work=work)
     sched = _promise_schedule(run, plan, work=work, marks_index=marks_index)
     s = plan.get("summary") or {}
     kept = {name: (s.get("lists") or {}).get(name, {}).get("kept", 0) for name in proposal_plan.LISTS}
@@ -1053,6 +1131,10 @@ def _run_plan_summary(run, *, work=None, marks_index=None):
         "creative_unassigned": unassigned,
         "kept": kept,
         "promises": proposal_promises.counts(sched),
+        # The launch tasks and creative: how many are past due with nothing
+        # done or landed, and the items by key so the health report can
+        # raise one issue per item that a Done on the plan page clears.
+        "progress": proposal_progress.counts(plan),
         "updated_at": run.updated_at.isoformat() if run.updated_at else "",
     }
 
@@ -1098,6 +1180,27 @@ def open_plan_summaries(limit=500):
                 "runs": [_run_plan_summary(r, work=work, marks_index=mk) for r in rows]}
     except Exception as exc:                             # noqa: BLE001
         return {"measured": False, "error": f"{type(exc).__name__}", "runs": []}
+
+
+def done_index():
+    """`{done key: mark}` for every done mark on every open plan, read per
+    request by `hub/client_health.py` so a Done pressed on the plan page
+    takes the overdue issue off My Clients on read rather than at
+    tomorrow's rebuild -- the same overlay the promise marks ride. Reads the
+    stored plans and builds nothing. Never raises: a table that would not
+    answer costs the overlay, never the report."""
+    try:
+        from hub import proposal_progress
+        out = {}
+        for run in open_runs():
+            plan = run.plan() or {}
+            for name in proposal_progress.LISTS:
+                for it in plan.get(name) or []:
+                    if it.get("done"):
+                        out[proposal_progress.done_key(run.id, it.get("id") or "")] = dict(it["done"])
+        return out
+    except Exception:                                    # noqa: BLE001
+        return {}
 
 
 def mark_promise(run_id, item_id, month, *, done=True, note="", actor=""):
@@ -1523,6 +1626,6 @@ __all__ = ["ProposalExecutionRun", "ProposalExecutionTask", "ProposalExecutionEv
            "start_run", "pause_run", "retry_failed", "run_one",
            "approve_task", "request_changes", "rerun_task", "mark_task", "events_for_run",
            "missing_input_manifest", "summary", "adapters", "build_task_specs", "analyze_text",
-           "install_scheduler_bridge", "add_missing_columns",
+           "install_scheduler_bridge", "add_missing_columns", "done_index",
            "NEEDS_INPUT", "RUNNING", "NEEDS_APPROVAL", "FAILED",
            "COMPLETED", "LIVE", "SCHEDULED", "APPROVED", "CANCELLED", "RUN_SUPERSEDED"]
