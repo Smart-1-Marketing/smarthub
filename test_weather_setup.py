@@ -895,5 +895,50 @@ check("the campaign it started actually carries the golf_recreation vertical",
      wx_store.get(golf_started_token)["vertical"], "golf_recreation")
 
 
+section("Concrete & Paving: the twelfth vertical, end to end")
+# ---------------------------------------------------------------------------
+
+concrete_row = wx_store.create(client="Acme Concrete & Paving", vertical="concrete_paving", zip_code="46032")
+check("a concrete_paving campaign records its vertical", concrete_row["vertical"], "concrete_paving")
+
+result = wx_store.save_picks(concrete_row["token"], ["cold-pour-advisory", "perfect-pour-day"])
+check("concrete_paving picks against concrete_paving triggers are accepted", result["ok"], True)
+
+result = wx_store.save_picks(concrete_row["token"], ["perfect-golf-day"])
+check("a golf_recreation trigger id is refused on a concrete_paving campaign", result["ok"], False)
+
+result = wx_store.save_picks(concrete_row["token"], ["spring-pruning-season"])
+check("a tree_service trigger id is refused on a concrete_paving campaign", result["ok"], False)
+
+concrete_drafts = wx_copy.generate_drafts("cold-pour-advisory", "Acme Concrete & Paving")
+check("concrete_paving drafts fall back to the house source with no AI key",
+     concrete_drafts["source"], "house")
+check("concrete_paving house copy names planning around it, getting it checked or ready when you are",
+     any("plan around it" in (d["headline"] + d["primary_text"]).lower()
+         or "get it checked" in (d["headline"] + d["primary_text"]).lower()
+         or "ready when you are" in (d["headline"] + d["primary_text"]).lower()
+         for d in concrete_drafts["drafts"]), True)
+check("concrete_paving house copy never talks about tee times or trees",
+     any("tee time" in (d["headline"] + d["primary_text"]).lower()
+         or "limb" in (d["headline"] + d["primary_text"]).lower()
+         for d in concrete_drafts["drafts"]), False)
+
+perfect_pour_drafts = wx_copy.generate_drafts("perfect-pour-day", "Acme Concrete & Paving")
+check("perfect-pour-day's own booking copy names scheduling a pour",
+     any("schedule your pour" in (d["headline"] + d["primary_text"]).lower()
+         for d in perfect_pour_drafts["drafts"]), True)
+
+storm_pour_drafts = wx_copy.generate_drafts("storm-pour-delay", "Acme Concrete & Paving")
+check("the alert-driven storm blocklist covers concrete_paving's own alert trigger too",
+     storm_pour_drafts["source"] in ("house", "ai"), True)
+
+resp = staff_client.post("/tools/weather-setup/api/start",
+                         json={"client": "Midwest Paving Co.", "vertical": "concrete_paving"})
+check("api/start accepts the concrete_paving vertical and starts the campaign", resp.status_code, 200)
+concrete_started_token = resp.get_json()["token"]
+check("the campaign it started actually carries the concrete_paving vertical",
+     wx_store.get(concrete_started_token)["vertical"], "concrete_paving")
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
