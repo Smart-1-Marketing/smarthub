@@ -27,7 +27,7 @@ The existing production Smart 1 Ads connection was verified through the authenti
 
 ## Validation
 
-`python tests/ads_local_services_test.py`: seven passing tests covering draft persistence, edit conflicts, validation, connection errors, LSA-only spend, partial reporting failures, Performance Max handling and template rendering.
+`python test_ads_local_services.py`: seven passing tests covering draft persistence, edit conflicts, validation, connection errors, LSA-only spend, partial reporting failures, Performance Max handling and template rendering.
 
 Browser verification used a temporary local database and a clearly labeled sample account. Saving each setup step and reopening the saved handoff after page reload passed. Production Google reads used the existing authenticated site.
 
