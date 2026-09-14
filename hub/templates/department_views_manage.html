@@ -47,6 +47,10 @@
 .dv-dept-head .s1d-field { flex: 1 1 220px; margin-bottom: 0; }
 .dv-count { font-size: 12px; color: var(--s1d-muted); margin-left: auto; align-self: center; }
 .dv-blocks { list-style: none; margin: 0 0 12px; padding: 0; }
+.dv-builtin .dv-g { margin: 10px 0 4px; font-size: 10.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: #64748b; }
+.dv-builtin .dv-g-tiles { display: flex; flex-wrap: wrap; gap: 6px; }
+.dv-builtin .dv-g-tiles a { font-size: 12.5px; padding: 3px 9px; border: 1px solid #e2e8f0; border-radius: 14px; text-decoration: none; color: #1a2e58; background: #f8fafc; }
+.dv-builtin .dv-g-tiles a:hover { border-color: #5b8bff; }
 .dv-block { display: flex; align-items: center; gap: 8px; padding: 7px 10px;
   border: 1px solid var(--s1d-line, #e2e8f0); border-radius: 8px; margin-bottom: 6px; background: #fbfcfe; }
 .dv-block .dv-b-body { flex: 1 1 auto; min-width: 0; }
@@ -214,7 +218,32 @@
     });
   }
 
+  // A built-in department is the sidebar's own (hub/sidebar.py): its tools
+  // are the menu's tools and are not edited here. The card shows what it
+  // holds and how many people are on it; assigning is on the roster below.
+  function buildBuiltinCard(dept) {
+    var card = document.createElement("div");
+    card.className = "card dv-dept dv-builtin";
+    card.id = "dv-card-" + dept.id;
+    var groups = (dept.groups || []).map(function (g) {
+      return (g.label ? '<div class="dv-g">' + esc(g.label) + "</div>" : "") +
+        '<div class="dv-g-tiles">' + g.tiles.map(function (t) {
+          return '<a href="' + esc(t.href) + '">' + esc(t.label) + "</a>";
+        }).join("") + "</div>";
+    }).join("");
+    card.innerHTML =
+      '<div class="dv-dept-head">' +
+      '<b>' + esc(dept.name) + '</b> <span class="dv-count">from the sidebar &middot; ' +
+      (COUNTS[dept.id] || 0) + " assigned &middot; " +
+      '<a href="/views/' + esc(dept.id) + '">open its page</a></span>' +
+      "</div>" +
+      '<p class="s1d-muted">' + esc(dept.description || "") + "</p>" +
+      groups;
+    return card;
+  }
+
   function buildCard(dept) {
+    if (dept.builtin) return buildBuiltinCard(dept);
     var card = document.createElement("div");
     card.className = "card dv-dept";
     card.id = "dv-card-" + dept.id;
@@ -299,7 +328,7 @@
     DEPARTMENTS.forEach(function (dept) {
       var card = buildCard(dept);
       el.appendChild(card);
-      renderDept(dept);
+      if (!dept.builtin) renderDept(dept);
     });
   }
 

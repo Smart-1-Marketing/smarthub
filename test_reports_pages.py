@@ -159,7 +159,8 @@ check("...and the links onward", all(
                               'href="/reports/markup"')))
 check("...wearing the Hub chrome", "s1hub-sb" in body)
 check("...and the Reports entry is the one lit",
-      'class="s1hub-item s1hub-on" href="/reports/"' in body)
+      'class="s1hub-leaf s1hub-on" href="/reports/"' in body
+      and 'class="s1hub-dept-row s1hub-on"' in body)
 check("it says which database it is on", "dedicated reports database" in body)
 
 r = staff.get("/reports/unmapped")

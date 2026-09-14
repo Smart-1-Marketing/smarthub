@@ -419,8 +419,14 @@ out = scheduler.JOBS["reports_pacing"][1](Flask("t"))
 check("...and it runs (against the real today, so the mid-month flight may not have started)",
       out.get("written", 0) >= 3, note=out)
 keys = [row[0] for row in sidebar._ITEMS]
-check("the sidebar carries both pages under Reports",
-      keys[keys.index("reports"):keys.index("reports") + 3], ["reports", "reports_pacing", "reports_cost"])
+check("the sidebar carries both pages",
+      all(k in keys for k in ("reports", "reports_pacing", "reports_cost")), True)
+# Since the department nav (2026-09-14) the three sit together in a
+# department's flyout rather than as consecutive rows of a flat list.
+_ps = [k for _g, leaves in sidebar.department_tiles(sidebar.department("product-success"))
+       for k, *_ in leaves]
+check("...beside each other under Product Success",
+      _ps[_ps.index("reports"):_ps.index("reports") + 3], ["reports", "reports_pacing", "reports_cost"])
 check("...at their paths", [row[1] for row in sidebar._ITEMS if row[0] in ("reports_pacing", "reports_cost")],
       ["/reports/pacing", "/reports/cost"])
 check("both help bubbles are registered",
