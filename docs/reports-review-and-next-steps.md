@@ -72,10 +72,16 @@ Until each is set, `/reports/` says "not configured" and the pull skips it.
   sitting under the display name is found by that name (`links_named`,
   `budget_lines_named`) and reused, never re-minted -- the rows are not
   moved, and the Client 360 card goes on reading both spellings.
-- **Projection in a flight's first week** divides by seven days regardless
-  of how many have run, so it understates. Minor.
-- **StackAdapt's pull sleeps** up to thirty seconds on the shared scheduler
-  thread while a report is prepared. Fine at one advertiser; watch it.
+- ~~**Projection in a flight's first week**~~ Closed: the daily rate
+  averages over the completed days the flight has run (at most seven),
+  so a line four days in projects at its real rate rather than four
+  sevenths of it.
+- ~~**StackAdapt's pull sleeps** on the shared scheduler thread.~~ Closed:
+  the wait is under a twenty-second wall-clock budget (`BUDGET_SECONDS`,
+  house); past it the report is *pending* -- nothing stamped on the
+  watermark, the index line says so, the job counts it apart from the
+  failures -- and the next pull asks again, which the platform answers
+  from the report it has since finished.
 
 ## Hardening, done
 
@@ -98,6 +104,9 @@ client's page. `CLAUDE.md` carries the reasoning; this is the map.
 | Pacing alerts on somebody's desk | `/my-clients`, kind `pacing_alert` | The board computing a three-day alert and telling nobody. One issue per alerting line, read from the board's own persisted run, joined on the line's client name so both spellings land on the row; a job that has never run is named as unmeasured, never an empty book. |
 | The PDF cached like the page | `/reports/r/c/<token>.pdf` | A client refreshing the download being a reportlab render each time, on a route a stranger reaches with no login. Same key as the aggregate, same fifteen minutes, dropped by the same `forget()`. |
 | The adapter files under the module's own key | `hub/proposal_adapters/reports.py` | The two-spellings gap above. |
+| A YouTube buy reads as YouTube | `google_ads_perf.py`, `automap.py`, the client's page | Every Google Ads campaign with no product in its name filing as Paid Search, so a TrueView campaign read as search on the client's own page; and the "Video ads completed" tile having nothing to draw for Google. The channel type Google reports decides the default product, and completes are the p100 rate times impressions on the rows that served video. |
+| The first-week projection | `pacing.py` | The daily rate divided by seven however few days the flight had run. |
+| The StackAdapt wait, bounded | `stackadapt.py`, the native pull job | Up to thirty seconds asleep on the one scheduler thread while the platform prepared a report; now twenty seconds at most, then pending, asked again next tick. |
 
 ## Where Google Places fits
 
@@ -194,7 +203,13 @@ that reason or the forbidden-word sweep will refuse it. About two days.
 3. ~~Client 360 card and the two QA entries.~~ Done; the dashboard line
    was already done.
 4. ~~CSV upload route.~~ Done, for every platform.
-5. Google Ads channel type and video completes (half a day).
+5. ~~Google Ads channel type and video completes.~~ Done: the pull reads
+   `campaign.advertising_channel_type` and `metrics.video_quartile_p100_rate`,
+   a VIDEO campaign with no product in its name files under Online Video
+   (`products.GOOGLE_CHANNEL_PRODUCTS`, the rule recorded on the mapping
+   row), the unmapped queue opens on the channel's product, and completes
+   are the rate times impressions -- carried only on a row that served
+   video, so a search-only client's page draws no "Video ads completed 0".
 6. Google Places → the Business Profile card.
 7. YouTube organic section.
 8. ~~File the proposal adapter's link and lines under the module's own key.~~

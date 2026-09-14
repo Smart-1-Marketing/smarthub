@@ -13647,6 +13647,58 @@ key with a marker on the end, so a markup saved on the other worker or a
 display name corrected on the staff page reaches the document exactly
 when it reaches the page, and ``forget()`` drops both.
 
+**A YouTube campaign is a Google Ads campaign, and it read as search.**
+``google_ads_perf.py`` pulled the campaign and the day and no channel
+type, so every Google Ads campaign whose name carried no product segment
+filed under the platform default -- Paid Search -- and a TrueView buy
+read as search on the client's own page. The query reads
+``campaign.advertising_channel_type`` now and carries it on the row's
+``extras``; ``products.GOOGLE_CHANNEL_PRODUCTS`` maps the three types that
+map cleanly (VIDEO is Online Video, SEARCH is Paid Search, DISPLAY is
+Programmatic Display) and **nothing else** -- Performance Max, Demand Gen
+and Shopping take the platform default with the rule on the mapping row
+saying so (``name_v1+default_product`` against ``+channel_product``),
+because a guess filed as a product is a bar on the client's page that no
+budget line can pace. The unmapped queue opens its product box on the
+channel's product for the same reason a rep should not have to know
+what a campaign's channel type is.
+
+**And the completes tile had nothing to draw for Google.** Google
+publishes no completes count; it publishes ``video_quartile_p100_rate``,
+and rate times impressions is the figure the tile draws for the Trade
+Desk. It is carried **only on a row that served video** -- the VIDEO
+channel, or a row carrying views -- because a search campaign's rate is
+zero and "0 completes" on it is a measurement of a metric that does not
+apply. That is also why the client page's completion kind is decided
+**per row** for Google rather than per platform: one account serves
+search and YouTube alike, and listing ``google`` in ``COMPLETION`` would
+draw "Video ads completed 0" for every search-only client, the measured
+nought the tile's own gate exists to refuse.
+
+**The projection's first week was the week it understated.** The daily
+rate for ``projected_month_end`` averaged the last seven completed days
+over seven however few the flight had run, so a line four days into its
+flight at $150 a day projected at $85.71 a day -- on the week a projection
+is read hardest. It averages over the completed days on or after the
+flight start now; a line with no flight start still takes the whole
+window, because nothing says when it should have begun and a zero day
+inside the month is a real zero.
+
+**And the StackAdapt wait came off the scheduler thread.** ``fetch()``
+polled a report the platform was still preparing for up to thirty
+seconds, asleep on the one thread every job shares -- the pacing
+snapshot, the Google sweep and the Knack pulls all behind it. It is
+under ``BUDGET_SECONDS`` now (twenty, house), measured by an injectable
+clock, and past it the report is **pending** rather than failed: nothing
+is stamped on the watermark, because nothing landed and nothing broke and
+the last good pull is still the current one, whose age is what
+``/status`` reads; the module's own note says so on the index line, the
+job counts it apart from the failures, and the next pull asks the same
+query again, which the platform answers from the report it has since
+finished. ``PROGRESS_TRIES`` still caps the polls whatever the clock says,
+since a platform answering Progress instantly for ever must not be polled
+for ever either.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.

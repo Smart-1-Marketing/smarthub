@@ -14,8 +14,12 @@ Rules, each a way to file spend under the wrong client:
   queue for a person, because a parser that forgives a typo in the one
   token that marks a name as ours will eventually read a campaign that was
   never meant for it. A name with no product segment (or an empty one)
-  files under ``products.DEFAULT_PRODUCT_FOR_PLATFORM`` for its platform,
-  and the row says so (``auto_rule="name_v1+default_product"``).
+  files under the channel type the platform reports on the campaign where
+  ``products.GOOGLE_CHANNEL_PRODUCTS`` maps it (a Google Ads VIDEO campaign
+  is Online Video, not the platform's Paid Search default), else under
+  ``products.DEFAULT_PRODUCT_FOR_PLATFORM`` for its platform -- and the row
+  says which (``auto_rule="name_v1+channel_product"`` or
+  ``"name_v1+default_product"``).
 * **The client resolves exactly or not at all.** The second segment is
   tried as a Hub key (``d:example.com`` / ``n:slug``, the same key
   ``/reports/api/clients`` hands the picker) and then as a client name,
@@ -164,9 +168,16 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
             # rule says the segment was not understood.
             product, rule = "", RULE + "+unknown_product"
         if not product:
-            product = _products.default_for(row["platform"])
+            # The channel type the platform reports on the campaign decides
+            # before the platform default does: a Google Ads VIDEO campaign
+            # is Online Video, and filed under the platform default it reads
+            # as search on the client's page. The rule says which answered.
+            channel = row.get("channel_type") or ""
+            product = _products.default_for(row["platform"], channel)
             if rule == RULE:
-                rule = RULE + "+default_product"
+                rule = RULE + ("+channel_product"
+                               if _products.channel_decided(row["platform"], channel)
+                               else "+default_product")
         try:
             store.map_campaign(row["platform"], row["account_id"], row["campaign_id"],
                                client=key, client_name=name, product=product,

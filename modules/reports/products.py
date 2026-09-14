@@ -106,6 +106,22 @@ DEFAULT_PRODUCT_FOR_PLATFORM: dict[str, str] = {
     "suite": "Smart 1 Suite",
 }
 
+# What a Google Ads campaign is filed under from the channel type Google
+# itself reports on it. The platform default above is Paid Search, which
+# is right for most of the account and wrong for every YouTube buy: the
+# rate card sells YouTube (TrueView, bumpers) as Online Video, those are
+# Google Ads VIDEO campaigns, and filed under the platform default they
+# read as search on the client's own page. Only the channel types that
+# map to one product cleanly are named; the rest (Performance Max, Demand
+# Gen, Shopping, Smart, Local) take the platform default and the mapping
+# row says a person has not chosen, because a guess filed as a product is
+# a bar on the client's page that no budget line can pace.
+GOOGLE_CHANNEL_PRODUCTS: dict[str, str] = {
+    "VIDEO": "Online Video",
+    "SEARCH": "Paid Search",
+    "DISPLAY": "Programmatic Display",
+}
+
 # Vendor and platform names a campaign name is stripped of for its default
 # display name. Longer phrases first so "The Trade Desk" goes before
 # "Trade Desk". Matched case-insensitively on word boundaries.
@@ -210,8 +226,24 @@ def normalize(product: str | None) -> str:
     return p[:120]
 
 
-def default_for(platform: str) -> str:
-    return DEFAULT_PRODUCT_FOR_PLATFORM.get(str(platform or "").lower(), "")
+def default_for(platform: str, channel: str = "") -> str:
+    """The product a campaign is filed under when its name carries none:
+    the channel type's, where the platform reports one this table maps,
+    else the platform's. ``channel_decided()`` says which answered."""
+    plat = str(platform or "").lower()
+    if plat == "google":
+        hit = GOOGLE_CHANNEL_PRODUCTS.get(str(channel or "").upper())
+        if hit:
+            return hit
+    return DEFAULT_PRODUCT_FOR_PLATFORM.get(plat, "")
+
+
+def channel_decided(platform: str, channel: str = "") -> bool:
+    """Whether ``default_for(platform, channel)`` answered from the channel
+    type rather than the platform default -- what the mapping row records,
+    so a filed-from-the-channel product can be told from a guess."""
+    return (str(platform or "").lower() == "google"
+            and str(channel or "").upper() in GOOGLE_CHANNEL_PRODUCTS)
 
 
 def rate_card_products() -> dict:
