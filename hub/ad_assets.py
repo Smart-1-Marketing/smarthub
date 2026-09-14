@@ -782,6 +782,55 @@ def _folder_for(client: str, link: dict, item: dict) -> str:
                            subpath=item.get("path", ""))
 
 
+def _measure(data: bytes, filename: str, size_bytes: int,
+             link: dict) -> tuple[int | None, int | None, dict]:
+    """Dimensions and a spec verdict for one file, or nothing.
+
+    Creative copied out of Drive was the one producer filing into a client
+    gallery without this. The display-ad path records date, product,
+    dimensions, weight and a pass/fail at filing time so the gallery can
+    answer "does this meet spec?" without anyone re-measuring; the animated
+    path documents why the static check does not apply to it. This path had
+    neither the check nor a reason, so every Drive copy landed unmeasured.
+
+    Still images only. `creative_specs.check` judges a file against the unit
+    it best fits, and the fit is decided by width and height -- so a PDF or a
+    video, whose dimensions are not read here, would be judged against
+    whatever unit an empty size happens to score closest to. That is a
+    confident wrong answer, and the gallery showing no verdict is the honest
+    one. Weight-only checking is deliberately not attempted: the kit's weight
+    limits belong to specific units, and picking a unit is the part that needs
+    the dimensions.
+
+    Never raises. A file that cannot be measured is still a file the media
+    team asked for.
+    """
+    from hub import images
+
+    if not images.is_image(filename):
+        return None, None, {}
+
+    try:
+        width, height = images.dimensions(data)
+    except Exception as exc:                            # noqa: BLE001
+        logger.warning("could not measure %s: %s", filename, exc)
+        return None, None, {}
+    if not (width and height):
+        return None, None, {}
+
+    fmt = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    try:
+        from hub import creative_specs
+        spec = creative_specs.check(width=width, height=height,
+                                    size_bytes=size_bytes or 0, fmt=fmt,
+                                    product=link.get("product") or "")
+    except Exception as exc:                            # noqa: BLE001
+        # The dimensions are still worth recording without a verdict.
+        logger.warning("spec check failed for %s: %s", filename, exc)
+        spec = {}
+    return width, height, spec
+
+
 def _copy_one(token: str, item: dict, link: dict, client: str,
               actor: str) -> dict:
     """Drive bytes -> Cloudinary -> one library row. Never raises."""
@@ -807,12 +856,15 @@ def _copy_one(token: str, item: dict, link: dict, client: str,
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:200],
                 "reason": "storage"}
 
+    width, height, spec = _measure(data, filename, stored.bytes, link)
+
     filed = file_asset(
         client_name=client, public_id=stored.public_id, url=stored.url,
         kind=KIND, key=f"gdrive:{item.get('id')}",
         label="Ad Assets", filename=filename,
         alt=f"{link['product'] or 'Campaign creative'} — IO {link['io'] or '—'}",
         resource_type=stored.resource_type, size_bytes=stored.bytes,
+        width=width, height=height, spec=spec,
         provider=PROVIDER, saved_by=actor or TOOL, tool=TOOL,
         io_number=link["io"], product_number=link["product_num"],
         project_name=link["product"], folder=folder,
