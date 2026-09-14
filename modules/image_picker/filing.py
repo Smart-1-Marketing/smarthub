@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import hashlib
 import re
+import secrets
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
@@ -31,6 +32,17 @@ from . import ghl, taxonomy
 from .models import PickerClient, SavedImage, new_token, session, slugify, unique_slug
 
 logger = logging.getLogger(__name__)
+
+# Activity logging. Guarded the same way modules/image_picker/app.py guards
+# it, so the module still imports standalone -- and called rather than merely
+# bound, which is the failure /api/integrity's silent-module check reads a
+# real call site for.
+try:
+    from hub import audit as _hub_audit
+    _audit = _hub_audit.for_module("image_picker")
+except Exception:                                       # noqa: BLE001
+    def _audit(*a, **k):                                # no-op outside the Hub
+        return None
 
 # What a folder is called in the gallery. The kind is stored on the row and the
 # label is what a person reads, so renaming the label later does not orphan the
@@ -312,6 +324,352 @@ def ad_asset_folder(*, client_name: str, io_number: str = "",
     return "/".join(parts)
 
 
+# --------------------------------------------------------------------------- #
+# A file the gallery already has
+#
+# Until now a duplicate was reported and nothing else: the row stayed exactly
+# where it was and whoever uploaded it was told it was already there. That is
+# the right answer when somebody uploaded it twice by accident and the wrong
+# one every other time -- the same photograph genuinely does belong to a
+# second project, and a client who sends it again usually means "use this one
+# here as well". There was no way to say so, so the answer was always the one
+# that changes nothing.
+#
+# Three things can be meant, and they are kept apart because they are three
+# different statements about the file rather than three strengths of one:
+#
+#   keep       it belongs in both places. The row that exists is untouched and
+#              a second row is recorded against the new project pointing at the
+#              SAME Cloudinary asset -- no second copy of the bytes, and
+#              deliberately no second push into the client's Suite media
+#              library, which would be exactly the duplicate this avoids.
+#   duplicate  an independent copy, to edit or delete without touching the
+#              original. The one branch that really creates a second asset,
+#              and therefore the one that costs storage.
+#   move       it belongs to the new project only. The existing row's project
+#              and folder fields are rewritten in place. Nothing is created
+#              and, in particular, nothing is deleted -- the Cloudinary object
+#              is the same object, and a "move" that destroyed a row would be
+#              a delete wearing a filing decision.
+#
+# The default is none of them. Eleven tools file through file_asset() and four
+# of them -- the display ad link, blog images, the SEO pipeline and the IO
+# builder -- are finishing a piece of work with nobody watching, so a caller
+# that says nothing gets precisely what it got before.
+# --------------------------------------------------------------------------- #
+
+CHOICES = ("keep", "duplicate", "move")
+
+# What extension to hand hub.storage for a copy, when the filename we hold
+# has none or has one that would be read as a different kind of file.
+# storage.resource_type_for() derives the Cloudinary resource_type from the
+# name, and getting that wrong is the bug that file's own docstring opens
+# with: a PDF uploaded as an image stores fine and then 403s on delivery.
+_EXT_FOR_TYPE = {"image": ".jpg", "video": ".mp4", "raw": ".pdf"}
+
+
+def _project_ref(provider_id: str, tail: str) -> str:
+    """A provider id for a second row pointing at one asset.
+
+    `SavedImage` carries a unique constraint on (client, provider,
+    provider_image_id) -- one provider photo lands in one client's gallery
+    once, which is what stops a double-tap duplicating the Cloudinary asset
+    and the Suite upload. "Keep it here as well" needs two rows for one
+    asset, so the second is spelled with the project it was kept for on the
+    end. The constraint still holds, and it still holds against a second
+    "keep" into the same project, which is what makes that press safe to make
+    twice.
+
+    The base spelling is never re-used, so the row every other caller's
+    duplicate check finds is still the original.
+    """
+    tail = re.sub(r"[^a-z0-9]+", "-", str(tail or "").lower()).strip("-")[:28] or "kept"
+    base = str(provider_id or "")
+    if len(base) + len(tail) + 1 > 120:
+        base = "sha256:" + hashlib.sha256(base.encode("utf-8")).hexdigest()
+    return f"{base}#{tail}"
+
+
+def _same_project(row, *, kind: str, key: str, project_name: str) -> bool:
+    """Is this row already filed where the caller is trying to file it?"""
+    return ((row.collection_kind or "") == (kind or "")
+            and (row.collection_key or "") == (key or "")
+            and (row.project_name or "") == (project_name or ""))
+
+
+def filed_under(row) -> str:
+    """Where a row sits, in the words a person reads.
+
+    The answer to "you already have this" is useless without it: *where* the
+    file already is decides whether keeping, duplicating or moving it is the
+    sensible press, and a panel that will not say costs somebody a trip to
+    the gallery to find out.
+    """
+    parts = [str(row.project_name or "").strip(),
+             str(row.collection_label or "").strip()]
+    parts = [p for p in parts if p]
+    if not parts:
+        parts = [KIND_LABELS.get(row.collection_kind or "", "")
+                 or (row.collection_kind or "the gallery")]
+    seen, out = set(), []
+    for p in parts:
+        if p.lower() not in seen:
+            seen.add(p.lower())
+            out.append(p)
+    return " — ".join(out)
+
+
+def _copy_asset(row) -> dict:
+    """Make a second, independent asset out of one already in Cloudinary.
+
+    The only one of the three choices that spends storage, which is why it is
+    the one that has to be asked for. Cloudinary fetches the file from its own
+    delivery URL rather than this process downloading it and posting it back:
+    hub/storage.put_remote() exists for that, and going through the shared
+    layer is what keeps the credit estimate counting this.
+
+    The copy lands beside the original, under the original's own public_id
+    with a random tail. An explicit public_id with overwrite off hands back
+    the asset that is already there, so a copy named deterministically would
+    be the original wearing a new row -- which is the one outcome this branch
+    must not produce, since somebody is about to edit or delete it.
+    """
+    src = str(row.cloudinary_url or "")
+    base = str(row.cloudinary_public_id or "")[:360]
+    if bool(row.external):
+        return {"ok": False, "error": "That row is a link to a file kept "
+                                      "somewhere else, so there is nothing "
+                                      "here to copy."}
+    if not base or not src.startswith("https://"):
+        return {"ok": False, "error": "That file has no stored copy to duplicate."}
+
+    try:
+        from hub import storage as _storage
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "error": f"Storage is unavailable: {exc}"}
+
+    rtype = (row.resource_type or "image").strip().lower()
+    name = str(row.filename or "").strip() or base.rsplit("/", 1)[-1]
+    if _storage.resource_type_for(name) != rtype:
+        stem = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", name) or "file"
+        name = f"{stem}{_EXT_FOR_TYPE.get(rtype, '.pdf')}"
+    try:
+        asset = _storage.put_remote(
+            "client_images", src, filename=name,
+            public_id=f"{base}-copy-{secrets.token_hex(4)}", unique=False)
+    except _storage.StorageError as exc:
+        # Our own validation text, which is the one exception message that
+        # belongs on a screen: "Cloudinary is not configured" names the thing
+        # to fix. Anything the SDK raises does not -- it carries hosts, paths
+        # and occasionally a credential fragment, which is the failure the two
+        # file optimizers were fixed for.
+        logger.warning("gallery duplicate copy refused for %s: %s", base, exc)
+        return {"ok": False, "error": f"The copy could not be stored: {exc}"}
+    except Exception:                                   # noqa: BLE001
+        logger.warning("gallery duplicate copy failed for %s", base, exc_info=True)
+        return {"ok": False, "error": "The copy could not be stored. The "
+                                      "original is untouched; try again in a "
+                                      "moment."}
+    if not asset.public_id or not str(asset.url or "").startswith("https://"):
+        return {"ok": False, "error": "The copy did not come back with a "
+                                      "stored address."}
+    return {"ok": True, "public_id": asset.public_id, "url": asset.url,
+            "bytes": asset.bytes or row.bytes, "filename": name}
+
+
+def _twin(db, row, *, kind: str, key: str, project_name: str):
+    """A row for the same asset already filed under this project, if there is one.
+
+    Keyed on the Cloudinary public_id rather than on `provider_image_id`,
+    because that is the identity a kept copy shares with its original -- the
+    provider id is the thing _project_ref() has to vary to satisfy the unique
+    constraint.
+    """
+    rows = db.execute(
+        select(SavedImage).where(
+            SavedImage.client_id == row.client_id,
+            SavedImage.provider == row.provider,
+            SavedImage.cloudinary_public_id == row.cloudinary_public_id)
+    ).scalars().all()
+    for candidate in rows:
+        if _same_project(candidate, kind=kind, key=key, project_name=project_name):
+            return candidate
+    return None
+
+
+def resolve_duplicate(db, row, choice: str, *, kind: str = "", key: str = "",
+                      label: str = "", project_name: str = "",
+                      io_number: str = "", product_number: str = "",
+                      folder: str = "", saved_by: str = "system",
+                      push_to_suite: bool = True) -> dict:
+    """Act on a file the gallery already has: keep it here too, copy it, or move it.
+
+    One description of what the three choices mean, read by both places a
+    duplicate is detected -- `file_asset()` below and the widget upload route
+    in app.py. Two would drift, and the first thing to drift would be whether
+    "move" deletes anything.
+
+    Never raises: like `file_asset()`, every caller is finishing an upload
+    that has already succeeded, and the file existing twice is not a reason
+    to lose the answer.
+    """
+    choice = str(choice or "").strip().lower()
+    if choice not in CHOICES:
+        return {"ok": False, "duplicate": True, "action": "",
+                "error": "Say whether to keep it here as well, duplicate it, "
+                         "or move it."}
+
+    kind = (kind or row.collection_kind or "upload").strip().lower()[:20]
+    key = str(key or "")[:80]
+    label = str(label or "")[:200]
+    project_name = str(project_name or "")[:200]
+
+    try:
+        if choice == "move":
+            # The project and folder fields, and nothing else. `tool` and
+            # `completed_on` record how the file was made, which moving it
+            # between projects does not change; io/product/asset_folder are
+            # rewritten only where this call actually named one, because a
+            # move inside a gallery does not move the Cloudinary object and a
+            # recomputed folder would have the row claim a place the bytes
+            # are not.
+            row.collection_kind = kind or None
+            row.collection_key = key or None
+            row.collection_label = (label or KIND_LABELS.get(kind, "") or "")[:200] or None
+            row.project_name = project_name or None
+            if io_number:
+                row.io_number = str(io_number)[:80]
+            if product_number:
+                row.product_number = str(product_number)[:80]
+            if folder:
+                row.asset_folder = str(folder)[:600]
+            db.commit()
+            _audit("gallery_duplicate", client=_client_name(db, row),
+                   choice="move", filename=(row.filename or ""),
+                   public_id=(row.cloudinary_public_id or ""),
+                   filed_under=filed_under(row), by=str(saved_by or "system"))
+            return {"ok": True, "duplicate": True, "action": "move",
+                    "created": False, "image": row.to_dict(),
+                    "note": f"Moved to {filed_under(row)}."}
+
+        twin = _twin(db, row, kind=kind, key=key, project_name=project_name)
+        if choice == "keep" and twin is not None:
+            # Already in both places, which is what was asked for. Said as a
+            # state rather than reported as a failure: pressing it twice is
+            # the ordinary way somebody checks that the first press took.
+            return {"ok": True, "duplicate": True, "action": "keep",
+                    "created": False, "image": twin.to_dict(),
+                    "note": f"It was already filed under {filed_under(twin)}."}
+
+        copy = None
+        if choice == "duplicate":
+            copy = _copy_asset(row)
+            if not copy.get("ok"):
+                return {"ok": False, "duplicate": True, "action": "duplicate",
+                        "error": copy.get("error") or "The copy could not be made."}
+
+        new = SavedImage(
+            client_id=row.client_id,
+            provider=row.provider,
+            # A kept row points at the original asset, so its provider id has
+            # to differ or the unique constraint refuses it. A duplicate is a
+            # genuinely new asset and carries its own.
+            provider_image_id=(copy["public_id"][:120] if copy
+                               else _project_ref(row.provider_image_id, key or project_name or kind)),
+            source_url=(copy["url"] if copy else row.source_url),
+            author=row.author,
+            author_url=row.author_url,
+            alt_text=row.alt_text,
+            filename=(copy["filename"][:300] if copy else row.filename),
+            industry_key=row.industry_key,
+            collection_kind=kind or None,
+            collection_key=key or None,
+            collection_label=(label or KIND_LABELS.get(kind, "") or "")[:200] or None,
+            resource_type=row.resource_type,
+            cloudinary_public_id=(copy["public_id"] if copy else row.cloudinary_public_id),
+            cloudinary_url=(copy["url"] if copy else row.cloudinary_url),
+            width=row.width, height=row.height,
+            bytes=(copy.get("bytes") if copy else row.bytes),
+            spec_result=row.spec_result,
+            spec_summary=row.spec_summary,
+            spec_unit=row.spec_unit,
+            tool=row.tool,
+            completed_on=row.completed_on,
+            project_name=project_name or None,
+            io_number=(str(io_number)[:80] if io_number else row.io_number),
+            product_number=(str(product_number)[:80] if product_number else row.product_number),
+            asset_folder=(str(folder)[:600] if folder else row.asset_folder),
+            external=bool(row.external),
+            ghl_status="pending",
+            saved_by=str(saved_by or "system")[:200],
+        )
+        if choice == "keep":
+            # The bytes are already in the client's Suite media library from
+            # the first row. Pushing them again would put a second copy there,
+            # which is the duplicate this branch exists not to make -- so the
+            # twin reports the Suite state its original earned rather than
+            # sitting at "pending" for ever.
+            new.ghl_status = row.ghl_status
+            new.ghl_file_id = row.ghl_file_id
+            new.ghl_url = row.ghl_url
+            new.ghl_error = row.ghl_error
+        db.add(new)
+        db.commit()
+    except Exception as exc:                            # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:                               # noqa: BLE001
+            logger.warning("duplicate rollback failed", exc_info=True)
+        logger.warning("duplicate %s failed: %s", choice, exc, exc_info=True)
+        # A sentence rather than the exception. A SQLAlchemy error carries the
+        # statement and the connection it was run on, and this one is read by
+        # a panel rather than by a log.
+        return {"ok": False, "duplicate": True, "action": choice,
+                "error": "That could not be saved. Nothing was changed; try "
+                         "again in a moment."}
+
+    client_name = _client_name(db, new)
+    if choice == "duplicate" and push_to_suite:
+        # A genuinely separate file, so it goes to Suite as one. Never raises
+        # and answers "skipped" where the gallery has no Suite location, which
+        # is why the row is committed before this runs.
+        try:
+            pushed = ghl.push_image(
+                new.client, file_url=new.cloudinary_url,
+                name=(new.filename or (new.cloudinary_public_id or "").rsplit("/", 1)[-1]))
+            new.ghl_status = pushed["status"]
+            new.ghl_file_id = pushed["file_id"] or None
+            new.ghl_url = pushed["url"] or None
+            new.ghl_error = pushed["error"] or None
+            db.commit()
+        except Exception:                               # noqa: BLE001
+            db.rollback()
+
+    _audit("gallery_duplicate", client=client_name, choice=choice,
+           filename=(new.filename or ""),
+           public_id=(new.cloudinary_public_id or ""),
+           filed_under=filed_under(new), by=str(saved_by or "system"))
+    note = (f"Copied into {filed_under(new)}." if choice == "duplicate"
+            else f"Kept here as well, under {filed_under(new)}.")
+    return {"ok": True, "duplicate": True, "action": choice, "created": True,
+            "image": new.to_dict(), "note": note}
+
+
+def _client_name(db, row) -> str:
+    """The gallery's own name, for the activity log.
+
+    Read off the row rather than taken from the caller: `work_log()` reads
+    the client from the entry and a name typed at the route is a name that can
+    be wrong, which on a client record is the one mistake worth avoiding.
+    Never raises -- a log line is not worth losing a filing over.
+    """
+    try:
+        client = db.get(PickerClient, row.client_id)
+        return (client.name if client else "") or ""
+    except Exception:                                   # noqa: BLE001
+        return ""
+
+
 def file_asset(*, client_name: str, public_id: str, url: str,
                kind: str = "upload", label: str = "", key: str = "",
                filename: str = "", alt: str = "", resource_type: str = "image",
@@ -321,13 +679,21 @@ def file_asset(*, client_name: str, public_id: str, url: str,
                push_to_suite: bool = True, tool: str = "",
                completed_on: str = "", project_name: str = "",
                io_number: str = "", product_number: str = "",
-               external: bool = False, folder: str = "") -> dict:
+               external: bool = False, folder: str = "",
+               on_duplicate: str = "") -> dict:
     """Record one asset in a client's gallery.
 
     Returns a dict with `ok`, and on success the `image` row and `gallery_url`.
     Never raises: every caller is finishing a piece of work that already
     succeeded, and losing a generated blog image because the gallery write
     failed would be a worse outcome than the image not appearing in the gallery.
+
+    `on_duplicate` says what to do about a file this gallery already has --
+    "keep", "duplicate" or "move", described at CHOICES above. Anything else,
+    including nothing, is the answer this has always given: report the
+    duplicate and change not one row. The reply carries `choices` and
+    `filed_under` either way, because a screen cannot offer the three without
+    knowing where the file already is.
     """
     public_id = str(public_id or "").strip()
     url = str(url or "").strip()
@@ -352,7 +718,13 @@ def file_asset(*, client_name: str, public_id: str, url: str,
     # Assets tree is the one shape the date-keyed default is wrong for --
     # ad_asset_folder() above says why -- and passing the folder in beats a
     # second convention branching inside the default.
-    folder = str(folder or "")[:600] or asset_folder(
+    # Kept apart from the resolved `folder` below, because the duplicate
+    # branch has to be able to tell "the caller named a destination" from
+    # "we computed the usual one": moving a file between projects does not
+    # move the Cloudinary object, so rewriting a row's folder to a freshly
+    # computed default would have it claim a place the bytes are not.
+    named_folder = str(folder or "")[:600]
+    folder = named_folder or asset_folder(
         client_name=client_name, tool=tool, completed_on=completed_on,
         io_number=io_number, product_number=product_number,
         project_name=project_name)
@@ -370,8 +742,22 @@ def file_asset(*, client_name: str, public_id: str, url: str,
                                      SavedImage.provider_image_id.in_([provider_id, public_id]))
         ).scalar_one_or_none()
         if existing:
-            return {"ok": True, "duplicate": True, "image": existing.to_dict(),
-                    "gallery_url": f"/tools/image-picker/gallery/{client.id}"}
+            gallery_url = f"/tools/image-picker/gallery/{client.id}"
+            choice = str(on_duplicate or "").strip().lower()
+            if choice not in CHOICES:
+                return {"ok": True, "duplicate": True, "image": existing.to_dict(),
+                        "gallery_url": gallery_url,
+                        "choices": list(CHOICES),
+                        "filed_under": filed_under(existing)}
+            out = resolve_duplicate(
+                db, existing, choice, kind=kind, key=str(key or "")[:80],
+                label=str(label or KIND_LABELS.get(kind, "") or "")[:200],
+                project_name=project_name, io_number=io_number,
+                product_number=product_number, folder=named_folder,
+                saved_by=saved_by, push_to_suite=push_to_suite)
+            out["gallery_url"] = gallery_url
+            out.setdefault("choices", list(CHOICES))
+            return out
 
         rtype = (resource_type or "image").strip().lower()
         img = SavedImage(

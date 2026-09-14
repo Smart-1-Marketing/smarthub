@@ -727,7 +727,11 @@ function retryLeads(){
       say(esc(d.note || (d.delivered+' delivered, '+d.still_failing+
             ' still queued'+
             (d.needs_attention? ', '+d.needs_attention+' need attention':'')+'.')),
-          (d.still_failing || d.needs_attention) ? '' : 'ok');
+          // `left` counts what the sweep did not reach -- it is bounded on
+          // calls and on the wall clock. A green tick over a queue that
+          // stopped part-way reads as drained, which is the one thing it is
+          // not.
+          (d.still_failing || d.needs_attention || d.left) ? '' : 'ok');
       loadLeads();
     }).catch(function(){ say('Could not retry.',''); });
 }

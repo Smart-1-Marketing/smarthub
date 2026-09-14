@@ -59,6 +59,21 @@ assert.equal(context.ioItems.find(i=>i.retainer).campaignBudget,1350);
 assert.equal(context.ioItems.find(i=>i.retainer).description,'Monthly strategy scope');
 console.log('PASS: merged consulting formula and retainer scope');
 
+// Read the same server totals for dashboards and package cards, including zero fees.
+const flow={money:n=>'$'+n,esc:s=>String(s),S:{_checklist:{delivery:[{label:'Fix pricing',step:11}],io:[{label:'Contact',field:'clientContactName'}]}},document:{getElementById:()=>null}};
+vm.createContext(flow);
+vm.runInContext(functionSource('investmentSummary','rowHtml')+functionSource('readinessHtml','reviewHtml'),flow);
+const summary=flow.investmentSummary({months:3,investment:{campaign_total:10132,recurring_monthly:3199,first_month:3734,lines:[{kind:'media',recurs:'Monthly',amount:3000},{kind:'saas',recurs:'Monthly',amount:199},{kind:'setup',recurs:'One-time',amount:535}]}});
+assert.ok(summary.includes('$10132'));assert.ok(summary.includes('$535'));assert.ok(summary.includes('$199'));
+const checklist=flow.readinessHtml();
+assert.ok(checklist.includes('gotoStep(11)'));assert.ok(checklist.includes('clientContactName'));assert.ok(checklist.includes('Before delivery'));assert.ok(checklist.includes('Before preparing the IO'));
+flow.CONV={originalData:{clientContactName:'Old contact'},quote:{data:{}},answers:{clientContactName:'New contact'}};
+vm.runInContext(functionSource('conversionChangesHtml','convToReview'),flow);
+assert.ok(flow.conversionChangesHtml().includes('Old contact → New contact'));
+assert.ok(html.includes('aria-pressed="${i===S.selPkg}"'));
+assert.ok(!html.includes('+"autosaving"'));
+console.log('PASS: investment breakdown, actionable checklist, handoff comparison and package selection');
+
 // Exercise delayed saves: only one create, final totals repaint, and Finish
 // cannot claim success or navigate while its write is outstanding.
 (async()=>{

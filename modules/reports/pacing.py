@@ -113,7 +113,10 @@ def period_for(line: dict, today: date) -> dict | None:
     return {"start": start, "end": end, "days_in_period": days_in_period,
             "days_in_month": days_in_month,
             "days_elapsed": (today - start).days + 1,
-            "days_remaining": (end - today).days}
+            "days_remaining": (end - today).days,
+            # Carried for the daily average: a day before the flight began
+            # is not a day the line could have spent on.
+            "flight_start": fs}
 
 
 def _matches(line: dict, mapping: dict) -> bool:
@@ -159,8 +162,18 @@ def compute_line(line: dict, today: date, mappings: list[dict], facts: list[dict
     mid_flight = per["days_elapsed"] > 2 and per["days_remaining"] > 0
     stalled = (not unmapped and mid_flight and by_day.get(d1, Decimal(0)) == 0
                and by_day.get(d2, Decimal(0)) == 0)
-    week = [by_day.get(today - timedelta(days=i), Decimal(0)) for i in range(1, 8)]
-    avg7 = sum(week, Decimal(0)) / Decimal(7)
+    # The daily rate for the projection: the last seven completed days, or
+    # as many of them as the flight has run. Dividing by seven regardless
+    # projected a line three days into its flight at three-sevenths of its
+    # real rate -- the first week, which is when a projection is read
+    # hardest, was the week it understated. A line with no flight start
+    # still takes the whole window: nothing says when it should have begun,
+    # and a zero day inside the month is a real zero.
+    window = [today - timedelta(days=i) for i in range(1, 8)]
+    fs = per.get("flight_start")
+    counted = [d for d in window if fs is None or d >= fs]
+    week = [by_day.get(d, Decimal(0)) for d in counted]
+    avg7 = (sum(week, Decimal(0)) / Decimal(len(counted))) if counted else Decimal(0)
     remaining = per["days_remaining"]
     projected = actual + avg7 * remaining
     daily_needed = ((budget_period - actual) / remaining) if remaining > 0 else None
