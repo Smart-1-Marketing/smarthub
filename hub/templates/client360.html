@@ -219,7 +219,7 @@ const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href=
    twenty-two into the first section. */
 /* ---- c360 sections (lifted and driven in node by test_client360_layout.py) ---- */
 const C360_SECTIONS=[
-  {key:'overview', label:'Overview',          match:['products','orders we have sent','smart 1 suite','proposals','client notes','target audience']},
+  {key:'overview', label:'Overview',          match:['products','orders we have sent','coming up','smart 1 suite','proposals','client notes','target audience']},
   {key:'billing',  label:'Billing',           match:['invoices']},
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
@@ -493,6 +493,12 @@ function render(g,q){
     .map(p=>String(p.io||'').replace(/[^0-9a-z]+/gi,'').toLowerCase())
     .filter(Boolean));
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Orders we have sent</h3><a class="open-link" href="/tools/io/">Open the IO Builder →</a></div><div class="card-b" id="c-orders"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  /* ---------- Coming up (hub/client_upcoming.py) ----------
+     Orders ending, domains renewing, soonest first, with the gap since we
+     last did anything. Every source above already had these on the record
+     somewhere; none of them said WHEN, which is the only thing a renewal
+     conversation needs. */
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Dates</span><h3>Coming up</h3></div><div class="card-b" id="c-upcoming"><div class="empty">Reading dates… <span class="spin"></span></div></div></div>`;
 
   // ---------- Execution plan ----------
   // What the proposal committed us to -- creative, launch and monthly lists
@@ -2419,6 +2425,43 @@ function scStat(label,value,href,warn){
              :`<div>${v}${l}</div>`;
 }
 
+/* ---- coming up (lifted and driven in node by test_client360_upcoming.py) ---- */
+function renderUpcoming(d){
+  d=d||{};
+  if(d.measured===false) return '<div class="empty">'+esc(d.error||'Could not read.')+'</div>';
+  const items=d.items||[], act=d.activity||{};
+  let h='';
+  if(act.measured===false){
+    h+='<div class="muted" style="font-size:12.5px;margin-bottom:8px">'+esc(act.error||'Last activity could not be read.')+'</div>';
+  }else if(act.state==='idle'){
+    h+='<div class="muted" style="font-size:12.5px;margin-bottom:8px">No Hub tool has logged work for this client yet.</div>';
+  }else{
+    const col=act.state==='ok'?'#0a6b3c':act.state==='warn'?'#92400e':'#9c2b25';
+    h+='<div style="font-size:12.5px;margin-bottom:8px">Last activity <b style="color:'+col+'">'+(act.days===0?'today':act.days+' days ago')+'</b>'
+      +' <span class="muted">· '+esc(act.kind||'work')+(act.source?' via '+esc(act.source):'')+(act.actor?' by '+esc(act.actor):'')+'</span></div>';
+  }
+  if(!items.length){
+    h+='<div class="muted" style="font-size:12.5px">Nothing ends or renews in the next '+(d.horizon_days||120)+' days'+((d.unread||[]).length?', from what could be read':'')+'.</div>';
+  }else{
+    const cls={bad:'err',warn:'warn',ok:'ok',unread:'neutral'};
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+items.map(i=>{
+      const when=i.days===null||i.days===undefined?'date not on file':(i.days<0?Math.abs(i.days)+' days ago':i.days===0?'today':'in '+i.days+' days');
+      return '<tr><td style="padding:5px 8px 5px 0;white-space:nowrap"><span class="pill '+(cls[i.state]||'neutral')+'" style="font-size:11px">'+esc(when)+'</span></td>'
+        +'<td style="padding:5px 8px"><b>'+esc(i.label)+'</b> · '+esc(i.what)+(i.detail?'<div class="muted" style="font-size:12px">'+esc(i.detail)+'</div>':'')+'</td>'
+        +'<td style="padding:5px 0;text-align:right;white-space:nowrap" class="muted">'+esc(i.when||'')+'</td></tr>';
+    }).join('')+'</table>';
+  }
+  if((d.unread||[]).length) h+='<div class="muted" style="font-size:11.5px;margin-top:8px">Not measured: '+d.unread.map(esc).join(' ')+'</div>';
+  return h;
+}
+/* ---- end coming up ---- */
+function loadUpcoming(name){
+  const el=$('c-upcoming'); if(!el) return;
+  const gen=c360Generation;
+  fetch('/api/client/upcoming?name='+encodeURIComponent(name)+'&url='+encodeURIComponent(window.__c360domain||''),{credentials:'same-origin'})
+    .then(r=>r.json()).then(d=>{ if(gen!==c360Generation) return; el.innerHTML=renderUpcoming(d); })
+    .catch(()=>{ if(gen!==c360Generation) return; el.innerHTML=renderUpcoming({measured:false,error:'The dates could not be read.'}); });
+}
 function socialContentHtml(d,name){
   if(!d||d.measured===false)
     return '<div class="empty">'+esc((d&&d.error)||'Not measured.')+'</div>';
@@ -4086,6 +4129,7 @@ function loadBrandAndWork(name){
   loadPlan(name);
   fetch('/api/client/utm?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderUtm).catch(function(){});
+  loadUpcoming(name);
   fetch('/api/client/analytics-ids?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderAnalyticsIds).catch(function(){});
   if(!name) return;

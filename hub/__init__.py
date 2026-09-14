@@ -4181,6 +4181,23 @@ def create_hub_app() -> Flask:
         return jsonify(social_status.for_client(name, url,
                                                 request.host_url))
 
+    @app.route("/api/client/upcoming")
+    def api_client_upcoming():
+        """The Coming up card: orders ending, domains renewing, the gap since
+        we last did anything -- hub/client_upcoming.py. Under /api/client/ for
+        the reason /api/client/health gives."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_upcoming
+        name = (request.args.get("name") or "").strip()
+        url = (request.args.get("url") or "").strip()
+        try:
+            return jsonify(client_upcoming.for_client(name, url))
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"measured": False, "items": [],
+                            "error": f"Could not read ({type(exc).__name__})."})
+
     @app.route("/api/social/scoreboard")
     def api_social_scoreboard():
         """Who is waiting on us, for the dashboard.
