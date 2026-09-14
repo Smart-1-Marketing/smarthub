@@ -1226,6 +1226,105 @@ def create_hub_app() -> Flask:
         out = places.clear(name, actor=current_user() or "")
         return jsonify(out), (200 if out.get("ok") else 404)
 
+    # ---- the client's YouTube channel, read through hub/youtube.py -------
+    # The Places shape one channel over: four routes under /api/client/,
+    # the GET reading the stored reading for nothing, every POST a press
+    # because a lookup, a confirmation and a refresh each spend quota.
+
+    def _youtube_hint(name: str) -> str:
+        """The YouTube link on the client's SEO record -- the one thing that
+        names a channel for one unit rather than a hundred-unit search."""
+        try:
+            from . import seo as hub_seo
+            return str((hub_seo.get_social(name) or {}).get("youtube") or "")
+        except Exception:  # noqa: BLE001
+            return ""
+
+    @app.route("/api/client/youtube")
+    def api_client_youtube():
+        """The channel confirmed for this client and its latest reading --
+        subscribers, views, videos, the 30-day change -- with which kind of
+        nothing it is when there is none, and the link on their record as a
+        hint for the lookup. Never a YouTube call."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import youtube
+        name = (request.args.get("name", "") or request.args.get("client", "")).strip()
+        if not name:
+            return jsonify({"error": "No client was named.", "state": "unread"}), 400
+        try:
+            out = youtube.reading(name)
+        except Exception as exc:  # noqa: BLE001
+            out = {"measured": False, "state": "unread",
+                   "error": f"The channel store could not be read ({type(exc).__name__}).",
+                   "record": None, "configured": youtube.configured()}
+        out["hint"] = _youtube_hint(name)
+        out["sweep"] = youtube.sweep_state()
+        return jsonify(out)
+
+    @app.route("/api/client/youtube/lookup", methods=["POST"])
+    def api_client_youtube_lookup():
+        """Find the client's channel: the link on their record for one unit,
+        else a search for a hundred, behind a button. Proposes exactly one
+        candidate or none; a person confirms."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import youtube
+        body = request.get_json(silent=True) or {}
+        name = str(body.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "No client was named."}), 400
+        query = str(body.get("query") or "")[:300]
+        out = youtube.candidates(name, query=query, hint=_youtube_hint(name))
+        return jsonify(out), (200 if out.get("measured") or out.get("kind") in ("unconfigured", "empty") else 502)
+
+    @app.route("/api/client/youtube/confirm", methods=["POST"])
+    def api_client_youtube_confirm():
+        """A person says this channel is the client's. One read on the
+        press so the card shows a figure at once."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import youtube
+        body = request.get_json(silent=True) or {}
+        name = str(body.get("name") or "").strip()
+        channel_id = str(body.get("channel_id") or "").strip()
+        if not name or not channel_id:
+            return jsonify({"error": "A client and a channel id are both needed."}), 400
+        out = youtube.confirm(name, channel_id, actor=current_user() or "")
+        return jsonify(out), (200 if out.get("ok") else 400)
+
+    @app.route("/api/client/youtube/refresh", methods=["POST"])
+    def api_client_youtube_refresh():
+        """Read the confirmed channel now: one unit, behind a button."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import youtube
+        body = request.get_json(silent=True) or {}
+        name = str(body.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "No client was named."}), 400
+        out = youtube.snapshot(name)
+        return jsonify(out), (200 if out.get("ok") else 502 if out.get("reading") else 400)
+
+    @app.route("/api/client/youtube/clear", methods=["POST"])
+    def api_client_youtube_clear():
+        """Not this channel. The readings stay; nothing reads them without
+        a record."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import youtube
+        body = request.get_json(silent=True) or {}
+        name = str(body.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "No client was named."}), 400
+        out = youtube.clear(name, actor=current_user() or "")
+        return jsonify(out), (200 if out.get("ok") else 404)
+
     @app.route("/api/client/brand/push-to-suite", methods=["POST"])
     def api_brand_push():
         """Send the brand guide into the client's Smart 1 Suite sub-account."""

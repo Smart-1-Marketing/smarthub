@@ -1075,6 +1075,12 @@ GOOGLE_APIS: dict[str, tuple[str, int, str, str]] = {
               "of Drive. Google publishes a per-user rate limit rather than a "
               "flat daily one, so this is counted and not capped unless "
               "GOOGLE_DRIVE_DAILY_QUOTA is set."),
+    "youtube": ("YouTube Data API", 10000, "GOOGLE_YOUTUBE_DAILY_QUOTA",
+                "Google grants every project 10,000 units a day and meters in "
+                "units, not requests: hub/youtube.py records a channel read as one "
+                "and a search as a hundred, so this row is in the unit Google "
+                "counts. The nightly sweep is one unit per confirmed channel; a "
+                "Find their channel press with no link on the record is a hundred."),
     "places": ("Places API", 0, "GOOGLE_PLACES_DAILY_QUOTA",
                "Billed per request rather than quota-limited: hub/places.py reads "
                "each confirmed client listing once a night (the Pro SKU) and a "
@@ -1090,6 +1096,7 @@ _GOOGLE_HOSTS = (
     ("analyticsdata.googleapis.com", "ga4"),
     ("mybusiness", "gbp"),
     ("places.googleapis.com", "places"),
+    ("youtube.googleapis.com", "youtube"),
     ("oauth2.googleapis.com", "oauth"),
     ("openidconnect.googleapis.com", "oauth"),
 )

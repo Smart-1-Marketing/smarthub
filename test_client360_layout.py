@@ -81,6 +81,7 @@ WANT = {
 
     "Ad performance": "overview",
     "Google listing": "overview",
+    "YouTube channel": "overview",
     "Smart 1 Suite Account": "overview",
     "Pipeline & leads": "overview",
     "Proposals": "overview",

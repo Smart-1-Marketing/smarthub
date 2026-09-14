@@ -252,6 +252,22 @@
   </section>
   {% endif %}
 
+  {% if a.youtube %}{% set y = a.youtube %}{% set Y = y.labels %}
+  <section class="youtube" style="margin-top:16px" aria-labelledby="youtube-h">
+    <h2 id="youtube-h" style="font-size:18px;margin:0 0 10px">{{ Y.section }}</h2>
+    {% if y.title %}<p class="hint">{{ y.title }}{% if y.handle %} &middot; {{ y.handle }}{% endif %}{% if y.url %} &middot; <a href="{{ y.url }}" target="_blank" rel="noopener">See the channel</a>{% endif %}</p>{% endif %}
+    <div class="tiles">
+      <div class="tile"><div class="k">{{ Y.subscribers }}</div><div class="v">{% if y.subscribers_hidden %}{{ Y.hidden }}{% elif y.subscribers is not none %}{{ '{:,}'.format(y.subscribers) }}{% else %}&mdash;{% endif %}</div>
+        <div class="delta">{% if y.change and y.change.measured and not y.subscribers_hidden and y.change.subscribers_delta is not none %}{{ '{:+,}'.format(y.change.subscribers_delta) if y.change.subscribers_delta else 'no change' }} over {{ y.change.days }} days{% elif y.subscribers_hidden %}the channel does not publish this{% else %}30-day change not yet measured{% endif %}</div></div>
+      <div class="tile"><div class="k">{{ Y.views }}</div><div class="v">{% if y.views is not none %}{{ '{:,}'.format(y.views) }}{% else %}&mdash;{% endif %}</div>
+        <div class="delta">{% if y.change and y.change.measured and y.change.views_delta is not none %}{{ '{:+,}'.format(y.change.views_delta) if y.change.views_delta else 'no new views' }} over {{ y.change.days }} days{% else %}30-day change not yet measured{% endif %}</div></div>
+      <div class="tile"><div class="k">{{ Y.videos }}</div><div class="v">{% if y.videos is not none %}{{ '{:,}'.format(y.videos) }}{% else %}&mdash;{% endif %}</div>
+        <div class="delta">{% if y.change and y.change.measured and y.change.videos_delta is not none %}{{ '{:+,}'.format(y.change.videos_delta) if y.change.videos_delta else 'no new videos' }} over {{ y.change.days }} days{% else %}30-day change not yet measured{% endif %}</div></div>
+    </div>
+    <p class="hint">Read {{ y.as_of }}{% if y.change and y.change.measured %} &middot; change since {{ y.change.since }}{% endif %}</p>
+  </section>
+  {% endif %}
+
   <div class="cta">
     <div><b>Want more from this campaign?</b>
       <span class="sub">{% if a.rep_name %}Your Smart 1 rep, {{ a.rep_name }}, can walk you through what's working and what's next.{% else %}Your Smart 1 rep can walk you through what's working and what's next.{% endif %}</span></div>
