@@ -2856,6 +2856,55 @@ except ImportError:                              # pragma: no cover
     print("  note: pypdf is not installed here, so the PDF text was not read")
 
 # ---------------------------------------------------------------------------
+section("export pagination keeps headings with content and notices in footers")
+from io import BytesIO
+from pypdf import PdfReader
+from reportlab.platypus import SimpleDocTemplate, Spacer, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
+from docx import Document
+
+_boundary = BytesIO()
+_styles = getSampleStyleSheet()
+SimpleDocTemplate(_boundary, pagesize=(612, 300), topMargin=30,
+                  bottomMargin=30).build(
+    [Spacer(1, 185)]
+    + builder._sec_header("Heading boundary", 1, _styles["Heading2"])
+    + [Paragraph("Opening content " * 28, _styles["BodyText"])])
+_pages = [p.extract_text() or "" for p in PdfReader(_boundary).pages]
+check("a heading near the page bottom moves with its opening content",
+      any("Heading boundary" in p and "Opening content" in p for p in _pages),
+      _pages)
+
+_notice = "This proposal is valid for 30 days."
+from types import SimpleNamespace
+_layout_q = SimpleNamespace(quote_number="QA-LAYOUT", client="Layout QA",
+    website="", months=3, monthly_budget=3000, total_budget=9000,
+    geo_summary="", sent_at=None)
+_layout_state = {"months": 3, "items": [], "sections": [
+    {"id": str(i), "title": f"Acceptance section {i + 1}", "kind": "text",
+     "enabled": True,
+     "body": "We will review campaign performance and agree on the next steps. " * 85}
+    for i in range(6)]}
+_layout_pdf, _ = builder.build_proposal_pdf(_layout_q, _layout_state)
+_layout_reader = PdfReader(BytesIO(_layout_pdf))
+_pages = [p.extract_text() or "" for p in _layout_reader.pages]
+check("the pagination fixture spans multiple pages", len(_pages) > 1)
+check("every PDF page carries the proposal notice",
+      all(_notice in p for p in _pages))
+_last_body = []
+_layout_reader.pages[-1].extract_text(
+    visitor_text=lambda text, cm, tm, font, size:
+        _last_body.append(text) if tm[5] + cm[5] > 43.2 else None)
+check("the PDF has no notice-only final page",
+      bool("".join(_last_body).strip()))
+_word = http.get(f"/sales/builder/api/quotes/{_pqid}/docx")
+check("the Word export builds", _word.status_code == 200)
+_word_doc = Document(BytesIO(_word.data))
+check("the Word notice is in the footer",
+      any(_notice in p.text for s in _word_doc.sections for p in s.footer.paragraphs))
+check("the Word notice cannot spill into a body-only final page",
+      not any(_notice in p.text for p in _word_doc.paragraphs))
+
 print("\n" + "-" * 62)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)
