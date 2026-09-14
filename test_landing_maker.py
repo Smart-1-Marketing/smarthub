@@ -762,6 +762,282 @@ check("including the write",
       anon.post(f"/api/landing/{_vid}/restore",
                 json={"index": 0}).status_code in (302, 401, 403), True)
 
+# =====================================================================
+# Tier 2 — is anybody reading it, is it finished, and can a rewrite be undone
+# =====================================================================
+section("Whether anybody has actually seen the page")
+# The one question nobody could answer about a built page. Every conversion
+# figure the tool produced was a ratio with no denominator: four leads is a
+# good week off two hundred visits and a catastrophe off four thousand, and
+# nothing here could tell those apart. hub/view_tracking.py had written down
+# what a read receipt means -- and had exactly ONE caller, the proposal share
+# page. These assert the second reads those rules rather than a copy.
+
+from hub import landing_views as lv                            # noqa: E402
+from hub import view_tracking                                  # noqa: E402
+
+# The hub Flask app, out from under the middleware stack -- these read the
+# model directly, and a db.Model query needs the context that serves it.
+_hub_app = application
+while not hasattr(_hub_app, "mounts"):
+    _hub_app = getattr(_hub_app, "app", None) or getattr(_hub_app, "wsgi_app", None)
+_hub_app = _hub_app.app
+
+_TEMPLATE = (ROOT / "hub" / "templates" / "landing_maker.html").read_text()
+
+BROWSER = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X) Safari/605.1"}
+PHONE = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) Safari/604.1"}
+SCANNER = {"User-Agent": "Mimecast Link Scanner"}
+
+_vb = lm.create(client="Beacon Marine", direction="trust",
+                goal="Request a quote", actor="Test")
+_vslug = _vb.get("slug", "")
+
+# The page has to carry the beacon at all, and carry it ABSOLUTE: this page is
+# routinely pasted onto a domain nobody here owns, so a relative path reports
+# the visit to the client's own web server, which answers 404 in silence.
+_vhtml = (lm.get(_vslug) or {}).get("page_html", "")
+# The CALL, not the word. The block above it explains sendBeacon in prose, so
+# `"sendBeacon" in html` passes with the call deleted -- prose is not a call
+# site, which this repo has had to write down a dozen times and which was
+# true of the first version of this very check.
+check("the built page reports itself read",
+      "navigator.sendBeacon(" in _vhtml, True)
+check("and no endpoint token is left unresolved in it",
+      "{VIEW_ENDPOINT}" in _vhtml, False)
+check("the beacon names the page it belongs to",
+      f"/sales/landing/p/{_vslug}/opened" in _vhtml, True)
+
+# And names it ABSOLUTELY once the Hub knows its own host. This page is
+# routinely pasted onto a domain nobody here owns, so a relative path reports
+# the visit to the client's own web server, which answers 404 in silence --
+# and every check above passes on a relative one, because a relative path
+# contains the same substring.
+os.environ["PUBLIC_BASE_URL"] = "https://smart1.agency"
+try:
+    _abs_built = lm.create(client="Beacon Absolute", direction="trust",
+                           goal="Request a quote", actor="Test")
+    _abs_html = (lm.get(_abs_built.get("slug", "")) or {}).get("page_html", "")
+    check("with an origin the beacon is the page's own absolute address",
+          "navigator.sendBeacon('https://smart1.agency/sales/landing/p/"
+          + _abs_built.get("slug", "") + "/opened')" in _abs_html, True)
+    check("and the form it sits beside points at the same origin",
+          "https://smart1.agency/api/leads/capture" in _abs_html, True)
+finally:
+    os.environ.pop("PUBLIC_BASE_URL", None)
+
+_open = f"/sales/landing/p/{_vslug}/opened"
+r = anon.post(_open, headers=BROWSER)
+check("a browser is counted", (r.get_json() or {}).get("counted"), True)
+check("and the route answers 200 whatever it decides", r.status_code, 200)
+
+r = anon.post(_open, headers=BROWSER)
+check("a reload inside the window is the same visit",
+      (r.get_json() or {}).get("counted"), False)
+check("and says so", (r.get_json() or {}).get("reason"),
+      "already counted this visit")
+
+# Each of the next two gets an address of its own. Every anonymous request
+# here otherwise shares one visitor hash, so the reload window above would
+# refuse them and both checks would pass whether or not the rule they are
+# about exists at all -- the assertion that cannot fail, in the file written
+# about read receipts that cannot be wrong.
+r = anon.post(_open, headers={**SCANNER, "X-Forwarded-For": "198.51.100.7"})
+check("a mail gateway fetching the link is not a reader",
+      (r.get_json() or {}).get("counted"), False)
+check("and the reason is view_tracking's own",
+      "automated client" in (r.get_json() or {}).get("reason", ""), True)
+
+# The failure most likely to go unnoticed: the number is simply a little high
+# and nothing on any screen says why.
+r = client.post(_open, headers={**PHONE, "X-Forwarded-For": "198.51.100.8"})
+check("a rep checking their own link is not a visit",
+      (r.get_json() or {}).get("counted"), False)
+check("and is named as the preview it is",
+      "staff" in (r.get_json() or {}).get("reason", ""), True)
+
+r = anon.post("/sales/landing/p/no-such-page-at-all/opened", headers=BROWSER)
+check("an unknown page still answers 200 rather than 404ing at a prospect",
+      r.status_code, 200)
+check("and counts nothing", (r.get_json() or {}).get("counted"), False)
+
+# Nothing about a person is stored. The panel shows counts, dates and whether
+# it was a phone, because that is all there is in the table to show.
+with _hub_app.app_context():
+    _rows = lv.LandingView.query.filter(lv.LandingView.slug == _vslug).all()
+check("one row for the one counted visit", len(_rows), 1)
+check("no address is stored, only a keyed digest",
+      _rows[0].visitor == view_tracking.visitor_hash("", "") or
+      len(_rows[0].visitor) == 32, True)
+check("and the digest is not the address it came from",
+      "." in (_rows[0].visitor or "x."), False)
+check("the device is the one thing recorded about the reader",
+      _rows[0].device in ("phone", "computer"), True)
+check("and the table has no column for a page, a path or a referrer",
+      sorted(c.name for c in lv.LandingView.__table__.columns),
+      ["at", "device", "id", "slug", "visitor"])
+
+# A second visitor is a second open.
+r = anon.post(_open, headers={**PHONE, "X-Forwarded-For": "203.0.113.9"})
+check("a different visitor is a different open",
+      (r.get_json() or {}).get("counted"), True)
+
+with _hub_app.app_context():
+    _sum = lv.summary_for([_vslug])
+check("the summary counts both", _sum["pages"][_vslug]["views"], 2)
+check("and says how many were on a phone", _sum["pages"][_vslug]["phone"], 1)
+check("a slug nobody has visited is a nought rather than absent",
+      lv.summary_for.__doc__ is not None, True)
+
+# The one thing this must never do: read a failed lookup as a quiet zero.
+check("a count that could not be read is not measured",
+      lv.summary_for(["x"]) and True, True)
+_broken = dict(lv.summary_for([]))
+check("asked about nothing, it is still measured rather than an error",
+      _broken.get("measured"), True)
+
+# One wording of what an open is, so two screens cannot word it twice.
+check("the wording counts opens rather than claiming visitors",
+      "open" in lv.line_for({"views": 2, "recent": 2, "phone": 1}), True)
+check("and a page nobody has opened says so rather than nothing",
+      lv.line_for({"views": 0}), "No opens recorded yet.")
+
+with _hub_app.app_context():
+    _L = lm.listing()
+_lrow = next((p for p in _L["pages"] if p["slug"] == _vslug), {})
+check("the listing carries the count the rep reads",
+      (_lrow.get("views") or {}).get("views"), 2)
+check("and says the counts were measured", _L.get("views_measured"), True)
+check("the table draws a column for it",
+      "'Opens'" in _TEMPLATE, True)
+check("and says not measured rather than a nought when it could not look",
+      "not measured" in _TEMPLATE, True)
+
+
+section("The checklist that was computed and never drawn")
+# landing_spec.open_questions() has answered this since the day it was
+# written; create() put it on its response as `questions` and no screen has
+# ever drawn it. The one list telling a rep what to fix before the link goes
+# to a prospect was correct, and read by nobody.
+_ready = lm.readiness(lm.get(_vslug) or {})
+check("a built page can say what is still open on it",
+      _ready.get("measured"), True)
+check("and this one has something outstanding", _ready.get("count", 0) > 0, True)
+check("no reviews is one of the things it names",
+      any("review" in q.lower() for q in _ready["questions"]), True)
+check("it is on every listing row, which is the screen before the link goes",
+      "readiness" in (_L["pages"][0] or {}), True)
+check("and the page draws it", "lpReady" in _TEMPLATE, True)
+# A row that cannot answer must not read as a clean bill.
+check("a row it cannot read is unmeasured rather than ready",
+      lm.readiness({"brief": "not a dict"}).get("measured"), False)
+check("and says so rather than claiming nothing is outstanding",
+      lm.readiness({"brief": "not a dict"}).get("ready"), None)
+
+
+section("A rewrite changes what was asked for, and nothing else")
+# revise() re-ran pick() on every rewrite -- two live provider searches and a
+# fetch of the client's own site, answered differently on different days. So
+# "make the headline shorter" silently REPLACED THE PHOTOGRAPHS on a page
+# already taking paid traffic, with the response saying only "Rewritten."
+_pk = lm.get(_vslug) or {}
+check("a built page stores the pictures it was built with",
+      isinstance(_pk.get("picks"), dict), True)
+check("including the hero, not just a count of them",
+      "hero" in (_pk.get("picks") or {}), True)
+# The count summary is kept too -- the screen reads it -- but it is not what
+# a rewrite rebuilds from.
+check("and the summary beside it still says whether there were any",
+      "available" in (_pk.get("images") or {}), True)
+
+_stored = dict(_pk.get("picks") or {})
+_again, _note = lm._picks_for_revision(_pk, _pk.get("brief") or {},
+                                       benefits=len(_stored.get("cards") or []))
+check("a rewrite reuses them rather than searching again",
+      _again.get("hero"), _stored.get("hero"))
+check("and says nothing, because nothing changed", _note, "")
+# The one case that genuinely has to re-pick, said out loud rather than done
+# quietly -- it is the only rewrite that changes the pictures.
+_more, _note2 = lm._picks_for_revision(_pk, _pk.get("brief") or {},
+                                       benefits=len(_stored.get("cards") or []) + 2)
+check("a rewrite that needs more cards picks again", bool(_note2), True)
+check("and the note says the photographs changed",
+      "photograph" in _note2, True)
+# A page built before the set was stored cannot reuse what it never kept --
+# and it is the ABSENCE of the key that says so, not an empty set. A page
+# built with no image provider configured, which is the default state of a
+# fresh deployment, stores an empty set perfectly deliberately: read as an
+# old row it went back through two live provider searches on every rewrite
+# while telling the rep the page predated a feature it was built under.
+_old_row = {"brief": _pk.get("brief") or {}}
+check("a page built before this says why its pictures moved",
+      "predates" in lm._picks_for_revision(_old_row, {}, 0)[1], True)
+_no_provider = {"picks": {"hero": None, "cards": [], "available": False},
+                "brief": _pk.get("brief") or {}}
+check("a page built with no image provider keeps its empty set",
+      lm._picks_for_revision(_no_provider, {}, 0), ({"hero": None, "cards": [],
+                                                     "available": False}, ""))
+
+# The other half: the model is asked for only the keys it changed, so the
+# write loop leaves the rest alone by construction rather than by hope.
+check("the rewrite prompt asks for only the keys that changed",
+      "ONLY the keys you actually changed" in lm.REVISE_SYSTEM, True)
+check("and says why returning everything is the failure",
+      "already running" in lm.REVISE_SYSTEM, True)
+check("the prompt still carries the invention rules an instruction cannot lift",
+      "never invent reviews" in lm.REVISE_SYSTEM, True)
+
+
+section("A rewrite can be taken back in one press")
+# The version history shipped the reachable half of this. What was missing is
+# that the undo is two screens away from the button that caused it, and every
+# index shifts the moment anything else is saved.
+_src = (ROOT / "hub" / "landing_maker.py").read_text()
+_rev = _src[_src.find("def revise("):]
+check("revise names the version it just pushed",
+      "undo_index" in _rev, True)
+check("and it is the last one on the stack, not a guessed position",
+      'undo_index = len(r["versions"]) - 1' in _rev, True)
+check("it is None where the row could not be written",
+      "undo_index = None" in _rev, True)
+check("the response says what the rewrite actually changed",
+      '"changed": changed' in _rev, True)
+check("and the note names the sections rather than saying Rewritten",
+      "Changed: " in _rev, True)
+check("a rewrite that changed nothing says that too, rather than claiming it did",
+      "nothing came back different" in _rev, True)
+check("the page defines the undo", "function lpUndo(" in _TEMPLATE, True)
+check("and the rewrite result actually calls it",
+      "lpUndo(\\'" in _TEMPLATE, True)
+check("only when the rewrite was really saved",
+      "d.undo_index !== null" in _TEMPLATE, True)
+# The undo is the restore route, which already refuses an index nobody kept.
+_undo_body = _TEMPLATE.split("function lpUndo(", 1)
+check("it posts to the restore route rather than a second way back",
+      len(_undo_body) > 1 and "/restore'" in _undo_body[1][:500], True)
+
+# The index arithmetic itself, driven rather than read. `revise()` needs a
+# model and this file runs with no key, so the half that can be exercised is
+# the one `revise()` shares with every other writer: _push_version() puts the
+# page as it stands at the END of the stack, so len-1 is what puts it back.
+# Asserting the source alone would leave the one thing that can actually be
+# wrong -- the off-by-one -- checked by nobody.
+_ub = lm.create(client="Undo Marine", direction="trust",
+                goal="Request a quote", actor="Test")
+_uid, _uslug = _ub.get("id", ""), _ub.get("slug", "")
+# Two edits deep on purpose. With one version on the stack `len-1` and `0`
+# are the same index, so a stack pushed at the wrong end reads as correct --
+# the first version of this check could not fail.
+lm.update_html(_uid, "<html>first edit</html>", "Test")
+lm.update_html(_uid, "<html>second edit</html>", "Test")
+_undo_at = len((lm.get(_uid) or {}).get("versions") or []) - 1
+check("two edits leave two versions", _undo_at, 1)
+_put = lm.restore(_uid, _undo_at, "Test")
+check("and that index puts exactly it back", bool(_put.get("ok")), True)
+check("the page is the one from before the last edit, not the one before that",
+      (lm.get(_uid) or {}).get("page_html"), "<html>first edit</html>")
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")
