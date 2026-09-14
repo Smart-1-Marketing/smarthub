@@ -14,7 +14,7 @@ from flask import Blueprint, jsonify, render_template, request, session, Respons
 from sqlalchemy import Column, String, Text, select, update
 from sqlalchemy.orm import declarative_base
 
-from .extensions import shared_engine, session_factory, create_all_metadata
+from .extensions import session_factory, create_all_metadata
 
 bp = Blueprint("youtube_ads", __name__, url_prefix="/tools/youtube-ads")
 Base = declarative_base()
@@ -163,6 +163,7 @@ def guard():
         token = session.get("youtube_ads_csrf", "")
         if not token or not secrets.compare_digest(token, request.headers.get("X-CSRF-Token", "")):
             return jsonify(error="Reload the page before making changes."), 403
+    return None
 
 
 @bp.errorhandler(ValueError)

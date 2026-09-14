@@ -11,6 +11,7 @@ os.environ["HUB_DATA_DIR"] = tmp.name
 from flask import Flask
 from jinja2 import ChoiceLoader, DictLoader, FileSystemLoader
 from hub import youtube_ads as yt
+from hub.extensions import shared_engine
 
 
 def sample():
@@ -25,7 +26,7 @@ def sample():
 class Workflow(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
-        yt.shared_engine().dispose()
+        shared_engine().dispose()
 
     def setUp(self):
         self.app = Flask(__name__)
