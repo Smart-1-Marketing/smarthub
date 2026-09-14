@@ -131,6 +131,54 @@ def _img_url(img) -> str:
     return u if u.startswith("https://") else ""
 
 
+def _share_tags(client: str, title: str, description: str,
+                slug: str, image: str) -> str:
+    """The Open Graph and Twitter card block, or as much of it as is true.
+
+    A landing page is built to be *sent*: pasted into a text, a Facebook post,
+    a LinkedIn message, the ad that points at it. With no share tags at all --
+    which is what this page shipped with -- every one of those renders as a
+    bare URL or as whatever the platform scrapes off the top of the markup,
+    which on this layout is a sticky header. The one thing a rep is handing a
+    client is the thing with no picture on it.
+
+    Every tag here is absolute or absent, because that is the only form these
+    have. A relative `og:image` is not resolved by most scrapers and a
+    relative `og:url` is meaningless off-site, so a missing origin drops the
+    tag rather than emitting a path -- the rule this file already applies to a
+    review with no rating and a GA4 id that is not one. `og:image` likewise
+    comes from `_img_url`, so it is an https URL or it is not written: a share
+    card pointing at a 404 is worse than one with no picture, because the
+    platform caches the miss.
+    """
+    tags = [
+        ('<meta property="og:type" content="website">'),
+        (f'<meta property="og:title" content="{esc(title)}">' if title else ""),
+        (f'<meta property="og:site_name" content="{esc(client)}">'
+         if client else ""),
+        (f'<meta property="og:description" content="{esc(description)}">'
+         if description else ""),
+        (f'<meta property="og:image" content="{esc(image)}">' if image else ""),
+        (f'<meta name="twitter:card" content="'
+         f'{"summary_large_image" if image else "summary"}">'),
+    ]
+    # The page's own address, which only this Hub knows. `public_base_origin`
+    # is read at call time for the reason hub/config.py gives: it is the one
+    # variable somebody corrects mid-incident, and a page built before the
+    # correction should not have to be rebuilt to carry the right URL.
+    if slug:
+        try:
+            from hub.config import public_base_origin
+            origin = public_base_origin()
+        except Exception:                                   # noqa: BLE001
+            origin = ""
+        if origin.startswith("https://"):
+            url = f"{origin}/sales/landing/p/{slug}"
+            tags.append(f'<meta property="og:url" content="{esc(url)}">')
+            tags.append(f'<link rel="canonical" href="{esc(url)}">')
+    return "\n".join(t for t in tags if t)
+
+
 _GA4_ID = re.compile(r"^G-[A-Z0-9]{4,20}$")
 
 
@@ -362,6 +410,8 @@ def render_page(brief: dict, copy: dict, direction: dict,
 
     reviews_html = _reviews_html(reviews)
     ga4_head = _ga4_script(ga4_id)
+    share_head = _share_tags(client, copy.get("headline") or "",
+                             copy.get("subhead") or "", slug, hero_img)
 
     return f"""<!doctype html>
 <html lang="en">
@@ -370,6 +420,7 @@ def render_page(brief: dict, copy: dict, direction: dict,
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(copy.get('headline'))} | {client}</title>
 <meta name="description" content="{esc(copy.get('subhead'))}">
+{share_head}
 {ga4_head}
 <style>
   :root{{--primary:{p['primary']};--accent:{p['accent']};

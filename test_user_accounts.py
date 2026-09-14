@@ -336,6 +336,14 @@ _OPEN_ON_PURPOSE = {
         "asserts a General account is refused it and a promoted one reaches it",
     "/creative-studio/templates/admin/<path:template_id>":
         "the same module-scoped admin check as /creative-studio/templates/admin",
+    "/api/landing/<page_id>/versions": (
+        "the same false match on 'version' -- the Landing Page Maker's own "
+        "history, not the Hub's /api/version diagnostic. It lists what a "
+        "built page used to be so a rep can put one back, behind the same "
+        "_require_api() as every other /api/landing route, and open to any "
+        "signed-in General account on purpose: the rep who built the page is "
+        "the one who undoes a rewrite. test_landing_maker.py asserts both it "
+        "and its restore POST refuse an anonymous request."),
     "/creative-studio/api/projects/<int:project_id>/versions":
         "a rendered video version, not the Hub's /api/version diagnostic -- "
         "_ADMIN_SHAPED matches the word 'version' wherever it appears. The "

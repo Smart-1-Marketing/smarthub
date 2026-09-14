@@ -200,9 +200,34 @@ for _p in _calc.public_paths():
           embed.public_embeddable(_sample) or _sample.startswith(PUBLIC_EXCLUDED_SAMPLE),
           True)
 
+# The reverse direction, and what it is actually protecting is in the comment
+# above: a calculator route dropped from the module's list while staying
+# framable from any domain. That is a statement about *calculator* entries,
+# and this tuple is shared -- the first non-calculator page to join it made
+# this sweep report a correct entry as a defect, which is how a check gets
+# switched off and takes the real finding with it.
+#
+# So an entry that is not the calculators' is declared here with its reason,
+# the shape `check_stale_json_exemptions()` works to, and held in BOTH
+# directions: an entry nobody declared fails, and a declaration that outlives
+# the entry it described fails too -- or it goes on covering whatever is added
+# under that prefix next. What it may never be is a blanket skip, because the
+# cost of a wrong entry here is a staff page framable from any domain.
+NOT_THE_CALCULATORS = {
+    # hub/landing_render.py says the built page is one self-contained file
+    # "pasteable into Smart 1 Sites, a GoHighLevel funnel, or a client's own
+    # CMS" -- and a funnel builder pastes a page by framing it. Already
+    # outside the login and already in CHROMELESS; in neither embed tuple it
+    # answered a prospect with the staff refusal text.
+    "/sales/landing/p/": "a built landing page, framed on the client's own site",
+}
 for _p in embed.PUBLIC_EMBEDDABLE:
-    check(f"{_p} is one of the module's own public prefixes",
-          any(_p.startswith(m.rstrip("/")) for m in _calc.public_paths()), True)
+    check(f"{_p} is a public page somebody has accounted for",
+          any(_p.startswith(m.rstrip("/")) for m in _calc.public_paths())
+          or _p in NOT_THE_CALCULATORS, True)
+for _p in NOT_THE_CALCULATORS:
+    check(f"{_p} is still in the tuple it was declared for",
+          _p in embed.PUBLIC_EMBEDDABLE, True)
 
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)

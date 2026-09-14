@@ -616,6 +616,152 @@ check("and with none confirmed the line is omitted, never guessed",
       "Serving" in _rp(_bare, _COPY, _DIRS["trust"], {}, goal_id="quote"), False)
 
 
+# =========================================================================
+# Tier 2/3 — after the page is built: who may frame it, how it shares,
+#            how you hand it over, and how you take a change back
+# =========================================================================
+section("Tier 3 — the page after it is built")
+
+# -- 1. a framed page must not answer a prospect with a staff refusal -------
+#
+# hub/landing_render.py opens by saying the page is one self-contained file
+# "pasteable into Smart 1 Sites, a GoHighLevel funnel, or a client's own CMS"
+# -- and a funnel builder pastes a page by framing it. Named in neither embed
+# tuple it fell through to `refuse()`, which prints an internal path and an
+# internal filename to whoever is looking at it.
+from hub import suite_embed as _emb                              # noqa: E402
+
+check("a built landing page may be framed",
+      _emb.embeddable("/sales/landing/p/icon-solar-ab12cd"), True)
+check("as a public page, so any domain may do it",
+      _emb.public_embeddable("/sales/landing/p/icon-solar-ab12cd"), True)
+# The maker is a staff screen and must not have come along with it.
+check("the maker itself is still not framable",
+      _emb.embeddable("/sales/landing"), False)
+# `suite_cookie_allowed` keys on EMBEDDABLE alone, so widening the public
+# tuple must not have widened where a signed cookie is honoured.
+check("and no signed cookie is honored on the built page",
+      _emb.suite_cookie_allowed("/sales/landing/p/icon-solar-ab12cd"), False)
+
+# -- 2. the share card ------------------------------------------------------
+_pics = {"hero": {"url": "https://images.example.com/hero.jpg"}}
+_shared = _rp(_BRIEF, _COPY, _DIRS["trust"], _pics, goal_id="quote",
+              slug="icon-solar-ab12cd")
+check("a shared link carries a title",
+      'property="og:title"' in _shared, True)
+check("and a description",
+      'property="og:description"' in _shared, True)
+check("and the hero as its picture",
+      'property="og:image" content="https://images.example.com/hero.jpg"'
+      in _shared, True)
+check("large-image card where there is a picture",
+      'content="summary_large_image"' in _shared, True)
+# A page with no photography must not claim one: a share card pointing at a
+# 404 is worse than one with no picture, because the platform caches the miss.
+_nopic = _rp(_BRIEF, _COPY, _DIRS["trust"], {}, goal_id="quote",
+             slug="icon-solar-ab12cd")
+check("no picture means no og:image rather than a broken one",
+      "og:image" in _nopic, False)
+check("and the card degrades to a summary",
+      'content="summary"' in _nopic, True)
+# og:url and the canonical are absolute or absent. PUBLIC_BASE_URL is unset
+# under test, so this is the live shape of this deployment rather than a
+# contrived one -- and a relative og:url is meaningless off-site.
+check("no origin means no og:url rather than a path",
+      "og:url" in _shared, False)
+check("and no canonical either", 'rel="canonical"' in _shared, False)
+os.environ["PUBLIC_BASE_URL"] = "https://smart1.agency"
+try:
+    _abs = _rp(_BRIEF, _COPY, _DIRS["trust"], _pics, goal_id="quote",
+               slug="icon-solar-ab12cd")
+    check("with an origin it is the page's own absolute address",
+          'content="https://smart1.agency/sales/landing/p/icon-solar-ab12cd"'
+          in _abs, True)
+    check("and the canonical agrees with it",
+          'href="https://smart1.agency/sales/landing/p/icon-solar-ab12cd"'
+          in _abs, True)
+    # Read at call time, not stamped at build: PUBLIC_BASE_URL is the one
+    # variable somebody corrects mid-incident.
+    check("the hand-off URL is absolute once the Hub knows its own host",
+          lm.page_url("icon-solar-ab12cd"),
+          "https://smart1.agency/sales/landing/p/icon-solar-ab12cd")
+finally:
+    os.environ.pop("PUBLIC_BASE_URL", None)
+check("and is refused rather than handed over as a path",
+      lm.page_url("icon-solar-ab12cd"), "")
+check("a page with no slug has no address at all", lm.page_url(""), "")
+
+# -- 3. the hand-off ---------------------------------------------------------
+_listed = lm.listing()
+check("every row carries the address to send",
+      all("url" in r for r in _listed["pages"]), True)
+check("and how many earlier versions it has",
+      all("versions" in r for r in _listed["pages"]), True)
+# Three numbers because there are three questions: the table draws 300 and
+# the count line was printing the match total under it.
+check("the listing says how many it drew as well as how many matched",
+      _listed["shown"], len(_listed["pages"]))
+_maker = client.get("/sales/landing")
+check("the maker offers a copy control", b"lpCopy(" in _maker.data, True)
+# Never a claim it cannot make good: clipboard, then execCommand, then the
+# link on screen for a human to copy.
+check("which falls back rather than lying about having copied",
+      b"execCommand" in _maker.data and b"Ctrl-C" in _maker.data, True)
+
+# -- 4. the versions that were already being kept ---------------------------
+#
+# `revise()` has answered "the previous version is kept" since it was written
+# and kept ten of them on every row, and nothing could read one back.
+_v = lm.create(client="Riverside HVAC", direction="trust",
+               goal="Request a quote", actor="Test")
+_vid = _v["id"]
+check("a fresh page has no history yet",
+      lm.versions(_vid)["count"], 0)
+lm.update_html(_vid, "<html>second</html>", "Test")
+lm.update_html(_vid, "<html>third</html>", "Test")
+_hist = lm.versions(_vid)
+check("every save is kept", _hist["count"], 2)
+check("newest first", _hist["versions"][0]["index"], 1)
+# Metadata only. A version is a whole rendered page and ten of them is most
+# of a megabyte into a panel that only has to say which one to put back.
+check("the history carries no page html",
+      any("html" in v for v in _hist["versions"]), False)
+# Through the `index` the reader hands back, which is what the screen passes.
+# It is the position in the stored list and deliberately not the position in
+# this newest-first view: a caller that counted rows would put back the page
+# at the other end of the history, which is the one mistake a restore must
+# not be able to make quietly.
+_newest = _hist["versions"][0]["index"]
+_back = lm.restore(_vid, _newest, "Test")
+check("a version can be put back", _back.get("ok"), True)
+check("and it is the page that was asked for",
+      lm.get(_vid)["page_html"], "<html>second</html>")
+check("the stored index is not the row number in the view",
+      _newest != 0, True)
+# Restoring is itself undoable: the page as it stood goes onto the stack
+# before the old one is written back.
+check("the page it replaced is kept",
+      any(v["why"] == "replaced by a restore"
+          for v in lm.versions(_vid)["versions"]), True)
+check("an index nobody kept is refused by name",
+      "error" in lm.restore(_vid, 99, "Test"), True)
+check("and so is a page that does not exist",
+      "error" in lm.restore("nope", 0, "Test"), True)
+# The route half, because a rule the function keeps while the route does not
+# is not a rule.
+check("the versions route answers for a real page",
+      client.get(f"/api/landing/{_vid}/versions").status_code, 200)
+check("and 404s for one that is not there",
+      client.get("/api/landing/nope/versions").status_code, 404)
+check("restore refuses a body that names no version",
+      client.post(f"/api/landing/{_vid}/restore", json={}).status_code, 400)
+check("both are behind the login",
+      anon.get(f"/api/landing/{_vid}/versions").status_code in (302, 401, 403),
+      True)
+check("including the write",
+      anon.post(f"/api/landing/{_vid}/restore",
+                json={"index": 0}).status_code in (302, 401, 403), True)
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")

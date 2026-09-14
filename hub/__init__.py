@@ -3154,6 +3154,39 @@ def create_hub_app() -> Flask:
         return jsonify(lm.revise(page_id, str(body.get("instructions") or ""),
                                  current_user() or ""))
 
+    @app.route("/api/landing/<page_id>/versions")
+    def api_landing_versions(page_id):
+        """What this page used to be.
+
+        `revise()` has kept ten versions on every row since it was written and
+        promised in its own response that "the previous version is kept" --
+        with nothing anywhere able to read one back. This is the half that was
+        missing, and it carries metadata only: a version is a whole rendered
+        page, and ten of them is most of a megabyte into a panel that needs to
+        say which one to put back.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import landing_maker as lm
+        out = lm.versions(page_id)
+        return jsonify(out), (404 if out.get("error") else 200)
+
+    @app.route("/api/landing/<page_id>/restore", methods=["POST"])
+    def api_landing_restore(page_id):
+        """Put a previous version back. A POST, because it writes."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import landing_maker as lm
+        body = request.get_json(silent=True) or {}
+        try:
+            index = int(body.get("index"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Name which version to put back."}), 400
+        out = lm.restore(page_id, index, current_user() or "")
+        return jsonify(out), (400 if out.get("error") else 200)
+
     @app.route("/api/landing/<page_id>", methods=["DELETE"])
     def api_landing_delete(page_id):
         gate = _require_api()
