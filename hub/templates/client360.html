@@ -3887,6 +3887,14 @@ function renderEcwid(d){
   h+=tile('This year',skMoney(y.revenue),(y.orders||0)+' orders','');
   if(d.abandoned){const a=d.abandoned; h+=tile('Abandoned carts',String((a.month||{}).carts||0),skMoney((a.month||{}).value)+' left in carts this month','');}
   h+='</div>';
+  const W=d.windows||{}; if(Object.keys(W).length){
+    const pick=String(window.__ecDays||'30'); const w=W[pick]||W[Object.keys(W)[0]]||{};
+    h+='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:2px 0 8px"><span class="muted" style="font-size:12px">Rolling:</span>'
+      +Object.keys(W).map(k=>'<button type="button" class="gbtn" data-ec-days="'+k+'"'+(k===pick?' style="background:var(--navy);color:#fff"':'')+'>Last '+k+' days</button>').join('')
+      +'<span style="font-size:13px;margin-left:6px"><b>'+skMoney(w.revenue)+'</b> · '+(w.orders||0)+' orders · avg '+skMoney2(w.avg_order)+'</span>'
+      +(w.change_pct===null||w.change_pct===undefined?'<span class="muted" style="font-size:12px">no prior period</span>':'<span style="font-size:12px;color:'+(w.change_pct>=0?'#0a6b3c':'#9c2b25')+'">'+(w.change_pct>=0?'&#9650;':'&#9660;')+' '+Math.abs(w.change_pct)+'% vs the '+w.days+' days before</span>')
+      +'</div>';
+  }
   const ms=d.monthly||[]; const max=Math.max(1,...ms.map(x=>x.revenue||0));
   h+='<div style="display:flex;align-items:flex-end;gap:5px;height:110px;margin:4px 0 14px">'+ms.map(x=>
     '<div title="'+esc(x.month)+': '+skMoney2(x.revenue)+' · '+x.orders+' orders" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0">'
@@ -3908,6 +3916,9 @@ function renderEcwid(d){
   return h;
 }
 /* ---- end ecommerce ---- */
+function wireEcwidDays(el){
+  el.querySelectorAll('[data-ec-days]').forEach(b=>{ b.onclick=()=>{ window.__ecDays=b.dataset.ecDays; el.innerHTML=renderEcwid(window.__ecData); wireEcwidDays(el); }; });
+}
 function loadEcwid(name,fresh){
   const el=$('c-ecwid'); if(!el) return;
   const gen=c360Generation;
@@ -3915,7 +3926,9 @@ function loadEcwid(name,fresh){
   fetch(SK_API+'/ecwid/dashboard?name='+encodeURIComponent(name)+(fresh?'&fresh=1':''),{credentials:'same-origin'})
     .then(r=>r.json()).then(d=>{
       if(gen!==c360Generation) return;
+      window.__ecData=d;
       el.innerHTML=renderEcwid(d);
+      wireEcwidDays(el);
       const acts=$('c-ecwid-acts');
       if(acts&&!acts.querySelector('[data-ecwid-refresh]')){
         const b=document.createElement('button'); b.type='button'; b.className='gbtn'; b.textContent='Refresh'; b.setAttribute('data-ecwid-refresh','1');
@@ -3946,6 +3959,13 @@ function renderEmailReadiness(r){
   h+='</div><div class="muted" style="font-size:12.5px;line-height:1.5">'+esc(r.detail||'')
     +(d.state==='missing'?' <a href="'+esc(r.settings_url||'#')+'" target="_blank" rel="noopener">Email Services in Suite &rarr;</a> · <a href="'+esc(r.tool_url||'/tools/360-skills/')+'">DNS records in 360 Skills &rarr;</a>':'')
     +'</div>';
+  const sends=r.sends||[];
+  if(sends.length){
+    const KIND={template:'Saved to Suite templates',test:'Test',batch:'Sent to contacts'};
+    h+='<div style="margin-top:8px"><span class="muted" style="font-size:12px">Recent sends</span><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+      +sends.slice(0,6).map(x=>'<tr><td style="padding:3px 8px 3px 0;white-space:nowrap" class="muted">'+esc((x.at||'').slice(0,10))+'</td><td style="padding:3px 8px">'+esc(KIND[x.kind]||x.kind)+(x.kind==='batch'?' ('+(x.count||0)+')':'')+(x.to?' → '+esc(x.to):'')+'</td><td style="padding:3px 0"><b>'+esc(x.subject||'')+'</b>'+(x.detail?' <span class="muted">'+esc(x.detail)+'</span>':'')+'</td><td style="padding:3px 0 3px 8px;text-align:right" class="muted">'+esc(x.by||'')+'</td></tr>').join('')
+      +'</table></div>';
+  }
   return h;
 }
 let skEmailReady=false;
@@ -3969,7 +3989,8 @@ function renderEmailComposer(){
   h+=inp('em-headline','Headline','');
   h+='<div class="field"><label style="font-size:11.5px;font-weight:600;color:#5a6b7c;display:block;margin:8px 0 3px" for="em-body">Body</label><textarea id="em-body" rows="7" placeholder="Short paragraphs separated by a blank line. '+'{'+'{contact.first_name}'+'}'+' works." style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #d6dde5;border-radius:6px;font-size:13px;font-family:inherit"></textarea></div>';
   h+='<div class="grid-2" style="gap:0 14px">'+inp('em-cta','Button text','Reserve your spot')+inp('em-url','Button link','https://…')+'</div>';
-  h+=inp('em-hero','Hero image URL (optional)','https://…');
+  h+='<div style="display:flex;gap:8px;align-items:flex-end"><div style="flex:1">'+inp('em-hero','Hero image URL (optional)','https://…')+'</div><button type="button" class="btn-ghost" id="em-pick" style="margin-bottom:1px">Pick from client images</button></div>'
+    +'<div id="em-pick-box" hidden style="display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px;margin-top:8px"></div>';
   h+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">'
     +'<button type="button" class="btn-ghost" id="em-preview-btn">Preview</button>'
     +'<button type="button" class="btn-ghost" id="em-template-btn">Save to Suite templates</button>'
@@ -4027,6 +4048,15 @@ function wireEmailComposer(name){
     emSay(d.ok?'ok':'err',esc(d.detail||''));
   };
   $('em-send-open').onclick=()=>{ $('em-send-box').hidden=!$('em-send-box').hidden; };
+  $('em-pick').onclick=async()=>{
+    const box=$('em-pick-box'); if(!box.hidden){ box.hidden=true; return; }
+    box.hidden=false; box.innerHTML='<span class="muted" style="font-size:12px">Loading the client\'s images…</span>';
+    const d=await fetch('/tools/seo-images/api/gallery?company='+encodeURIComponent(name)+'&limit=24',{credentials:'same-origin'}).then(r=>r.ok?r.json():{gallery:[]}).catch(()=>({gallery:[]}));
+    const rows=(d.gallery||[]).filter(r=>r.url);
+    if(!rows.length){ box.innerHTML='<span class="muted" style="font-size:12px">No images saved for this client yet — the Client Images card is where they are added.</span>'; return; }
+    box.innerHTML=rows.map(r=>'<img src="'+esc(r.thumb||r.url)+'" data-full="'+esc(r.url)+'" alt="'+esc(r.alt_text||'')+'" loading="lazy" title="'+esc(r.filename||'')+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;border:2px solid transparent;cursor:pointer">').join('');
+    box.querySelectorAll('img[data-full]').forEach(im=>{ im.onclick=()=>{ $('em-hero').value=im.dataset.full; box.querySelectorAll('img').forEach(x=>x.style.borderColor='transparent'); im.style.borderColor='var(--navy)'; emSay('note','Hero image set. Preview to see it in place.'); }; });
+  };
   $('em-search').onclick=async()=>{
     const q=$('em-q').value.trim(), tag=$('em-tag').value.trim();
     $('em-contacts').innerHTML='<div class="muted" style="font-size:12.5px">Searching…</div>';

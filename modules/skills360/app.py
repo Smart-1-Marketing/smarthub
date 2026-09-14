@@ -171,6 +171,9 @@ def api_status():
     base = request.host_url.rstrip("/")
     for s in rec["shares"]:
         s["url"] = f"{base}{HOT_MOUNT}/{s['token']}"
+    ec = rec["skills"].get("ecwid") or {}
+    if ec.get("hook_token"):
+        ec["hook_url"] = f"{base}{HOT_MOUNT}/ecwid-hook/{ec['hook_token']}"
     return jsonify({"ok": True, "client": client, "record": rec, "skills": registry.public()})
 
 
@@ -407,6 +410,7 @@ def api_email_readiness():
                                   from_name=rec.get("from_name") or "")
         r["ok"] = True
         r["state"] = "ready" if r.get("ready") else "blocked"
+        r["sends"] = list(rec.get("sends") or [])[:10]
         r["settings_url"] = suite_email.suite_settings_url((r.get("account") or {}).get("location_id") or "")
         r["tool_url"] = f"{MOUNT}/?client={client}"
         return jsonify(r)
@@ -500,6 +504,8 @@ def api_email_template():
         title = str(body.get("title") or c["fields"]["subject"] or "Hub email").strip()
         out = suite_email.push_template(client, title=title, html=c["html"], url=_client_url(client), by=_actor())
         _log("email_template_pushed" if out.get("ok") else "email_template_refused", client=client)
+        if out.get("ok"):
+            store.log_send(client, "template", by=_actor(), subject=title, detail=out.get("template_id") or "")
         return jsonify(out)
     except Exception as exc:                               # noqa: BLE001
         return jsonify({"ok": False, "detail": f"Could not save the template ({type(exc).__name__})."})
@@ -535,6 +541,8 @@ def api_email_test():
         out = suite_email.send_test(client, to=to, subject=c["fields"]["subject"] or "(no subject)", html=c["html"],
                                     from_email=from_email, from_name=from_name, url=_client_url(client))
         _log("email_test_sent" if out.get("ok") else "email_test_refused", client=client)
+        if out.get("ok"):
+            store.log_send(client, "test", by=_actor(), subject=c["fields"]["subject"], count=1, to=to)
         return jsonify(out)
     except Exception as exc:                               # noqa: BLE001
         return jsonify({"ok": False, "detail": f"Could not send the test ({type(exc).__name__})."})
@@ -583,6 +591,9 @@ def api_email_send():
                                      html=c["html"], from_email=from_email, from_name=from_name, url=_client_url(client))
         _log("email_batch_sent" if out.get("ok") else "email_batch_refused", client=client,
              sent=out.get("sent"), failed=out.get("failed"))
+        if out.get("sent"):
+            store.log_send(client, "batch", by=_actor(), subject=c["fields"]["subject"], count=int(out.get("sent") or 0),
+                           detail=(f"{out.get('failed')} failed" if out.get("failed") else ""))
         return jsonify(out)
     except Exception as exc:                               # noqa: BLE001
         return jsonify({"ok": False, "detail": f"Could not send ({type(exc).__name__})."})
@@ -600,6 +611,29 @@ def hot_page(token):
     spec = registry.BY_KEY.get(found["skill"]) or {}
     return render_template("hotsheet_public.html", found=found, token=_TOKEN_RE.sub("", token)[:80],
                            skill=spec, client=found["client"])
+
+
+@bp_hot.route("/ecwid-hook/<token>", methods=["POST"])
+def ecwid_hook(token):
+    """Ecwid's order webhook, one per store, addressed by an unguessable
+    token minted at activation. The only thing it does is forget the
+    cached hotsheet so the next read is live -- nothing is written from the
+    payload, so a forged call costs one extra Ecwid read and nothing else.
+    Ecwid retries on anything but 200, hence 200 even for a body it cannot
+    parse; a token nobody minted is the one 404."""
+    if _limited("hook", _VIEW_LIMIT):
+        return _too_many()
+    found = store.resolve_hook(token)
+    if not found:
+        return jsonify({"ok": False, "error": "Unknown hook."}), 404
+    body = request.get_json(silent=True) or {}
+    store_id = str(body.get("storeId") or "")
+    if store_id and store_id != found["store_id"]:
+        # Somebody else's store on our address: say nothing useful, do nothing.
+        return jsonify({"ok": True, "ignored": True})
+    ecwid.forget(found["store_id"])
+    _log("ecwid_hook", client=found["client"], kind=str(body.get("eventType") or "")[:40])
+    return jsonify({"ok": True})
 
 
 @bp_hot.route("/<token>/data")
