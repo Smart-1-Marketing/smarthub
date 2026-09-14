@@ -92,6 +92,8 @@ jobs:
 
       - name: Client email contact mapping and GHL history
         run: python test_client_email.py
+      - name: Display ad proof email safety and duplicate protection
+        run: python test_ad_proof_email.py
 
       - name: Client 360 proposal-to-IO navigation
         run: node test_client360_proposal_io.js

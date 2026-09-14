@@ -400,6 +400,7 @@ function render(g,q){
      card. The group button keeps the s1-acc-group class because
      loadGroup() and S1GroupLabel() address it by that name. */
   head+='<div class="c360-actions">'
+    +'<a class="ce-client-link" href="/tools/display-ads/_hub/start?client='+encodeURIComponent(name)+'&website='+encodeURIComponent(emailDomain)+'">Create display ads</a>'
     +'<a class="ce-client-link" href="/client-email?client='+encodeURIComponent(name)+'&domain='+encodeURIComponent(emailDomain)+'">Email client &amp; history</a>'
     +'<button type="button" onclick="ioStart(\'new\')">New IO</button>'
     +'<button type="button" onclick="ioStart(\'renewal\')">Renew IO</button>'

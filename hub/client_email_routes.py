@@ -52,3 +52,33 @@ def link():
 
 def register(app):
     app.register_blueprint(bp)
+
+@bp.get('/display-ad-send')
+def ad_send_page():
+    import os
+    return render_template('ad_proof_send.html', project=request.args.get('project',''), review=request.args.get('review',''), sender=os.environ.get('GHL_PROOF_EMAIL_FROM',''))
+
+@bp.get('/api/display-ad-send/context')
+def ad_send_context():
+    from hub import ad_proof_email
+    try:
+        project, linked=ad_proof_email.context(request.args.get('project'))
+        return jsonify(project={'id':project['projectId'],'client':project['client'],'domain':project.get('domain',''),'name':project['projectName']}, contact=linked, attempts=ad_proof_email.attempts(project['projectId']))
+    except email.EmailError as exc:
+        return jsonify(error=str(exc)),400
+
+@bp.post('/api/display-ad-send/<action>')
+def ad_send_action(action):
+    if request.headers.get('Origin','').rstrip('/') not in ('',request.host_url.rstrip('/')):
+        return jsonify(error='Open this action from Smart Hub.'),403
+    if not request.is_json:return jsonify(error='Expected a JSON request.'),415
+    body=request.get_json(silent=True)
+    if not isinstance(body,dict):return jsonify(error='Expected an object.'),400
+    from hub import ad_proof_email, current_user
+    try:
+        if action=='prepare':
+            return jsonify(ad_proof_email.prepare(body.get('project'),body.get('review'),body.get('subject'),body.get('message'),body.get('sender'),request.host_url,str(current_user() or '')))
+        if action=='send':return jsonify(ad_proof_email.send(body.get('id')))
+        return jsonify(error='Unknown action.'),404
+    except email.EmailError as exc:
+        return jsonify(error=str(exc)),409
