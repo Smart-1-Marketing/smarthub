@@ -393,9 +393,8 @@ def confirm(name: str, place_id: str, *, actor: str = "", today: date | None = N
     _log("place_confirmed", key, actor, place_id=place_id,
          detail=f"Google listing confirmed for {key}: {rec['name'] or place_id}"
                 + (f", {rec['address']}" if rec["address"] else ""))
-    reading_row = None
     if det["measured"]:
-        reading_row = _append_reading(key, place, today=today)
+        _append_reading(key, place, today=today)
     else:
         _append_reading(key, None, today=today, error=det["error"])
     return {"ok": True, "record": {**rec, "client": key},

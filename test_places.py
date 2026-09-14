@@ -305,7 +305,7 @@ try:
     check("the 30-day change is not measured on the first day, and says why",
           (res["reading"]["change"]["measured"], "First reading" in res["reading"]["change"]["note"]),
           (False, True))
-    res2 = places.confirm("Acme Plumbing", "ChIJacme", actor="Todd", today=TODAY)
+    places.confirm("Acme Plumbing", "ChIJacme", actor="Todd", today=TODAY)
     check("confirming again the same day replaces the reading rather than stacking one",
           len(places.readings("Acme Plumbing")), 1)
     _details[:] = [{"measured": False, "error": "Google Places did not answer in time.",
@@ -555,7 +555,6 @@ _SRC = _REC[_a:_b] if 0 < _a < _b else ""
 check("the card is drawn on the record and named in the section list",
       'id="c-places"' in _REC and "'google listing'" in _REC and "loadPlaces(name);" in _REC)
 check("...with a bubble behind it", "hub.client360.places" in _REC)
-_ok = places.reading("Acme Plumbing", today=TODAY)
 _payloads = [
     {"state": "unconfigured", "record": None},
     {"state": "unread", "record": None, "error": "the store could not be read"},
