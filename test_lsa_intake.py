@@ -45,6 +45,13 @@ class IntakeTests(unittest.TestCase):
         self.assertEqual(applied.get_json()['setup']['step'],2)
         self.assertIn('client@example.com',self.client.get(self.link).get_data(as_text=True))
 
+    def test_intake_activity_names_the_business(self):
+        with patch.object(intake.audit, 'log') as logged:
+            self.client.post(self.endpoint, json={'action':'create'})
+            self.assertEqual(logged.call_args.kwargs['client'], 'Team draft')
+            self.client.post(self.endpoint, json={'action':'revoke'})
+            self.assertEqual(logged.call_args.kwargs['client'], 'Team draft')
+
     def test_revocation_rotation_and_expiry(self):
         self.client.post(self.endpoint,json={'action':'revoke'})
         self.assertEqual(self.client.get(self.link).status_code,404)
