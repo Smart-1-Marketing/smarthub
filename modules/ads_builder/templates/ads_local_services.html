@@ -1,0 +1,134 @@
+{% extends 'ads_base.html' %}
+{% set active = 'local_services' %}
+{% block title %}Local Services Ads{% endblock %}
+{% block screentitle %}Local Services Ads{% endblock %}
+{% block strap %}Set up a new account or review an existing one, one step at a time.{% endblock %}
+{% block head %}
+<style>
+.lsa-layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:20px;align-items:start}
+.lsa-steps{display:grid;gap:8px;padding:0;list-style:none}.lsa-steps button{width:100%;text-align:left}
+.s1d-page .lsa-steps button{background:#fff!important;color:#1e293b!important;border:1px solid #cbd5e1!important}
+.s1d-page .lsa-steps button[aria-current=step]{border:2px solid var(--blue)!important;background:var(--blue-soft)!important;color:var(--ink)!important}
+.lsa-panel{max-width:1000px}.lsa-panel h2{margin-top:0}.lsa-panel [hidden]{display:none!important}
+.lsa-scroll{overflow:auto}.lsa-results td{vertical-align:top}.lsa-summary{white-space:pre-wrap;background:#f8fafc;padding:16px;border-radius:8px}
+.lsa-footer{display:flex;gap:10px;justify-content:space-between;margin-top:24px;flex-wrap:wrap}
+.lsa-help{padding:14px;border:1px solid var(--line);border-radius:8px;margin:12px 0}.lsa-help li{margin:9px 0}
+#lsaMessage{scroll-margin-top:20px}#lsaBusy{font-weight:600}.lsa-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:760px){.lsa-layout,.lsa-form-grid{grid-template-columns:1fr}.lsa-steps{grid-template-columns:1fr 1fr}}
+</style>
+{% endblock %}
+{% block content %}
+<div id="lsaMessage" role="status" aria-live="polite"></div>
+<div class="lsa-layout">
+ <aside class="card">
+  <h3>Your setup</h3>
+  <ol class="lsa-steps" aria-label="Setup steps">
+   {% for label in ['Choose account','Business details','Services and budget','Finish in Google','Review and manage'] %}
+   <li><button type="button" data-step="{{ loop.index }}">{{ loop.index }}. {{ label }}</button></li>
+   {% endfor %}
+  </ol>
+  <label for="savedSetup">Resume a saved setup</label><select id="savedSetup"><option value="">Choose a saved setup</option></select>
+  <button type="button" id="newSetup" style="margin-top:12px">Start another setup</button>
+  <p class="hint" id="saveState">Save a draft to continue later.</p>
+ </aside>
+ <main class="card lsa-panel">
+  <div id="lsaBusy" role="status" aria-live="polite"></div>
+  <form id="setupForm">
+   <section data-panel="1">
+    <h2 tabindex="-1">1. Choose your account</h2>
+    <p>Smart 1 Ads uses your team's existing Google connection. Choose the business you want to work on.</p>
+    <div id="connectionState" class="note n-info">Checking the saved Google connection…</div>
+    <button type="button" id="checkConnection">Check connection again</button>
+    <div class="field" style="margin-top:18px"><label for="mode">What would you like to do?</label><select id="mode" name="mode"><option value="existing">Review an existing account</option><option value="new">Set up Local Services Ads for a new business</option></select></div>
+    <div class="field"><label for="accountSearch">Find your business</label><input id="accountSearch" type="search" placeholder="Search account names or numbers"></div>
+    <div class="field"><label for="accountPicker">Google Ads account</label><select id="accountPicker"><option value="">Choose an account</option></select></div>
+    <div class="field"><label for="customer_id">Account ID (optional for a new business)</label><input id="customer_id" name="customer_id" inputmode="numeric" maxlength="12" placeholder="123-456-7890"><p class="hint">Find this number in Google Ads. We verify access when you review the account.</p></div>
+    <div class="lsa-help"><strong>Account missing?</strong><p>Have the account owner accept Smart 1's manager invitation in Google Ads under Access and security → Managers, then check the connection again.</p><p id="managerInfo"></p><p>For a business with no account yet, choose new business and continue without an account ID.</p><a href="/tools/google-access/" target="_blank" rel="noopener">Open Google Access</a></div>
+    <button type="button" id="reviewExisting" class="b-primary">Review this account now</button>
+   </section>
+   <section data-panel="2" hidden>
+    <h2 tabindex="-1">2. Add the business details</h2>
+    <p>Use the same business name and details shown on the Google Business Profile. These details are saved as your setup plan.</p>
+    <div class="lsa-form-grid">
+    <div class="field"><label for="business_name">Business name</label><input id="business_name" name="business_name" maxlength="300" autocomplete="organization"></div>
+    <div class="field"><label for="phone">Phone number for leads</label><input id="phone" name="phone" type="tel" maxlength="60"></div>
+    <div class="field"><label for="website">Website (optional)</label><input id="website" name="website" type="url" maxlength="500" placeholder="https://yourbusiness.com"></div>
+    <div class="field"><label for="country">Country code</label><input id="country" name="country" maxlength="2" placeholder="US"><p class="hint">For example, US or CA.</p></div>
+    <div class="field"><label for="postal_code">Business postal code</label><input id="postal_code" name="postal_code" maxlength="30"></div>
+    </div>
+   </section>
+   <section data-panel="3" hidden>
+    <h2 tabindex="-1">3. Plan services, coverage and budget</h2>
+    <p>Choose work you can take on and hours when your team can respond. You will confirm Google's available services and actual budget settings in the next step.</p>
+    <div class="field"><label for="services">Services and job types</label><textarea id="services" name="services" maxlength="2000" placeholder="For example: AC repair, furnace repair, system replacement"></textarea></div>
+    <div class="field"><label for="areas">Cities or postal codes you serve</label><textarea id="areas" name="areas" maxlength="2000" placeholder="List the areas your team can reliably cover"></textarea></div>
+    <div class="lsa-form-grid">
+    <div class="field"><label for="weekly_budget">Weekly planning budget</label><input id="weekly_budget" name="weekly_budget" type="number" min="0.01" max="1000000" step="0.01"><p class="hint" id="budgetCurrency">Use the account's currency. For a new account, use the currency you will select in Google.</p></div>
+    <div class="field"><label for="schedule">Hours your team can answer leads</label><textarea id="schedule" name="schedule" maxlength="1000" placeholder="Mon–Fri, 8 am–6 pm, local business time"></textarea></div>
+    </div>
+    <p class="note n-info">This planning budget does not change spending in Google.</p>
+   </section>
+   <section data-panel="4" hidden>
+    <h2 tabindex="-1">4. Finish the required steps in Google</h2>
+    <p>Your plan stays saved here while you complete Google's account setup and verification.</p>
+    <div id="setupSummary" class="lsa-summary"></div>
+    <button type="button" id="copyPlan" style="margin-top:12px">Copy setup plan</button>
+    <ol class="lsa-help">
+     <li>Open Google and select the correct business account. For a new business, check eligibility for its category and location.</li>
+     <li>Enter or confirm the business details, match its Business Profile, and select the available services and service areas.</li>
+     <li>Complete the screening, license, insurance or other checks Google requests. Requirements vary by business and location.</li>
+     <li>Confirm billing, budget and answering hours in Google. Review the settings before enabling the ad.</li>
+     <li>Return here, choose the account ID, and select <strong>Check account in Google</strong> on the next step.</li>
+    </ol>
+    <div class="row"><a class="btn b-primary" href="https://adwords.google.com/localservices/signup/eligibility" target="_blank" rel="noopener">Start a new account in Google ↗</a><a class="btn" href="https://ads.google.com/localservices/" target="_blank" rel="noopener">Open existing Local Services account ↗</a></div>
+    <p class="hint">Google requires new Local Services campaigns to be created in its own setup flow. Opening Google does not transfer this draft or mark verification complete.</p>
+    <a href="https://support.google.com/localservices/answer/6226575?hl=en" target="_blank" rel="noopener">Google's verification requirements</a>
+   </section>
+   <section data-panel="5" hidden>
+    <h2 tabindex="-1">5. Review and manage</h2>
+    <p id="reviewAccountName">Choose an account in step 1, then check its current Google data.</p>
+    <div class="row"><div><label for="reviewDays">Reporting period</label><select id="reviewDays"><option value="7">Last 7 complete days</option><option value="30" selected>Last 30 complete days</option><option value="90">Last 90 complete days</option></select></div><button type="button" id="checkAccount" class="b-primary">Check account in Google</button></div>
+    <div id="reviewResult" class="lsa-results" aria-live="polite" style="margin-top:18px"></div>
+   </section>
+   <div class="lsa-footer"><button type="button" id="backStep">Back</button><button type="button" id="saveDraft">Save draft</button><button type="submit" id="nextStep" class="b-primary">Save and continue</button></div>
+  </form>
+ </main>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+const lsaBase = {{ (mount ~ '/api/local-services')|tojson }};
+const lsa = {step:1,id:null,revision:0,accounts:[],saved:[],busy:false,dirty:false};
+const el = id => document.getElementById(id);
+const fields = ['mode','customer_id','business_name','phone','website','country','postal_code','services','areas','weekly_budget','schedule'];
+function message(text,bad=false){el('lsaMessage').className='note n-'+(bad?'bad':'good');el('lsaMessage').textContent=text;}
+function payload(){return Object.assign(Object.fromEntries(fields.map(k=>[k,el(k).value.trim()])),{id:lsa.id,revision:lsa.revision,step:lsa.step});}
+function summary(){return fields.filter(k=>!['mode'].includes(k)).map(k=>titleise(k)+': '+(el(k).value.trim()||'Not entered')).join('\n');}
+function showStep(step){lsa.step=step;document.querySelectorAll('[data-panel]').forEach(p=>p.hidden=Number(p.dataset.panel)!==step);document.querySelectorAll('[data-step]').forEach(b=>{if(Number(b.dataset.step)===step)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');});el('backStep').hidden=step===1;el('nextStep').hidden=step===5;el('setupSummary').textContent=summary();el('reviewAccountName').textContent=el('customer_id').value?'Reviewing '+(el('business_name').value||'Google Ads account')+' · '+el('customer_id').value:'Choose or enter your account ID in step 1, then return here.';document.querySelector('[data-panel="'+step+'"] h2').focus();}
+async function task(label,fn){if(lsa.busy)return;lsa.busy=true;el('lsaBusy').textContent=label;const controls=[...document.querySelectorAll('.lsa-layout button,.lsa-layout input,.lsa-layout select,.lsa-layout textarea')];const old=controls.map(c=>c.disabled);controls.forEach(c=>c.disabled=true);try{return await fn();}catch(e){message(e.message,true);return false;}finally{controls.forEach((c,i)=>c.disabled=old[i]);lsa.busy=false;el('lsaBusy').textContent='';}}
+async function save(){const saved=await api('POST',lsaBase+'/setups',payload());lsa.id=saved.id;lsa.revision=saved.revision;lsa.dirty=false;el('saveState').textContent='Saved '+new Date(saved.updated_at).toLocaleString();lsa.saved=lsa.saved.filter(r=>r.id!==saved.id);lsa.saved.unshift(saved);renderSaved();return saved;}
+function renderSaved(){el('savedSetup').innerHTML='<option value="">Choose a saved setup</option>'+lsa.saved.map(s=>'<option value="'+esc(s.id)+'">'+esc(s.business_name||s.customer_id||'New business')+' · Step '+s.step+'</option>').join('');el('savedSetup').value=lsa.id||'';}
+function renderAccounts(){const q=el('accountSearch').value.toLowerCase().replace(/-/g,'');el('accountPicker').innerHTML='<option value="">Choose an account</option>'+lsa.accounts.filter(a=>(a.name+' '+a.id).toLowerCase().includes(q)).map(a=>'<option value="'+esc(a.id)+'">'+esc(a.name)+' · '+esc(a.formatted_id)+'</option>').join('');el('accountPicker').value=el('customer_id').value.replace(/-/g,'');}
+async function connect(){const data=await api('GET',lsaBase+'/connection');lsa.accounts=data.accounts;renderAccounts();el('connectionState').className='note n-'+(data.verified?'good':'warn');el('connectionState').textContent=data.verified?'Google connection verified. '+data.accounts.length+' accounts available. No keys to enter.':'Google returned an account access problem: '+data.errors.join(' ');el('managerInfo').textContent=data.manager_id?'Smart 1 manager account: '+data.manager_id:'';}
+function validateStep(){let required=[];if(lsa.step===1&&el('mode').value==='existing')required=['customer_id'];if(lsa.step===2)required=['business_name','phone','country','postal_code'];if(lsa.step===3)required=['services','areas','weekly_budget','schedule'];for(const key of required){if(!el(key).value.trim())throw Error('Please enter '+titleise(key).toLowerCase()+' before continuing.');}for(const input of document.querySelectorAll('[data-panel="'+lsa.step+'"] input')){if(!input.checkValidity())throw Error('Please check '+titleise(input.id).toLowerCase()+'.');}}
+el('setupForm').addEventListener('input',()=>{lsa.dirty=true;el('saveState').textContent='Unsaved changes';});
+el('setupForm').addEventListener('submit',e=>{e.preventDefault();task('Saving your progress…',async()=>{validateStep();const next=Math.min(5,lsa.step+1);const old=lsa.step;lsa.step=next;try{await save();showStep(next);}catch(e){lsa.step=old;throw e;}});});
+el('saveDraft').onclick=()=>task('Saving draft…',async()=>{await save();message('Draft saved in Smart 1 Ads. Google settings were not changed.');});
+el('backStep').onclick=()=>showStep(Math.max(1,lsa.step-1));
+document.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>showStep(Number(b.dataset.step)));
+el('checkConnection').onclick=()=>task('Checking Google access…',connect);
+el('accountSearch').oninput=renderAccounts;
+el('accountPicker').onchange=()=>{const a=lsa.accounts.find(a=>a.id===el('accountPicker').value);if(a){el('customer_id').value=a.id;el('business_name').value=a.name;el('budgetCurrency').textContent='Planning budget currency: '+a.currency;lsa.dirty=true;el('reviewResult').innerHTML='';}};
+el('customer_id').oninput=()=>{el('reviewResult').innerHTML='';};
+el('savedSetup').onchange=()=>{const s=lsa.saved.find(s=>s.id===el('savedSetup').value);if(!s)return;if(lsa.dirty&&!confirm('Discard unsaved changes and open this saved setup?')){el('savedSetup').value=lsa.id||'';return;}fields.forEach(k=>el(k).value=s[k]||'');Object.assign(lsa,{id:s.id,revision:s.revision,dirty:false});el('reviewResult').innerHTML='';el('saveState').textContent='Saved '+new Date(s.updated_at).toLocaleString();renderAccounts();showStep(s.step);};
+el('newSetup').onclick=()=>{if(lsa.dirty&&!confirm('Discard unsaved changes and start another setup?'))return;el('setupForm').reset();Object.assign(lsa,{id:null,revision:0,dirty:false});el('savedSetup').value='';el('reviewResult').innerHTML='';el('saveState').textContent='New setup — not yet saved';showStep(1);};
+el('copyPlan').onclick=()=>task('Copying setup plan…',async()=>{await navigator.clipboard.writeText(summary());message('Setup plan copied. Paste it where you need it while completing Google setup.');});
+function table(headers,rows){return '<div class="lsa-scroll"><table><thead><tr>'+headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>'<tr>'+r.map(c=>'<td>'+esc(c)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';}
+async function review(){const cid=el('customer_id').value.trim();if(!cid)throw Error('Choose or enter an account ID in step 1.');el('reviewResult').innerHTML='';const r=await api('GET',lsaBase+'/review?customer_id='+encodeURIComponent(cid)+'&days='+el('reviewDays').value);const currency=r.account.currencyCode;const cash=n=>n==null?'Unavailable':new Intl.NumberFormat(undefined,{style:'currency',currency:currency||'USD'}).format(n);const count=n=>n==null?'Unavailable':String(n);let html='<h3>'+esc(r.account.descriptiveName||cid)+'</h3><p>'+esc(r.start_date)+' to '+esc(r.end_date_exclusive)+' (end date excluded) · '+esc(r.account.timeZone)+'<br>Checked '+esc(new Date(r.checked_at).toLocaleString())+'</p>';for(const [key,error] of Object.entries(r.errors))html+='<div class="note n-warn">'+esc(titleise(key))+': '+esc(error)+'</div>';html+=table(['LSA spend','Lead records','Charged lead records','Spend / charged lead'],[[cash(r.spend),count(r.lead_count),count(r.charged_leads),cash(r.cost_per_charged_lead)]]);html+='<p class="hint">Lead records are based on creation date; spend and credits may post later. Some categories and Local Services Performance Max have reporting limits.</p><h3>Campaigns found in Google</h3>';html+=r.campaigns.length?table(['Campaign','Status','Budget amount','Budget period','Bidding'],r.campaigns.map(c=>[c.name,titleise(c.status),cash(c.budget),titleise(c.budget_period),titleise(c.bidding)])):'<p>'+(r.discovery_complete?'No Local Services campaign found in this account.':'Campaign lookup is incomplete. Retry before starting another campaign.')+'</p>';html+='<h3>Recommended next steps</h3><ul>'+r.advice.map(a=>'<li>'+esc(a)+'</li>').join('')+'</ul><p><a href="https://ads.google.com/localservices/" target="_blank" rel="noopener">Open Google to manage this business ↗</a></p><h3>Google verification history</h3><p class="hint">These are submitted checks, not an overall approval decision. Confirm current eligibility in Google.</p>';html+=r.verification.length?table(['Check','Status','Submitted'],r.verification.map(v=>[titleise(v.artifactType),titleise(v.status),v.creationDateTime])):'<p>No verification records returned. This does not confirm approval.</p>';html+='<h3>Recent lead records</h3><p class="hint">Showing up to 100 records. Review calls, messages and lead feedback in Google.</p>';html+=r.leads.length?table(['Created','Type','Service','Status','Charged','Credit'],r.leads.map(l=>[l.creationDateTime,titleise(l.leadType),l.serviceId,titleise(l.leadStatus),l.leadCharged?'Yes':'No',titleise((l.creditDetails||{}).creditState||'Not reported')])):'<p>'+(r.errors.leads?'Lead data is unavailable.':'No lead records returned for this period.')+'</p>';el('reviewResult').innerHTML=html;}
+el('checkAccount').onclick=()=>task('Reading account, campaigns and leads from Google…',review);
+el('reviewExisting').onclick=()=>task('Reading your Local Services account…',async()=>{if(!el('customer_id').value.trim())throw Error('Choose an account first.');showStep(5);await review();});
+window.addEventListener('beforeunload',e=>{if(lsa.dirty){e.preventDefault();e.returnValue='';}});
+showStep(1);
+task('Loading your saved connection and setups…',async()=>{const results=await Promise.allSettled([connect(),api('GET',lsaBase+'/setups')]);if(results[1].status==='fulfilled'){lsa.saved=results[1].value.setups;renderSaved();}else message('Saved setups could not load: '+results[1].reason.message,true);if(results[0].status==='rejected'){el('connectionState').className='note n-warn';el('connectionState').textContent='We could not verify Google access. '+results[0].reason.message+' Your administrator can check the existing connection in Smart 1 Ads Settings.';}});
+</script>
+{% endblock %}
