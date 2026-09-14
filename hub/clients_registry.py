@@ -1,17 +1,11 @@
 """One list of every client the Hub knows about, from every source.
 
-Three kinds of record end up in the same picker:
-
-* **Knack clients** — anyone with a product record. The billing system is the
-  source of truth for who is a paying client.
-* **Website records** — a site on file whose owner never matched a Knack
-  client name exactly. Still a real client; still needs images named.
-* **House URLs** — sites we run in house. No products today, possibly products
-  later, and in the meantime they need exactly the same tooling. These live in
-  the Hub's own store and are marked so nobody mistakes one for billable work.
-
-Everything that asks "which client is this?" reads from here, so a house site
-behaves like any other client without pretending to be a paying one.
+Knack remains the billing source of truth. Website records, house clients,
+discovered URLs and IO-only clients are overlays. Approved company aliases
+from hub.company_identity are virtual rows: they inherit the canonical record's
+URL/domain/metadata without editing, deleting or merging any upstream record.
+Every canonical client and its aliases also receive the same permanent Smart 1
+master ID from hub.master_identity.
 """
 import datetime as _dt
 import os
@@ -38,22 +32,11 @@ def slugify(name: str) -> str:
 
 
 def norm_domain(value: str) -> str:
-    """The one definition of a domain, borrowed rather than repeated.
-
-    This used to be its own three-line normaliser, which is how a registry
-    domain and a scan domain could disagree about the same site: this one kept
-    the query string and accepted anything with a dot, canonical_domain() did
-    not. Two spellings of one domain is two clients, so there is now one
-    implementation and both callers use it.
-    """
     from hub.client_context import canonical_domain
     return canonical_domain(value)
 
 
 # ------------------------------------------------------------- house clients
-# House clients exist only here. A Knack client can be re-read from Knack; a
-# house site has no upstream to be re-read from, so this file is the whole
-# record and it goes through hub.jsonstore to reach the database backup.
 def house_clients() -> list[dict]:
     rows = jsonstore.read_json(_house_path(), default=[])
     return rows if isinstance(rows, list) else []
@@ -66,7 +49,6 @@ def _write_house(rows: list[dict]):
 
 def add_house_client(name: str, url: str = "", notes: str = "",
                      actor: str = "") -> dict:
-    """Register a site we run in house as a client."""
     name = str(name or "").strip()[:200]
     if not name:
         raise ValueError("A name is required.")
@@ -78,8 +60,6 @@ def add_house_client(name: str, url: str = "", notes: str = "",
     if any(r.get("slug") == key for r in rows):
         raise ValueError(f"“{name}” is already on the house list.")
 
-    # Don't let a house entry shadow a real client. Marking a paying account
-    # "house" would hide its products and mislabel billable work.
     existing = next((c for c in all_clients()
                      if c["name"].lower() == name.lower() and not c["is_house"]), None)
     if existing:
@@ -136,18 +116,14 @@ _CACHE_SECONDS = 120
 
 
 def all_clients(refresh: bool = False) -> list[dict]:
-    """Every client, deduplicated by name, newest knowledge winning.
-
-    Knack is read on every call in principle, but 10k product rows is enough
-    work that a short cache keeps the type-ahead instant.
-    """
+    """Every client plus approved aliases, newest knowledge winning."""
     import time
     if not refresh and _cache["rows"] and time.time() - _cache["at"] < _CACHE_SECONDS:
         return _cache["rows"]
 
     by_key: dict[str, dict] = {}
 
-    # 1. websites give us domains
+    # 1. Website records give us domains.
     web_by_client: dict[str, dict] = {}
     for w in knack_data.websites():
         nm = str(w.get("name") or "").strip()
@@ -158,7 +134,7 @@ def all_clients(refresh: bool = False) -> list[dict]:
         if cur is None or (not cur.get("liveUrl") and w.get("liveUrl")):
             web_by_client[key] = w
 
-    # 2. Knack clients (anyone with a product) — the billing source of truth
+    # 2. Knack clients (anyone with a product) — billing source of truth.
     seo_clients: set[str] = set()
     for r in knack_data.products():
         nm = str(r.get("client") or "").strip()
@@ -175,24 +151,20 @@ def all_clients(refresh: bool = False) -> list[dict]:
             entry["products"].add(pname)
         if knack_data.is_running(r):
             entry["live"] = True
-            # Kept apart from `products`, which counts every IO the client has
-            # ever had. Callers asking "are we working for them right now?"
-            # were reading product_count and getting "yes" for accounts that
-            # ended years ago.
             if pname:
                 entry["running"].add(pname)
             if "seo" in pname.lower():
                 entry["is_seo"] = True
                 seo_clients.add(key)
 
-    # 3. website records with no matching Knack client are still clients
+    # 3. Website records with no exact Knack name are still clients.
     for key, w in web_by_client.items():
         nm = str(w.get("name") or "").strip()
         entry = by_key.setdefault(key, {
             "name": nm, "slug": slugify(nm), "source": "website",
             "url": "", "domain": "", "products": set(), "running": set(),
-            "is_seo": False,
-            "is_house": False, "live": str(w.get("status") or "").lower() == "live",
+            "is_seo": False, "is_house": False,
+            "live": str(w.get("status") or "").lower() == "live",
         })
         if not entry["domain"]:
             entry["domain"] = norm_domain(w.get("domain") or w.get("liveUrl") or "")
@@ -201,12 +173,12 @@ def all_clients(refresh: bool = False) -> list[dict]:
             if u:
                 entry["url"] = u if u.startswith("http") else "https://" + u
 
-    # domains for Knack clients whose name matched a website record
+    # Fill a Knack client's missing URL from a website-name match.
     for key, entry in by_key.items():
         if entry["domain"]:
             continue
         w = web_by_client.get(key)
-        if w is None:                     # loose match, same as Client 360 does
+        if w is None:
             flat = re.sub(r"[^a-z0-9]", "", key)[:12]
             if flat:
                 w = next((x for k, x in web_by_client.items()
@@ -217,14 +189,14 @@ def all_clients(refresh: bool = False) -> list[dict]:
             if u and not entry["url"]:
                 entry["url"] = u if u.startswith("http") else "https://" + u
 
-    # 4. house URLs — ours, no products, flagged as such
+    # 4. House URLs — ours, no products, flagged as such.
     for h in house_clients():
         key = str(h.get("name", "")).lower()
         entry = by_key.setdefault(key, {
-            "name": h.get("name", ""), "slug": h.get("slug") or slugify(h.get("name", "")),
+            "name": h.get("name", ""),
+            "slug": h.get("slug") or slugify(h.get("name", "")),
             "source": "house", "url": "", "domain": "", "products": set(),
-            "running": set(),
-            "is_seo": False, "is_house": True, "live": True,
+            "running": set(), "is_seo": False, "is_house": True, "live": True,
         })
         entry["is_house"] = True
         entry["source"] = "house"
@@ -232,14 +204,7 @@ def all_clients(refresh: bool = False) -> list[dict]:
         entry["domain"] = h.get("domain") or entry["domain"]
         entry["notes"] = h.get("notes", "")
 
-    # 5. URLs discovered in another data set and accepted by a human.
-    #
-    # An overlay, not an edit: Knack owns the client record and this Hub does
-    # not write to it, so the day the real record gains a URL that one wins and
-    # this is simply not consulted. It also never changes `source` or
-    # `is_house` -- filling in a missing website does not make a Knack client
-    # one of ours, and an earlier version of this that reused house_clients()
-    # for the same job did exactly that.
+    # 5. Human-accepted URLs discovered in another data set.
     try:
         from hub.client_key import normalise_name as _norm
         from hub.client_urls import overlay as _discovered
@@ -253,22 +218,13 @@ def all_clients(refresh: bool = False) -> list[dict]:
                     continue
                 entry["url"] = hit.get("url", "")
                 entry["domain"] = hit.get("domain", "")
-                # Labelled, because a URL nobody can trace is how a guess
-                # becomes a fact. Client 360 and the audits can say where it
-                # came from rather than presenting it as filed data.
                 entry["url_source"] = "discovered"
                 entry["url_from"] = hit.get("source", "")
                 entry["url_accepted_by"] = hit.get("accepted_by", "")
-    except Exception:                                 # noqa: BLE001
-        pass                                          # a client with no URL is
-                                                      # the state we started in
+    except Exception:  # noqa: BLE001
+        pass
 
     # 6. Clients whose only trace is an insertion order.
-    #
-    # Registered by hub/io_clients.py at submit, and only when they resolved
-    # to nobody, so this adds a row rather than shadowing one. It never
-    # touches an entry that already exists -- if Knack has since gained the
-    # client, Knack's record is the real one and this is simply not consulted.
     try:
         from hub import io_clients as _ioc
         for row in _ioc.overlay().values():
@@ -280,46 +236,65 @@ def all_clients(refresh: bool = False) -> list[dict]:
                 "url": row.get("url", ""), "domain": row.get("domain", ""),
                 "products": set(), "running": set(),
                 "is_seo": False, "is_house": False, "live": True,
-                # Named, so nothing downstream reads a client we have only
-                # quoted as one Knack has confirmed.
-                "is_io_only": True,
-                "io_orders": list(row.get("orders") or []),
+                "is_io_only": True, "io_orders": list(row.get("orders") or []),
             }
-    except Exception:                                 # noqa: BLE001
-        pass                                          # the book without them
-                                                      # is where we started
+    except Exception:  # noqa: BLE001
+        pass
 
     rows = []
     for entry in by_key.values():
         products = sorted(entry.pop("products", set()))
         running = sorted(entry.pop("running", set()))
-        # The derived join key, so every consumer of this list groups clients
-        # the same way instead of each inventing its own name match.
         from hub.client_key import client_key
         rows.append({**entry, "products": products, "product_count": len(products),
                      "running_products": running, "running_count": len(running),
                      "key": client_key(entry["name"], entry.get("url")
                                        or entry.get("domain") or "")})
-    rows.sort(key=lambda r: r["name"].lower())
 
+    # 7. Durable company aliases. These are virtual views of a canonical row,
+    # not new source-system clients. The alias therefore inherits website,
+    # domain and every future metadata field that is added to the canonical row.
+    try:
+        from hub.company_identity import augment_registry
+        rows = augment_registry(rows)
+    except Exception:  # noqa: BLE001
+        # Identity enrichment must never make the client book unavailable.
+        pass
+
+    # 8. Permanent Smart 1 master IDs. This is a batch operation, so a refresh
+    # allocates any missing IDs in one durable write. Alias rows use the same
+    # canonical key and therefore always carry the canonical client's ID.
+    try:
+        from hub.master_identity import attach_client_master_ids
+        rows = attach_client_master_ids(rows)
+    except Exception:  # noqa: BLE001
+        # A backup/identity problem must not take the client registry offline.
+        pass
+
+    rows.sort(key=lambda r: r["name"].lower())
     _cache["rows"] = rows
     _cache["at"] = time.time()
     return rows
 
 
 def search_clients(q: str, limit: int = 12) -> list[dict]:
-    """Type-ahead: name first, then domain. Exact and prefix matches rank
-    above 'contains' so typing a full name doesn't bury it."""
+    """Type-ahead without cluttering suggestions with every stored alias.
+
+    An exact alias is returned (so pasted provider names resolve); fuzzy/prefix
+    suggestions prefer canonical rows.
+    """
     q = str(q or "").strip().lower()
     rows = all_clients()
     if not q:
-        return [r for r in rows if r["is_house"]][:limit]
+        return [r for r in rows if r["is_house"] and not r.get("is_alias")][:limit]
 
     exact, prefix, contains = [], [], []
     for r in rows:
         name, dom = r["name"].lower(), (r.get("domain") or "").lower()
         if name == q or dom == q:
             exact.append(r)
+        elif r.get("is_alias"):
+            continue
         elif name.startswith(q) or dom.startswith(q):
             prefix.append(r)
         elif q in name or (dom and q in dom):
@@ -328,10 +303,22 @@ def search_clients(q: str, limit: int = 12) -> list[dict]:
 
 
 def find_client(name: str) -> dict | None:
+    """Find canonical data from either its filed name or an approved alias."""
     key = str(name or "").strip().lower()
     if not key:
         return None
-    return next((r for r in all_clients() if r["name"].lower() == key), None)
+    rows = all_clients()
+    exact = next((r for r in rows if r["name"].lower() == key), None)
+    if exact:
+        return exact
+    # Legal suffix and punctuation differences should work even if the raw
+    # alias was never worth persisting during backfill.
+    try:
+        from hub.client_key import normalise_name
+        norm = normalise_name(name)
+        return next((r for r in rows if normalise_name(r.get("name", "")) == norm), None)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def is_seo_client(name: str) -> bool:
