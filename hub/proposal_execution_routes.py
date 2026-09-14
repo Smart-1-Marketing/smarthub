@@ -1,9 +1,15 @@
 """Staff routes for the Proposal Execution Center.
 
 The engine owns state and task semantics; this is only the page/API layer. Every
-route is behind the Hub login. The scheduler bridge is installed at registration
-time so one proposal task advances on the same single-leader minute tick already
-used by the durable creative queue.
+route is behind the Hub login except one: `/proposal-execution/needs/<token>`,
+the page a **client** reads at a random token to see what we need from them.
+That one is named public on the blueprint guard here *and* in `CHROMELESS` in
+hub/__init__.py, because a client-facing hub route needs both halves -- exempt
+from the login and not from the chrome is a client reading our staff nav, and
+the other way round is a sign-in form in front of somebody with no account. The
+scheduler bridge is installed at registration time so one proposal task
+advances on the same single-leader minute tick already used by the durable
+creative queue.
 """
 from __future__ import annotations
 
@@ -36,7 +42,8 @@ def _build_task_specs_with_optional_gate(analysis):
 pe.build_task_specs = _build_task_specs_with_optional_gate
 
 bp = Blueprint("proposal_execution", __name__)
-install_guard(bp, mount="/proposal-execution")
+# `public` is relative to the mount: the client's own page, and nothing else.
+install_guard(bp, mount="/proposal-execution", public=("/needs/",))
 
 
 def _who():
@@ -78,6 +85,39 @@ def page():
     _owner, name = _who()
     return render_template("proposal_execution.html", user=name,
                            active="proposal_execution")
+
+
+@bp.get("/proposal-execution/run/<int:run_id>/kickoff")
+def kickoff(run_id):
+    """The internal kickoff document: one printable page built from the
+    kept plan -- launch date, channels and budgets, creative with its
+    supplier, due date and owner, the launch tasks, the monthly promises,
+    the open questions. Staff only; the client's page is `needs` below."""
+    _owner, name = _who()
+    run = pe.get_run(run_id)
+    if not run:
+        return render_template("proposal_kickoff.html", doc=None, user=name), 404
+    doc = pe.kickoff_document(run, base=request.host_url)
+    return render_template("proposal_kickoff.html", doc=doc, user=name)
+
+
+@bp.get("/proposal-execution/needs/<token>")
+def needs(token):
+    """What we need from the client, at the link they were sent.
+
+    Public, read-only, and built server-side from the kept plan: the files
+    they are supplying, the upload link, the questions that are theirs to
+    answer, and who to talk to. An unknown, revoked or malformed token
+    answers the same 404 page; a store that would not answer is a 503,
+    because a client meeting a 404 concludes the link expired.
+    """
+    run, error = pe.run_for_client_token(token)
+    if error:
+        return render_template("proposal_needs.html", doc=None, unavailable=True), 503
+    if not run:
+        return render_template("proposal_needs.html", doc=None, unavailable=False), 404
+    return render_template("proposal_needs.html", doc=pe.client_needs(run, base=request.host_url),
+                           unavailable=False)
 
 
 @bp.get("/api/proposal-execution/proposals")
@@ -160,6 +200,29 @@ def upload_link(run_id):
     try:
         run, got = pe.provision_upload_link(run_id, base=request.host_url, actor=owner)
         return jsonify(ok=True, link=got, run=run.as_dict(full=True))
+    except Exception as exc:  # noqa: BLE001
+        return _error(exc)
+
+
+@bp.post("/api/proposal-execution/run/<int:run_id>/client-link")
+def client_link(run_id):
+    """Mint the client's link, or hand back the one already live. A press,
+    never a page load: a link that exists is one somebody may have sent."""
+    owner, _name = _who()
+    try:
+        run, link = pe.create_client_link(run_id, actor=owner, base=request.host_url)
+        return jsonify(ok=True, link=link, run=run.as_dict(full=True))
+    except Exception as exc:  # noqa: BLE001
+        return _error(exc)
+
+
+@bp.post("/api/proposal-execution/run/<int:run_id>/client-link/revoke")
+def client_link_revoke(run_id):
+    """Take the client's link back; the address answers 404 from now on."""
+    owner, _name = _who()
+    try:
+        run, link = pe.revoke_client_link(run_id, actor=owner)
+        return jsonify(ok=True, link=link, run=run.as_dict(full=True))
     except Exception as exc:  # noqa: BLE001
         return _error(exc)
 

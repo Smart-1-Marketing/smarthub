@@ -2249,6 +2249,25 @@ jobs:
             echo "test_proposal_promises.py not on this branch — nothing to run."
           fi
 
+      # The plan said what had to happen and when, and nothing said whose
+      # it was; and on the day the proposal was signed the team had no page
+      # to print and the client nothing to read. Every item follows the
+      # client's owner from hub/client_owner.py on read, with an owner named
+      # on the item the one thing stored and an unknown account refused by
+      # name; the kickoff document is built from the kept plan and counts
+      # what has not been reviewed rather than leaving it off; and the
+      # client's page is public, read-only, at a random token stored on the
+      # plan -- the fields only, no dropped item, no item Smart 1 produces,
+      # no staff email, outside both the login and the chrome, and revoked,
+      # unknown and malformed answering one 404.
+      - name: Proposal Execution — owners, the kickoff document, the client's page
+        run: |
+          if [ -f test_proposal_kickoff.py ]; then
+            python3 test_proposal_kickoff.py
+          else
+            echo "test_proposal_kickoff.py not on this branch — nothing to run."
+          fi
+
       # WO-2: real-tool adapters. Every task on the graph used to run as
       # `brief` -- an AI-written paragraph describing what somebody should
       # go and build, never the tool itself. hub/proposal_adapters/utm.py is

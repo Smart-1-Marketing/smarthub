@@ -6693,6 +6693,82 @@ plan page still shows twelve months, because a plan nobody has marked for a
 year would otherwise raise twelve rows per promise on a report whose job is
 to say what to act on this week.
 
+### Whose item it is, and the two documents the day the proposal is signed
+
+The plan said what had to happen and when, and nothing said **whose** it
+was -- so a kept launch task belonged to the plan rather than to a person,
+which on the day is the same as belonging to nobody. And nothing came off
+the plan as a thing to hand somebody: the team walked the kickoff call from
+the screen, and the client had the rep's email.
+
+**Every item follows the client's owner, and only a hand-named one is
+stored.** `proposal_plan.resolve()` takes the client's owner from
+`hub/client_owner.owner_of()` -- a direct assignment or a standing partner
+rule -- and lays it over every item on read, marked `owner_source: client`;
+an owner named on one item through the same plan route (`owners` beside
+`accept`, `add`, `remove` and `answers`) is stored as `owner_override` and
+reads as `item`. Derived because a handover is the ordinary case: reassign
+the client on the Client Owners report and every item that was following
+them moves, while the one somebody named by hand stays exactly where it
+was. Nothing but the override reaches the column, and `test_proposal_kickoff.py`
+asserts the stored plan carries no `owner` at all. **An account the Hub
+does not know is refused by name**, against the same `assignable_users()`
+the picker is drawn from -- a typed address that matches nobody is a plan
+item owned by a string. A roster that could not be read is the one case a
+well-formed address is taken as typed: refusing every assignment over a
+table that blinked is a check somebody switches off. The picker's blank
+option reads *Follows <the client's owner>* rather than *none*, because
+those are different states and only one of them is a gap.
+
+**The kickoff document is built from the kept plan, and counts what is
+not.** `kickoff_document()` serves `/proposal-execution/run/<id>/kickoff`:
+the launch date, each channel with its budget and who supplies its
+creative, the creative with its due date, owner and the tool that makes it,
+the launch tasks in the order they fall due, the monthly promises with their
+kind, the open questions, the client's link and the upload link. What it
+leaves off it **counts at the top** -- items nobody has reviewed, items
+found by AI with no matching line, creative with no supplier, items with no
+owner -- because a document that quietly leaves items off is the list that
+gets shorter with nothing saying so, on the one page printed for the room.
+It owns its own `<body>` so it prints as a document, and the Hub's injected
+chrome is hidden by its print rules rather than by putting a staff page in
+`CHROMELESS`.
+
+**The client's page carries the fields and nothing else.** `client_needs()`
+serves `/proposal-execution/needs/<token>`: the files the client agreed to
+supply with the date each is wanted by, their upload link where one exists
+(never created by a page load -- `provisioning.py`'s rule), the questions
+that are theirs to answer, and their Smart 1 contact by name. Built
+server-side as a subset rather than left to a template to omit, the
+`modules/scans` rule, so no dropped item, no item Smart 1 is producing, no
+internal note, no flag about how an item was found and no staff email can
+reach it. `CLIENT_QUESTION_WORDING` is the whole list of questions a client
+may be asked -- the launch date, who produces each channel's creative, the
+report cadence -- reworded for the person being asked; a missing budget or
+a channel we have no recipe for is our reading problem and stays ours.
+
+**The token is stored on the plan and never derived**, the opposite of
+`hub/client_key.py`'s rule and for `hub/llms_hosting.py`'s reason: it is
+going into an email on somebody else's side, so it has to outlive a restart
+and a rotated `SECRET_KEY`, and revoking it has to make *that* address
+answer 404 rather than a second copy of what it used to say. Minted by
+`POST .../client-link` -- a press, because a link that exists is one
+somebody may have sent, and a second press hands back the live one rather
+than a second address. **Revoked, unknown and malformed answer the same
+404**, since a client-facing URL that says "this one expired" tells somebody
+probing which are real; a store that would not answer is a **503**, because
+a client meeting a 404 concludes the link expired and one meeting a 503
+tries again. The revoked token stays on the plan as the record that a link
+was sent.
+
+**Both halves of public, because this is a blueprint.** The route is named
+in `install_guard(bp, public=("/needs/",))` and in `CHROMELESS`, and
+`test_blueprint_guards.PUBLIC_DYNAMIC` names it with its reason -- the
+Commercial Builder's review link paid for this: exempt from the login and
+not from the chrome is a client reading our staff nav, and the other way
+round is a sign-in form in front of somebody with no account. The staff
+kickoff sits under the guarded mount and is in neither list.
+
 ## Opportunistic migration — read this before editing any module
 
 `hub/storage.py` (Cloudinary), `hub/images.py` (resize/convert),
@@ -13480,6 +13556,12 @@ python3 test_proposal_promises.py  # what a plan promises every month, month
                                    #   marked, due, missed or not measured,
                                    #   housekeeping never raised, and a mark
                                    #   that clears the health issue on read
+python3 test_proposal_kickoff.py   # whose each plan item is, following the
+                                   #   client's owner unless one is named on
+                                   #   the item; the kickoff document built
+                                   #   from the kept plan and counting what
+                                   #   is not; and the client's page at a
+                                   #   stored token, carrying the fields only
 python3 test_io_reconcile.py       # the orders we sent against the campaigns
                                    #   Knack has: a stale source never reads as
                                    #   proof, a row can be settled, and the
