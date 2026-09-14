@@ -87,8 +87,9 @@ READ: tuple[Scope, ...] = (
 
     Scope("contacts.readonly", "Finding contacts and suppressing existing prospects",
           ("modules/suite_panel/app.py", "hub/suite_opportunity.py", "hub/industry_prospect_providers.py"), True),
-    Scope("opportunities.readonly", "Pipeline discovery, and the opportunity list",
-          ("modules/suite_panel/app.py", "hub/suite_opportunity.py"), True),
+    Scope("opportunities.readonly", "Pipeline discovery, the opportunity list, and the "
+          "client's own pipeline card on Client 360",
+          ("modules/suite_panel/app.py", "hub/suite_opportunity.py", "hub/suite_pipeline.py"), True),
     Scope("calendars.readonly", "Calendar counts in the sub-account analytics panel",
           ("modules/suite_panel/app.py",), True),
     Scope("conversations.readonly", "Conversation counts in the same panel",

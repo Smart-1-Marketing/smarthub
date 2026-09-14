@@ -6,6 +6,7 @@ without requiring production credentials.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import unittest
 from unittest.mock import patch
@@ -56,6 +57,30 @@ class AuthBoundaryTests(unittest.TestCase):
         self.assertIn("read-only", text.lower())
         self.assertIn("cannot", text.lower())
         self.assertIn("post accounting transactions", text.lower())
+
+
+class ToolMetadataTests(unittest.TestCase):
+    def test_all_v1_tools_advertise_closed_world_read_only_metadata(self):
+        tools = asyncio.run(server.mcp.list_tools())
+        self.assertEqual(
+            {tool.name for tool in tools},
+            {
+                "search_clients",
+                "get_client",
+                "get_client_services",
+                "get_client_websites",
+                "get_campaign_inventory",
+                "get_mcp_activity",
+            },
+        )
+        for tool in tools:
+            with self.subTest(tool=tool.name):
+                self.assertTrue(tool.title)
+                self.assertIsNotNone(tool.annotations)
+                self.assertTrue(tool.annotations.read_only_hint)
+                self.assertFalse(tool.annotations.destructive_hint)
+                self.assertTrue(tool.annotations.idempotent_hint)
+                self.assertFalse(tool.annotations.open_world_hint)
 
 
 if __name__ == "__main__":

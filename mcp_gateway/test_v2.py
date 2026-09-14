@@ -1,8 +1,11 @@
 """Offline tests for MCP V2 identity and connector read boundaries."""
 from __future__ import annotations
 
+import asyncio
 import unittest
 from unittest.mock import patch
+
+from mcp.server import MCPServer
 
 from mcp_gateway import v2_tools
 
@@ -200,6 +203,35 @@ class OperationalReadTests(unittest.TestCase):
         self.assertEqual(out["orders"][0]["order"], "IO-88")
         self.assertNotIn("must-not-return", text)
         self.assertNotIn("suite_opportunity_id", text)
+
+
+class ToolMetadataTests(unittest.TestCase):
+    def test_all_v2_tools_advertise_closed_world_read_only_metadata(self):
+        registry = MCPServer("SmartHub MCP metadata test")
+        v2_tools.register(registry)
+        tools = asyncio.run(registry.list_tools())
+        self.assertEqual(
+            {tool.name for tool in tools},
+            {
+                "explain_client_identity",
+                "search_clients_v2",
+                "get_quickbooks_status",
+                "get_client_quickbooks",
+                "get_google_access_summary",
+                "get_client_ga4_properties",
+                "get_client_ga4_summary",
+                "get_client_proposals",
+                "get_client_insertion_orders",
+            },
+        )
+        for tool in tools:
+            with self.subTest(tool=tool.name):
+                self.assertTrue(tool.title)
+                self.assertIsNotNone(tool.annotations)
+                self.assertTrue(tool.annotations.read_only_hint)
+                self.assertFalse(tool.annotations.destructive_hint)
+                self.assertTrue(tool.annotations.idempotent_hint)
+                self.assertFalse(tool.annotations.open_world_hint)
 
 
 if __name__ == "__main__":

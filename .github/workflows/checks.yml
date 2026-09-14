@@ -409,6 +409,9 @@ jobs:
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
+      - name: Gallery filing identity and failed-transaction recovery
+        run: python test_gallery_filing_regression.py
+
       - name: Industry factory config, routes, leads and creative tests
         run: |
           python test_industry_core.py
@@ -2048,6 +2051,12 @@ jobs:
       # the two blueprints -- one gated, one the client's own unguessable link.
       - name: Weather Trigger Setup campaigns, copy and the public wizard
         run: python3 test_weather_setup.py
+
+      # Client 360 pipeline card: the client's own Suite pipelines, counted
+      # from raw rows; tri-state on the sub-account token; no token in the
+      # answer; paging capped and flagged.
+      - name: Client 360 pipeline card
+        run: python3 test_client360_pipeline.py
 
       # 360 Skills: the per-client skill store (verify-then-activate, masked
       # secrets), the Ecwid hotsheet maths, the Suite email send path, the

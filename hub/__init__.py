@@ -4254,6 +4254,24 @@ def create_hub_app() -> Flask:
         return jsonify(social_status.for_client(name, url,
                                                 request.host_url))
 
+    @app.route("/api/client/pipeline")
+    def api_client_pipeline():
+        """The Pipeline & leads card: the client's own pipelines, read from
+        their Smart 1 Suite sub-account -- hub/suite_pipeline.py. Under
+        /api/client/ for the reason /api/client/health gives."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_pipeline
+        name = (request.args.get("name") or "").strip()
+        url = (request.args.get("url") or "").strip()
+        fresh = (request.args.get("fresh") or "") == "1"
+        try:
+            return jsonify(suite_pipeline.for_client(name, url, fresh=fresh))
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"state": "not_measured", "measured": False,
+                            "detail": f"Could not read ({type(exc).__name__})."})
+
     @app.route("/api/social/scoreboard")
     def api_social_scoreboard():
         """Who is waiting on us, for the dashboard.
