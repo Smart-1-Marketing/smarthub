@@ -67,8 +67,10 @@ def due_field() -> str | None:
     if explicit:
         return explicit
     try:
-        return knack_api._find_field("due date", "date due", "due", "deadline",
-                                     "target date")
+        # field_map() resolves it the way every other id on this object is
+        # resolved — pinned first, discovered by label otherwise — so pinning
+        # one later is a line in TICKET_FIELDS rather than a change here.
+        return knack_api.field_map().get("due_date") or None
     except Exception:                                   # noqa: BLE001
         return None
 

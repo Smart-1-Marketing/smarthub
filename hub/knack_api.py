@@ -13,6 +13,7 @@ ticket breaks the thread for whoever raised it.
 import json
 import os
 import re
+import time
 
 import requests
 
@@ -22,6 +23,48 @@ CHANGE_OBJECT = os.environ.get("KNACK_CHANGE_OBJECT", "object_140")     # Campai
 SUPPORT_OBJECT = os.environ.get("KNACK_SUPPORT_OBJECT", "object_121")   # Campaign Support Requests
 
 _schema_cache: dict = {}
+
+# How long a reading of Knack's own schema is trusted.
+#
+# It had no expiry at all, which made every "discovered at runtime" lookup in
+# this file a lookup done **once per worker process, for the life of that
+# process**. So a field added in Knack, a field renamed, a new choice on a
+# dropdown and a client added to a connection were all invisible until the
+# next deploy — and a deploy is the one thing nobody does to make a Knack edit
+# take effect, because from Knack's side the edit plainly worked. That is the
+# same shape as a cached figure with no date on it, one system further out.
+#
+# Ten minutes is short enough that an edit made during a call is live before
+# the call ends, and long enough that the schema read is not per request: one
+# small GET per object per worker per window, and the connection records —
+# which are a paged pull and the expensive half — the same.
+_SCHEMA_TTL = int(os.environ.get("KNACK_SCHEMA_TTL_SECONDS", "600"))
+
+
+def _cached(key):
+    """The held value, or None where nothing is held or it has aged out.
+
+    None is unambiguous here because no cached value is legitimately None —
+    the three callers hold a list, a dict and a dict.
+    """
+    hit = _schema_cache.get(key)
+    if hit and (time.time() - hit[0]) < _SCHEMA_TTL:
+        return hit[1]
+    return None
+
+
+def _remember(key, value):
+    _schema_cache[key] = (time.time(), value)
+    return value
+
+
+def forget_schema() -> None:
+    """Drop every reading, so the next call asks Knack.
+
+    For a caller that has just written to Knack, or a person who has just
+    edited it and would rather not wait out the window.
+    """
+    _schema_cache.clear()
 
 
 def configured() -> bool:
@@ -36,13 +79,13 @@ def _headers():
 
 def object_fields(obj: str) -> list[dict]:
     key = "fields:" + obj
-    if key in _schema_cache:
-        return _schema_cache[key]
+    hit = _cached(key)
+    if hit is not None:
+        return hit
     r = requests.get(f"{BASE}/objects/{obj}/fields", headers=_headers(), timeout=20)
     r.raise_for_status()
     fields = (r.json() or {}).get("fields", [])
-    _schema_cache[key] = fields
-    return fields
+    return _remember(key, fields)
 
 
 def _fields() -> list[dict]:
@@ -210,14 +253,21 @@ def field_map() -> dict:
     pinned yet, so an unmapped extra field still resolves rather than being
     silently dropped.
     """
-    if "map" in _schema_cache:
-        return _schema_cache["map"]
+    hit = _cached("map")
+    if hit is not None:
+        return hit
     m = field_ids()
-    # Date isn't in the confirmed set — still discovered.
+    # Neither of these is in the confirmed set — both still discovered.
     m["date"] = _find_field("date created", "created", "date")
     m["requested_by"] = _find_field("requested by", "submitted by", "created by")
-    _schema_cache["map"] = m
-    return m
+    # The SEO tasks put a date on every ticket they raise. Pinned where
+    # somebody has pinned one, discovered otherwise, and absent where the
+    # object genuinely has no such field — which the caller reports rather
+    # than papering over.
+    if not m.get("due_date"):
+        m["due_date"] = _find_field("due date", "date due", "due", "deadline",
+                                    "target date")
+    return _remember("map", m)
 
 
 def ticket_value(rec: dict, key: str):
@@ -295,8 +345,9 @@ def connection_records(field_id: str, obj: str = TICKETS_OBJECT) -> dict:
     id, not a dead form.
     """
     key = f"conn:{obj}:{field_id}"
-    if key in _schema_cache:
-        return _schema_cache[key]
+    hit = _cached(key)
+    if hit is not None:
+        return hit
     out: list[dict] = []
     total, error = None, ""
     try:
@@ -337,8 +388,7 @@ def connection_records(field_id: str, obj: str = TICKETS_OBJECT) -> dict:
                      or (total is None and len(out) >= CONNECTION_LIMIT),
         "error": error,
     }
-    _schema_cache[key] = state
-    return state
+    return _remember(key, state)
 
 
 def connection_choices(field_id: str, obj: str = TICKETS_OBJECT) -> list[dict]:
