@@ -2051,6 +2051,9 @@ jobs:
       - name: Background jobs report whether they are working
         run: python3 test_scheduler_health.py
 
+      - name: Nightly reporting and historical imports
+        run: python3 test_reports_nightly.py
+
       # SmartForecast is a stateful public experience: verify lifecycle rules,
       # immutable history, public embeds, and Render disk recovery together.
       - name: GA4 unassigned traffic diagnostics and usage

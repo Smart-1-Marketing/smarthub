@@ -643,7 +643,7 @@ def oauth_bing_callback():
         provider="Microsoft Advertising",
         pin_var="BING_AD_REFRESH_TOKEN",
         blurb="The reports module can now pull campaign figures for every advertiser account "
-              "under the manager, every six hours.",
+              "under the manager, nightly at 3 AM Eastern.",
         # A personal Microsoft account revokes at account.live.com; a work
         # account at myapps.microsoft.com. Both are named because a
         # Microsoft Advertising login is as often one as the other.

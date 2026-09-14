@@ -1461,7 +1461,7 @@ REGISTRY: list[Help] = [
        "Connect signs in to the Microsoft account that can see the manager "
        "account and keeps its refresh token, the way the Google connection "
        "does. Nothing here manages a Bing campaign: what the connection "
-       "buys is the native pull on /reports/, every six hours, for every "
+       "buys is the native pull on /reports/, nightly at 3 AM Eastern, for every "
        "advertiser account under the manager. The four variables are read "
        "under exactly the names set on Render, and a customer id that is "
        "not digits is refused here by name \u2014 the API answers a wrong id "
