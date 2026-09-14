@@ -124,6 +124,21 @@ services:
         sync: false
       - key: STACKADAPT_API_ENDPOINT
         value: "https://api.stackadapt.com/graphql"
+      # Microsoft Advertising: the app registration, the developer token and
+      # the manager account, under exactly these names. Connect on
+      # /tools/ads/settings keeps the refresh token; BING_AD_REFRESH_TOKEN pins it.
+      - key: BING_AD_CLIENT_ID
+        sync: false
+      - key: BING_AD_CLIENT_SECRET
+        sync: false
+      - key: BING_AD_DEVELOPER_TOKEN
+        sync: false
+      - key: BING_MANAGER_ACCOUNT_ID
+        sync: false
+      - key: BING_MANAGER_ACCOUNT_NUMBER
+        sync: false
+      - key: BING_AD_REFRESH_TOKEN
+        sync: false
       # The native AudioGo pull: the Reporting API key and origin. The field
       # map is a placeholder until the spec arrives; /reports/audiogo-check
       # is where it is corrected from.

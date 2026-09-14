@@ -280,6 +280,18 @@ class Settings:
     # only where the two have to differ (a Places key restricted to Places
     # API (New) is refused by YouTube).
     youtube_key: str = field(default_factory=lambda: _s("YOUTUBE_API_KEY"))
+    # Microsoft Advertising, for Smart 1 Ads' connection and the reports
+    # module's native pull (modules/ads_builder/bing_ads.py reads these at
+    # call time through _s()). Exactly the spellings set on Render: no
+    # BING_ADS_ twin beside any of them, because ALIASES is only spellings
+    # in use and a speculative second name is how thirteen correct modules
+    # once became findings. The id is the manager's customer id (digits);
+    # the number is the one printed beside it, kept for the settings row.
+    bing_client_id: str = field(default_factory=lambda: _s("BING_AD_CLIENT_ID"))
+    bing_client_secret: str = field(default_factory=lambda: _s("BING_AD_CLIENT_SECRET"))
+    bing_developer_token: str = field(default_factory=lambda: _s("BING_AD_DEVELOPER_TOKEN"))
+    bing_manager_account_id: str = field(default_factory=lambda: _s("BING_MANAGER_ACCOUNT_ID"))
+    bing_manager_account_number: str = field(default_factory=lambda: _s("BING_MANAGER_ACCOUNT_NUMBER"))
     google_fonts_key: str = field(default_factory=lambda: _alias("google_fonts_key"))
     insites_key: str = field(default_factory=lambda: _alias("insites_key"))
     heygen_key: str = field(default_factory=lambda: _alias("heygen_key"))
@@ -640,6 +652,17 @@ class Settings:
             row("remove.bg", bool(self.remove_bg_key), False, f"{self.spellings('remove_bg_key')} — Background Remover is disabled without it."),
             row("Brandfetch", bool(self.brandfetch_key), False, f"{self.spellings('brandfetch_key')} — logo and brand-color lookup."),
             row("Google Places", bool(self.google_places_key), False, "GOOGLE_PLACES_API_KEY — a client's Google Business Profile rating and review count, read nightly."),
+            row("Microsoft Ads", bool(self.bing_client_id and self.bing_client_secret
+                                      and self.bing_developer_token and self.bing_manager_account_id), False,
+                "BING_AD_CLIENT_ID / BING_AD_CLIENT_SECRET / BING_AD_DEVELOPER_TOKEN / BING_MANAGER_ACCOUNT_ID — "
+                "Smart 1 Ads connects a Microsoft account with them and the reports module pulls campaign "
+                "figures; the connection itself is a press on /tools/ads/settings."
+                + (" Missing: " + ", ".join(n for n, v in (
+                    ("BING_AD_CLIENT_ID", self.bing_client_id), ("BING_AD_CLIENT_SECRET", self.bing_client_secret),
+                    ("BING_AD_DEVELOPER_TOKEN", self.bing_developer_token),
+                    ("BING_MANAGER_ACCOUNT_ID", self.bing_manager_account_id)) if not v) + "."
+                   if not (self.bing_client_id and self.bing_client_secret and self.bing_developer_token
+                           and self.bing_manager_account_id) else "")),
             row("YouTube Data API", bool(self.youtube_key or self.google_places_key), False,
                 "YOUTUBE_API_KEY — a client's channel subscribers, views and video count, read nightly; "
                 + ("reading GOOGLE_PLACES_API_KEY, the same Cloud project" if self.google_places_key and not self.youtube_key
