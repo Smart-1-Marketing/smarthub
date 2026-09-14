@@ -559,6 +559,76 @@ def check_shadowed_routes() -> list[dict]:
     return out
 
 
+def _base_name(node) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return ""
+
+
+def check_shadowed_model_query(sources=None) -> list[dict]:
+    """A Flask-SQLAlchemy model with a mapped attribute named `query`.
+
+    `db.Model` carries the `query` descriptor every `Model.query.filter_by()`
+    in this Hub reads, and a mapped attribute of that name on a subclass
+    shadows it for that one class: `Thing.query` answers the column's
+    InstrumentedAttribute, and `.filter_by()` on it raises AttributeError.
+    `SEORecommendation` did exactly that -- a Search Console *search term* is
+    the obvious thing to call `query` -- so every weekly refresh rolled back
+    inside `_save_recommendations()` and the action queue answered 500, while
+    the model imported, the table was created and every screen looked fine.
+    Nothing errors until the first read, and the first read was in a
+    background job whose result nobody drew.
+
+    The column may keep its name: `db.Column("query", ...)` under any other
+    attribute maps the same table with no migration. It reads the AST rather
+    than the text, because the fix is explained in prose beside the column it
+    fixes; and it is scoped to subclasses of a base spelled `Model`, since a
+    classic declarative `Base` carries no `query` descriptor to shadow and a
+    column of that name there is fine. `query_class` is deliberately not on
+    the list -- assigning one is how Flask-SQLAlchemy is *told* to use a
+    custom query, which is a decision rather than a collision.
+    """
+    out = []
+    for rel, src in (sources if sources is not None else _sources()):
+        if not rel.endswith(".py") or "Model" not in src:
+            continue
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            if not any(_base_name(b) == "Model" for b in node.bases):
+                continue
+            for stmt in node.body:
+                targets = []
+                if isinstance(stmt, ast.Assign):
+                    targets = [t for t in stmt.targets if isinstance(t, ast.Name)]
+                elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                    targets = [stmt.target]
+                for t in targets:
+                    if t.id != "query":
+                        continue
+                    out.append({
+                        "file": rel, "module": _module_of(rel),
+                        "line": stmt.lineno,
+                        "detail": f"{node.name}.query is a mapped attribute, so "
+                                  f"it hides Flask-SQLAlchemy's Model.query on "
+                                  f"that class: `{node.name}.query.filter_by(...)` "
+                                  f"raises AttributeError, and every reader of "
+                                  f"it fails at the first read rather than at "
+                                  f"import.",
+                        "fix": "Rename the attribute and keep the column name: "
+                               "`search_query = db.Column(\"query\", ...)` "
+                               "maps the same table with no migration. Then "
+                               "read the row through the new attribute.",
+                    })
+    return out
+
+
 def check_template_collisions() -> list[dict]:
     """Two blueprints offering a template of the same name.
 
@@ -1268,6 +1338,11 @@ CHECKS = [
      check_write_route_attribution),
     ("unclamped_limits", "Unclamped query limits", "medium", check_unclamped_limits),
     ("shadowed_routes", "Routes hidden behind a mount", "high", check_shadowed_routes),
+    # High: the model imports, the table is created, and every reader of it
+    # 500s or rolls back at the first read. It went in at zero, with the one
+    # finding it was written for fixed in the same change.
+    ("shadowed_model_query", "A model attribute that hides Model.query", "high",
+     check_shadowed_model_query),
     ("template_collisions", "Two blueprints, one template name", "high",
      check_template_collisions),
     ("bare_except_pass", "Silent exception handling", "low", check_bare_except_pass),

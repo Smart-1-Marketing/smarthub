@@ -58,7 +58,19 @@ class SEORecommendation(db.Model):
     kind = db.Column(db.String(60), nullable=False, index=True)
     title = db.Column(db.String(500), nullable=False)
     page_url = db.Column(db.String(1500), nullable=True)
-    query = db.Column(db.String(1000), nullable=True)
+    # The table's column is `query` and the Python attribute deliberately is
+    # not. `db.Model` carries Flask-SQLAlchemy's `query` descriptor -- the
+    # thing every `Model.query.filter_by(...)` in this Hub reads -- and a
+    # mapped attribute of that name on a subclass shadows it for that one
+    # class: `SEORecommendation.query` answered the column's
+    # InstrumentedAttribute, `.filter_by()` on it raised AttributeError, and
+    # that sat inside `_save_recommendations()` and both read routes. So
+    # every weekly refresh rolled back before the snapshot or the memory was
+    # written, and the action queue answered 500 to a page that then drew
+    # nothing. The column name is kept so the table `create_all()` already
+    # made needs no migration; only the attribute moved.
+    # `hub/integrity.check_shadowed_model_query()` refuses the next one.
+    search_query = db.Column("query", db.String(1000), nullable=True)
     priority_score = db.Column(db.Integer, nullable=False, default=0, index=True)
     impact = db.Column(db.String(20), nullable=False, default="medium")
     effort = db.Column(db.String(20), nullable=False, default="medium")
