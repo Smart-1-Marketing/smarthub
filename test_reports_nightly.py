@@ -64,6 +64,15 @@ class NightlyTests(unittest.TestCase):
         self.assertEqual(parsed['error'],'')
         self.assertEqual(parsed['rows'][0]['conversions'],3)
 
+    def test_google_current_video_metric(self):
+        from datetime import date
+        from modules.reports import google_ads_perf as google
+        self.assertIn('metrics.video_trueview_views',google.gaql(date(2026,9,1),date(2026,9,14)))
+        self.assertNotIn('metrics.video_views',google.gaql(date(2026,9,1),date(2026,9,14)))
+        rows=google._facts('1',[{'campaign':{'id':'2'},'segments':{'date':'2026-09-14'},
+                         'metrics':{'videoTrueviewViews':'123'}}],lambda x:0)
+        self.assertEqual(rows[0]['video_views'],123)
+
     def test_postgres_bulk_duplicate_keys(self):
         rows=[store._fact_values({'platform':'stackadapt','account_id':'1','campaign_id':str(i),
                'date':'2026-09-14','spend':1,'impressions':10,'clicks':1}) for i in range(1000)]
