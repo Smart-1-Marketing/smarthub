@@ -119,6 +119,10 @@
       {%- if walkthrough is not defined %} data-demo="off"{% endif %}>
 <div class="wrap s1d-page">
   {% block shell %}
+  {% if lsa_workspace %}
+  <div class="s1d-head noprint"><div><div class="s1d-crumb">Product Success</div><h1>LSA Ads</h1><p>Build, optimize, monitor and report on Local Services Ads.</p></div></div>
+  <nav class="s1d-subnav noprint" aria-label="LSA Ads"><a href="{{ mount }}/">Monitor &amp; report</a><a href="{{ mount }}/#optimize">Optimize</a><a href="{{ mount }}/local-services">Build &amp; saved setups</a></nav>
+  {% else %}
   <div class="s1d-head noprint">
     <div>
       <div class="s1d-crumb">Smart 1 Ads</div>
@@ -154,6 +158,7 @@
     <a href="{{ mount }}/activity" class="{{ 'on' if active=='activity' }}">Activity</a>
     <a href="{{ mount }}/settings" class="{{ 'on' if active=='settings' }}">Settings</a>
   </nav>
+  {% endif %}
   {% endblock %}
 
   {% block content %}{% endblock %}

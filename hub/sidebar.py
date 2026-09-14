@@ -187,6 +187,7 @@ LEAVES = {
     "leads":             ("/sales/leads", "&#128229;", "Leads"),
     "leads_existing":    ("/qa/sell-to-clients", "&#128176;", "Existing Client Leads"),
     "lost_by_partner":   ("/qa/lost-by-partner", "&#8595;", "Ran Last Month, Not This Month"),
+    "lsa":               ("/tools/lsa/", "&#128200;", "LSA Ads"),
     "magic_resize":      ("/tools/magic-resize/", "&#128207;", "Magic Resize"),
     "marketing_audit":   ("/tools/marketing-audit/", "&#128202;", "Marketing Efficiency Audit"),
     "match_google":      ("/tools/google-match", "&#128202;", "Match Google Accounts"),
@@ -297,7 +298,7 @@ SECTIONS = [
             ("", ["suite"]),
         ], blurb="Keeping the clients we have: pacing, reporting and what each one is missing."),
         _dept("product-success", "Product Success", "&#128640;", [
-            ("Ad Builders", ["ads", "gpt_ads", "utm", "short_links"]),
+            ("Ad Builders", ["ads", "lsa", "gpt_ads", "utm", "short_links"]),
             ("", ["reports", "reports_pacing", "reports_cost", "campaign_assets", "social"]),
             ("Videos", ["commercial", "commercial_lib", "video_search", "dead_air",
                         "vertical_reframe"]),

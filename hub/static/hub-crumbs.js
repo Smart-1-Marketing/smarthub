@@ -74,7 +74,7 @@
     "io": "IO Builder", "landing": "Landing Page Maker",
     "msa": "Master Services Agreement", "pdf": "PDF Optimizer",
     "short-links": "Client Link Masking",
-    "ads": "Smart 1 Ads", "ads-grader": "Google Ads Grader",
+    "ads": "Smart 1 Ads", "lsa": "LSA Ads", "ads-grader": "Google Ads Grader",
     "calculators": "Media Calculators",
     "marketing-audit": "Marketing Efficiency Audit",
     "gpt-ads": "GPT Ads Builder", "social": "Social Content Planner",

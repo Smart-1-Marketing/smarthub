@@ -280,6 +280,7 @@ def _allowed_write(path: str) -> bool:
 # must not quietly cover a parameterized route added under the same prefix
 # later.
 PUBLIC_DYNAMIC: dict[str, str] = {
+    "/tools/lsa/intake/<pid>/<token>": "client business-information form scoped to an expiring, revocable random token; invalid tokens return 404",
     "/connect/youtube/<token>": "a scoped, expiring YouTube owner consent or draft review link",
     "/industry/p/<page_id>": "a published industry page for prospects; drafts return 404",
     "/industry/p/<page_id>/report": "the published page's printable planning guide",
@@ -433,6 +434,7 @@ def _allowed_dynamic(pattern: str) -> bool:
 # And the writes among them, its own list again. Nothing but an empty JSON
 # body is ever sent and no id resolves, so the sweep creates nothing.
 PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
+    "/tools/lsa/intake/<pid>/<token>": "the client submits only intake answers for that token; staff review is required to import into setup and this cannot change ads",
     "/connect/youtube/<token>/start": "client starts scoped YouTube consent with CSRF and a valid invite",
     "/connect/youtube/<token>/review": "client reviews one draft revision with CSRF and an expiring invite",
     "/hot/ecwid-hook/<token>": "Ecwid's order webhook for one client's store "
