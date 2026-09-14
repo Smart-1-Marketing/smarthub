@@ -216,9 +216,17 @@ findings.
 
 1. **An app registration on the Microsoft identity platform** --
    `BING_AD_CLIENT_ID` and, for a web app, `BING_AD_CLIENT_SECRET`, with a
-   redirect URI on this host. That is a **seventh OAuth flow**, so it is
-   declared in `hub/oauth_redirects.py` with which code builds its URI
-   (the sweep there fails on a flow that declares none), built from
+   redirect URI on this host. The URI is decided here so the registration
+   can be finished before the code exists:
+   `<PUBLIC_BASE_URL>/tools/ads/oauth/bing/callback`, beside Google's
+   `/tools/ads/oauth/callback` on the same mount, which on this
+   deployment is `https://smart1.agency/tools/ads/oauth/bing/callback`.
+   The registration has to allow **personal Microsoft accounts as well as
+   organizational ones**, because the token endpoint is `/common/` and a
+   Microsoft Advertising login is as often a personal account as a work
+   one. That is a **seventh OAuth flow**, so it is declared in
+   `hub/oauth_redirects.py` with which code builds its URI (the sweep
+   there fails on a flow that declares none), built from
    `config.public_base_origin()` like the Suite app's, and printed on
    `/diagnostics` so the string pasted into the Azure portal is the
    string the code sends.
@@ -231,12 +239,19 @@ findings.
    cached across a deploy. A Connect button beside Google's on
    `/tools/ads/settings`, which is where the stub already says Bing will
    arrive.
-3. **The manager's customer id** -- `BING_AD_CUSTOMER_ID` -- and nothing
-   per client: the client accounts under it are read from Customer
-   Management (`Accounts/Search` on the v13 REST host) on each pull, so
-   an account added to the manager next month is swept without anybody
-   typing its id, the MCC expansion `google_ads_perf.py` already leans
-   on.
+3. **The manager account** -- `BING_MANAGER_ACCOUNT_ID` and
+   `BING_MANAGER_ACCOUNT_NUMBER`, both set on Render now, the spellings as
+   set -- and nothing per client. The id is the manager's customer id,
+   the `CustomerId` the API takes on every call; the number is the one
+   printed beside it in the Microsoft Advertising UI, kept for the
+   diagnostics row and sent nowhere. The client accounts under the
+   manager are read from Customer Management (`Accounts/Search` on the
+   v13 REST host) on each pull, so an account added to the manager next
+   month is swept without anybody typing its id, the MCC expansion
+   `google_ads_perf.py` already leans on. A value in the id slot that is
+   not numeric is refused by name on the first call rather than sent,
+   because the two are easy to paste the wrong way round and the API's
+   own answer to a wrong customer id is a bare authorization failure.
 4. **The pull is the StackAdapt shape, not the Google one.** Reporting v13
    is asynchronous: `GenerateReport/Submit` with a daily
    CampaignPerformanceReport (TimePeriod, AccountId, CampaignId,
@@ -305,9 +320,9 @@ under its own name rather than folded into conversions.
 8. ~~File the proposal adapter's link and lines under the module's own key.~~
    Done, with the bounded pricing rule, the pacing alerts on `/my-clients`
    and the cached PDF.
-9. Microsoft Ads native pull -- the developer token is set; the app
-   registration, the consent and the manager customer id are what is
-   still needed (the section above). About two days.
+9. Microsoft Ads native pull -- the developer token and the manager
+   account id and number are set; the app registration and the consent
+   are what is still needed (the section above). About two days.
 10. GroundTruth native pull -- blocked on API access; the CSV door and
     the Windsor table are the routes until then. Sized once the
     document can be read.
