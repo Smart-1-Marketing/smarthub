@@ -43,6 +43,7 @@ def results():
 
 
 with patch("cloudinary.uploader.upload", side_effect=upload), \
+     patch("hub.quotas.record_asset") as meter, \
      patch.object(suite_opportunity, "configured", return_value=True), \
      patch.object(suite_opportunity, "push_proposal", side_effect=push), \
      patch("modules.image_picker.filing.file_asset"), \
@@ -53,6 +54,7 @@ with patch("cloudinary.uploader.upload", side_effect=upload), \
     try:
         env = dict(os.environ, IO_TEST_URL=f"http://127.0.0.1:{server.server_port}")
         subprocess.run(["node", "test_io_completion.js"], env=env, check=True, timeout=90)
+        assert meter.call_count == stats["uploads"] - 1, "Every successful PDF upload must record its usage"
     finally:
         server.shutdown()
         thread.join(timeout=5)
