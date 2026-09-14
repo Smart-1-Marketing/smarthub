@@ -566,9 +566,13 @@ function lpLoad(){
         $('lpList').innerHTML = '<p class="muted">No landing pages yet.</p>';
         return;
       }
+      /* Kept so the checklist button can read the row it belongs to
+         without a second call answering the same question differently. */
+      LP_ROWS = {};
+      d.pages.forEach(function(p){ LP_ROWS[p.id] = p; });
       $('lpList').innerHTML =
         '<table style="width:100%;border-collapse:collapse;font-size:13px">'+
-        '<thead><tr>'+['For','Campaign','Headline','Style','Built',''].map(function(h){
+        '<thead><tr>'+['For','Campaign','Headline','Style','Built','Opens','Rate',''].map(function(h){
           return '<th style="text-align:left;padding:6px;font-size:11px;color:#94a3b8;'+
                  'text-transform:uppercase;letter-spacing:.5px">'+h+'</th>';}).join('')+
         '</tr></thead><tbody>'+
@@ -577,15 +581,50 @@ function lpLoad(){
             ? ' <span class="pill neutral" style="font-size:10px">prospect</span>' : '';
           var noPics = (p.images && p.images.available === false)
             ? ' <span class="muted" style="font-size:11px">no photos</span>' : '';
+          /* What is still open before this link goes to a prospect.
+             landing_spec.open_questions() has computed it since the day it
+             was written and no screen drew it, so the one list telling a rep
+             what to fix was correct and read by nobody. Amber rather than
+             red -- the page works, it is simply not finished, and a table of
+             red is a table people scroll past. A row we could not measure
+             says so rather than reading as a clean bill. */
+          var rd = p.readiness || {};
+          var ready = rd.measured === false
+            ? ' <span class="muted" style="font-size:11px" title="'+
+                esc(rd.note||'')+'">checklist unavailable</span>'
+            : (rd.count ? ' <button class="btn-ghost" style="font-size:11px;'+
+                'color:#9a6700;padding:1px 6px" onclick="lpReady(\''+esc(p.id)+
+                '\')">'+rd.count+' to fix</button>' : '');
           return '<tr>'+
             '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa"><b>'+
-              esc(p.client)+'</b>'+tag+noPics+'</td>'+
+              esc(p.client)+'</b>'+tag+noPics+ready+'</td>'+
             '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+esc(p.campaign||'—')+'</td>'+
             '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+esc(p.headline||'')+'</td>'+
             '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa">'+
               '<span class="pill neutral">'+esc(d.directions[p.direction]||p.direction)+'</span></td>'+
             '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;white-space:nowrap">'+
               esc((p.created||'').replace('T',' ').slice(0,16))+'</td>'+
+            /* The denominator. Every conversion figure this tool produced was
+               a ratio without one -- four leads is a good week off two hundred
+               visits and a catastrophe off four thousand. "not measured" is a
+               different answer from nought and is drawn as one. */
+            '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;white-space:nowrap"'+
+              (p.views ? ' title="'+esc(opensTitle(p.views, d.views_recent_days))+'"' : '')+'>'+
+              (d.views_measured === false
+                 ? '<span class="muted" style="font-size:11px">not measured</span>'
+                 : (p.views && p.views.views
+                      ? '<b>'+Number(p.views.views)+'</b>'+
+                        (p.views.phone ? '<span class="muted" style="font-size:11px"> · '+
+                           Number(p.views.phone)+' phone</span>' : '')
+                      : '<span class="muted">—</span>'))+'</td>'+
+            /* The number Tier 2 made computable, and the four states that
+               are not a percentage. Every one of them prints its own
+               sentence on hover rather than a bare figure: a rate somebody
+               repeats to a client has to be one they can see the workings
+               of. hub/landing_views.conversion() decides; this draws. */
+            '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;white-space:nowrap"'+
+              ' title="'+esc((p.conversion||{}).line||'')+'">'+
+              rateCell(p.conversion||{})+'</td>'+
             '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;text-align:right;white-space:nowrap">'+
               '<a class="btn-ghost" href="/sales/landing/p/'+esc(p.slug)+'" target="_blank">Open</a> '+
               (p.url ? '<button class="btn-ghost" onclick="lpCopy(this,\''+esc(p.url)+'\')">Copy link</button> ' : '')+
@@ -634,12 +673,86 @@ function lpRevise(id, name){
     .then(function(d){
       if(d.error){ msg.style.color='#b42318'; msg.textContent = d.error; return; }
       msg.style.color = '#147d52';
-      msg.textContent = d.note || 'Rewritten.';
+      msg.innerHTML = esc(d.note || 'Rewritten.');
+      /* Offered only where the row was actually written. A page that could
+         not be saved has nothing to put back, and an undo button over one
+         is the confident wrong answer this tool keeps having to undo. */
+      if(d.undo_index !== null && d.undo_index !== undefined){
+        msg.innerHTML += ' <button class="btn-ghost" onclick="lpUndo(\''+
+          esc(id)+'\','+Number(d.undo_index)+')">Undo</button>';
+      }
       window.open(d.preview, '_blank');
       lpLoad();
     })
     .catch(function(){
       msg.style.color='#b42318';
+      msg.textContent = 'That did not go through.';
+    });
+}
+
+/* One wording of what an open is, said where the number is. It counts
+   opens rather than visitors: somebody who forwards the link to three
+   colleagues is three, which is arguably right, and somebody with
+   JavaScript off is none, which is not. A number whose definition is on
+   the screen beside it can be argued with; one that is merely displayed
+   cannot. hub/landing_views.py carries the rest of the rules. */
+function opensTitle(v, days){
+  var out = Number(v.views||0) + ' open' + (Number(v.views) === 1 ? '' : 's');
+  if(days && Number(v.recent) !== Number(v.views)){
+    out += ', ' + Number(v.recent||0) + ' in the last ' + Number(days) + ' days';
+  }
+  if(v.last) out += ' · last ' + String(v.last).replace('T',' ').slice(0,16);
+  return out + '. Staff previews, link scanners and reloads are not counted.';
+}
+
+/* Five states, one of them a percentage. Drawn apart because they are five
+   different things to do: nothing to see yet, not enough to judge, a real
+   rate, a denominator we know is wrong, and a reading that never happened.
+   Folding any of them into "0%" would be a page reading as a failure when
+   nobody has opened it. */
+function rateCell(c){
+  if(c.measured === false) return '<span class="muted" style="font-size:11px">not measured</span>';
+  if(c.state === 'none_yet') return '<span class="muted">—</span>';
+  if(c.state === 'too_early')
+    return '<span class="muted" style="font-size:11px">too early</span>';
+  if(c.state === 'over')
+    return '<span style="font-size:11px;color:#9a6700">opens undercounted</span>';
+  return '<b>'+Number(c.rate)+'%</b>';
+}
+
+/* --- what is still open on a page -------------------------------------
+   Read off the listing the table already has rather than fetched again: the
+   answer is derived per row on every load, so a second call would be a
+   second reading of one question and they would eventually disagree. */
+var LP_ROWS = {};
+function lpReady(id){
+  var p = LP_ROWS[id] || {}, rd = p.readiness || {};
+  if(rd.measured === false){ alert(rd.note || 'The checklist could not be built.'); return; }
+  var qs = rd.questions || [];
+  if(!qs.length){ alert('Nothing outstanding on this page.'); return; }
+  alert('Before you send this link\n\n\u2022 ' + qs.join('\n\n\u2022 '));
+}
+
+/* One press back from a rewrite. The revise response names the version it
+   just pushed, so this never has to guess an index -- and every other index
+   shifts the moment anything else is saved, which is exactly how an undo
+   puts back the wrong page. */
+function lpUndo(id, index){
+  var msg = $('lpMsg');
+  msg.style.color = '';
+  msg.textContent = 'Putting it back…';
+  fetch('/api/landing/' + encodeURIComponent(id) + '/restore', {
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({index: index})
+  }).then(function(r){ return r.json(); })
+    .then(function(d){
+      msg.style.color = d.error ? '#b42318' : '#147d52';
+      msg.textContent = d.error || (d.note || 'Put back.');
+      lpLoad();
+    })
+    .catch(function(){
+      msg.style.color = '#b42318';
       msg.textContent = 'That did not go through.';
     });
 }

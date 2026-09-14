@@ -2986,6 +2986,40 @@ def create_hub_app() -> Flask:
             return "No such landing page.", 404
         return row.get("page_html", ""), 200, {"Content-Type": "text/html"}
 
+    @app.route("/sales/landing/p/<slug>/opened", methods=["POST"])
+    def page_landing_opened(slug):
+        """The page reporting that a browser actually rendered it.
+
+        Public, and under the page's own prefix on purpose: it is fired by
+        the page itself, from whatever domain that page was pasted onto, so
+        it inherits the same chrome exemption and the same frame policy as
+        the page it belongs to rather than needing a second entry for each.
+
+        Answers 200 whatever it decides, and carries no counts back. A
+        prospect's page must not show an error because we chose not to count
+        their visit, and a beacon the page never reads cannot report one.
+        """
+        counted, why = False, "not recorded"
+        try:
+            from . import landing_maker as lm
+            from . import landing_views as lv
+            from .config import settings as _cfg
+            row = lm.get(slug)
+            if row:
+                counted, why = lv.record(
+                    row.get("slug") or slug,
+                    user_agent=request.headers.get("User-Agent", ""),
+                    headers=request.headers,
+                    ip=auth.client_ip(request.headers,
+                                      request.remote_addr or ""),
+                    secret=_cfg.secret_key,
+                    staff=bool(current_user()))
+            else:
+                why = "unknown page"
+        except Exception:                                   # noqa: BLE001
+            pass
+        return jsonify({"ok": True, "counted": counted, "reason": why})
+
     @app.route("/api/landing")
     def api_landing_list():
         gate = _require_api()
@@ -7726,6 +7760,16 @@ def create_hub_app() -> Flask:
     # it fails into "we could not look" for ever.
     try:
         from . import presence as _presence  # noqa: F401
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Same reason again, for landing page visits: `hub_landing_views` has to
+    # exist before create_all() below, or every beacon a built page fires
+    # lands on a table that is not there -- which `landing_views.record()`
+    # swallows by design, so the page keeps working and the count stays at
+    # nought for ever with nothing anywhere saying why.
+    try:
+        from . import landing_views as _landing_views  # noqa: F401
     except Exception:  # noqa: BLE001
         pass
 
