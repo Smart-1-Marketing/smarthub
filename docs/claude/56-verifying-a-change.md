@@ -286,10 +286,10 @@ python3 test_client360_health.py   # the derived health strip: every pill from
                                    #   as its own state, and both halves of the
                                    #   blogs rule answering to one day
 python3 test_client360_layout.py   # the record's cards land in their rail
-                                   #   sections by name, driven in node — a
+                                   #   sections by name, driven in node â€” a
                                    #   match list that stops matching piles
                                    #   every card into Overview with the page
-                                   #   still looking complete — and the four
+                                   #   still looking complete â€” and the four
                                    #   actions the accordion's toolbar carried
 python3 test_commercial_dashboard_layout.py
                                    #   the Commercial Builder dashboard's own
@@ -511,8 +511,8 @@ python3 test_llms_hosting.py       # a client's llms.txt: robots per user-agent
 python3 test_search.py             # the top box: a client the query names comes
                                    #   first, and every screen is findable
 python3 test_oauth_redirects.py    # every OAuth callback, the hostname each is
-                                   #   built from, and — the half nothing
-                                   #   asserted — that the code sends the
+                                   #   built from, and â€” the half nothing
+                                   #   asserted â€” that the code sends the
                                    #   string the panel tells you to register
 python3 test_ghl_oauth.py          # the Suite install: a refresh that keeps
                                    #   the token it was not given, a disconnect
@@ -578,7 +578,7 @@ The test files need no pytest and no new dependencies; each runs against a
 temporary data directory and a throwaway SQLite database, so none of them
 touches `/var/data` or the real one.
 
-**All of this runs on every pull request** — `.github/workflows/checks.yml`,
+**All of this runs on every pull request** â€” `.github/workflows/checks.yml`,
 the single gate. CI runs the same scripts a person runs, so a green run means
 the same thing in both places and no check exists only where nobody can
 reproduce it.
@@ -587,20 +587,20 @@ reproduce it.
 files this list names were run by nobody but somebody who thought to type
 them: `test_unwired.py`, `test_thinking.py`, `test_menu_layout.py`,
 `test_detail_ui.py`, `test_ai_proposals.py` and the two explainer files. What
-they hold is not marginal — that nothing is declared and left unwired, that
+they hold is not marginal â€” that nothing is declared and left unwired, that
 one tool is tiled once and its trail names it, that four copies of the wait
 mark agree, that the three places a model proposes carry no route to a write.
 An eighth, `test_site_blocks.py`, was in neither this list nor the workflow,
 which is the same gap one step further on. Every one of them passed; they were
 simply gated by nobody, and the list saying otherwise is what stopped anybody
-noticing — a sweep that has quietly stopped sweeping, reporting a clean bill of
+noticing â€” a sweep that has quietly stopped sweeping, reporting a clean bill of
 health about the part it still covers.
 
 The claim is **asserted** now rather than made. `test_ci_gate.py` reads the
 workflow and holds it to this list in **both** directions: a `test_*.py` in
-the repo that no step invokes, and a step naming a file that is not here —
+the repo that no step invokes, and a step naming a file that is not here â€”
 which runs nothing at all. Several steps are deliberately written
-`if [ -f x ]; then … else echo "not on this branch"`, so that second half
+`if [ -f x ]; then â€¦ else echo "not on this branch"`, so that second half
 reads the guard rather than the filename, or it would report the thing that
 keeps this workflow mergeable on an older branch. `EXEMPT` is the way out and
 carries its reason, and it is **empty**, which is the only way this was worth
@@ -608,7 +608,7 @@ adding.
 
 Two workflows briefly existed: `checks.yml` and a `ci.yml` written in parallel
 on another branch, overlapping on `jscheck` and `linkcheck` and each carrying
-steps the other lacked. They are folded into `checks.yml` — the union, not the
+steps the other lacked. They are folded into `checks.yml` â€” the union, not the
 intersection: the four test files and the composed-app boot from one, and
 `checktemplates`, `pagecheck --strict` and `integritycheck` from the other.
 Two gates disagreeing about what "green" means is worse than either alone.
@@ -617,12 +617,12 @@ It runs against a real Postgres rather than SQLite because Sites Admin refuses
 to start without one and serves the 503 fallback instead: on SQLite a whole
 module drops out of every check that boots the app, and nothing says so.
 
-**A setting that was right about a thing that had never happened — and then
+**A setting that was right about a thing that had never happened â€” and then
 started happening, quietly, on the side nobody was watching.** This section
 used to say Render had never once deployed smart1-hub by itself: every deploy
 in its history was trigger `manual` or `api`, and no service in the workspace
-had a single `new_commit` in it. The diagnosis was the repo path — the service
-was still pointed at the pre-transfer `smart1marketing/smarthub` — and the fix
+had a single `new_commit` in it. The diagnosis was the repo path â€” the service
+was still pointed at the pre-transfer `smart1marketing/smarthub` â€” and the fix
 named was reconnecting the repository under the org.
 
 That reconnect happened, and Render's own auto-deploy has shipped every push
@@ -633,14 +633,14 @@ direct API check to notice is that a working auto-deploy and a broken one look
 identical from the GitHub side, because neither is watched from there.
 
 **The route around it outlived the thing it routed around.** A `deploy` job
-was added to `checks.yml` while the webhook was dead — it posted to
+was added to `checks.yml` while the webhook was dead â€” it posted to
 `RENDER_DEPLOY_HOOK_URL`, pinned to the commit's own sha rather than a bare
 hook, and refused rather than passing when the secret was unset. Every part of
 that reasoning was right. What made it worth removing is that the secret was
 **never set**, so the job had never once deployed anything: it was a second
 deploy path that had only ever refused, insuring a webhook that had since
 started working. And the refusal was the **sole reason main read red on every
-merge** — the test job passed 171 of 171 while the run showed a red X, which
+merge** â€” the test job passed 171 of 171 while the run showed a red X, which
 is the permanently-red gate this file names as the check people learn to skip
 past. Insurance nobody has checked works is not insurance; insurance that
 makes the alarm ring every day is worse than none, because it trains everyone
@@ -649,13 +649,13 @@ to ignore the alarm.
 **That left a deploy which did not wait for the tests, and it has since been
 closed.** Render's trigger was `commit` rather than `checksPass`, so a merge
 shipped the moment it built. Measured on one afternoon, `ebb8f0c` went live at
-22:08 and its CI finished at 22:19 — production had the commit eleven minutes
-before the tests were done — and the merge after it was live twenty-three
+22:08 and its CI finished at 22:19 â€” production had the commit eleven minutes
+before the tests were done â€” and the merge after it was live twenty-three
 seconds after the push, before CI had started at all. Both happened to pass,
 which is the only reason it read as fine: **"main is green" was not protecting
 production**, because production was not waiting for it.
 
-The dashboard switch is now *After CI checks pass* — the Render API reports
+The dashboard switch is now *After CI checks pass* â€” the Render API reports
 `autoDeployTrigger: checksPass` on smart1-hub as of 16 September 2026, checked
 against the live service rather than against `render.yaml`, which is the whole
 point of the paragraph below. So green main protects production again, at the
@@ -678,19 +678,19 @@ the shape this file counts a dozen of. Both are corrected together, because
 correcting either alone is what makes the other dangerous.
 
 `test_ci_gate.py` asserts what is true now instead of what the job used to
-promise: **this workflow holds no credential at all** — no stored secret, and
+promise: **this workflow holds no credential at all** â€” no stored secret, and
 no second job carrying one. Everything the gate runs, a contributor runs on a
 fresh checkout. Adding a secret-holding job back is then a decision somebody
 makes rather than a drift nobody notices, because it turns that check red. Its
 own first draft, back when it asserted the deploy job's refusal, could not fail
-— the window it searched for an `exit 1` reached a second one further down the
+â€” the window it searched for an `exit 1` reached a second one further down the
 step, so a branch changed to echo and carry on still passed. The assertion that
 cannot fail, in the file written about checks that cannot fail.
 
 `tools/linkcheck.py` boots the composed app and checks every internal URL
-literal against the route table of whichever app owns that path — and every
+literal against the route table of whichever app owns that path â€” and every
 `url_for('name')` against the endpoints of whichever app renders that template, so it catches
-the mount trap above — a module page written as `fetch("/api/lead")` works
+the mount trap above â€” a module page written as `fetch("/api/lead")` works
 standalone and 404s under a mount. It exits non-zero, so it can gate a
 release. **Run it after touching any module template**: that one bug was live
 on seven landing pages for two days, and it took down the lead capture on all
@@ -701,7 +701,7 @@ but what the browser receives *after* `HubBar` and the hub's `after_request`
 have rewritten the response. Both inject the sidebar and five script tags into
 HTML they did not write, and injecting into the wrong place breaks the page
 while leaving every template valid and every link resolving. That is not
-hypothetical — HubBar injected at the FIRST `</body>` in the response, and the
+hypothetical â€” HubBar injected at the FIRST `</body>` in the response, and the
 IO Builder builds two printable documents as JavaScript template literals that
 each carry their own `</body>`, so the sidebar landed inside a string, closed
 the page's script early, and the entire tool rendered blank. It checks that
@@ -715,16 +715,21 @@ real parser, but *skips* blocks containing `{% %}` or `{{ }}` because Jinja is
 not JavaScript and Node would reject it for the wrong reason. checktemplates
 is what checks those: it blanks the Jinja to same-width filler, so line numbers
 still line up, and runs a bracket/string/template balance check over what is
-left. Neither is redundant — jscheck is stricter on what it can read, and
+left. Neither is redundant â€” jscheck is stricter on what it can read, and
 checktemplates is the only thing that reads the rest.
 
 `tools/integritycheck.py` runs `/api/integrity` from the command line and
-fails on `high` findings. It is at **zero** — the six `medium`/`low` findings
+fails on `high` findings. It is at **zero** â€” the six `medium`/`low` findings
 that used to stand every run are cleared, and `provider_key_drift` is `high`
 now rather than `medium`, as the note that sat beside it asked for once its
 list was empty. A check that starts life red is a check somebody switches off;
 one that has been green is one a new finding actually interrupts.
 
-Then boot through `wsgi.application` (not just the hub app — that's how mount
+Then boot through `wsgi.application` (not just the hub app â€” that's how mount
 shadowing hides) and request the pages you touched. `/api/integrity` reports
 known defect patterns; `/login/health` diagnoses sign-in without a session.
+
+`python test_reporting.py` verifies canonical Trade Desk ingestion, replacement
+upserts, failure rollback, client mapping, currency separation, and admin guards.
+CI also runs it on the disposable PostgreSQL service via
+`REPORTING_TEST_DATABASE_URL`; never set that override to a production database.
