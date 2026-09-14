@@ -192,6 +192,91 @@ the way "Google search" is, because it is the client's own channel and not
 a platform Smart 1 buys from; it needs an entry in `products.ALLOWED` with
 that reason or the forbidden-word sweep will refuse it. About two days.
 
+## Where Microsoft Ads and GroundTruth fit
+
+Both are already platforms here -- `store.PLATFORMS` carries `bing`
+(labelled *Microsoft Ads*, default product Paid Search) and `groundtruth`
+(labelled *GroundTruth*, default product Geofencing, with `visits` as its
+own extra metric), each with a Windsor source in `provider_map.py`
+(`bing_ads`, `groundtruth`) and a row on `/reports/` that reads *never
+synced* until something writes one. So each can arrive three ways today:
+the provider's table once Windsor's connector for it is switched on, or
+the platform's own export through the CSV door. What neither has is a
+**native pull**, and that is the item on this list.
+
+**Microsoft Ads.** `BING_AD_DEVELOPER_TOKEN` is set on Render, and a
+developer token is one of four things the Microsoft Advertising API asks
+for on every call -- the other three are what still has to exist before a
+pull can run. Nothing in the Hub reads that variable yet: Smart 1 Ads
+carries a *phase two* stub (`/api/bing/*` answers "not implemented") and
+nothing else names it. The spelling stays exactly as set -- the
+`hub/config.py` ALIASES rule is only spellings in use, and inventing a
+`BING_ADS_` twin beside it is how thirteen correct modules once became
+findings.
+
+1. **An app registration on the Microsoft identity platform** --
+   `BING_AD_CLIENT_ID` and, for a web app, `BING_AD_CLIENT_SECRET`, with a
+   redirect URI on this host. That is a **seventh OAuth flow**, so it is
+   declared in `hub/oauth_redirects.py` with which code builds its URI
+   (the sweep there fails on a flow that declares none), built from
+   `config.public_base_origin()` like the Suite app's, and printed on
+   `/diagnostics` so the string pasted into the Azure portal is the
+   string the code sends.
+2. **One consent, kept.** Scope `https://ads.microsoft.com/msads.manage`
+   plus `offline_access`, consented once by a user who can see the
+   manager account, and the refresh token stored the way
+   `modules/ads_builder/google_ads.py` keeps Google's (`refresh_token_value`:
+   the store's setting first, an env var as the override). Refreshed at
+   `login.microsoftonline.com/common/oauth2/v2.0/token` per call, never
+   cached across a deploy. A Connect button beside Google's on
+   `/tools/ads/settings`, which is where the stub already says Bing will
+   arrive.
+3. **The manager's customer id** -- `BING_AD_CUSTOMER_ID` -- and nothing
+   per client: the client accounts under it are read from Customer
+   Management (`Accounts/Search` on the v13 REST host) on each pull, so
+   an account added to the manager next month is swept without anybody
+   typing its id, the MCC expansion `google_ads_perf.py` already leans
+   on.
+4. **The pull is the StackAdapt shape, not the Google one.** Reporting v13
+   is asynchronous: `GenerateReport/Submit` with a daily
+   CampaignPerformanceReport (TimePeriod, AccountId, CampaignId,
+   CampaignName, CampaignType, Spend, Impressions, Clicks, Conversions),
+   `GenerateReport/Poll` until it is ready, then a ZIP holding a CSV.
+   So it is `stackadapt.py`'s submit-poll-pending under `BUDGET_SECONDS`
+   on the shared scheduler thread, plus a CSV read the Trade Desk
+   MyReports parser already has half of. Spend comes back in the
+   account's currency, not micros -- the divisor note above is about
+   Windsor's table, not this. `CampaignType` is what the auto-mapper
+   files a default product from (Search, Audience, Shopping, the
+   `products.GOOGLE_CHANNEL_PRODUCTS` rule one platform over), and the
+   REST hosts (`reporting.api.bingads.microsoft.com`,
+   `clientcenter.api.bingads.microsoft.com`) go into
+   `hub/quotas._PROVIDER_MARKERS`, or the usage page cannot name the
+   calls. The month total for `reconcile.py` is an
+   AccountPerformanceReport over the same window: a re-read of the same
+   feed, labelled as one, not an independent source.
+
+What is not knowable until the first call: whether the token is a
+**Universal** (production) one -- a sandbox token answers only the
+sandbox host, and Microsoft publishes the tier nowhere an API can read,
+the Google `Explorer` lesson. The pull says which answer it got rather
+than reading a refusal as a bad key. About two days, most of it the
+consent screen and the async report.
+
+**GroundTruth.** The reporting API is documented at
+https://reporting.groundtruth.com/api and we have no API access yet;
+that page could not be read from the development environment either
+(its outbound proxy refuses the host), so the shape below is what is
+known from the platform rather than from the document. Until credentials
+arrive the CSV door is the route, and `visits` -- GroundTruth's own
+store-visit figure -- is already a column the fact table carries and the
+client page draws for a geofencing buy. When the key comes: one
+`groundtruth.py` on the `audiogo.py` pattern (a field map a person
+confirms on a check page before the normalize reads it, because the
+first sync is where a column named `spend` turns out to hold something
+else), the host in `_PROVIDER_MARKERS`, and the visits metric filed
+under its own name rather than folded into conversions.
+
 ## Suggested order
 
 1. ~~Merge #551.~~ Done. Set `REPORTS_DATABASE_URL` (or leave it blank to
@@ -220,3 +305,9 @@ that reason or the forbidden-word sweep will refuse it. About two days.
 8. ~~File the proposal adapter's link and lines under the module's own key.~~
    Done, with the bounded pricing rule, the pacing alerts on `/my-clients`
    and the cached PDF.
+9. Microsoft Ads native pull -- the developer token is set; the app
+   registration, the consent and the manager customer id are what is
+   still needed (the section above). About two days.
+10. GroundTruth native pull -- blocked on API access; the CSV door and
+    the Windsor table are the routes until then. Sized once the
+    document can be read.
