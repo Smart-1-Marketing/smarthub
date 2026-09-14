@@ -176,6 +176,9 @@ NOT_WORK = {
     # a person confirmed, not a deliverable -- so a confirmation on the
     # record would read as work we did for them.
     "places":       "a Google listing confirmed as the client's: a join, not work",
+    # hub/youtube.py is the same shape one channel over: which channel is
+    # theirs, confirmed by a person.
+    "youtube":      "a YouTube channel confirmed as the client's: a join, not work",
     # Every landing module files the prospect's own business name from the
     # form. A prospect is not a client, and putting a lead on a client record
     # would be the Hub inventing a relationship — the distinction

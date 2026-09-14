@@ -178,6 +178,37 @@ def check_places() -> Check:
                  fix="Enable Places API (New) on the key's project, or rotate the key.")
 
 
+def check_youtube() -> Check:
+    key = settings.youtube_key or settings.google_places_key
+    if not key:
+        return _off("youtube", "YouTube Data API", "youtube_key",
+                    "a client's YouTube channel subscribers, views and video count are not read "
+                    "(YOUTUBE_API_KEY, or the GOOGLE_PLACES_API_KEY it falls back to).")
+    src = "YOUTUBE_API_KEY" if settings.youtube_key else "GOOGLE_PLACES_API_KEY"
+
+    def go():
+        # channels.list asking for the id alone is one quota unit against a
+        # channel that is not going anywhere (Google's own), the Places
+        # check's shape one API over. Which variable answered is on the
+        # line, because the fix for a refusal is on that variable.
+        r = requests.get("https://youtube.googleapis.com/youtube/v3/channels",
+                         params={"part": "id", "id": "UC_x5XG1OV2P6uZZ5FSM9Ttw", "key": key},
+                         timeout=TIMEOUT)
+        if r.status_code in (400, 401, 403):
+            return ("error", f"Key rejected ({r.status_code}) -- the key read from {src}; check its "
+                             "API restrictions allow YouTube Data API v3 and that the API is enabled "
+                             "on its project, or set YOUTUBE_API_KEY to a key that is.")
+        if r.status_code == 429:
+            return ("warn", f"Rate limited (429), key from {src}.")
+        if not r.ok:
+            return ("error", f"HTTP {r.status_code}.")
+        return ("ok", f"Key valid (read from {src}).")
+    (state, detail), ms = _timed(go)
+    return Check("youtube", "YouTube Data API", state, detail, ms,
+                 fix="Enable YouTube Data API v3 on the key's project and allow it in the key's "
+                     "API restrictions, or set YOUTUBE_API_KEY to a key that has it.")
+
+
 def check_insites() -> Check:
     if not settings.insites_key:
         return _off("insites", "Insites", "insites_key",
@@ -664,7 +695,7 @@ def check_google_accounts() -> list[Check]:
 CHECKS = [
     check_database, check_json_backup, check_public_base_url,
     check_openai, check_cloudinary,
-    check_brandfetch, check_places, check_insites, check_removebg, check_pexels,
+    check_brandfetch, check_places, check_youtube, check_insites, check_removebg, check_pexels,
     check_pixabay, check_unsplash, check_google_fonts, check_ghl,
     check_ghl_app, check_knack, check_quickbooks, check_google_oauth,
     check_google_accounts,

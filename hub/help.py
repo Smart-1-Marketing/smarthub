@@ -448,6 +448,19 @@ REGISTRY: list[Help] = [
        "proposes one only when exactly one matches -- the only result, or "
        "the only result whose website is theirs -- and a person confirms; "
        "a wrong listing here is somebody else's reviews under their name."),
+    _h("hub.client360.youtube", "Their YouTube channel, read last night",
+       "Subscribers, lifetime views and the number of videos on the channel "
+       "somebody confirmed as this client's, with the change over thirty "
+       "days once a reading that old exists -- views gained in the last "
+       "thirty days is the one period figure the channel itself can give. "
+       "Read once a night and on the Refresh press, never on a page load, "
+       "because each read spends the project's daily quota. Find their "
+       "channel reads the link on their SEO record first, which names one "
+       "channel for one unit; only with no link does it search, for a "
+       "hundred, and then proposes one only when exactly one matches. A "
+       "person confirms; a wrong channel here is somebody else's "
+       "subscriber count under their name. A channel that hides its "
+       "subscriber count reads as hidden, never as zero."),
     _h("hub.client360.adperf", "What their advertising is doing",
        "What the Reports module holds for this client: the campaigns filed "
        "under them, this month's spend by platform beside what they are "

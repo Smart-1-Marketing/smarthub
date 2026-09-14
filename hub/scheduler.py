@@ -369,6 +369,22 @@ def job_places_snapshot(app) -> dict:
         return places.sweep(force=False)
 
 
+def job_youtube_snapshot(app) -> dict:
+    """Read every confirmed YouTube channel once a night (hub/youtube.py).
+
+    The places_snapshot shape: ticks hourly, the module decides inside the
+    nightly window, a channel already read today is skipped, and the run
+    is under a wall-clock budget with what it did not reach named. Each
+    read is one unit of the project's daily quota.
+    """
+    try:
+        from hub import youtube
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        return youtube.sweep(force=False)
+
+
 def job_refresh_purchased_domains(app) -> dict:
     """Re-pull the two sources behind /tools/domains, once a night.
 
@@ -1097,6 +1113,8 @@ JOBS = {
                           "Re-pull the purchased-domain registry once a night."),
     "places_snapshot":   (60, job_places_snapshot,
                           "Read every confirmed Google Business Profile listing once a night."),
+    "youtube_snapshot":  (60, job_youtube_snapshot,
+                          "Read every confirmed YouTube channel once a night."),
     "video_backlog":     (60, job_index_video_backlog,
                           "Describe another batch of the video background library."),
     "picker_describe":   (60, job_describe_client_uploads,

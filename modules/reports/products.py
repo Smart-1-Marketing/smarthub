@@ -159,6 +159,7 @@ ALLOWED: dict[str, str] = {
     "Facebook & Instagram": "a product label: the networks the ads run on",
     "LinkedIn": "a product label, not 'LinkedIn Ads'",
     "Amazon Ads": "a product label; 'Amazon DSP' is the vendor spelling",
+    "YouTube": "the channel section names the client's own channel, not an ad vendor",
 }
 
 
