@@ -409,6 +409,9 @@ jobs:
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
+      - name: Gallery filing identity and failed-transaction recovery
+        run: python test_gallery_filing_regression.py
+
       - name: Industry factory config, routes, leads and creative tests
         run: |
           python test_industry_core.py
