@@ -1161,6 +1161,16 @@ def api_record_upload():
     if not upload_sources.known(source):
         source = "local"
 
+    # Which project this upload is being filed into, when somebody said. Staff
+    # only, and deliberately: "project" is our word rather than the client's,
+    # and a client on their share link is sending photographs in rather than
+    # filing them -- offering them a choice between keeping, duplicating and
+    # moving would be asking a question they have no way to answer, on the one
+    # page whose whole job is that they get the photographs to us.
+    is_staff = not str(body.get("token") or "").strip() and hub_login_ok()
+    project = str(body.get("project") or "").strip()[:200] if is_staff else ""
+    project_key = slugify(project)[:80] if project else ""
+
     db = session()
     existing = db.execute(
         select(SavedImage).where(SavedImage.client_id == client.id,
@@ -1168,8 +1178,24 @@ def api_record_upload():
                                  SavedImage.provider_image_id == public_id)
     ).scalar_one_or_none()
     if existing:
+        # Keep it here as well, copy it, or move it -- filing.CHOICES, which is
+        # where those three are described. Saying nothing is the answer this
+        # route has always given: report it and change nothing.
+        choice = (str(body.get("on_duplicate") or "").strip().lower()
+                  if is_staff else "")
+        if choice in filing.CHOICES:
+            out = filing.resolve_duplicate(
+                db, existing, choice, kind="upload", key=project_key,
+                label=(project or "Client upload"), project_name=project,
+                saved_by=(hub_user() if is_staff else "client"))
+            return jsonify(out), (200 if out.get("ok") else 400)
         return jsonify({"ok": True, "duplicate": True,
-                        "image": existing.to_dict()})
+                        "image": existing.to_dict(),
+                        # Offered to the person who can act on it, and to
+                        # nobody else: an empty list is what tells the panel
+                        # to say "already added" the way it always has.
+                        "choices": list(filing.CHOICES) if is_staff else [],
+                        "filed_under": filing.filed_under(existing)})
 
     rtype = str(body.get("resource_type") or "image").strip().lower()
     img = SavedImage(
@@ -1186,9 +1212,19 @@ def api_record_upload():
         height=body.get("height") or None,
         bytes=body.get("bytes") or None,
         ghl_status="pending",
-        saved_by=(g.get("hub_user") or "client"),
+        # Who actually saved it. `g.hub_user` is set by nothing in
+        # this Hub, so every staff upload used to be recorded against
+        # "client" -- the one column that says who to ask about a file.
+        saved_by=(hub_user() if is_staff else "client"),
         collection_kind="upload",
-        collection_label="Client upload",
+        # The project, where one was named. Carried on the same two fields
+        # every other folder in this gallery uses (filing.folders_for() reads
+        # them), so an upload filed into "Spring refresh" groups with the
+        # stock and the banners filed under that name rather than needing a
+        # table of its own.
+        collection_key=project_key or None,
+        collection_label=(project or "Client upload")[:200],
+        project_name=project or None,
     )
     db.add(img)
     db.commit()
@@ -1224,7 +1260,14 @@ def _client_from_token_or_staff(token):
     tok = str(token or "").strip()
     if tok:
         return get_client_by_token(session(), tok)
-    if not g.get("hub_user"):
+    # `hub_login_ok()` is this module's own answer to "is this staff", and the
+    # one `staff_only` decides with. It used to read `g.hub_user`, which
+    # nothing in the Hub has ever set -- so the staff half of this helper
+    # could only ever return None, and a member of staff pressing Upload on
+    # /gallery/<id> or /c/<id> got "That link is not valid." The panel looked
+    # fine and the widget never opened, because the same helper gates the
+    # signature.
+    if not hub_login_ok():
         return None
     try:
         cid = int((request.get_json(silent=True) or {}).get("client_id") or 0)
@@ -1318,7 +1361,11 @@ def api_staff_file():
         tool=body.get("tool") or "", completed_on=body.get("completed_on") or "",
         project_name=body.get("project_name") or "", io_number=body.get("io_number") or "",
         product_number=body.get("product_number") or "",
-        external=bool(body.get("external")))
+        external=bool(body.get("external")),
+        # Absent from every caller that has ever posted here, which is the
+        # point: with nothing said this files exactly as it did before, and a
+        # duplicate comes back reported and untouched.
+        on_duplicate=body.get("on_duplicate") or "")
     if not out.get("ok"):
         return jsonify(out), 400
     if not out.get("duplicate"):
