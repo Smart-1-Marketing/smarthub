@@ -570,6 +570,54 @@ _bad = [(t, c, d) for t, c, d in _models._LATE_COLUMNS
         if "BOOL" in d.upper() and any(ch.isdigit() for ch in d.split("DEFAULT")[-1])]
 check("no boolean late column defaults to a number", _bad, [])
 
+section("Long asset paths and recovery after a failed gallery write")
+from unittest.mock import MagicMock, patch
+from sqlalchemy import event, String
+from modules.image_picker import filing
+
+long_id = "client-assets/" + "x" * 180 + "/creative.gif"
+check("provider IDs can hold the complete stored asset path",
+      SavedImage.provider_image_id.type.length >= len(long_id), True)
+args = dict(client_name="Filing regression", public_id=long_id,
+            url="https://example.test/creative.gif", provider="google_drive",
+            push_to_suite=False)
+first = filing.file_asset(**args)
+check("a long path files successfully", first.get("ok"), True)
+check("its provider ID is preserved", first.get("image", {}).get("provider_image_id"), long_id)
+check("filing it again finds the same asset", filing.file_asset(**args).get("duplicate"), True)
+
+db = session()
+def reject_one_asset(db, flush_context, instances):
+    for row in db.new:
+        if isinstance(row, SavedImage):
+            row.provider = None  # A real NOT NULL failure leaves the Session failed.
+
+event.listen(db, "before_flush", reject_one_asset)
+try:
+    failed = filing.file_asset(**dict(args, public_id="failed-asset"))
+finally:
+    event.remove(db, "before_flush", reject_one_asset)
+check("the failed write is reported", failed.get("ok"), False)
+check("the next asset uses a recovered transaction",
+      filing.file_asset(**dict(args, public_id="next-asset")).get("ok"), True)
+
+# SQLite does not enforce VARCHAR widths. Exercise the production migration's
+# catalog decisions separately, including the second worker's no-op path.
+engine = MagicMock()
+engine.dialect.name = "postgresql"
+conn = engine.begin.return_value.__enter__.return_value
+for width, alters in ((120, 1), (400, 0), (600, 0), (None, 0)):
+    conn.reset_mock()
+    with patch.object(_models, "_ENGINE", engine), patch("sqlalchemy.inspect") as inspect:
+        inspect.return_value.get_columns.return_value = [
+            {"name": "provider_image_id", "type": String(width)}]
+        _models._widen_provider_image_id()
+    statements = [str(call.args[0]) for call in conn.execute.call_args_list]
+    check(f"migration from width {width} widens only when needed",
+          sum(sql.startswith("ALTER TABLE") for sql in statements), alters)
+    check(f"migration from width {width} locks before inspection",
+          statements[0].startswith("SELECT pg_advisory_xact_lock"), True)
+
 print(f"\n{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)
 sys.exit(1 if _failed else 0)

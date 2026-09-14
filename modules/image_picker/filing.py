@@ -351,6 +351,7 @@ def file_asset(*, client_name: str, public_id: str, url: str,
         io_number=io_number, product_number=product_number,
         project_name=project_name)
 
+    db = None
     try:
         db = session()
         client = gallery_for_name(db, client_name, create=create_client)
@@ -399,6 +400,8 @@ def file_asset(*, client_name: str, public_id: str, url: str,
         db.add(img)
         db.commit()
     except Exception as exc:                            # noqa: BLE001
+        if db is not None:
+            db.rollback()
         logger.warning("gallery filing failed for %s: %s", client_name, exc)
         return {"ok": False, "error": str(exc)}
 

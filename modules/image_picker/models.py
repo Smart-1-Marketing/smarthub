@@ -69,6 +69,7 @@ def _create_tables() -> str:
         return err
     try:
         _add_missing_columns()
+        _widen_provider_image_id()
     except Exception as exc:  # noqa: BLE001
         return f"{type(exc).__name__}: {exc}"
     return ""
@@ -156,6 +157,23 @@ def _add_missing_columns() -> None:
             else:
                 log.error("image_picker: could not add %s.%s (%s): %s",
                           table, column, coltype, exc)
+
+
+def _widen_provider_image_id() -> None:
+    """Keep existing Postgres galleries able to store full Cloudinary paths."""
+    if _ENGINE.dialect.name != "postgresql":
+        return
+    from sqlalchemy import inspect, text
+    with _ENGINE.begin() as conn:
+        # Inspect under the lock: another worker may have already migrated it.
+        conn.execute(text("SELECT pg_advisory_xact_lock(724031209)"))
+        columns = inspect(conn).get_columns("image_picker_images")
+        column = next(c for c in columns if c["name"] == "provider_image_id")
+        length = getattr(column["type"], "length", None)
+        if length is not None and length < 400:
+            conn.execute(text(
+                "ALTER TABLE image_picker_images "
+                "ALTER COLUMN provider_image_id TYPE VARCHAR(400)"))
 
 
 def db_error() -> str | None:
@@ -376,7 +394,7 @@ class SavedImage(Base):
                        nullable=False, index=True)
 
     provider = Column(String(40), nullable=False)
-    provider_image_id = Column(String(120), nullable=False)
+    provider_image_id = Column(String(400), nullable=False)
     source_url = Column(Text, nullable=True)
     author = Column(String(200), nullable=True)
     author_url = Column(Text, nullable=True)
