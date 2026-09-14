@@ -65,6 +65,27 @@ def job_refresh_seo_intelligence(app):
                     "site_url": prop.site_url,
                     "error": f"{type(exc).__name__}: {exc}"[:500],
                 })
+    # A run that attempted refreshes and landed none is a failed run, and it
+    # has to say so *here*: `hub.scheduler._run_job` reads an exception as a
+    # failure and a returned dict as success, so a job that folds every
+    # property's error into a list draws a green pill over a book nobody
+    # refreshed. That is exactly how `SEORecommendation.query` stayed broken
+    # for the life of the module -- every refresh raised, this job returned
+    # normally, and the scheduler panel said ok. One property failing beside
+    # others that succeed is that property's own state, on its own row and
+    # on the overview page, and stays out of this: a job red for one client's
+    # revoked grant is the check people learn to skip.
+    backfill_ok = int(backfill.get("refreshed_immediately") or 0)
+    backfill_failed = list(backfill.get("refresh_errors") or [])
+    attempted = refreshed + len(errors) + backfill_ok + len(backfill_failed)
+    landed = refreshed + backfill_ok
+    if attempted and not landed:
+        first = (errors or backfill_failed)[0]
+        raise RuntimeError(
+            f"every Search Console refresh failed this run ({attempted} "
+            f"attempted, 0 landed); first: {first.get('site_url') or ''} "
+            f"{first.get('error') or ''}".strip()
+        )
     return {
         "backfill": backfill,
         "refreshed": refreshed,
