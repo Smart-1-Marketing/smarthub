@@ -4346,7 +4346,7 @@ function renderPlaces(d,name,cands){
       h+='<div class="empty">Google returned no listing for &ldquo;'+esc(cands.query||name)+'&rdquo;. '
         + 'Add the city or the street and search again.</div>';
     }else{
-      h+='<div class="mini" style="margin-bottom:6px">'+esc(cands.candidates.length)+' listing'+(cands.candidates.length===1?'':'s')
+      h+='<div class="muted" style="font-size:12px;margin-bottom:6px">'+esc(cands.candidates.length)+' listing'+(cands.candidates.length===1?'':'s')
         + ' for &ldquo;'+esc(cands.query||name)+'&rdquo;'
         + (cands.proposed?' &mdash; one proposed: '+esc(cands.why||''):' &mdash; '+esc(cands.why||''))+'</div>';
       h+='<ul class="plain" style="margin:0;padding:0;list-style:none">';
@@ -4355,7 +4355,7 @@ function renderPlaces(d,name,cands){
         h+='<li style="padding:6px 0;border-top:1px solid #eef1f5'+(prop?';background:#f3faf6':'')+'">'
           + '<b>'+esc(c.name||c.place_id)+'</b>'+(prop?' <span class="pill ok">proposed</span>':'')
           + (c.domain_match?' <span class="pill ok">their website</span>':'')
-          + '<div class="mini">'+esc(c.address||'')
+          + '<div class="muted" style="font-size:12px">'+esc(c.address||'')
           + (c.rating!==null&&c.rating!==undefined?' &middot; '+plStars(c.rating)+' from '+plInt(c.review_count)+' reviews':'')
           + (c.status_label?' &middot; '+esc(c.status_label):'')
           + (c.website?' &middot; '+esc(c.domain||c.website):'')+'</div>'
@@ -4364,7 +4364,7 @@ function renderPlaces(d,name,cands){
       });
       h+='</ul>';
     }
-    h+='<div class="mini" style="margin-top:8px"><a href="#" data-act="cancel">Cancel</a></div>';
+    h+='<div class="muted" style="font-size:12px;margin-top:8px"><a href="#" data-act="cancel">Cancel</a></div>';
     return h;
   }
   if(st==='no_place'){
@@ -4372,11 +4372,11 @@ function renderPlaces(d,name,cands){
       + '<div class="row" style="margin-top:8px;gap:6px;align-items:center">'
       + '<input type="text" id="pl-q" placeholder="Add a city or street to narrow it" style="flex:1;min-width:120px">'
       + '<button class="btn small" data-act="lookup">Find their listing</button></div>'
-      + '<div class="mini" style="margin-top:6px">One billed lookup. It proposes a listing only when exactly one matches; you confirm.</div>';
+      + '<div class="muted" style="font-size:12px;margin-top:6px">One billed lookup. It proposes a listing only when exactly one matches; you confirm.</div>';
   }
   var recLine='';
   if(rec){
-    recLine='<div class="mini">'+esc(rec.name||rec.place_id||'')+(rec.address?' &middot; '+esc(rec.address):'')
+    recLine='<div class="muted" style="font-size:12px">'+esc(rec.name||rec.place_id||'')+(rec.address?' &middot; '+esc(rec.address):'')
       + (rec.maps_url?' &middot; <a href="'+esc(rec.maps_url)+'" target="_blank" rel="noopener">Open on Google</a>':'')
       + (rec.confirmed_by?' &middot; confirmed by '+esc(rec.confirmed_by)+(rec.confirmed_at?' on '+esc(String(rec.confirmed_at).slice(0,10)):''):'')
       + '</div>';
@@ -4392,15 +4392,15 @@ function renderPlaces(d,name,cands){
     + (d.status_label?' &middot; '+esc(d.status_label):'')+'</span></div>';
   var ch=d.change||{};
   if(ch.measured){
-    h+='<div class="mini" style="margin-top:4px">Over the last '+esc(ch.days)+' days: '
+    h+='<div class="muted" style="font-size:12px;margin-top:4px">Over the last '+esc(ch.days)+' days: '
       + esc(plDelta(ch.rating_delta,'star')||'rating not measured')+', '
       + esc(plDelta(ch.reviews_delta,'reviews')||'reviews not measured')
       + ' (since '+esc(ch.since||'')+').</div>';
   }else if(ch.note){
-    h+='<div class="mini" style="margin-top:4px">'+esc(ch.note)+'</div>';
+    h+='<div class="muted" style="font-size:12px;margin-top:4px">'+esc(ch.note)+'</div>';
   }
-  h+='<div class="mini" style="margin-top:4px">Read '+esc(d.as_of||'')+' from Google.'+(d.note?' '+esc(d.note):'')+'</div>';
-  if(d.staff_note) h+='<div class="mini" style="color:#a15c00">'+esc(d.staff_note)+'</div>';
+  h+='<div class="muted" style="font-size:12px;margin-top:4px">Read '+esc(d.as_of||'')+' from Google.'+(d.note?' '+esc(d.note):'')+'</div>';
+  if(d.staff_note) h+='<div class="muted" style="font-size:12px;color:#a15c00">'+esc(d.staff_note)+'</div>';
   h+=recLine;
   h+='<div class="row" style="margin-top:8px;gap:6px">'
     + '<button class="btn small" data-act="refresh">Refresh reading</button>'
