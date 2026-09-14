@@ -120,7 +120,7 @@ check("the module serves the staff screens, the picker's search and the client's
               "/reconcile", "/reconcile/run",
               "/pacing", "/pacing.csv", "/cost", "/cost.csv",
               "/api/clients", "/health", "/client/x", "/client/x/campaign", "/client/x/link", "/client/x/push",
-              "/r/c/x", "/r/c/x.pdf", "/r/c/x/data.json"]))
+              "/r/c/x", "/r/c/x.pdf", "/r/c/x/data.json", "/upload"]))
 # The public trio is asserted by test_reports_public.py; here every OTHER
 # route must refuse a stranger.
 ROUTES = [(p, m) for p, m in ROUTES if not p.startswith("/r/c/")]
@@ -262,6 +262,327 @@ with open(os.environ["AUDIT_LOG_PATH"], encoding="utf-8") as fh:
     entries = [json.loads(ln) for ln in fh if ln.strip()]
 check("the budget is in the activity log under the client",
       [e.get("client") for e in entries if e.get("type") == "budget_added"], ["Acme Co"])
+
+
+# ------------------------------------------------ the Client 360 card
+section("Client 360's ad-performance card: four kinds of nothing, kept apart")
+# modules/reports/client_card.py behind /api/client/ad-performance. What is
+# worth asserting is what the card says when there is nothing to show,
+# because "the store would not answer", "nothing is filed", "everything
+# filed is waiting for a person" and "spent nothing this month" are four
+# situations and only the last means there is nothing to do.
+from datetime import date as _date                                  # noqa: E402
+from modules.reports import client_card, client_view                # noqa: E402
+
+_today = _date.today().isoformat()
+# A row dated today, so the month-to-date window holds it whatever month the
+# suite runs in.
+store.upsert_rows([
+    {"platform": "meta", "account_id": "act_9", "campaign_id": "m-1",
+     "campaign_name": "Leads", "date": _today, "spend": "75",
+     "impressions": 900, "clicks": 12, "source": "csv"},
+])
+check("the card's API refuses a stranger",
+      Client(wsgi.application).get("/api/client/ad-performance?name=Acme").status_code, 401)
+
+
+def _card(name):
+    r = staff.get("/api/client/ad-performance?name=" + name)
+    check(f"/api/client/ad-performance answers 200 for {name!r}", r.status_code, 200)
+    return json.loads(r.get_data(as_text=True))
+
+
+d = _card("Nobody%20Here")
+check("a client nothing is filed under is measured, and says nothing is filed",
+      (d["measured"], d["state"]), (True, "no_campaigns"))
+check("...and the staff link opens the registry's key for them, so the first "
+      "mapping lands where the card will read it",
+      d["staff_url"].startswith("/reports/client/n%3A"))
+
+# Acme Co: the forms section above mapped m-1 to d:acme.com by hand (which
+# confirms it) and added a CTV line on The Trade Desk.
+d = _card("Acme%20Co")
+check("a client with a confirmed campaign and spend this month is ok",
+      (d["measured"], d["state"]), (True, "ok"))
+check("...read under the key the mapping was filed with, found from the display name",
+      "d:acme.com" in d["keys"] and d["primary"] == "d:acme.com")
+check("...and the staff link opens that key", d["staff_url"], "/reports/client/d%3Aacme.com")
+check("...counting the confirmed campaign and no pending one",
+      (d["campaigns"]["confirmed"], d["campaigns"]["pending"]), (1, 0))
+# The figure is the store's own sum over the month-to-date window -- the
+# same reader the client's page uses -- so the card cannot disagree with it,
+# and the assertion does not depend on which month the suite runs in.
+_rng = client_view.period_range("mtd", _date.today())
+_mine = store.facts_for("d:acme.com", _rng["start"], _rng["end"])
+check("...with this month's spend on the platform, named the way Reports names it",
+      [(t["label"], t["raw_spend"], t["impressions"]) for t in d["totals"]],
+      [("Meta", float(sum(f["spend"] for f in _mine)), sum(f["impressions"] for f in _mine))])
+check("...and that window holds the row dated today", any(f["date"].isoformat() == _today for f in _mine))
+check("...unpriced where no markup or CPM is set, never a smaller number",
+      (d["totals"][0]["client_price"], d["billed_total"]), (None, None))
+check("...and the sold line on the pacing board, unmapped because nothing "
+      "on The Trade Desk is filed under them",
+      [(p["product"], p["band"]) for p in d["pacing"]], [("CTV", "unmapped")])
+check("...held rows counted, not None", d["held"], 0)
+check("...feeds measured for the platforms the client rides on",
+      isinstance(d["feeds"], list))
+check("...and no live link yet", d["link"], None)
+
+# Beta LLC: filed from the campaign name by the auto-mapper, nobody has
+# confirmed it. The whole point of the state.
+store.map_campaign("google", "123", "g-1", client="n:beta-llc", client_name="Beta LLC",
+                   product="Paid Search", mapped_by="auto", auto_rule="name")
+d = _card("Beta%20LLC")
+check("a client whose only campaigns are pending is all_pending, not empty",
+      (d["state"], d["campaigns"]["pending"], d["campaigns"]["confirmed"]), ("all_pending", 1, 0))
+check("...and nothing reaches the totals", d["totals"], [])
+
+# Gamma Inc: confirmed, and the only spend is in a month long gone.
+store.upsert_rows([
+    {"platform": "ttd", "account_id": "adv_1", "campaign_id": "t-1",
+     "campaign_name": "CTV Q1", "date": "2026-01-05", "spend": "300",
+     "impressions": 9000, "clicks": 3, "source": "windsor"},
+])
+store.map_campaign("ttd", "adv_1", "t-1", client="n:gamma-inc", client_name="Gamma Inc",
+                   product="CTV", mapped_by="Todd")
+d = _card("Gamma%20Inc")
+check("a confirmed client with no spend this period says so, not 'nothing filed'",
+      (d["state"], d["campaigns"]["confirmed"]), ("nothing_this_period", 1))
+
+# The store would not answer: measured False with the reason, never a
+# healthy-looking empty.
+_real = store.mapped_campaigns
+store.mapped_campaigns = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down"))
+try:
+    d = client_card.summary(["Acme Co"])
+finally:
+    store.mapped_campaigns = _real
+check("a store that will not answer is not measured",
+      (d["measured"], d["state"]), (False, "unread"))
+check("...and the sentence names the store", "could not be read" in d["error"])
+
+# Every spelling the store may file a client under is read: the display
+# name (hub/proposal_adapters/reports.py files there), the name key, and
+# the key whose stored display name matches exactly.
+keys = client_card.candidate_keys(["Acme Co"], filed=[("d:acme.com", "Acme Co"),
+                                                      ("d:acme-supply.com", "Acme Co Supply")])
+check("the display name itself is a candidate", "Acme Co" in keys)
+check("the name key is a candidate", "n:acme" in keys or "n:acme-co" in keys)
+check("a key filed under exactly this display name is a candidate", "d:acme.com" in keys)
+check("...and one filed under a name that merely contains it is not",
+      "d:acme-supply.com" not in keys)
+
+# The renderer, lifted from the template and driven in node: a copy restated
+# here would be a third thing to keep in step.
+import subprocess                                                   # noqa: E402
+_REC = (ROOT / "hub" / "templates" / "client360.html").read_text(encoding="utf-8")
+_a = _REC.find("/* ---- c360 ad performance (lifted")
+_b = _REC.find("/* ---- end c360 ad performance ----")
+check("the card's renderer is marked for lifting", 0 < _a < _b)
+_SRC = _REC[_a:_b] if 0 < _a < _b else ""
+_payloads = [
+    {"measured": False, "error": "the ad-performance store could not be read (OperationalError)"},
+    json.loads(staff.get("/api/client/ad-performance?name=Nobody%20Here").get_data(as_text=True)),
+    json.loads(staff.get("/api/client/ad-performance?name=Beta%20LLC").get_data(as_text=True)),
+    json.loads(staff.get("/api/client/ad-performance?name=Gamma%20Inc").get_data(as_text=True)),
+    json.loads(staff.get("/api/client/ad-performance?name=Acme%20Co").get_data(as_text=True)),
+]
+_payloads.append(dict(_payloads[-1], held=None, feeds=None))
+_driver = ("function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;')"
+           ".replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');}\n"
+           + _SRC + "\nconst P=" + json.dumps(_payloads) + ";\n"
+           "console.log(JSON.stringify(P.map(p=>renderAdPerformance(p,'Acme Co'))));\n")
+_r = subprocess.run(["node", "-"], input=_driver, capture_output=True, text=True)
+check("the lifted renderer runs on its own", _r.returncode, 0)
+if _r.returncode:
+    print("          node:", _r.stderr[-300:])
+_out = json.loads(_r.stdout or "[]") if _r.returncode == 0 else [""] * 6
+_unread, _none, _pend, _quiet, _ok, _partial = (_out + [""] * 6)[:6]
+check("an unread store is drawn as unread, not as empty",
+      "could not be read" in _unread and "No advertising campaign" not in _unread)
+check("nothing filed says so and points at the unmapped queue",
+      "No advertising campaign is filed" in _none and "/reports/unmapped" in _none)
+check("...and never draws a spend table", "<table>" not in _none)
+check("all pending says a person has to confirm",
+      "waiting for a person to confirm" in _pend and "<table>" not in _pend)
+check("a quiet month says so, with the confirmed count above it",
+      "No spend is recorded" in _quiet and "1 confirmed campaign" in _quiet)
+_spent = "$" + format(int(round(sum(f["spend"] for f in _mine))), ",")
+check("the ok card draws the table with the spend and the unpriced billed cell",
+      "<table>" in _ok and _spent in _ok and "not priced" in _ok)
+check("...the sold line's band from the board", "CTV: Unmapped" in _ok)
+check("...and where to create the link", "create one in Reports" in _ok)
+check("a quarantine that would not answer is said, not drawn as nought held",
+      "Quarantine could not be read" in _partial and "Feed health could not be read" in _partial)
+check("...and the ok card with everything measured says neither",
+      "could not be read" not in _ok)
+
+
+# ------------------------------------------------- the two QA reports
+section("The two QA reports read the same store, and say when they could not")
+# hub/qa.py's Campaigns With No Client and Lines Pacing Under. Beside the
+# generic sweep in test_qa_reports.py (which runs them against an empty
+# store) this is what each says with rows behind it, and that a store which
+# will not answer is not measured rather than an empty, all-clear table.
+from hub import qa as hub_qa                                        # noqa: E402
+from modules.reports import pacing as reports_pacing                # noqa: E402
+from datetime import timedelta as _td                               # noqa: E402
+
+# A campaign nobody has filed, spending this month, on a platform with no
+# other rows: the "filed under nobody" queue.
+store.upsert_rows([
+    {"platform": "bing", "account_id": "b-77", "campaign_id": "x-9",
+     "campaign_name": "Search - Generic", "date": _today, "spend": "12",
+     "impressions": 300, "clicks": 4, "source": "windsor"},
+])
+r = hub_qa.reports_unmapped()
+check("Campaigns With No Client is measured with rows behind it",
+      r.get("measured") is not False and len(r["rows"]) >= 2)
+_cells = [c for row in r["rows"] for c in row]
+_heads = [c["text"] for c in _cells if isinstance(c, dict) and c.get("group")]
+check("...with the two queues headed apart",
+      any(h.startswith("Filed under nobody") for h in _heads)
+      and any(h.startswith("Filed from the campaign name") for h in _heads))
+_names = [row[1] for row in r["rows"] if not (isinstance(row[0], dict) and row[0].get("group"))]
+check("...the unfiled campaign on it", "Search - Generic" in _names)
+check("...and the pending one, waiting for a person", "Search - Brand" in _names)
+_waits = [row[5] for row in r["rows"] if isinstance(row[5], dict) and row[5].get("href")]
+check("...every waiting-on cell links to the queue where it is worked",
+      _waits and all(w["href"].startswith("/reports/unmapped") for w in _waits))
+check("...and the pending row names whose confirmation it waits on",
+      any("Beta LLC" in w["text"] for w in _waits))
+check("...one cell per column on every row",
+      all(len(row) == len(r["columns"]) for row in r["rows"]))
+check("...and the note counts both queues", "1 campaign carrying spend" in r["note"]
+      and "1 is filed from the campaign name" in r["note"])
+_real = store.unmapped_campaigns
+store.unmapped_campaigns = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down"))
+try:
+    r = hub_qa.reports_unmapped()
+finally:
+    store.unmapped_campaigns = _real
+check("a store that will not answer is not measured, never an all-clear table",
+      (r.get("measured"), r["rows"], "could not be read" in r["note"]), (False, [], True))
+
+# Lines Pacing Under: nothing has run, so nothing has a reading.
+r = hub_qa.reports_pacing_under()
+check("before any pacing run the report is not measured",
+      (r.get("measured"), "has not run" in r["note"]), (False, True))
+# A Social line on Meta for Acme, sized so the confirmed Meta campaign is
+# far under pace on any day of any month the suite runs in.
+store.add_budget_line(client="d:acme.com", client_name="Acme Co", product="Social",
+                      platform="meta", monthly_budget="30000",
+                      flight_start=_date.today().replace(day=1).isoformat(),
+                      flight_end=(_date.today() + _td(days=400)).isoformat(),
+                      created_by="test")
+# Spend on the two completed days before today as well: with only today's
+# row the line reads as stalled (no spend yesterday or the day before,
+# mid-flight), and what this report is asked to show is under.
+store.upsert_rows([
+    {"platform": "meta", "account_id": "act_9", "campaign_id": "m-1",
+     "campaign_name": "Leads", "date": (_date.today() - _td(days=n)).isoformat(),
+     "spend": "5", "impressions": 60, "clicks": 1, "source": "csv"}
+    for n in (1, 2)
+])
+_run = reports_pacing.run(_date.today(), actor="test")
+check("the pacing run wrote a snapshot per line", _run["written"] >= 2)
+r = hub_qa.reports_pacing_under()
+check("after a run the report is measured", r.get("measured") is not False)
+_behind = [row for row in r["rows"]]
+check("the under-pace Social line is on it",
+      any(row[1] == "Social" and row[0]["text"] == "Acme Co" for row in _behind))
+check("...and the unmapped CTV line is not -- that is the other report's finding",
+      not any(row[1] == "CTV" for row in _behind))
+_pill = next((row[6] for row in _behind if row[1] == "Social"), {})
+check("...the pace is a pill carrying the ratio", _pill.get("pill") in ("warn", "bad")
+      and "×" in _pill.get("text", ""))
+check("...the client cell opens Client 360",
+      _behind[0][0]["href"].startswith("/client360?q="))
+check("...one cell per column on every row",
+      all(len(row) == len(r["columns"]) for row in r["rows"]))
+check("...and the note says what is not on the list",
+      "1 with no campaign filed" in r["note"] and "over pace" in r["note"])
+check("...and where the run came from", "on the latest run" in r["note"])
+_real = store.latest_snapshots
+store.latest_snapshots = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down"))
+try:
+    r = hub_qa.reports_pacing_under()
+finally:
+    store.latest_snapshots = _real
+check("a store that will not answer is not measured here either",
+      (r.get("measured"), "could not be read" in r["note"]), (False, True))
+check("both are tiled on /qa under a group",
+      (hub_qa.REPORTS["reports-unmapped"]["group"], hub_qa.REPORTS["reports-pacing-under"]["group"]),
+      ("Data Quality", "Clients"))
+
+
+# --------------------------------------------------------- the CSV door
+section("A CSV export lands through the one door, as csv, and says what it did")
+import io as _io                                                    # noqa: E402
+
+CSV = ("Date,Advertiser ID,Advertiser,Campaign ID,Campaign,Spend,Impressions,Clicks\n"
+       f"{_today},adv-5,Acme Co,c-51,Awareness,10.50,1000,30\n"
+       f"{_today},adv-5,Acme Co,c-52,Retargeting,4.00,20,90\n")
+
+
+def _upload(platform, data, name="export.csv", client=None):
+    return (client or staff).post(
+        "/reports/upload",
+        data={"platform": platform, "file": (_io.BytesIO(data), name)},
+        content_type="multipart/form-data", follow_redirects=True)
+
+
+check("a stranger cannot upload",
+      Client(wsgi.application).post("/reports/upload", data={"platform": "linkedin"}).status_code in (302, 401))
+r = _upload("linkedin", CSV.encode("utf-8"), "li-sept.csv")
+body = r.get_data(as_text=True)
+check("the upload lands back on the index", r.status_code, 200)
+check("...saying what was written, held and skipped",
+      "li-sept.csv: 1 campaign-day written for LinkedIn" in body
+      and "1 held in quarantine" in body)
+_rows = [p for p in store.platform_status() if p["platform"] == "linkedin"][0]
+check("the rows are in the fact table for that platform", _rows["rows"], 1)
+check("...and the watermark says csv wrote them, not the feed", _rows["sync_source"], "csv")
+check("...so the platform is not read as natively current", store.native_is_current("linkedin"), False)
+_held = [h for h in __import__("modules.reports.quarantine", fromlist=["held"]).held()
+         if h["platform"] == "linkedin"]
+check("the row with more clicks than impressions is held, not filed",
+      [(h["campaign_id"], h["rule"]) for h in _held], [("c-52", "clicks_over_impressions")])
+_un = [u["campaign_id"] for u in store.unmapped_campaigns() if u["platform"] == "linkedin"]
+check("the written campaign is on the unmapped queue, filed under nobody", _un, ["c-51"])
+with open(os.environ["AUDIT_LOG_PATH"], encoding="utf-8") as fh:
+    entries = [json.loads(ln) for ln in fh if ln.strip()]
+_up = [e for e in entries if e.get("module") == "reports" and e["type"] == "csv_uploaded"]
+check("the upload is in the activity log with who did it and what landed",
+      (len(_up), _up[-1].get("actor"), _up[-1].get("rows"), _up[-1].get("quarantined"))
+      if _up else None, (1, "Todd", 1, 1))
+
+r = _upload("nope", CSV.encode("utf-8"))
+check("an unknown platform is refused by name", "Unknown platform" in r.get_data(as_text=True))
+r = staff.post("/reports/upload", data={"platform": "linkedin"}, content_type="multipart/form-data",
+               follow_redirects=True)
+check("no file is refused in words", "Choose a CSV file" in r.get_data(as_text=True))
+r = _upload("linkedin", b"Foo,Bar\n1,2\n", "odd.csv")
+check("a file without the key columns is refused naming the columns it has",
+      "does not carry" in r.get_data(as_text=True) and "Foo, Bar" in r.get_data(as_text=True))
+r = _upload("linkedin", b"Date,Advertiser ID,Campaign ID\n,,\n", "blank.csv")
+check("a file with no usable row is refused rather than reported as written",
+      "carried no usable row" in r.get_data(as_text=True))
+_cap = reports_app.MAX_UPLOAD_BYTES
+reports_app.MAX_UPLOAD_BYTES = 16
+try:
+    r = _upload("linkedin", CSV.encode("utf-8"), "huge.csv")
+finally:
+    reports_app.MAX_UPLOAD_BYTES = _cap
+check("a file over the cap is refused by name, and the cap is not silently read anyway",
+      "huge.csv is over" in r.get_data(as_text=True))
+check("...and nothing from it landed",
+      [p for p in store.platform_status() if p["platform"] == "linkedin"][0]["rows"], 1)
+r = _upload("linkedin", CSV.encode("utf-8"), "li-sept.csv")
+check("the same file twice replaces rather than doubles",
+      [p for p in store.platform_status() if p["platform"] == "linkedin"][0]["rows"], 1)
+check("the form is on the index for every platform",
+      staff.get("/reports/").get_data(as_text=True).count('<option value="') >= len(store.PLATFORMS))
 
 
 # --------------------------------------------------------------- wired in

@@ -166,6 +166,7 @@ def index():
         rate_card=products.rate_card_products(),
         health=_health_by_platform(),
         provider=_provider_gate(),
+        error=request.args.get("error", ""), saved=request.args.get("saved", ""),
     )
 
 
@@ -356,6 +357,79 @@ def quarantine_decide():
                 if link:
                     client_view.forget(link.token)
     return redirect(back + f"?saved={row['status']}")
+
+
+# ---------------------------------------------------------------- upload
+# A CSV export is the one feed every platform has, whatever its API does.
+# 20 MB is a year of campaign-days for the biggest account here several
+# times over; a file past it is refused by name rather than read into
+# memory on a worker two gunicorn processes share.
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
+
+@app.route("/upload", methods=["POST"])
+def upload_csv():
+    """A platform's own CSV export, into the fact table, as ``source="csv"``.
+
+    The parser was written for AudioGo and reads the ordinary columns every
+    export carries, so it is the one reader here for every platform; the
+    platform is the form's and is checked before anything lands. The rows
+    go through ``store.upsert_rows`` -- the one door, so a row that cannot
+    be true is held in quarantine rather than filed -- and the watermark
+    says ``csv`` wrote it, because a hand upload is not the sync and the
+    index should not read as though the feed had run. The result is named
+    in the notice: written, held, skipped, all three, because "uploaded" is
+    a claim about the file and the client's page shows what was written.
+    """
+    from datetime import date
+    from urllib.parse import quote
+    from .parsers import audiogo_csv
+    back = url_for("index")
+
+    def refuse(msg: str):
+        return redirect(back + "?error=" + quote(msg))
+
+    try:
+        platform = store.check_platform(request.form.get("platform", ""))
+    except ValueError as exc:
+        return refuse(str(exc))
+    f = request.files.get("file")
+    if f is None or not (f.filename or "").strip():
+        return refuse("Choose a CSV file to upload.")
+    name = (f.filename or "").strip()[:160]
+    data = f.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        return refuse(f"{name} is over {MAX_UPLOAD_BYTES // (1024 * 1024)} MB; "
+                      "split the export by month and upload each part.")
+    parsed = audiogo_csv.parse(data, platform=platform)
+    if parsed["error"]:
+        return refuse(f"{name}: {parsed['error']}")
+    if not parsed["rows"]:
+        return refuse(f"{name} carried no usable row ({parsed['skipped']} skipped for "
+                      "a missing day, account or campaign).")
+    report: dict = {}
+    written = store.upsert_rows(parsed["rows"], report=report, today=date.today())
+    store.record_sync(platform, rows=written, error="", source="csv")
+    # A written row may be a confirmed campaign's, and the client's page
+    # holds its answer for a quarter of an hour per worker.
+    touched = {(r["platform"], r["account_id"], r["campaign_id"]) for r in parsed["rows"]}
+    for m in store.mapped_campaigns(limit=5000):
+        if (m["platform"], m["account_id"], m["campaign_id"]) in touched:
+            link = store.link_for_client(m["client"])
+            if link:
+                client_view.forget(link.token)
+    held = int(report.get("quarantined") or 0)
+    _log("csv_uploaded", platform=platform, filename=name, rows=written,
+         quarantined=held, skipped=int(parsed["skipped"]), size=len(data),
+         detail=f"{store.platform_label(platform)}: {written} campaign-days written from "
+                f"{name}, {held} held in quarantine, {parsed['skipped']} skipped")
+    msg = (f"{name}: {written} campaign-day{'' if written == 1 else 's'} written for "
+           f"{store.platform_label(platform)}")
+    if held:
+        msg += f", {held} held in quarantine for a person to decide"
+    if parsed["skipped"]:
+        msg += f", {parsed['skipped']} skipped for a missing day, account or campaign"
+    return redirect(back + "?saved=" + quote(msg + "."))
 
 
 @app.route("/audiogo-check")

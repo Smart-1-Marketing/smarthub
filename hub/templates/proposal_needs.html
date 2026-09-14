@@ -1,0 +1,66 @@
+{#- What we need from the client, at the link they were sent. Public, read-only,
+    built server-side by hub/proposal_execution.client_needs() -- only the
+    fields, never the plan. Chrome-free through CHROMELESS in hub/__init__.py
+    and login-exempt on the blueprint guard in hub/proposal_execution_routes.py.
+    `doc` is None for a link that is gone (404) or a store that would not
+    answer (503, `unavailable`). -#}
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<title>{% if doc %}What we need from you — {{ doc.client }}{% else %}Smart 1 Marketing{% endif %}</title>
+<style>
+:root{--navy:#0f2742;--blue:#1769aa;--ink:#1e293b;--muted:#64748b;--line:#e2e8f0}
+body{margin:0;font:16px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:#f4f7fb}
+.need{max-width:760px;margin:0 auto;padding:32px 20px 60px}
+.need-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:28px 30px;box-shadow:0 8px 30px rgba(15,39,66,.06)}
+.need-eyebrow{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{margin:4px 0 6px;font-size:28px;color:var(--navy);line-height:1.2}h2{margin:26px 0 8px;font-size:17px;color:var(--navy)}
+.need-sub{color:var(--muted);font-size:14px}
+.need-list{list-style:none;margin:0;padding:0}.need-list li{padding:12px 0;border-bottom:1px solid #eef2f7}.need-list li:last-child{border:0}
+.need-list b{display:block;color:var(--navy)}.need-list small{display:block;color:var(--muted);margin-top:2px}.need-due{display:inline-block;margin-top:5px;font-size:12.5px;color:#3730a3;background:#eef2ff;border-radius:999px;padding:2px 9px}.need-shared{display:inline-block;margin-top:5px;margin-left:6px;font-size:12.5px;color:#047857;background:#ecfdf5;border-radius:999px;padding:2px 9px}
+.need-btn{display:inline-block;background:var(--blue);color:#fff;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:10px;margin-top:8px}.need-btn:hover{filter:brightness(1.08)}
+.need-quiet{color:var(--muted);font-size:14px}
+.need-print{border:1px solid #cad8e7;background:#fff;color:#173d65;border-radius:8px;padding:7px 11px;font:650 12.5px inherit;cursor:pointer;float:right}
+.need-foot{margin-top:28px;font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px}
+@media print{body{background:#fff}.need-card{border:0;box-shadow:none;padding:0}.need-print,.need-btn{display:none}}
+</style></head>
+<body>
+<div class="need"><div class="need-card">
+{% if not doc %}
+  <div class="need-eyebrow">Smart 1 Marketing</div>
+  {% if unavailable %}
+  <h1>We could not open this page just now</h1>
+  <p class="need-sub">Please try again in a few minutes. If it keeps happening, tell your Smart 1 contact.</p>
+  {% else %}
+  <h1>This link is no longer available</h1>
+  <p class="need-sub">It may have been replaced with a newer one. Ask your Smart 1 contact and they will send you the current link.</p>
+  {% endif %}
+{% else %}
+  <button class="need-print" onclick="window.print()">Print</button>
+  <div class="need-eyebrow">Smart 1 Marketing · Getting your campaign started</div>
+  <h1>{{ doc.client }}: what we need from you</h1>
+  <div class="need-sub">{{ doc.proposal }}{% if doc.launch_label %} · launching {{ doc.launch_label }}{% endif %}</div>
+
+  <h2>Files we need from you</h2>
+  {% if doc.files %}
+  <p class="need-quiet">Each one below is something you agreed to supply. The date is when we need it in hand so the campaign launches on time.</p>
+  <ul class="need-list">
+  {% for f in doc.files %}<li><b>{{ f.title }}</b>{% if f.detail %}<small>{{ f.detail }}</small>{% endif %}{% if f.due_label %}<span class="need-due">{{ f.due_label }}</span>{% endif %}{% if f.shared %}<span class="need-shared">we produce part of this together</span>{% endif %}</li>{% endfor %}
+  </ul>
+  {% if doc.upload_url %}<a class="need-btn" href="{{ doc.upload_url }}">Upload your files</a><p class="need-quiet">The upload page is yours alone; anything you add there reaches us straight away.</p>{% else %}<p class="need-quiet">Send the files to your Smart 1 contact, or ask them for an upload link.</p>{% endif %}
+  {% else %}
+  <p class="need-quiet">Nothing at the moment — Smart 1 is producing the creative for this campaign. We will send you each piece to approve.</p>
+  {% endif %}
+
+  {% if doc.questions %}
+  <h2>A few things to confirm</h2>
+  <ul class="need-list">{% for q in doc.questions %}<li>{{ q.question }}</li>{% endfor %}</ul>
+  <p class="need-quiet">Reply to your Smart 1 contact with these and we will put the answers on the plan.</p>
+  {% endif %}
+
+  <h2>Your Smart 1 contact</h2>
+  <p>{% if doc.contact %}<b>{{ doc.contact }}</b> is looking after this campaign — reply to the email this link came in, or call the office.{% else %}Reply to the email this link came in, or call the office, and we will pick it up.{% endif %}</p>
+
+  <div class="need-foot">This page is prepared for {{ doc.client }} and updated as the plan changes; it was last built {{ doc.generated_at[:10] }}.</div>
+{% endif %}
+</div></div>
+</body></html>

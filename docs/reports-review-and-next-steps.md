@@ -66,16 +66,15 @@ Until each is set, `/reports/` says "not configured" and the pull skips it.
 - **Per-process state.** The public rate limit counts per worker, so it is
   effectively double the configured figure. Acceptable; move it to the
   shared disk if abuse ever shows up.
-- **The CSV parser has no door.** `parsers/audiogo_csv.py` is written and
-  tested and reachable from no route. A staff upload on `/reports/` (per
-  platform, source `csv`) is the fallback for every platform Windsor does
-  not carry and the way a rep backfills a month by hand.
-- **Client 360 has no card.** The module logs joins under the client, but
-  the record itself has no "Ad performance" card and no link to the staff
-  page or the client's public link. That is the pattern this Hub uses to
-  make a number visible: put it where people already look. A dashboard
-  scoreboard line (unmapped campaigns, pacing alerts) and two QA entries
-  ("Campaigns with no client", "Lines pacing under") belong with it.
+- **Two spellings of one client in the store.** The staff screens and the
+  auto-mapper file a campaign under the Hub-wide key from
+  `hub/client_key.py` (`d:acme.com`, `n:acme`); `hub/proposal_adapters/
+  reports.py` mints the link and the budget lines under the client's
+  display name. Every reader that takes a key finds one of the two.
+  `modules/reports/client_card.py` reads across both, so the Client 360
+  card is right; the adapter should resolve through the module's own
+  `_resolve_client()` so the Reports index lists one client rather than
+  two. Small, and worth doing before the adapter has minted many.
 - **Projection in a flight's first week** divides by seven days regardless
   of how many have run, so it understates. Minor.
 - **StackAdapt's pull sleeps** up to thirty seconds on the shared scheduler
@@ -95,6 +94,9 @@ client's page. `CLAUDE.md` carries the reasoning; this is the map.
 | The provider map is read only once confirmed | `/reports/provider-check` | A placeholder column that happens to resolve filing the wrong number under the right name. Confirmed against a sample row with the spend as it would be filed; editing the map retires it. |
 | Impossible rows are held, not filed | `/reports/quarantine` | More clicks than impressions, a negative figure, a day after today, a spend spike -- each reaching the client's page as a figure. A decision is about the row as it was. |
 | Each platform's month against the platform's own total | `/reports/reconcile`, nightly | The fact table's sum being smaller or larger than the month the platform would invoice, with every screen internally consistent. Google's customer query is independent; a provider table or StackAdapt re-read is the same feed summed whole. |
+| The client's record says what their advertising is doing | Client 360, the *Ad performance* card | Everything the module knew about a client living on `/reports/client/<key>`, reached by knowing the key. The card reads across every spelling the store files a client under and keeps four kinds of nothing apart: unread, nothing filed, all pending, no spend this period. |
+| Two QA entries | `/qa`: *Campaigns With No Client*, *Lines Pacing Under* | The unmapped queue and the pacing board being pages inside a module, which is where a queue goes unworked. Both read the persisted store; a store that will not answer is not measured rather than an all-clear table. |
+| A CSV door for every platform | `/reports/`, the *Upload a CSV* card | The parser being written, tested and reachable from no route. Any platform's export lands through `store.upsert_rows` -- held if it cannot be true, replaced rather than doubled -- and the watermark says `csv` wrote it. |
 
 ## Where Google Places fits
 
@@ -188,8 +190,11 @@ that reason or the forbidden-word sweep will refuse it. About two days.
    map on `/reports/provider-check` once Windsor's first tables land, and
    work the confirmation queue on `/reports/unmapped`.
 2. ~~Add the Postgres run to CI.~~ Done, for every reports test.
-3. Client 360 card and the two QA entries. The dashboard line is done.
-4. Google Ads channel type and video completes (half a day).
-5. Google Places → the Business Profile card.
-6. YouTube organic section.
-7. CSV upload route.
+3. ~~Client 360 card and the two QA entries.~~ Done; the dashboard line
+   was already done.
+4. ~~CSV upload route.~~ Done, for every platform.
+5. Google Ads channel type and video completes (half a day).
+6. Google Places → the Business Profile card.
+7. YouTube organic section.
+8. File the proposal adapter's link and lines under the module's own key
+   (the "two spellings" gap above).

@@ -1083,6 +1083,46 @@ def create_hub_app() -> Flask:
         rows.sort(key=lambda r: str(r.get("updated_at") or ""), reverse=True)
         return jsonify({"runs": rows, "measured": measured, "error": error})
 
+    @app.route("/api/client/ad-performance")
+    def api_client_ad_performance():
+        """What this client's advertising is doing, from the Reports module.
+
+        The campaigns filed under them and how many are still waiting for a
+        person to confirm the filing, this month's spend by platform beside
+        what the client is billed, whether the sold lines are pacing, the
+        days held in quarantine, the client's live link and whether they
+        have opened it. All of it lived on the Reports module's own client
+        page, reached by knowing the client's key; the record a rep opens
+        for a client said nothing about it.
+
+        `modules/reports/client_card.py` is the one reading and it gathers
+        every spelling the store may file this client under -- the Hub-wide
+        key, the name key and the display name -- because two writers file
+        under two of them. Four kinds of nothing come back apart: the store
+        would not answer, nothing is filed, everything filed is pending, or
+        the confirmed campaigns spent nothing this period.
+
+        Under `/api/client/` for the reason `/api/client/orders` gives: the
+        Suite frame allowlists that prefix and nothing else. A grouped
+        client reads across the group, the way the orders do.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_groups
+        name = request.args.get("name", "") or request.args.get("client", "")
+        url = request.args.get("url", "")
+        names = client_groups.member_names(name, url) or [name]
+        ordered = [name] + [n for n in names if n != name]
+        try:
+            from modules.reports import client_card as _rcard
+            out = _rcard.summary(ordered, url=url)
+        except Exception as exc:  # noqa: BLE001
+            out = {"measured": False, "state": "unread",
+                   "error": f"Reports could not be read ({type(exc).__name__}).",
+                   "keys": [], "campaigns": {"confirmed": 0, "pending": 0}}
+        return jsonify(out)
+
     @app.route("/api/client/brand/push-to-suite", methods=["POST"])
     def api_brand_push():
         """Send the brand guide into the client's Smart 1 Suite sub-account."""
@@ -3114,6 +3154,39 @@ def create_hub_app() -> Flask:
         return jsonify(lm.revise(page_id, str(body.get("instructions") or ""),
                                  current_user() or ""))
 
+    @app.route("/api/landing/<page_id>/versions")
+    def api_landing_versions(page_id):
+        """What this page used to be.
+
+        `revise()` has kept ten versions on every row since it was written and
+        promised in its own response that "the previous version is kept" --
+        with nothing anywhere able to read one back. This is the half that was
+        missing, and it carries metadata only: a version is a whole rendered
+        page, and ten of them is most of a megabyte into a panel that needs to
+        say which one to put back.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import landing_maker as lm
+        out = lm.versions(page_id)
+        return jsonify(out), (404 if out.get("error") else 200)
+
+    @app.route("/api/landing/<page_id>/restore", methods=["POST"])
+    def api_landing_restore(page_id):
+        """Put a previous version back. A POST, because it writes."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import landing_maker as lm
+        body = request.get_json(silent=True) or {}
+        try:
+            index = int(body.get("index"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Name which version to put back."}), 400
+        out = lm.restore(page_id, index, current_user() or "")
+        return jsonify(out), (400 if out.get("error") else 200)
+
     @app.route("/api/landing/<page_id>", methods=["DELETE"])
     def api_landing_delete(page_id):
         gate = _require_api()
@@ -4197,6 +4270,24 @@ def create_hub_app() -> Flask:
         except Exception as exc:  # noqa: BLE001
             return jsonify({"measured": False, "items": [],
                             "error": f"Could not read ({type(exc).__name__})."})
+
+    @app.route("/api/client/pipeline")
+    def api_client_pipeline():
+        """The Pipeline & leads card: the client's own pipelines, read from
+        their Smart 1 Suite sub-account -- hub/suite_pipeline.py. Under
+        /api/client/ for the reason /api/client/health gives."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_pipeline
+        name = (request.args.get("name") or "").strip()
+        url = (request.args.get("url") or "").strip()
+        fresh = (request.args.get("fresh") or "") == "1"
+        try:
+            return jsonify(suite_pipeline.for_client(name, url, fresh=fresh))
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"state": "not_measured", "measured": False,
+                            "detail": f"Could not read ({type(exc).__name__})."})
 
     @app.route("/api/social/scoreboard")
     def api_social_scoreboard():
@@ -7078,6 +7169,13 @@ def create_hub_app() -> Flask:
                   # has a high-severity check for exactly that, and it caught
                   # this one before it shipped.
                   "/suite-app",
+                  # The page a client reads at their Proposal Execution
+                  # link -- what we need from them, at a random token
+                  # (hub/proposal_execution_routes.needs). The prefix is
+                  # the client's and the staff plan at /proposal-execution
+                  # keeps its chrome; the login exemption is the other
+                  # half, on the blueprint guard in that file.
+                  "/proposal-execution/needs/",
                   # The Marketing Efficiency Audit -- an accounting or
                   # bookkeeping partner running this has no Hub account and
                   # never should need one, so the staff sidebar, help layer

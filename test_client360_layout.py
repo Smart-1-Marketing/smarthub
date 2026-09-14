@@ -78,7 +78,10 @@ WANT = {
     "Products & IOs": "overview",
     "Orders we have sent": "overview",
     "Coming up": "overview",
+
+    "Ad performance": "overview",
     "Smart 1 Suite Account": "overview",
+    "Pipeline & leads": "overview",
     "Proposals": "overview",
     "Client Notes": "overview",
     "Target audience": "overview",

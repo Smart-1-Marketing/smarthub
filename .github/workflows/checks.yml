@@ -409,6 +409,9 @@ jobs:
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
+      - name: Gallery filing identity and failed-transaction recovery
+        run: python test_gallery_filing_regression.py
+
       - name: Industry factory config, routes, leads and creative tests
         run: |
           python test_industry_core.py
@@ -2055,6 +2058,12 @@ jobs:
       - name: Client 360 coming-up card and last-activity pill
         run: python3 test_client360_upcoming.py
 
+      # Client 360 pipeline card: the client's own Suite pipelines, counted
+      # from raw rows; tri-state on the sub-account token; no token in the
+      # answer; paging capped and flagged.
+      - name: Client 360 pipeline card
+        run: python3 test_client360_pipeline.py
+
       # 360 Skills: the per-client skill store (verify-then-activate, masked
       # secrets), the Ecwid hotsheet maths, the Suite email send path, the
       # three blueprints and the gate Client 360 draws its skill cards behind.
@@ -2253,6 +2262,25 @@ jobs:
             python3 test_proposal_promises.py
           else
             echo "test_proposal_promises.py not on this branch — nothing to run."
+          fi
+
+      # The plan said what had to happen and when, and nothing said whose
+      # it was; and on the day the proposal was signed the team had no page
+      # to print and the client nothing to read. Every item follows the
+      # client's owner from hub/client_owner.py on read, with an owner named
+      # on the item the one thing stored and an unknown account refused by
+      # name; the kickoff document is built from the kept plan and counts
+      # what has not been reviewed rather than leaving it off; and the
+      # client's page is public, read-only, at a random token stored on the
+      # plan -- the fields only, no dropped item, no item Smart 1 produces,
+      # no staff email, outside both the login and the chrome, and revoked,
+      # unknown and malformed answering one 404.
+      - name: Proposal Execution — owners, the kickoff document, the client's page
+        run: |
+          if [ -f test_proposal_kickoff.py ]; then
+            python3 test_proposal_kickoff.py
+          else
+            echo "test_proposal_kickoff.py not on this branch — nothing to run."
           fi
 
       # WO-2: real-tool adapters. Every task on the graph used to run as

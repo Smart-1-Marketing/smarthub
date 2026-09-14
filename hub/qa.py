@@ -2709,6 +2709,155 @@ def knack_field_map() -> dict:
 # route could see is a list the search box could not, so "Domain Renewals"
 # and "Match Sites to Clients" answered nothing typed into it -- which is the
 # same invisibility the tile rule exists to stop, one screen further on.
+def reports_unmapped() -> dict:
+    """Campaigns With No Client: ad spend that reaches no client's report.
+
+    Two queues, kept apart because they are two different presses. A
+    campaign the fact table holds with **no mapping at all** is spend filed
+    under nobody -- it is on no client's page, no pacing line and no cost
+    report -- and somebody files it on the unmapped queue. A campaign the
+    auto-mapper filed **from its name** is a proposal waiting for a person:
+    it is counted on the client and reaches no figure until Confirm is
+    pressed. Both lived on `/reports/unmapped`, a page inside a module,
+    which is exactly where a queue goes unworked -- the reason the six
+    chase lists moved here from Client Tools.
+
+    A store that will not answer is not measured, never an empty table
+    reading as every campaign being filed.
+    """
+    columns = ["Platform", "Campaign", "Account", "Seen / filed",
+               "Spend, 30 days", "Waiting on"]
+    try:
+        from modules.reports import store as _rstore
+        unmapped = _rstore.unmapped_campaigns(days=30, limit=500)
+        pending = _rstore.pending_mappings(limit=500)
+    except Exception as exc:                                # noqa: BLE001
+        return _unmeasured(columns, (
+            f"The ad-performance store could not be read ({type(exc).__name__}) "
+            "\u2014 which is not the same as every campaign being filed under a "
+            "client."))
+    rows, styles = [], []
+    if unmapped:
+        rows.append([{"text": f"Filed under nobody ({len(unmapped)})", "group": True,
+                      "tone": "now"}, "", "", "", "", ""])
+        styles.append(None)
+        for r in unmapped:
+            ref = r.get("refused") or {}
+            if ref:
+                waiting = (f"a person to file it by hand \u2014 {ref.get('refused_by') or 'somebody'} "
+                           f"refused the auto-filing under {ref.get('client_name') or ref.get('client') or 'a client'}")
+            else:
+                waiting = "a client \u2014 file it on the unmapped queue"
+            rows.append([
+                r.get("platform_label") or r.get("platform") or "\u2014",
+                r.get("campaign_name") or r.get("campaign_id") or "\u2014",
+                r.get("account_id") or "\u2014",
+                (r.get("last_seen") or "\u2014")[:10],
+                _money(r.get("spend_30d")),
+                {"text": waiting, "href": "/reports/unmapped"},
+            ])
+            styles.append(None)
+    if pending:
+        rows.append([{"text": f"Filed from the campaign name, waiting for a person ({len(pending)})",
+                      "group": True, "tone": "soon"}, "", "", "", "", ""])
+        styles.append(None)
+        for m in pending:
+            who = m.get("client_name") or m.get("client") or "a client"
+            rows.append([
+                m.get("platform_label") or m.get("platform") or "\u2014",
+                m.get("campaign_name") or m.get("campaign_id") or "\u2014",
+                m.get("account_id") or "\u2014",
+                (m.get("mapped_at") or "\u2014")[:10],
+                "\u2014",
+                {"text": f"confirmation that it is {who}'s",
+                 "href": "/reports/unmapped#pending"},
+            ])
+            styles.append(None)
+    note = (f"{len(unmapped)} campaign{'' if len(unmapped) == 1 else 's'} carrying spend "
+            f"in the last 30 days {'is' if len(unmapped) == 1 else 'are'} filed under nobody, "
+            f"and {len(pending)} {'is' if len(pending) == 1 else 'are'} filed from the "
+            "campaign name and waiting for a person to confirm. Neither reaches a "
+            "client's page, a pacing line or the cost report until it is worked on "
+            "the unmapped queue (/reports/unmapped).")
+    return {"columns": columns, "rows": rows, "row_styles": styles, "note": note}
+
+
+def reports_pacing_under() -> dict:
+    """Lines Pacing Under: sold lines behind their budget on the pacing
+    board's latest run -- delivery a client paid for and is not getting.
+
+    Read from the persisted run (`store.latest_snapshots()`), not
+    recomputed: the board, the Client 360 card and this report answer from
+    one run, so they cannot disagree about a line. Stalled (no spend for
+    two completed days mid-flight) sorts above under, and a line alerting
+    for `ALERT_DAYS` or more is marked. Over-pace and unmapped lines are
+    counted in the note and left to the board: over is billing rather than
+    delivery, and unmapped is `Campaigns With No Client`'s finding.
+
+    No run yet is not measured -- every line reading as on pace because
+    the job has never run is the confident wrong answer.
+    """
+    columns = ["Client", "Product", "Platform", "Monthly budget", "Spent",
+               "Expected by now", "Pace", "Days left", "Owner"]
+    try:
+        from modules.reports import store as _rstore
+        from modules.reports import pacing as _rpacing
+        run_at = _rstore.latest_run_at()
+        snaps = _rstore.latest_snapshots()
+    except Exception as exc:                                # noqa: BLE001
+        return _unmeasured(columns, (
+            f"The ad-performance store could not be read ({type(exc).__name__}) "
+            "\u2014 which is not the same as every line being on pace."))
+    if run_at is None:
+        return _unmeasured(columns, (
+            "The pacing job has not run yet, so no line has a reading \u2014 "
+            "which is not the same as every line being on pace. It runs hourly "
+            "once a budget line exists (/reports/budgets)."))
+    behind = [r for r in snaps if r.get("band") in ("under", "stalled")]
+    order = {"stalled": 0, "under": 1}
+    behind.sort(key=lambda r: (order.get(r.get("band"), 9),
+                               r.get("pace") if r.get("pace") is not None else 0.0,
+                               str(r.get("client_name") or "").lower()))
+    rows, styles = [], []
+    for r in behind:
+        band = r.get("band") or "under"
+        alert = bool(r.get("alert"))
+        days = int(r.get("trend_days") or 1)
+        if band == "stalled":
+            text, title = "Stalled", "No spend for the last two completed days, mid-flight"
+        else:
+            pace = r.get("pace")
+            text = f"{float(pace):.2f}\u00d7" if pace is not None else "Under"
+            title = "Spent against what the budget expects by today"
+        if alert:
+            title += f"; {days} day{'' if days == 1 else 's'} running, past the "
+            title += f"{_rpacing.ALERT_DAYS}-day alert"
+        rows.append([
+            _c360_link(r.get("client_name") or r.get("client") or "\u2014"),
+            r.get("product") or "\u2014",
+            ", ".join(r.get("platform_labels") or []) or "\u2014",
+            _money(r.get("monthly_budget")),
+            _money(r.get("actual_to_date")),
+            _money(r.get("expected_to_date")),
+            {"pill": "bad" if (band == "stalled" or alert) else "warn",
+             "text": text, "title": title},
+            int(r.get("days_remaining") or 0),
+            r.get("owner") or "\u2014",
+        ])
+        styles.append(None)
+    stalled = sum(1 for r in behind if r.get("band") == "stalled")
+    alerting = sum(1 for r in behind if r.get("alert"))
+    over = sum(1 for r in snaps if r.get("band") == "over")
+    unmapped = sum(1 for r in snaps if r.get("band") == "unmapped")
+    note = (f"{len(behind)} of {len(snaps)} sold line{'' if len(snaps) == 1 else 's'} "
+            f"{'is' if len(behind) == 1 else 'are'} behind budget on the latest run "
+            f"({str(run_at)[:16]}): {stalled} stalled, {alerting} alerting for "
+            f"{_rpacing.ALERT_DAYS} days or more. Not on this list: {over} over pace and "
+            f"{unmapped} with no campaign filed to pace against, both on the board "
+            "(/reports/pacing).")
+    return {"columns": columns, "rows": rows, "row_styles": styles, "note": note}
+
+
 EXTRAS = [
         # First, and in its own group: every other tile on this page is a
         # report that says what is wrong, and this is how somebody is asked
@@ -2861,11 +3010,30 @@ REPORTS = {
         "fn": io_reconcile_report,
         "group": "Data Quality",
     },
+    "reports-unmapped": {
+        "title": "Campaigns With No Client",
+        "desc": "Ad spend that reaches no client's report: campaigns the "
+                "platforms are running that nobody has filed under a client, "
+                "and ones filed from the campaign name that a person has not "
+                "yet confirmed.",
+        "ico": "&#128202;",
+        "fn": reports_unmapped,
+        "group": "Data Quality",
+    },
     "no-dashboards": {
         "title": "No Dashboards",
         "desc": "Active clients with no Smart 1 Dashboard link on any live product — they can't see their reporting.",
         "ico": "&#9888;",
         "fn": no_dashboards,
+        "group": "Clients",
+    },
+    "reports-pacing-under": {
+        "title": "Lines Pacing Under",
+        "desc": "Sold lines behind their budget on the pacing board's latest "
+                "run \u2014 delivery a client paid for and is not getting \u2014 "
+                "with stalled lines and ones alerting for three days at the top.",
+        "ico": "&#9660;",
+        "fn": reports_pacing_under,
         "group": "Clients",
     },
     "stale-90": {
