@@ -4,6 +4,8 @@ Knack remains the billing source of truth. Website records, house clients,
 discovered URLs and IO-only clients are overlays. Approved company aliases
 from hub.company_identity are virtual rows: they inherit the canonical record's
 URL/domain/metadata without editing, deleting or merging any upstream record.
+Every canonical client and its aliases also receive the same permanent Smart 1
+master ID from hub.master_identity.
 """
 import datetime as _dt
 import os
@@ -257,6 +259,16 @@ def all_clients(refresh: bool = False) -> list[dict]:
         rows = augment_registry(rows)
     except Exception:  # noqa: BLE001
         # Identity enrichment must never make the client book unavailable.
+        pass
+
+    # 8. Permanent Smart 1 master IDs. This is a batch operation, so a refresh
+    # allocates any missing IDs in one durable write. Alias rows use the same
+    # canonical key and therefore always carry the canonical client's ID.
+    try:
+        from hub.master_identity import attach_client_master_ids
+        rows = attach_client_master_ids(rows)
+    except Exception:  # noqa: BLE001
+        # A backup/identity problem must not take the client registry offline.
         pass
 
     rows.sort(key=lambda r: r["name"].lower())
