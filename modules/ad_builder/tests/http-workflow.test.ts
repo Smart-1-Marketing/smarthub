@@ -127,6 +127,29 @@ test('HTTP workflow: save conflicts, approval locks, render, download and placeh
   for (const cell of sheet.cells) await api(`/api/project/${project.projectId}/approve-size`, 'POST', { conceptId: 'A', platform: cell.platform, size: cell.size, approved: false });
   assert.equal((await api(`/api/project/${project.projectId}/override`, 'POST', { ...approve, remove: true })).status, 200);
 
+  // A real rendered set reaches a public, frozen proof and an exact final ZIP.
+  const nextSheet = await api(`/api/project/${project.projectId}/review-set`, 'POST', {});
+  for (let i=0;i<1200;i++) {
+    sheet=(await api(`/api/project/${project.projectId}/review-set/${nextSheet.body.id}`)).body;
+    if(sheet.status!=='building')break;
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  assert.equal(sheet.status,'ready');
+  const signed=await api(`/api/project/${project.projectId}/bulk-approve`,'POST',{id:sheet.id,revision:sheet.revision});
+  assert.equal(signed.body.skipped.length,0,JSON.stringify(signed.body));
+  const frozen=await api(`/api/project/${project.projectId}/workflow`,'POST',{reviewId:sheet.id});
+  assert.equal(frozen.status,200,JSON.stringify(frozen.body));
+  const publicProof=await fetch(base+frozen.body.proofUrl);
+  assert.equal(publicProof.status,200);assert.match(await publicProof.text(),/Approve this ad set/);
+  assert.notEqual((await fetch(base+`/api/project/${project.projectId}/workflow`)).status,200);
+  const decision=await fetch(base+frozen.body.proofUrl+'/decision',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'approve'})});
+  assert.equal(decision.status,200);const final=await decision.json() as any;
+  const finalZip=await fetch(base+final.download);assert.equal(finalZip.status,200);
+  assert.ok(Buffer.from(await finalZip.arrayBuffer()).includes(fs.readFileSync(sheet.cells[0].file)));
+  await fetch(base+frozen.body.proofUrl+'/decision',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'approve'})});
+  assert.equal((await api(`/api/project/${project.projectId}`)).body.delivered.length,1);
+  for(const cell of sheet.cells)await api(`/api/project/${project.projectId}/approve-size`,'POST',{conceptId:cell.conceptId,platform:cell.platform,size:cell.size,approved:false});
+
   doc = (await api('/api/campaign/QA-HTTP')).body;
   const placeholder = path.join(out, 'placeholder-landscape.png'); fs.copyFileSync(logo, placeholder);
   doc.campaign.concepts[0].backgroundImage = placeholder;

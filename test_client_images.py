@@ -756,13 +756,16 @@ check("no exemption names a module that no longer logs",
 _C = "Riverside HVAC Test Client"
 for _mod, _ev in (("io_builder", "io_submitted"), ("landing_maker", "created"),
                   ("stock_photos", "photo_used"), ("brand", "logo_filed"),
-                  ("suite", "llms_txt_published"), ("boat", "boat_report")):
+                  ("suite", "llms_txt_published"), ("youtube_studio", "draft_saved"),
+                  ("youtube", "channel_confirmed"),
+                  ("boat", "boat_report")):
     audit.log(_mod, _ev, client=_C, actor="Tester")
 _blob = json.dumps(client_brand.work_log(_C).get("items") or [])
 for _want in ("Insertion order", "Landing page", "Stock photo used",
-              "Brand assets", "Published to Suite"):
+              "Brand assets", "Published to Suite", "YouTube channel work"):
     check(f"{_want} reaches the work log", _want in _blob, True)
 check("and a landing-page lead does not", "boat_report" in _blob, False)
+check("and confirming a reporting channel is not studio work", "channel_confirmed" in _blob, False)
 
 # =====================================================================
 section("A push that landed is remembered; one that did not is not")
