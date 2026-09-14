@@ -99,7 +99,7 @@ ul.kick-q{margin:6px 0 0;padding-left:20px}ul.kick-q li{margin:4px 0}ul.kick-q s
 
   <h2>Still open</h2>
   {% if doc.questions %}
-  <ul class="kick-q">{% for q in doc.questions %}<li>{{ q.question }}{% if q.why %}<small>{{ q.why }}</small>{% endif %}</li>{% endfor %}</ul>
+  <ul class="kick-q">{% for q in doc.questions %}<li>{{ q.question }}{% if q.why %}<small>{{ q.why }}</small>{% endif %}{% if q.client_says %}<small><b>The client says:</b> {{ q.client_says }}{% if q.client_by %} ({{ q.client_by }}){% endif %} — not yet confirmed on the plan.</small>{% endif %}</li>{% endfor %}</ul>
   {% else %}<p class="kick-none">Every question the plan asked has an answer.</p>{% endif %}
 
   <h2>The client's side</h2>

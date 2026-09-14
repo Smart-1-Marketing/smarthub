@@ -6927,6 +6927,83 @@ nothing about how we know. `test_proposal_progress.py` drives the clock
 rather than waiting on it, and holds `TOOL_EVIDENCE` to `CREATIVE_TOOLS` in
 both directions so a seventh tool cannot join with no evidence behind it.
 
+### The client's page asked and could not listen, and a won proposal told nobody
+
+`proposal_plan.record_client_answers()`, `POST /proposal-execution/needs/<token>`,
+`proposal_execution.start_won()` and the hourly `proposal_autostart` job. Two
+gaps at the two ends of a plan's life, and each was a page that looked
+finished.
+
+**The client's page listed their questions and ended with "reply to your
+Smart 1 contact".** So the launch date came back in an email, somebody
+retyped it onto the plan, and the question stayed open on every screen until
+they did -- the Proposal Builder's discovery questions, one audience further
+out. The page is a **plain HTML form** now, posting back to its own address:
+`a:<key>` for a question, `h:<channel>` for a tick handing a file back to
+Smart 1, which is the same supply key answered `smart1` rather than a new
+question. No fetch and no Hub script, because it is a stranger's page on
+somebody else's website and a failed post has to be a page saying why rather
+than a button that did nothing.
+
+**What arrives is a proposal, never the plan's own answer.** It lands in
+`plan["client_answers"]` with the client's name on it and `plan["answers"]`
+does not move until a person presses *Use their answer* -- the rule the
+researched competitor list works to, for a harder reason here: the page is
+reachable by anybody holding the link, and a value posted at a token must not
+move the due date on every task by arriving. Three refusals, each by name.
+**Only the client's keys**: `client_answerable()` is the open client
+questions plus the supply key of a kept item they had agreed to supply, and a
+budget or what the model was unsure of is ours -- a page a stranger can post
+to must not be able to set a budget. **Only the offered choices**, so a
+cadence of "hourly" is refused rather than stored. And **a name is
+required**, because an answer nobody can attribute is one nobody can ring
+back about. Revoked, unknown and malformed answer the same 404 on the POST as
+on the page; a store that would not answer is a 503; a success redirects so a
+refresh cannot post twice.
+
+**A reply read by nothing is the form-field failure**, so a pending answer is
+counted everywhere an open question is: `summarize()` carries
+`client_answers_pending`, `resolve()` lays each beside its question as
+`client_proposed` with `taken` (the plan already carries the same value, by a
+press or because the document said it), the kickoff document prints *the
+client says* on an open question, the Client 360 card counts them and
+`client_health`'s `plan_review` issue names them -- which retires a mark on
+that issue, correctly, because a client's reply is new information.
+`carry_forward()` carries them onto a superseding run for the questions still
+asked. `test_proposal_client_answers.py` asserts all of it, including that
+the page loads no script and no staff email reaches it.
+
+**And the Proposal Builder knew the moment a quote was won, and Proposal
+Execution was told nothing.** Approved is the client accepting at their link;
+Converted is an insertion order written from it. A plan existed only when
+somebody opened the tool and pressed Analyze, which on the day the proposal
+is signed is the press most likely to be forgotten. `start_won()` reads the
+sales book through the module `wsgi.py` loaded -- never a second import, the
+`hub/sales_status.py` arrangement -- and starts a run keyed `quote:<id>` for
+every won quote that has none, through the same `create_run()` the button
+calls, with `reason=` written onto the plan's notes and the first event, and
+an activity row on the quote carrying the link so the rep who sold it finds
+the plan from the screen they already read.
+
+Four counts that are never a silent skip. **Once per quote**: a run in any
+state -- including one started from the PDF the quote was filed as, which
+`create_run` resolves to the same key -- reads as `already`. **A client with
+a different run open is a named conflict and is never superseded**:
+superseding carries approved work and shared inputs forward, and that is a
+person's press, not a sweep's. **Won more than `AUTOSTART_MAX_AGE_DAYS` ago
+is `too_old`**, since a plan built for a campaign somebody set up a month ago
+is a list about work that happened. And the sweep starts at most
+`AUTOSTART_LIMIT` a tick and counts the rest as `deferred`, because each run
+is a model pass where a key is set and the scheduler's jobs share one thread.
+A table that would not answer is `measured: False`, never a clean sweep of
+nothing. The job sits ahead of the slow provider sweeps for the reason the
+QA-task jobs do, a quiet hour reads as skipped with a standing conflict in
+the sentence rather than as an empty result, and `POST
+/api/proposal-execution/start-won` runs the same sweep from the plan page.
+Nothing an automatic run creates is kept: it arrives as proposals for the
+client's owner to review, so its whole footprint is a `plan_review` issue on
+their desk. `test_proposal_autostart.py` asserts all of it.
+
 ## Opportunistic migration — read this before editing any module
 
 `hub/storage.py` (Cloudinary), `hub/images.py` (resize/convert),
@@ -14020,6 +14097,21 @@ python3 test_proposal_kickoff.py   # whose each plan item is, following the
                                    #   from the kept plan and counting what
                                    #   is not; and the client's page at a
                                    #   stored token, carrying the fields only
+python3 test_proposal_client_answers.py
+                                   # the client answering on their own page:
+                                   #   a proposal beside the plan and never
+                                   #   in it, only their keys and only the
+                                   #   offered choices, a hand-back that is
+                                   #   the supply key answered smart1, one
+                                   #   404 on the POST, and a pending reply
+                                   #   counted wherever an open question is
+python3 test_proposal_autostart.py # a won quote starting its own plan: once
+                                   #   per quote, Approved and Converted only,
+                                   #   a client with another run open named
+                                   #   and never superseded, too old skipped
+                                   #   and counted, and the run saying it was
+                                   #   automatic on the plan, the event and
+                                   #   the quote's own strip
 python3 test_proposal_progress.py  # where each launch task and creative item
                                    #   stands: done is a press with a name on
                                    #   it, landed is read off the work log for
