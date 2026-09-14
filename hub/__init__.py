@@ -70,6 +70,7 @@ MODULES = [
     {"key": "sites", "label": "Sites", "href": "/sites/", "tag": "Simvoly"},
     {"key": "suite", "label": "Suite", "href": "/suite/", "tag": "GHL"},
     {"key": "scans", "label": "Site Scans", "href": "/scans/", "tag": "Insites"},
+    {"key": "reports", "label": "Reports", "href": "/reports/", "tag": "Ads"},
     {"key": "tools", "label": "Tools", "href": "/tools", "tag": ""},
 ]
 
@@ -1048,6 +1049,79 @@ def create_hub_app() -> Flask:
                                     or r.get("submitted_at") or ""),
                   reverse=True)
         return jsonify({"orders": rows, "measured": measured, "error": error})
+
+    @app.route("/api/client/execution-plan")
+    def api_client_execution_plan():
+        """The open execution plans for a client, as counts beside a link.
+
+        The plan a proposal produced -- creative, launch and monthly lists,
+        and the questions it left open -- lived on one page, and a client
+        with items nobody had reviewed was invisible on their own record.
+        This is the numbers a card prints: what is kept, what is still to
+        review, what nobody has answered, and the creative nobody has said
+        who supplies. Never the items; the plan is worked on its own page.
+
+        Under `/api/client/` for the reason `/api/client/orders` gives: the
+        Suite frame allowlists that prefix and nothing else. A grouped
+        client reads across the group, the way the orders do.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_groups, proposal_execution
+        name = request.args.get("name", "") or request.args.get("client", "")
+        names = client_groups.member_names(name, request.args.get("url", "")) \
+            or [name]
+        rows, measured, error = [], True, ""
+        for member in [name] + [n for n in names if n != name]:
+            got = proposal_execution.plan_summary_for_client(member)
+            if not got.get("measured"):
+                measured, error = False, got.get("error", "")
+                continue
+            for row in got["runs"]:
+                rows.append(dict(row, member=member))
+        rows.sort(key=lambda r: str(r.get("updated_at") or ""), reverse=True)
+        return jsonify({"runs": rows, "measured": measured, "error": error})
+
+    @app.route("/api/client/ad-performance")
+    def api_client_ad_performance():
+        """What this client's advertising is doing, from the Reports module.
+
+        The campaigns filed under them and how many are still waiting for a
+        person to confirm the filing, this month's spend by platform beside
+        what the client is billed, whether the sold lines are pacing, the
+        days held in quarantine, the client's live link and whether they
+        have opened it. All of it lived on the Reports module's own client
+        page, reached by knowing the client's key; the record a rep opens
+        for a client said nothing about it.
+
+        `modules/reports/client_card.py` is the one reading and it gathers
+        every spelling the store may file this client under -- the Hub-wide
+        key, the name key and the display name -- because two writers file
+        under two of them. Four kinds of nothing come back apart: the store
+        would not answer, nothing is filed, everything filed is pending, or
+        the confirmed campaigns spent nothing this period.
+
+        Under `/api/client/` for the reason `/api/client/orders` gives: the
+        Suite frame allowlists that prefix and nothing else. A grouped
+        client reads across the group, the way the orders do.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_groups
+        name = request.args.get("name", "") or request.args.get("client", "")
+        url = request.args.get("url", "")
+        names = client_groups.member_names(name, url) or [name]
+        ordered = [name] + [n for n in names if n != name]
+        try:
+            from modules.reports import client_card as _rcard
+            out = _rcard.summary(ordered, url=url)
+        except Exception as exc:  # noqa: BLE001
+            out = {"measured": False, "state": "unread",
+                   "error": f"Reports could not be read ({type(exc).__name__}).",
+                   "keys": [], "campaigns": {"confirmed": 0, "pending": 0}}
+        return jsonify(out)
 
     @app.route("/api/client/brand/push-to-suite", methods=["POST"])
     def api_brand_push():
@@ -3080,6 +3154,39 @@ def create_hub_app() -> Flask:
         return jsonify(lm.revise(page_id, str(body.get("instructions") or ""),
                                  current_user() or ""))
 
+    @app.route("/api/landing/<page_id>/versions")
+    def api_landing_versions(page_id):
+        """What this page used to be.
+
+        `revise()` has kept ten versions on every row since it was written and
+        promised in its own response that "the previous version is kept" --
+        with nothing anywhere able to read one back. This is the half that was
+        missing, and it carries metadata only: a version is a whole rendered
+        page, and ten of them is most of a megabyte into a panel that needs to
+        say which one to put back.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import landing_maker as lm
+        out = lm.versions(page_id)
+        return jsonify(out), (404 if out.get("error") else 200)
+
+    @app.route("/api/landing/<page_id>/restore", methods=["POST"])
+    def api_landing_restore(page_id):
+        """Put a previous version back. A POST, because it writes."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import landing_maker as lm
+        body = request.get_json(silent=True) or {}
+        try:
+            index = int(body.get("index"))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Name which version to put back."}), 400
+        out = lm.restore(page_id, index, current_user() or "")
+        return jsonify(out), (400 if out.get("error") else 200)
+
     @app.route("/api/landing/<page_id>", methods=["DELETE"])
     def api_landing_delete(page_id):
         gate = _require_api()
@@ -3577,6 +3684,67 @@ def create_hub_app() -> Flask:
             return gate
         return render_template("client360.html", user=current_user(), modules=MODULES,
                                active="c360", q=request.args.get("q", ""))
+
+    def _ask_role(user=None, account=None):
+        """Role for Ask SmartHub, preserving the shared-password admin rule."""
+        account = current_account() if account is None else account
+        if account is not None:
+            return account.role
+        user = _hub_user() if user is None else user
+        # Google and demo sessions carry a signed role even when they do not
+        # yet have a password-account row. A legacy/shared session carries no
+        # rich identity and remains Admin, matching hub/access.py.
+        if user is not None and getattr(user, "via", "password") in ("google", "demo"):
+            return getattr(user, "role", "member")
+        return "admin"
+
+    @app.route("/ask-smarthub")
+    def ask_smarthub_page():
+        gate = _require_page()
+        if gate:
+            return gate
+        user = _hub_user()
+        account = current_account()
+        return render_template(
+            "ask_smarthub.html", user=current_user(), active="ask_smarthub",
+            role=_ask_role(user, account),
+            initial_client=(request.args.get("client") or "").strip()[:180],
+            context_path=(request.args.get("context_path") or "").strip()[:240],
+        )
+
+    @app.route("/api/ask-smarthub", methods=["POST"])
+    def ask_smarthub_api():
+        gate = _require_api()
+        if gate:
+            return gate
+        user = _hub_user()
+        if getattr(user, "is_demo", False):
+            return jsonify({"error": "Ask SmartHub is disabled in demo mode because it uses live data and AI credits."}), 403
+        account = current_account()
+        role = _ask_role(user, account)
+        actor = (getattr(account, "email", "") or getattr(user, "email", "")
+                 or current_user() or "Shared login")
+        body = request.get_json(silent=True) or {}
+        try:
+            from . import ask_smarthub
+            result = ask_smarthub.ask(
+                body.get("question", ""), role=role, actor=actor,
+                context=body.get("context"), history=body.get("history"))
+            return jsonify(result)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+        except RuntimeError as exc:
+            text = str(exc)
+            if text.startswith("RATE_LIMIT:"):
+                wait = int(text.partition(":")[2] or 60)
+                return jsonify({"error": "Too many questions. Please try again later."}), 429, {
+                    "Retry-After": str(wait)}
+            raise
+        except Exception as exc:  # provider detail is logged, never shown
+            errors.log_exception("ask_smarthub", exc, actor=actor)
+            return jsonify({"error": "Ask SmartHub is unavailable right now. Please try again shortly."}), 503
 
     @app.route("/client-links/<share_token>")
     def client_links(share_token):
@@ -4166,6 +4334,27 @@ def create_hub_app() -> Flask:
             return gate
         from . import ads_status
         return jsonify(ads_status.scoreboard())
+
+    @app.route("/api/reports/scoreboard")
+    def api_reports_scoreboard():
+        """The ad-performance feeds, for the dashboard: how many are current,
+        failing or stale, what is filed under nobody, and what is pacing off.
+
+        modules/reports/health.py is the one reading; /reports/ and /status
+        read the same function, so the three cannot disagree about a feed.
+        Under /api/ and not the /reports mount (a hub route under a mounted
+        prefix is never reached), and not behind UTILITY_PREFIXES for the
+        reason the scoreboards above give.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        try:
+            from modules.reports import health as _rhealth
+            return jsonify(_rhealth.scoreboard())
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"measured": False, "error": f"Reports could not be read ({type(exc).__name__}).",
+                            "url": "/reports/"})
 
     @app.route("/api/client/suite-locations")
     def api_client_suite_locations():
@@ -6438,7 +6627,24 @@ def create_hub_app() -> Flask:
             groups = knack_data.search_client(q)
         except Exception as exc:  # noqa: BLE001
             return jsonify({"groups": [], "error": str(exc)})
-        return jsonify({"groups": groups})
+        # Which 360 Skills are switched on, on the record itself, so render()
+        # can decide which skill cards to draw before sectionize() runs --
+        # the same way it reads g.smart1_site. A store that will not answer
+        # means no skill cards, never a broken record.
+        # A client Knack has never heard of can still have a skill on -- the
+        # skill was switched on by name -- so the no-match path gets the
+        # answer for the search term itself.
+        top: list = []
+        try:
+            from modules.skills360 import skills_for
+            for g in groups:
+                g["skills"] = skills_for(str(g.get("client") or ""))
+            if not groups:
+                top = skills_for(q.strip())
+        except Exception:  # noqa: BLE001
+            for g in groups:
+                g.setdefault("skills", [])
+        return jsonify({"groups": groups, "skills": top})
 
     @app.route("/api/c360/sites")
     def api_c360_sites():
@@ -6744,6 +6950,19 @@ def create_hub_app() -> Flask:
             add("Display Ad Builder", "warn",
                 f"Could not be checked: {_ab_exc}")
 
+        # --- Reports feeds ---
+        # Every platform's watermark and newest day were on /reports/ and
+        # nowhere else, so a pull failing for three days was visible to
+        # whoever opened that one page. An ERROR when the module is on the
+        # SQLite fallback in production: that file is on the disk a deploy
+        # wipes, and nothing on any screen would have said so.
+        try:
+            from modules.reports import health as _rhealth
+            _rst, _rmsg = _rhealth.status_row()
+            add("Reports feeds", _rst, _rmsg)
+        except Exception as _rh_exc:  # noqa: BLE001
+            add("Reports feeds", "warn", f"Could not be checked: {_rh_exc}")
+
         # --- Marketing Efficiency Audit (third process in this container) ---
         try:
             from hub import marketing_audit_proxy
@@ -6881,6 +7100,9 @@ def create_hub_app() -> Flask:
                   # A shareable customer index and the image-picker share
                   # route must never inherit the Hub sidebar or help controls.
                   "/client-links/", "/tools/image-picker/pick/",
+                  # A client's own hotsheet from 360 Skills (modules/skills360):
+                  # the client holds the link, and the staff nav is not theirs.
+                  "/hot/",
                   # The forgotten-password page and the admin-only refusal both
                   # render on _users_base.html, which is a bare card with no
                   # <body> the injector would recognise -- and injecting the
@@ -6912,6 +7134,13 @@ def create_hub_app() -> Flask:
                   # has a high-severity check for exactly that, and it caught
                   # this one before it shipped.
                   "/suite-app",
+                  # The page a client reads at their Proposal Execution
+                  # link -- what we need from them, at a random token
+                  # (hub/proposal_execution_routes.needs). The prefix is
+                  # the client's and the staff plan at /proposal-execution
+                  # keeps its chrome; the login exemption is the other
+                  # half, on the blueprint guard in that file.
+                  "/proposal-execution/needs/",
                   # The Marketing Efficiency Audit -- an accounting or
                   # bookkeeping partner running this has no Hub account and
                   # never should need one, so the staff sidebar, help layer
@@ -7123,7 +7352,8 @@ def create_hub_app() -> Flask:
                          # blueprint (paint-animation) has to be able to
                          # tell somebody who wandered into another
                          # (Commercial Builder) that it finished.
-                         b'<script defer src="/hub-job-notify.js"></script>')
+                         b'<script defer src="/hub-job-notify.js"></script>'
+                         b'<script defer src="/assets/ask-smarthub-widget.js?v=ask-v1"></script>')
             # The third code path. hub/templates/base.html links these for the
             # Hub's own pages and wsgi.py's HubBar injects them into the twenty
             # dispatcher-mounted modules -- and a blueprint registered on the
@@ -7285,6 +7515,21 @@ def create_hub_app() -> Flask:
     except Exception as _wx_exc:  # noqa: BLE001
         try:
             errors.log_exception("hub", _wx_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ---------------- 360 Skills ----------------
+    # Three blueprints: the staff tool at /tools/360-skills, the
+    # /api/client/skills/... routes Client 360's skill-gated cards read (under
+    # /api/client/ for the reason /api/client/health gives), and /hot/<token>,
+    # the client's own hotsheet with no login and no chrome -- CHROMELESS
+    # carries the prefix. None is a prefix wsgi.py mounts, so all belong here.
+    try:
+        from modules.skills360 import register_skills360
+        register_skills360(app)
+    except Exception as _sk_exc:  # noqa: BLE001
+        try:
+            errors.log_exception("hub", _sk_exc)
         except Exception:  # noqa: BLE001
             pass
 

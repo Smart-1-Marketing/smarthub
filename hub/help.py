@@ -389,6 +389,17 @@ REGISTRY: list[Help] = [
        "Every action across every tool, attributed to whoever did it. Useful "
        "when something changed and nobody remembers changing it.", step=3,
        selector="[data-tour='activity']"),
+    _h("hub.dashboard.reports", "Whether the ad report feeds are arriving",
+       "Every client's live report is drawn from the platform feeds, and this "
+       "is whether they are actually landing. Current, failing and stale are "
+       "the feed itself: failing is a pull whose last run recorded an error, "
+       "and stale is a feed that has delivered before and has not produced a "
+       "new day in three days, which is what a provider quietly stopping "
+       "looks like. Never synced is our own coverage: a platform nobody has "
+       "switched on, and not a fault. Filed under nobody is spend on a "
+       "campaign no client report can read yet, and pacing off is a sold line "
+       "three days running outside its band. Each figure opens the rows "
+       "behind it."),
     _h("hub.dashboard.ads", "What the Google Ads sweep found",
        "Every account we deployed a campaign into is scanned twice a day on "
        "the Hub scheduler, and this is the last reading. Four of the five "
@@ -426,6 +437,17 @@ REGISTRY: list[Help] = [
        "pipeline's archive, and cannot be undone. The count is this client's, "
        "not the whole archive's.", step=4,
        selector="[data-tour='client-images']"),
+    _h("hub.client360.adperf", "What their advertising is doing",
+       "What the Reports module holds for this client: the campaigns filed "
+       "under them, this month's spend by platform beside what they are "
+       "billed for it, whether each sold line is pacing to its budget, any "
+       "day held in quarantine, and the live link they were sent. A "
+       "campaign reaches these figures only once a person has confirmed it "
+       "is theirs -- one filed from its name and not yet confirmed is counted "
+       "here and reaches nothing. Empty says which kind of empty: nothing "
+       "filed, everything waiting for confirmation, or no spend this period. "
+       "Every figure is Reports' own, so this card and the client's page "
+       "cannot disagree."),
     _h("hub.client360.spend", "What they are already spending",
        "The first thing worth knowing about a client, and the one that decides "
        "what the next conversation is about. Every figure is a third-party "
@@ -854,6 +876,135 @@ REGISTRY: list[Help] = [
        "The page checks Insites directly every 45 seconds for up to fifteen "
        "minutes. You don't need to sit on it — come back later and it'll be "
        "there.", step=3, selector="[data-tour='scan-refresh']"),
+
+    # ---------------- Reports ----------------
+    _h("reports.index.syncs", "Every platform, synced or not",
+       "One row per platform the syncs can write, including the ones that "
+       "have never synced. A platform missing from this table would be the "
+       "finding, so nothing is left off it. The time is when the last sync "
+       "wrote rows; the latest day is the newest date those rows cover."),
+    _h("reports.index.upload", "A platform's own export, into the same table",
+       "Every platform can export a CSV whatever its API does, so this is the "
+       "door for a platform with no feed connected and for a month a feed "
+       "missed. The rows land exactly as a sync's would: a campaign-day "
+       "already in the table is replaced rather than doubled, a row that "
+       "cannot be true is held in quarantine for a person, and a campaign "
+       "nobody has filed under a client goes on the unmapped queue. The "
+       "platform's sync row then says csv wrote it -- a hand upload is not "
+       "the feed, and the health column should not read as though the feed "
+       "had run."),
+    _h("reports.unmapped.hint", "Map it here, or rename it there",
+       "Spend on a campaign nobody has filed under a client reaches no "
+       "client report. Pick the client on the row, or rename the campaign "
+       "in the platform to the shape shown and the auto-mapper files it on "
+       "the next sync without anybody opening this page."),
+    _h("reports.unmapped.pending", "A filing from a name is a proposal",
+       "The auto-mapper files a campaign under the client its name says, "
+       "and a name is somebody's typing in somebody else's platform. So the "
+       "filing waits here: nothing from the campaign reaches the client's "
+       "page, PDF or data until Confirm is pressed. Not theirs deletes the "
+       "proposal, sends the campaign back to the unmapped list, and stops "
+       "the auto-mapper filing that name under that client again -- a "
+       "renamed campaign is read afresh."),
+    _h("reports.markup.columns", "Markup or fixed CPM, never both",
+       "Markup is a percentage on the platform's cost: 15 bills $100 of "
+       "spend as $115. A fixed CPM bills impressions at that rate and ignores "
+       "cost. They are two answers to one question, so a platform may carry "
+       "only one and a row with both is refused whole."),
+    _h("reports.client.link", "One live link per client",
+       "The client's page lives at this link with no login. Regenerating "
+       "issues a new token and the old one renders a short 'this link has "
+       "been replaced' page rather than a 404, so a client working from an "
+       "old email is told to ask for the new one. Push writes the URL onto "
+       "the client's Smart 1 Suite contact, matched on the primary contact's "
+       "email from their Hub profile; with no email on file nothing is "
+       "written, because an upsert on a guessed address creates a stray "
+       "contact."),
+    _h("reports.client.product", "The client reads the product, never the platform",
+       "Every figure on the client's page is grouped by the Smart 1 product a "
+       "campaign is mapped to -- Streaming TV, Paid Search -- so two "
+       "platforms sold as one product are one bar. A campaign with no "
+       "product shows under a generic label and is flagged here until one "
+       "is set. 'Shown as' is the campaign's name with the vendor words "
+       "stripped; override it where a name still says which platform ran "
+       "it, because the campaign name is the one thing on that page that "
+       "comes from a platform."),
+    _h("reports.client.investment", "Investment is the rule's figure, never raw spend",
+       "What Smart 1 pays a platform never reaches the client's page. With "
+       "Show Investment on, each platform prints the pricing rule's answer: "
+       "this client's own markup or CPM first, the platform markup second. "
+       "A platform with neither shows delivery only and writes an activity "
+       "row saying so, rather than quietly leaving a smaller total that "
+       "reads as the whole."),
+    _h("reports.pacing.board", "Read from the last hourly snapshot, alerting on three days",
+       "Every active budget line whose flight includes today, against the "
+       "spend its mapped campaigns have carried this month: expected is the "
+       "prorated budget times days elapsed over days in the period, pace is "
+       "actual over expected, and the band is under below 0.90, on to 1.10, "
+       "over past it. Stalled is two completed days of zero spend mid-flight; "
+       "unmapped is a sold line with no campaign filed against it. The "
+       "figures are the last hourly run's, never a live sum, and the alert "
+       "needs the same off-pace band three days running -- one day off is "
+       "ordinary on every platform here."),
+    _h("reports.cost.margin", "Raw media spend against what the client pays",
+       "Per client for the month: the media spend by platform as the "
+       "platforms reported it, the sum of the sold amounts on lines whose "
+       "flight overlaps the month, and the difference as gross margin. Cost "
+       "per lead and per appointment appear only where the client has a "
+       "Smart 1 Suite outcome row that month -- a $0 cost per lead would "
+       "read as a lead that cost nothing. This page is never linked from "
+       "anything a client sees."),
+    _h("reports.budgets.sold", "Media budget, sold amount, owner, status",
+       "Media budget is what the campaigns pace against; sold is what the "
+       "client pays for the line and is what the cost report's margin reads. "
+       "The owner is who on staff answers for the line on the pacing board. "
+       "A paused or ended line stops pacing; an ended line with no flight "
+       "end also stops counting as sold, because nothing says which month "
+       "it ended in."),
+    _h("reports.audiogo.check", "Placeholders until the spec arrives",
+       "AudioGo publishes its Reporting API as a PDF that has not arrived, "
+       "so every name in audiogo_map.py -- the path, the auth header, the "
+       "date parameters, the field names -- is a placeholder. This page "
+       "calls the endpoint as configured for yesterday and prints the keys "
+       "it answered with, the key itself never among them, so the real "
+       "names can be pasted into the map. Until it resolves the pull lands "
+       "nothing and the Reports page says which field is missing."),
+    _h("reports.reconcile.states", "Our month against the platform's own",
+       "Everything a client reads is campaign-days summed, and nothing else "
+       "could say whether that sum is the month the platform would invoice. "
+       "Each night this asks the platform for its own figure -- Google's "
+       "customer-level query is independent of the daily pull; a provider "
+       "table or StackAdapt's month re-read is the same feed summed whole "
+       "-- and compares through yesterday, on both sides. Drift past the "
+       "house tolerance is named on /status and the dashboard. A platform "
+       "that cannot be asked reads not measured with the reason, never as "
+       "agreeing; rows held in quarantine are counted beside the drift, "
+       "because they are its likeliest explanation."),
+    _h("reports.quarantine.rules", "Held, never filed and never refused whole",
+       "A row a sync proposes that cannot be true -- more clicks than "
+       "impressions, a negative figure, a day that has not happened, spend "
+       "fifty times the campaign's own trailing average -- is held here "
+       "instead of reaching the client's page, and the rest of the batch is "
+       "written. Accept writes that row and lets the same figure through "
+       "next time; Discard drops it and the same figure is dropped in "
+       "silence from then on. A different figure for the same day is a new "
+       "proposal, and a clean restatement from the provider supersedes a "
+       "held one by itself. The spike numbers are ours, not a platform's."),
+    _h("reports.provider.confirm", "Resolved is not confirmed",
+       "A placeholder column name that happens to match a real column "
+       "resolves perfectly well -- and 'spend' is a plausible name for a "
+       "column holding micros. So the normalize reads a platform only once "
+       "somebody has looked at the newest raw row printed here, checked the "
+       "spend as it would be filed after the divisor, and pressed Confirm. "
+       "The confirmation is against the map as it stood: change a column or "
+       "the divisor and it reads as superseded until somebody looks again."),
+    _h("reports.provider.status", "Resolved, table missing, or columns missing",
+       "The column names in provider_map.py are placeholders until the "
+       "first sync lands. A platform resolves when its table is in the "
+       "schema and every column the map names is on it; the hourly "
+       "normalize skips anything else and says so on the Reports page. "
+       "Correct the map from what this table shows -- a column of the wrong "
+       "meaning under the right name files the wrong number on every report."),
 
     # ---------------- Schema & FAQ ----------------
     _h("seo.schema.known_first", "It uses what we already know",
@@ -2348,6 +2499,24 @@ REGISTRY: list[Help] = [
     _h('proposal_execution.overview.approval', 'Take an approved proposal into execution',
        'In Proposal Execution Center, choose the client, load an uploaded proposal and select Analyze Proposal. Review the analysis and required inputs before starting the run. Research and internal drafts can run in the background. Publishing, scheduling, changes to live campaigns and starting spend require explicit approval or a handoff. Open task outputs before approving them; Request Changes or Re-run when they need correction. Marking a handoff scheduled or live records its state, rather than performing the external work.',
        link='/proposal-execution', link_text="Open tool"),
+    _h('proposal_execution.plan.review', 'Check the plan the proposal produced',
+       'Three lists come out of the analysis: the creative that has to exist, what happens once before launch, and what the proposal promises every month. A proposal built in the Proposal Builder is read as data — its line items, start date and creative answers — and an uploaded document is read from its text. Each item is a proposal until you tick it to keep it or mark it not needed; an item found by AI quotes the line it came from, and one with no matching line in the proposal is flagged so you can check it before keeping it. Once the launch date is answered below, every task shows the date it is due and every creative item who is supplying it. Add anything the analysis missed with the box under each list. Only what you keep reaches the working briefs and handoff packets.',
+       link='/proposal-execution', link_text="Open tool"),
+    _h('proposal_execution.plan.questions', 'Answer what the proposal does not say',
+       'The analysis asks rather than guesses: a channel with no budget beside it, a campaign with no start date, creative whose supplier the proposal never names. Each question says why it is being asked. Where the proposal or the quote does answer, the answer is filled in from the document and marked as such, and you can change it. The answers are read by the work: the launch date sets the due date on every task, the supplier marks each creative item, and the working briefs and handoff packets carry them. The shared inputs above them are the facts every background task needs once.',
+       link='/proposal-execution', link_text="Open tool"),
+    _h('proposal_execution.plan.promises', 'Every month, month by month',
+       'Each kept monthly promise gets a strip of months since launch. A month reads landed when the activity log shows that kind of work for this client (the planner scheduled the posts, a blog was written, a commercial was approved), done when somebody marked it, due until the 25th, and missed after that or once the month is over. A promise nothing in the Hub logs, like a report sent to the client, is recorded by hand with mark done. Housekeeping items such as reviewing bids are shown here and never raised as a finding. Missed promises for this month and last also appear on the Promises Not Kept This Month report, on Client 360 and on My Clients.',
+       link='/proposal-execution', link_text="Open tool"),
+    _h('proposal_execution.plan.owners', 'Who owns each item',
+       'Every item on the plan has an owner. By default it follows the client\'s owner from My Clients, so a handover of the client moves the whole plan with them; pick a name on an item to give that one piece of work to somebody else, and choose the blank option to follow the client\'s owner again. The list is the Hub\'s own accounts. A client nobody owns shows every item with no owner: assign the client on the Client Owners report, or name owners item by item. Owners appear on the kickoff document and in the working briefs.',
+       link='/qa/client-owners', link_text="Open Client Owners"),
+    _h('proposal_execution.plan.kickoff', 'The kickoff document',
+       'Kickoff document opens a printable page for the team built from what you kept on the plan: the launch date, each channel with its budget and who supplies its creative, the creative with its due date and owner, the launch tasks in order, the monthly promises, and the questions still open. Items you have not reviewed are counted at the top rather than left off quietly, so review the plan first. Print it or save it as a PDF for the kickoff call.',
+       link='/proposal-execution', link_text="Open tool"),
+    _h('proposal_execution.plan.client_link', 'The client\'s own page',
+       'Create client link makes a page the client can open without a login, at an address nobody can guess, listing only what we need from them: the files they agreed to supply with the date each is wanted by, their upload link, the questions that are theirs to answer, and who at Smart 1 to talk to. Nothing internal reaches it. Copy the link and send it; it updates as the plan changes. Revoke stops the address working, and a new link can be made afterwards.',
+       link='/proposal-execution', link_text="Open tool"),
     _h('hub.client360.links', 'Keep multiple client links and proposal files',
        'Client 360 can retain multiple links for a platform and multiple Smart 1 Suite sub-accounts for one client. Check the specific destination before opening or disconnecting a link. Uploaded proposal PDFs keep their original filenames, making the intended file easier to identify when several proposals are on the client record.',
        link='/client360', link_text="Open tool"),
@@ -2358,6 +2527,8 @@ REGISTRY: list[Help] = [
        'In Industry Prospect Builder, upload the list and choose Preview & clean list. Review usable contacts before choosing the GHL sub-account and tags. Leave Activate outreach after import off while checking the first import. Enabling it adds the trigger tag and may start a GHL workflow. Read the imported and failed counts; a partially completed contact may still need its tags retried.', link='/tools/landing-ads/prospects', link_text="Open tool"),
     _h('weather_setup.verticals.choose', 'Choose the weather campaign industry',
        'Weather Trigger Setup supports Restaurant, HVAC, and Retail / Home Goods campaigns. Choose the matching industry when starting a campaign: it determines the available triggers and draft copy. Review the resulting offer and seasonal language before publishing; changing the industry is more than changing the business name.', link='/tools/weather-setup', link_text="Open tool"),
+    _h('skills360.activate', 'Switch a client skill on only after it checks out',
+       'In 360 Skills, look up the client, enter what the skill needs (the Ecwid Store ID and secret token, or the from-name and from-address for Email Creator), and choose Check & switch on. The Hub reads the live source first -- the Ecwid store, or the client\'s Smart 1 Suite sub-account and its sending domain -- and switches the skill on only when that passes. The matching card then appears under Skills on Client 360. Switch off keeps the details for next time; Switch off & forget deletes them and retires every client link.', link='/tools/360-skills/', link_text="Open tool"),
     _h('fan_radio.voice.settings', 'Apply Fan Radio voice settings to future recordings',
        'Use Voice settings to choose the voice mode and style strength, then generate a voice sample if needed. Samples use the voice-generation allowance. Save voice settings to all scripts to use them on future recordings. Existing clips do not change until you re-record them. Open the library to continue a saved project rather than creating a duplicate.', link='/tools/fan-radio/', link_text="Open tool"),
 ]

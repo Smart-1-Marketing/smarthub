@@ -253,7 +253,18 @@ const CB = (() => {
     list.replaceChildren();
     const passed = [];
     let blocking = 0;
-    Object.entries(results).forEach(([key, result]) => {
+    const fixes = {
+      brand: ['Add logo or review end card', 'cta'], cta: ['Edit end card', 'cta'],
+      compliance: ['Review flagged wording', 'blueprint#compliance-card'],
+      media_integrity: ['Review scenes and narration', 'blueprint'],
+      scene_assets: ['Choose scene footage', 'blueprint'], resolution: ['Replace low-resolution footage', 'blueprint'],
+      voice_fits: ['Edit narration', 'blueprint'], music_length_mismatch: ['Review music', 'voice'],
+      sfx_gain_conflict: ['Adjust sound levels', 'blueprint'], render_service: ['Check render service', '/diagnostics']
+    };
+    const project = document.querySelector('[data-project-id]')?.dataset.projectId;
+    const severity = r => (r.level || (r.passed ? 'pass' : 'fail'));
+    const order = {fail: 0, warn: 1, pass: 2};
+    Object.entries(results).filter(([key]) => Object.prototype.hasOwnProperty.call(labels, key)).sort((a, b) => (order[severity(a[1])] ?? 0) - (order[severity(b[1])] ?? 0)).forEach(([key, result]) => {
       if (!Object.prototype.hasOwnProperty.call(labels, key)) return;
       const level = result.level || (result.passed ? "pass" : "fail");
       const tone = level === "pass" || level === "warn" ? level : "fail";
@@ -264,6 +275,13 @@ const CB = (() => {
         <div class="cb-qc-text"><strong>${escapeHtml(labels[key])}</strong>
         <span>${escapeHtml(result.message)}</span></div>
       </div>`);
+      if (tone !== 'pass' && project) {
+        const [label, step] = fixes[key] || ['Review this check', 'blueprint'];
+        const link = document.createElement('a'); link.className = 'cb-btn cb-btn-sm';
+        link.textContent = label;
+        link.href = step.startsWith('/') ? step : `${API_ROOT}/project/${encodeURIComponent(project)}/${step}`;
+        item.querySelector('.cb-qc-text').append(link);
+      }
       if (tone === "pass") passed.push(item);
       else list.appendChild(item);
     });

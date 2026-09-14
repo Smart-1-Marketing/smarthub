@@ -100,6 +100,11 @@ def create_blueprint():
     )
     _install_login_guard(bp)
     usage.install(bp)
+    from .budget import BudgetBlocked
+    from flask import jsonify
+    @bp.errorhandler(BudgetBlocked)
+    def budget_blocked(error):
+        return jsonify(ok=False, error=error.description, budget_blocked=True), 409
     bp.register_blueprint(pages.bp)
     bp.register_blueprint(clients.bp)
     bp.register_blueprint(projects.bp)

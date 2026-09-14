@@ -720,6 +720,22 @@ def _p(text, style):
     return Paragraph(xml_escape(str(text or '')).replace('\n', '<br/>'), style)
 
 
+def _review_paragraphs(text, styles):
+    """Render a small, escaped Markdown subset; never interpret source HTML."""
+    paragraphs = []
+    for line in str(text or '').splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        heading = re.match(r'^#{1,6}\s+(.+)', line)
+        bullet = re.match(r'^(?:[-*+]\s+|\d+[.)]\s+)(.+)', line)
+        content = heading.group(1) if heading else bullet.group(1) if bullet else line
+        content = re.sub(r'\*\*([^*\n]+)\*\*', r'<b>\1</b>', xml_escape(content))
+        paragraphs.append(Paragraph(content, styles['S1H2' if heading else 'S1Body'],
+                                    bulletText='\u2022' if bullet and not heading else None))
+    return paragraphs
+
+
 def _upload_link_for(data):
     """The client's creative upload link, for a document or the webhook.
 
@@ -894,7 +910,7 @@ def _build_requirements_pdf(data, doc_type):
             story.append(Paragraph('Landing Page Review — Internal Needs', styles['S1H2']))
             for item in landing_reviews:
                 story.append(_p(f"{item.get('product','Landing page')}: {item.get('url','')}", styles['S1Small']))
-                story.append(_p(item.get('review',''), styles['S1Body']))
+                story.extend(_review_paragraphs(item.get('review',''), styles))
 
         warnings = data.get('internalWarnings') or []
         if warnings:

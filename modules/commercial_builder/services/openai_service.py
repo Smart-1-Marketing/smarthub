@@ -62,6 +62,11 @@ def _chat_json(system, user, max_tokens=1500, client="", *, purpose="script"):
     is a fact about which model is selected, not about the transport, and
     ``hub.ai.chat_json``'s ``extra_payload`` exists to carry exactly this.
     """
+    from ..usage import _scope
+    active = _scope.get()
+    if active:
+        from ..budget import reject_unpriced
+        reject_unpriced(active[0])
     from hub import ai as _hub_ai
     selected_model = ((os.environ.get("COMMERCIAL_CREATIVE_MODEL") or "gpt-6-astra").strip()
                       if purpose in ("concepts", "creative_review") else profile_model("commercial.text"))

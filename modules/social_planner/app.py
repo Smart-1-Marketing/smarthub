@@ -55,6 +55,7 @@ import time
 import uuid
 import hashlib
 import json
+import copy
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -125,6 +126,7 @@ def load_batch(batch_id: str) -> dict | None:
     if not isinstance(batch, dict) or not batch.get("id") or batch.get("_deleted"):
         return None
     batch.setdefault("revision", 0)
+    batch.pop("_history", None)
     return batch
 
 
@@ -186,7 +188,14 @@ def save_batch(batch: dict) -> dict:
         batch["revision"] = (expected or 0) + 1
         batch["updated_at"] = _now()
         social_plan.validate_batch(batch)
-        return batch
+        stored = copy.deepcopy(batch)
+        history = (current or {}).get("_history", [])
+        if current:
+            snapshot = {k: copy.deepcopy(current.get(k)) for k in
+                        ("revision", "updated_at", "brief", "slots")}
+            history = (history + [snapshot])[-20:]
+        stored["_history"] = history
+        return stored
     with _lock:
         jsonstore.update_json(_batch_path(batch["id"]), replace, default=None, indent=1)
         def index(rows):
@@ -295,7 +304,7 @@ def index():
     # into JavaScript. That keeps the page's real script block free of {{ }},
     # so tools/jscheck.py can hand it to node --check — the strict parser —
     # instead of skipping it for checktemplates' balance check.
-    boot = {"spec": social_plan.spec_payload(), "today": _planning_today().isoformat(),
+    boot = {"spec": social_plan.spec_payload(), "today": _planning_today().isoformat(), "actor": actor_name(),
             "client": request.args.get("client", "")[:200],
             "url": request.args.get("url", "")[:300]}
     return render_template("index.html", version=_version(), boot=boot)
@@ -714,6 +723,87 @@ def api_batch(batch_id: str):
     context = None if request.args.get("context") == "0" else _client_context(
         batch.get("client", ""), batch.get("url", ""))
     return jsonify({"ok": True, "batch": batch, "context": context})
+
+
+@app.route("/api/batches/<batch_id>/history")
+def api_history(batch_id):
+    batch = load_batch(batch_id)
+    if not batch:
+        return _fail("Plan not found.", 404)
+    history = jsonstore.read_json(_batch_path(batch_id), default={}).get("_history", [])
+    return jsonify(ok=True, versions=[{"revision": h["revision"], "updated_at": h.get("updated_at"),
+                                     "written": sum(bool(s.get("copy")) for s in h.get("slots", []))}
+                                    for h in reversed(history)])
+
+
+@app.route("/api/batches/<batch_id>/restore", methods=["POST"])
+def api_restore(batch_id):
+    batch = load_batch(batch_id)
+    if not batch:
+        return _fail("Plan not found.", 404)
+    data = request.get_json(silent=True) or {}
+    if data.get("revision") != batch["revision"]:
+        raise PlanConflict()
+    if any(s.get("ghl_post_id") for s in batch["slots"]):
+        return _fail("This plan has posts in Suite. Edit those posts there; version restore cannot change scheduled or published posts.")
+    history = jsonstore.read_json(_batch_path(batch_id), default={}).get("_history", [])
+    version = next((h for h in history if h["revision"] == data.get("version")), None)
+    if not version:
+        return _fail("That version is no longer available.", 404)
+    batch["brief"] = copy.deepcopy(version["brief"])
+    old_slots = {s["id"]: s for s in version["slots"]}
+    for slot in batch["slots"]:
+        old = old_slots.get(slot["id"], {})
+        for key in ("copy", "hashtags", "link", "image_url", "image_public_id", "image_source", "image_credit"):
+            if key in old:
+                slot[key] = copy.deepcopy(old[key])
+            else:
+                slot.pop(key, None)
+        slot["status"] = "edited" if slot.get("copy") else "empty"
+        if slot.get("client_state") == "approved":
+            slot["client_state"] = "pending_client_approval"
+            slot.pop("client_answered_at", None)
+    batch["status"] = "review"
+    save_batch(batch)
+    _log("version_restored", batch=batch_id, version=version["revision"])
+    return jsonify(ok=True, batch=batch)
+
+
+@app.route("/api/coverage", methods=["POST"])
+def api_coverage():
+    data = request.get_json(silent=True) or {}
+    client = _str(data.get("client"), 200).strip()
+    month = _str(data.get("month"), 10)
+    if not client or not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", month):
+        return _fail("Choose a client and month first.")
+    rows, known_ids = [], set()
+    for entry in _read_index():
+        if entry.get("client", "").casefold() != client.casefold() or entry.get("month") != month:
+            continue
+        batch = load_batch(entry["id"])
+        if not batch:
+            continue
+        for slot in batch.get("slots", []):
+            if slot.get("ghl_post_id"):
+                known_ids.add(slot["ghl_post_id"])
+            if batch["id"] != data.get("exclude"):
+                rows.append({"date": slot["date"], "title": slot.get("idea_title") or slot.get("copy", "")[:200],
+                             "type": slot.get("type"), "source": "Saved plan", "batch": batch["id"],
+                             "delivery": slot.get("delivery", "draft"), "channels": slot.get("channels", [])})
+    note = "Includes saved plans and Suite posts already tracked by this planner."
+    if data.get("suite"):
+        result = suite_client.performance(client, _str(data.get("url"), 300), limit=100)
+        note = "Suite checked (up to 100 returned posts; this is not a complete calendar audit)." if result.get("ok") else "Suite calendar unavailable: " + result.get("error", "Could not read posts.")
+        for item in result.get("rows", []) if result.get("ok") else []:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("status", "")).lower() not in ("scheduled", "published", "posted") or item.get("id") in known_ids:
+                continue
+            when = str(item.get("scheduleDate") or "")
+            if when.startswith(month):
+                rows.append({"date": when[:10], "title": str(item.get("summary") or "")[:200],
+                             "type": "", "source": "Suite", "delivery": item.get("status"), "channels": []})
+    return jsonify(ok=True, posts=rows, note=note)
 
 
 @app.route("/api/batches/<batch_id>", methods=["PUT"])

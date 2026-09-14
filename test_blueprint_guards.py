@@ -286,6 +286,11 @@ PUBLIC_DYNAMIC: dict[str, str] = {
     "/industry/widget/<page_id>/embed": "the published widget's iframe alias",
     "/industry/widget/<page_id>/embed.js": "the shared loader for that public widget",
     "/tools/commercial-builder/review/voice/<token>": "client recording page authorized by a random, expiring capture token; no staff login required",
+    "/proposal-execution/needs/<token>": "what we need from the client, at "
+                                         "the random token stored on their "
+                                         "execution plan -- read-only, built "
+                                         "from the kept items, and a revoked "
+                                         "or unknown token answers the same 404",
     # --- files, rather than answers about anybody ---
     "/static/<path:filename>": "the hub app's own stylesheets and scripts, "
                                "which every page including the sign-in page "
@@ -345,6 +350,12 @@ PUBLIC_DYNAMIC: dict[str, str] = {
     "/tools/ads/r/<token>": "the monthly Google Ads performance report a "
                             "client is sent",
     "/tools/ads/r/<token>.pdf": "the same report as a document",
+    "/reports/r/c/<token>": "a client's live ad-performance dashboard, at "
+                            "their own unguessable link",
+    "/reports/r/c/<token>.pdf": "the same dashboard as a document",
+    "/reports/r/c/<token>/data.json": "the aggregate that dashboard is drawn "
+                                      "from, with the spend rule already "
+                                      "applied",
     "/tools/calculators/c/<slug>": "the standalone media calculator an ad can "
                                    "point at",
     "/tools/calculators/embed/<slug>": "the framed copy on "
@@ -406,6 +417,11 @@ PUBLIC_DYNAMIC: dict[str, str] = {
     "/tools/marketing-audit/<path:path>": "every asset and read route of the "
         "Marketing Efficiency Audit, proxied whole to the Node process "
         "behind it -- see the /tools/marketing-audit* entry in PUBLIC",
+    "/hot/<token>*": "a client's own store hotsheet from 360 Skills "
+                     "(modules/skills360), reached by an unguessable token "
+                     "that dies with the skill -- the page and its one read "
+                     "API. A wrong token is a 404 that says the link is not "
+                     "active, never a login form",
 }
 
 

@@ -705,6 +705,20 @@ def _run_scan(full: bool = False) -> dict:
                           resource_index=0, resource_total=0, resource_kind="",
                           inactive_count=totals["inactive"], review_count=totals["review"],
                           active_count=totals["active"])
+        # Saved after every login, not only once at the end -- this Hub
+        # redeploys on every merge to main, often several times an hour, and
+        # a deploy restarts the worker this scan is running on mid-flight.
+        # Saving only at completion meant a scan interrupted by one of those
+        # deploys threw away everything it had already checked, so on a busy
+        # merge day the scan could go a long time without ever completing
+        # once and every attempt paid the full cost again. Merged onto the
+        # cache as it stood before this run, never replaced by new_cache
+        # alone -- new_cache only holds the logins reached so far, and
+        # writing that wholesale mid-run would erase perfectly good cached
+        # entries for the logins not yet reached. Only the final save below,
+        # once every login has actually been covered, is allowed to replace
+        # the file outright and let a resource Google no longer has drop out.
+        _save_resource_cache({**old_cache, **new_cache})
 
     _save_resource_cache(new_cache)
 

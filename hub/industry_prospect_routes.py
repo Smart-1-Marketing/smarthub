@@ -57,7 +57,7 @@ def status():
 
 @bp.route("/api/industry-prospects/history/<cid>")
 def history(cid):
-    return jsonify(ok=True, rows=service.history(cid))
+    return jsonify(ok=True, rows=service.history(cid), jobs=service.purchase_jobs(cid))
 
 
 @bp.route("/api/industry-prospects/action", methods=["POST"])
@@ -66,11 +66,19 @@ def action():
     body = request.get_json()
     actor = current_user()
     name = body.get("action")
-    allowed = {"sync_start", "sync_step", "create", "search", "quote", "approve", "buy", "import"}
+    allowed = {"sync_start", "sync_step", "sync_queue", "sync_resume", "connections", "create", "search", "quote", "approve", "buy", "purchase_queue", "purchase_stop", "import"}
     if not isinstance(name, str) or name not in allowed:
         return jsonify(ok=False, error="Unknown prospect action."), 400
     with store.operation(actor, name):
-        if name == "sync_start":
+        if name == "purchase_queue":
+            result = service.queue_purchase(str(body.get("plan") or ""), actor)
+        elif name == "purchase_stop":
+            result = service.pause_purchase(str(body.get("job") or ""), actor)
+        elif name == "connections":
+            result = service.test_connections(actor)
+        elif name in {"sync_queue", "sync_resume"}:
+            result = service.queue_sync(actor, resume=name == "sync_resume")
+        elif name == "sync_start":
             result = service.start_sync(actor)
         elif name == "sync_step":
             result = service.sync_step()

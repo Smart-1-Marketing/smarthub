@@ -1,0 +1,124 @@
+{% extends "_reports_base.html" %}
+{% block title %}Quarantine · Reports{% endblock %}
+{% block heading %}Quarantine{% endblock %}
+{% block lede %}Rows a sync proposed that cannot be true, or almost certainly are not,
+  held here for a person rather than filed on a client's page. The rest of each
+  batch was written; these days are missing from the figures until somebody decides.{% endblock %}
+{% block saved_text %}{% if saved == 'accepted' %}Accepted. The row is in the fact table and on the client's page from now; the same figure arriving again passes through.
+  {% elif saved == 'discarded' %}Discarded. The same figure arriving again is dropped in silence and counted here.
+  {% else %}Saved.{% endif %}{% endblock %}
+
+{% block style %}
+  form.decide { display: inline; }
+  .figs { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.reason { max-width: 360px; }
+{% endblock %}
+
+{% block body %}
+<div class="s1d-card">
+  <div class="s1d-cardhead">
+    <h2>{{ held|length }} held {{ help_dot('reports.quarantine.rules') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">Newest day first.</span>
+  </div>
+  {% if held %}
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr>
+      <th>Platform</th><th>Campaign</th><th>Day</th><th>Rule</th><th>Why</th>
+      <th class="num">Spend</th><th class="num">Impressions</th><th class="num">Clicks</th><th class="num">Conv.</th>
+      <th>Proposed</th><th>Decide</th>
+    </tr></thead>
+    <tbody>
+    {% for h in held %}
+      <tr>
+        <td>{{ h.platform_label }} <span class="s1d-muted mono">{{ h.source }}</span></td>
+        <td><b>{{ h.campaign_name or '(unnamed)' }}</b><br><span class="s1d-muted mono">{{ h.campaign_id }}</span> <span class="s1d-muted mono">{{ h.account_id }}</span></td>
+        <td class="mono">{{ h.date }}</td>
+        <td><span class="s1d-pill bad">{{ h.rule_label }}</span></td>
+        <td class="reason">{{ h.reason }}{% if h.note %}<br><span class="s1d-muted">{{ h.note }}</span>{% endif %}</td>
+        <td class="num figs">{% if h.spend is not none %}${{ '{:,.2f}'.format(h.spend|float) }}{% else %}—{% endif %}</td>
+        <td class="num figs">{{ '{:,}'.format(h.impressions|int) if h.impressions is not none else '—' }}</td>
+        <td class="num figs">{{ '{:,}'.format(h.clicks|int) if h.clicks is not none else '—' }}</td>
+        <td class="num figs">{{ h.conversions if h.conversions is not none else '—' }}</td>
+        <td><span title="first seen {{ h.seen_at }}">{{ h.times }} time{{ '' if h.times == 1 else 's' }}</span>, last <time datetime="{{ h.last_seen_at }}">{{ h.last_seen_at }}</time></td>
+        <td>
+          <form class="decide" method="post" action="/reports/quarantine/decide">
+            <input type="hidden" name="platform" value="{{ h.platform }}">
+            <input type="hidden" name="account_id" value="{{ h.account_id }}">
+            <input type="hidden" name="campaign_id" value="{{ h.campaign_id }}">
+            <input type="hidden" name="date" value="{{ h.date }}">
+            <input type="hidden" name="action" value="accept">
+            <button type="submit" class="s1d-btn small">Accept</button>
+          </form>
+          <form class="decide" method="post" action="/reports/quarantine/decide">
+            <input type="hidden" name="platform" value="{{ h.platform }}">
+            <input type="hidden" name="account_id" value="{{ h.account_id }}">
+            <input type="hidden" name="campaign_id" value="{{ h.campaign_id }}">
+            <input type="hidden" name="date" value="{{ h.date }}">
+            <input type="hidden" name="action" value="discard">
+            <button type="submit" class="s1d-btn sec small">Discard</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+    <div class="empty">Nothing is held: every row the syncs have proposed passed the rules, or has been decided.</div>
+  {% endif %}
+  <p class="s1d-hint">Accept writes the row exactly as it was proposed, and the same figure arriving on the next
+    sync passes through. Discard drops it, and the same figure arriving again is dropped in silence and counted
+    in the Proposed column. A different figure for the same day is a new proposal either way, and a clean
+    restatement from the provider supersedes a held row by itself.</p>
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>The rules</h2>
+    <span class="s1d-muted">Each names what it measured; the spike numbers are {{ source }} figures, not a platform's.</span></div>
+  {% for key, label in rules.items() %}
+  <div class="s1d-kv"><b class="mono">{{ key }}</b><span>{{ label }}{% if key == 'spend_spike' %}
+    &mdash; when the campaign has at least {{ baseline_min_days }} days of history in the {{ baseline_days }} before, averaging at least
+    ${{ '%.2f'|format(baseline_min_spend) }} a day. Below those floors a campaign that was a test yesterday and live today is not a spike.{% endif %}</span></div>
+  {% endfor %}
+  <p class="s1d-hint">A zero is deliberately not a rule: zero spend on a paused campaign is the truth, and a rule that
+    held every zero would be switched off within the week, taking the four above with it.</p>
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>Recently decided</h2></div>
+  {% if decided %}
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr><th>Platform</th><th>Campaign</th><th>Day</th><th>Rule</th><th>Outcome</th><th>By</th><th>When</th></tr></thead>
+    <tbody>
+    {% for h in decided %}
+      <tr>
+        <td>{{ h.platform_label }}</td>
+        <td class="mono">{{ h.campaign_id }}</td>
+        <td class="mono">{{ h.date }}</td>
+        <td>{{ h.rule_label }}</td>
+        <td><span class="s1d-pill {{ 'ok' if h.status == 'accepted' else 'warn' if h.status == 'superseded' else '' }}">{{ h.status }}</span>
+          {% if h.note %}<span class="s1d-muted">{{ h.note }}</span>{% endif %}
+          {% if h.status == 'discarded' and h.times > 1 %}<span class="s1d-muted">proposed {{ h.times }} times</span>{% endif %}</td>
+        <td>{{ h.decided_by or '—' }}</td>
+        <td>{% if h.decided_at %}<time datetime="{{ h.decided_at }}">{{ h.decided_at }}</time>{% else %}—{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+    <div class="empty">Nothing has been decided yet.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+  Array.prototype.forEach.call(document.querySelectorAll("time[datetime]"), function (t) {
+    var d = new Date(t.getAttribute("datetime"));
+    if (!isNaN(d)) t.textContent = d.toLocaleString();
+  });
+</script>
+{% endblock %}
