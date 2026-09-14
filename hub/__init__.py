@@ -7481,6 +7481,7 @@ def create_hub_app() -> Flask:
     for _label, _mod, _fn, _prefix in (
         ("Calculators", "modules.calculators", "register_calculators", "/tools/calculators"),
         ("Google Access", "modules.google_access", "register_google_access", "/tools/google-access"),
+        ("YouTube Studio", "modules.youtube_studio", "register_youtube_studio", "/tools/youtube"),
         ("Image Picker", "modules.image_picker", "register_image_picker", "/tools/image-picker"),
         ("Page Image Optimizer", "modules.page_image_optimizer", "register", "/tools/page-images"),
         ("Web Tickets", "modules.tickets", "register_tickets", "/tools/tickets"),
