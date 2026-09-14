@@ -941,7 +941,7 @@ def job_reports_normalize(app) -> dict:
             "automapped": (res.get("automap") or {}).get("mapped", 0)}
 
 
-def job_reports_native_pull(app, completed_platforms=()) -> dict:
+def job_reports_native_pull(app, *, completed_platforms=()) -> dict:
     """Pull the Trade Desk, Google Ads, StackAdapt, AudioGo and Microsoft Ads
     from their own APIs, then automap.
 
