@@ -173,7 +173,9 @@ try:
     check("the cover no longer quotes the budget the client asked for",
           "$8,000" not in flat, [w for w in flat.split() if "8,000" in w])
     check("it says $5,500 a month, with the scope named",
-          "Monthly campaign investment $5,500" in flat, flat[:0] or "")
+          "Monthly media & services subtotal $5,500" in flat, flat[:0] or "")
+    check("the all-in investment still includes licensing for all six months",
+          "$38,094" in flat)
     check("the media plan prints a campaign total row",
           "Campaign total" in flat)
     check("and the investment summary says what its own total includes",
