@@ -941,7 +941,7 @@ def job_reports_normalize(app) -> dict:
             "automapped": (res.get("automap") or {}).get("mapped", 0)}
 
 
-def job_reports_native_pull(app) -> dict:
+def job_reports_native_pull(app, *, completed_platforms=()) -> dict:
     """Pull the Trade Desk, Google Ads, StackAdapt and AudioGo from their own
     APIs, then automap.
 
@@ -973,6 +973,9 @@ def job_reports_native_pull(app) -> dict:
         # Google sweep reporting an empty book from a background thread.
         for name, fn in (("ttd", ttd.pull), ("google", google_ads_perf.pull),
                          ("stackadapt", stackadapt.pull), ("audiogo", audiogo.pull)):
+            if name in completed_platforms:
+                out['platforms'][name] = {'ok': True, 'rows': 0, 'already_refreshed': True}
+                continue
             try:
                 res = fn()
             except Exception as exc:                    # noqa: BLE001 - one platform, not the job
@@ -1202,11 +1205,11 @@ JOBS = {
 # Loop
 # ---------------------------------------------------------------------------
 
-def _run_job(app, name: str) -> dict:
+def _run_job(app, name: str, **kwargs) -> dict:
     every, fn, _ = JOBS[name]
     started = time.time()
     try:
-        result = fn(app) or {}
+        result = fn(app, **kwargs) or {}
         ok, err = True, ""
     except Exception as exc:                            # noqa: BLE001
         result, ok, err = {}, False, f"{type(exc).__name__}: {exc}"
@@ -1251,7 +1254,7 @@ def _loop(app) -> None:
         for name, (every, _fn, _desc) in JOBS.items():
             if name == 'reports_native':
                 from . import report_schedule
-                report_schedule.run_due(lambda: _run_job(app, name))
+                report_schedule.run_due(lambda done: _run_job(app, name, completed_platforms=done))
                 continue
             if now >= due[name]:
                 _run_job(app, name)
