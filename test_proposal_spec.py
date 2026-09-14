@@ -2876,6 +2876,20 @@ check("a heading near the page bottom moves with its opening content",
       _pages)
 
 _notice = "This proposal is valid for 30 days."
+from PIL import Image as _TestImage
+_map_png = BytesIO()
+_TestImage.new("RGB", (600, 400), "lightblue").save(_map_png, format="PNG")
+_map_boundary = BytesIO()
+SimpleDocTemplate(_map_boundary, pagesize=(612, 500), topMargin=30,
+                  bottomMargin=30).build(
+    [Spacer(1, 200)]
+    + builder._sec_header("Map heading boundary", 1, _styles["Heading2"])
+    + builder._map_flowables(_map_png.getvalue(), {}, _styles["BodyText"]))
+_map_pages = PdfReader(_map_boundary).pages
+check("a section heading moves with its opening map, across map spacing",
+      any("Map heading boundary" in (page.extract_text() or "") and len(page.images)
+          for page in _map_pages))
+
 from types import SimpleNamespace
 _layout_q = SimpleNamespace(quote_number="QA-LAYOUT", client="Layout QA",
     website="", months=3, monthly_budget=3000, total_budget=9000,

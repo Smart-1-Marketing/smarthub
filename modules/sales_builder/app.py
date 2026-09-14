@@ -65,7 +65,7 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import (Image as RLImage, KeepTogether, Paragraph,
+from reportlab.platypus import (Image as RLImage, Paragraph,
                                 SimpleDocTemplate, Spacer, Table, TableStyle)
 from xml.sax.saxutils import escape as xml_escape
 
@@ -1758,7 +1758,14 @@ def _map_flowables(png: bytes, meta: dict, small_style, zip_rows=None) -> list:
                         + ", ".join(covered) + ".", small_style))
     # The caption is about the picture directly above it. Orphaned onto the
     # next page it is a sentence about nothing, on a document a client reads.
-    return [Spacer(1, 4), KeepTogether(block), Spacer(1, 4)]
+    # Let the document collect one keep-with-next chain, including a preceding
+    # section heading. A standalone spacer ends that chain, and nesting a
+    # KeepTogether around the map can release the heading when it splits.
+    before = Spacer(1, 4)
+    before.keepWithNext = True
+    for flowable in block[:-1]:
+        flowable.keepWithNext = True
+    return [before, *block, Spacer(1, 4)]
 
 
 def _body_flowables(text, style) -> list:
