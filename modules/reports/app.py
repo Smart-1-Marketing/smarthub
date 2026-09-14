@@ -369,31 +369,9 @@ def audiogo_check():
 
 
 # ---------------------------------------------------------------- mapping
-def _resolve_client(name: str, key: str) -> tuple[str, str]:
-    """The (key, display name) a mapping is filed under.
-
-    The picker hands over both. A key typed by hand, or a name with no key
-    beside it, is resolved through the client registry so the row carries
-    the same key every other module's record uses -- and falls back to a
-    name key when the registry cannot see the client, which is a mapping
-    that still works and is marked as name-backed by its prefix.
-    """
-    name = (name or "").strip()
-    key = (key or "").strip()
-    if key and name:
-        return key[:200], name[:300]
-    try:
-        from hub import client_key as ck
-        from hub import clients_registry
-        hit = clients_registry.find_client(name) if name else None
-        if hit:
-            return (ck.client_key(hit.get("name") or name, hit.get("url") or hit.get("domain") or "")
-                    or ck.name_key(name), hit.get("name") or name)
-        if key:
-            return key[:200], (name or ck.key_label(key))[:300]
-        return ck.name_key(name), name
-    except Exception:                  # noqa: BLE001 - registry unavailable
-        return (key or ("n:" + name.lower().replace(" ", "-")))[:200], name[:300]
+# _resolve_client moved to store.resolve_client() once a second caller
+# (the reporting_plan proposal adapter) needed the identical rule.
+_resolve_client = store.resolve_client
 
 
 @app.route("/unmapped")

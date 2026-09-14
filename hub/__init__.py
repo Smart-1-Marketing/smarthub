@@ -2261,6 +2261,34 @@ def create_hub_app() -> Flask:
                                request.args.get("period", "this_month"),
                                request.args.get("url", "")))
 
+    @app.route("/api/client/ad-performance")
+    def api_client_ad_performance():
+        """The Reports module's whole picture of this client, for Client 360's
+        Ad performance card: their live dashboard link, mapped and pending
+        campaigns, budget lines, and the latest pacing run.
+
+        Under `/api/client/` for the reason `/api/client/audit` gives: that
+        prefix is what `hub/suite_embed.EMBEDDABLE` allowlists, so a card
+        pointed anywhere else renders on every screen except inside the Suite
+        frame. Read-only.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        name = request.args.get("name", "").strip()
+        if not name:
+            return jsonify({"measured": False, "error": "A client is required."}), 400
+        try:
+            from modules.reports import health as _rhealth
+            bp = _rhealth.binding_problem()
+            if bp:
+                return jsonify({"measured": False, "error": bp})
+            from modules.reports import store as reports_store
+            return jsonify(reports_store.client_summary(name))
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"measured": False,
+                            "error": f"modules.reports could not be read ({type(exc).__name__})."})
+
     @app.route("/creative")
     def page_creative():
         """Creative tools, mirroring the Tools index."""

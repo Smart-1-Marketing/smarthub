@@ -87,6 +87,44 @@ def platform_label(platform: str) -> str:
     return PLATFORM_LABELS.get(platform, platform)
 
 
+def resolve_client(name: str = "", key: str = "") -> tuple[str, str]:
+    """The (key, display name) every table here is keyed on.
+
+    ``client`` on ``CampaignMap``, ``BudgetLine`` and ``ReportLink`` is
+    ``hub/client_key.py``'s Hub-wide key (``d:example.com`` or ``n:slug``),
+    never a plain display name -- the same join every other module's record
+    uses. A caller holding only a name (Client 360, the QA reports, a
+    Proposal Execution run) must resolve it exactly this way, or its rows
+    land under a different ``client`` string than the ones a rep files
+    through the mapping screen and never see each other again.
+
+    A key typed by hand, or a name with no key beside it, is resolved
+    through the client registry so the row carries the registry's own key --
+    and falls back to a name key when the registry cannot see the client,
+    which is a mapping that still works and is marked as name-backed by its
+    prefix. This was ``modules/reports/app.py``'s own ``_resolve_client``,
+    moved here once a second caller needed the identical rule: two readings
+    of one key is how a client's dashboard and their budget lines come to
+    disagree about which client they are for.
+    """
+    name = (name or "").strip()
+    key = (key or "").strip()
+    if key and name:
+        return key[:200], name[:300]
+    try:
+        from hub import client_key as ck
+        from hub import clients_registry
+        hit = clients_registry.find_client(name) if name else None
+        if hit:
+            return (ck.client_key(hit.get("name") or name, hit.get("url") or hit.get("domain") or "")
+                    or ck.name_key(name), hit.get("name") or name)
+        if key:
+            return key[:200], (name or ck.key_label(key))[:300]
+        return ck.name_key(name), name
+    except Exception:                  # noqa: BLE001 - registry unavailable
+        return (key or ("n:" + name.lower().replace(" ", "-")))[:200], name[:300]
+
+
 # ---------------------------------------------------------------------------
 # Engine
 # ---------------------------------------------------------------------------
@@ -1000,6 +1038,65 @@ def budget_lines_for(client: str) -> list[dict]:
 
 def mapped_campaigns_for(client: str) -> list[dict]:
     return [m for m in mapped_campaigns(limit=5000) if m["client"] == client]
+
+
+def client_summary(name: str) -> dict:
+    """One client's whole ad-performance picture, for Client 360's card:
+    resolve_client() first, then everything else this module holds about
+    that client -- the live dashboard link, mapped and pending campaigns,
+    budget lines, and where the latest pacing run has them.
+
+    Client 360 is the record every rep already opens; without this, seeing
+    that a client has a live report link, or that a budget line is pacing
+    under, meant knowing to go and check /reports/ -- a module most of the
+    Hub has never opened. `hub/stale_creative.py`'s signpost failure, one
+    module along: a tool with real, useful state and no way back to the
+    client record that state is about.
+
+    Never raises -- the caller decides what a refusal renders, the same
+    shape `hub/website_audit.py` and `hub/record_health.py` already use for
+    a Client 360 card. Every source here is one client's own record, small
+    and bounded, so a failure this deep is the store itself refusing rather
+    than an ordinary "nothing on file yet" -- the whole thing degrades to
+    `measured: False` together rather than reporting some of a client's
+    picture and silently dropping the rest.
+    """
+    try:
+        client_id, client_name = resolve_client(name)
+        link = link_for_client(client_id)
+        campaigns = mapped_campaigns_for(client_id)
+        confirmed = [c for c in campaigns if not c["pending"]]
+        pending = [c for c in campaigns if c["pending"]]
+        lines = budget_lines_for(client_id)
+        # The latest run is book-wide (latest_snapshots() has no per-client
+        # filter of its own -- the pacing board reads every line at once),
+        # so this reads the whole thing and keeps this client's rows. One
+        # query, bounded by the book, the same cost the QA pacing report
+        # already pays. Its own table may simply not exist yet, which is
+        # not the same failure as the rest of this being unreadable.
+        try:
+            snaps = [s for s in latest_snapshots() if s.get("client") == client_id]
+        except Exception:              # noqa: BLE001 - no table yet
+            snaps = []
+    except Exception as exc:           # noqa: BLE001
+        return {"measured": False,
+                "error": f"modules.reports could not be read ({type(exc).__name__})."}
+    return {
+        "measured": True,
+        "client": client_id, "client_name": client_name,
+        "link": ({"token": link.token, "url": f"/reports/r/c/{link.token}"}
+                if link else None),
+        "campaigns_confirmed": len(confirmed),
+        "campaigns_pending": len(pending),
+        "budget_lines": [
+            {"product": b["product"], "platform_label": b.get("platform_label") or "",
+             "monthly_budget": float(b["monthly_budget"]), "status": b.get("status", "active")}
+            for b in lines],
+        "pacing": [
+            {"product": s.get("product"), "platform_labels": s.get("platform_labels") or [],
+             "band": s.get("band"), "pace": s.get("pace"), "alert": bool(s.get("alert"))}
+            for s in snaps],
+    }
 
 
 # ---------------------------------------------------------------------------

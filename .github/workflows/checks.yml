@@ -2975,6 +2975,14 @@ jobs:
       # cannot be asked is not measured with the reason, never agreeing.
       - name: Reports reconcile
         run: python3 test_reports_reconcile.py
+      # A client's own slice of the module, on Client 360: their live report
+      # link, confirmed and pending campaigns, budget lines and the latest
+      # pacing run -- plus the two QA entries (unmapped spend, lines pacing
+      # under) that put the book-wide version where a rep already looks for
+      # what is wrong. resolve_client() is the one key every table here is
+      # joined on, moved out of app.py once this card needed it too.
+      - name: Reports on Client 360, and the two QA entries
+        run: python3 test_reports_client360.py
       - name: The reports tests against Postgres
         env:
           REPORTS_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
@@ -2984,7 +2992,7 @@ jobs:
                    test_reports_seo.py test_reports_ttd.py test_reports_stackadapt.py \
                    test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
                    test_reports_confirmations.py test_reports_quarantine.py \
-                   test_reports_reconcile.py; do
+                   test_reports_reconcile.py test_reports_client360.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1
           done
 

@@ -2080,6 +2080,111 @@ def google_accounts() -> dict:
     }
 
 
+# --------------------------------------------------- Ad-performance reporting
+def _reports_binding_problem() -> str:
+    """`modules.reports.health.binding_problem()`, or "" if the module could
+    not even be imported (a missing dependency, a boot-time failure) -- in
+    which case the caller reports that instead of a blank binding check."""
+    try:
+        from modules.reports import health as _rhealth
+        return _rhealth.binding_problem()
+    except Exception as exc:                                  # noqa: BLE001
+        return f"modules.reports could not be read ({type(exc).__name__})."
+
+
+def reports_unmapped_campaigns() -> dict:
+    """Real ad spend filed under nobody -- `modules.reports.store.unmapped_campaigns()`,
+    the same reading `/reports/unmapped` shows, worst recent spend first.
+
+    A campaign the auto-mapper could not place, or one nobody has looked at
+    yet, is not on any client's dashboard and paces against no budget line --
+    the spend happened and nothing here can say whose it was. This is that
+    list on the page somebody already checks for what is wrong, rather than
+    requiring a rep to know the Reports module has a staff screen for it at
+    all -- the signpost failure `hub/stale_creative.py` names about a tool
+    with no way back to the record.
+
+    A store that will not answer is `measured: False`, never an empty,
+    clean-looking table -- the `knack_products` rule, one module along.
+    """
+    columns = ["Platform", "Campaign", "Account", "Last seen", "Spend (30d)"]
+    bp = _reports_binding_problem()
+    if bp:
+        return _unmeasured(columns, bp)
+    try:
+        from modules.reports import store as reports_store
+        found = reports_store.unmapped_campaigns(days=30, limit=200)
+    except Exception as exc:                                  # noqa: BLE001
+        return _unmeasured(columns, f"the reports store could not be read ({type(exc).__name__}).")
+    rows, styles = [], []
+    for r in found:
+        rows.append([
+            r.get("platform_label") or r.get("platform") or "—",
+            {"text": r.get("campaign_name") or "(untitled campaign)", "href": "/reports/unmapped"},
+            r.get("account_id") or "—",
+            r.get("last_seen") or "—",
+            _money(r.get("spend_30d")),
+        ])
+        styles.append(None)
+    return {
+        "columns": columns, "rows": rows, "row_styles": styles,
+        "note": (f"{len(rows)} campaign{'s' if len(rows) != 1 else ''} with real spend and no "
+                 "client on file, biggest 30-day spend first. File each one under a client at "
+                 "/reports/unmapped -- until then, the spend behind it reaches no client's "
+                 "dashboard and paces against no budget."),
+    }
+
+
+def reports_pacing_under() -> dict:
+    """Budget lines under-pacing for three or more straight days --
+    `modules.reports.store.latest_snapshots()`, the same run the pacing
+    board and the dashboard's alert count read, held to the "under" band
+    alone.
+
+    Not every band: "over" is a client spending faster than sold, which is
+    the campaign's own business rather than a client not getting what they
+    paid for, and "stalled"/"unmapped" are different problems with their own
+    screens (`/reports/pacing`, this report's own sibling above). Only
+    `alert` rows -- `pacing.ALERT_DAYS` (3) straight days under -- because a
+    line that dipped yesterday and recovered is not a finding, and a report
+    that fires on every ordinary wobble is one nobody reads.
+
+    Reads only the latest pacing run; nothing here reaches a provider.
+    """
+    columns = ["Client", "Product", "Platform", "Pace", "Sold / mo",
+              "Spent to date", "Expected to date", "Days under"]
+    bp = _reports_binding_problem()
+    if bp:
+        return _unmeasured(columns, bp)
+    try:
+        from modules.reports import store as reports_store
+        snaps = reports_store.latest_snapshots()
+    except Exception as exc:                                  # noqa: BLE001
+        return _unmeasured(columns, f"the pacing snapshots could not be read ({type(exc).__name__}).")
+    under = [s for s in snaps if s.get("band") == "under" and s.get("alert")]
+    under.sort(key=lambda s: s.get("pace") if s.get("pace") is not None else 1.0)
+    rows, styles = [], []
+    for s in under:
+        pace = s.get("pace")
+        rows.append([
+            _c360_link(s.get("client_name") or s.get("client") or ""),
+            s.get("product") or "—",
+            ", ".join(s.get("platform_labels") or []) or "—",
+            f"{pace * 100:.0f}%" if pace is not None else "—",
+            _money(s.get("monthly_budget")),
+            _money(s.get("actual_to_date")),
+            _money(s.get("expected_to_date")),
+            f"{s.get('trend_days', 0)}+",
+        ])
+        styles.append(None)
+    return {
+        "columns": columns, "rows": rows, "row_styles": styles,
+        "note": (f"{len(rows)} budget line{'s' if len(rows) != 1 else ''} pacing under for "
+                 "three or more days straight -- a client paying for delivery that is not "
+                 "landing. From the latest hourly pacing run; see /reports/pacing."),
+    }
+
+
 # --------------------------------------------------- Smart 1 Sites vs hosting
 def sites_billing() -> dict:
     """Every Smart 1 Sites project against the three hosting products.
@@ -2889,6 +2994,24 @@ REPORTS = {
                 "maps to, or why it maps to none.",
         "ico": "&#128506;",
         "fn": google_accounts,
+        "group": "Data Quality",
+    },
+    "reports-unmapped": {
+        "title": "Campaigns With No Client",
+        "desc": "Real ad spend in modules/reports filed under nobody — biggest "
+                "30-day spend first. File each one at /reports/unmapped, or the "
+                "spend behind it reaches no client's dashboard.",
+        "ico": "&#128204;",
+        "fn": reports_unmapped_campaigns,
+        "group": "Data Quality",
+    },
+    "reports-pacing-under": {
+        "title": "Lines Pacing Under",
+        "desc": "Budget lines under-pacing for three or more straight days — a "
+                "client paying for delivery that is not landing, from the "
+                "latest hourly pacing run.",
+        "ico": "&#128201;",
+        "fn": reports_pacing_under,
         "group": "Data Quality",
     },
     "sell-to-clients": {

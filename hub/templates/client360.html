@@ -225,7 +225,7 @@ const C360_SECTIONS=[
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
   {key:'creative', label:'Creative & brand',  match:['creative infor','client images','brand']},
   {key:'social',   label:'Social & links',    match:['social media','social content','tracked links','form submissions','approvals & proof links']},
-  {key:'work',     label:'Work & requests',   match:['work for this','web tickets','execution plan']},
+  {key:'work',     label:'Work & requests',   match:['work for this','ad performance','web tickets','execution plan']},
   // Skill-gated cards (modules/skills360). Drawn only for a client whose
   // skill is on; an empty section is the CSS fallback's "nothing here".
   {key:'skills',   label:'Skills',            match:['ecommerce','email creator']},
@@ -631,6 +631,19 @@ function render(g,q){
     <span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Work for this client</h3>
     <div class="right" id="c-work-sum"></div></div>
     <div class="card-b" id="c-work"><div class="empty">Loading…</div></div></div>`;
+
+  /* ---------- Ad Performance (modules/reports) ----------
+     The dashboard scoreboard and two QA reports read this book-wide; nothing
+     put a client's own slice of it on the record every rep already opens, so
+     a live dashboard link, a confirmed campaign and a budget line pacing
+     under all sat invisible unless somebody knew /reports/ existed. Read
+     through /api/client/, the prefix /api/client/audit already relies on —
+     that is what the Suite frame allowlists, so a card pointed anywhere
+     else renders on every screen except inside it. */
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+    <span class="src-tag src-web" style="background:#eef2ff;color:#3730a3">Reports</span><h3>Ad Performance</h3>
+    <div class="right" id="c-adperf-link"></div></div>
+    <div class="card-b" id="c-adperf"><div class="empty">Loading…</div></div></div>`;
 
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
     <span class="src-tag src-web" style="background:#e0f2fe;color:#075985">Client</span><h3>Approvals &amp; proof links</h3>
@@ -3287,6 +3300,60 @@ function renderForms(d){
     }).join('')+'</tbody></table>'+
     (d.note?'<div class="muted" style="font-size:11.5px;margin-top:7px">'+esc(d.note)+'</div>':'');
 }
+function renderAdPerformance(d){
+  var el=document.getElementById('c-adperf'); if(!el) return;
+  var link=document.getElementById('c-adperf-link'); if(link) link.innerHTML='';
+  if(d.measured===false){
+    el.innerHTML='<div class="empty">'+esc(d.error||'Not measured.')+'</div>';
+    return;
+  }
+  if(link && d.link){
+    link.innerHTML='<a class="open-link" href="'+esc(d.link.url)+'" target="_blank" rel="noopener">'+
+      'Open client dashboard →</a>';
+  }
+  var bits=[];
+  bits.push('<div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px">'+
+    '<div><b style="font-size:20px">'+d.campaigns_confirmed+'</b>'+
+    '<div class="muted" style="font-size:11px">campaign(s) mapped</div></div>'+
+    (d.campaigns_pending?'<div><b style="font-size:20px;color:#b45309">'+d.campaigns_pending+'</b>'+
+      '<div class="muted" style="font-size:11px">waiting for confirmation</div></div>':'')+
+    '<div><b style="font-size:20px">'+(d.link?'Live':'None')+'</b>'+
+    '<div class="muted" style="font-size:11px">client dashboard</div></div></div>');
+  if(!d.link){
+    bits.push('<div class="empty">No live report link for this client yet. One is minted the '+
+      'first time a budget line or a mapped campaign is filed under them.</div>');
+  }
+  if((d.budget_lines||[]).length){
+    var bandFor={};
+    (d.pacing||[]).forEach(function(p){ bandFor[p.product]=p; });
+    bits.push('<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:6px">'+
+      '<thead><tr><th style="text-align:left;padding:5px 6px;font-size:11px;color:#94a3b8;'+
+      'text-transform:uppercase">Product</th><th style="text-align:right;padding:5px 6px;'+
+      'font-size:11px;color:#94a3b8;text-transform:uppercase">Sold / mo</th>'+
+      '<th style="text-align:left;padding:5px 6px;font-size:11px;color:#94a3b8;'+
+      'text-transform:uppercase">Pacing</th></tr></thead><tbody>'+
+      d.budget_lines.map(function(b){
+        var p=bandFor[b.product];
+        var pace = p && p.band==='under' && p.alert
+          ? '<span style="color:#dc2626">▼ under pace'+(p.pace!=null?' ('+Math.round(p.pace*100)+'%)':'')+'</span>'
+          : (p ? esc((p.band||'on')+(p.pace!=null?' ('+Math.round(p.pace*100)+'%)':'')) : 'not mapped to a run yet');
+        return '<tr><td style="padding:6px;border-bottom:1px solid #f4f7fa">'+esc(b.product)+
+          (b.status && b.status!=='active'?' <span class="muted" style="font-size:11px">('+esc(b.status)+')</span>':'')+
+          '</td><td style="padding:6px;border-bottom:1px solid #f4f7fa;text-align:right">$'+
+          Number(b.monthly_budget).toLocaleString()+'</td>'+
+          '<td style="padding:6px;border-bottom:1px solid #f4f7fa">'+pace+'</td></tr>';
+      }).join('')+'</tbody></table>');
+  } else {
+    bits.push('<div class="empty">No budget line on file yet — nothing here is being paced '+
+      'against a sold figure.</div>');
+  }
+  el.innerHTML=bits.join('');
+}
+function loadAdPerformance(name){
+  if(!name) return;
+  fetch('/api/client/ad-performance?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(renderAdPerformance).catch(function(){});
+}
 function loadForms(name){
   var sel=document.getElementById('formsPeriod');
   var period = sel ? sel.value : 'this_month';
@@ -4080,6 +4147,7 @@ function wireEmailComposer(name){
 
 function loadBrandAndWork(name){
   loadForms(name);
+  loadAdPerformance(name);
   loadGroup(name);
   loadOwner(name);
   loadOrders(name);
