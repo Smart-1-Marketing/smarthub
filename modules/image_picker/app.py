@@ -47,6 +47,7 @@ from . import (cloudinary_sink, filing, ghl, profile, providers, taxonomy,
 from .models import (
     DB_BOOT_ERROR, PickerClient, SavedImage, already_saved, get_client,
     get_client_by_token, init_db, new_token, session, slugify, unique_slug,
+    provider_identity,
 )
 from hub.webargs import clamp_int
 
@@ -648,7 +649,7 @@ def api_save():
             continue
 
         provider = str(raw.get("provider") or "")[:40]
-        pid = str(raw.get("provider_image_id") or "")[:120]
+        pid = str(raw.get("provider_image_id") or "")
 
         existing = already_saved(db, client.id, provider, pid)
         if existing:
@@ -666,7 +667,7 @@ def api_save():
         row = SavedImage(
             client_id=client.id,
             provider=provider,
-            provider_image_id=pid,
+            provider_image_id=provider_identity(pid),
             source_url=str(raw.get("source_url") or "")[:900],
             author=str(raw.get("author") or "")[:200],
             author_url=str(raw.get("author_url") or "")[:900],
@@ -1172,11 +1173,7 @@ def api_record_upload():
     project_key = slugify(project)[:80] if project else ""
 
     db = session()
-    existing = db.execute(
-        select(SavedImage).where(SavedImage.client_id == client.id,
-                                 SavedImage.provider == source,
-                                 SavedImage.provider_image_id == public_id)
-    ).scalar_one_or_none()
+    existing = already_saved(db, client.id, source, public_id)
     if existing:
         # Keep it here as well, copy it, or move it -- filing.CHOICES, which is
         # where those three are described. Saying nothing is the answer this
@@ -1201,7 +1198,7 @@ def api_record_upload():
     img = SavedImage(
         client_id=client.id,
         provider=source,
-        provider_image_id=public_id,
+        provider_image_id=provider_identity(public_id),
         source_url=url,
         filename=str(body.get("original_filename") or "")[:300] or None,
         alt_text=str(body.get("alt") or "")[:500] or None,

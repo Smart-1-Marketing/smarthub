@@ -1,0 +1,104 @@
+"""Offline tests for the Unassigned Traffic Resolver.
+
+No Google calls. These assert the diagnostic rules, exact-vs-capped math, and
+that the resolver is actually reachable through SmartHub's mounted UTM tool.
+Run: python3 test_unassigned_traffic.py
+"""
+from modules.unassigned_traffic.app import diagnose_row, summarize
+
+passed = failed = 0
+
+
+def check(label, got, want):
+    global passed, failed
+    if got == want:
+        passed += 1
+        print("  ok   ", label)
+    else:
+        failed += 1
+        print("  FAIL ", label, "got", repr(got), "want", repr(want))
+
+
+check("missing attribution",
+      diagnose_row({"source": "(not set)", "medium": "(not set)", "sessions": 8})["issue"],
+      "missing_attribution")
+check("missing medium",
+      diagnose_row({"source": "newsletter", "medium": "(not set)", "sessions": 8})["issue"],
+      "missing_medium")
+check("self referral",
+      diagnose_row({"source": "shop.example.com", "medium": "referral", "sessions": 3},
+                   "example.com")["issue"],
+      "self_referral")
+check("payment referral",
+      diagnose_row({"source": "checkout.stripe.com", "medium": "referral", "sessions": 3})["issue"],
+      "payment_referral")
+check("nonstandard medium",
+      diagnose_row({"source": "facebook", "medium": "paid-facebook", "sessions": 9})["issue"],
+      "nonstandard_medium")
+check("paid missing campaign",
+      diagnose_row({"source": "google", "medium": "cpc", "campaign": "", "sessions": 11})["issue"],
+      "paid_missing_campaign")
+
+rows = [
+    {"source": "x", "medium": "weird", "sessions": "20"},
+    {"source": "", "medium": "", "sessions": "5"},
+]
+out = summarize(rows, 100)
+check("detail sum can be the total", out["unassigned_sessions"], 25)
+check("unassigned rate", out["unassigned_rate"], 25.0)
+check("rows largest first", out["rows"][0]["sessions"], 20)
+check("full coverage", out["diagnostic_coverage_pct"], 100.0)
+check("full coverage is not limited", out["detail_limited"], False)
+
+# The Data API totals query can say 40 sessions while the capped detail table
+# only contains the largest 25. The headline must stay 40, not silently become
+# the sum of the visible rows.
+capped = summarize(rows, 100, unassigned_sessions=40)
+check("GA4 exact total wins over detail sum", capped["unassigned_sessions"], 40)
+check("rate uses exact total", capped["unassigned_rate"], 40.0)
+check("diagnosed rows remain honest", capped["diagnosed_sessions"], 25)
+check("coverage names the gap", capped["diagnostic_coverage_pct"], 62.5)
+check("capped detail is labeled", capped["detail_limited"], True)
+check("historical warning", "not rewritten" in capped["note"], True)
+
+# The central WSGI file already mounts /tools/utm. The package wires this
+# related attribution diagnostic under that mount, so it is reachable without
+# adding a second application mount.
+import modules.utm_builder as utm_package  # noqa: E402
+rules = {r.rule for r in utm_package._utm_app.app.url_map.iter_rules()}
+check("resolver page is wired", "/unassigned-traffic/" in rules, True)
+check("resolver client API is wired", "/unassigned-traffic/api/clients" in rules, True)
+check("resolver analysis API is wired", "/unassigned-traffic/api/analyze" in rules, True)
+
+# Both successful reads and timeouts must reach the shared usage ledger.
+from unittest.mock import Mock, patch
+import requests
+from modules.unassigned_traffic.app import _run_report
+with patch("hub.quotas.record_google") as meter, patch("requests.post", return_value=Mock(ok=True, json=lambda: {"rows": []})):
+    _run_report("synthetic", "123", {})
+    check("successful GA4 read is attributed", meter.call_args.kwargs, {"module": "unassigned_traffic", "ok": True})
+with patch("hub.quotas.record_google") as meter, patch("requests.post", side_effect=requests.Timeout):
+    try:
+        _run_report("synthetic", "123", {})
+    except requests.Timeout:
+        pass
+    check("GA4 timeout is attributed", meter.call_args.kwargs, {"module": "unassigned_traffic", "ok": False})
+
+# Attribute the requested analysis without recording tokens or GA4 detail rows.
+import importlib
+diagnostic = importlib.import_module("modules.unassigned_traffic.app")
+with patch.object(diagnostic, "live_analysis", return_value={"ok": True, "days": 30, "unassigned_sessions": 12}), patch("hub.auth.user_from_environ", return_value="QA staff"), patch("hub.audit.log") as activity:
+    response = diagnostic.app.test_client().get("/api/analyze?client=QA")
+    check("successful analysis responds", response.status_code, 200)
+    check("analysis records its module and action", activity.call_args.args, ("unassigned_traffic", "analysis"))
+    check("analysis records its client and actor", activity.call_args.kwargs,
+          {"actor": "QA staff", "client": "QA", "ok": True, "days": 30, "unassigned_sessions": 12})
+with patch.object(diagnostic, "live_analysis", side_effect=requests.Timeout("upstream detail")), patch("hub.auth.user_from_environ", return_value="QA staff"), patch("hub.audit.log") as activity:
+    response = diagnostic.app.test_client().get("/api/analyze?client=QA")
+    check("failed analysis responds", response.status_code, 502)
+    check("failed analysis is attributable", activity.call_args.args, ("unassigned_traffic", "analysis_failed"))
+    check("activity keeps only the error type", activity.call_args.kwargs,
+          {"actor": "QA staff", "client": "QA", "error": "Timeout"})
+
+print(f"\n{passed} passed, {failed} failed")
+raise SystemExit(1 if failed else 0)

@@ -45,7 +45,7 @@ ALIASES = {
     "completed_listens": ("completed listens", "completes", "completions", "full listens",
                           "audio completions", "listens completed"),
     "ltr": ("ltr", "listen through rate", "listen thru rate", "completion rate"),
-    "conversions": ("conversions", "total conversions"),
+    "conversions": ("conversions", "total conversions", "convs"),
 }
 
 REQUIRED = ("date", "account_id", "campaign_id")

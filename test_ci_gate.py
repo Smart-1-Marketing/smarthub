@@ -64,7 +64,12 @@ print("-" * 46)
 src = WORKFLOW.read_text(encoding="utf-8")
 here = {p.name for p in ROOT.glob("test_*.py")}
 # This file is the gate's own check; it is added to the workflow with the rest.
-named = set(re.findall(r"(test_[a-z0-9_]+\.py)", src))
+def named_tests(source):
+    """Keep relative directories so nested tests are checked at their real path."""
+    return set(re.findall(r"((?:[A-Za-z0-9_.-]+/)*test_[a-z0-9_]+\.py)", source))
+
+
+named = named_tests(src)
 
 check("the workflow is where it is expected to be", WORKFLOW.exists(), str(WORKFLOW))
 check("and there are test files to gate", len(here) > 50, len(here))
@@ -78,6 +83,8 @@ check("every test file in the repo is run by the gate", ungated == [],
 # so, so only an *unguarded* name is a finding.
 phantom = []
 for f in sorted(named - here):
+    if (ROOT / f).is_file():
+        continue
     if f in EXEMPT:
         continue
     if re.search(r"if \[ -f " + re.escape(f) + r" \]", src):
@@ -131,6 +138,9 @@ check("a test file the workflow never names is reported",
 check("...and one it does name is not",
       "test_unwired.py" in named,
       "test_unwired.py is what this file was written about")
+check("nested test references retain their directories",
+      named_tests("python -m pytest tests/test_present.py tests/test_missing.py")
+      == {"tests/test_present.py", "tests/test_missing.py"})
 
 print(f"\n{'-' * 46}\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

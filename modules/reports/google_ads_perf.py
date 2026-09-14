@@ -26,7 +26,7 @@ from . import store
 
 log = logging.getLogger(__name__)
 
-DAYS = 7
+DAYS = 30
 NOT_CONNECTED = "not connected — Connect Google Ads in /tools/ads/settings"
 
 

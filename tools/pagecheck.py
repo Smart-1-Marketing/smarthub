@@ -81,6 +81,7 @@ HUB_PAGES = [
     "/", "/client360", "/tools", "/creative", "/qa", "/seo", "/activity",
     "/diagnostics", "/clients", "/status", "/sales/leads",
     "/tools/commercial-builder/",
+    "/tools/youtube/",
     # Two blueprint pages, so no mount enumeration reaches them, and both
     # render their whole table from JavaScript into chrome the hub app
     # injects afterwards -- which is exactly the pair of things this checker

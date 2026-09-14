@@ -10,6 +10,7 @@ import type { ProjectStore, Project, SizeApproval } from './projects';
 import type { SizeKey, QaFinding } from './types';
 
 const active = new Map<string, string>();
+let reviewQueue: Promise<void> = Promise.resolve();
 const qaVersion = () => process.env.RENDER_GIT_COMMIT || process.env.BUILD_SHA || 'development';
 export const fileHash = (file: string) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 export const fileUrl = (out: string, file: string) => '/files/' + path.relative(out, file).split(path.sep).map(encodeURIComponent).join('/');
@@ -31,15 +32,15 @@ export function readReview(out: string, id: string, projectId: string): Review {
   if (r.status === 'building' && active.get(projectId) !== id) return { ...r, status: 'failed', error: 'Review interrupted. Build a new contact sheet.' };
   return r;
 }
-export function beginReview(out: string, root: string, project: Project): string {
+export function beginReview(out: string, root: string, project: Project, resumeId?: string): string {
   const running = active.get(project.projectId); if (running) return running;
   const campaignFile = path.join(out, 'campaigns', project.requestId + '.json');
   const doc = readCampaign(campaignFile);
-  const r: Review = { qaVersion: qaVersion(), id: randomUUID(), projectId: project.projectId, revision: campaignRevision(doc),
+  const r: Review = { qaVersion: qaVersion(), id: resumeId || randomUUID(), projectId: project.projectId, revision: campaignRevision(doc),
     createdAt: new Date().toISOString(), status: 'building', cells: [] };
   captureVersion(campaignFile, doc, r.revision);
   writeReview(out, r); active.set(project.projectId, r.id);
-  void (async () => {
+  const run = async () => {
     try {
       const notes = (doc.notes ?? []).filter((n: string) => /copy|model|openai/i.test(n) && /fell back|form answers|no .*key|fail|not configured|error/i.test(n));
       for (const concept of doc.campaign.concepts) for (const platform of doc.platforms ?? ['google']) {
@@ -73,8 +74,26 @@ export function beginReview(out: string, root: string, project: Project): string
       try { writeReview(out, r); } catch { console.error('Could not persist contact-sheet completion', r.id); }
       active.delete(project.projectId);
     }
-  })();
+  };
+  reviewQueue = reviewQueue.then(run, run);
   return r.id;
+}
+export function latestReview(out: string, projectId: string): Review | null {
+  const dir=path.join(out,'reviews');if(!fs.existsSync(dir))return null;
+  const rows=fs.readdirSync(dir).flatMap(id=>{try{return [readReview(out,id,projectId)];}catch{return [];}});
+  return rows.sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0]||null;
+}
+export function recoverReviews(out:string,root:string,store:ProjectStore) {
+  const dir=path.join(out,'reviews');if(!fs.existsSync(dir))return;
+  for(const id of fs.readdirSync(dir))try{
+    const r:Review=JSON.parse(fs.readFileSync(reviewFile(out,id),'utf8'));
+    if(r.status!=='building')continue;
+    const project=store.get(r.projectId);
+    if(!project)continue;
+    const doc=readCampaign(path.join(out,'campaigns',project.requestId+'.json'));
+    if(campaignRevision(doc)!==r.revision){r.status='failed';r.error='The draft changed during the restart. Build a new contact sheet.';writeReview(out,r);continue;}
+    beginReview(out,root,project,id);
+  }catch(e){console.error('Could not recover contact sheet',id,String(e));}
 }
 export function approveReview(out: string, root: string, store: ProjectStore, project: Project, id: string, revision: string, by?: string) {
   const r = readReview(out, id, project.projectId);
