@@ -138,6 +138,10 @@ ALLOW = {
         "the retired builder's archive is read-only today; its writer is kept "
         "beside the reader rather than half a store being left behind",
     "hub/clients_registry.py:update_house_client": "house client store: the update",
+    "hub/knack_api.py:forget_schema":
+        "Knack schema cache: explicit invalidation API kept beside the TTL "
+        "reader for callers that change schema; normal reads expire cached "
+        "values automatically, and no refresh UI is claimed",
 
     # --- computed and reported as a count rather than a list ----------------
     "hub/target_areas.py:dropped_zips":

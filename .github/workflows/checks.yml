@@ -3053,3 +3053,5 @@ jobs:
 
       - name: Ask SmartHub role and tool boundary
         run: python3 test_ask_smarthub.py
+      - name: Local Services Ads setup and reporting
+        run: python3 test_ads_local_services.py

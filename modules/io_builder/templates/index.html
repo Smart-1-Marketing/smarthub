@@ -3620,7 +3620,7 @@ function openModalA11y(el){
  el.setAttribute("role","dialog");el.setAttribute("aria-modal","true");
  const h=el.querySelector("h2,h3");if(h&&h.textContent)el.setAttribute("aria-label",h.textContent.trim());
  const f=el.querySelector('input,select,textarea,button');
- if(f)setTimeout(()=>{try{f.focus();}catch(e){}},30);
+ if(f)setTimeout(()=>{try{if(!el.contains(document.activeElement))f.focus();}catch(e){}},30);
 }
 function closeModalA11y(){ try{if(_lastFocus&&_lastFocus.focus)_lastFocus.focus();}catch(e){} _lastFocus=null; }
 document.addEventListener("keydown",e=>{

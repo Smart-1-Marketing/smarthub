@@ -58,15 +58,6 @@ def _remember(key, value):
     return value
 
 
-def forget_schema() -> None:
-    """Drop every reading, so the next call asks Knack.
-
-    For a caller that has just written to Knack, or a person who has just
-    edited it and would rather not wait out the window.
-    """
-    _schema_cache.clear()
-
-
 def configured() -> bool:
     return bool(os.environ.get("KNACK_APP_ID") and os.environ.get("KNACK_API_KEY"))
 
