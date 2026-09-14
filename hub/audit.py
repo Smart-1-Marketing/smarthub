@@ -160,7 +160,6 @@ LOG_NAMES: dict[str, str] = {
     # display_ads: the rows already on disk carry `utm`, and renaming the call
     # site to match a table would orphan all of them to make a string tidy.
     "utm_builder": "utm",
-    "youtube_studio": "youtube",
 }
 
 # A module that deliberately writes no activity row, and why.
