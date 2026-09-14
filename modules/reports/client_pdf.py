@@ -250,9 +250,63 @@ def _organic(d: "_Doc", o: dict | None):
     else:
         d.text("Nothing to show for this period yet.", size=9.5, color=MUTED)
     gbp = o.get("gbp") or {}
-    if gbp:
+    if gbp.get("measured"):
+        # Only a measured reading reaches the document: the page carries no
+        # card at all otherwise, and the PDF is the same document.
         d.space(6)
-        d.text(f"{gbp.get('label', '')}: {gbp.get('note', '')}", size=9, color=MUTED)
+        rating = gbp.get("rating")
+        count = gbp.get("review_count")
+        line = (f"{rating:.1f} out of 5" if rating is not None else "no rating")
+        line += (f" from {count:,} {gbp.get('reviews_label', 'Google reviews')}"
+                 if count is not None else "")
+        if gbp.get("status_label"):
+            line += f", {gbp['status_label'].lower()}"
+        d.text(f"{gbp.get('label', 'Google Business Profile')}: {line} (read {gbp.get('as_of', '')})",
+               size=9.5, color=NAVY)
+        ch = gbp.get("change") or {}
+        if ch.get("measured"):
+            parts = []
+            if ch.get("rating_delta") is not None:
+                parts.append(f"{ch['rating_delta']:+.1f} rating" if ch["rating_delta"] else "rating unchanged")
+            if ch.get("reviews_delta") is not None:
+                parts.append(f"{ch['reviews_delta']:+,} reviews" if ch["reviews_delta"] else "no new reviews")
+            if parts:
+                d.text(f"Over the last {ch.get('days')} days: " + ", ".join(parts)
+                       + f" (since {ch.get('since', '')}).", size=9, color=MUTED)
+    d.space(10)
+
+
+def _youtube(d: "_Doc", y: dict | None):
+    """The channel section, from the same block the page draws. Absent
+    where nothing was measured: the page carries no card, and the PDF is
+    the same document."""
+    if not y or not y.get("measured"):
+        return
+    L = y.get("labels") or {}
+    d.rule()
+    d.text(L.get("section", "YouTube channel"), size=14, bold=True, color=NAVY)
+    if y.get("title"):
+        d.text(y["title"] + (f"  ·  {y['handle']}" if y.get("handle") else ""), size=9, color=MUTED, gap=8)
+    subs = (L.get("hidden", "hidden") if y.get("subscribers_hidden")
+            else f"{y['subscribers']:,}" if y.get("subscribers") is not None else "—")
+    d.tiles([
+        {"label": L.get("subscribers", "Subscribers"), "display": subs},
+        {"label": L.get("views", "Views"), "display": f"{y['views']:,}" if y.get("views") is not None else "—"},
+        {"label": L.get("videos", "Videos"), "display": f"{y['videos']:,}" if y.get("videos") is not None else "—"},
+    ])
+    ch = y.get("change") or {}
+    if ch.get("measured"):
+        parts = []
+        if not y.get("subscribers_hidden") and ch.get("subscribers_delta") is not None:
+            parts.append(f"{ch['subscribers_delta']:+,} subscribers" if ch["subscribers_delta"] else "subscribers unchanged")
+        if ch.get("views_delta") is not None:
+            parts.append(f"{ch['views_delta']:+,} views" if ch["views_delta"] else "no new views")
+        if ch.get("videos_delta") is not None:
+            parts.append(f"{ch['videos_delta']:+,} videos" if ch["videos_delta"] else "no new videos")
+        if parts:
+            d.text(f"{L.get('change', 'Over the last 30 days')}: " + ", ".join(parts)
+                   + f" (since {ch.get('since', '')}).", size=9, color=MUTED)
+    d.text(f"Read {y.get('as_of', '')}", size=9, color=MUTED)
     d.space(10)
 
 
@@ -295,6 +349,7 @@ def build(agg: dict) -> bytes:
         _line_chart(d, trend, "impressions")
 
     _organic(d, agg.get("organic"))
+    _youtube(d, agg.get("youtube"))
 
     table = agg.get("table") or []
     d.text("Product detail", size=12, bold=True, color=NAVY, gap=8)

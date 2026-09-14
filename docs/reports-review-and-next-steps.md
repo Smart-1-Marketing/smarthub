@@ -107,6 +107,7 @@ client's page. `CLAUDE.md` carries the reasoning; this is the map.
 | A YouTube buy reads as YouTube | `google_ads_perf.py`, `automap.py`, the client's page | Every Google Ads campaign with no product in its name filing as Paid Search, so a TrueView campaign read as search on the client's own page; and the "Video ads completed" tile having nothing to draw for Google. The channel type Google reports decides the default product, and completes are the p100 rate times impressions on the rows that served video. |
 | The first-week projection | `pacing.py` | The daily rate divided by seven however few days the flight had run. |
 | The StackAdapt wait, bounded | `stackadapt.py`, the native pull job | Up to thirty seconds asleep on the one scheduler thread while the platform prepared a report; now twenty seconds at most, then pending, asked again next tick. |
+| The client's Google listing, read live | Client 360's *Google Business Profile* card, `/api/client/places*`, the scheduler's `places_snapshot`, the client's page and PDF | A rating weeks old on the record and a *coming soon* promise on the page a client reads. A place is proposed once (the only candidate, or the only one on the client's own domain) and a person confirms it; one billed read a night inside a window, never on a page load; a rating never printed without its count; four kinds of nothing kept apart; scan and snapshot never folded together. |
 
 ## Where Google Places fits
 
@@ -177,7 +178,11 @@ whose channel we manage (Social Media Management, Online Video):
 
 - **YouTube Data API v3** (key, public, free within quota): subscriber,
   view and video counts for the channel. A daily snapshot gives the trend
-  with no consent, the same shape as the Places snapshot.
+  with no consent, the same shape as the Places snapshot. **Built**:
+  `hub/youtube.py` reads it on `YOUTUBE_API_KEY`, falling back to
+  `GOOGLE_PLACES_API_KEY` (the same Cloud project) and naming which
+  answered; a link on the SEO record resolves for one unit before a
+  search spends a hundred.
 - **YouTube Analytics API** (OAuth, `yt-analytics.readonly`): views, watch
   time, subscribers gained per day, top videos, traffic sources. The scope
   is added to Google Finder's list, and every login connected before that
@@ -190,6 +195,106 @@ section is absent rather than empty. "YouTube" may be named in that section
 the way "Google search" is, because it is the client's own channel and not
 a platform Smart 1 buys from; it needs an entry in `products.ALLOWED` with
 that reason or the forbidden-word sweep will refuse it. About two days.
+
+## Where Microsoft Ads and GroundTruth fit
+
+Both are already platforms here -- `store.PLATFORMS` carries `bing`
+(labelled *Microsoft Ads*, default product Paid Search) and `groundtruth`
+(labelled *GroundTruth*, default product Geofencing, with `visits` as its
+own extra metric), each with a Windsor source in `provider_map.py`
+(`bing_ads`, `groundtruth`) and a row on `/reports/` that reads *never
+synced* until something writes one. So each can arrive three ways today:
+the provider's table once Windsor's connector for it is switched on, or
+the platform's own export through the CSV door. What neither has is a
+**native pull**, and that is the item on this list.
+
+**Microsoft Ads.** `BING_AD_DEVELOPER_TOKEN` is set on Render, and a
+developer token is one of four things the Microsoft Advertising API asks
+for on every call -- the other three are what still has to exist before a
+pull can run. Nothing in the Hub reads that variable yet: Smart 1 Ads
+carries a *phase two* stub (`/api/bing/*` answers "not implemented") and
+nothing else names it. The spelling stays exactly as set -- the
+`hub/config.py` ALIASES rule is only spellings in use, and inventing a
+`BING_ADS_` twin beside it is how thirteen correct modules once became
+findings.
+
+1. **An app registration on the Microsoft identity platform** --
+   `BING_AD_CLIENT_ID` and, for a web app, `BING_AD_CLIENT_SECRET`, with a
+   redirect URI on this host. The URI is decided here so the registration
+   can be finished before the code exists:
+   `<PUBLIC_BASE_URL>/tools/ads/oauth/bing/callback`, beside Google's
+   `/tools/ads/oauth/callback` on the same mount, which on this
+   deployment is `https://smart1.agency/tools/ads/oauth/bing/callback`.
+   The registration has to allow **personal Microsoft accounts as well as
+   organizational ones**, because the token endpoint is `/common/` and a
+   Microsoft Advertising login is as often a personal account as a work
+   one. That is a **seventh OAuth flow**, so it is declared in
+   `hub/oauth_redirects.py` with which code builds its URI (the sweep
+   there fails on a flow that declares none), built from
+   `config.public_base_origin()` like the Suite app's, and printed on
+   `/diagnostics` so the string pasted into the Azure portal is the
+   string the code sends.
+2. **One consent, kept.** Scope `https://ads.microsoft.com/msads.manage`
+   plus `offline_access`, consented once by a user who can see the
+   manager account, and the refresh token stored the way
+   `modules/ads_builder/google_ads.py` keeps Google's (`refresh_token_value`:
+   the store's setting first, an env var as the override). Refreshed at
+   `login.microsoftonline.com/common/oauth2/v2.0/token` per call, never
+   cached across a deploy. A Connect button beside Google's on
+   `/tools/ads/settings`, which is where the stub already says Bing will
+   arrive.
+3. **The manager account** -- `BING_MANAGER_ACCOUNT_ID` and
+   `BING_MANAGER_ACCOUNT_NUMBER`, both set on Render now, the spellings as
+   set -- and nothing per client. The id is the manager's customer id,
+   the `CustomerId` the API takes on every call; the number is the one
+   printed beside it in the Microsoft Advertising UI, kept for the
+   diagnostics row and sent nowhere. The client accounts under the
+   manager are read from Customer Management (`Accounts/Search` on the
+   v13 REST host) on each pull, so an account added to the manager next
+   month is swept without anybody typing its id, the MCC expansion
+   `google_ads_perf.py` already leans on. A value in the id slot that is
+   not numeric is refused by name on the first call rather than sent,
+   because the two are easy to paste the wrong way round and the API's
+   own answer to a wrong customer id is a bare authorization failure.
+4. **The pull is the StackAdapt shape, not the Google one.** Reporting v13
+   is asynchronous: `GenerateReport/Submit` with a daily
+   CampaignPerformanceReport (TimePeriod, AccountId, CampaignId,
+   CampaignName, CampaignType, Spend, Impressions, Clicks, Conversions),
+   `GenerateReport/Poll` until it is ready, then a ZIP holding a CSV.
+   So it is `stackadapt.py`'s submit-poll-pending under `BUDGET_SECONDS`
+   on the shared scheduler thread, plus a CSV read the Trade Desk
+   MyReports parser already has half of. Spend comes back in the
+   account's currency, not micros -- the divisor note above is about
+   Windsor's table, not this. `CampaignType` is what the auto-mapper
+   files a default product from (Search, Audience, Shopping, the
+   `products.GOOGLE_CHANNEL_PRODUCTS` rule one platform over), and the
+   REST hosts (`reporting.api.bingads.microsoft.com`,
+   `clientcenter.api.bingads.microsoft.com`) go into
+   `hub/quotas._PROVIDER_MARKERS`, or the usage page cannot name the
+   calls. The month total for `reconcile.py` is an
+   AccountPerformanceReport over the same window: a re-read of the same
+   feed, labelled as one, not an independent source.
+
+What is not knowable until the first call: whether the token is a
+**Universal** (production) one -- a sandbox token answers only the
+sandbox host, and Microsoft publishes the tier nowhere an API can read,
+the Google `Explorer` lesson. The pull says which answer it got rather
+than reading a refusal as a bad key. About two days, most of it the
+consent screen and the async report.
+
+**GroundTruth.** The reporting API is documented at
+https://reporting.groundtruth.com/api and we have no API access yet;
+that page could not be read from the development environment either
+(its outbound proxy refuses the host), so the shape below is what is
+known from the platform rather than from the document. Until credentials
+arrive the CSV door is the route, and `visits` -- GroundTruth's own
+store-visit figure -- is already a column the fact table carries and the
+client page draws for a geofencing buy. When the key comes: one
+`groundtruth.py` on the `audiogo.py` pattern (a field map a person
+confirms on a check page before the normalize reads it, because the
+first sync is where a column named `spend` turns out to hold something
+else), the host in `_PROVIDER_MARKERS`, and the visits metric filed
+under its own name rather than folded into conversions.
 
 ## Suggested order
 
@@ -210,8 +315,23 @@ that reason or the forbidden-word sweep will refuse it. About two days.
    row), the unmapped queue opens on the channel's product, and completes
    are the rate times impressions -- carried only on a row that served
    video, so a search-only client's page draws no "Video ads completed 0".
-6. Google Places → the Business Profile card.
-7. YouTube organic section.
+6. ~~Google Places → the Business Profile card.~~ Done, for the keyed
+   half: `hub/places.py`, the Client 360 card, the nightly reading, and
+   the client's page and PDF reading it in place of the coming-soon
+   note. The Performance API half (calls, directions, website clicks)
+   is not built; the upsell report still reads the scan.
+7. ~~YouTube organic section.~~ Done, for the keyed half: `hub/youtube.py`,
+   the Client 360 card, the nightly reading on the same key as Places, and
+   the client's page and PDF gated on a video or social product and a
+   confirmed channel. The Analytics API half (watch time, subscribers
+   gained per day, traffic sources) is not built; it is a scope on Google
+   Finder's list and every connected login re-consents for it.
 8. ~~File the proposal adapter's link and lines under the module's own key.~~
    Done, with the bounded pricing rule, the pacing alerts on `/my-clients`
    and the cached PDF.
+9. Microsoft Ads native pull -- the developer token and the manager
+   account id and number are set; the app registration and the consent
+   are what is still needed (the section above). About two days.
+10. GroundTruth native pull -- blocked on API access; the CSV door and
+    the Windsor table are the routes until then. Sized once the
+    document can be read.

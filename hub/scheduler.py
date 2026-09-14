@@ -350,6 +350,41 @@ def job_refresh_google_index(app) -> dict:
         return {"ok": False, "error": type(exc).__name__}
 
 
+def job_places_snapshot(app) -> dict:
+    """Read every confirmed Google listing once a night (hub/places.py).
+
+    Ticks hourly and the module decides: `sweep(force=False)` returns
+    without a call unless the nightly window has passed, so a leader that
+    restarted through the window picks the read up on its next tick rather
+    than skipping a day. Each read is billed, so a listing already read
+    today is skipped and the run is under a wall-clock budget; what it did
+    not reach is named and picked up next tick.
+    """
+    try:
+        from hub import places
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        # An app context: the activity rows reach hub/audit -- the flask.g trap.
+        return places.sweep(force=False)
+
+
+def job_youtube_snapshot(app) -> dict:
+    """Read every confirmed YouTube channel once a night (hub/youtube.py).
+
+    The places_snapshot shape: ticks hourly, the module decides inside the
+    nightly window, a channel already read today is skipped, and the run
+    is under a wall-clock budget with what it did not reach named. Each
+    read is one unit of the project's daily quota.
+    """
+    try:
+        from hub import youtube
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        return youtube.sweep(force=False)
+
+
 def job_refresh_purchased_domains(app) -> dict:
     """Re-pull the two sources behind /tools/domains, once a night.
 
@@ -829,6 +864,39 @@ def job_qa_task_vision(app) -> dict:
         return qa_tasks.describe_image_backlog()
 
 
+def job_proposal_autostart(app) -> dict:
+    """Start an execution plan for every proposal the Proposal Builder has
+    marked won -- Approved by the client at their link, or Converted to an
+    insertion order -- that has none yet.
+
+    The plan used to exist only when somebody remembered to open Proposal
+    Execution and press Analyze, and the day a proposal is signed is the
+    day that is most likely to be forgotten. Bounded per tick
+    (`AUTOSTART_LIMIT`) because each run is a model pass where a key is
+    set and this thread is shared; what the cap defers is counted and the
+    next tick starts it. A client who already has a different run open is
+    named as a conflict and never superseded from here -- superseding
+    carries approved work forward, and that is a person's press.
+    """
+    try:
+        from hub import proposal_execution
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        out = proposal_execution.start_won()
+    # Nothing started and nothing failed is the ordinary hour, and it reads
+    # as skipped rather than as an empty run -- the job_social_idea_batches
+    # rule. A standing conflict is a state rather than an event, so it
+    # rides in the sentence instead of making every quiet hour a result.
+    if out.get("measured") and not out.get("started") and not out.get("errors"):
+        conflicts = out.get("conflicts") or []
+        return {"skipped": f"nothing to start ({out.get('checked', 0)} won quote(s) checked, "
+                           f"{out.get('already', 0)} already have a plan"
+                           + (f", {len(conflicts)} client(s) with another run open" if conflicts else "")
+                           + ")"}
+    return out
+
+
 def job_industry_prospect_sync(app):
     from hub.industry_prospects import scheduled_step
     return scheduled_step(app)
@@ -1060,6 +1128,14 @@ JOBS = {
     # it is bounded and small, and what starving it costs is not.
     "retry_leads":       (60, job_retry_leads,
                           "Push every lead that has not reached Smart 1 Suite yet."),
+    # Here for the same reason as the two QA jobs above: it reads this Hub's
+    # own database and starts at most a handful of runs a tick, and a
+    # proposal won this morning should have its plan by lunch rather than
+    # after the Google sweep finishes. Behind the lead retry, because a run
+    # is a model pass where a key is set and a lead is a person waiting.
+    "proposal_autostart": (60, job_proposal_autostart,
+                           "Start an execution plan for each proposal marked "
+                           "Approved or Converted in the Proposal Builder."),
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
     "clear_stuck_scans": (15, job_clear_stuck_scans,
@@ -1076,6 +1152,10 @@ JOBS = {
                           "Re-sweep Google and re-join every account to a client."),
     "purchased_domains": (60, job_refresh_purchased_domains,
                           "Re-pull the purchased-domain registry once a night."),
+    "places_snapshot":   (60, job_places_snapshot,
+                          "Read every confirmed Google Business Profile listing once a night."),
+    "youtube_snapshot":  (60, job_youtube_snapshot,
+                          "Read every confirmed YouTube channel once a night."),
     "video_backlog":     (60, job_index_video_backlog,
                           "Describe another batch of the video background library."),
     "picker_describe":   (60, job_describe_client_uploads,

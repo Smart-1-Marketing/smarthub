@@ -236,8 +236,35 @@
         {% if o.work.latest_score is not none %}<p class="hint" style="margin:12px 0 0">Latest site audit score: <b>{{ o.work.latest_score }}</b>{% if o.work.latest_scan_at %} ({{ o.work.latest_scan_at[:10] }}){% endif %}</p>{% endif %}
         {% elif not o.work.measured %}<p class="empty">Some of this period's work could not be counted yet.</p>
         {% else %}<p class="empty">Nothing to show for this period yet.</p>{% endif %}</div>
-      <div class="card soon"><h2>{{ o.gbp.label }}</h2><p class="hint">{{ o.gbp.note }}</p></div>
+      {% if o.gbp %}
+      <div class="card"><h2>{{ o.gbp.label }}</h2>
+        <div class="big">{{ '%.1f'|format(o.gbp.rating) if o.gbp.rating is not none else '—' }} &#9733;</div>
+        <p class="hint">from {{ '{:,}'.format(o.gbp.review_count) if o.gbp.review_count is not none else '—' }} {{ o.gbp.reviews_label }}{% if o.gbp.status_label %} &middot; {{ o.gbp.status_label }}{% endif %}</p>
+        {% if o.gbp.change and o.gbp.change.measured %}
+        <p class="hint">Over the last {{ o.gbp.change.days }} days:
+          {% if o.gbp.change.rating_delta is not none %}{{ '%+.1f'|format(o.gbp.change.rating_delta) if o.gbp.change.rating_delta else 'no change in rating' }}{% if o.gbp.change.rating_delta %} &#9733;{% endif %}{% endif %}{% if o.gbp.change.reviews_delta is not none %}, {{ '{:+,}'.format(o.gbp.change.reviews_delta) if o.gbp.change.reviews_delta else 'no new' }} reviews{% endif %}
+          (since {{ o.gbp.change.since }}).</p>
+        {% endif %}
+        <p class="hint">Read {{ o.gbp.as_of }}{% if o.gbp.maps_url %} &middot; <a href="{{ o.gbp.maps_url }}" target="_blank" rel="noopener">See the listing</a>{% endif %}</p>
+      </div>
+      {% endif %}
     </div>
+  </section>
+  {% endif %}
+
+  {% if a.youtube %}{% set y = a.youtube %}{% set Y = y.labels %}
+  <section class="youtube" style="margin-top:16px" aria-labelledby="youtube-h">
+    <h2 id="youtube-h" style="font-size:18px;margin:0 0 10px">{{ Y.section }}</h2>
+    {% if y.title %}<p class="hint">{{ y.title }}{% if y.handle %} &middot; {{ y.handle }}{% endif %}{% if y.url %} &middot; <a href="{{ y.url }}" target="_blank" rel="noopener">See the channel</a>{% endif %}</p>{% endif %}
+    <div class="tiles">
+      <div class="tile"><div class="k">{{ Y.subscribers }}</div><div class="v">{% if y.subscribers_hidden %}{{ Y.hidden }}{% elif y.subscribers is not none %}{{ '{:,}'.format(y.subscribers) }}{% else %}&mdash;{% endif %}</div>
+        <div class="delta">{% if y.change and y.change.measured and not y.subscribers_hidden and y.change.subscribers_delta is not none %}{{ '{:+,}'.format(y.change.subscribers_delta) if y.change.subscribers_delta else 'no change' }} over {{ y.change.days }} days{% elif y.subscribers_hidden %}the channel does not publish this{% else %}30-day change not yet measured{% endif %}</div></div>
+      <div class="tile"><div class="k">{{ Y.views }}</div><div class="v">{% if y.views is not none %}{{ '{:,}'.format(y.views) }}{% else %}&mdash;{% endif %}</div>
+        <div class="delta">{% if y.change and y.change.measured and y.change.views_delta is not none %}{{ '{:+,}'.format(y.change.views_delta) if y.change.views_delta else 'no new views' }} over {{ y.change.days }} days{% else %}30-day change not yet measured{% endif %}</div></div>
+      <div class="tile"><div class="k">{{ Y.videos }}</div><div class="v">{% if y.videos is not none %}{{ '{:,}'.format(y.videos) }}{% else %}&mdash;{% endif %}</div>
+        <div class="delta">{% if y.change and y.change.measured and y.change.videos_delta is not none %}{{ '{:+,}'.format(y.change.videos_delta) if y.change.videos_delta else 'no new videos' }} over {{ y.change.days }} days{% else %}30-day change not yet measured{% endif %}</div></div>
+    </div>
+    <p class="hint">Read {{ y.as_of }}{% if y.change and y.change.measured %} &middot; change since {{ y.change.since }}{% endif %}</p>
   </section>
   {% endif %}
 

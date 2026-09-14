@@ -6927,6 +6927,83 @@ nothing about how we know. `test_proposal_progress.py` drives the clock
 rather than waiting on it, and holds `TOOL_EVIDENCE` to `CREATIVE_TOOLS` in
 both directions so a seventh tool cannot join with no evidence behind it.
 
+### The client's page asked and could not listen, and a won proposal told nobody
+
+`proposal_plan.record_client_answers()`, `POST /proposal-execution/needs/<token>`,
+`proposal_execution.start_won()` and the hourly `proposal_autostart` job. Two
+gaps at the two ends of a plan's life, and each was a page that looked
+finished.
+
+**The client's page listed their questions and ended with "reply to your
+Smart 1 contact".** So the launch date came back in an email, somebody
+retyped it onto the plan, and the question stayed open on every screen until
+they did -- the Proposal Builder's discovery questions, one audience further
+out. The page is a **plain HTML form** now, posting back to its own address:
+`a:<key>` for a question, `h:<channel>` for a tick handing a file back to
+Smart 1, which is the same supply key answered `smart1` rather than a new
+question. No fetch and no Hub script, because it is a stranger's page on
+somebody else's website and a failed post has to be a page saying why rather
+than a button that did nothing.
+
+**What arrives is a proposal, never the plan's own answer.** It lands in
+`plan["client_answers"]` with the client's name on it and `plan["answers"]`
+does not move until a person presses *Use their answer* -- the rule the
+researched competitor list works to, for a harder reason here: the page is
+reachable by anybody holding the link, and a value posted at a token must not
+move the due date on every task by arriving. Three refusals, each by name.
+**Only the client's keys**: `client_answerable()` is the open client
+questions plus the supply key of a kept item they had agreed to supply, and a
+budget or what the model was unsure of is ours -- a page a stranger can post
+to must not be able to set a budget. **Only the offered choices**, so a
+cadence of "hourly" is refused rather than stored. And **a name is
+required**, because an answer nobody can attribute is one nobody can ring
+back about. Revoked, unknown and malformed answer the same 404 on the POST as
+on the page; a store that would not answer is a 503; a success redirects so a
+refresh cannot post twice.
+
+**A reply read by nothing is the form-field failure**, so a pending answer is
+counted everywhere an open question is: `summarize()` carries
+`client_answers_pending`, `resolve()` lays each beside its question as
+`client_proposed` with `taken` (the plan already carries the same value, by a
+press or because the document said it), the kickoff document prints *the
+client says* on an open question, the Client 360 card counts them and
+`client_health`'s `plan_review` issue names them -- which retires a mark on
+that issue, correctly, because a client's reply is new information.
+`carry_forward()` carries them onto a superseding run for the questions still
+asked. `test_proposal_client_answers.py` asserts all of it, including that
+the page loads no script and no staff email reaches it.
+
+**And the Proposal Builder knew the moment a quote was won, and Proposal
+Execution was told nothing.** Approved is the client accepting at their link;
+Converted is an insertion order written from it. A plan existed only when
+somebody opened the tool and pressed Analyze, which on the day the proposal
+is signed is the press most likely to be forgotten. `start_won()` reads the
+sales book through the module `wsgi.py` loaded -- never a second import, the
+`hub/sales_status.py` arrangement -- and starts a run keyed `quote:<id>` for
+every won quote that has none, through the same `create_run()` the button
+calls, with `reason=` written onto the plan's notes and the first event, and
+an activity row on the quote carrying the link so the rep who sold it finds
+the plan from the screen they already read.
+
+Four counts that are never a silent skip. **Once per quote**: a run in any
+state -- including one started from the PDF the quote was filed as, which
+`create_run` resolves to the same key -- reads as `already`. **A client with
+a different run open is a named conflict and is never superseded**:
+superseding carries approved work and shared inputs forward, and that is a
+person's press, not a sweep's. **Won more than `AUTOSTART_MAX_AGE_DAYS` ago
+is `too_old`**, since a plan built for a campaign somebody set up a month ago
+is a list about work that happened. And the sweep starts at most
+`AUTOSTART_LIMIT` a tick and counts the rest as `deferred`, because each run
+is a model pass where a key is set and the scheduler's jobs share one thread.
+A table that would not answer is `measured: False`, never a clean sweep of
+nothing. The job sits ahead of the slow provider sweeps for the reason the
+QA-task jobs do, a quiet hour reads as skipped with a standing conflict in
+the sentence rather than as an empty result, and `POST
+/api/proposal-execution/start-won` runs the same sweep from the plan page.
+Nothing an automatic run creates is kept: it arrives as proposals for the
+client's owner to review, so its whole footprint is a `plan_review` issue on
+their desk. `test_proposal_autostart.py` asserts all of it.
+
 ## Opportunistic migration — read this before editing any module
 
 `hub/storage.py` (Cloudinary), `hub/images.py` (resize/convert),
@@ -13803,6 +13880,175 @@ finished. ``PROGRESS_TRIES`` still caps the polls whatever the clock says,
 since a platform answering Progress instantly for ever must not be polled
 for ever either.
 
+## A client's Google listing, read live rather than remembered from the scan
+
+`hub/places.py`, the **Google Business Profile** card on Client 360,
+`/api/client/places*`, the scheduler's `places_snapshot`, and the same
+card on the client's own report page and PDF. Client 360 already printed
+a rating and a review count, read off the last Insites scan -- a snapshot
+as of the day it ran, weeks old on most records -- and the client's
+report page had carried a Business Profile card reading *"Coming soon:
+calls, direction requests and profile views"* since the day it was drawn.
+The first is stale and says so nowhere; the second is a promise on a page
+a client reads. This is the keyed half of the answer, the Places API,
+which needs no consent and so answers for the majority of local
+businesses whose profile nobody has ever connected. The OAuth half -- the
+Business Profile Performance API, which is what *calls and directions*
+actually means -- is not built, and the card no longer promises it.
+
+**A place is resolved once, and a person confirms it.** `candidates()`
+asks Text Search for the client's name plus whatever a rep adds and
+proposes exactly one answer: the only candidate, or the only candidate
+whose website is the client's own domain. Two candidates propose neither
+and both are shown, the `client_key.resolve()` rule wearing a listing --
+a wrong place on a client's record is somebody else's reviews under their
+name, on the one screen everybody reads. The store's own door refuses a
+string that is not shaped like a place id before any call is made, so the
+refusal does not depend on the wire. The place is keyed on the client's
+**name**, never the derived key, and confirming it is logged under
+`places` -- declared in `client_brand.NOT_WORK`, because a join is not
+work and a client whose listing was confirmed has not had a deliverable
+made for them.
+
+**A reading is taken once a night, never on a page load.** Place Details
+is billed, and the client's report page is opened by clients. `sweep()`
+runs on the hourly tick and `due_for_refresh()` decides, inside a window
+`PLACES_REFRESH_HOUR` can move -- the `purchased_domains` shape, so a
+leader that restarted through the window picks the read up rather than
+skipping a night in silence, and one that restarted minutes after a good
+sweep does not spend the book again. Under a wall-clock budget, because
+scheduler jobs share one thread. `snapshot()` on its own is a **button**
+-- Confirm and Refresh -- and never a GET.
+
+**Review text is not asked for.** The rating and the count are one SKU;
+the text is a dearer one and the reviewer's own words, and nothing here
+has a screen that needs it. The field mask is a decision written down
+rather than a default.
+
+**No listing is not measured, never a zero rating.** A rating is always
+printed with its review count, and "nobody has confirmed a listing", "the
+key is not set", "we could not read it" and "read last night" are four
+states `reading()` names and the card draws apart. The client's page
+takes `public_view()`, which carries no staff note and no state name, and
+`organic.public_view` drops the block entirely where nothing was
+measured -- a card that says *not measured* to a client is a sentence
+about our tooling on a document about their business.
+
+**The 30-day change needs a reading 30 days old.** Until one exists the
+change is *not measured*, with the date of the first reading, rather than
+a comparison against the reading taken a minute ago -- the
+`hub/knack_data._snapshot()` rule, which will not compare two numbers
+measured on two different days as if they were one series.
+
+**Snapshot and scan stay apart.** `hub/scan_facts.py` reports what the
+audit observed on the day it ran; this reports what Google answered last
+night. Both are true on different days, the card names which, and neither
+is folded into the other. The upsell report's *unclaimed listing* finding
+still reads the scan, deliberately: it is one reading for the whole book
+and this one exists only for clients somebody has confirmed.
+
+**Every call goes through `quotas.record_google()`**, and
+`places.googleapis.com` is in the Google hosts table with its own daily
+row, or the usage page could not name this API -- the HeyGen failure one
+provider over. The key is read through `hub/config.py` at call time,
+under exactly one spelling: `GOOGLE_PLACES_API_KEY` is not in `ALIASES`,
+because that table is for names actually in use and a speculative second
+spelling is how thirteen correct modules became findings once. It never
+reaches a result, an error or a log line. `check_places` on
+`/diagnostics` asks Google with one known place and nothing billed beyond
+that, and no key is *not measured* rather than a cross.
+
+**Stored through `hub/jsonstore.py` rather than a table.** The readers
+are three Flask apps and a background thread, and a Flask-SQLAlchemy
+session bound to whichever app is current is the `flask.g` trap one
+layer down. Readings are bounded per client, and the sweep's own last
+run and count are on `/api/client/places` beside the reading, so a card
+can say the job has stopped rather than printing a date and leaving
+somebody to do the arithmetic. `test_places.py` asserts all of it, and
+`test_reports_seo.py` asserts the client's page and the PDF read one
+`_gbp()` rather than each deciding what the listing says.
+
+## A client's YouTube channel, read live, on the same key
+
+`hub/youtube.py`, the **YouTube channel** card on Client 360,
+`/api/client/youtube*`, the scheduler's `youtube_snapshot`, and
+`modules/reports/youtube.py` behind the section on the client's report
+page and PDF. The Hub sells YouTube two ways -- TrueView and bumpers on
+the rate card, and Social Media Management, which posts to the channel --
+and knew nothing about the channel: the SEO record holds a link somebody
+typed, and no screen had ever read past it. This is the keyed half, the
+Data API v3, and it is the Places module one channel over: propose, a
+person confirms, a reading a night, four kinds of nothing kept apart. The
+Analytics API half -- watch time, subscribers gained per day, traffic
+sources -- is behind OAuth and is not built, because it is a scope on
+Google Finder's list and every login connected before it keeps its old
+grant and has to re-consent.
+
+**The key is shared and says which variable answered.** The API is
+enabled on the same Cloud project as the Places key, so `YOUTUBE_API_KEY`
+is read first and `GOOGLE_PLACES_API_KEY` second, and `key_source()` names
+the one that answered -- on the card, on the sweep state and on the
+/diagnostics row. That name is the fix: a Places key restricted to Places
+API (New) is refused by YouTube, and the refusal has to say whether to
+widen that key's API restrictions or set the second variable. Not an
+`ALIASES` entry, because these are two settings that may hold two values,
+not two spellings of one.
+
+**A link is read before a search is spent.** A channel id, a `@handle` or
+a `/user/` address resolves through `channels.list` for one quota unit
+and names one channel; `search.list` costs a hundred and returns whatever
+carries the name. So `candidates()` reads a link first -- one the rep
+pastes, else the one on the client's SEO record, which the GET carries as
+`hint` -- and searches only with no link, on the name plus whatever was
+typed. Words typed beside a linked record are a request to search, not to
+re-read the link. A record link that resolves nothing falls through to a
+search and says so; a link the rep pasted that resolves nothing says so
+and does not search; a video or playlist address is refused in words with
+no call made. `parse_ref()` is the one reading of what a pasted string
+names.
+
+**One proposal or none, and the exact title is the second-best evidence.**
+Places had the client's domain to pick between several listings; a
+channel carries no website in the API. The channel a link named is
+proposed; the only search result is proposed; among several, the only one
+whose title is *exactly* the client's normalised name is proposed; two
+carrying the exact name propose neither and both are shown. Never a
+substring, never the first row -- a wrong channel on a client's record is
+somebody else's subscriber count under their name.
+
+**A hidden subscriber count is hidden, never zero.** A channel may hide
+its count, and the API answers `hiddenSubscriberCount` with no figure.
+The reading keeps the views and the video count beside a `None`, the card
+and the client's page say *hidden*, and the 30-day change carries no
+subscriber delta for it while still carrying the views. Views are
+lifetime, so the 30-day change is the one period figure the keyed API can
+give -- arithmetic on two of our own readings, the Places rule.
+
+**Every call records the units it spent, not the request.** Google meters
+this API in units and grants 10,000 a day, so `quotas.record_google()` is
+handed `units=1` for a read and `units=100` for a search and the usage
+row is in the unit Google counts; recorded per request the row would read
+a hundredth of the truth. The recorded URL is the endpoint alone -- the
+key rides in the query string on the wire and nowhere else. A spent
+quota stops the sweep the way a refused key does, because it is spent for
+every client.
+
+**The client's page is gated on a product and a person.** The section is
+its own block on the aggregate, not a card inside the organic section:
+inside organic it would reach only SEO clients, and the client whose
+channel Smart 1 posts to is on a social retainer. `modules/reports/youtube.gate()`
+needs a live product `creative_needs.medium_of` calls video or social --
+read from the live product book the SEO section reads, matched on the
+exact normalised name -- and a channel a person confirmed. A confirmed
+channel with no reading yet is gated in and absent from the page, because
+"confirmed and not read yet" is a sentence about our tooling on a
+document about their business; the staff page prints the gate and says
+*waiting on a reading*. "YouTube" is named on the page, because it is the
+client's own channel and not a vendor Smart 1 buys from, and
+`products.ALLOWED` carries that reason so the forbidden-word sweep and the
+next reader both know it was decided. `test_youtube.py` asserts all of it,
+the client's page, data.json and PDF included.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.
@@ -13932,6 +14178,21 @@ python3 test_proposal_kickoff.py   # whose each plan item is, following the
                                    #   from the kept plan and counting what
                                    #   is not; and the client's page at a
                                    #   stored token, carrying the fields only
+python3 test_proposal_client_answers.py
+                                   # the client answering on their own page:
+                                   #   a proposal beside the plan and never
+                                   #   in it, only their keys and only the
+                                   #   offered choices, a hand-back that is
+                                   #   the supply key answered smart1, one
+                                   #   404 on the POST, and a pending reply
+                                   #   counted wherever an open question is
+python3 test_proposal_autostart.py # a won quote starting its own plan: once
+                                   #   per quote, Approved and Converted only,
+                                   #   a client with another run open named
+                                   #   and never superseded, too old skipped
+                                   #   and counted, and the run saying it was
+                                   #   automatic on the plan, the event and
+                                   #   the quote's own strip
 python3 test_proposal_progress.py  # where each launch task and creative item
                                    #   stands: done is a press with a name on
                                    #   it, landed is read off the work log for
@@ -14284,6 +14545,17 @@ python3 test_reports_google_perf.py # the native Google Ads pull
 python3 test_reports_stackadapt.py # the native StackAdapt pull
 python3 test_reports_audiogo.py    # the config-driven AudioGo pull and its check page
 python3 test_reports_seo.py        # the organic search section for SEO clients
+python3 test_places.py             # a client's Google listing: proposed once,
+                                   #   confirmed by a person, read once a night,
+                                   #   and a rating never printed without its
+                                   #   review count
+python3 test_youtube.py            # a client's YouTube channel: a link read
+                                   #   for one unit before a search spends a
+                                   #   hundred, one proposal or none, a hidden
+                                   #   subscriber count never a zero, the key
+                                   #   saying which variable answered, and the
+                                   #   client's page gated on a video or social
+                                   #   product AND a confirmed, read channel
 python3 test_reports_normalize.py  # the provider normalize, provider check and auto-mapper
 python3 test_reports_public.py     # the client's live report page, its link and the spend rule
 python3 test_reports_crossover.py  # the product-level crossover and the forbidden-word sweep

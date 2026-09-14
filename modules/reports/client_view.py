@@ -42,7 +42,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from . import organic, pricing, store
+from . import organic, pricing, store, youtube
 
 log = logging.getLogger(__name__)
 
@@ -416,6 +416,11 @@ def build(link, period: str, today: date | None = None) -> dict:
         # product or a fix reaches the client's document.
         "organic": _safe("organic", lambda: organic.public_view(
             organic.section(link, rng, today)), None),
+        # The YouTube channel section, for a client with a live video or
+        # social product and a confirmed channel; None (and left off the
+        # page) otherwise, and None while the channel has no reading yet.
+        "youtube": _safe("youtube", lambda: youtube.public_view(
+            youtube.section(link, today)), None),
     }
     if show:
         out["investment"] = {"total": money(total_inv), "delivery_only": unpriced}

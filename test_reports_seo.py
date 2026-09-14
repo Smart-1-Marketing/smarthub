@@ -45,6 +45,10 @@ os.environ["REPORTS_PROVIDER_SCHEMA"] = ""
 os.environ["SECRET_KEY"] = "reports-seo-test"
 os.environ["PUBLIC_BASE_URL"] = "https://hub.example.test"
 os.environ.pop("PANEL_PASSWORD", None)
+# A Places key, so the Business Profile block can be measured once a
+# listing is confirmed below; nothing here reaches Google -- the read is
+# stood in for at hub.places.details.
+os.environ["GOOGLE_PLACES_API_KEY"] = "places-test-key"
 
 _passed = _failed = 0
 
@@ -215,7 +219,11 @@ check("...and the figures", "1,200" in html and "+20.0% vs the period before" in
 check("...a twelve-month trend of its own", 'id="organic-trend"' in html)
 check("...the Search Console sub-block says so, neutrally", organic.GSC_MISSING_CLIENT in html)
 check("...never naming GA4 or Search Console", not re.search(r"\bGA4\b|Search Console", html))
-check("...and the coming-soon card", "Google Business Profile" in html and "Coming soon" in html)
+# The Business Profile card used to read "Coming soon: calls, direction
+# requests and profile views" -- a promise about our tooling on a page a
+# client reads. With no listing confirmed there is no card at all.
+check("...and no Business Profile card while no listing is confirmed",
+      "Google Business Profile" not in html and "Coming soon" not in html)
 check("no spend word and no money on the page", not FORBIDDEN.search(html) and not MONEY.search(html),
       note=sorted(set(FORBIDDEN.findall(html)))[:5])
 check("the organic request filtered on Organic Search and named its two ranges",
@@ -225,6 +233,39 @@ check("...for the linked property", [c for c in gf.calls if c[0] == "ga4"][0][1]
 r = anon.get(f"/reports/r/c/{link.token}/data.json")
 data = r.get_json()
 check("data.json carries the organic block", bool(data.get("organic")))
+check("...with the Business Profile block absent rather than explained",
+      data["organic"].get("gbp"), None)
+
+# A listing confirmed and read: the card carries the rating with its
+# review count and the date it was read, and never the staff note.
+from hub import places as hub_places                                 # noqa: E402
+_real_details = hub_places.details
+hub_places.details = lambda pid: {"measured": True, "error": "", "kind": "", "place": {
+    "place_id": pid, "name": "Buckeye Lake Winery", "address": "13750 Rosebrook Rd, Millersport, OH",
+    "website": "https://buckeyelakewinery.com", "domain": "buckeyelakewinery.com",
+    "status": "OPERATIONAL", "status_label": "Open", "rating": 4.7, "review_count": 213,
+    "maps_url": "https://maps.google.com/?cid=1"}}
+try:
+    conf = hub_places.confirm(NAME, "ChIJtest-winery", actor="Todd")
+    check("a listing confirms with a reading on the press", (conf["ok"], conf["reading"]["state"]), (True, "ok"))
+finally:
+    hub_places.details = _real_details
+client_view.forget(link.token)
+html = anon.get(f"/reports/r/c/{link.token}").get_data(as_text=True)
+check("the Business Profile card is on the page now", "Google Business Profile" in html)
+check("...with the rating and its review count together", "4.7 &#9733;" in html and "213" in html and "Google reviews" in html)
+check("...and the day it was read", "Read " + date.today().isoformat() in html)
+check("...never the staff note or a Google product name", "staff" not in html.lower() and "Places" not in html)
+check("...and still no spend word and no money", not FORBIDDEN.search(html) and not MONEY.search(html))
+data = anon.get(f"/reports/r/c/{link.token}/data.json").get_json()
+check("data.json carries the reading", (data["organic"]["gbp"]["rating"], data["organic"]["gbp"]["review_count"]),
+      (4.7, 213))
+check("...with the 30-day change not measured on the first day, and saying why",
+      (data["organic"]["gbp"]["change"]["measured"], "staff_note" in data["organic"]["gbp"]), (False, False))
+pdf = anon.get(f"/reports/r/c/{link.token}.pdf").get_data()
+check("the PDF carries the reading too", b"4.7 out of 5" in pdf and b"213 Google reviews" in pdf)
+hub_places.clear(NAME, actor="Todd")
+client_view.forget(link.token)
 check("...with the analytics figures", data["organic"]["analytics"]["current"]["sessions"], 1200)
 check("...and the change", data["organic"]["analytics"]["change"]["key_events"], 24.0)
 check("...search not connected, with the client wording and no staff note",

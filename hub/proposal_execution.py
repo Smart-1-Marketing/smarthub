@@ -481,7 +481,14 @@ def _source_text(client, proposal_id, proposal_filename=""):
         return ""
 
 
-def create_run(client, proposal_id, *, owner="", actor="", force=False):
+def create_run(client, proposal_id, *, owner="", actor="", force=False, use_ai=True, reason=""):
+    """Analyze one proposal for one client and build its run.
+
+    `use_ai` is whether the plan's model pass runs (the rule-derived items
+    always exist); `reason`, where given, is written onto the plan's notes
+    and the creation event -- how a run started automatically says so on
+    the run itself rather than only in the scheduler's log.
+    """
     client = str(client or "").strip()
     proposal_id = str(proposal_id or "").strip()
     if not client or not proposal_id:
@@ -544,7 +551,10 @@ def create_run(client, proposal_id, *, owner="", actor="", force=False):
         # document -- the overlay rule `hub/client_urls.py` already works to.
         carried_inputs.update({k: v for k, v in supersedes.inputs().items() if _resolved(v)})
     from hub import proposal_plan
-    plan = proposal_plan.build_plan(analysis, text, client)
+    plan = proposal_plan.build_plan(analysis, text, client, use_ai=use_ai)
+    reason = " ".join(str(reason or "").split())[:300]
+    if reason:
+        plan.setdefault("notes", []).append(reason)
     if supersedes:
         # What somebody kept, dropped, added and answered on the run being
         # replaced is theirs; a new document changes the proposals, not
@@ -595,6 +605,8 @@ def create_run(client, proposal_id, *, owner="", actor="", force=False):
             f"with {ps.get('open_questions', 0)} question(s) to answer.")
     if supersedes:
         note += f" Superseded run #{supersedes.id}; carried {carried} approved/completed task(s) forward."
+    if reason:
+        note += " " + reason
     _event(run.id, run.state, note, actor=actor)
     if supersedes:
         _event(supersedes.id, RUN_SUPERSEDED, f"Superseded by execution run #{run.id}.", actor=actor)
@@ -730,6 +742,25 @@ def update_plan(run_id, decisions, *, actor=""):
         if len(marks) - finished: what.append(f"{len(marks) - finished} done mark(s) taken back")
     _event(run.id, run.state, "Updated the plan: " + (", ".join(what) or "no change") + ".", actor=actor)
     return run
+
+
+def record_client_answers(run, answers, *, name, email=""):
+    """What the client answered on their page, recorded beside the plan.
+
+    `proposal_plan.record_client_answers()` is the rule -- nothing lands in
+    the plan's own answers, a name is required, a key that is not the
+    client's to answer is refused by name. The event is written as the
+    client's, so the activity strip says who answered rather than reading
+    as a rep having typed it. Returns `(run, how many were recorded)`."""
+    from hub import proposal_plan
+    plan, taken = proposal_plan.record_client_answers(plan_for(run), answers or {}, name=name, email=email)
+    run.plan_json = _dumps(plan)
+    db.session.commit()
+    who = " ".join(str(name or "").split())[:proposal_plan.MAX_CLIENT_NAME]
+    _event(run.id, run.state,
+           f"The client answered {taken} question(s) on their page ({who}); "
+           "each is a proposal until somebody takes it onto the plan.", actor="client")
+    return run, taken
 
 
 def _upload_link(client, *, create=False, base="", actor=""):
@@ -967,6 +998,146 @@ def run_for_client_token(token):
 
 
 # ---------------------------------------------------------------------------
+# A proposal that is won starts its own plan
+# ---------------------------------------------------------------------------
+# The Proposal Builder knows the moment a quote is won -- the client
+# accepting it at their link sets Approved, converting it to an insertion
+# order sets Converted -- and until now nothing here was told. A run existed
+# only when somebody remembered to open this tool and press Analyze, which
+# on the day the proposal is signed is the thing most likely to be forgotten.
+# Reading the sales book's status is the whole of the join: the quote is
+# already what `create_run` reads a plan out of, keyed `quote:<id>`.
+WON_STATUSES = ("Approved", "Converted")
+# A quote won longer ago than this is a campaign somebody has already set
+# up, and a plan built for it now is a list about work that happened; the
+# sweep exists so a proposal gets its plan the day it is won.
+AUTOSTART_MAX_AGE_DAYS = 30
+# Per sweep, because each run is a model pass where a key is set and the
+# scheduler's jobs share one thread. What the cap defers is counted, never
+# dropped: the next tick starts the rest.
+AUTOSTART_LIMIT = 10
+
+
+def _quote_module():
+    """The Proposal Builder as the app actually loaded it -- `wsgi.py`
+    imports it under `salesb_app`, and a second import here would be a
+    second declarative mapping of the same tables, the arrangement
+    `hub/sales_status.py` and `hub/ghl_hooks.py` already settled."""
+    import sys
+    mod = sys.modules.get("salesb_app")
+    if mod is not None:
+        return mod
+    from modules.sales_builder import app as mod        # noqa: PLC0415
+    return mod
+
+
+def _aware(value):
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def start_won(*, limit=AUTOSTART_LIMIT, max_age_days=AUTOSTART_MAX_AGE_DAYS, actor="scheduler", today=None):
+    """Start a run for every quote marked Approved or Converted that has
+    none yet. Never raises; the scheduler reads the dict.
+
+    Five things a quote can be, and each is its own count rather than a
+    silent skip: started; `already` (a run exists for it, in any state --
+    including one started from the PDF it was filed as, which `create_run`
+    resolves to the same key); `too_old` (won more than `max_age_days`
+    ago); `skipped_no_client` (no client on the quote, so nothing to file
+    a run against); and a `conflict` -- the client already has a different
+    run open, which is **named and never superseded**, because superseding
+    carries approved work and shared inputs forward and that is a person's
+    press, not a sweep's. A table that would not answer is `measured:
+    False` rather than a clean sweep of nothing.
+
+    The run is created the way the Analyze button creates one, and the
+    plan's notes and the run's first event say it was automatic; the quote
+    gets an activity row carrying the link, so the rep who sold it finds
+    the plan from the screen they already read.
+    """
+    out = {"measured": True, "checked": 0, "started": [], "already": 0, "too_old": 0,
+           "skipped_no_client": 0, "conflicts": [], "errors": [], "deferred": 0}
+    try:
+        mod = _quote_module()
+        sdb = mod.SessionLocal()
+    except Exception as exc:                             # noqa: BLE001
+        return {**out, "measured": False,
+                "error": f"The proposals could not be read ({type(exc).__name__})."}
+    from hub import proposal_quote_facts
+    now = _aware(today) if today else _now()
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    try:
+        try:
+            rows = (sdb.query(mod.Quote).filter(mod.Quote.status.in_(WON_STATUSES))
+                    .order_by(mod.Quote.updated_at.desc()).all())
+            have = {r[0] for r in db.session.query(ProposalExecutionRun.proposal_id)
+                    .filter(ProposalExecutionRun.proposal_id.like(f"{proposal_quote_facts.QUOTE_PREFIX}%")).all()}
+        except Exception as exc:                         # noqa: BLE001
+            db.session.rollback()
+            return {**out, "measured": False,
+                    "error": f"The proposals could not be read ({type(exc).__name__})."}
+        for q in rows:
+            out["checked"] += 1
+            key = f"{proposal_quote_facts.QUOTE_PREFIX}{q.id}"
+            if key in have:
+                out["already"] += 1
+                continue
+            client = str(q.client or "").strip()
+            if not client:
+                out["skipped_no_client"] += 1
+                continue
+            stamps = [_aware(v) for v in (q.updated_at, q.converted_at) if v is not None]
+            when = max(stamps) if stamps else None
+            if when is not None and (now - when).days > max_age_days:
+                out["too_old"] += 1
+                continue
+            if len(out["started"]) >= limit:
+                out["deferred"] += 1
+                continue
+            owner = ""
+            try:
+                from hub import client_owner
+                owner = str((client_owner.owner_of(client) or {}).get("email") or "")
+            except Exception:                            # noqa: BLE001
+                owner = ""
+            number = str(q.quote_number or q.id)
+            try:
+                run, created = create_run(client, key, owner=owner, actor=actor,
+                                          reason=f"Started automatically: quote {number} was marked {q.status}.")
+            except ProposalRunConflict as exc:
+                out["conflicts"].append({"quote": number, "client": client,
+                                         "run_id": exc.previous_run.id, "state": exc.previous_run.state})
+                continue
+            except Exception as exc:                     # noqa: BLE001
+                db.session.rollback()
+                out["errors"].append({"quote": number, "client": client,
+                                      "error": f"{type(exc).__name__}: {exc}"[:200]})
+                continue
+            if not created:
+                out["already"] += 1
+                continue
+            out["started"].append({"quote": number, "client": client, "run_id": run.id})
+            try:
+                mod.log_activity(sdb, q.id, "🗺",
+                                 f"Execution plan started automatically because this quote is {q.status}: "
+                                 f"/proposal-execution?run={run.id}")
+                sdb.commit()
+            except Exception as exc:                     # noqa: BLE001
+                sdb.rollback()
+                out["errors"].append({"quote": number, "client": client, "run_id": run.id,
+                                      "error": f"The quote's activity row could not be written ({type(exc).__name__})."})
+    finally:
+        try:
+            sdb.close()
+        except Exception:                                # noqa: BLE001
+            pass
+    return out
+
+
+# ---------------------------------------------------------------------------
 # The two documents built from the kept plan
 # ---------------------------------------------------------------------------
 def _kept(plan, name):
@@ -1008,9 +1179,18 @@ def kickoff_document(run, *, base=""):
     for it in creative:
         tool = proposal_plan.tool_for(it)
         it["tool_label"] = (tool or {}).get("label") or ""
-    open_questions = [{"question": q.get("question") or q.get("key"), "why": q.get("why") or ""}
-                      for q in plan.get("questions") or []
-                      if not str(q.get("answer") or "").strip()]
+    # An open question the client has answered on their page carries what
+    # they said, marked as theirs: "nobody knows" and "the client told us
+    # and nobody has confirmed it" are different things to read out on a
+    # kickoff call, and only the second has a name to go back to.
+    open_questions = []
+    for q in plan.get("questions") or []:
+        if str(q.get("answer") or "").strip():
+            continue
+        said = q.get("client_proposed") or {}
+        open_questions.append({"question": q.get("question") or q.get("key"), "why": q.get("why") or "",
+                               "client_says": str(said.get("label") or "") if said and not said.get("taken") else "",
+                               "client_by": str(said.get("by") or "") if said else ""})
     unowned = [it["title"] for it in creative + launch + monthly if not it.get("owner")]
     progress = proposal_progress.counts(plan)
     return {
@@ -1060,20 +1240,35 @@ def client_needs(run, *, base=""):
     from hub import proposal_plan
     plan = _resolved_plan(run)
     resolved = plan.get("resolved") or {}
+    answerable = proposal_plan.client_answerable(plan)
     files = []
     for it in _kept(plan, "creative"):
         if it.get("kind") == "copy" or it.get("supplier") not in ("client", "mixed"):
             continue
+        channel = str(it.get("channel") or "")
         files.append({"title": it.get("title") or "", "detail": it.get("detail") or "",
+                      "channel": channel,
                       "channel_name": it.get("channel_name") or "", "due_label": it.get("due_label") or "",
                       "shared": it.get("supplier") == "mixed",
                       # Done by hand or landed on its own: either way it has
                       # arrived, and a list that goes on asking for a file
                       # the client already sent reads as us not having
                       # looked. The evidence itself stays inside.
-                      "received": it.get("status") in ("done", "landed")})
+                      "received": it.get("status") in ("done", "landed"),
+                      # Whether they may hand this one back to Smart 1 from
+                      # the page -- the same supply key, answered `smart1`.
+                      "handback": bool(channel) and f"creative_supply:{channel}" in answerable
+                      and answerable[f"creative_supply:{channel}"].get("handback", False)
+                      and it.get("status") not in ("done", "landed")})
     owner = resolved.get("owner") or {}
     upload = _upload_link(run.client, base=base) or {}
+    questions = proposal_plan.client_questions(plan)
+    # What they told us already, in the words the choices were offered in,
+    # so a reply that a person has not taken yet reads as received rather
+    # than as a form that lost it. Nothing else about the plan travels.
+    answered = [{"question": _client_wording(plan, row["key"]), "label": _client_label(row),
+                 "by": row["by"], "at": row["at"][:10], "taken": row["taken"]}
+                for row in proposal_plan.client_answers_view(plan)]
     return {
         "client": run.client,
         "proposal": run.proposal_title or run.proposal_filename or "",
@@ -1081,9 +1276,38 @@ def client_needs(run, *, base=""):
         "contact": owner.get("label") or "",
         "files": files,
         "upload_url": str(upload.get("share_url") or "") if upload.get("share_enabled") is not False else "",
-        "questions": proposal_plan.client_questions(plan),
+        "questions": questions,
+        "answered": answered,
+        "can_answer": bool(questions) or any(f["handback"] for f in files),
         "generated_at": _now().isoformat(timespec="seconds"),
     }
+
+
+def _client_wording(plan, key):
+    """A question in the client's words, for a key they answered -- the
+    same wording `client_questions()` asked it in, whether or not it is
+    still open."""
+    from hub import proposal_plan
+    if key in ("launch_date", "reporting_cadence"):
+        return proposal_plan.CLIENT_QUESTION_WORDING[key]
+    if key.startswith("creative_supply:"):
+        channel = key.split(":", 1)[1]
+        name = next((it.get("channel_name") or channel for it in plan.get("creative") or []
+                     if it.get("channel") == channel), channel)
+        return proposal_plan.CLIENT_QUESTION_WORDING["creative_supply"].format(name=name)
+    return key
+
+
+def _client_label(row):
+    """A client answer in the client's own words: the choice label they
+    were offered, or the value itself for a date."""
+    from hub import proposal_plan
+    key, value = row["key"], row["value"]
+    if key.startswith("creative_supply:"):
+        return proposal_plan.CLIENT_SUPPLY_LABELS.get(value, value)
+    if key == "reporting_cadence":
+        return proposal_plan.CLIENT_CADENCE_LABELS.get(value, value)
+    return value
 
 
 def _promise_schedule(run, plan, *, work=None, marks_index=None):
@@ -1128,6 +1352,10 @@ def _run_plan_summary(run, *, work=None, marks_index=None):
         "to_review": int(s.get("to_review") or 0),
         "open_questions": int(s.get("open_questions") or 0),
         "unverified": int(s.get("unverified") or 0),
+        # Answers the client gave on their page that nobody has taken onto
+        # the plan -- a reply read by nothing is the form-field failure,
+        # so the record and My Clients count it.
+        "client_answers_pending": int(resolved.get("client_answers_pending") or 0),
         "creative_unassigned": unassigned,
         "kept": kept,
         "promises": proposal_promises.counts(sched),
@@ -1621,7 +1849,8 @@ __all__ = ["ProposalExecutionRun", "ProposalExecutionTask", "ProposalExecutionEv
            "ProposalRunConflict", "create_run", "get_run", "list_runs", "tasks_for_run",
            "proposal_choices", "update_inputs", "update_plan", "plan_for", "provision_upload_link",
            "create_client_link", "revoke_client_link", "run_for_client_token", "client_link_view",
-           "client_link_path", "kickoff_document", "client_needs",
+           "client_link_path", "kickoff_document", "client_needs", "record_client_answers",
+           "start_won", "WON_STATUSES", "AUTOSTART_MAX_AGE_DAYS", "AUTOSTART_LIMIT",
            "plan_summary_for_client", "open_plan_summaries", "open_runs", "mark_promise",
            "start_run", "pause_run", "retry_failed", "run_one",
            "approve_task", "request_changes", "rerun_task", "mark_task", "events_for_run",

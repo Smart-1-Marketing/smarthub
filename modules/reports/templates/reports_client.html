@@ -47,6 +47,10 @@
   omits the organic search section. <a href="{{ seo.seo_page }}">Link analytics on the SEO client page</a>
   (attach the Google Analytics property under Attached accounts) to enable it.</div>
 {% endif %}
+{% if youtube.product and not youtube.channel %}
+<div class="notice">This client has a video or social product and no confirmed YouTube channel, so the public page
+  has no channel section. Confirm one on the client's record (the YouTube channel card on Client 360) to enable it.</div>
+{% endif %}
 <div class="s1d-grid">
   <div class="s1d-card">
     <div class="s1d-cardhead"><h2>The client's link {{ help_dot('reports.client.link') if help_dot is defined else '' }}</h2>
@@ -219,6 +223,16 @@
       {% if seo.gated and not seo.gsc %}<span class="s1d-muted">{{ seo.gsc_staff_note }}</span>{% endif %}
       {% if seo.errors %}<span class="s1d-pill bad">not measured</span> <span class="s1d-muted">{{ seo.errors|join('; ') }}</span>{% endif %}
       <label style="margin-left:8px"><input type="checkbox" name="name_products" value="1" {{ 'checked' if link.view_json.name_products else '' }}> Name Google's products (GA4, Search Console) on the page</label>
+    </span></div>
+  <div class="s1d-kv" style="margin-top:8px"><b>YouTube</b>
+    <span>
+      {% if youtube.gated and youtube.read %}<span class="s1d-pill ok">Channel section on</span>{% elif youtube.gated %}<span class="s1d-pill warn">Channel section waiting on a reading</span>{% else %}<span class="s1d-pill warn">Channel section off</span>{% endif %}
+      &mdash; video or social product: <b>{{ 'yes' if youtube.product else 'no' }}</b>{% if youtube.products %} ({{ youtube.products|join(', ') }}){% endif %},
+      channel confirmed: <b>{{ 'yes' if youtube.channel else 'no' }}</b>{% if youtube.channel_title %} ({{ youtube.channel_title }}){% endif %}{% if youtube.gated %},
+      read: <b>{{ 'yes' if youtube.read else 'no' }}</b>{% if youtube.as_of %} ({{ youtube.as_of }}){% endif %}{% endif %}.
+      {% if youtube.why %}<span class="s1d-muted">{{ youtube.why|join('; ') }}.</span>{% endif %}
+      {% if youtube.read_note %}<span class="s1d-muted">{{ youtube.read_note }}</span>{% endif %}
+      {% if youtube.errors %}<span class="s1d-pill bad">not measured</span> <span class="s1d-muted">{{ youtube.errors|join('; ') }}</span>{% endif %}
     </span></div>
   <div class="row" style="margin-top:12px">
     <div class="field grow"><label>Logo URL (blank uses the Hub's brand cache, then the Smart 1 logo)</label>

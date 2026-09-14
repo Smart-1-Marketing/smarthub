@@ -1,9 +1,12 @@
-{#- What we need from the client, at the link they were sent. Public, read-only,
-    built server-side by hub/proposal_execution.client_needs() -- only the
-    fields, never the plan. Chrome-free through CHROMELESS in hub/__init__.py
-    and login-exempt on the blueprint guard in hub/proposal_execution_routes.py.
+{#- What we need from the client, at the link they were sent. Public, built
+    server-side by hub/proposal_execution.client_needs() -- only the fields,
+    never the plan. Chrome-free through CHROMELESS in hub/__init__.py and
+    login-exempt on the blueprint guard in hub/proposal_execution_routes.py.
     `doc` is None for a link that is gone (404) or a store that would not
-    answer (503, `unavailable`). -#}
+    answer (503, `unavailable`). The one thing the client can do here is
+    answer: a plain HTML form posting back to the same address, so the page
+    loads no Hub script -- `error` is a refusal to re-render with, `typed`
+    what they had entered, and `thanks` the redirect after a success. -#}
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
 <title>{% if doc %}What we need from you — {{ doc.client }}{% else %}Smart 1 Marketing{% endif %}</title>
@@ -21,7 +24,14 @@ h1{margin:4px 0 6px;font-size:28px;color:var(--navy);line-height:1.2}h2{margin:2
 .need-quiet{color:var(--muted);font-size:14px}
 .need-print{border:1px solid #cad8e7;background:#fff;color:#173d65;border-radius:8px;padding:7px 11px;font:650 12.5px inherit;cursor:pointer;float:right}
 .need-foot{margin-top:28px;font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px}
-@media print{body{background:#fff}.need-card{border:0;box-shadow:none;padding:0}.need-print,.need-btn{display:none}}
+.need-form label{display:block;font-weight:650;color:var(--navy);margin:14px 0 4px;font-size:14.5px}.need-form input[type=text],.need-form input[type=email],.need-form input[type=date],.need-form select{width:100%;max-width:420px;box-sizing:border-box;border:1px solid #cad8e7;border-radius:8px;padding:9px 11px;font:inherit;font-size:15px;color:var(--ink);background:#fff}
+.need-form .need-two{display:flex;gap:14px;flex-wrap:wrap}.need-form .need-two>div{flex:1 1 200px}
+.need-hand{display:block;margin-top:7px;font-size:13.5px;color:var(--ink)}.need-hand input{margin-right:6px}
+.need-said{margin:0 0 6px;padding:10px 12px;background:#f8fafc;border:1px solid var(--line);border-radius:8px;font-size:14px}.need-said b{color:var(--navy)}.need-said small{display:block;color:var(--muted);margin-top:2px}
+.need-ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:10px;padding:12px 14px;margin:0 0 18px;font-size:14.5px}
+.need-err{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:10px;padding:12px 14px;margin:0 0 18px;font-size:14.5px}
+.need-send{background:var(--blue);color:#fff;border:0;font:700 15px inherit;padding:12px 18px;border-radius:10px;margin-top:16px;cursor:pointer}.need-send:hover{filter:brightness(1.08)}
+@media print{body{background:#fff}.need-card{border:0;box-shadow:none;padding:0}.need-print,.need-btn,.need-send{display:none}}
 </style></head>
 <body>
 <div class="need"><div class="need-card">
@@ -40,22 +50,44 @@ h1{margin:4px 0 6px;font-size:28px;color:var(--navy);line-height:1.2}h2{margin:2
   <h1>{{ doc.client }}: what we need from you</h1>
   <div class="need-sub">{{ doc.proposal }}{% if doc.launch_label %} · launching {{ doc.launch_label }}{% endif %}</div>
 
+  {% if thanks %}<p class="need-ok" role="status">Thank you — we have your answers. {% if doc.contact %}{{ doc.contact }}{% else %}Your Smart 1 contact{% endif %} will put them on the plan and be in touch if anything needs a word.</p>{% endif %}
+  {% if error %}<p class="need-err" role="alert">{{ error }}</p>{% endif %}
+
+  <form class="need-form" method="post" action="" autocomplete="on">
   <h2>Files we need from you</h2>
   {% if doc.files %}
   <p class="need-quiet">Each one below is something you agreed to supply. The date is when we need it in hand so the campaign launches on time.</p>
   <ul class="need-list">
-  {% for f in doc.files %}<li><b>{{ f.title }}</b>{% if f.detail %}<small>{{ f.detail }}</small>{% endif %}{% if f.due_label %}<span class="need-due">{{ f.due_label }}</span>{% endif %}{% if f.shared %}<span class="need-shared">we produce part of this together</span>{% endif %}{% if f.received %}<span class="need-shared">received — thank you</span>{% endif %}</li>{% endfor %}
+  {% for f in doc.files %}<li><b>{{ f.title }}</b>{% if f.detail %}<small>{{ f.detail }}</small>{% endif %}{% if f.due_label %}<span class="need-due">{{ f.due_label }}</span>{% endif %}{% if f.shared %}<span class="need-shared">we produce part of this together</span>{% endif %}{% if f.received %}<span class="need-shared">received — thank you</span>{% endif %}{% if f.handback %}<label class="need-hand"><input type="checkbox" name="h:{{ f.channel }}" value="1">Please have Smart 1 produce this instead of us{% if f.shared %} (all of it){% endif %}.</label>{% endif %}</li>{% endfor %}
   </ul>
   {% if doc.upload_url %}<a class="need-btn" href="{{ doc.upload_url }}">Upload your files</a><p class="need-quiet">The upload page is yours alone; anything you add there reaches us straight away.</p>{% else %}<p class="need-quiet">Send the files to your Smart 1 contact, or ask them for an upload link.</p>{% endif %}
   {% else %}
   <p class="need-quiet">Nothing at the moment — Smart 1 is producing the creative for this campaign. We will send you each piece to approve.</p>
   {% endif %}
 
+  {% if doc.answered %}
+  <h2>What you have told us</h2>
+  {% for a in doc.answered %}<div class="need-said"><b>{{ a.question }}</b> {{ a.label }}<small>{{ a.by }}{% if a.at %}, {{ a.at }}{% endif %}{% if a.taken %} · on the plan{% else %} · received; being put on the plan{% endif %}</small></div>{% endfor %}
+  {% endif %}
+
   {% if doc.questions %}
   <h2>A few things to confirm</h2>
-  <ul class="need-list">{% for q in doc.questions %}<li>{{ q.question }}</li>{% endfor %}</ul>
-  <p class="need-quiet">Reply to your Smart 1 contact with these and we will put the answers on the plan.</p>
+  <p class="need-quiet">Answer what you can here and press Send; anything you leave blank we will ask about on the call.</p>
+  {% for q in doc.questions %}
+  <label for="q-{{ loop.index }}">{{ q.question }}</label>
+  {% if q.type == 'choice' %}<select id="q-{{ loop.index }}" name="a:{{ q.key }}"><option value="">Choose…</option>{% for o in q.options %}<option value="{{ o.value }}"{% if q.proposed == o.value %} selected{% endif %}>{{ o.label }}</option>{% endfor %}</select>
+  {% elif q.type == 'date' %}<input id="q-{{ loop.index }}" type="date" name="a:{{ q.key }}" value="{{ q.proposed }}">
+  {% else %}<input id="q-{{ loop.index }}" type="text" name="a:{{ q.key }}" value="{{ q.proposed }}">{% endif %}
+  {% endfor %}
   {% endif %}
+
+  {% if doc.can_answer %}
+  <h2>Who is answering</h2>
+  <div class="need-two"><div><label for="need-name">Your name</label><input id="need-name" type="text" name="name" required maxlength="120" value="{{ (typed or {}).get('name', '') }}"></div><div><label for="need-email">Your email (optional)</label><input id="need-email" type="email" name="email" maxlength="200" value="{{ (typed or {}).get('email', '') }}"></div></div>
+  <button class="need-send" type="submit">Send your answers</button>
+  <p class="need-quiet">Your answers go to your Smart 1 contact, who confirms each one on the plan. You can come back and change them here.</p>
+  {% endif %}
+  </form>
 
   <h2>Your Smart 1 contact</h2>
   <p>{% if doc.contact %}<b>{{ doc.contact }}</b> is looking after this campaign — reply to the email this link came in, or call the office.{% else %}Reply to the email this link came in, or call the office, and we will pick it up.{% endif %}</p>

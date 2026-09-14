@@ -270,6 +270,16 @@ class Settings:
     unsplash_key: str = field(default_factory=lambda: _alias("unsplash_key"))
     remove_bg_key: str = field(default_factory=lambda: _alias("remove_bg_key"))
     brandfetch_key: str = field(default_factory=lambda: _alias("brandfetch_key"))
+    # The Google Places API (New) key hub/places.py reads a client's Business
+    # Profile with. One name and not an ALIASES entry: nothing in this Hub has
+    # ever read a Places or Maps key under another spelling, and that table
+    # records drift that happened rather than drift somebody imagined.
+    google_places_key: str = field(default_factory=lambda: _s("GOOGLE_PLACES_API_KEY"))
+    # The YouTube Data API key. hub/youtube.py falls back to the Places key
+    # -- the same Cloud project -- and names which answered, so this is set
+    # only where the two have to differ (a Places key restricted to Places
+    # API (New) is refused by YouTube).
+    youtube_key: str = field(default_factory=lambda: _s("YOUTUBE_API_KEY"))
     google_fonts_key: str = field(default_factory=lambda: _alias("google_fonts_key"))
     insites_key: str = field(default_factory=lambda: _alias("insites_key"))
     heygen_key: str = field(default_factory=lambda: _alias("heygen_key"))
@@ -629,6 +639,11 @@ class Settings:
             row("Unsplash", bool(self.unsplash_key), False, f"{self.spellings('unsplash_key')} — stock search provider."),
             row("remove.bg", bool(self.remove_bg_key), False, f"{self.spellings('remove_bg_key')} — Background Remover is disabled without it."),
             row("Brandfetch", bool(self.brandfetch_key), False, f"{self.spellings('brandfetch_key')} — logo and brand-color lookup."),
+            row("Google Places", bool(self.google_places_key), False, "GOOGLE_PLACES_API_KEY — a client's Google Business Profile rating and review count, read nightly."),
+            row("YouTube Data API", bool(self.youtube_key or self.google_places_key), False,
+                "YOUTUBE_API_KEY — a client's channel subscribers, views and video count, read nightly; "
+                + ("reading GOOGLE_PLACES_API_KEY, the same Cloud project" if self.google_places_key and not self.youtube_key
+                   else "falls back to GOOGLE_PLACES_API_KEY when unset") + "."),
             row("Google Fonts", bool(self.google_fonts_key), False, f"{self.spellings('google_fonts_key')} — optional; curated list used without it."),
             row("Insites", bool(self.insites_key), False, f"{self.spellings('insites_key')} — Site Scans disabled without it."),
             row("HeyGen", bool(self.heygen_key), False,
