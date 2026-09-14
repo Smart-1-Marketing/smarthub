@@ -475,11 +475,26 @@ ok("and accept() is the only thing that touches it",
 # one added here.
 import ast as _ast                                              # noqa: E402
 _sched = _ast.parse((ROOT / "hub" / "scheduler.py").read_text(encoding="utf-8"))
-_jobs = {n.name: [a.arg for a in n.args.args] for n in _ast.walk(_sched)
+_jobs = {n.name: n.args for n in _ast.walk(_sched)
          if isinstance(n, _ast.FunctionDef) and n.name.startswith("job_")}
 ok("the upload sweep is registered as a scheduler job",
    "job_describe_client_uploads" in _jobs)
-_wrong = {k: v for k, v in _jobs.items() if v != ["app"]}
+def _accepts_app(args):
+    positional = args.posonlyargs + args.args
+    return (bool(positional) and positional[0].arg == "app"
+            and len(positional) - len(args.defaults) <= 1
+            and all(default is not None for default in args.kw_defaults))
+
+
+for _signature, _expected in [
+    ("app", True), ("app, completed_platforms=()", True),
+    ("app, *, retry=False", True), ("", False),
+    ("app, required", False), ("app, *, required", False),
+]:
+    _args = _ast.parse(f"def job({_signature}): pass").body[0].args
+    ok(f"scheduler signature ({_signature}) is checked by callability",
+       _accepts_app(_args) == _expected)
+_wrong = {k: _ast.dump(v) for k, v in _jobs.items() if not _accepts_app(v)}
 ok("and every job takes the argument the runner passes", not _wrong, str(_wrong))
 
 _tsrc = (ROOT / "hub" / "request_triage.py").read_text(encoding="utf-8")
