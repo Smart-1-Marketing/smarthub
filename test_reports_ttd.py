@@ -329,7 +329,7 @@ out = fn(Flask("t"))
 check("the job returns the shape the panel reads",
       sorted(out), ["automapped", "errors", "pending", "platforms", "rows", "skipped"])
 check("...with every unconfigured platform skipped cleanly on this deployment's state",
-      sorted(out["skipped"]), ["audiogo", "google", "stackadapt", "ttd"])
+      sorted(out["skipped"]), ["audiogo", "bing", "google", "stackadapt", "ttd"])
 check("...and no errors", out["errors"], {})
 check("...and the automap ran", out["automapped"] >= 0)
 
