@@ -178,6 +178,37 @@ def check_places() -> Check:
                  fix="Enable Places API (New) on the key's project, or rotate the key.")
 
 
+def check_microsoft_ads() -> Check:
+    """Configured, connected, or neither -- read off the settings and the
+    stored token, and deliberately never probed: the only authenticated call
+    is a token refresh against a manager account, and the settings page and
+    /reports/ already carry the pull's own last outcome."""
+    try:
+        from modules.ads_builder import bing_ads, store as ads_store
+        st = bing_ads.connection_status(ads_store)
+    except Exception as exc:                            # noqa: BLE001
+        return Check("microsoft_ads", "Microsoft Ads", "error",
+                     f"Smart 1 Ads could not be read ({type(exc).__name__}).", 0)
+    if st.get("manager_id_problem"):
+        return Check("microsoft_ads", "Microsoft Ads", "error",
+                     "BING_MANAGER_ACCOUNT_ID " + st["manager_id_problem"], 0,
+                     fix="Put the manager's customer id (digits) in BING_MANAGER_ACCOUNT_ID "
+                         "and the account number in BING_MANAGER_ACCOUNT_NUMBER.")
+    if st.get("missing"):
+        names = " / ".join(st["missing"])
+        return Check("microsoft_ads", "Microsoft Ads", "off",
+                     f"Not configured — {names} unset; the reports module cannot pull Microsoft Ads.", 0,
+                     False, f"Set {names} in the Render dashboard.")
+    if not st.get("connected"):
+        return Check("microsoft_ads", "Microsoft Ads", "warn",
+                     "Credentials are set; nobody has connected a Microsoft account yet.", 0,
+                     fix="Open /tools/ads/settings and press Connect Microsoft Ads.")
+    env = " (sandbox)" if st.get("environment") == "sandbox" else ""
+    return Check("microsoft_ads", "Microsoft Ads", "ok",
+                 f"Connected{env}; the refresh token is in the {st['refresh_token_source']}. "
+                 "The pull's last outcome is on /reports/.", 0)
+
+
 def check_youtube() -> Check:
     key = settings.youtube_key or settings.google_places_key
     if not key:
@@ -695,7 +726,7 @@ def check_google_accounts() -> list[Check]:
 CHECKS = [
     check_database, check_json_backup, check_public_base_url,
     check_openai, check_cloudinary,
-    check_brandfetch, check_places, check_youtube, check_insites, check_removebg, check_pexels,
+    check_brandfetch, check_places, check_youtube, check_microsoft_ads, check_insites, check_removebg, check_pexels,
     check_pixabay, check_unsplash, check_google_fonts, check_ghl,
     check_ghl_app, check_knack, check_quickbooks, check_google_oauth,
     check_google_accounts,

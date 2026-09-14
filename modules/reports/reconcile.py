@@ -204,6 +204,64 @@ def stackadapt_total(start: date, end: date) -> dict:
             "label": f"StackAdapt's month fetched again ({len(rows)} campaign-days)"}
 
 
+def bing_total(start: date, end: date) -> dict:
+    """Microsoft Advertising's month as an AccountPerformanceReport over the
+    same window, one row per account, summed. A re-read: the same Reporting
+    service the pull reads, on a different report, so it catches a day the
+    restate window never re-read and a campaign a report scope left out --
+    and not the feed being wrong. Polled inside the pull's own budget, so
+    a report not ready in time is *not measured* for tonight rather than
+    the scheduler thread being held for it."""
+    from . import bing
+    ba, ads_store = bing._client()
+    if ba is None:
+        return {"measured": False, "reason": str(ads_store)}
+    st = ba.connection_status(ads_store)
+    if not st.get("configured"):
+        return {"measured": False, "reason": bing.not_configured_line()}
+    if not st.get("connected"):
+        return {"measured": False, "reason": bing.NOT_CONNECTED}
+    try:
+        accts = ba.list_accounts(ads_store, module="reports")
+        if not accts:
+            return {"measured": False, "reason": "no advertiser account under the manager"}
+        body = ba.report_request("AccountPerformanceReportRequest", start, end,
+                                 [a["id"] for a in accts], aggregation="Summary",
+                                 columns=ba.ACCOUNT_COLUMNS,
+                                 name=f"smart1-hub-accounts-{start.isoformat()}-{end.isoformat()}")
+        rid = ba.submit_report(ads_store, body, module="reports")
+        url = bing.wait_for(ads_store, rid, module="reports")
+        rows = ba.rows_of(ba.download_report(url, module="reports"))
+    except bing.ReportPending as exc:
+        return {"measured": False, "reason": str(exc)}
+    except bing.PullError as exc:
+        return {"measured": False, "reason": str(exc)}
+    except ba.BingAdsError as exc:
+        return {"measured": False, "reason": ba._redact(exc.message)}
+    cols = None
+    spend, imps, clicks, counted = Decimal(0), 0, 0, 0
+    for row in rows:
+        if cols is None:
+            c = bing.columns(row)
+            if all(f in c for f in ("account_id", "spend", "impressions", "clicks")):
+                cols = {f: row.index(h) for f, h in c.items()}
+            continue
+        def get(field):
+            i = cols.get(field)
+            return row[i] if i is not None and i < len(row) else None
+        if not str(get("account_id") or "").strip():
+            continue
+        counted += 1
+        spend += Decimal(str(bing._num(get("spend"))))
+        imps += int(bing._num(get("impressions")))
+        clicks += int(bing._num(get("clicks")))
+    if cols is None:
+        return {"measured": False, "reason": "the account report carried no column row"}
+    return {"measured": True, "spend": _q(spend), "impressions": imps, "clicks": clicks,
+            "independent": False,
+            "label": f"Microsoft Ads account report over the same window ({counted} account{'s' if counted != 1 else ''})"}
+
+
 def theirs(platform: str, start: date, end: date) -> dict:
     """The platform's own figure for the window, or not measured with the
     reason. Google's customer query first where it is connected -- the one
@@ -216,6 +274,8 @@ def theirs(platform: str, start: date, end: date) -> dict:
         readers.append(google_total)
     if platform == "stackadapt":
         readers.append(stackadapt_total)
+    if platform == "bing":
+        readers.append(bing_total)
     readers.append(lambda a, b: provider_total(platform, a, b))
     reasons = []
     for reader in readers:

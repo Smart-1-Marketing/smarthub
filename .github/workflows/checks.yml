@@ -3253,6 +3253,16 @@ jobs:
       - name: The native StackAdapt pull
         if: matrix.group == 8
         run: python3 test_reports_stackadapt.py
+      # Microsoft Ads: one consent kept the way Google's is, every call
+      # carrying the bearer token, the developer token and the manager
+      # customer id and none of them reaching a result or a log line, ONE
+      # daily campaign report submitted for every account under the
+      # manager and polled inside the StackAdapt budget, pending kept apart
+      # from failed, CampaignType filing a default product, and the
+      # Settings card, callback and disconnect in Smart 1 Ads.
+      - name: The native Microsoft Ads pull and its connection
+        if: matrix.group == 8
+        run: python3 test_reports_bing.py
       # AudioGo: the call shaped by audiogo_map.py's placeholders and by
       # nothing else, the check page printing the raw keys an endpoint
       # answered with, a map that does not resolve refused by name, and
@@ -3371,7 +3381,7 @@ jobs:
                    test_reports_seo.py test_reports_ttd.py test_reports_stackadapt.py \
                    test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
                    test_reports_confirmations.py test_reports_quarantine.py \
-                   test_reports_reconcile.py; do
+                   test_reports_reconcile.py test_reports_bing.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1
           done
 
