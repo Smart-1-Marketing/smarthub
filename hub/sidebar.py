@@ -2,16 +2,14 @@
 
 Modules keep their own layouts; this adds the same fixed navy sidebar the Hub
 shell uses (scoped s1hub- class names to avoid collisions) and shifts the
-page right to make room. Below 950px the sidebar collapses to the floating
-chip so phone layouts are untouched.
+page right to make room. Below 950px the sidebar becomes a slide-out drawer.
+
+Since 2026-09-14 the nav is two tiers: five pinned rows, then twelve
+*departments* (six Departments, six Tools) that stay folded -- see PINNED,
+LEAVES and SECTIONS below. `_ITEMS` is still exported as the flat list the
+rest of the Hub reads, derived from the tree so the two cannot disagree.
 """
 
-# Ordered the way the work runs, not the way the code grew: what you sell,
-# what you make, then the systems underneath. Utilities went last because
-# Diagnostics, System Status and Users are things you go looking for when
-# something is wrong -- putting them third pushed the actual tools below the
-# fold on a laptop.
-#
 # The keys are what render_sidebar() matches `active` against, so they are
 # fixed points: reordering or relabelling is free, renaming a key silently
 # stops that page highlighting itself in the nav.
@@ -85,111 +83,344 @@ def collapses_by_default(path: str) -> bool:
     return path_matches(path or "", CREATIVE_PREFIXES)
 
 
-_ITEMS = [
+
+# ------------------------------------------------------------------ the nav
+# Two tiers, decided 2026-09-14. Five rows are pinned at the top because they
+# are what everybody opens the Hub with. Everything else is a *department* --
+# one row that stays folded until it is rolled over (a flyout), pinned open
+# (the chevron, and the only way on a phone), or clicked (its index page at
+# /views/<slug>, every tool in it as tiles). Twelve rows on a laptop instead
+# of forty-one, and nothing less reachable than before.
+#
+# A tool is defined ONCE, in LEAVES, and referenced by key from as many
+# departments as it belongs to: the calculators are a Sales tool and an Ad
+# Tool, Reports is Product Success and Client Success and SEO. One label and
+# one href per tool, however many places list it, so a rename is one edit.
+#
+# Keys are what render_sidebar() matches `active` against and what
+# hub/__init__.py's _MOUNT_ACTIVE_HUB and wsgi.py's HubBar hand in, so the
+# ones that existed before this reshuffle keep their spelling. Renaming a key
+# silently stops that page highlighting itself in the nav.
+
+PINNED = [
     ("dashboard", "/", "&#127968;", "Dashboard"),
     ("ask_smarthub", "/ask-smarthub", "&#10024;", "Ask SmartHub"),
     ("c360", "/client360", "&#127919;", "Client 360"),
-    # Directly under Client 360, and above the sections: that page answers
-    # "what do we know about this client" and this one answers "which of them
-    # needs an hour today", which is the question somebody opens the Hub with.
     ("myclients", "/my-clients", "&#128203;", "My Clients"),
-    # A curated shortlist for the department somebody is on -- nothing here is
-    # more or less reachable because of it, so it needs no access level of its
-    # own; the editor that curates it is Utilities-gated instead, below.
     ("deptviews", "/views", "&#128065;", "My View"),
-    ("_sec2", "", "", "Sales"),
-    # One entry, because there is one proposal builder. /sales/proposals is the
-    # retired standalone tool: it redirects here and serves its archive only.
-    # Before the Proposal Builder because it is what happens before one: the
-    # audit is the evidence a proposal is written from, and the builder offers
-    # to run it anyway if nobody did.
-    ("website_audit", "/tools/website-audit", "&#128269;", "Website Audit"),
-    ("salesb", "/sales/builder/", "&#128196;", "Proposal Builder"),
-    # Sales, not Tools. It is the last step of the sales flow -- a proposal
-    # becomes an insertion order -- and the Tools page is where staff looked
-    # for it only because that is where its URL happens to live. The mount
-    # stays at /tools/io so every existing link keeps working.
-    ("io_builder", "/tools/io/", "&#128221;", "IO Builder"),
-    ("industry_prospects", "/sales/industry-prospects", "&#128269;", "Industry Prospects"),
-    ("leads", "/sales/leads", "&#128229;", "Leads"),
-    ("landing", "/sales/landing", "&#128187;", "Landing Pages"),
-    ("industry_factory", "/sales/industry-factory", "&#127968;", "Industry Factory"),
-    # Creative Studio is the front door over the tools below it -- a client
-    # picker, a project record and a template layer, not a replacement for
-    # any one of them. It is its own section rather than folded into
-    # "Creative" (which stays the flat tile index) because the two answer
-    # different questions: that page is "which tool do I want", this one is
-    # "what am I making for this client, and where did I leave it".
-    ("_seccs", "", "", "Creative Studio"),
-    ("cs_dashboard", "/creative-studio/", "&#127912;", "Create"),
-    ("cs_projects", "/creative-studio/projects", "&#128196;", "Projects"),
-    ("cs_campaigns", "/creative-studio/campaigns", "&#128188;", "Campaigns"),
-    ("cs_templates", "/creative-studio/templates", "&#128209;", "Templates"),
-    ("cs_library", "/creative-studio/library", "&#128218;", "Spot Library"),
-    ("cs_ai_tools", "/creative-studio/ai-tools", "&#129302;", "AI Tools"),
-    ("cs_brand_kits", "/creative-studio/brand-kits", "&#127912;", "Brand Kits"),
-    ("cs_media", "/creative-studio/media", "&#128247;", "Media Library"),
-    ("cs_approvals", "/creative-studio/approvals", "&#9989;", "Approvals"),
-    ("cs_usage", "/creative-studio/usage", "&#128176;", "Usage & Costs"),
-    ("_sec4", "", "", "Tools"),
-    ("creative", "/creative", "&#127912;", "Creative"),
-    # "Client Tools", not "Tools" -- a "Tools" item inside a "Tools" section
-    # reads as though it might be the section header repeated, and gives no
-    # hint of what is behind it. The URL is unchanged.
-    ("tools", "/tools", "&#128295;", "Client Tools"),
-    # Media buying sits in the nav rather than only on the Tools page:
-    # it is the one tool here that can start spend in a client's own
-    # account, and it is opened directly rather than looked up.
-    ("_sec_product_success", "", "", "Product Success"),
-    ("youtube_ads", "/tools/youtube-ads/", "&#9654;", "YouTube Ads"),
-    ("ads", "/tools/ads/", "&#128227;", "Smart 1 Ads"),
-    # Directly under Smart 1 Ads because it is the other half of the same
-    # question: that screen starts the spend, this one says what it did --
-    # every platform's performance, the campaigns not yet filed under a
-    # client, and the budgets they pace against.
-    ("reports", "/reports/", "&#128202;", "Reports"),
-    # Under Reports, the two internal reports it holds: how every sold line
-    # is spending against its budget, and what the month cost against what
-    # the client pays. Staff only, and never linked from a client's page.
-    ("reports_pacing", "/reports/pacing", "&#9201;", "Pacing"),
-    ("reports_cost", "/reports/cost", "&#128181;", "Cost Report"),
-    ("qa", "/qa", "&#9989;", "QA Reports"),
-    # Directly under QA Reports, because it is the other half of the same
-    # question: those pages say what is wrong, and this one is how somebody
-    # is asked to go and look. Everyone gets it -- Todd's rule for it is that
-    # anyone can assign a review, so a nav entry only admins see would put
-    # the queue behind the same door the people answering it cannot open.
-    ("qatasks", "/qa-tasks", "&#128221;", "QA Tasks"),
-    ("_secseo", "", "", "SEO"),
-    ("seo", "/seo", "&#128269;", "SEO Clients"),
-    ("scans", "/scans/", "&#128200;", "Site Scans"),
-    ("_sec", "", "", "Modules"),
-    ("clients", "/clients", "&#128101;", "Clients"),
-    ("google", "/google/", "&#128202;", "Google"),
-    ("sites", "/sites/", "&#127760;", "Sites"),
-    ("suite", "/suite/", "&#129520;", "Suite"),
-    # Everything from here down is Utilities, and Utilities is the Admin-only
-    # section: hub/access.py gates the same paths server-side. This flag is
-    # what hides them, and it is *only* the hiding — a General user who types
-    # /diagnostics still meets the gate. Nav that lies about what you can
-    # reach is a worse experience than a refusal, but nav is not the guard.
-    ("_sec3", "", "", "Utilities", ADMIN_ONLY),
-    ("diagnostics", "/diagnostics", "&#128300;", "Diagnostics", ADMIN_ONLY),
-    ("status", "/status", "&#128678;", "System Status", ADMIN_ONLY),
-    ("users", "/diagnostics/users", "&#128100;", "Users", ADMIN_ONLY),
-    ("deptviews_manage", "/views/manage", "&#9881;", "Department Views", ADMIN_ONLY),
-    # Not named in the reshuffle, and it had to land somewhere rather than be
-    # dropped: it is a system-wide record read for the same reason as the three
-    # above, so it sits with them rather than among the tools that write to it.
-    ("activity", "/activity", "&#128220;", "Activity Log", ADMIN_ONLY),
 ]
 
-# Rows are 4-tuples or 5-tuples; the fifth is the access level. Left off, an
-# entry is visible to everyone, so an entry added later is public by default
-# and a *new Utilities* entry has to say so. That is the safe direction to be
-# wrong in for a nav, and the wrong one for the gate — which is why the gate
-# in hub/access.py names its paths explicitly instead of inferring them here.
-_ITEMS = [row if len(row) == 5 else row + (EVERYONE,) for row in _ITEMS]
+# key -> (href, icon, label). Alphabetical by key so a duplicate is caught by
+# eye; the order tools appear on screen is the departments' business below.
+LEAVES = {
+    "acct_requests":     ("/qa/accounting-requests", "&#128203;", "Accounting Requests"),
+    "active_clients":    ("/qa/active-clients", "&#9679;", "Active Clients"),
+    "activity":          ("/activity", "&#128220;", "Activity Log"),
+    "ad_assets":         ("/tools/ad-assets", "&#128193;", "Ad Assets"),
+    "ads":               ("/tools/ads/", "&#128227;", "PPC Builder"),
+    "ads_grader":        ("/tools/ads-grader/", "&#128200;", "Google Ads Grader"),
+    "assign_clients":    ("/qa/client-owners", "&#128100;", "Assign Clients"),
+    "bg_remover":        ("/tools/bg-remover/", "&#9986;", "Background Remover"),
+    "billing_cmp":       ("/qa/billing-comparison", "&#128181;", "Customer Billing Comparison"),
+    "calc_audio":        ("/tools/calculators/internal/digital-audio", "&#127911;", "Digital Audio Calculator"),
+    "calc_ctv":          ("/tools/calculators/internal/ctv", "&#128250;", "Connected TV Calculator"),
+    "calc_dooh":         ("/tools/calculators/internal/dooh", "&#128253;", "DOOH Calculator"),
+    "calc_ims":          ("/tools/calculators/internal/trade", "&#129309;", "IMS Calculator"),
+    "campaign_assets":   ("/tools/campaign-assets", "&#128230;", "Campaign Assets Needed"),
+    "check_recon":       ("/tools/check-reconciliation/", "&#129534;", "Check Reconciliation"),
+    "clients":           ("/clients", "&#128101;", "Clients"),
+    "commercial":        ("/tools/commercial-builder/", "&#127916;", "Commercial Builder"),
+    "commercial_lib":    ("/tools/commercial-builder/library", "&#128218;", "Commercial Library"),
+    "creative":          ("/creative", "&#127912;", "Creative"),
+    "cs_ai_tools":       ("/creative-studio/ai-tools", "&#129302;", "AI Tools"),
+    "cs_approvals":      ("/creative-studio/approvals", "&#9989;", "Approvals"),
+    "cs_brand_kits":     ("/creative-studio/brand-kits", "&#127912;", "Brand Kits"),
+    "cs_campaigns":      ("/creative-studio/campaigns", "&#128188;", "Campaigns"),
+    "cs_dashboard":      ("/creative-studio/", "&#127912;", "Create"),
+    "cs_library":        ("/creative-studio/library", "&#128218;", "Spot Library"),
+    "cs_media":          ("/creative-studio/media", "&#128247;", "Media Library"),
+    "cs_projects":       ("/creative-studio/projects", "&#128196;", "Projects"),
+    "cs_templates":      ("/creative-studio/templates", "&#128209;", "Templates"),
+    "cs_usage":          ("/creative-studio/usage", "&#128176;", "Usage &amp; Costs"),
+    "customer_voices":   ("/tools/customer-voices/", "&#127908;", "Customer Voices"),
+    "dead_air":          ("/tools/dead-air/", "&#9986;", "Dead Air Cutter"),
+    "deptviews_manage":  ("/views/manage", "&#9881;", "Department Views"),
+    "diagnostics":       ("/diagnostics", "&#128300;", "Diagnostics"),
+    "display_ads":       ("/tools/display-ads/_hub/start", "&#128444;", "Display Ad Builder"),
+    "domains":           ("/tools/domains", "&#128197;", "Domain Renewals"),
+    "fan_radio":         ("/tools/fan-radio/", "&#127944;", "Fan Radio"),
+    "ga4":               ("/google/ga-tools", "&#128200;", "GA4 Tools"),
+    "gbp":               ("/google/gmb-tools", "&#128205;", "Business Profile"),
+    "ghl_billing_month": ("/qa/ghl-billing-this-month", "&#128179;", "Suite Billing This Month"),
+    "ghl_billing_none":  ("/qa/ghl-billing-no-products", "&#128681;", "Suite Billing, No Active Product"),
+    "google":            ("/google/", "&#128202;", "Google"),
+    "google_access":     ("/tools/google-access/", "&#128273;", "Google Access"),
+    "google_accounts":   ("/qa/google-accounts", "&#128506;", "Google Accounts &amp; Mapping"),
+    "google_finder":     ("/google/", "&#128269;", "Google Finder"),
+    "google_history":    ("/google/history", "&#128220;", "Google History &amp; Logs"),
+    "gpt_ads":           ("/tools/gpt-ads/", "&#129302;", "GPT Ads Builder"),
+    "gtm":               ("/google/gtm-tools", "&#127991;", "GTM Tools"),
+    "house_urls":        ("/tools/seo-images/house", "&#127968;", "House URLs"),
+    "image_creator":     ("/tools/image-creator/", "&#128444;", "Image Creator"),
+    "image_opt":         ("/tools/image/", "&#128444;", "Image Optimizer &amp; Resizer"),
+    "image_picker":      ("/tools/image-picker/", "&#128228;", "Client Image Uploads"),
+    "inactive_ga":       ("/tools/google-access/qa-inactive/", "&#128201;", "Inactive GA &amp; GTM"),
+    "industry_factory":  ("/sales/industry-factory", "&#127968;", "Industry Factory"),
+    "industry_prospects": ("/sales/industry-prospects", "&#128269;", "Industry Prospects"),
+    "invoice_off":       ("/qa/invoice-off", "&#9878;", "Invoice Off Report"),
+    "io_builder":        ("/tools/io/", "&#128221;", "IO Builder"),
+    "io_money":          ("/qa/io-money-mismatch", "&#9878;", "Campaigns Not At Order Value"),
+    "io_not_in_knack":   ("/qa/io-not-in-knack", "&#128203;", "Orders With No Campaign"),
+    "knack_field_map":   ("/qa/knack-field-map", "&#128279;", "Knack Field Map"),
+    "land_boat":         ("/land/boat/", "&#128676;", "Boat Dealer Landing Page"),
+    "land_hvac":         ("/land/hvac/", "&#127777;", "HVAC Landing Page"),
+    "land_legal":        ("/land/legal/", "&#9878;", "Legal Landing Page"),
+    "land_recruit":      ("/land/recruit/", "&#128188;", "Recruitment Landing Page"),
+    "land_restaurant":   ("/land/restaurant/", "&#127860;", "Restaurant Landing Page"),
+    "land_rv":           ("/land/rv/", "&#128656;", "RV Dealer Landing Page"),
+    "land_ski":          ("/land/ski/", "&#127954;", "Ski Resort Landing Page"),
+    "land_stadium":      ("/land/stadium/", "&#127944;", "Stadium to Screen"),
+    "land_tourism":      ("/land/tourism/", "&#127796;", "Tourism Landing Page"),
+    "landing":           ("/sales/landing", "&#128187;", "Landing Pages"),
+    "landing_ads":       ("/tools/landing-ads/", "&#128444;", "Landing Page Ads"),
+    "landing_maker":     ("/sales/landing", "&#128187;", "Landing Page Maker"),
+    "leads":             ("/sales/leads", "&#128229;", "Leads"),
+    "leads_existing":    ("/qa/sell-to-clients", "&#128176;", "Existing Client Leads"),
+    "lost_by_partner":   ("/qa/lost-by-partner", "&#8595;", "Ran Last Month, Not This Month"),
+    "lsa":               ("/tools/lsa/", "&#128200;", "LSA Ads"),
+    "youtube_ads":       ("/tools/youtube-ads/", "&#9654;", "YouTube Ads"),
+    "magic_resize":      ("/tools/magic-resize/", "&#128207;", "Magic Resize"),
+    "marketing_audit":   ("/tools/marketing-audit/", "&#128202;", "Marketing Efficiency Audit"),
+    "match_google":      ("/tools/google-match", "&#128202;", "Match Google Accounts"),
+    "match_sites":       ("/tools/sites-match", "&#128279;", "Match Sites to Clients"),
+    "match_suite":       ("/tools/suite-match", "&#128279;", "Match Suite Sub-accounts"),
+    "media_calcs":       ("/tools/calculators/", "&#128425;", "Media Calculators"),
+    "monthly_promises":  ("/qa/monthly-promises", "&#128197;", "Promises Not Kept This Month"),
+    "msa":               ("/msa/", "&#128220;", "Master Services Agreement"),
+    "myclients":         ("/my-clients", "&#128203;", "My Clients"),
+    "no_analytics":      ("/qa/no-analytics", "&#128200;", "Clients Without Analytics"),
+    "no_dashboards":     ("/qa/no-dashboards", "&#9888;", "No Dashboards"),
+    "no_gtm":            ("/qa/no-gtm", "&#127991;", "Clients Without GTM"),
+    "page_images":       ("/tools/page-images/", "&#128444;", "Page Image Optimizer"),
+    "paint_animation":   ("/tools/paint-animation/", "&#127912;", "Paint Animation"),
+    "partner_scorecard": ("/qa/partner-scorecard", "&#129309;", "Partner Scorecard"),
+    "pdf":               ("/tools/pdf/", "&#128462;", "PDF Optimizer"),
+    "proposal_execution": ("/proposal-execution", "&#9881;", "Proposal Execution"),
+    "qa":                ("/qa", "&#9989;", "QA Reports"),
+    "qatasks":           ("/qa-tasks", "&#128221;", "QA Tasks"),
+    "radio_promo":       ("/tools/radio-promo/", "&#128251;", "Radio Ad Creator"),
+    "radio_scripts":     ("/tools/radio-scripts/", "&#128221;", "Radio Scripts"),
+    "reports":           ("/reports/", "&#128202;", "Reports"),
+    "reports_cost":      ("/reports/cost", "&#128181;", "Cost Report"),
+    "reports_pacing":    ("/reports/pacing", "&#9201;", "Pacing"),
+    "sales_scorecard":   ("/qa/sales-scorecard", "&#127942;", "Salesperson Scorecard"),
+    "salesb":            ("/sales/builder/", "&#128196;", "Proposal Builder"),
+    "scan_all":          ("/scans/bulk", "&#9776;", "Scan All Clients"),
+    "scan_widgets":      ("/scans/widgets", "&#128269;", "Scan Widgets"),
+    "scans":             ("/scans/", "&#128200;", "Site Scans"),
+    "sell_to_clients":   ("/qa/sell-to-clients", "&#128176;", "What We Could Sell Each Client"),
+    "seo":               ("/seo", "&#128269;", "SEO Clients"),
+    "seo_images":        ("/tools/seo-images/", "&#128444;", "SEO Image Pipeline"),
+    "seo_intelligence":  ("/seo/intelligence/", "&#129504;", "SEO Intelligence"),
+    "short_links":       ("/tools/short-links", "&#128279;", "Client Links"),
+    "site_blocks":       ("/tools/site-blocks/", "&#129513;", "Website Blocks"),
+    "sites":             ("/sites/", "&#127760;", "Sites"),
+    "sites_billing":     ("/qa/sites-billing", "&#127760;", "Sites Billing Report"),
+    "sites_builder":     ("/tools/sites-builder", "&#10024;", "Smart 1 Sites Builder"),
+    "skills360":         ("/tools/360-skills/", "&#129513;", "360 Skills"),
+    "smartforecast":     ("/tools/smartforecast/", "&#127780;", "SmartForecast Dynamic Website"),
+    "social":            ("/tools/social/", "&#128172;", "Social Content Planner"),
+    "stale_90":          ("/qa/stale-90", "&#8987;", "No Live Product in 90 Days"),
+    "stale_creative":    ("/qa/stale-creative", "&#9203;", "Stale Creative"),
+    "status":            ("/status", "&#128678;", "System Status"),
+    "stock_photos":      ("/tools/stock-photos/", "&#128247;", "Stock Photo Search"),
+    "studio":            ("/creative-studio/", "&#127916;", "Studio"),
+    "suite":             ("/suite/", "&#129520;", "Suite"),
+    "tickets":           ("/tools/tickets/", "&#127915;", "Web Tickets"),
+    "tools":             ("/tools", "&#128295;", "Client Tools"),
+    "unattached_images": ("/qa/unattached-images", "&#128444;", "Unattached Images"),
+    "users":             ("/diagnostics/users", "&#128100;", "Users"),
+    "utm":               ("/tools/utm/", "&#128279;", "UTM Builder"),
+    "vertical_reframe":  ("/tools/vertical-reframe/", "&#128241;", "Vertical Reframe"),
+    "video_search":      ("/tools/video-backgrounds/", "&#127909;", "Video Search"),
+    "vox_explainer":     ("/tools/vox-explainer/", "&#127908;", "Vox Explainer"),
+    "weather_setup":     ("/tools/weather-setup/", "&#127780;", "Weather Trigger Setup"),
+    "webmaster_reports": ("/seo/webmaster", "&#128202;", "Webmaster Reports"),
+    "webmaster_tools":   ("/google/webmaster-tools", "&#128421;", "Webmaster Tools"),
+    "website_audit":     ("/tools/website-audit", "&#128269;", "Website Audit"),
+}
+
+# Reused groupings, so the same list is not typed twice.
+_CALCULATORS = ["calc_audio", "calc_ctv", "calc_dooh", "calc_ims"]
+_GOOGLE_TOOLS = ["google_access", "google_finder", "ga4", "gtm", "webmaster_tools",
+                 "gbp", "google_history"]
+_MODULES = ["clients", "google", "sites", "suite"]
+_AUDIO = ["customer_voices", "radio_promo", "fan_radio", "radio_scripts"]
+_VIDEOS = ["commercial", "commercial_lib", "video_search", "paint_animation",
+           "vox_explainer", "dead_air", "vertical_reframe"]
+_IMAGES = ["display_ads", "image_creator", "magic_resize", "image_opt", "bg_remover",
+           "landing_ads", "stock_photos", "page_images", "seo_images", "image_picker"]
+_SOCIAL = ["display_ads", "social", "image_creator", "magic_resize", "image_opt",
+           "bg_remover"]
+_LANDING = ["land_boat", "land_hvac", "land_legal", "land_recruit", "land_restaurant",
+            "land_rv", "land_ski", "land_stadium", "land_tourism"]
+
+
+def _dept(slug, label, ico, groups, level=EVERYONE, blurb=""):
+    """A department: `groups` is [(group label or "", [leaf keys])]. The index
+    page is always /views/<slug> -- every department gets one, even the ones
+    (SEO, QA) that also have a page of their own, so "click the name to see
+    everything in it" is true of every row rather than most of them."""
+    return {"key": "dept_" + slug.replace("-", "_"), "slug": slug, "label": label,
+            "ico": ico, "href": "/views/" + slug, "level": level, "blurb": blurb,
+            "groups": [(g, list(keys)) for g, keys in groups]}
+
+
+SECTIONS = [
+    ("Departments", [
+        _dept("sales", "Sales", "&#128188;", [
+            ("", ["website_audit", "salesb", "proposal_execution", "io_builder"]),
+            ("Sales Tools", ["gpt_ads", "social", "smartforecast", *_CALCULATORS, "ads",
+                             "weather_setup", "sites_builder", "landing_maker"]),
+            ("Leads", ["leads", "sell_to_clients", "msa"]),
+            ("", ["pdf", "short_links"]),
+            ("Sales QA", ["myclients", "monthly_promises", "sales_scorecard",
+                          "partner_scorecard", "assign_clients", "sell_to_clients",
+                          "stale_90", "lost_by_partner", "active_clients"]),
+        ], blurb="Reading the business, quoting the work and booking it."),
+        _dept("client-success", "Client Success", "&#129309;", [
+            ("", ["reports_pacing", "reports", "studio", "tools"]),
+            ("Ad Tools", ["utm", "ads", "gpt_ads", "smartforecast", *_CALCULATORS]),
+            ("Creative", ["creative", *_AUDIO, *_VIDEOS, *_IMAGES]),
+            ("Google Tools", _GOOGLE_TOOLS),
+            ("", ["skills360"]),
+            ("Issues", ["ad_assets", "stale_creative", "campaign_assets", "no_analytics",
+                        "no_gtm", "lost_by_partner", "sell_to_clients"]),
+            ("", ["suite"]),
+        ], blurb="Keeping the clients we have: pacing, reporting and what each one is missing."),
+        _dept("product-success", "Product Success", "&#128640;", [
+            ("Ad Builders", ["ads", "lsa", "youtube_ads", "gpt_ads", "utm", "short_links"]),
+            ("", ["reports", "reports_pacing", "reports_cost", "campaign_assets", "social"]),
+            ("Videos", ["commercial", "commercial_lib", "video_search", "dead_air",
+                        "vertical_reframe"]),
+            ("Images", ["image_creator", "magic_resize", "image_opt"]),
+        ], blurb="The campaigns themselves -- what ran, what it cost, what it still needs."),
+        _dept("seo", "SEO", "&#128269;", [
+            ("", ["seo", "webmaster_reports", "seo_intelligence", "suite"]),
+            ("SEO Tools", ["scans", "reports", "google_finder", "ga4", "gtm", "webmaster_tools",
+                           "gbp", "google_history", "ad_assets", "seo_images", "page_images"]),
+        ], blurb="Search and AI visibility, per client and across the book."),
+        _dept("web-dev", "Web Dev", "&#127760;", [
+            ("", ["sites", "site_blocks", "tickets", "website_audit", "smartforecast",
+                  "seo_images", "sites_builder", "clients", "house_urls"]),
+            ("Google Tools", ["google", "inactive_ga", "google_accounts", "no_analytics",
+                              "no_gtm", "match_google"]),
+            ("Web QA", ["weather_setup", "sites", "domains", "match_sites"]),
+            ("Suite QA", ["match_suite", "suite"]),
+        ], blurb="Building and running client websites."),
+        _dept("accounting", "Accounting", "&#128181;", [
+            ("", ["acct_requests", "check_recon", "msa"]),
+            ("Billing", ["invoice_off", "billing_cmp", "io_money", "sites_billing",
+                         "io_not_in_knack"]),
+            ("Web Issues", ["domains", "ghl_billing_none", "ghl_billing_month", *_MODULES]),
+        ], blurb="Where invoicing and the client record disagree."),
+    ]),
+    ("Tools", [
+        _dept("creative", "Creative", "&#127912;", [
+            ("Audio", _AUDIO),
+            ("Videos", _VIDEOS),
+            ("Display / Images", _IMAGES),
+            ("Social", _SOCIAL),
+        ], blurb="Images, video and audio. Approved work lands on the client's 360 record."),
+        _dept("studio", "Studio", "&#127916;", [
+            ("", ["cs_dashboard", "cs_projects", "cs_campaigns", "cs_templates", "cs_library",
+                  "cs_ai_tools", "cs_brand_kits", "cs_media", "cs_approvals", "cs_usage"]),
+        ], blurb="What am I making for this client, and where did I leave it."),
+        _dept("ad-tools", "Ad Tools", "&#128227;", [
+            ("", ["utm", "ads", "gpt_ads", "short_links", "smartforecast"]),
+            ("Calculators", _CALCULATORS),
+        ], blurb="Building, tagging and sizing the buys."),
+        _dept("leads", "Leads", "&#128229;", [
+            ("", ["leads", "leads_existing", "industry_factory", "industry_prospects"]),
+            ("Landing Pages", ["landing", "scan_widgets", "ads_grader", "media_calcs",
+                               "marketing_audit"]),
+            ("Industry Pages", _LANDING),
+        ], blurb="Public lead-capture pages, and the panel every submission lands in."),
+        _dept("qa", "QA", "&#9989;", [
+            ("", ["qa", "qatasks"]),
+            ("Client QA", ["myclients", "assign_clients", "unattached_images", "scan_all",
+                           "no_analytics", "no_gtm", "io_not_in_knack", "no_dashboards",
+                           "stale_90", "lost_by_partner"]),
+            ("Web QA", ["inactive_ga", "domains", "match_sites", "match_google", "match_suite",
+                        "knack_field_map", "no_analytics", "no_gtm", *_MODULES]),
+        ], blurb="What is wrong, and who has been asked to go and look."),
+        _dept("utilities", "Utilities", "&#128295;", [
+            ("", ["diagnostics", "status", "users", "deptviews_manage", "activity"]),
+            ("Modules", _MODULES),
+        ], level=ADMIN_ONLY, blurb="The machinery. Admin only."),
+    ]),
+]
+
+
+def departments(is_admin: bool = True) -> list[dict]:
+    """Every department row, in nav order, Utilities dropped for General."""
+    out = []
+    for _title, depts in SECTIONS:
+        out.extend(d for d in depts if is_admin or d["level"] != ADMIN_ONLY)
+    return out
+
+
+def department(slug: str) -> dict | None:
+    slug = (slug or "").strip().lower()
+    for d in departments(True):
+        if d["slug"] == slug:
+            return d
+    return None
+
+
+def department_tiles(dept: dict) -> list[tuple[str, list[tuple]]]:
+    """[(group label, [(key, href, ico, label), ...])] -- what the index page
+    and the flyout both draw. A key named in a department but missing from
+    LEAVES is dropped here rather than raising: the nav must never break a
+    page, and test_menu_layout.py is where a typo is caught."""
+    out = []
+    for group, keys in dept["groups"]:
+        rows = [(k, *LEAVES[k]) for k in keys if k in LEAVES]
+        if rows:
+            out.append((group, rows))
+    return out
+
+
+def _flatten() -> list[tuple]:
+    """The nav as the flat 5-tuple list the rest of the Hub reads
+    (`hub/search_index.py`, `hub/qa_tasks.py`, four test files, and the
+    Proposal Execution row that inserts itself after `salesb` at boot):
+    pinned rows, then each section header, its department rows, and every
+    leaf under them once. A leaf listed under three departments appears once,
+    at its first mention, so `_ITEMS` stays a set of pages rather than a
+    transcript of the menu."""
+    rows: list[tuple] = [(*row, EVERYONE) for row in PINNED]
+    seen = {row[0] for row in PINNED}
+    for n, (title, depts) in enumerate(SECTIONS):
+        rows.append((f"_sec{n}", "", "", title, EVERYONE))
+        for d in depts:
+            rows.append((d["key"], d["href"], d["ico"], d["label"], d["level"]))
+            for _group, leaves in department_tiles(d):
+                for key, href, ico, label in leaves:
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    rows.append((key, href, ico, label, d["level"]))
+    return rows
+
+
+_ITEMS = _flatten()
+
+# Departments a flyout or index page must NOT draw twice: a leaf listed in
+# two groups of the same department (Sales QA and Leads both name
+# sell_to_clients) is drawn in both, because each group is its own list and
+# Todd wrote both. Across departments it is intentional. Nothing to dedupe.
+
 
 _CSS = """
 <style>
@@ -336,6 +567,81 @@ body.s1hub-collapsed .s1hub-toggle { right: 4px; }
 .s1hub-chip { position: fixed; bottom: 14px; left: 14px; z-index: 99999; background: #1a2e58;
   color: #fff; padding: 8px 14px; border-radius: 20px; font: 600 12.5px 'Segoe UI', system-ui, sans-serif;
   text-decoration: none; box-shadow: 0 6px 18px rgba(0,0,0,.3); }
+
+/* ---- departments: one row each, folded until rolled over or pinned. ---- */
+.s1hub-sb .s1hub-dept { position: relative; }
+.s1hub-sb .s1hub-dept-row { display: flex !important; align-items: center;
+  border-left: 3px solid transparent; color: #c9d4ea; }
+.s1hub-sb .s1hub-dept-row:hover { background: rgba(255,255,255,.06); color: #fff; }
+.s1hub-sb .s1hub-dept-row.s1hub-on { background: rgba(255,255,255,.1); color: #fff;
+  border-left-color: #5b8bff; font-weight: 600; }
+.s1hub-sb a.s1hub-dept-link { display: flex !important; flex: 1; align-items: center;
+  gap: 10px; min-width: 0; padding: 9px 0 9px 18px; color: inherit;
+  text-decoration: none; font: inherit; text-transform: none; letter-spacing: normal; }
+/* !important throughout: this button lands inside 20 modules whose own
+   stylesheets style a bare <button> (hub.css paints them as blue pills). */
+.s1hub-sb .s1hub-chev { flex: none !important; width: 26px !important; height: 26px !important;
+  min-width: 0 !important; margin: 0 8px 0 0 !important; padding: 0 !important;
+  border: 0 !important; border-radius: 6px !important; box-shadow: none !important;
+  background: transparent !important; color: #7d8db2 !important;
+  font: 12px/1 'Segoe UI', system-ui, sans-serif !important; cursor: pointer;
+  transition: transform .15s ease; }
+.s1hub-sb .s1hub-chev:hover, .s1hub-sb .s1hub-chev:focus-visible {
+  background: rgba(255,255,255,.14) !important; color: #fff !important; }
+.s1hub-sb .s1hub-dept.s1hub-pinned .s1hub-chev { transform: rotate(90deg); }
+/* Pinned open: the tree stacked under the row, indented one step. */
+.s1hub-sb .s1hub-inline { display: none; padding: 2px 0 8px; }
+.s1hub-sb .s1hub-dept.s1hub-pinned .s1hub-inline { display: block; }
+.s1hub-sb .s1hub-inline .s1hub-g { padding: 8px 18px 2px 46px; font-size: 10px;
+  font-weight: 700; letter-spacing: .9px; text-transform: uppercase; color: #7d8db2; }
+.s1hub-sb .s1hub-inline a.s1hub-leaf { display: flex !important; align-items: center;
+  gap: 8px; padding: 5px 18px 5px 46px; font-size: 12.5px; color: #c9d4ea;
+  text-decoration: none; }
+.s1hub-sb .s1hub-inline a.s1hub-leaf .s1hub-ico { width: 14px; font-size: 12px; }
+.s1hub-sb .s1hub-inline a.s1hub-leaf:hover { background: rgba(255,255,255,.06); color: #fff; }
+.s1hub-sb .s1hub-inline a.s1hub-leaf.s1hub-on { color: #fff; font-weight: 600; }
+/* The flyout: fixed, placed by script beside the row it belongs to. */
+.s1hub-sb .s1hub-fly { position: fixed; z-index: 99995; display: none;
+  background: #22396b; color: #c9d4ea; border: 1px solid rgba(255,255,255,.12);
+  border-radius: 10px; box-shadow: 0 18px 50px rgba(6,18,32,.45);
+  padding: 12px 6px 10px; min-width: 240px; max-width: calc(100vw - 250px);
+  max-height: calc(100vh - 16px); overflow: auto; }
+.s1hub-sb .s1hub-dept.s1hub-peek .s1hub-fly { display: block; }
+.s1hub-sb .s1hub-fly-head { display: flex; justify-content: space-between;
+  align-items: baseline; gap: 16px; padding: 0 12px 10px; margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255,255,255,.12); }
+.s1hub-sb .s1hub-fly-head b { color: #fff; font-size: 14px; }
+.s1hub-sb .s1hub-fly-head a { font-size: 11.5px; color: #5b8bff; text-decoration: none; }
+.s1hub-sb .s1hub-cols { display: flex; flex-wrap: wrap; gap: 4px; align-items: flex-start; }
+.s1hub-sb .s1hub-col { min-width: 200px; max-width: 250px; padding: 0 6px; }
+.s1hub-sb .s1hub-col .s1hub-g { padding: 8px 8px 3px; font-size: 10px; font-weight: 700;
+  letter-spacing: .9px; text-transform: uppercase; color: #7d8db2; }
+.s1hub-sb .s1hub-col a.s1hub-leaf { display: flex !important; align-items: center;
+  gap: 8px; padding: 4px 8px; border-radius: 5px; font-size: 12.5px; color: #c9d4ea;
+  text-decoration: none; white-space: nowrap; }
+.s1hub-sb .s1hub-col a.s1hub-leaf .s1hub-ico { width: 14px; font-size: 12px; }
+.s1hub-sb .s1hub-col a.s1hub-leaf:hover { background: rgba(255,255,255,.1); color: #fff; }
+.s1hub-sb .s1hub-col a.s1hub-leaf.s1hub-on { color: #fff; font-weight: 600; }
+/* Collapsed rail: the chevron and labels fold away; the flyout still works
+   because it is placed from the rail's right edge, whatever its width. */
+body.s1hub-collapsed .s1hub-sb .s1hub-chev,
+body.s1hub-collapsed .s1hub-sb .s1hub-inline { display: none !important; }
+body.s1hub-collapsed .s1hub-sb a.s1hub-dept-link { justify-content: center; padding: 11px 0; }
+@media (min-width: 950px) and (hover: hover) {
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:hover .s1hub-chev,
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:focus-within .s1hub-chev { display: block !important; }
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:hover a.s1hub-dept-link,
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:focus-within a.s1hub-dept-link {
+    justify-content: flex-start; padding: 9px 0 9px 18px; white-space: nowrap; }
+}
+/* Phones: no hover, so no flyout; the chevron and the inline list are the
+   whole control, with bigger tap targets. */
+@media (max-width: 949.98px) {
+  .s1hub-sb .s1hub-fly { display: none !important; }
+  .s1hub-sb a.s1hub-dept-link { padding: 12px 0 12px 18px; }
+  .s1hub-sb .s1hub-chev { width: 40px; height: 40px; margin-right: 4px; }
+}
+@media (prefers-reduced-motion: reduce) { .s1hub-sb .s1hub-chev { transition: none; } }
 </style>
 """
 
@@ -391,12 +697,13 @@ function s1hubFeedback(){
 """.replace("__FORM_URL__", FEEDBACK_FORM_URL)
 
 
+
 def render_footer() -> bytes:
     return FOOTER_HTML.encode()
 
 
 def visible_items(is_admin: bool = True) -> list[tuple]:
-    """The nav rows this person should see, section headers included.
+    """The flat nav rows this person should see, section headers included.
 
     A section whose every entry was filtered out has its header dropped too —
     a bare "Utilities" heading with nothing under it reads as a nav that
@@ -416,9 +723,69 @@ def visible_items(is_admin: bool = True) -> list[tuple]:
     return out
 
 
+def _active_department(active: str, is_admin: bool) -> str:
+    """Which department row lights up for an active key: its own key, or the
+    first department that lists the leaf. A leaf under three departments
+    lights the first, which is the one nearest the top of the nav."""
+    if not active:
+        return ""
+    for d in departments(is_admin):
+        if d["key"] == active:
+            return d["key"]
+    for d in departments(is_admin):
+        for _g, leaves in department_tiles(d):
+            if any(k == active for k, *_ in leaves):
+                return d["key"]
+    return ""
+
+
+def _leaf_html(key, href, ico, label, active, cls=""):
+    on = " s1hub-on" if key == active else ""
+    return (f'<a class="s1hub-leaf{on}{(" " + cls) if cls else ""}" href="{href}" title="{label}">'
+            f'<span class="s1hub-ico">{ico}</span><span class="s1hub-label"> {label}</span></a>')
+
+
+def _department_html(d: dict, active: str, lit: str) -> str:
+    tiles = department_tiles(d)
+    count = len({href for _g, leaves in tiles for _k, href, *_ in leaves})
+    on = " s1hub-on" if d["key"] == lit else ""
+    admin = ' data-s1hub-admin="1"' if d["level"] == ADMIN_ONLY else ""
+    # The flyout: one column per group, up to four across.
+    cols = []
+    for group, leaves in tiles:
+        cols.append('<div class="s1hub-col">'
+                    + (f'<div class="s1hub-g">{group}</div>' if group else "")
+                    + "".join(_leaf_html(*leaf, active) for leaf in leaves)
+                    + "</div>")
+    fly = (f'<div class="s1hub-fly" role="group" aria-label="{d["label"]}">'
+           f'<div class="s1hub-fly-head"><b>{d["label"]}</b>'
+           f'<a href="{d["href"]}">{count} tools &middot; open &rarr;</a></div>'
+           f'<div class="s1hub-cols">{"".join(cols)}</div></div>')
+    # The inline list: the same tree, stacked, for a pinned-open row and for
+    # phones (no hover there, so the chevron is the whole control).
+    inline = []
+    for group, leaves in tiles:
+        if group:
+            inline.append(f'<div class="s1hub-g">{group}</div>')
+        inline.extend(_leaf_html(*leaf, active) for leaf in leaves)
+    # The row is a div holding a link and a button side by side: a button
+    # inside an anchor is not HTML a browser has to honour, and a chevron
+    # that also navigated would make "pin open" and "open the page" the
+    # same click.
+    return (f'<div class="s1hub-dept" data-s1hub-dept="{d["slug"]}"{admin}>'
+            f'<div class="s1hub-dept-row{on}">'
+            f'<a class="s1hub-dept-link" href="{d["href"]}" title="{d["label"]}">'
+            f'<span class="s1hub-ico">{d["ico"]}</span>'
+            f'<span class="s1hub-label"> {d["label"]}</span></a>'
+            f'<button class="s1hub-chev" type="button" aria-expanded="false" '
+            f'aria-label="Pin {d["label"]} open" title="Pin open">&#9656;</button></div>'
+            f'<div class="s1hub-inline">{"".join(inline)}</div>'
+            + fly + "</div>")
+
+
 def render_sidebar(active: str = "", is_admin: bool = True,
                    collapsed_default: bool = False) -> bytes:
-    """The nav. ``is_admin=False`` drops the Utilities section.
+    """The nav. ``is_admin=False`` drops the Utilities department.
 
     Defaults to True because every existing caller renders for a signed-in
     session and passing the flag is the new part; a caller that cannot work
@@ -434,17 +801,21 @@ def render_sidebar(active: str = "", is_admin: bool = True,
     either way. Without that distinction it would be a page fighting the
     person using it.
     """
+    lit = _active_department(active, is_admin)
     rows = []
     rows.append('<div class="s1hub-logo"><div class="s1hub-mark">S1</div><span class="s1hub-name">Smart 1 Hub</span></div>')
     rows.append('<div class="s1hub-sec">Overview</div>')
-    for key, href, ico, label, _level in visible_items(is_admin):
-        if key.startswith("_sec"):
-            rows.append(f'<div class="s1hub-sec">{label}</div>')
-            continue
+    for key, href, ico, label in PINNED:
         on = " s1hub-on" if key == active else ""
         rows.append(f'<a class="s1hub-item{on}" href="{href}" title="{label}">'
                     f'<span class="s1hub-ico">{ico}</span>'
                     f'<span class="s1hub-label"> {label}</span></a>')
+    for title, depts in SECTIONS:
+        shown = [d for d in depts if is_admin or d["level"] != ADMIN_ONLY]
+        if not shown:
+            continue
+        rows.append(f'<div class="s1hub-sec">{title}</div>')
+        rows.extend(_department_html(d, active, lit) for d in shown)
     # The burger replaces the old chip, which only linked to the dashboard.
     # Inline vanilla JS with no dependencies, because this markup is injected
     # into 20 modules whose own scripts we do not control.
@@ -461,11 +832,42 @@ def render_sidebar(active: str = "", is_admin: bool = True,
         "set(!n.classList.contains('s1hub-open'));});"
         "s.addEventListener('click',function(){set(false);});"
         "document.addEventListener('keydown',function(e){"
-        "if(e.key==='Escape')set(false);});"
+        "if(e.key==='Escape'){set(false);"
+        "n.querySelectorAll('.s1hub-dept.s1hub-peek').forEach(function(d){d.classList.remove('s1hub-peek');});}});"
         # Follow a link and the drawer closes itself, otherwise it covers
         # the page you just navigated to.
         "n.addEventListener('click',function(e){"
-        "if(e.target.closest('a'))set(false);});"
+        "if(e.target.closest('a')&&!e.target.closest('.s1hub-chev'))set(false);});"
+        # ---- departments. Roll over a row: the flyout. Click the chevron:
+        # pinned open inline, remembered per person in localStorage under
+        # s1hub:open. Click the name: the index page, an ordinary link.
+        # The flyout is position:fixed and placed from the row's own
+        # rectangle, because the nav scrolls (overflow-y:auto), and an
+        # absolutely positioned child of a scroll container is clipped at its
+        # edge -- the flyout would have been cut off at 224px and nothing
+        # would have said why.
+        "var open={};try{open=JSON.parse(localStorage.getItem('s1hub:open')||'{}')||{};}catch(e){}"
+        "n.querySelectorAll('.s1hub-dept').forEach(function(d){"
+        "var slug=d.getAttribute('data-s1hub-dept'),row=d.querySelector('.s1hub-dept-row'),"
+        "chev=d.querySelector('.s1hub-chev'),fly=d.querySelector('.s1hub-fly');"
+        "function pin(on){d.classList.toggle('s1hub-pinned',on);"
+        "if(chev)chev.setAttribute('aria-expanded',on?'true':'false');}"
+        "if(open[slug])pin(true);"
+        "if(chev)chev.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();"
+        "var on=!d.classList.contains('s1hub-pinned');pin(on);open[slug]=on;"
+        "try{localStorage.setItem('s1hub:open',JSON.stringify(open));}catch(x){}});"
+        "function place(){if(!fly||window.innerWidth<950)return;"
+        "var r=row.getBoundingClientRect(),nr=n.getBoundingClientRect();"
+        "fly.style.left=Math.round(nr.right)+'px';fly.style.top=Math.round(r.top-6)+'px';"
+        "d.classList.add('s1hub-peek');"
+        "var fr=fly.getBoundingClientRect(),over=fr.bottom-(window.innerHeight-8);"
+        "if(over>0)fly.style.top=Math.max(8,Math.round(r.top-6-over))+'px';}"
+        "d.addEventListener('mouseenter',place);"
+        "d.addEventListener('mouseleave',function(){d.classList.remove('s1hub-peek');});"
+        "d.addEventListener('focusin',place);"
+        "d.addEventListener('focusout',function(e){if(!d.contains(e.relatedTarget))d.classList.remove('s1hub-peek');});"
+        "});"
+        "n.addEventListener('scroll',function(){n.querySelectorAll('.s1hub-dept.s1hub-peek').forEach(function(d){d.classList.remove('s1hub-peek');});});"
         # Collapse to an icon rail, remembered across pages. Applied before
         # paint where possible so the layout doesn't jump on every navigation.
         #
