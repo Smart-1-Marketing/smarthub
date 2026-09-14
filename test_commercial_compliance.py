@@ -352,6 +352,14 @@ with hub_app.app_context():
     db.session.commit()
     job_id = job.id
 
+# These fixtures exercise filing/compliance; decoder and stale-cut gates have
+# independent integration coverage in test_video_workflow.py.
+from unittest.mock import patch as _patch_video
+_video_status = _patch_video("modules.commercial_builder.services.finished_video.creative_status", return_value="current")
+_video_inspection = _patch_video("modules.commercial_builder.services.finished_video.inspect_job", return_value={"status": "passed", "checks": []})
+_video_status.start()
+_video_inspection.start()
+
 blocked = staff.post(MOUNT + f"/api/projects/{pid}/render-jobs/{job_id}/approve", json={"acknowledge_unverified_video": True, })
 check("filing is refused", blocked.status_code, 409)
 check("and it names the regime", "Attorney advertising" in blocked.get_json()["error"], True)

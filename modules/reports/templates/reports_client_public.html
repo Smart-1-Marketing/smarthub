@@ -109,7 +109,7 @@
       {% else %}<div class="logo s1" role="img" aria-label="Smart 1 Marketing">S1</div>{% endif %}
       <div>
         <h1>{{ a.client_name }}</h1>
-        <div class="sub">Marketing report from Smart 1 Marketing · {{ a.period.label }}</div>
+        <div class="sub">Marketing report from Smart 1 Marketing · {{ a.period.label }}{% if a.data_through_label %} · figures through {{ a.data_through_label }}{% endif %}</div>
       </div>
     </div>
     <nav class="period" aria-label="Report period">
@@ -121,6 +121,7 @@
     </nav>
   </header>
 
+  {% if a.data_stale %}<p class="empty" role="status" style="margin:0 0 12px">Figures run through {{ a.data_through_label }}; the days since are still arriving.</p>{% endif %}
   <section class="tiles">
     {% for t in a.tiles %}
     <div class="tile"><div class="k">{{ t.label }}</div><div class="v">{{ t.display }}</div></div>

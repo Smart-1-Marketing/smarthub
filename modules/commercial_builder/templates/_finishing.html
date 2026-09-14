@@ -30,6 +30,13 @@
   </details>
   <details class="cb-card"><summary><strong>Production time &amp; spending</strong></summary>
     <div id="production-cost" role="status">Loading production totals…</div>
+    <h3>Project spending limit</h3>
+    <p id="budget-status" role="status"></p>
+    <label for="budget-limit">Total limit ($)</label><input id="budget-limit" type="number" min="0" max="100000" step="0.01" value="15">
+    <label for="budget-prior">Confirmed ceiling for all earlier charges ($; leave blank if unknown)</label><input id="budget-prior" type="number" min="0" max="100000" step="0.01">
+    <label><input id="budget-confirm" type="checkbox"> I verified that this amount covers all earlier project charges, including pending charges.</label>
+    <button id="budget-save" class="cb-btn cb-btn-sm">Save spending limit</button>
+    <p class="cb-hint">A limit blocks paid actions whose costs cannot be bounded. Setting a limit does not establish what earlier calls cost.</p>
     <button id="cost-refresh" class="cb-btn cb-btn-sm">Refresh totals</button>
     <h3>Creative script review</h3><p class="cb-hint">Get suggestions for the hook, delivery, brand claims and CTA. Uses the configured creative model; a new review uses OpenAI credits. An unchanged review is reused.</p>
     <button id="creative-review" class="cb-btn">Review script</button><div id="creative-result" role="status"></div>

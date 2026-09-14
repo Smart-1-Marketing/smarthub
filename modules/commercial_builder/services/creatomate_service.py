@@ -264,6 +264,7 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
 
     return {
         "output_format": "mp4",
+        "frame_rate": 25,
         "width": width,
         "height": height,
         "duration": float(length_seconds),

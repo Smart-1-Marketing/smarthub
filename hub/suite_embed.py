@@ -111,6 +111,8 @@ PUBLIC_FRAME_ANCESTORS = os.environ.get("HUB_PUBLIC_FRAME_ANCESTORS", "*").strip
 # writes work, not before.
 EMBEDDABLE: tuple[str, ...] = (
     "/client360",          # who is this client — the reason to do this at all
+    "/ask-smarthub",       # same-origin assistant drawer; read-only tools
+    "/api/ask-smarthub",   # its question endpoint
     "/api/c360",           # and the fetches it renders from
     "/api/client/",
     "/api/clients/",
@@ -134,6 +136,17 @@ PUBLIC_EMBEDDABLE: tuple[str, ...] = (
     "/tools/calculators/embed",   # /embed/<slug>, and /embed.js for the host
     "/tools/calculators/c/",      # the hosted page you can send or run an ad to
     "/tools/calculators/api/",    # estimate + unlock, called from in the frame
+    # A built landing page. `hub/landing_render.py` opens by saying it is one
+    # self-contained file "pasteable into Smart 1 Sites, a GoHighLevel funnel,
+    # or a client's own CMS" -- and a funnel builder pastes a page by framing
+    # it. Listed in neither tuple it fell to `refuse()`, so a prospect on the
+    # client's own domain read "This Hub page is not available inside Smart 1
+    # Suite", naming an internal path and an internal file, where the page
+    # should have been. The calculator failure this file's own docstring
+    # describes, one tool over, and silent in the same way: the page answers
+    # 200 to a rep opening it in a tab and only breaks for the one visitor it
+    # exists for.
+    "/sales/landing/p/",
 )
 
 # One staff route hides under one of those prefixes. /tools/calculators/api/health

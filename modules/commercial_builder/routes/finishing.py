@@ -18,6 +18,7 @@ HOUSEKEEPING_ROUTES = {
     "save_preset": "Saves a reusable internal brand snapshot with the approving actor.",
     "apply_preset": "Applies an internal draft configuration; generates no media and delivers nothing.",
     "review_script": "Records an internal creative review against a script digest; changes no copy or client deliverable.",
+    "save_budget": "Records an internal project spending ceiling and reconciled prior charges; no paid generation.",
     "timeline_settings": "Edits the draft caption setting; no generation or delivery.",
 }
 
@@ -214,7 +215,8 @@ def production_cost(project_id):
         group["known_cost_usd"] += row.cost_usd or 0
         group["unpriced"] += row.cost_usd is None and not row.cached
     renders = project.render_jobs.all()
-    return jsonify(ok=True, providers=list(groups.values()), approved_cuts=len(approvals),
+    from ..budget import status as budget_status
+    return jsonify(ok=True, budget=budget_status(project_id), total_cost_known=False, providers=list(groups.values()), approved_cuts=len(approvals),
         render_attempts=len(renders), extra_render_attempts=max(0, len(renders) - len({r.format for r in renders})),
         elapsed_hours=round(((first or datetime.utcnow()) - project.created_at).total_seconds() / 3600, 2),
         approved=bool(first), known_cost_usd=round(sum(r.cost_usd or 0 for r in rows), 4),
@@ -255,3 +257,35 @@ def review_script(project_id):
     project.brief = brief
     db.session.commit()
     return jsonify(ok=True, review=result, cached=False)
+
+
+@bp.post("/budget")
+def save_budget(project_id):
+    from ..budget import cents, status
+    from ..finishing_models import ProjectBudget
+    project = CommercialProject.query.filter_by(id=project_id).with_for_update().first_or_404()
+    data = _body()
+    limit = cents(data.get("limit_usd"))
+    row = ProjectBudget.query.filter_by(project_id=project_id).with_for_update().first()
+    prior = None
+    if data.get("prior_usd") is not None:
+        if data.get("confirm_prior") is not True:
+            raise ValueError("Confirm that the prior amount covers all earlier paid usage before saving it.")
+        prior = cents(data["prior_usd"])
+    if row:
+        if prior is not None and row.prior_cents is not None and prior != row.prior_cents:
+            raise ValueError("The opening spending amount is already recorded; it cannot be reset to free budget.")
+        if limit < (row.prior_cents or prior or 0) + row.reserved_cents:
+            raise ValueError("The limit cannot be below the amount already spent or reserved.")
+        row.limit_cents = limit
+        if row.prior_cents is None and prior is not None:
+            row.prior_cents = prior
+    else:
+        if prior is not None and prior > limit:
+            raise ValueError("Prior spending exceeds the requested limit.")
+        if project.render_jobs.filter(RenderJob.status.in_(("queued", "rendering"))).first():
+            raise ValueError("Wait for the active render and reconcile its charge before setting a limit.")
+        row = ProjectBudget(project_id=project_id, limit_cents=limit, prior_cents=prior, reserved_cents=0)
+        db.session.add(row)
+    db.session.commit()
+    return jsonify(ok=True, budget=status(project_id))

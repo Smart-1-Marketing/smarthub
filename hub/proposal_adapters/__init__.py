@@ -37,4 +37,7 @@ def register_all() -> None:
     from . import search_ads  # noqa: F401 -- imported for its register_adapter() call
     from . import social  # noqa: F401 -- imported for its register_adapter() call
     from . import seo  # noqa: F401 -- imported for its register_adapter() call
+    from . import display_ads  # noqa: F401 -- imported for its register_adapter() call
+    from . import image_creator  # noqa: F401 -- imported for its register_adapter() call
     from . import commercial  # noqa: F401 -- imported for its register_adapter() call
+    from . import reports  # noqa: F401 -- imported for its register_adapter() call

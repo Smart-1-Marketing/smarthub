@@ -77,7 +77,9 @@ check("the template still yields a readable set of card titles",
 WANT = {
     "Products & IOs": "overview",
     "Orders we have sent": "overview",
+    "Ad performance": "overview",
     "Smart 1 Suite Account": "overview",
+    "Pipeline & leads": "overview",
     "Proposals": "overview",
     "Client Notes": "overview",
     "Target audience": "overview",
@@ -99,6 +101,10 @@ WANT = {
     "Approvals & proof links": "social",
     "Work for this client": "work",
     "Web Tickets": "work",
+    "Execution plan": "work",
+    # Skill-gated (modules/skills360): drawn only when the skill is on.
+    "Ecommerce": "skills",
+    "Email Creator": "skills",
 }
 
 driver = SRC + "\nconst out={};\n" \

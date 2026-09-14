@@ -82,7 +82,7 @@ SCENARIOS: list[Scenario] = [
         title="Review an inactive Google account scan",
         goal="Separate measured inactivity from missing evidence before deciding what to clean up.",
         minutes=4, path="/tools/google-access/qa-inactive/", steps=[
-            Step("Start a fresh scan", "Open Inactive Google Accounts QA and use Run fresh scan.", "Existing results may describe an earlier scan."),
+            Step("Start a fresh scan", "Open Inactive Google Accounts QA and use Update scan. Choose Full rescan only when you need every resource checked live.", "Existing results may describe an earlier scan."),
             Step("Wait for complete evidence", "Read the progress and partial results while connected accounts are scanned.", "A paused, partial or failed scan is not evidence that unseen resources are inactive."),
             Step("Check the resource and account", "Review the inactivity evidence for each GA4 property or GTM container.", "GTM has no traffic-reporting API; uncertain containers remain in Needs Review."),
             Step("Decide before confirming", "Confirm the specific resource only when its evidence justifies cleanup.", "GA4 goes to the Analytics trash; GTM container deletion is permanent. This walkthrough does not delete anything.")]),

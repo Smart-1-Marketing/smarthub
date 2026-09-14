@@ -312,6 +312,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
  <p id="ioReadiness" class="hint" aria-live="polite"></p>
  <div id="ioEmptyPreview" class="start-screen"><h2>Your insertion order will appear here</h2><p class="lede">Choose a source and add the client and campaign details. Review the plan here before submitting.</p></div>
  <div id="submitStatus" class="submit-status"></div>
+ <section id="submissionReceipt" class="start-screen" aria-label="Submission receipt" aria-live="polite" hidden></section>
  <div class="report" id="ioReport" hidden>
   <div class="report-head">
    <div><div class="brand">SMART1 MARKETING</div><div class="sub">Campaign Planning & Rate-Card Insertion Order Report</div></div>
@@ -850,8 +851,8 @@ function baseFlow(){
   {key:"secondaryConversions",q:"Which secondary conversions should also be tracked? Select any that apply, or choose Continue for none.",multi:true,allowEmpty:true,options:conversionOptions},
   {key:"ga4",q:"Is GA4 installed and accessible?",options:["Yes","No","Unknown"]},
   {key:"gtm",q:"Is Google Tag Manager installed and accessible?",options:["Yes","No","Unknown"]},
-  {key:"callTracking",q:"Is call tracking required?",options:["Yes","No","Unknown"]},
-  {key:"thankYouPage",q:"Does the form or conversion path have a dedicated thank-you page?",options:["Yes","No","Not applicable","Unknown"]},
+  {key:"callTracking",condition:()=>needsTrackingDetail("callTracking"),q:"Is call tracking required?",options:["Yes","No","Unknown"]},
+  {key:"thankYouPage",condition:()=>needsTrackingDetail("thankYouPage"),q:"Does the form or conversion path have a dedicated thank-you page?",options:["Yes","No","Not applicable","Unknown"]},
   {key:"offlineImport",q:"Is offline conversion import needed?",options:["Yes","No","Unknown"]},
   {key:"verifier",q:"Who will verify tracking before launch?"},
   {key:"campaignOwner",q:"Who is the internal campaign owner?"},
@@ -1176,8 +1177,24 @@ function nextValidIndex(i){
                          || (typeof proposalAnswered==="function" && proposalAnswered(flow[i]))))i++;
  return i;
 }
+function needsTrackingDetail(key){
+ const t=state.trackingPlan||{},goals=[t.primaryConversion,...(t.secondaryConversions||[])];
+ if(key==="thankYouPage")return goals.some(x=>/form|appointment|purchase|registration/i.test(x));
+ if(key==="callTracking")return goals.includes("Phone calls")||(state.objectives||[]).includes("Phone Calls")||(state.selected||[]).some(x=>/call tracking|phone number|toll free/i.test(x));
+ return true;
+}
+function effectiveTrackingPlan(){
+ const plan={...state.trackingPlan};
+ for(const key of ["callTracking","thankYouPage"])if(!needsTrackingDetail(key))plan[key]="Not applicable";
+ return plan;
+}
 function allRecommendedKPIs(){
- return [...new Set(state.objectives.flatMap(o=>objectiveKPIs[o]||[]))];
+ const products=[...new Set([...(state.selected||[]),...(state.items||[]).map(i=>i.product)])].map(k=>{const c=productConfig[k]||{};return `${c.category||""} ${c.product||k}`;}).join(" ");
+ return [...new Set(state.objectives.flatMap(o=>objectiveKPIs[o]||[]))].filter(k=>{
+  if(k==="Video Completion Rate")return /video|pre.?roll|\bott\b|\bctv\b|youtube/i.test(products);
+  if(k==="Audio Completion Rate")return /audio|radio|podcast|spotify|pandora/i.test(products);
+  return true;
+ });
 }
 function recommendedKPIs(){
  return [...new Set(state.objectives.map(o=>(objectiveKPIs[o]||[])[0]).filter(Boolean))];
@@ -2555,6 +2572,7 @@ function submissionMissing(){
  return missing;
 }
 function render(){
+ renderSubmissionReceipt();
  const hasClient=!!String(state.client||"").trim()||state.items.length>0;
  document.getElementById("ioReport").hidden=!hasClient;
  document.getElementById("ioEmptyPreview").hidden=hasClient;
@@ -2621,7 +2639,7 @@ function render(){
  renderTraffickingCards();
 
  const lpBox=document.getElementById("landingPageReviews");
- if(lpBox)lpBox.innerHTML=state.landingPageReviews.length?state.landingPageReviews.map(r=>`<div style="padding:10px 0;border-bottom:1px solid var(--line)"><strong>${esc(r.product)}</strong><br><a href="${esc(r.url)}" target="_blank">${esc(r.url)}</a><div class="value" style="margin-top:7px">${esc(r.review)}</div></div>`).join(""):'<div class="empty">Landing-page reviews will appear after URLs are entered.</div>';
+ if(lpBox)lpBox.innerHTML=state.landingPageReviews.length?state.landingPageReviews.map(r=>`<div style="padding:10px 0;border-bottom:1px solid var(--line)"><strong>${esc(r.product)}</strong><br><a href="${esc(r.url)}" target="_blank">${esc(r.url)}</a><div class="value" style="margin-top:7px">${reviewMarkup(r.review)}</div></div>`).join(""):'<div class="empty">Landing-page reviews will appear after URLs are entered.</div>';
  const warningBox=document.getElementById("internalWarnings");
  if(warningBox)warningBox.innerHTML=state.internalWarnings.length?state.internalWarnings.map(w=>`<div class="warn" style="padding:6px 0">⚠ ${esc(w)}</div>`).join(""):'<div class="empty">No internal warnings.</div>';
 }
@@ -2712,6 +2730,7 @@ function renderCreativeChecklist(){
  }).join('')
 }
 function openEditor(){
+ document.getElementById("e-sales-email-error").textContent="";document.getElementById("e-sales-email").removeAttribute("aria-invalid");
  const objectives=document.getElementById("e-objectives"),kpis=document.getElementById("e-kpis");
  document.getElementById("e-io-type").value=state.ioType||"New IO";document.getElementById("e-sales-contact").value=state.salesContact;document.getElementById("e-sales-email").value=state.salesEmail;
  document.getElementById("e-client").value=state.client;document.getElementById("e-url").value=state.url;document.getElementById("e-landing-mode").value=state.landingMode||"One landing page";document.getElementById("e-landing-url").value=state.landingUrl||"";
@@ -2740,7 +2759,13 @@ function openEditor(){
 async function refreshBrandFromEditor(){const u=document.getElementById("e-url").value.trim();state.url=u;await fetchBrandfetchData(u);alert("Brand profile refreshed.")}
 function closeEditor(){document.getElementById("editModal").classList.remove("open");if(typeof closeModalA11y==="function")closeModalA11y()}
 function saveEditor(){
- state.ioType=document.getElementById("e-io-type").value;state.salesContact=document.getElementById("e-sales-contact").value.trim();state.salesEmail=document.getElementById("e-sales-email").value.trim();
+ // Validate before changing any answers: an accidentally emptied field must not erase a saved email.
+ const emailInput=document.getElementById("e-sales-email"),email=emailInput.value.trim();
+ const emailError=editorEmailError(email,state.salesEmail);
+ document.getElementById("e-sales-email-error").textContent=emailError;
+ if(emailError){emailInput.setAttribute("aria-invalid","true");emailInput.focus();return;}
+ emailInput.removeAttribute("aria-invalid");
+ state.ioType=document.getElementById("e-io-type").value;state.salesContact=document.getElementById("e-sales-contact").value.trim();state.salesEmail=/^none$/i.test(email)?"":email;
  const previousUrl=state.url;state.client=document.getElementById("e-client").value.trim();state.url=document.getElementById("e-url").value.trim();state.landingMode=document.getElementById("e-landing-mode").value;state.landingUrl=document.getElementById("e-landing-url").value.trim();
  state.geo=document.getElementById("e-geo").value.trim();state.industry=document.getElementById("e-industry").value.trim();
  state.description=document.getElementById("e-description").value.trim();
@@ -2764,6 +2789,19 @@ function num(v){return parseFloat(String(v).replace(/[$,% ,]/g,""))||0}
 function money(n){return new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:2}).format(n||0)}
 function whole(n){return new Intl.NumberFormat("en-US",{maximumFractionDigits:0}).format(n||0)}
 function esc(s){return String(s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+
+function editorEmailError(value,previous){
+ if(!value&&previous)return "Enter the sales email, or type NONE to intentionally remove it. Your saved answers have not changed.";
+ if(value&&!/^none$/i.test(value)&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))return "Enter a valid email address, or type NONE.";
+ return "";
+}
+function reviewMarkup(value){
+ return String(value||"").split(/\r?\n/).filter(line=>line.trim()).map(line=>{
+  const heading=line.trim().match(/^#{1,6}\s+(.+)/),bullet=line.trim().match(/^(?:[-*+]\s+|\d+[.)]\s+)(.+)/);
+  const body=esc(heading?heading[1]:bullet?bullet[1]:line).replace(/\*\*([^*\n]+)\*\*/g,"<b>$1</b>");
+  return heading?`<h4>${body}</h4>`:bullet?`<ul><li>${body}</li></ul>`:`<p>${body}</p>`;
+ }).join("");
+}
 
 function selectedProductInfo(productKey){
  const cfg=productConfig[productKey]||{};
@@ -2949,7 +2987,7 @@ function requirementsPacketHTML(){
   const list=(heading,items)=>items.length?`<h3>${heading}</h3><ul>${items.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:"";
   return `<section><h2>${esc(cfg.product||key)}</h2><p><strong>Category:</strong> ${esc(cfg.category||"")} &nbsp; <strong>Rate:</strong> ${esc(cfg.listedRate||"")}</p>${list("Access Needed",r.access)}${list("Creative Needed",r.creative)}${list("Campaign Setup Items",r.setup)}${list("Important Notes",r.notes)}${list("General Items",r.common)}</section>`;
  }).join("");
- return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font-family:Arial,sans-serif;color:#1d2a3a;max-width:950px;margin:28px auto;padding:0 25px;line-height:1.42}h1{color:#14284b;border-bottom:4px solid #14284b;padding-bottom:10px}h2{color:#14284b;margin-top:28px}h3{font-size:14px;color:#1f63ae;margin-bottom:5px}section{border-bottom:1px solid #d5dee9;padding-bottom:18px}.meta{background:#eef3f8;padding:12px 15px;border-radius:7px}li{margin-bottom:5px}.alert{background:#fff4dd;border-left:5px solid #e5a323;padding:10px 13px}</style></head><body><h1>${esc(title)}</h1><div class="meta"><strong>IO:</strong> ${esc(state.ioType||"")}<br><strong>Sales / Contact:</strong> ${esc(state.salesContact||"")} - ${esc(state.salesEmail||"")}<br><strong>Creative:</strong> ${esc(state.creativeSource||"Not selected")}<br><strong>Campaign dates:</strong> ${esc(state.sameDates?state.start:"Product-specific")} to ${esc(state.sameDates?state.end:"Product-specific")}</div><p class="alert"><strong>Display file limit:</strong> All display creative must be 150 KB or smaller per file.</p>${state.landingPageReviews.length?`<section><h2>Landing Page Review — Internal Needs</h2>${state.landingPageReviews.map(r=>`<h3>${esc(r.product)}</h3><p><a href="${esc(r.url)}">${esc(r.url)}</a></p><p>${esc(r.review)}</p>`).join("")}</section>`:""}
+ return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font-family:Arial,sans-serif;color:#1d2a3a;max-width:950px;margin:28px auto;padding:0 25px;line-height:1.42}h1{color:#14284b;border-bottom:4px solid #14284b;padding-bottom:10px}h2{color:#14284b;margin-top:28px}h3{font-size:14px;color:#1f63ae;margin-bottom:5px}section{border-bottom:1px solid #d5dee9;padding-bottom:18px}.meta{background:#eef3f8;padding:12px 15px;border-radius:7px}li{margin-bottom:5px}.alert{background:#fff4dd;border-left:5px solid #e5a323;padding:10px 13px}</style></head><body><h1>${esc(title)}</h1><div class="meta"><strong>IO:</strong> ${esc(state.ioType||"")}<br><strong>Sales / Contact:</strong> ${esc(state.salesContact||"")} - ${esc(state.salesEmail||"")}<br><strong>Creative:</strong> ${esc(state.creativeSource||"Not selected")}<br><strong>Campaign dates:</strong> ${esc(state.sameDates?state.start:"Product-specific")} to ${esc(state.sameDates?state.end:"Product-specific")}</div><p class="alert"><strong>Display file limit:</strong> All display creative must be 150 KB or smaller per file.</p>${state.landingPageReviews.length?`<section><h2>Landing Page Review — Internal Needs</h2>${state.landingPageReviews.map(r=>`<h3>${esc(r.product)}</h3><p><a href="${esc(r.url)}">${esc(r.url)}</a></p><div>${reviewMarkup(r.review)}</div>`).join("")}</section>`:""}
  ${sections||"<p>No products have been selected.</p>"}
 </body></html>`;
 }
@@ -2960,8 +2998,8 @@ function downloadRequirements(){
 function customerFriendlyNeeds(productKey){
  const {cfg,s}=selectedProductInfo(productKey);let items=[];
  const add=(...x)=>pushUnique(items,...x);
- add("Please confirm the offer or message, where the ad should send people, and who will approve the final work.");
- if(/programmatic|display|retarget|mobile|geo-fence|location lookback|ip targeting/.test(s))add("Your logo, brand colors, approved photos and the page you want people to visit.","If you are supplying ads, send the requested banner sizes. Every display file must be 150 KB or smaller.","Your target area, ideal customer, campaign dates, budget, schedule and anything we should avoid.","We may need website or analytics access so we can measure results and reach past website visitors.");
+
+ if(/programmatic|display|retarget|mobile|geo-fence|location lookback|ip targeting/.test(s))add("If you are supplying ads, send the requested banner sizes. Every display file must be 150 KB or smaller.","We may need website or analytics access so we can measure results and reach past website visitors.");
  if(/native display/.test(s))add("One strong horizontal image without words on it, a square logo, a short headline and description, and the landing-page link.");
  if(/location lookback/.test(s))add("A list of the locations and full addresses, the dates visitors were there, and whether we should look back one, three, six or twelve months.");
  if(/geo-fence/.test(s))add("The exact addresses or areas to target, event dates/times if applicable, and the location that should count as a visit.");
@@ -3264,6 +3302,7 @@ function buildPdfPayload(type){
  const totalCampaignBudget=state.items.reduce((s,i)=>s+(i.campaignBudget||0),0);
  const monthlySpend=state.items.reduce((s,i)=>s+(i.budget||0),0);
  return {...state,
+  trackingPlan:effectiveTrackingPlan(),
   monthlySpendFormatted:money(monthlySpend),
   totalCampaignBudgetFormatted:money(totalCampaignBudget),
   documentType:type,
@@ -4293,6 +4332,21 @@ async function ensurePdfForSuite(kind){
   return url;
 }
 
+function receiptLink(url,label){
+ try{if(new URL(url).protocol!=="https:")return "";}catch(e){return "";}
+ return `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
+}
+function submissionReceiptHTML(record){
+ if(!record||record.status!=="submitted")return "";
+ const when=new Date(record.submittedAt),timestamp=Number.isNaN(when.getTime())?"Time unavailable":when.toLocaleString();
+ const delivery=record.deliveredToSuite===true?"Delivered to Smart 1 Suite":"Recorded; delivery to Smart 1 Suite not confirmed";
+ return `<h2>Submission receipt</h2><p><strong>IO ${esc(record.orderNumber||"—")}</strong> · ${esc(record.client||"")}</p><p>Submitted ${esc(timestamp)}</p><p><strong>${delivery}</strong></p>${record.message?`<p>${esc(record.message)}</p>`:""}<p>${[receiptLink(record.clientPdfUrl,"Open client PDF"),receiptLink(record.internalPdfUrl,"Open internal PDF")].filter(Boolean).join(" · ")}</p><p class="hint">These documents are the submitted version. Later edits are not sent until you review and submit again.</p>`;
+}
+function renderSubmissionReceipt(){
+ const box=document.getElementById("submissionReceipt");if(!box)return;
+ box.innerHTML=submissionReceiptHTML(state.submission);box.hidden=!box.innerHTML;
+}
+
 // A page dialog keeps review visible and keyboard-accessible in embedded browsers.
 // Text content deliberately remains plain text: campaign answers are not markup.
 let _ioConfirmActive=false;
@@ -4398,6 +4452,7 @@ async function submitCompletedIO(){
     setStatus("Sending the completed IO…","");
     const payload={
       ...state,
+      trackingPlan:effectiveTrackingPlan(),
       client_pdf_url:clientUrl,
       internal_pdf_url:internalUrl,
       documents:{
@@ -4419,12 +4474,15 @@ async function submitCompletedIO(){
 
     state.submission={
       status:"submitted",
+      orderNumber:state.orderNumber,client:state.client,
+      message:result.message||"",
       submittedAt:new Date().toISOString(),
       clientPdfUrl:clientUrl,
       internalPdfUrl:internalUrl,
-      deliveredToSuite:result.delivered_to_suite!==false
+      deliveredToSuite:result.delivered_to_suite===true
     };
-    if(result.delivered_to_suite===false){
+    renderSubmissionReceipt();
+    if(result.delivered_to_suite!==true){
       // The backend names the actual reason (not configured, or no email/phone
       // for the contact) in result.message, already worded "Order recorded.
       // ..." -- a hardcoded "turned off for testing" here would say the same
@@ -4459,7 +4517,8 @@ async function submitCompletedIO(){
     <label>IO Type</label>
     <select id="e-io-type"><option value="New IO">New IO</option><option value="Revised IO">Revised IO</option></select>
     <label>Sales / Contact Person</label><input id="e-sales-contact">
-    <label>Sales / Contact Email</label><input id="e-sales-email">
+    <label for="e-sales-email">Sales / Contact Email</label><input id="e-sales-email" inputmode="email" autocomplete="section-io-sales email" aria-describedby="e-sales-email-error">
+    <div id="e-sales-email-error" role="alert" style="color:#b42318"></div>
     <label>Client</label><input id="e-client">
     <label>Website</label><input id="e-url">
     <label>Landing Page Setup</label><select id="e-landing-mode"><option value="One landing page">One landing page</option><option value="Multiple landing pages by product">Multiple landing pages by product</option></select>

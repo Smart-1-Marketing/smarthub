@@ -219,13 +219,16 @@ const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href=
    twenty-two into the first section. */
 /* ---- c360 sections (lifted and driven in node by test_client360_layout.py) ---- */
 const C360_SECTIONS=[
-  {key:'overview', label:'Overview',          match:['products','orders we have sent','smart 1 suite','proposals','client notes','target audience']},
+  {key:'overview', label:'Overview',          match:['products','orders we have sent','ad performance','smart 1 suite','pipeline & leads','proposals','client notes','target audience']},
   {key:'billing',  label:'Billing',           match:['invoices']},
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
   {key:'creative', label:'Creative & brand',  match:['creative infor','client images','brand']},
   {key:'social',   label:'Social & links',    match:['social media','social content','tracked links','form submissions','approvals & proof links']},
-  {key:'work',     label:'Work & requests',   match:['work for this','web tickets']},
+  {key:'work',     label:'Work & requests',   match:['work for this','web tickets','execution plan']},
+  // Skill-gated cards (modules/skills360). Drawn only for a client whose
+  // skill is on; an empty section is the CSS fallback's "nothing here".
+  {key:'skills',   label:'Skills',            match:['ecommerce','email creator']},
 ];
 function c360SectionFor(title){
   const t=String(title||'').toLowerCase();
@@ -318,7 +321,7 @@ async function run(){
   const d=await fetchJson('/api/c360?q='+encodeURIComponent(q)).catch(()=>({groups:[]}));
   if(searchGeneration!==c360SearchGeneration) return;
   groups=d.groups||[];
-  if(!groups.length){ $('results').innerHTML='<div class="empty">No Smart 1 Team / website match — showing live systems only.</div>'; render({client:q,products:[],websites:[],creative:[],gtm_containers:[]},q); return; }
+  if(!groups.length){ $('results').innerHTML='<div class="empty">No Smart 1 Team / website match — showing live systems only.</div>'; render({client:q,products:[],websites:[],creative:[],gtm_containers:[],skills:d.skills||[]},q); return; }
   if(groups.length>1){
     $('picker').style.display='flex';
     $('picker').innerHTML=groups.map((g,i)=>`<button class="${i===0?'sel':''}" onclick="pick(${i})">${esc(g.client)} <span class="muted">(${g.products.length} IOs)</span></button>`).join('');
@@ -491,6 +494,21 @@ function render(g,q){
     .filter(Boolean));
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Orders we have sent</h3><a class="open-link" href="/tools/io/">Open the IO Builder →</a></div><div class="card-b" id="c-orders"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
+  // ---------- Ad performance ----------
+  // What the Reports module holds for this client: the campaigns filed
+  // under them, this month's spend by platform beside what they are billed,
+  // whether the sold lines are pacing, days held in quarantine, and the
+  // live link. It lived on /reports/client/<key>, reached by knowing the
+  // client's key; the record said nothing about any of it.
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Ad performance {{ help_dot('hub.client360.adperf') if help_dot is defined else '' }}</h3><a class="open-link" href="/reports/">Open Reports →</a></div><div class="card-b" id="c-adperf"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+
+  // ---------- Execution plan ----------
+  // What the proposal committed us to -- creative, launch and monthly lists
+  // -- and how much of it nobody has reviewed yet. The plan lived on one
+  // page, so a client with open items was invisible on their own record.
+  // Counts beside a link: the plan is worked on its own page.
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Execution plan</h3><a class="open-link" href="/proposal-execution">Open Proposal Execution →</a></div><div class="card-b" id="c-plan"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+
   // ---------- Creative Information (replaces the old website-record spot) ----------
   const cre=g.creative||[];
   window._galleryItems=cre;
@@ -554,6 +572,11 @@ function render(g,q){
 
   // ---------- Smart 1 Suite Account + Proposals (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
+  /* ---------- Pipeline & leads (hub/suite_pipeline.py) ----------
+     The client's OWN pipelines, read from their sub-account: the leads the
+     marketing is producing and where they sit. The card above is about our
+     link to the account; this one is about their business. */
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Pipeline &amp; leads</h3><a class="open-link" id="c-pipeline-open" href="/suite/" style="display:none">Open their pipeline →</a></div><div class="card-b" id="c-pipeline"><div class="empty">Reading their pipeline… <span class="spin"></span></div></div></div>`;
   html+=`<div class="card c360-proposals-card" data-demo="proposals-card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals {{ help_dot('hub.client360.proposals') if help_dot is defined else '' }}</h3>
     <div class="right" style="display:flex;gap:10px;align-items:center">
       <a class="open-link" id="c-props-upload" style="cursor:pointer">&#8679; Upload proposal</a>
@@ -715,6 +738,28 @@ function render(g,q){
   } else html+='<div class="empty" style="flex:1">No website record matched — use <b>+ Attach website record</b> above to link one.</div>';
   html+='</div></div></div>';
 
+  /* ---------- 360 Skills (modules/skills360) ----------
+     Gated on g.skills, which /api/c360 reads off the skills store, so the
+     decision is made here before sectionize() runs rather than by removing
+     a card after a fetch. A client with no skill on has no Skills cards and
+     the section says so; the tool at /tools/360-skills is where one is
+     switched on, after it has been checked against the live source. */
+  const skillsOn=(g.skills||[]);
+  if(skillsOn.indexOf('ecwid')>-1){
+    html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+      <span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Ecwid</span><h3>Ecommerce</h3>
+      <div class="right" style="display:flex;gap:10px;align-items:center" id="c-ecwid-acts">
+        <a class="gbtn" href="/tools/360-skills/?client=${encodeURIComponent(name)}">360 Skills &rarr;</a></div></div>
+      <div class="card-b" id="c-ecwid"><div class="empty">Reading the store… <span class="spin"></span></div></div></div>`;
+  }
+  if(skillsOn.indexOf('email')>-1){
+    html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
+      <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Suite</span><h3>Email Creator</h3>
+      <div class="right" style="display:flex;gap:10px;align-items:center" id="c-email-acts">
+        <a class="gbtn" href="/tools/360-skills/?client=${encodeURIComponent(name)}">360 Skills &rarr;</a></div></div>
+      <div class="card-b" id="c-email"><div class="empty">Checking the Suite account can send… <span class="spin"></span></div></div></div>`;
+  }
+
   // ---------- Web Tickets (Smart 1 Team) + Notes ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Web Tickets</h3><a class="open-link" id="c-tickets-new" style="cursor:pointer">+ New web ticket</a></div><div class="card-b" id="c-tickets"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
@@ -722,6 +767,8 @@ function render(g,q){
   $('results').innerHTML=html;
   sectionize();                       // move every card into its section
   loadHealth(name);
+  if(skillsOn.indexOf('ecwid')>-1) loadEcwid(name);
+  if(skillsOn.indexOf('email')>-1) loadEmailCreator(name);
 
   const term=(name||q);
 
@@ -3841,11 +3888,217 @@ function lookupBrand(){
     });
 }
 
+/* ==================== 360 Skills cards (modules/skills360) ====================
+   Each loader honors c360Generation and keeps its empties apart: the skill
+   is off (the card is not drawn at all), the source answered nothing, the
+   source could not be read. renderUtm's rule. */
+const SK_API='/api/client/skills';
+function skPost(path,body){
+  return fetch(SK_API+path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(Object.assign({client:window.CURRENT_CLIENT||''},body||{}))}).then(r=>r.json());
+}
+const skMoney=n=>'$'+Number(n||0).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0});
+const skMoney2=n=>'$'+Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+function skDelta(cur,prev,label){
+  if(!prev) return '<div class="muted" style="font-size:12px">vs '+label+': —</div>';
+  const p=Math.round(100*(cur-prev)/prev);
+  return '<div style="font-size:12px;color:'+(p>=0?'#0a6b3c':'#9c2b25')+'">'+(p>=0?'&#9650;':'&#9660;')+' '+Math.abs(p)+'% vs '+label+'</div>';
+}
+/* ---- ecommerce (lifted and driven in node by test_skills360.py) ---- */
+function renderEcwid(d){
+  d=d||{};
+  if(!d.ok){
+    const why = d.state==='off' ? 'The Ecommerce skill is not switched on for this client.'
+              : 'The store could not be read'+(d.error?' ('+esc(d.error)+')':'')+'.';
+    return '<div class="empty">'+why+' <a href="/tools/360-skills/?client='+encodeURIComponent(window.CURRENT_CLIENT||'')+'">Open 360 Skills &rarr;</a></div>';
+  }
+  const P=d.periods||{}, w=P.week||{}, lw=P.last_week||{}, m=P.month||{}, lm=P.last_month||{}, y=P.year||{};
+  const tile=(k,v,sub,extra)=>'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;min-width:150px;flex:1">'
+    +'<div class="muted" style="font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.03em">'+k+'</div>'
+    +'<div style="font-size:24px;font-weight:700;color:var(--navy);margin:2px 0">'+v+'</div>'
+    +'<div class="muted" style="font-size:12px">'+sub+'</div>'+(extra||'')+'</div>';
+  let h='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">';
+  h+=tile('This week',skMoney(w.revenue),(w.orders||0)+' orders · avg '+skMoney2(w.avg_order),skDelta(w.revenue,lw.revenue,'last week'));
+  h+=tile('This month',skMoney(m.revenue),(m.orders||0)+' orders · avg '+skMoney2(m.avg_order),skDelta(m.revenue,lm.revenue,'last month'));
+  h+=tile('This year',skMoney(y.revenue),(y.orders||0)+' orders','');
+  if(d.abandoned){const a=d.abandoned; h+=tile('Abandoned carts',String((a.month||{}).carts||0),skMoney((a.month||{}).value)+' left in carts this month','');}
+  h+='</div>';
+  const ms=d.monthly||[]; const max=Math.max(1,...ms.map(x=>x.revenue||0));
+  h+='<div style="display:flex;align-items:flex-end;gap:5px;height:110px;margin:4px 0 14px">'+ms.map(x=>
+    '<div title="'+esc(x.month)+': '+skMoney2(x.revenue)+' · '+x.orders+' orders" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0">'
+    +'<span style="font-size:9.5px;color:#334155;white-space:nowrap">'+(x.revenue?skMoney(x.revenue):'')+'</span>'
+    +'<i style="display:block;width:100%;background:var(--navy);border-radius:3px 3px 0 0;height:'+Math.max(2,Math.round(100*(x.revenue||0)/max))+'%"></i>'
+    +'<b style="font-size:10px;color:#64748b;font-weight:500;white-space:nowrap;margin-top:3px">'+esc(x.month)+'</b></div>').join('')+'</div>';
+  const tp=d.top_products||{}; const st=m.status||{}; const dm=m.discounts||{};
+  const list=rows=>rows&&rows.length?'<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+rows.slice(0,6).map(r=>
+    '<tr><td style="padding:4px 6px;border-bottom:1px solid #eef1f4">'+esc(r.name)+'</td><td style="padding:4px 6px;text-align:right;border-bottom:1px solid #eef1f4">'+r.quantity+'</td><td style="padding:4px 6px;text-align:right;border-bottom:1px solid #eef1f4">'+skMoney2(r.revenue)+'</td></tr>').join('')+'</table>':'<div class="muted" style="font-size:12.5px">Nothing sold in this period yet.</div>';
+  h+='<div class="grid-2" style="gap:14px"><div><b style="font-size:13px">Top products this month</b>'+list(tp.month)+'</div><div><b style="font-size:13px">Top products this year</b>'+list(tp.year)+'</div></div>';
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">'
+    +'<span class="pill neutral">Pending '+(st.pending||0)+'</span><span class="pill neutral">Processing '+(st.processing||0)+'</span><span class="pill neutral">Shipped '+(st.shipped||0)+'</span><span class="pill neutral">Delivered '+(st.delivered||0)+'</span>'
+    +'<span class="pill info">'+(dm.orders_with||0)+' orders used a discount ('+(dm.rate||0)+'%) · '+skMoney2(dm.amount)+' given</span></div>';
+  const rc=d.recent||[];
+  if(rc.length) h+='<div style="margin-top:12px"><b style="font-size:13px">Latest orders</b><table style="width:100%;border-collapse:collapse;font-size:12.5px">'+rc.map(o=>
+    '<tr><td style="padding:4px 6px;border-bottom:1px solid #eef1f4">#'+esc(o.number)+'</td><td style="padding:4px 6px;border-bottom:1px solid #eef1f4">'+esc(o.date)+'</td><td style="padding:4px 6px;text-align:right;border-bottom:1px solid #eef1f4">'+o.items+' items</td><td style="padding:4px 6px;text-align:right;border-bottom:1px solid #eef1f4">'+skMoney2(o.total)+'</td><td style="padding:4px 6px;border-bottom:1px solid #eef1f4">'+esc(o.status)+'</td></tr>').join('')+'</table></div>';
+  const s=d.store||{};
+  h+='<div class="muted" style="font-size:11.5px;margin-top:10px">'+esc(s.store_name||'')+(s.store_url?' · <a href="'+esc(s.store_url)+'" target="_blank" rel="noopener">'+esc(s.store_url)+'</a>':'')+' · '+(d.order_count||0)+' orders on record'+(d.cached?' · cached':'')+(d.generated_at?' · as of '+esc(new Date(d.generated_at).toLocaleString()):'')+'</div>';
+  return h;
+}
+/* ---- end ecommerce ---- */
+function loadEcwid(name,fresh){
+  const el=$('c-ecwid'); if(!el) return;
+  const gen=c360Generation;
+  if(fresh) el.innerHTML='<div class="empty">Re-reading the store… <span class="spin"></span></div>';
+  fetch(SK_API+'/ecwid/dashboard?name='+encodeURIComponent(name)+(fresh?'&fresh=1':''),{credentials:'same-origin'})
+    .then(r=>r.json()).then(d=>{
+      if(gen!==c360Generation) return;
+      el.innerHTML=renderEcwid(d);
+      const acts=$('c-ecwid-acts');
+      if(acts&&!acts.querySelector('[data-ecwid-refresh]')){
+        const b=document.createElement('button'); b.type='button'; b.className='gbtn'; b.textContent='Refresh'; b.setAttribute('data-ecwid-refresh','1');
+        b.onclick=()=>loadEcwid(name,true); acts.insertBefore(b,acts.firstChild);
+      }
+    }).catch(()=>{ if(gen!==c360Generation) return; el.innerHTML=renderEcwid({ok:false,state:'unreadable'}); });
+}
+
+/* ---- email creator ---- */
+function skPill(state,label){
+  const cls=state==='ok'?'ok':state==='bad'?'err':state==='warn'?'warn':'neutral';
+  return '<span class="pill '+cls+'" style="font-size:11.5px">'+esc(label)+'</span>';
+}
+function renderEmailReadiness(r){
+  r=r||{};
+  if(!r.ok){
+    const why = r.state==='off' ? 'The Email Creator skill is not switched on for this client.'
+              : 'The Suite account could not be checked'+(r.error?' ('+esc(r.error)+')':'')+'.';
+    return '<div class="empty">'+why+' <a href="/tools/360-skills/?client='+encodeURIComponent(window.CURRENT_CLIENT||'')+'">Open 360 Skills &rarr;</a></div>';
+  }
+  const a=r.account||{}, f=r.from||{}, b=r.builder||{}, d=r.domain||{}, sc=r.scopes||{};
+  let h='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">';
+  h+=skPill(a.state==='connected'?'ok':'bad','Suite: '+(a.name||a.matched_name||a.location_id||'not linked'));
+  h+=skPill(f.state==='set'?'ok':'bad','From: '+(f.email||'none'));
+  h+=skPill(b.state==='ok'?'ok':'bad','Email builder: '+(b.state==='ok'?'ok':'blocked'));
+  h+=skPill(d.state==='verified'?'ok':d.state==='missing'?'warn':'neutral','Sending domain: '+(d.state==='verified'?'verified':d.state==='missing'?'not set up':d.state==='not_measured'?'not measured':'no address'));
+  if(sc.missing&&sc.missing.length) h+=skPill('warn','App needs re-consent: '+sc.missing.join(', '));
+  h+='</div><div class="muted" style="font-size:12.5px;line-height:1.5">'+esc(r.detail||'')
+    +(d.state==='missing'?' <a href="'+esc(r.settings_url||'#')+'" target="_blank" rel="noopener">Email Services in Suite &rarr;</a> · <a href="'+esc(r.tool_url||'/tools/360-skills/')+'">DNS records in 360 Skills &rarr;</a>':'')
+    +'</div>';
+  return h;
+}
+let skEmailReady=false;
+function loadEmailCreator(name){
+  const el=$('c-email'); if(!el) return;
+  const gen=c360Generation;
+  fetch(SK_API+'/email/readiness?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(r=>r.json()).then(r=>{
+      if(gen!==c360Generation) return;
+      skEmailReady=!!(r&&r.ok&&r.ready);
+      el.innerHTML='<div id="c-email-ready">'+renderEmailReadiness(r)+'</div>'+(r&&r.ok?renderEmailComposer():'');
+      if(r&&r.ok) wireEmailComposer(name);
+    }).catch(()=>{ if(gen!==c360Generation) return; el.innerHTML=renderEmailReadiness({ok:false,state:'unreadable'}); });
+}
+function renderEmailComposer(){
+  const inp=(id,label,ph,extra)=>'<div class="field"><label style="font-size:11.5px;font-weight:600;color:#5a6b7c;display:block;margin:8px 0 3px" for="'+id+'">'+label+'</label><input type="text" id="'+id+'" placeholder="'+esc(ph||'')+'" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #d6dde5;border-radius:6px;font-size:13px"'+(extra||'')+'></div>';
+  let h='<div style="margin-top:12px;border-top:1px solid #eef1f4;padding-top:10px">';
+  h+='<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap"><div style="flex:1;min-width:240px">'+inp('em-brief','Draft with AI (optional) — what is this email about?','e.g. Fall wine release this Saturday, 20% off cases for members')+'</div>'
+    +'<button type="button" class="btn-ghost" id="em-draft" style="margin-bottom:1px">Draft with AI</button></div>';
+  h+='<div class="grid-2" style="gap:0 14px">'+inp('em-subject','Subject','')+inp('em-preview','Preview text','What the inbox shows under the subject')+'</div>';
+  h+=inp('em-headline','Headline','');
+  h+='<div class="field"><label style="font-size:11.5px;font-weight:600;color:#5a6b7c;display:block;margin:8px 0 3px" for="em-body">Body</label><textarea id="em-body" rows="7" placeholder="Short paragraphs separated by a blank line. '+'{'+'{contact.first_name}'+'}'+' works." style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #d6dde5;border-radius:6px;font-size:13px;font-family:inherit"></textarea></div>';
+  h+='<div class="grid-2" style="gap:0 14px">'+inp('em-cta','Button text','Reserve your spot')+inp('em-url','Button link','https://…')+'</div>';
+  h+=inp('em-hero','Hero image URL (optional)','https://…');
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">'
+    +'<button type="button" class="btn-ghost" id="em-preview-btn">Preview</button>'
+    +'<button type="button" class="btn-ghost" id="em-template-btn">Save to Suite templates</button>'
+    +'<input type="text" id="em-test-to" placeholder="you@smart1marketing.com" style="padding:7px 9px;border:1px solid #d6dde5;border-radius:6px;font-size:13px;min-width:220px">'
+    +'<button type="button" class="btn-ghost" id="em-test-btn">Send me a test</button>'
+    +'<button type="button" class="btn-primary" id="em-send-open">Send to contacts…</button></div>';
+  h+='<div id="em-msg" class="muted" style="font-size:12.5px;margin-top:8px;line-height:1.5"></div>';
+  h+='<div id="em-preview-box" hidden style="margin-top:10px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden"><iframe id="em-preview-frame" title="Email preview" style="width:100%;height:520px;border:0;background:#fff"></iframe></div>';
+  h+='<div id="em-send-box" hidden style="margin-top:12px;border:1px solid #e2e8f0;border-radius:8px;padding:12px;background:#f8fafc">'
+    +'<b style="font-size:13px">Send to Suite contacts</b><div class="muted" style="font-size:12px;margin:2px 0 8px">Only contacts on the client’s Smart 1 Suite sub-account. Search by name or email, or by tag, tick who gets it, then confirm. Sends go one at a time so a bad address costs one line.</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap"><input type="text" id="em-q" placeholder="Name or email" style="padding:7px 9px;border:1px solid #d6dde5;border-radius:6px;font-size:13px;flex:1;min-width:160px">'
+    +'<input type="text" id="em-tag" placeholder="Tag (optional)" style="padding:7px 9px;border:1px solid #d6dde5;border-radius:6px;font-size:13px;min-width:140px">'
+    +'<button type="button" class="btn-ghost" id="em-search">Find contacts</button></div>'
+    +'<div id="em-contacts" style="margin-top:8px;max-height:220px;overflow:auto"></div>'
+    +'<div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><label style="font-size:12.5px"><input type="checkbox" id="em-confirm"> I have previewed this email and want it sent to the ticked contacts</label>'
+    +'<button type="button" class="btn-primary" id="em-send-btn" disabled>Send</button></div></div>';
+  h+='</div>';
+  return h;
+}
+function emailFields(){
+  return {subject:$('em-subject').value, preview:$('em-preview').value, headline:$('em-headline').value, body:$('em-body').value,
+          cta_text:$('em-cta').value, cta_url:$('em-url').value, hero_url:$('em-hero').value};
+}
+function emSay(kind,text){ const el=$('em-msg'); if(!el) return; el.style.color=kind==='err'?'#9c2b25':kind==='ok'?'#0a6b3c':'#5a6b7c'; el.innerHTML=text; }
+function wireEmailComposer(name){
+  const busy=(b,on)=>{ if(b){ b.disabled=!!on; } };
+  $('em-draft').onclick=async()=>{
+    const brief=$('em-brief').value.trim(); if(!brief){ emSay('err','Say what the email is about first.'); return; }
+    busy($('em-draft'),1); emSay('note','Drafting… (AI — review before sending)');
+    const d=await skPost('/email/draft',{brief:brief}).catch(()=>({ok:false,error:'no answer'}));
+    busy($('em-draft'),0);
+    if(!d.ok){ emSay('err',esc(d.error||'Drafting failed.')); return; }
+    const x=d.draft||{}; $('em-subject').value=x.subject||''; $('em-preview').value=x.preview||''; $('em-headline').value=x.headline||''; $('em-body').value=x.body||''; $('em-cta').value=x.cta_text||'';
+    emSay('ok','Drafted by AI — edit anything, then preview.');
+  };
+  $('em-preview-btn').onclick=async()=>{
+    const d=await skPost('/email/preview',emailFields()).catch(()=>({ok:false}));
+    if(!d.ok){ emSay('err','Could not render the preview.'); return; }
+    $('em-preview-box').hidden=false; $('em-preview-frame').srcdoc=d.html;
+    emSay('note',d.brand&&d.brand.picked?'Preview uses the client’s confirmed brand colors'+(d.brand.logo?' and logo.':'.'):'No confirmed brand for this client yet — the preview uses a neutral navy. Confirm one on the Brand & logos card.');
+  };
+  $('em-template-btn').onclick=async()=>{
+    if(!$('em-subject').value.trim()){ emSay('err','Give it a subject first — that becomes the template name.'); return; }
+    busy($('em-template-btn'),1); emSay('note','Saving into the Suite email builder…');
+    const d=await skPost('/email/template',Object.assign(emailFields(),{title:$('em-subject').value})).catch(()=>({ok:false,detail:'no answer'}));
+    busy($('em-template-btn'),0);
+    emSay(d.ok?'ok':'err',esc(d.detail||'')+(d.preview_url?' <a href="'+esc(d.preview_url)+'" target="_blank" rel="noopener">Preview in Suite &rarr;</a>':''));
+  };
+  $('em-test-btn').onclick=async()=>{
+    const to=$('em-test-to').value.trim(); if(!to){ emSay('err','Type the address the test should go to.'); return; }
+    if(!$('em-subject').value.trim()){ emSay('err','Give it a subject first.'); return; }
+    busy($('em-test-btn'),1); emSay('note','Sending the test from the client’s Suite account…');
+    const d=await skPost('/email/test',Object.assign(emailFields(),{to:to})).catch(()=>({ok:false,detail:'no answer'}));
+    busy($('em-test-btn'),0);
+    emSay(d.ok?'ok':'err',esc(d.detail||''));
+  };
+  $('em-send-open').onclick=()=>{ $('em-send-box').hidden=!$('em-send-box').hidden; };
+  $('em-search').onclick=async()=>{
+    const q=$('em-q').value.trim(), tag=$('em-tag').value.trim();
+    $('em-contacts').innerHTML='<div class="muted" style="font-size:12.5px">Searching…</div>';
+    const d=await fetch(SK_API+'/email/contacts?name='+encodeURIComponent(name)+'&q='+encodeURIComponent(q)+'&tag='+encodeURIComponent(tag),{credentials:'same-origin'}).then(r=>r.json()).catch(()=>({ok:false,contacts:[]}));
+    const rows=d.contacts||[];
+    if(!d.ok){ $('em-contacts').innerHTML='<div class="muted" style="font-size:12.5px">'+esc(d.detail||'Could not search.')+'</div>'; return; }
+    if(!rows.length){ $('em-contacts').innerHTML='<div class="muted" style="font-size:12.5px">No contacts with an email address matched.</div>'; return; }
+    $('em-contacts').innerHTML='<label style="font-size:12px;display:block;margin-bottom:4px"><input type="checkbox" id="em-all"> Tick all '+rows.length+'</label>'
+      +rows.map(c=>'<label style="display:block;font-size:12.5px;padding:2px 0"><input type="checkbox" class="em-c" value="'+esc(c.id)+'"> '+esc(c.name||'(no name)')+' <span class="muted">&lt;'+esc(c.email)+'&gt;</span>'+(c.tags&&c.tags.length?' <span class="muted" style="font-size:11px">'+esc(c.tags.slice(0,3).join(', '))+'</span>':'')+'</label>').join('');
+    $('em-all').onchange=()=>{ document.querySelectorAll('.em-c').forEach(x=>x.checked=$('em-all').checked); gate(); };
+    document.querySelectorAll('.em-c').forEach(x=>x.onchange=gate);
+    gate();
+  };
+  function picked(){ return Array.from(document.querySelectorAll('.em-c:checked')).map(x=>x.value); }
+  function gate(){ const n=picked().length; $('em-send-btn').disabled=!(n&&$('em-confirm').checked&&skEmailReady); $('em-send-btn').textContent=n?'Send to '+n+' contact'+(n>1?'s':''):'Send'; }
+  $('em-confirm').onchange=gate;
+  $('em-send-btn').onclick=async()=>{
+    const ids=picked(); if(!ids.length) return;
+    if(!confirm('Send “'+$('em-subject').value+'” to '+ids.length+' contact'+(ids.length>1?'s':'')+' from the client’s Suite account now?')) return;
+    busy($('em-send-btn'),1); emSay('note','Sending to '+ids.length+'…');
+    const d=await skPost('/email/send',Object.assign(emailFields(),{contact_ids:ids,confirmed:true})).catch(()=>({ok:false,detail:'no answer'}));
+    busy($('em-send-btn'),0);
+    emSay(d.ok?'ok':'err',esc(d.detail||''));
+    if(d.results&&d.results.some(r=>!r.ok)) emSay('err',esc(d.detail||'')+'<br>'+d.results.filter(r=>!r.ok).slice(0,5).map(r=>esc(r.contact_id)+': '+esc(r.detail||'failed')).join('<br>'));
+  };
+}
+/* ==================== end 360 Skills cards ==================== */
+
 function loadBrandAndWork(name){
   loadForms(name);
   loadGroup(name);
   loadOwner(name);
   loadOrders(name);
+  loadAdPerformance(name);
+  loadPipeline(name);
+  loadPlan(name);
   fetch('/api/client/utm?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderUtm).catch(function(){});
   fetch('/api/client/analytics-ids?name='+encodeURIComponent(name),{credentials:'same-origin'})
@@ -3873,6 +4126,260 @@ function loadBrandAndWork(name){
    on the page — a second reconciliation here would be a second answer to a
    question `hub/io_reconcile.py` already answers, and the two would come to
    disagree on one screen. */
+/* The execution plan a proposal produced: counts beside a link, never the
+   items. Three answers are kept apart -- the table would not answer, no plan
+   has been built, and a plan with nothing left to do here -- because the
+   first two render identically as an empty card and only one of them means
+   there is nothing to do. */
+function loadPlan(name){
+  var box=document.getElementById('c-plan');
+  if(!box) return;
+  if(!name){box.innerHTML='<div class="empty">No client selected.</div>';return;}
+  fetch('/api/client/execution-plan?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      box=document.getElementById('c-plan');
+      if(!box) return;
+      if(d && d.measured===false){
+        box.innerHTML='<div class="empty">The execution plans could not be read'
+          + (d.error?' &mdash; '+esc(d.error):'') + '. That is not the same as '
+          + 'no plan existing.</div>';
+        return;
+      }
+      var rows=(d&&d.runs)||[];
+      if(!rows.length){
+        box.innerHTML='<div class="empty">No execution plan has been built for this '
+          + 'client. <a href="/proposal-execution?client='+encodeURIComponent(name)+'">'
+          + 'Analyze a proposal</a> to get the creative, launch and monthly lists.</div>';
+        return;
+      }
+      var h='<table><thead><tr><th>Proposal</th><th>Launch</th><th>Kept</th>'
+        + '<th>Still to do on the plan</th><th></th></tr></thead><tbody>';
+      rows.forEach(function(p){
+        var todo=[];
+        if(p.to_review) todo.push(p.to_review+' item'+(p.to_review===1?'':'s')+' to review');
+        if(p.open_questions) todo.push(p.open_questions+' question'+(p.open_questions===1?'':'s')+' open');
+        if(p.creative_unassigned) todo.push(p.creative_unassigned+' creative item'
+          + (p.creative_unassigned===1?'':'s')+' with no supplier named');
+        /* The monthly promises, month by month, are on the plan; what the
+           record says is whether any is missed or still due this month. A
+           schedule with no launch date to measure from says nothing here --
+           the plan's own line names that gap. */
+        var pr=p.promises||{};
+        if(pr.measured!==false){
+          if(pr.missed) todo.push(pr.missed+' monthly promise'+(pr.missed===1?'':'s')+' missed');
+          if(pr.due) todo.push(pr.due+' due this month');
+        }
+        var kept=p.kept||{};
+        h+='<tr><td><b>'+esc(p.title||'Proposal')+'</b> <span class="pill neutral">'
+          + esc(String(p.state||'').replace(/_/g,' '))+'</span>'
+          + (p.member&&p.member!==name?memberTag(p.member):'')+'</td>'
+          + '<td class="muted" style="font-size:12.5px">'+esc(p.launch_date_label||'not answered')+'</td>'
+          + '<td class="muted" style="font-size:12.5px">'+esc(kept.creative||0)+' creative &middot; '
+          + esc(kept.launch||0)+' launch &middot; '+esc(kept.monthly||0)+' monthly</td>'
+          + '<td>'+(todo.length?todo.map(function(t){return '<span class="pill warn">'+esc(t)+'</span>';}).join(' ')
+                   :'<span class="pill neutral">reviewed and answered</span>')+'</td>'
+          + '<td><a href="'+esc(p.url||'/proposal-execution')+'">Open the plan &rarr;</a></td></tr>';
+      });
+      box.innerHTML=h+'</tbody></table>';
+    })
+    .catch(function(){
+      var b=document.getElementById('c-plan');
+      if(b) b.innerHTML='<div class="empty">The execution plans could not be read. '
+        + 'That is not the same as no plan existing.</div>';
+    });
+}
+/* ---- c360 ad performance (lifted and driven in node by test_reports_pages.py) ---- */
+/* Draws /api/client/ad-performance's payload. Pure: takes the payload and the
+   client's name and returns markup, so the test can run it without a
+   browser. Four kinds of nothing are drawn apart -- the store would not
+   answer, nothing is filed, everything filed is waiting for a person, and
+   the confirmed campaigns spent nothing this period -- because a card that
+   draws the first three as the fourth is a report answering zero when it
+   could not look. Nothing here is a figure the card computed: every number
+   is the server's, and the server's is client_view's, so the card and the
+   Reports page cannot disagree about a client's month. */
+function adMoney(v){
+  var n=Number(v);
+  if(!isFinite(n)) return '—';
+  return '$'+n.toLocaleString(undefined,{maximumFractionDigits:0});
+}
+function adInt(v){ var n=Number(v); return isFinite(n)?n.toLocaleString():'—'; }
+function renderAdPerformance(d,name){
+  if(!d||d.measured===false){
+    return '<div class="empty">The ad-performance store could not be read'
+      + (d&&d.error?' &mdash; '+esc(d.error):'')
+      + '. That is not the same as no campaign running for this client.</div>';
+  }
+  var c=d.campaigns||{};
+  var unmapped=esc(d.unmapped_url||'/reports/unmapped');
+  var staff=esc(d.staff_url||'/reports/');
+  var open='<div class="muted" style="margin-top:8px;font-size:12.5px"><a href="'+staff+'">Open this client in Reports &rarr;</a></div>';
+  if(d.state==='no_campaigns'){
+    var lines=Number(d.budget_lines||0);
+    return '<div class="empty">No advertising campaign is filed under this client in Reports'
+      + (lines?', and '+lines+' budget line'+(lines===1?' is':'s are')+' set up waiting on one to pace against':'')
+      + '. A campaign is filed on <a href="'+unmapped+'">the unmapped queue</a>, or files itself '
+      + 'when it is named <code>S1M | &lt;ClientKey&gt; | &lt;Product&gt; | &hellip;</code> in the platform '
+      + 'and a person confirms it.</div>'+open;
+  }
+  if(d.state==='all_pending'){
+    var pn=Number(c.pending||0);
+    return '<div class="empty">'+pn+' campaign'+(pn===1?' is':'s are')+' filed under this client from '
+      + 'the campaign name and waiting for a person to confirm the filing. Nothing reaches this card '
+      + 'or the client\'s page until then. <a href="'+unmapped+'">Confirm on the unmapped queue</a>.</div>'+open;
+  }
+  var per=d.period||{};
+  var h='<div class="muted" style="font-size:12.5px;margin-bottom:8px">'+esc(per.label||'This month')
+    + ' &middot; '+Number(c.confirmed||0)+' confirmed campaign'+(Number(c.confirmed)===1?'':'s')
+    + (c.platforms&&c.platforms.length?' on '+esc(c.platforms.join(', ')):'')
+    + (c.pending?' &middot; <a href="'+unmapped+'">'+c.pending+' more waiting for confirmation</a>':'')
+    + '</div>';
+  if(d.state==='nothing_this_period'){
+    h+='<div class="empty">No spend is recorded for '+esc(per.label||'this period')
+      + ' on the confirmed campaigns yet.</div>';
+  }else{
+    h+='<table><thead><tr><th>Platform</th><th>Spend</th><th>Impressions</th><th>Clicks</th>'
+      + '<th>CTR</th><th>Billed</th></tr></thead><tbody>';
+    (d.totals||[]).forEach(function(t){
+      h+='<tr><td>'+esc(t.label||t.platform)+'</td><td>'+adMoney(t.raw_spend)+'</td>'
+        + '<td>'+adInt(t.impressions)+'</td><td>'+adInt(t.clicks)+'</td>'
+        + '<td>'+(t.ctr==null?'—':Number(t.ctr).toFixed(2)+'%')+'</td>'
+        + '<td>'+(t.client_price==null
+            ?'<span class="muted" title="No markup or CPM is set for this platform, so there is no billed figure to show">not priced</span>'
+            :adMoney(t.client_price))+'</td></tr>';
+    });
+    h+='<tr><td><b>Total</b></td><td><b>'+adMoney(d.spend_total)+'</b></td><td></td><td></td><td></td>'
+      + '<td><b>'+(d.billed_total==null?'—':adMoney(d.billed_total))+'</b></td></tr></tbody></table>';
+  }
+  /* The sold lines against the month, from the pacing board's own rows. */
+  if(d.pacing&&d.pacing.length){
+    h+='<div style="margin-top:10px;font-size:12.5px"><b>Pacing</b> ';
+    d.pacing.forEach(function(p){
+      var cls=p.band==='on'?'ok':(p.band==='under'||p.band==='stalled')?'bad':'warn';
+      var txt=(p.product||p.platform_label||'line')+': '+(p.band_label||p.band)
+        + (p.pace!=null?' '+Number(p.pace).toFixed(2)+'×':'')
+        + (p.alert?' for '+p.trend_days+' days':'')
+        + (p.band==='unmapped'&&p.pending_campaigns?' ('+p.pending_campaigns+' waiting for confirmation)':'');
+      var title=adMoney(p.spent)+' spent of '+adMoney(p.expected)+' expected by now; '
+        + adMoney(p.monthly_budget)+' a month; '+p.days_remaining+' days left';
+      h+='<span class="pill '+cls+'" title="'+esc(title)+'">'+esc(txt)+'</span> ';
+    });
+    h+='<a href="'+esc(d.pacing_url||'/reports/pacing')+'">board &rarr;</a></div>';
+  }
+  /* A day held in quarantine is a day missing from the figures above. */
+  if(d.held===null||d.held===undefined){
+    h+='<div class="muted" style="margin-top:6px;font-size:12px">Quarantine could not be read, so '
+      + 'whether a day is held out of these figures is not measured.</div>';
+  }else if(d.held){
+    h+='<div class="muted" style="margin-top:6px;font-size:12px"><span class="pill warn">'+d.held
+      + ' day'+(d.held===1?'':'s')+' held in quarantine</span> and missing from the figures above '
+      + '&mdash; <a href="/reports/quarantine">decide them</a>.</div>';
+  }
+  /* A feed that is not current explains a low figure better than the figure does. */
+  if(d.feeds===null||d.feeds===undefined){
+    h+='<div class="muted" style="margin-top:6px;font-size:12px">Feed health could not be read.</div>';
+  }else if(d.feeds.length){
+    h+='<div style="margin-top:6px;font-size:12px">'+d.feeds.map(function(f){
+      return '<span class="pill warn" title="'+esc(f.detail||'')+'">'+esc(f.label)+' feed '
+        + esc(f.state_label||f.state)+'</span>';
+    }).join(' ')+' <span class="muted">&mdash; the figures stop where the feed did.</span></div>';
+  }
+  if(d.link){
+    var v=Number(d.link.views||0);
+    h+='<div class="muted" style="margin-top:8px;font-size:12.5px">Client link: '
+      + (v?'opened '+v+' time'+(v===1?'':'s')+(d.link.last_viewed_at?', last on '+esc(String(d.link.last_viewed_at).slice(0,10)):''):'never opened')
+      + (d.link.show_spend?'':' &middot; delivery only, no spend shown')
+      + ' &middot; <a href="'+esc(d.link.url)+'" target="_blank" rel="noopener">open</a></div>';
+  }else{
+    h+='<div class="muted" style="margin-top:8px;font-size:12.5px">No live client link yet &mdash; '
+      + '<a href="'+staff+'">create one in Reports</a>.</div>';
+  }
+  return h+open;
+}
+/* ---- end c360 ad performance ---- */
+function loadAdPerformance(name){
+  var box=document.getElementById('c-adperf');
+  if(!box) return;
+  if(!name){box.innerHTML='<div class="empty">No client selected.</div>';return;}
+  fetch('/api/client/ad-performance?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      box=document.getElementById('c-adperf');
+      if(box) box.innerHTML=renderAdPerformance(d,name);
+    })
+    .catch(function(){
+      var b=document.getElementById('c-adperf');
+      if(b) b.innerHTML='<div class="empty">The ad-performance store could not be read. '
+        + 'That is not the same as no campaign running for this client.</div>';
+    });
+}
+/* ---- pipeline (lifted and driven in node by test_client360_pipeline.py) ---- */
+function pipeMoney(n){
+  n=Number(n)||0;
+  return '$'+(n>=1000?Math.round(n).toLocaleString('en-US'):n.toFixed(n%1?2:0));
+}
+function pipeAgo(iso){
+  if(!iso) return '';
+  const d=(Date.now()-Date.parse(iso))/86400000;
+  if(!(d>=0)) return '';
+  return d<1?'today':d<2?'yesterday':Math.floor(d)+' days ago';
+}
+function renderPipeline(d){
+  d=d||{};
+  if(d.state==='not_connected')
+    return '<div class="empty">'+esc(d.detail||'This client has no Smart 1 Suite sub-account attached.')+'<div class="muted" style="font-size:12px;margin-top:6px">Attach one in the Smart 1 Suite Account card and this fills in.</div></div>';
+  if(d.state!=='connected'||d.measured===false)
+    return '<div class="empty">'+esc(d.detail||'The pipeline could not be read.')+'</div>';
+  const t=d.totals||{}, pipes=d.pipelines||[], recent=d.recent||[];
+  if(d.no_pipelines&&!t.all)
+    return '<div class="empty">Their sub-account has no pipeline set up yet.<div class="muted" style="font-size:12px;margin-top:6px">Leads land in a pipeline; without one there is nothing to count. Set one up in Smart 1 Suite.</div></div>';
+  let h='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));gap:14px;margin-bottom:12px">';
+  h+=scStat('Open leads',t.open||0,d.suite_url);
+  h+=scStat('Open value',pipeMoney(t.open_value),d.suite_url);
+  h+=scStat('New this week',t.new_week||0,d.suite_url);
+  h+=scStat('Won, 30 days',(t.won_month||0)+(t.won_value_month?' · '+pipeMoney(t.won_value_month):''),d.suite_url);
+  h+=scStat('Going cold',t.stale||0,d.suite_url,true);
+  h+='</div>';
+  h+='<div class="muted" style="font-size:12px;margin-bottom:10px">'+(t.new_month||0)+' new in the last 30 days · '+(t.lost_month||0)+' lost'
+    +(t.stale?' · <b>'+t.stale+'</b> open with no activity in '+(d.stale_days||30)+' days':'')+'</div>';
+  const shown=pipes.filter(p=>p.open>0);
+  if(shown.length){
+    h+=shown.map(p=>{
+      const max=Math.max.apply(null,p.stages.map(s=>s.count).concat([1]));
+      return '<div style="margin-bottom:10px"><div style="font-size:12.5px;font-weight:600;margin-bottom:4px">'+esc(p.name)+' <span class="muted" style="font-weight:400">· '+p.open+' open · '+pipeMoney(p.value)+'</span></div>'
+        +'<table style="width:100%;border-collapse:collapse;font-size:12.5px">'+p.stages.map(s=>
+          '<tr><td style="padding:2px 8px 2px 0;white-space:nowrap;width:1%">'+esc(s.name)+'</td>'
+          +'<td style="padding:2px 0"><div style="background:var(--line-soft,#e5e7eb);border-radius:4px;height:10px;overflow:hidden"><div style="width:'+Math.round(100*s.count/max)+'%;height:100%;background:var(--brand,#2563eb);min-width:'+(s.count?'3px':'0')+'"></div></div></td>'
+          +'<td style="padding:2px 0 2px 8px;text-align:right;white-space:nowrap" class="muted">'+s.count+(s.value?' · '+pipeMoney(s.value):'')+'</td></tr>').join('')+'</table></div>';
+    }).join('');
+  }
+  const idle=pipes.filter(p=>!(p.open>0));
+  if(idle.length) h+='<div class="muted" style="font-size:12.5px;margin-bottom:10px">Nothing open in '+idle.map(p=>esc(p.name)).join(', ')+'.</div>';
+  if(t.unstaged) h+='<div class="muted" style="font-size:11.5px;margin-bottom:8px">'+t.unstaged+' open lead'+(t.unstaged===1?' is':'s are')+' in a stage that no longer exists.</div>';
+  if(recent.length){
+    const cls={open:'info',won:'ok',lost:'err',abandoned:'neutral'};
+    h+='<div style="font-size:12.5px;font-weight:600;margin:6px 0 4px">Newest leads</div><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+      +recent.map(r=>'<tr><td style="padding:3px 8px 3px 0"><b>'+esc(r.name)+'</b>'+(r.contact&&r.contact!==r.name?' <span class="muted">· '+esc(r.contact)+'</span>':'')
+        +(r.stage?'<div class="muted" style="font-size:11.5px">'+esc(r.stage)+(r.source?' · '+esc(r.source):'')+'</div>':'')+'</td>'
+        +'<td style="padding:3px 8px;white-space:nowrap"><span class="pill '+(cls[r.status]||'neutral')+'" style="font-size:10.5px">'+esc(r.status)+'</span></td>'
+        +'<td style="padding:3px 0;text-align:right;white-space:nowrap" class="muted">'+(r.value?pipeMoney(r.value)+' · ':'')+esc(pipeAgo(r.created))+'</td></tr>').join('')+'</table>';
+  }
+  if(d.truncated) h+='<div class="muted" style="font-size:11.5px;margin-top:8px">Only the newest 1,000 leads were counted.</div>';
+  return h;
+}
+/* ---- end pipeline ---- */
+function loadPipeline(name){
+  const el=$('c-pipeline'); if(!el) return;
+  const gen=c360Generation;
+  fetch('/api/client/pipeline?name='+encodeURIComponent(name)+'&url='+encodeURIComponent(window.__c360domain||''),{credentials:'same-origin'})
+    .then(r=>r.json()).then(d=>{
+      if(gen!==c360Generation) return;
+      el.innerHTML=renderPipeline(d);
+      const o=$('c-pipeline-open'); if(o&&d&&d.suite_url){o.href=d.suite_url;o.style.display='';}
+    })
+    .catch(()=>{ if(gen!==c360Generation) return; el.innerHTML=renderPipeline({state:'not_measured',measured:false,detail:'The pipeline could not be read.'}); });
+}
 function loadOrders(name){
   var box=document.getElementById('c-orders');
   if(!box) return;

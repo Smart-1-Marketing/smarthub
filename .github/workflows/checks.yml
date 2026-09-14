@@ -31,9 +31,7 @@ jobs:
   checks:
     name: syntax, links and tests
     runs-on: ubuntu-latest
-    # The complete Hub suite now includes reporting and proposal handoff checks.
-    # Give the full gate time to finish instead of cancelling passing runs.
-    timeout-minutes: 35
+    timeout-minutes: 40
 
     # Postgres rather than SQLite, for the steps that boot the app. Sites Admin
     # refuses to start without a real Postgres URL and serves wsgi.py's 503
@@ -411,6 +409,9 @@ jobs:
       - name: Landing page maker tests
         run: python test_landing_maker.py
 
+      - name: Gallery filing identity and failed-transaction recovery
+        run: python test_gallery_filing_regression.py
+
       - name: Industry factory config, routes, leads and creative tests
         run: |
           python test_industry_core.py
@@ -426,7 +427,9 @@ jobs:
         run: python test_commercial_reliability.py
 
       - name: Commercial Builder finishing tests
-        run: python test_commercial_finishing.py
+        run: |
+          python test_commercial_finishing.py
+          python test_video_workflow.py
 
       - name: Commercial Builder provider key tests
         run: |
@@ -2049,6 +2052,18 @@ jobs:
       - name: Weather Trigger Setup campaigns, copy and the public wizard
         run: python3 test_weather_setup.py
 
+      # Client 360 pipeline card: the client's own Suite pipelines, counted
+      # from raw rows; tri-state on the sub-account token; no token in the
+      # answer; paging capped and flagged.
+      - name: Client 360 pipeline card
+        run: python3 test_client360_pipeline.py
+
+      # 360 Skills: the per-client skill store (verify-then-activate, masked
+      # secrets), the Ecwid hotsheet maths, the Suite email send path, the
+      # three blueprints and the gate Client 360 draws its skill cards behind.
+      - name: 360 Skills store, Ecwid hotsheet, Suite email and the Client 360 gate
+        run: python3 test_skills360.py
+
       # The two radio commercial builders. Neither had a test, and the
       # customer-facing half of Fan Radio was behind the staff login: the
       # module has said since it was written that /r/, /api/public/ and
@@ -2183,12 +2198,6 @@ jobs:
       - name: Every tool is tiled once, and the trail names it
         run: python3 test_menu_layout.py
 
-      # The sales flow must stay customer-facing: it builds a visual site,
-      # keeps implementation data internal, and names the tool consistently
-      # everywhere a rep can enter or leave it.
-      - name: Smart 1 Sites Builder
-        run: python3 test_sites_builder.py
-
       # Asking somebody to check a page, and getting their answer back. Four
       # states, and the two middle ones are the point: collapse "waiting on
       # them" and "waiting on you" into one flag and the queue stops being
@@ -2211,6 +2220,62 @@ jobs:
       # forward onto the run that replaces it.
       - name: Proposal Execution — supersede, don't duplicate
         run: python3 test_proposal_execution.py
+
+      # Analyzing a proposal produced a task board and nothing a person
+      # wants on the day it is signed: the creative that has to exist, the
+      # one-time work before launch, the monthly promises. And a finished
+      # task's output was its result dict printed as JSON in a <pre>.
+      # hub/proposal_plan.py builds the three lists -- sizes read from the
+      # spec kit, the model's additions required to quote the proposal and
+      # marked when they cannot, every item a proposal until a person keeps
+      # or drops it, anything they add theirs to remove -- and asks about
+      # what the proposal does not say rather than guessing. Asserts all of
+      # it, including that the page's result renderer, lifted out of the
+      # template and run in node, writes directions and never braces.
+      - name: Proposal Execution — the plan a person reads, not JSON
+        run: |
+          if [ -f test_proposal_plan.py ]; then
+            python3 test_proposal_plan.py
+          else
+            echo "test_proposal_plan.py not on this branch — nothing to run."
+          fi
+
+      # Every monthly promise on a plan was kept once and nothing asked about
+      # month two. hub/proposal_promises.py turns each kept monthly item into
+      # a row per month since launch -- landed (the work log has the work),
+      # marked done by hand, due until the 25th, missed after it, or not
+      # measured where the log cannot answer -- derived on read and stored
+      # nowhere but the mark. Asserts the kind table joins to modules the work
+      # log can name, the five states and the day boundary, that housekeeping
+      # is never raised, that a month before the log's horizon is not a miss,
+      # the QA report's shape, the health issue per missed month, and that a
+      # mark on the plan page clears the issue on read.
+      - name: Proposal Execution — monthly promises against the work log
+        run: |
+          if [ -f test_proposal_promises.py ]; then
+            python3 test_proposal_promises.py
+          else
+            echo "test_proposal_promises.py not on this branch — nothing to run."
+          fi
+
+      # The plan said what had to happen and when, and nothing said whose
+      # it was; and on the day the proposal was signed the team had no page
+      # to print and the client nothing to read. Every item follows the
+      # client's owner from hub/client_owner.py on read, with an owner named
+      # on the item the one thing stored and an unknown account refused by
+      # name; the kickoff document is built from the kept plan and counts
+      # what has not been reviewed rather than leaving it off; and the
+      # client's page is public, read-only, at a random token stored on the
+      # plan -- the fields only, no dropped item, no item Smart 1 produces,
+      # no staff email, outside both the login and the chrome, and revoked,
+      # unknown and malformed answering one 404.
+      - name: Proposal Execution — owners, the kickoff document, the client's page
+        run: |
+          if [ -f test_proposal_kickoff.py ]; then
+            python3 test_proposal_kickoff.py
+          else
+            echo "test_proposal_kickoff.py not on this branch — nothing to run."
+          fi
 
       # WO-2: real-tool adapters. Every task on the graph used to run as
       # `brief` -- an AI-written paragraph describing what somebody should
@@ -2293,6 +2358,55 @@ jobs:
             echo "test_proposal_adapters_seo.py not on this branch — nothing to run."
           fi
 
+      # WO-2, Adapter E: retargeting_creative ran as `brief` -- an AI
+      # paragraph describing creative somebody should go build, never a
+      # project anybody could actually open. hub/ad_builder_link.py already
+      # has start_project(), the plain, non-Flask entry point the Hub-side
+      # "Start a build" form itself calls: it validates the client against
+      # the registry, reads the landing page, and calls the renderer's own
+      # POST /api/requests. This adapter is one more caller of it, stopping
+      # at starting the build -- picking sizes, generating AI creative and
+      # reviewing every rendered frame is a person's job, each with its own
+      # billed provider call. approval mode: a person finishes the build
+      # from the link this hands back. The Display Ad Builder is a separate
+      # Node process this test does not start, so the one HTTP-calling
+      # function (hub.ad_builder_link._api) is stubbed; nothing here makes
+      # a real network call.
+      #
+      # Backlog item #5's other half: stadium_banners ("300x250 companion
+      # banner brief") is the same kind of build and ran as `brief` too. It
+      # now shares this file's starter (_start_build()) under its own
+      # adapter key, display_ads_banner, registered here alongside
+      # display_ads -- so a reviewer reads "companion banner" rather than
+      # "retargeting creative" on the task that is not retargeting. Same
+      # test file, same stub, one more section.
+      - name: Proposal Execution — real-tool adapters (Display Ad Builder, Stadium companion banners)
+        run: |
+          if [ -f test_proposal_adapters_display_ads.py ]; then
+            python3 test_proposal_adapters_display_ads.py
+          else
+            echo "test_proposal_adapters_display_ads.py not on this branch — nothing to run."
+          fi
+
+      # WO-2, Adapter F: meta_carousel ran as `brief` -- an AI paragraph
+      # describing creative somebody should go build, never a project
+      # anybody could open. hub/proposal_adapters/image_creator.py calls
+      # hub.ai.image() -- the same billed OpenAI call
+      # modules/image_creator/app.py's own /api/ai/image route makes -- and
+      # saves the result as a real Image Creator project through
+      # modules.image_creator.projects.save_project(). One image per run,
+      # never one per product_destinations line, the same bounded-cost rule
+      # every other adapter here follows. hub.ai.image() is stubbed in the
+      # test the way hub.ai.chat_json already is elsewhere -- no real
+      # OpenAI call in CI.
+      - name: Proposal Execution — real-tool adapters (Meta carousel creative)
+        run: |
+          if [ -f test_proposal_adapters_image_creator.py ]; then
+            python3 test_proposal_adapters_image_creator.py
+          else
+            echo "test_proposal_adapters_image_creator.py not on this branch — nothing to run."
+          fi
+
       # WO-2, Adapter G: youtube_video_concept ran as `brief` -- an AI video
       # concept nobody had actually drafted. hub/proposal_adapters/
       # commercial.py calls modules.commercial_builder.client_link.
@@ -2312,6 +2426,25 @@ jobs:
             python3 test_proposal_adapters_commercial.py
           else
             echo "test_proposal_adapters_commercial.py not on this branch — nothing to run."
+          fi
+
+      # Backlog item #7: reporting_plan ran as `brief` -- a paragraph
+      # describing a reporting cadence, with no client-facing dashboard
+      # anybody could open. modules/reports (the ad-performance reporting
+      # module, merged independently of WO-2) already has both halves this
+      # needs: a ReportLink is the client's own dashboard token
+      # (/reports/r/c/<token>) and a BudgetLine is what its pacing measures
+      # against. hub/proposal_adapters/reports.py mints one link per client
+      # and one budget line per channel the proposal's own analysis quotes a
+      # dollar figure for -- reusing a client's existing link and skipping a
+      # budget line already on file rather than doubling it on a retry, the
+      # same "already existed and were left as-is" shape utm.py uses.
+      - name: Proposal Execution — real-tool adapters (Cross-channel reporting dashboard)
+        run: |
+          if [ -f test_proposal_adapters_reports.py ]; then
+            python3 test_proposal_adapters_reports.py
+          else
+            echo "test_proposal_adapters_reports.py not on this branch — nothing to run."
           fi
 
       # A curated shortlist per department, laid over the sidebar rather than
@@ -2834,18 +2967,59 @@ jobs:
       # zeroed where no client has a Suite outcome row.
       - name: The pacing board and the cost report
         run: python3 test_reports_pacing.py
-
-      # The Smart 1 Sites Builder (hub/sites_builder_routes.py): the lead-
-      # facing preview, the authenticated route, and the theme catalog. It
-      # landed on main without this step, which is what test_ci_gate.py is
-      # for -- a test file the gate does not run is one nobody is running.
-      - name: The Smart 1 Sites Builder
-        run: python3 test_sites_builder.py
+      # The same files a second time, against this job's Postgres. Every
+      # reports test binds through _reports_testdb.py, which takes a SQLite
+      # file by default and REPORTS_TEST_DATABASE_URL when it is set -- and
+      # production is Postgres. Two of the seven defects the module's first
+      # review found were Postgres-only (Numeric precision refusing a row and
+      # failing the whole insert; substr() over a timestamp), and SQLite
+      # cannot see either by construction. The hub half stays on the file
+      # each test owns; only the reports engine moves.
+      # Feed health, read once and drawn three ways: a state per platform on
+      # /reports/, a row on /status (an ERROR for the SQLite fallback in
+      # production, whose file a deploy wipes), and the dashboard card; and
+      # the day a client's figures run through, said on the page and the PDF
+      # rather than implied to be today.
+      - name: Reports feed health, and the day the figures run through
+        run: python3 test_reports_health.py
+      # What the syncs propose and a person has to stand behind: a campaign
+      # the auto-mapper files from its NAME is pending, reaches no figure on
+      # the client's page until somebody presses Confirm, and a refusal is
+      # remembered so the next hourly run cannot undo it.
+      - name: Reports confirmations
+        run: python3 test_reports_confirmations.py
+      # A fact row that cannot be true -- more clicks than impressions, a
+      # negative figure, a day after today, a spend spike against the
+      # campaign's own history -- is held for a person in the one door
+      # every writer goes through, the rest of the batch written; a
+      # decision is about the row as it was, and a clean restatement
+      # supersedes a held one by itself.
+      - name: Reports quarantine
+        run: python3 test_reports_quarantine.py
+      # Does the fact table add up to the month the platform would invoice?
+      # Google's customer-level query as the one independent total, a
+      # provider table or StackAdapt's month re-read as the same feed summed
+      # whole, compared through yesterday on both sides; a platform that
+      # cannot be asked is not measured with the reason, never agreeing.
+      - name: Reports reconcile
+        run: python3 test_reports_reconcile.py
+      - name: The reports tests against Postgres
+        env:
+          REPORTS_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          for f in test_reports_store.py test_reports_pacing.py test_reports_normalize.py \
+                   test_reports_public.py test_reports_crossover.py test_reports_pages.py \
+                   test_reports_seo.py test_reports_ttd.py test_reports_stackadapt.py \
+                   test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
+                   test_reports_confirmations.py test_reports_quarantine.py \
+                   test_reports_reconcile.py; do
+            echo "== $f (postgres)"; python3 "$f" || exit 1
+          done
 
       - name: Industry prospect suppression and paid-attempt safety
         run: |
           python3 test_industry_prospects.py
           node tests/industry_prospects_ui.test.js
 
-      - name: Sites Builder regression checks
-        run: python3 test_sites_builder.py
+      - name: Ask SmartHub role and tool boundary
+        run: python3 test_ask_smarthub.py

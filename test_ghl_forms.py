@@ -47,6 +47,7 @@ os.environ["GHL_PRIVATE_TOKEN"] = "pit-test-token"
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from hub import ghl_forms                                    # noqa: E402
+_real_get = ghl_forms._get
 
 _passed = _failed = 0
 
@@ -229,6 +230,49 @@ check("and the total's baseline is unmeasured too",
 check("so the headline claims no comparison",
       "vs 0" in (out.get("total_text") or ""), False)
 
+
+# --------------------------------------------------- sub-account authorization
+section("Monogram Homes uses its own OAuth token without a private token")
+from unittest.mock import patch, Mock
+from hub import ghl_oauth
+
+ghl_forms._get = _real_get
+response = Mock(ok=True, status_code=200)
+response.json.side_effect = [
+    {"forms": [{"id": "monogram-contact", "name": "Contact Monogram Homes"}]},
+    {"meta": {"total": 7}}, {"meta": {"total": 4}},
+]
+with patch.dict(os.environ, {"GHL_PRIVATE_TOKEN": "", "SMART1SUITE_PRIVATE_TOKEN": ""}), \
+     patch.object(ghl_oauth, "status", return_value={"connected": True}), \
+     patch.object(ghl_oauth, "location_token", return_value="monogram-only-token") as mint, \
+     patch.object(_sa, "location_for", return_value={"location_id": "loc-monogram"}), \
+     patch("requests.get", return_value=response) as get:
+    out = ghl_forms.summary("Monogram Homes")
+    check("OAuth-only setup returns Monogram's form", out.get("total"), 7)
+    check("previous period is counted", out.get("total_previous"), 4)
+    check("all requests use the client location",
+          {c.kwargs["params"]["locationId"] for c in get.call_args_list}, {"loc-monogram"})
+    check("all requests use the client token",
+          {c.kwargs["headers"]["Authorization"] for c in get.call_args_list},
+          {"Bearer monogram-only-token"})
+    check("tokens are requested only for Monogram",
+          {c.args[0] for c in mint.call_args_list}, {"loc-monogram"})
+
+with patch.object(ghl_oauth, "status", return_value={"connected": True}), \
+     patch.object(ghl_oauth, "location_token", side_effect=RuntimeError("private error")), \
+     patch("requests.get") as get:
+    out = ghl_forms.summary("Monogram Homes", "loc-monogram")
+    check("failed OAuth is unmeasured", out.get("measured"), False)
+    check("failed OAuth never falls back to the shared private token", get.called, False)
+    check("provider details are not exposed", "private error" in out.get("error", ""), False)
+
+with patch.object(ghl_oauth, "status", return_value={"connected": False}):
+    check("legacy private token remains supported",
+          ghl_forms._headers("legacy-location")["Authorization"], "Bearer pit-test-token")
+    with patch.dict(os.environ, {"GHL_PRIVATE_TOKEN": "", "SMART1SUITE_PRIVATE_TOKEN": ""}):
+        out = ghl_forms.summary("Monogram Homes", "loc-monogram")
+        check("no authorization is unmeasured", out.get("measured"), False)
+        check("no authorization explains the next step", "Connect" in out.get("error", ""), True)
 
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)

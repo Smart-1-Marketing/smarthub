@@ -5,7 +5,17 @@
   <span class="mono">{{ schema or '(no schema prefix)' }}</span>, against the
   table and column names <span class="mono">modules/reports/provider_map.py</span>
   expects. The names in that file are placeholders until the first sync lands;
-  correct them from this page.{% endblock %}
+  correct them from this page, then confirm each platform's map against the
+  sample row printed under it &mdash; the normalize reads nothing until you do.{% endblock %}
+{% block saved_text %}{% if saved.endswith('-withdrawn') %}Confirmation withdrawn. The normalize stops reading that platform on its next run.
+  {% else %}Confirmed. The hourly normalize reads that platform from its next run.{% endif %}{% endblock %}
+
+{% block style %}
+  .sample { margin: 6px 0 0; font-size: 12px; }
+  .sample td { padding: 2px 8px 2px 0; vertical-align: top; }
+  .sample .v { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  form.decide { display: inline; }
+{% endblock %}
 
 {% block body %}
 <div class="s1d-card">
@@ -14,9 +24,11 @@
   <div class="s1d-scroll">
   <table class="s1d-t">
     <thead><tr><th>Platform</th><th>Expected table</th><th>Status</th>
-      <th>Columns read</th><th class="num">Divide raw cost by</th><th class="num">Re-read days</th></tr></thead>
+      <th>Columns read</th><th class="num">Divide raw cost by</th><th class="num">Re-read days</th>
+      <th>Confirmed {{ help_dot('reports.provider.confirm') if help_dot is defined else '' }}</th></tr></thead>
     <tbody>
     {% for s in sources %}
+      {% set conf = s.confirmation %}
       <tr>
         <td>{{ s.label }} <span class="s1d-muted mono">{{ s.platform }}</span></td>
         <td class="mono">{{ s.table }}</td>
@@ -29,6 +41,39 @@
         <td class="mono">{{ s.columns|join(', ') }}</td>
         <td class="num">{{ s.spend_divisor }}</td>
         <td class="num">{{ s.restate_days }}</td>
+        <td>
+          {% if conf.state == 'confirmed' %}<span class="s1d-pill ok">Confirmed</span>
+            <span class="s1d-muted">by {{ conf.by }}, <time datetime="{{ conf.at }}">{{ conf.at }}</time></span>
+          {% elif conf.state == 'superseded' %}<span class="s1d-pill bad">Map changed since confirmed</span>
+            <span class="s1d-muted">{{ conf.by }} confirmed an earlier map, <time datetime="{{ conf.at }}">{{ conf.at }}</time>; look again.</span>
+          {% elif s.status == 'resolved' %}<span class="s1d-pill warn">Awaiting confirmation</span>
+          {% else %}<span class="s1d-muted">nothing to confirm until it resolves</span>{% endif %}
+          {% if s.status == 'resolved' %}
+            {% set smp = samples.get(s.platform) %}
+            {% if smp and smp.measured %}
+              <table class="sample"><tbody>
+                {% for f in smp.fields %}<tr><td class="s1d-muted">{{ f.field }}</td><td class="s1d-muted mono">{{ f.column }}</td><td class="v">{{ f.value if f.value is not none else '∅' }}</td></tr>{% endfor %}
+                <tr><td class="s1d-muted">spend as filed</td><td class="s1d-muted">÷ {{ s.spend_divisor }}</td><td class="v"><b>{% if smp.spend_filed is not none %}${{ smp.spend_filed }}{% else %}not a number{% endif %}</b></td></tr>
+              </tbody></table>
+              <span class="s1d-muted" style="font-size:11.5px">The newest raw row, read through the map.</span>
+            {% elif smp %}
+              <span class="s1d-muted" style="font-size:11.5px">No sample: {{ smp.note }}.</span>
+            {% endif %}
+            <div style="margin-top:6px">
+            {% if conf.state != 'confirmed' %}
+              <form class="decide" method="post" action="/reports/provider-check/confirm">
+                <input type="hidden" name="platform" value="{{ s.platform }}">
+                <button type="submit" class="s1d-btn small" {{ '' if smp and smp.measured else 'title="Confirming a map against no row is confirming nothing; a sample is not required, but read the columns first."' }}>Confirm this map</button>
+              </form>
+            {% else %}
+              <form class="decide" method="post" action="/reports/provider-check/withdraw">
+                <input type="hidden" name="platform" value="{{ s.platform }}">
+                <button type="submit" class="s1d-btn sec small">Withdraw</button>
+              </form>
+            {% endif %}
+            </div>
+          {% endif %}
+        </td>
       </tr>
     {% endfor %}
     </tbody>
@@ -37,7 +82,10 @@
   <p class="s1d-hint">A platform that does not resolve is skipped by the hourly
     normalize and its row on the Reports page says so. Nothing is guessed at:
     a column of the wrong meaning under the right name would file the wrong
-    number on every report.</p>
+    number on every report &mdash; which is also why a resolved map is read
+    only once a person has confirmed it against the sample row. Editing a
+    column name or the divisor in <span class="mono">provider_map.py</span>
+    retires the confirmation, and the platform waits here again.</p>
 </div>
 
 <div class="s1d-card">
@@ -61,4 +109,13 @@
     the one it writes to.</p>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block script %}
+<script>
+  Array.prototype.forEach.call(document.querySelectorAll("time[datetime]"), function (t) {
+    var d = new Date(t.getAttribute("datetime"));
+    if (!isNaN(d)) t.textContent = d.toLocaleString();
+  });
+</script>
 {% endblock %}
