@@ -86,7 +86,11 @@ EXTS = ("html", "py", "js", "ts", "tsx", "jsx")
 # same shape as test_display_ads.py's `href="/presets"` above.
 SKIP_PREFIXES = ("modules/ad_builder/", "tools/linkcheck.py",
                  "test_ads_module.py", "test_alt_text.py", "test_ads_estimate.py",
-                 "test_display_ads.py", "test_client360_proposal_io.js")
+                 "test_display_ads.py", "test_client360_proposal_io.js",
+                 # Talks only to test_io_completion.py's ephemeral Flask app;
+                 # /_test/results is not a production route, and its IO API
+                 # routes are deliberately mounted at the fixture server root.
+                 "test_io_completion.js")
 
 # Known-good references that are not links in the running app. Empty today:
 # /tools/ads/ lived here while Smart 1 Ads shipped in the repo unmounted, and

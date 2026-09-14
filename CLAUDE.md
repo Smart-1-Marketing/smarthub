@@ -1024,6 +1024,71 @@ when unset instead of returning a quiet 200. Check the two do not hold the
 same URL before switching a trigger off, or the thing that stops is insertion
 orders.
 
+**The queue that is the safety net for all of it was drained by nobody.**
+`retry_undelivered()` has said *"Called by hand or the scheduler"* since the
+day it was written, and **there was no such scheduler job** — the only thing
+that drained it was a rep pressing *Retry undelivered* on the lead panel,
+which is a button nobody has a reason to look at on a morning when nothing
+looks wrong. So the whole design above — store first, deliver second, never
+destroy a lead we already have — ended in a queue whose second half was
+optional. Every landing page, every calculator, every scan widget and all
+five standalone Render apps write down this one path, so what was owed was
+owed across the Hub rather than in one tool. The declared-and-never-wired
+failure this file counts seven of, on the safety net rather than on a
+feature.
+
+`job_retry_leads` runs hourly. Three rules on it, none of them new here.
+**A skip is a state and a failure is an event** — an unconfigured Hub would
+otherwise write an identical row into the activity log every hour for ever
+with the real failures sitting in the middle of them, which is the noise
+`hub/google_index.py` had to learn to stop making, so delivery being
+unconfigured returns `skipped` before anything is attempted. **It is bounded
+on both axes and says what it did not reach**: fifty calls and a four-minute
+wall clock, because every retry is an HTTP call to GoHighLevel with no
+ceiling of its own and scheduler jobs share one thread — and `left` is
+counted and printed, since a queue that stops part-way and says nothing reads
+exactly like one that is drained, which on this queue means concluding every
+lead is in Smart 1 Suite when a hundred are not. The budget is checked
+**after** a call rather than before it, or a deployment whose provider is
+merely slow delivers nothing at all, for ever. And **it sits ahead of the
+slow provider sweeps in `JOBS`**, which is insertion order and load-bearing:
+`_loop` runs every due job synchronously on one thread, `google_index`
+routinely spends twenty minutes on rate-limited GTM calls, and this is the
+one job in the list whose starvation means a client's lead sits undelivered.
+It does not get the cheap-and-local argument the two QA jobs get — it is a
+network sweep — what it has instead is a hard ceiling, so what it can cost
+everything behind it is bounded and what starving it costs is not.
+
+**And wiring it would have shipped a worse bug than it fixed.** The lead
+store is a JSONL file that is **appended** on capture — which is what makes
+the public endpoint cheap — and rewritten whole by three callers that read
+the file, change something in it and write the lot back. That is the
+read-modify-write `hub/jsonstore.py` documents at length, and here what goes
+missing is a **lead**: a visitor fills in a landing page on worker B while
+worker A is part-way through a sweep, B appends the row, A's `os.replace`
+lands a file read before that append, and the lead is gone — atomically,
+silently, with a 200 already in front of the visitor. The lock in front of it
+was a `threading.Lock`, which serialises the threads inside one worker and
+says nothing whatever about the other one, and threads cannot show that
+failure: it takes two real processes. Measured with two, appending against a
+sweeping one, **30 of 60 leads survived**. It was survivable only because the
+sole rewrite was a press nobody made; an hourly job turns it from unlikely
+into a matter of traffic.
+
+So `_rewrite` holds `jsonstore.exclusive()` — the same two locks, the thread
+one and the `flock` on a sidecar, rather than a second implementation of
+them — and re-reads the file **inside** the lock, keeping any row the caller
+has never seen. That is safe here rather than generally because **this store
+never deletes**: merging keeps the absorbed row, converting marks it, and
+this module opens by saying a lead we already have is never destroyed. A row
+the caller does not know about is therefore one that arrived while they were
+working, and the only correct thing to do with it is let it survive. The
+append takes the same lock, or it is serialised against other appends and not
+against the rewrite, which is the half that was missing. `_exclusive` in
+`hub/jsonstore.py` is public as `exclusive()` for it. 60 of 60 now, and
+`test_lead_delivery.py` drives the real helper rather than reading the source
+for the word *lock*: prose naming a lock is not a lock being taken.
+
 **And five landing apps outside this repo were still on the webhook the Hub
 retired.** `smart1boat`, `smart1legal`, `smart1ski`, `smarthvac` and
 `smart1rv` are their own Render services, so every rule above was written
@@ -11374,6 +11439,74 @@ it was never a broken widget, it was the whole page, exactly like
 the module root now and `test_image_picker.py` covers the page that needs a
 gallery id.
 
+**A duplicate was reported and that was the whole of the answer.** Both places
+this Hub detects one — `filing.file_asset()`, which eleven tools file through,
+and the widget upload route beside it — said *already there* and changed not one
+row. That is right when somebody uploaded a file twice by accident and wrong
+every other time: the same photograph genuinely does belong to a second
+project, and a client who sends it again usually means *use this one here as
+well*. There was no way to say so, so the answer was always the one that
+changes nothing.
+
+Three things can be meant and they are three different statements about the
+file rather than three strengths of one. **Keep** is *it belongs in both
+places*: the row that exists is untouched and a second one is recorded against
+the new project pointing at the **same** Cloudinary asset — no second copy of
+the bytes, and deliberately no second push into the client's Suite media
+library, which would be exactly the duplicate it avoids, so the twin carries
+the Suite state its original earned rather than sitting at *pending* for ever.
+**Duplicate** is an independent copy somebody can edit or delete without
+touching the original, and it is the only one of the three that spends storage
+— Cloudinary fetches the file from its own delivery URL through
+`hub/storage.put_remote()`, under the original's public_id with a **random**
+tail, because an explicit public_id with overwrite off hands back the asset
+that is already there and the copy would be the original wearing a new row.
+**Move** is *it belongs here instead*: the existing row's project and folder
+fields are rewritten in place, nothing is created and, in particular, nothing
+is deleted — the Cloudinary object is the same object, and a move that
+destroyed a row would be a delete wearing a filing decision. `tool` and
+`completed_on` are left alone by it, since they record how the file was made,
+and `asset_folder` moves only where the caller named one: a move inside a
+gallery does not move the bytes, so a recomputed folder would have the row
+claim a place they are not.
+
+**The default is none of them**, which is the load-bearing half.
+`hub/ad_builder_link.py`, `hub/blog_images.py`, `modules/seo_images` and the IO
+builder's `fileToGallery()` are all finishing a piece of work with nobody
+watching, so a caller that says nothing gets precisely the answer it has always
+had. What the reply gained is `choices` and `filed_under`, because a screen
+cannot offer three choices without being told where the file already is — and
+`filed_under` is the thing that decides which press is sensible.
+
+**Two rows for one asset need two provider ids.** `SavedImage` carries a unique
+constraint on (client, provider, provider_image_id) — one provider photo lands
+in one client's gallery once, which is what stops a double-tap duplicating the
+Cloudinary asset and the Suite upload — so a kept row is spelled with the
+project it was kept for on the end. The base spelling is never re-used, so the
+row every other caller's duplicate check finds is still the original, and a
+second *keep* into the same project finds its own twin and creates nothing,
+which is what makes that press safe to make twice.
+
+**The choice is offered where somebody can act on it and nowhere else.**
+`_upload_panel.html` is shared by the staff gallery and the client's own share
+link, and *project* is our word rather than the client's: somebody on a share
+link is sending photographs in rather than filing them, so they get exactly
+what they got before — the file reported as already present, no project box and
+no question. `choices` comes back empty for them, which is what tells the panel
+to stay as it was rather than a rule the template keeps while the route breaks
+it.
+
+**And the panel it is offered on could not upload at all.**
+`_client_from_token_or_staff()` asked `g.hub_user` for its staff half, and
+**nothing in this Hub has ever set that** — so a member of staff pressing
+Upload on `/gallery/<id>` or `/c/<id>` got *"That link is not valid."*, the
+widget never opened (the same helper gates the signature), and every widget
+upload that did land was recorded `saved_by="client"` whoever made it, on the
+one column that says who to ask about a file. It reads `hub_login_ok()` now,
+which is what `staff_only` decides with. A duplicate choice offered on a panel
+that cannot upload is a feature nobody can reach, so it is named here rather
+than left as the reason the rest of this works.
+
 **Deleting a gallery deletes files nobody can get back**, so the name is typed
 rather than an OK button pressed: the button sits in a row of four safe ones,
 and for anything the client uploaded our copy is very often the only copy. What
@@ -13618,6 +13751,58 @@ key with a marker on the end, so a markup saved on the other worker or a
 display name corrected on the staff page reaches the document exactly
 when it reaches the page, and ``forget()`` drops both.
 
+**A YouTube campaign is a Google Ads campaign, and it read as search.**
+``google_ads_perf.py`` pulled the campaign and the day and no channel
+type, so every Google Ads campaign whose name carried no product segment
+filed under the platform default -- Paid Search -- and a TrueView buy
+read as search on the client's own page. The query reads
+``campaign.advertising_channel_type`` now and carries it on the row's
+``extras``; ``products.GOOGLE_CHANNEL_PRODUCTS`` maps the three types that
+map cleanly (VIDEO is Online Video, SEARCH is Paid Search, DISPLAY is
+Programmatic Display) and **nothing else** -- Performance Max, Demand Gen
+and Shopping take the platform default with the rule on the mapping row
+saying so (``name_v1+default_product`` against ``+channel_product``),
+because a guess filed as a product is a bar on the client's page that no
+budget line can pace. The unmapped queue opens its product box on the
+channel's product for the same reason a rep should not have to know
+what a campaign's channel type is.
+
+**And the completes tile had nothing to draw for Google.** Google
+publishes no completes count; it publishes ``video_quartile_p100_rate``,
+and rate times impressions is the figure the tile draws for the Trade
+Desk. It is carried **only on a row that served video** -- the VIDEO
+channel, or a row carrying views -- because a search campaign's rate is
+zero and "0 completes" on it is a measurement of a metric that does not
+apply. That is also why the client page's completion kind is decided
+**per row** for Google rather than per platform: one account serves
+search and YouTube alike, and listing ``google`` in ``COMPLETION`` would
+draw "Video ads completed 0" for every search-only client, the measured
+nought the tile's own gate exists to refuse.
+
+**The projection's first week was the week it understated.** The daily
+rate for ``projected_month_end`` averaged the last seven completed days
+over seven however few the flight had run, so a line four days into its
+flight at $150 a day projected at $85.71 a day -- on the week a projection
+is read hardest. It averages over the completed days on or after the
+flight start now; a line with no flight start still takes the whole
+window, because nothing says when it should have begun and a zero day
+inside the month is a real zero.
+
+**And the StackAdapt wait came off the scheduler thread.** ``fetch()``
+polled a report the platform was still preparing for up to thirty
+seconds, asleep on the one thread every job shares -- the pacing
+snapshot, the Google sweep and the Knack pulls all behind it. It is
+under ``BUDGET_SECONDS`` now (twenty, house), measured by an injectable
+clock, and past it the report is **pending** rather than failed: nothing
+is stamped on the watermark, because nothing landed and nothing broke and
+the last good pull is still the current one, whose age is what
+``/status`` reads; the module's own note says so on the index line, the
+job counts it apart from the failures, and the next pull asks the same
+query again, which the platform answers from the report it has since
+finished. ``PROGRESS_TRIES`` still caps the polls whatever the clock says,
+since a platform answering Progress instantly for ever must not be polled
+for ever either.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.
@@ -13676,7 +13861,10 @@ python3 test_help_layer.py         # every bubble placed has help behind it, bot
                                    #   against the tiles rather than a list
                                    #   that went stale
 python3 test_target_areas.py       # target areas, delivery, the Suite push
-python3 test_lead_delivery.py      # one write path per lead
+python3 test_lead_delivery.py      # one write path per lead, the hourly sweep
+                                   #   that finally drains the queue, and a
+                                   #   store that survives being rewritten
+                                   #   while the other worker takes traffic
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
 python3 test_scan_run.py           # what a prospect on somebody else's
                                    #   website is told: a callback token

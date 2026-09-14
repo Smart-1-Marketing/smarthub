@@ -310,6 +310,8 @@ button:disabled{opacity:.5;cursor:not-allowed}
   <input id="importJson" type="file" accept="application/json,.json" style="display:none">
  </div>
  <p id="ioReadiness" class="hint" aria-live="polite"></p>
+ <p id="draftSaveStatus" class="hint" role="status" aria-live="polite"></p>
+ <section id="ioPreflight" class="start-screen" aria-label="Pre-submit checklist" hidden></section>
  <div id="ioEmptyPreview" class="start-screen"><h2>Your insertion order will appear here</h2><p class="lede">Choose a source and add the client and campaign details. Review the plan here before submitting.</p></div>
  <div id="submitStatus" class="submit-status"></div>
  <section id="submissionReceipt" class="start-screen" aria-label="Submission receipt" aria-live="polite" hidden></section>
@@ -2571,6 +2573,20 @@ function submissionMissing(){
  if(state.items.some(i=>!(lengthFor(i.start,i.end).days>0)))missing.push("valid product dates");
  return missing;
 }
+function focusIOFix(target){
+ if(target==='creativeChecklist'){document.getElementById(target)?.scrollIntoView({block:'center'});return;}
+ openEditor();const el=document.getElementById(target);(el?.querySelector('input')||el)?.focus();
+}
+function renderPreflight(){
+ const box=document.getElementById('ioPreflight');if(!box)return;
+ box.hidden=!state.client&&!state.items.length;
+ const rows=submissionMissing().map(message=>({message:'Required: '+message,target:message==='client'?'e-client':'e-products'}));
+ if(!String(state.salesContact||'').trim())rows.push({message:'Review: sales contact is missing.',target:'e-sales-contact'});
+ for(const warning of state.guardrailWarnings||[])rows.push({message:'Review: '+(warning.message||warning),target:warning.type==='management_fee_missing'?'e-management-fee':warning.type==='creative_fee_missing'?'e-creative-fee':'e-products'});
+ const unchecked=(state.selected||[]).reduce((n,p)=>n+creativeChecklistItems(p).filter(item=>!(state.creativeChecklist||{})[checklistKey(p,item)]).length,0);
+ if(unchecked)rows.push({message:`Review: ${unchecked} creative checklist items remain unchecked; confirm who will supply or approve them.`,target:'creativeChecklist'});
+ box.innerHTML='<h2>Before you submit</h2>'+(rows.length?'<ul>'+rows.map(row=>`<li>${esc(row.message)} <button type="button" class="secondary" onclick="focusIOFix('${row.target}')">Review</button></li>`).join('')+'</ul>':'<p>Required fields are complete. Review the order summary before sending.</p>');
+}
 function render(){
  renderSubmissionReceipt();
  const hasClient=!!String(state.client||"").trim()||state.items.length>0;
@@ -2582,6 +2598,7 @@ function render(){
  document.getElementById("ioReadiness").textContent=missing.length?"Before submitting, add: "+missing.join(", ")+".":"Review campaign details, fees and creative requirements before submitting.";
  if(typeof scheduleSave==="function")scheduleSave();
  state.items.forEach(recalculateItem);
+ calculateGuardrails();renderPreflight();
  if(typeof updateLiveTotals==="function")updateLiveTotals();
  text("f-landing-pages",state.landingMode==="One landing page"?(state.landingUrl||"—"):state.items.map(i=>`${(productConfig[i.product]||{}).product||i.product}: ${i.landingUrl||"—"}`).join("\n"));
  text("f-date",state.date);text("f-io-type",state.ioType+(state.replacesIo?` — replaces IO ${state.replacesIo}${state.replacesIoEnd?` (ends ${state.replacesIoEnd})`:""}`:""));text("f-order-number",state.orderNumber);text("f-partner",state.partner);text("f-sales-contact",state.salesContact);text("f-sales-email",state.salesEmail);text("f-client",state.client);text("f-url",state.url);
@@ -2715,7 +2732,7 @@ document.addEventListener("DOMContentLoaded",function(){
 });
 
 function checklistKey(product,item){return `${product}::${item}`}
-function toggleCreativeChecklist(key,checked){state.creativeChecklist[key]=checked;renderCreativeChecklist()}
+function toggleCreativeChecklist(key,checked){state.creativeChecklist[key]=checked;renderCreativeChecklist();renderPreflight();scheduleSave()}
 function renderCreativeChecklist(){
  const box=document.getElementById("creativeChecklist");if(!box)return;
  if(!state.selected.length){box.innerHTML='<div class="empty">Select products to build the creative checklist.</div>';return}
@@ -2739,6 +2756,7 @@ function openEditor(){
  document.getElementById("e-same-dates").checked=!!state.sameDates;
  document.getElementById("e-start").value=state.start;document.getElementById("e-end").value=state.end;document.getElementById("e-dayparting").value=state.dayparting||"";
  document.getElementById("e-creative-source").value=state.creativeSource||"";
+ document.getElementById('e-management-fee').value=state.managementFee||'';document.getElementById('e-creative-fee').value=state.creativeFee||'';
  objectives.innerHTML=Object.keys(objectiveKPIs).map(o=>`<label><input type="checkbox" value="${esc(o)}" ${state.objectives.includes(o)?"checked":""}>${esc(o)}</label>`).join("");
  const inc=document.getElementById("e-income");
  inc.innerHTML=incomeOptions.map(v=>`<label><input type="checkbox" value="${esc(v)}" ${state.income.includes(v)?"checked":""}>${esc(v)}</label>`).join("");
@@ -2771,6 +2789,7 @@ function saveEditor(){
  state.description=document.getElementById("e-description").value.trim();
  state.sameDates=document.getElementById("e-same-dates").checked;state.start=document.getElementById("e-start").value.trim();state.end=document.getElementById("e-end").value.trim();state.dayparting=document.getElementById("e-dayparting").value.trim();
  state.creativeSource=document.getElementById("e-creative-source").value;
+ state.managementFee=document.getElementById('e-management-fee').value.trim();state.creativeFee=document.getElementById('e-creative-fee').value.trim();
  state.objectives=[...document.querySelectorAll("#e-objectives input:checked")].map(x=>x.value);
  state.kpis=[...document.querySelectorAll("#e-kpis input:checked")].map(x=>x.value);
  state.income=[...document.querySelectorAll("#e-income input:checked")].map(x=>x.value);
@@ -3428,7 +3447,8 @@ async function checkReachability(){
    having to remember it exists. See hub/drafts.py. */
 const DRAFT_KEY="smart1_io_draft_v2";
 const DRAFT_ID_KEY="smart1_io_draft_id_v2";
-let _saveTimer=null,_serverTimer=null,_serverBusy=false,_serverAgain=false;
+let _saveTimer=null,_serverTimer=null,_serverBusy=false,_serverAgain=false,_draftEpoch=0;
+const _discardedDraftEpochs=new Set();
 let DRAFT_ID=(function(){try{return localStorage.getItem(DRAFT_ID_KEY)||"";}catch(e){return "";}})();
 function setDraftId(id){DRAFT_ID=id||"";try{if(DRAFT_ID)localStorage.setItem(DRAFT_ID_KEY,DRAFT_ID);else localStorage.removeItem(DRAFT_ID_KEY);}catch(e){}}
 function draftTitle(){
@@ -3441,9 +3461,16 @@ function draftTitle(){
  return c||(o?("IO "+o):"");
 }
 function draftHasProgress(){
+ if(state.submission?.deliveredToSuite&&state.submission.contentSignature===JSON.stringify(deliveryPdfPayload('internal')))return false;
  return !!(state&&(state.client||state.orderNumber||(state.selected&&state.selected.length)));
 }
-function saveDraft(){try{localStorage.setItem(DRAFT_KEY,JSON.stringify({state:state,index:index,currentProduct:currentProduct,tempItem:tempItem,draftId:DRAFT_ID,savedAt:new Date().toISOString()}));}catch(e){}}
+let _draftLocalSaved=false,_draftAccountSaved='';
+function draftSaveStatus(message){const el=document.getElementById('draftSaveStatus');if(el)el.textContent=message;}
+function saveDraft(){
+ const savedAt=new Date().toISOString();
+ try{localStorage.setItem(DRAFT_KEY,JSON.stringify({state:state,index:index,currentProduct:currentProduct,tempItem:tempItem,draftId:DRAFT_ID,savedAt}));_draftLocalSaved=true;draftSaveStatus('Saved in this browser at '+new Date(savedAt).toLocaleTimeString()+(_draftAccountSaved?' · Last account save '+new Date(_draftAccountSaved).toLocaleTimeString():''));}
+ catch(e){_draftLocalSaved=false;draftSaveStatus('Browser save failed. Keep this page open and use Save JSON to keep a copy.');}
+}
 function saveDraftServer(){
  /* Never two writes in the air at once: the second could land first and put
     an older state back over a newer one. A save asked for while one is
@@ -3451,6 +3478,7 @@ function saveDraftServer(){
  if(_serverBusy){_serverAgain=true;return;}
  if(!draftHasProgress())return;   // nothing anybody would come back for
  _serverBusy=true;
+ const epoch=_draftEpoch;
  var body={id:DRAFT_ID,title:draftTitle(),step:index,
            state:{state:state,index:index,currentProduct:currentProduct,tempItem:tempItem,
                   savedAt:new Date().toISOString()}};
@@ -3458,23 +3486,29 @@ function saveDraftServer(){
         headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
   .then(function(r){return r.json();})
   .then(function(d){
-    if(d&&d.ok&&d.id){setDraftId(d.id);saveDraft();}
+    if(!d||!d.ok||!d.id)throw new Error('Account save failed');
+    if(epoch!==_draftEpoch){if(_discardedDraftEpochs.has(epoch))fetch("{{ request.script_root }}/api/draft/"+encodeURIComponent(d.id),{method:'DELETE',credentials:'same-origin'}).catch(function(){});return;}
+    setDraftId(d.id);_draftAccountSaved=body.state.savedAt;saveDraft();
     /* A cap that drops somebody's oldest draft says so. A draft that goes
        missing in silence is the thing this whole feature exists to stop. */
     if(d&&d.dropped&&d.dropped.length&&typeof showBanner==="function"){
       showBanner("Your oldest unfinished IO ("+d.dropped.join(", ")+") was cleared to make room for this one.","warn");
     }
   })
-  .catch(function(){/* the browser copy still has it; never block the form */})
+  .catch(function(){if(epoch===_draftEpoch)draftSaveStatus(_draftLocalSaved?'Saved in this browser; account save failed. Stay on this device or save a JSON copy.':'Draft save failed. Keep this page open and save a JSON copy.');})
   .then(function(){_serverBusy=false;if(_serverAgain){_serverAgain=false;scheduleServerSave();}});
 }
 function scheduleServerSave(){if(_serverTimer)clearTimeout(_serverTimer);_serverTimer=setTimeout(saveDraftServer,4000);}
 function scheduleSave(){
+ if(!draftHasProgress())return;
+ draftSaveStatus('Saving changes…');
  if(_saveTimer)clearTimeout(_saveTimer);
  _saveTimer=setTimeout(saveDraft,600);
  scheduleServerSave();
 }
 function clearDraft(){
+ _discardedDraftEpochs.add(_draftEpoch);_draftEpoch++;_draftAccountSaved='';
+ _draftLocalSaved=false;draftSaveStatus('Draft cleared.');
  try{localStorage.removeItem(DRAFT_KEY);}catch(e){}
  if(_saveTimer)clearTimeout(_saveTimer);
  if(_serverTimer)clearTimeout(_serverTimer);
@@ -3491,7 +3525,7 @@ function loadDraft(){try{const raw=localStorage.getItem(DRAFT_KEY);return raw?JS
 /* Starting a new IO is not the same statement as throwing the old one away.
    This drops only this browser's copy; the server draft stays, listed on the
    start screen, where discarding it is a deliberate press. */
-function forgetLocalDraft(){try{localStorage.removeItem(DRAFT_KEY);}catch(e){}if(_saveTimer)clearTimeout(_saveTimer);if(_serverTimer)clearTimeout(_serverTimer);_serverAgain=false;setDraftId("");}
+function forgetLocalDraft(){_draftEpoch++;_draftAccountSaved='';try{localStorage.removeItem(DRAFT_KEY);}catch(e){}if(_saveTimer)clearTimeout(_saveTimer);if(_serverTimer)clearTimeout(_serverTimer);_serverAgain=false;setDraftId("");}
 /* A tab being closed is exactly the interruption this is for, and a 4-second
    debounce has usually not fired yet. sendBeacon survives the unload where a
    fetch does not, and the path carries the mount -- a root-absolute one would
@@ -4307,10 +4341,11 @@ function startWireClientSearch(){
 
 
 async function ensurePdfForSuite(kind){
-  // Reuse an existing Cloudinary document URL when available.
   state.documents = state.documents || {};
+  state.documentSignatures=state.documentSignatures||{};
   const key = kind === "client" ? "client_pdf_url" : "internal_pdf_url";
-  if(state.documents[key]) return state.documents[key];
+  const payload=deliveryPdfPayload(kind),signature=JSON.stringify(payload);
+  if(state.documents[key]&&state.documentSignatures[key]===signature)return state.documents[key];
 
   const endpoint = kind === "client" ? "/api/generate-client-pdf" : "/api/generate-internal-pdf";
   // buildPdfPayload(), not the bare state -- the submitted PDF has to carry
@@ -4320,7 +4355,7 @@ async function ensurePdfForSuite(kind){
   const response = await fetch(endpoint,{
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify(buildPdfPayload(kind))
+    body:JSON.stringify(payload)
   });
   const result = await response.json().catch(()=>({}));
   if(!response.ok || !result.ok){
@@ -4329,7 +4364,25 @@ async function ensurePdfForSuite(kind){
   const url = result.secure_url || result.url || result.pdf_url;
   if(!url) throw new Error(`The ${kind} PDF was generated, but no Cloudinary URL was returned.`);
   state.documents[key] = url;
+  state.documentSignatures[key]=signature;
+  if(typeof saveDraft==='function')saveDraft();
   return url;
+}
+
+function deliveryPdfPayload(kind){
+ const payload=buildPdfPayload(kind);
+ for(const key of ['documents','documentSignatures','generatedDocuments','submission','deliveryAttempt','submissionRequestId','client_pdf_url','internal_pdf_url'])delete payload[key];
+ return payload;
+}
+function deliveryRequest(clientUrl,internalUrl){
+ const payload={...deliveryPdfPayload('internal'),trackingPlan:effectiveTrackingPlan(),client_pdf_url:clientUrl,internal_pdf_url:internalUrl,documents:{client_pdf_url:clientUrl,internal_pdf_url:internalUrl}};
+ const signature=JSON.stringify(payload);
+ if(state.deliveryAttempt?.signature!==signature){
+  const id=typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
+  state.deliveryAttempt={signature,payload:{...payload,submissionRequestId:id}};
+ }
+ if(typeof saveDraft==='function')saveDraft();
+ return state.deliveryAttempt.payload;
 }
 
 function receiptLink(url,label){
@@ -4397,8 +4450,10 @@ async function submitCompletedIO(){
   const missing=submissionMissing();
   if(missing.length){setStatus("Before submitting, add: "+missing.join(", ")+".","error");return;}
   calculateGuardrails(true);                 // refresh final-review warnings
+  const reviewedContent=JSON.stringify(deliveryPdfPayload('internal'));
   if(state.submission&&state.submission.status==="submitted"){
-    if(!await confirmIOReview("This IO was already submitted to Smart 1 Suite. Submit it again?","Review resubmission"))return;
+    const message=state.submission.deliveredToSuite?'This IO was already delivered. Review any changes before submitting again.':'This IO was recorded but delivery was not confirmed. Review it before retrying delivery.';
+    if(!await confirmIOReview(message,"Review resubmission"))return;
   }
   // Review-before-submit summary (#8)
   {
@@ -4430,6 +4485,7 @@ async function submitCompletedIO(){
     if(!await confirmIOReview("These issues were flagged and normally block submission:\n\n"+list+"\n\nSubmit anyway (override)?","Override and submit"))return;
    }
   }
+  if(JSON.stringify(deliveryPdfPayload('internal'))!==reviewedContent){setStatus('Campaign answers changed during review. Please review the updated order again.','error');return;}
   _ioSubmitting=true;
   if(btn){btn.disabled=true;btn.style.opacity="0.6";btn.style.cursor="not-allowed";}
   try{
@@ -4448,19 +4504,10 @@ async function submitCompletedIO(){
     try{internalUrl=await ensurePdfForSuite("internal");}
     catch(e){pdfError+=`Internal PDF could not be created: ${e.message||e}.`;}
     if(pdfError){throw new Error(pdfError.trim());}
+    if(JSON.stringify(deliveryPdfPayload('internal'))!==reviewedContent)throw new Error('Campaign answers changed while the PDFs were being created. Review the updated order before sending.');
 
     setStatus("Sending the completed IO…","");
-    const payload={
-      ...state,
-      trackingPlan:effectiveTrackingPlan(),
-      client_pdf_url:clientUrl,
-      internal_pdf_url:internalUrl,
-      documents:{
-        ...(state.documents||{}),
-        client_pdf_url:clientUrl,
-        internal_pdf_url:internalUrl
-      }
-    };
+    const payload=deliveryRequest(clientUrl,internalUrl);
 
     const response=await fetch("{{ request.script_root }}/api/submit-io",{
       method:"POST",
@@ -4474,7 +4521,8 @@ async function submitCompletedIO(){
 
     state.submission={
       status:"submitted",
-      orderNumber:state.orderNumber,client:state.client,
+      contentSignature:reviewedContent,
+      orderNumber:payload.orderNumber,client:payload.client,
       message:result.message||"",
       submittedAt:new Date().toISOString(),
       clientPdfUrl:clientUrl,
@@ -4495,11 +4543,18 @@ async function submitCompletedIO(){
       setStatus("Completed IO sent to Smart 1 Suite successfully.","ok");
       addMsg("The finished IO, including both Cloudinary PDF links, was sent to Smart 1 Suite.","bot");
     }
-    if(typeof clearDraft==="function")clearDraft();   // submitted — clear the saved draft
+    const changedDuringDelivery=JSON.stringify(deliveryPdfPayload('internal'))!==reviewedContent;
+    if(result.delivered_to_suite===true&&!changedDuringDelivery){if(typeof clearDraft==="function")clearDraft();}
+    else{
+      if(result.delivered_to_suite===true)setStatus('The reviewed version was delivered. Newer edits are saved as an unfinished draft and need review before sending.','ok');
+      if(typeof saveDraft==='function'){saveDraft();scheduleServerSave();}
+      if(btn){btn.disabled=false;btn.style.opacity='';btn.style.cursor='';}
+    }
   }catch(error){
     console.error(error);
     if(window.SMART1_SENTRY&&window.SMART1_SENTRY.captureException){try{window.SMART1_SENTRY.captureException(error);}catch(_){}}
-    setStatus(error.message || "Unable to submit the IO.","error");
+    if(typeof saveDraft==='function')saveDraft();
+    setStatus((error.message || "Unable to submit the IO.")+" Your answers and completed PDFs are kept. Retry resumes unfinished steps; changed answers require new PDFs.","error");
     if(btn){btn.disabled=false;btn.style.opacity="";btn.style.cursor="";}   // re-enable so they can retry
   }finally{
     _ioSubmitting=false;
@@ -4541,6 +4596,8 @@ async function submitCompletedIO(){
    </div>
    <div class="edit-group">
     <h3>Creative</h3>
+    <label for="e-management-fee">Management fee (amount, percentage, INCLUDED or NONE)</label><input id="e-management-fee">
+    <label for="e-creative-fee">Creative fee (amount, INCLUDED or NONE)</label><input id="e-creative-fee">
     <label>Creative Source</label>
     <select id="e-creative-source">
      <option value="">Select one</option>
@@ -4569,7 +4626,7 @@ async function submitCompletedIO(){
     <h3>Products, Dates, Budgets and Rates</h3>
     <table>
      <thead><tr><th>Product</th><th>Campaign Dates</th><th>Monthly Budget</th><th>CPM / CPV</th></tr></thead>
-     <tbody id="e-products"></tbody>
+     <tbody id="e-products" tabindex="-1"></tbody>
     </table>
    </div>
   </div>

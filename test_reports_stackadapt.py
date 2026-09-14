@@ -242,10 +242,45 @@ tables = normalize.schema_tables()
 out = normalize.run(today=date(2026, 9, 10))
 check("...and says so on its own answer", out["stackadapt"].get("native"), True)
 
+# The wait is bounded by wall clock, because the pull runs on the one
+# scheduler thread every job shares. With the clock advancing six seconds
+# per five-second sleep and a twenty-second budget, the fourth Progress
+# answer finds no room for another wait: the report is PENDING -- not
+# failed -- nothing is stamped on the watermark, and the next pull asks
+# again. Four answers are queued, four are consumed.
+clock = [0.0]
+slept = []
+
+
+def _tick(seconds):
+    slept.append(seconds)
+    clock[0] += seconds + 1
+
+
+before_wm = dict(store.sync_status()["stackadapt"])
+ANSWERS.extend([_Resp(200, {"data": {"campaignDelivery": {"__typename": "Progress", "_": None}}})] * 4)
+res = stackadapt.pull(days=2, today=date(2026, 9, 10), sleep=_tick, clock=lambda: clock[0], budget=20)
+check("past the wait budget the report is pending rather than failed",
+      (res["pending"], res["ok"], res["rows"]), (True, False, 0))
+check("...saying so, with the seconds spent", "still preparing after 18s" in res["error"])
+check("...after exactly the waits the budget had room for", slept, [5, 5, 5])
+check("...every queued Progress answer was consumed, none left for the next section", ANSWERS, [])
+check("the watermark is untouched: nothing landed and nothing failed",
+      store.sync_status()["stackadapt"], before_wm)
+check("...so the provider normalize still defers to the last good pull",
+      store.native_is_current("stackadapt"), True)
+check("the module's own note carries pending", stackadapt._remembered().get("pending"), True)
+check("...and the index line says so", "still preparing" in stackadapt.status()["line"])
+check("the budget is a house number, named beside the polls",
+      (stackadapt.BUDGET_SECONDS, stackadapt.PROGRESS_WAIT * stackadapt.PROGRESS_TRIES), (20, 30))
+check("ReportPending is a StackAdaptError, so a caller catching refusals still catches it",
+      issubclass(stackadapt.ReportPending, stackadapt.StackAdaptError), True)
+
 ANSWERS.extend([_Resp(200, {"data": {"campaignDelivery": {"__typename": "Progress", "_": None}}})] * 8)
 res = stackadapt.pull(days=2, today=date(2026, 9, 10), sleep=lambda s: None)
-check("a report that never finishes is refused by name after the polls",
-      "still in progress" in res["error"])
+check("a report that never finishes is refused by name after the polls, whatever the clock says",
+      "still in progress" in res["error"] and not res["pending"])
+check("...and that one IS on the watermark", "still in progress" in store.sync_status()["stackadapt"]["error"])
 ANSWERS.clear()
 
 
@@ -271,6 +306,18 @@ from flask import Flask                                              # noqa: E40
 out = scheduler.JOBS["reports_native"][1](Flask("t"))
 check("unconfigured, the job skips it by name", "stackadapt" in out["skipped"])
 check("...with no error", "stackadapt" not in out["errors"])
+
+# A pending report is the job's fourth answer about a platform: not
+# skipped, not failed, asked again next tick.
+_real_pull = stackadapt.pull
+stackadapt.pull = lambda **kw: {"ok": False, "rows": 0, "pending": True,
+                                "error": "the report was still preparing after 18s; the next pull asks again"}
+try:
+    out = scheduler.JOBS["reports_native"][1](Flask("t"))
+finally:
+    stackadapt.pull = _real_pull
+check("a pending report is counted apart from the failures", out["pending"], ["stackadapt"])
+check("...and is not an error", "stackadapt" not in out["errors"] and "stackadapt" not in out["skipped"])
 
 for f in ("env.example", "render.yaml"):
     check(f"{f} documents STACKADAPT_API_KEY", "STACKADAPT_API_KEY" in (ROOT / f).read_text(encoding="utf-8"))

@@ -556,6 +556,215 @@ check("and the variable to fix it", "PICKER_UPLOAD_SOURCES" in loud, True)
 env(PICKER_UPLOAD_SOURCES=None)
 
 
+# =====================================================================
+section("A file the gallery already has: keep it here too, copy it, or move it")
+# =====================================================================
+# A duplicate was reported and nothing else, so the person uploading was told
+# it was already there and offered no way to say what they meant by sending it
+# again. Three things can be meant and they are three different statements
+# about the file, so each is asserted against what it actually does to the
+# rows -- above all that a "move" creates nothing and destroys nothing.
+from modules.image_picker import filing                           # noqa: E402
+from hub import audit as _audit_log                               # noqa: E402
+
+dup_id, dup_token = make_gallery("Duplicate Choice Co")
+ASSET = "smart1-client-images/duplicate-choice-co/storefront"
+ASSET_URL = "https://res.cloudinary.com/demo/image/upload/v1/" + ASSET
+
+
+from sqlalchemy import select as _select                          # noqa: E402
+
+
+def rows_for(public_id=ASSET):
+    """Every gallery row pointing at one Cloudinary asset, oldest first."""
+    return session().execute(
+        _select(SavedImage)
+        .where(SavedImage.cloudinary_public_id == public_id)
+        .order_by(SavedImage.id)
+    ).scalars().all()
+
+
+first = filing.file_asset(
+    client_name="Duplicate Choice Co", public_id=ASSET, url=ASSET_URL,
+    kind="upload", key="spring-refresh", label="Spring refresh",
+    project_name="Spring refresh", push_to_suite=False, create_client=False)
+check("the first filing lands", (first.get("ok"), first.get("duplicate")),
+      (True, None))
+
+# --- Saying nothing is exactly what it was ---------------------------------
+# Eleven tools file through here and four of them are finishing work with
+# nobody watching, so the default cannot have moved.
+again = filing.file_asset(
+    client_name="Duplicate Choice Co", public_id=ASSET, url=ASSET_URL,
+    kind="upload", key="autumn-sale", label="Autumn sale",
+    project_name="Autumn sale", push_to_suite=False, create_client=False)
+check("no choice still reports a duplicate", again.get("duplicate"), True)
+check("and writes no second row", len(rows_for()), 1)
+check("and leaves the row where it was",
+      rows_for()[0].project_name, "Spring refresh")
+# The screen cannot offer three choices without being told where the file
+# already is, so both travel with the answer.
+check("the reply names the three choices",
+      sorted(again.get("choices") or []), ["duplicate", "keep", "move"])
+check("and where it is filed now", again.get("filed_under"), "Spring refresh")
+
+# --- Keep: two rows, one asset --------------------------------------------
+kept = filing.file_asset(
+    client_name="Duplicate Choice Co", public_id=ASSET, url=ASSET_URL,
+    kind="upload", key="autumn-sale", label="Autumn sale",
+    project_name="Autumn sale", push_to_suite=False, create_client=False,
+    on_duplicate="keep")
+check("keep files a second row", (kept.get("ok"), kept.get("created")), (True, True))
+check("two rows now", len(rows_for()), 2)
+check("both pointing at one asset",
+      len({r.cloudinary_public_id for r in rows_for()}), 1)
+# The unique constraint is (client, provider, provider_image_id): two rows for
+# one asset only exist because the second one's provider id is spelled with
+# the project on the end.
+check("with different provider ids",
+      len({r.provider_image_id for r in rows_for()}), 2)
+check("the original is untouched", rows_for()[0].project_name, "Spring refresh")
+check("and the twin carries the new project",
+      rows_for()[1].project_name, "Autumn sale")
+
+# Pressing it again is how somebody checks the first press took. It must not
+# be how a third row appears.
+twice = filing.file_asset(
+    client_name="Duplicate Choice Co", public_id=ASSET, url=ASSET_URL,
+    kind="upload", key="autumn-sale", label="Autumn sale",
+    project_name="Autumn sale", push_to_suite=False, create_client=False,
+    on_duplicate="keep")
+check("keeping it twice creates nothing",
+      (twice.get("ok"), twice.get("created")), (True, False))
+check("still two rows", len(rows_for()), 2)
+
+# --- Move: nothing created, nothing deleted -------------------------------
+before_ids = [r.id for r in rows_for()]
+moved = filing.file_asset(
+    client_name="Duplicate Choice Co", public_id=ASSET, url=ASSET_URL,
+    kind="upload", key="winter-promo", label="Winter promo",
+    project_name="Winter promo", push_to_suite=False, create_client=False,
+    on_duplicate="move")
+check("move reports itself", (moved.get("ok"), moved.get("action")),
+      (True, "move"))
+check("it creates no row", len(rows_for()), 2)
+check("and deletes none", [r.id for r in rows_for()], before_ids)
+check("the row is rewritten in place", rows_for()[0].project_name, "Winter promo")
+check("folder with it", rows_for()[0].collection_label, "Winter promo")
+
+# --- Duplicate: the one branch that spends storage ------------------------
+# With no Cloudinary configured there is nowhere to put a second copy, and
+# saying so is the answer -- a row filed against the original's public_id
+# would be the original wearing a new row, which is the one outcome this
+# branch must not produce, since somebody is about to edit or delete it.
+refused = filing.file_asset(
+    client_name="Duplicate Choice Co", public_id=ASSET, url=ASSET_URL,
+    kind="upload", key="flyer", label="Flyer", project_name="Flyer",
+    push_to_suite=False, create_client=False, on_duplicate="duplicate")
+check("a copy that cannot be stored is refused", refused.get("ok"), False)
+check("and says why", "could not be stored" in (refused.get("error") or ""), True)
+check("with no row written for it", len(rows_for()), 2)
+
+# And the happy path, with the shared storage layer answering.
+import hub.storage as _storage                                    # noqa: E402
+
+_real_put_remote = _storage.put_remote
+COPY_ID = ASSET + "-copy-deadbeef"
+
+
+def _fake_put_remote(kind, url, **kw):
+    return _storage.StoredAsset(
+        public_id=str(kw.get("public_id") or COPY_ID), url=ASSET_URL + "-copy",
+        resource_type="image", bytes=4242, backend="cloudinary",
+        folder="", checksum="")
+
+
+_storage.put_remote = _fake_put_remote
+copied = filing.file_asset(
+    client_name="Duplicate Choice Co", public_id=ASSET, url=ASSET_URL,
+    kind="upload", key="flyer", label="Flyer", project_name="Flyer",
+    push_to_suite=False, create_client=False, on_duplicate="duplicate")
+_storage.put_remote = _real_put_remote
+check("duplicating files a row", (copied.get("ok"), copied.get("created")),
+      (True, True))
+check("against a second asset, not the first",
+      copied["image"]["public_id"] != ASSET, True)
+check("so the original still has two rows", len(rows_for()), 2)
+check("and the copy is its own row", len(rows_for(copied["image"]["public_id"])), 1)
+
+# --- What it wrote down ---------------------------------------------------
+# A filing decision about a client's own file, with the client on it, or the
+# record cannot say who chose what.
+entries = _audit_log.read(limit=50, module="image_picker",
+                          type_="gallery_duplicate")
+choices_logged = sorted({e.get("choice") for e in entries})
+check("every choice is recorded", choices_logged, ["duplicate", "keep", "move"])
+check("against the client", {e.get("client") for e in entries},
+      {"Duplicate Choice Co"})
+
+# --- The panel asks; the client's own page does not -----------------------
+# The choice is offered where somebody can act on it. On the share link the
+# reply is what it always was, because "project" is our word and a client
+# sending photographs in has no way to answer a filing question.
+WIDGET = f"smart1-client-images/duplicate-choice-co/uploads/storefront"
+WIDGET_URL = "https://res.cloudinary.com/demo/image/upload/v1/" + WIDGET
+UPLOAD = {"public_id": WIDGET, "secure_url": WIDGET_URL, "source": "local",
+          "original_filename": "storefront"}
+
+sign_in()
+# Staff uploading through the panel was refused outright: the helper behind
+# both this route and the signature asked `g.hub_user`, which nothing in the
+# Hub sets, so the widget never opened and the record never landed. Named
+# here because a duplicate choice offered on a panel that cannot upload is a
+# feature nobody can reach.
+first_up = http.post("/tools/image-picker/api/uploads",
+                     json=dict(UPLOAD, client_id=dup_id,
+                               project="Spring refresh")).get_json()
+check("a signed-in staff upload is recorded", first_up.get("ok"), True)
+check("against them rather than the client",
+      first_up["image"]["saved_by"], "tester@smart1marketing.com")
+check("a named project lands on the row",
+      rows_for(WIDGET)[0].project_name, "Spring refresh")
+
+# Eleven tools file through file_asset(). The default has to be the answer
+# they have always had, or a branch none of them asked for is taken on their
+# behalf with nobody watching.
+import inspect as _inspect                                        # noqa: E402
+
+check("saying nothing is the default",
+      _inspect.signature(filing.file_asset).parameters["on_duplicate"].default, "")
+staff_say = http.post("/tools/image-picker/api/uploads",
+                      json=dict(UPLOAD, client_id=dup_id,
+                                project="Autumn sale")).get_json()
+check("staff are offered the choices",
+      sorted(staff_say.get("choices") or []), ["duplicate", "keep", "move"])
+check("and told where it already is", staff_say.get("filed_under"), "Spring refresh")
+staff_did = http.post("/tools/image-picker/api/uploads",
+                      json=dict(UPLOAD, client_id=dup_id, project="Autumn sale",
+                                on_duplicate="move")).get_json()
+check("and the panel's choice is acted on", staff_did.get("action"), "move")
+check("in place", (len(rows_for(WIDGET)), rows_for(WIDGET)[0].project_name),
+      (1, "Autumn sale"))
+
+with http.session_transaction() as s:
+    s.clear()
+client_say = http.post("/tools/image-picker/api/uploads",
+                       json=dict(UPLOAD, token=dup_token, project="Spring refresh",
+                                 on_duplicate="move")).get_json()
+check("a client is offered none", client_say.get("choices"), [])
+check("and their choice is not acted on", client_say.get("action"), None)
+check("so nothing moved", rows_for(WIDGET)[0].project_name, "Autumn sale")
+sign_in()
+
+# The panel itself, on the page it is included on: the project box is a staff
+# control, and a client's share link must not grow one.
+gallery_page = http.get(f"/tools/image-picker/gallery/{dup_id}").data.decode()
+check("the staff panel asks for a project", 'id="uploadProject"' in gallery_page, True)
+check("and has somewhere to ask the question", 'id="uploadDupes"' in gallery_page, True)
+share_page = http.get(f"/tools/image-picker/pick/{dup_token}").data.decode()
+check("the client's page has no project box", 'id="uploadProject"' in share_page, False)
+
+
 # ---------------------------------------------------------------------------
 # Late columns: a boolean column with a numeric default never lands on Postgres
 # ---------------------------------------------------------------------------
