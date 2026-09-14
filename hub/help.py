@@ -437,6 +437,17 @@ REGISTRY: list[Help] = [
        "pipeline's archive, and cannot be undone. The count is this client's, "
        "not the whole archive's.", step=4,
        selector="[data-tour='client-images']"),
+    _h("hub.client360.adperf", "What their advertising is doing",
+       "What the Reports module holds for this client: the campaigns filed "
+       "under them, this month's spend by platform beside what they are "
+       "billed for it, whether each sold line is pacing to its budget, any "
+       "day held in quarantine, and the live link they were sent. A "
+       "campaign reaches these figures only once a person has confirmed it "
+       "is theirs -- one filed from its name and not yet confirmed is counted "
+       "here and reaches nothing. Empty says which kind of empty: nothing "
+       "filed, everything waiting for confirmation, or no spend this period. "
+       "Every figure is Reports' own, so this card and the client's page "
+       "cannot disagree."),
     _h("hub.client360.spend", "What they are already spending",
        "The first thing worth knowing about a client, and the one that decides "
        "what the next conversation is about. Every figure is a third-party "
@@ -872,6 +883,16 @@ REGISTRY: list[Help] = [
        "have never synced. A platform missing from this table would be the "
        "finding, so nothing is left off it. The time is when the last sync "
        "wrote rows; the latest day is the newest date those rows cover."),
+    _h("reports.index.upload", "A platform's own export, into the same table",
+       "Every platform can export a CSV whatever its API does, so this is the "
+       "door for a platform with no feed connected and for a month a feed "
+       "missed. The rows land exactly as a sync's would: a campaign-day "
+       "already in the table is replaced rather than doubled, a row that "
+       "cannot be true is held in quarantine for a person, and a campaign "
+       "nobody has filed under a client goes on the unmapped queue. The "
+       "platform's sync row then says csv wrote it -- a hand upload is not "
+       "the feed, and the health column should not read as though the feed "
+       "had run."),
     _h("reports.unmapped.hint", "Map it here, or rename it there",
        "Spend on a campaign nobody has filed under a client reaches no "
        "client report. Pick the client on the row, or rename the campaign "

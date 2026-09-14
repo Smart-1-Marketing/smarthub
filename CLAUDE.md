@@ -13436,6 +13436,43 @@ the month ride on the row as the likeliest explanation of a drift;
 `TOLERANCE_PCT` is house and the page says so; and a state **change** is
 logged, never a state.
 
+**Everything the module knew about a client was on a page reached by
+knowing the client's key.** The campaigns filed under them, this month's
+spend beside what they are billed, whether the sold lines are pacing, the
+days held in quarantine, the live link and whether it was opened -- all on
+`/reports/client/<key>`, and the record a rep actually opens for a client
+said nothing. `modules/reports/client_card.py` is the one reading behind
+Client 360's *Ad performance* card (`/api/client/ad-performance`, under
+`/api/client/` so it draws inside the Suite frame), and two things in it
+are decisions rather than plumbing. **A client is filed under more than
+one spelling, and all of them are read**: the staff screens and the
+auto-mapper file under the `hub/client_key.py` key, and
+`hub/proposal_adapters/reports.py` mints its link and budget lines under
+the display name -- both are real rows about one business, so
+`candidate_keys()` gathers the registry key, the name key, the raw name and
+any key whose stored display name is an exact normalized match, and never
+a substring. And **four kinds of nothing are kept apart** -- the store would
+not answer, nothing is filed, everything filed is waiting for a person to
+confirm it, and the confirmed campaigns spent nothing this period --
+because a card that draws the first three as the fourth is a report
+answering zero when it could not look. Every figure is `client_view`'s own,
+so the card and the module's page cannot disagree about a month.
+
+**And the two queues inside the module were where a queue goes unworked.**
+The unmapped list and the pacing board are pages inside a module, which is
+the reason six chase lists moved to `/qa` -- so *Campaigns With No Client*
+and *Lines Pacing Under* are QA reports now, reading the same persisted
+store the module's pages read. A store that will not answer is
+`_unmeasured()`, and a pacing job that has never run is too, because every
+line reading as on pace on the strength of no reading is the confident
+wrong answer. **The CSV parser has a door.** `parsers/audiogo_csv.py`
+was written for AudioGo and reads the ordinary columns every export
+carries, so it is the one reader behind *Upload a CSV* on `/reports/` for
+any platform; the rows go through `store.upsert_rows` like a sync's, the
+watermark says `csv` wrote them because a hand upload is not the feed, and
+the notice names what was written, held and skipped. `test_reports_pages.py`
+asserts all three, on SQLite and again on Postgres.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.
