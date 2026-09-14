@@ -1,6 +1,6 @@
 """Every OAuth redirect URI this Hub will actually send, and where to register it.
 
-Seven OAuth flows run here and each hands a provider a callback URL that has
+Eight OAuth flows run here and each hands a provider a callback URL that has
 to have been registered, verbatim, in that provider's console first. Nothing
 in the Hub listed them: `/diagnostics` said which *variables* resolved, the
 Google Access admin page printed its own one, and the rest were knowable only
@@ -34,7 +34,8 @@ browser and there is **one string to register per hostname**:
 whatever anybody browses, and moving the Hub to a new domain changes them
 *only* when the variable is edited:
 
-* Google Access, Smart 1 Suite and the Ads Grader, `PUBLIC_BASE_URL`
+* Google Access, Smart 1 Suite, the Ads Grader and Smart 1 Ads' Microsoft
+  Advertising connection, `PUBLIC_BASE_URL`
 * Smart 1 Ads, `GOOGLE_ADS_REDIRECT_URI`, which is a whole URL rather than a
   path and so does not follow `PUBLIC_BASE_URL` either
 
@@ -70,6 +71,7 @@ from urllib.parse import urlsplit
 GOOGLE_CONSOLE = "Google Cloud Console → APIs & Services → Credentials"
 GHL_CONSOLE = "HighLevel Marketplace → your app → Redirect URLs"
 INTUIT_CONSOLE = "developer.intuit.com → your app → Keys & OAuth"
+MICROSOFT_CONSOLE = "Azure portal → App registrations → your app → Authentication → Redirect URIs"
 
 HOST = "host"  # built from the hostname of the request
 
@@ -192,6 +194,22 @@ FLOWS = (
         # account, so it covers reading a stranger's account the moment they
         # grant the scope -- and it is the credential with lead time on it.
         "requires": ("GOOGLE_ADS_DEVELOPER_TOKEN",),
+    },
+    {
+        "key": "bing_ads",
+        "label": "Smart 1 Ads — Microsoft Advertising (Bing)",
+        "path": "/tools/ads/oauth/bing/callback",
+        # PUBLIC_BASE_URL, like the Suite app: the string pasted into the
+        # Azure portal must be the string the code sends, and the Google
+        # Ads flow beside it, built from a whole-URL variable of its own,
+        # is the shape this one deliberately does not repeat.
+        "source": "PUBLIC_BASE_URL",
+        "console": MICROSOFT_CONSOLE,
+        "client": ("BING_AD_CLIENT_ID",),
+        "where": "modules/ads_builder/bing_ads.py",
+        # The developer token is the credential Microsoft issues on its own
+        # timetable; without it there is nothing to connect for.
+        "requires": ("BING_AD_DEVELOPER_TOKEN",),
     },
     {
         "key": "suite",

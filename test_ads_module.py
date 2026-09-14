@@ -657,7 +657,8 @@ def run():
 
     r = g(f"{BASE}/api/status", timeout=10)
     check("GET /api/status describes Google", r.json()["google"]["connected"] is False)
-    check("GET /api/status marks Bing as phase 2", r.json()["bing"]["configured"] is False)
+    check("GET /api/status describes the Microsoft Ads connection (unconfigured here)",
+          r.json()["bing"]["configured"] is False and r.json()["bing"]["connected"] is False)
 
     r = g(f"{BASE}/api/budget-check?budget=400&sector=legal", timeout=10)
     check("GET /api/budget-check flags a thin budget", r.json()["status"] == "CRITICAL")
@@ -891,7 +892,7 @@ def run():
           r.json().get("code") != "PREFLIGHT_FAILED", r.text[:160])
 
     r = g(f"{BASE}/api/bing/campaigns", timeout=10)
-    check("Bing endpoints answer 501", r.status_code == 501)
+    check("Bing campaign-management endpoints still answer 501", r.status_code == 501)
 
     # pages render
     for path, needle in (

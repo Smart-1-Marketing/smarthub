@@ -941,9 +941,9 @@ def job_reports_normalize(app) -> dict:
             "automapped": (res.get("automap") or {}).get("mapped", 0)}
 
 
-def job_reports_native_pull(app) -> dict:
-    """Pull the Trade Desk, Google Ads, StackAdapt and AudioGo from their own
-    APIs, then automap.
+def job_reports_native_pull(app, *, completed_platforms=()) -> dict:
+    """Pull the Trade Desk, Google Ads, StackAdapt, AudioGo and Microsoft Ads
+    from their own APIs, then automap.
 
     The provider normalize (above) reads a copy of these figures a day late;
     this reads them from the platforms themselves, nightly at 3 AM Eastern, and the
@@ -957,13 +957,14 @@ def job_reports_native_pull(app) -> dict:
     costs the Trade Desk and nothing else. Not connected is the ordinary
     state for Google Ads on this deployment and it is a sentence on
     ``/reports/``, never a traceback here; so is not configured for
-    StackAdapt and AudioGo until their keys are set.
+    StackAdapt and AudioGo until their keys are set, and so is Microsoft Ads
+    until somebody presses Connect on /tools/ads/settings.
 
     Safe to run late, skip and repeat: every row is an upsert by key, so a
     day read twice is the same spend.
     """
     try:
-        from modules.reports import audiogo, automap, google_ads_perf, stackadapt, ttd
+        from modules.reports import audiogo, automap, bing, google_ads_perf, stackadapt, ttd
     except Exception as exc:                            # noqa: BLE001
         return {"skipped": f"unavailable ({type(exc).__name__})"}
     out: dict = {"platforms": {}, "rows": 0, "errors": {}, "skipped": [], "pending": []}
@@ -972,7 +973,11 @@ def job_reports_native_pull(app) -> dict:
         # activity rows reach hub/audit -- the flask.g trap that had the
         # Google sweep reporting an empty book from a background thread.
         for name, fn in (("ttd", ttd.pull), ("google", google_ads_perf.pull),
-                         ("stackadapt", stackadapt.pull), ("audiogo", audiogo.pull)):
+                         ("stackadapt", stackadapt.pull), ("audiogo", audiogo.pull),
+                         ("bing", bing.pull)):
+            if name in completed_platforms:
+                out['platforms'][name] = {'ok': True, 'rows': 0, 'already_refreshed': True}
+                continue
             try:
                 res = fn()
             except Exception as exc:                    # noqa: BLE001 - one platform, not the job
@@ -1202,11 +1207,11 @@ JOBS = {
 # Loop
 # ---------------------------------------------------------------------------
 
-def _run_job(app, name: str) -> dict:
+def _run_job(app, name: str, **kwargs) -> dict:
     every, fn, _ = JOBS[name]
     started = time.time()
     try:
-        result = fn(app) or {}
+        result = fn(app, **kwargs) or {}
         ok, err = True, ""
     except Exception as exc:                            # noqa: BLE001
         result, ok, err = {}, False, f"{type(exc).__name__}: {exc}"
@@ -1251,7 +1256,7 @@ def _loop(app) -> None:
         for name, (every, _fn, _desc) in JOBS.items():
             if name == 'reports_native':
                 from . import report_schedule
-                report_schedule.run_due(lambda: _run_job(app, name))
+                report_schedule.run_due(lambda done: _run_job(app, name, completed_platforms=done))
                 continue
             if now >= due[name]:
                 _run_job(app, name)
