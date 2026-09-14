@@ -49,6 +49,11 @@
 
   /* ---------------- bubbles ---------------- */
 
+  function helpBody(text) {
+    // Only bold emphasis and line breaks are supported; escape all source HTML.
+    return esc(text).replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>").replace(/\r?\n/g, "<br>");
+  }
+
   function bubble(el, item) {
     var btn = document.createElement("button");
     btn.type = "button";
@@ -65,7 +70,7 @@
     pop.setAttribute("role", "tooltip");
     pop.hidden = true;
     pop.innerHTML =
-      '<strong>' + esc(item.title) + "</strong><span>" + esc(item.body) + "</span>" +
+      '<strong>' + esc(item.title) + "</strong><span>" + helpBody(item.body) + "</span>" +
       (item.link ? '<a href="' + esc(item.link) + '">' + esc(item.linkText || "Learn more") + "</a>" : "");
 
     function close() { closeBubble(); }

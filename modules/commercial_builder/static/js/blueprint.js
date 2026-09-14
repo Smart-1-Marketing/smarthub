@@ -898,11 +898,11 @@
     try { data = await CB.api(`/api/presenters?client_id=${clientId}`); }
     catch (e) { picker.textContent = "Presenters could not be loaded. Press Use Spokesperson to retry."; return; }
     const box = CB.el('<div class="cb-card cb-presenter-picker"></div>');
-    const prior = (scene.asset_meta || {}).heygen_job || {};
+    const prior = (scene.asset_meta || {}).casting_preset || (scene.asset_meta || {}).heygen_job || {};
     let selectedAvatar = null;
     let selectedProvider = prior.voice_provider === "customer" ? "customer" : "heygen";
     let selectedVoice = prior.voice_id || "";
-    let overFootage = false;
+    let overFootage = !!prior.over_footage && !!scene.asset_url;
     const note = document.createElement("p");
     note.className = "cb-hint";
     note.textContent = data.live
@@ -920,6 +920,7 @@
         const avatarId = person.heygen_avatar_id || person.avatar_id || person.id;
         const button = CB.el('<button type="button" class="cb-choice cb-presenter-choice" aria-pressed="false"></button>');
         button.disabled = person.available === false || !avatarId;
+        if (avatarId === prior.avatar_id && !button.disabled) { selectedAvatar = avatarId; button.classList.add('selected'); button.setAttribute('aria-pressed', 'true'); }
         if (person.preview_image_url) {
           const image = document.createElement("img"); image.src = person.preview_image_url;
           image.alt = ""; image.loading = "lazy"; button.appendChild(image);
@@ -982,6 +983,7 @@
     CustomerVoicePicker.mount(customerPicker, {onSelect:v=>{ selectedProvider="customer"; selectedVoice=v.voice_id; voices.value=""; audio.pause(); audio.hidden=true; voiceNote.textContent=`Customer voice: ${v.name}. Uses ElevenLabs speech and HeyGen video.`; update(); }});
     if (scene.asset_url && scene.asset_type !== "spokesperson") {
       const layout = CB.el('<label class="cb-label">Presenter layout <select><option value="replace">Full-frame presenter</option><option value="over">Presenter over existing footage</option></select></label>');
+      layout.querySelector('select').value = overFootage ? 'over' : 'replace';
       layout.querySelector("select").addEventListener("change", e => { overFootage = e.target.value === "over"; });
       box.appendChild(layout);
     }

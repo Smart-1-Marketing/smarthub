@@ -263,7 +263,7 @@ def literals(patterns=None):
         for name in filenames:
             if name.rsplit(".", 1)[-1].lower() not in EXTS:
                 continue
-            rel = os.path.relpath(os.path.join(dirpath, name), ROOT)
+            rel = os.path.relpath(os.path.join(dirpath, name), ROOT).replace(os.sep, "/")
             if rel.startswith(SKIP_PREFIXES):
                 continue
             try:
@@ -393,7 +393,7 @@ def _rendered_templates():
         for name in filenames:
             if not name.endswith(".py"):
                 continue
-            rel = os.path.relpath(os.path.join(dirpath, name), ROOT)
+            rel = os.path.relpath(os.path.join(dirpath, name), ROOT).replace(os.sep, "/")
             if rel.startswith(SKIP_PREFIXES):
                 continue
             try:

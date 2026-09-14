@@ -7,13 +7,21 @@
     <p>Find the right companies. Check what you already own. Buy only the contacts you choose.</p></div>
     <a href="/sales/leads" class="ip-link">Open Leads ↗</a></header>
   <div id="ip-message" role="status" aria-live="polite"></div>
+  <nav class="ip-workflow" aria-label="Prospect workflow"><a href="#sync-heading">1 · Sync</a><a href="#audience-heading">2 · Search</a><a href="#results-heading">3 · Review</a><a href="#history-heading">4 · Import</a></nav>
+  <p id="ip-next-action" class="ip-note" role="status"></p>
+  <section class="ip-card" aria-labelledby="connection-heading">
+    <div class="ip-section-head"><h2 id="connection-heading">Connection readiness</h2><button id="ip-test" type="button" class="secondary">Test read access</button></div>
+    <p id="ip-connections">Checking configuration…</p><ul id="ip-checks"></ul>
+    <p class="ip-note">This test reads one page from Apollo search, saved contacts and each configured GHL account. It does not export contacts, reveal emails, verify emails or import records. Contact-write permissions and billing remain untested.</p>
+  </section>
   <section class="ip-card" aria-labelledby="sync-heading">
     <div class="ip-section-head"><div><span class="ip-step">01</span><h2 id="sync-heading">Protect your existing contacts</h2></div><span id="ip-fresh" class="ip-badge">Checking connection</span></div>
     <p>Sync the Smart 1 Marketing GHL sub-account and any additional configured accounts to Apollo’s suppression list. Existing contacts remain excluded, including do-not-contact records.</p>
     <div id="ip-config" class="ip-note"></div>
     <div class="ip-metrics"><div><strong id="ip-ghl">—</strong><span>GHL contacts scanned</span></div><div><strong id="ip-saved">—</strong><span>Apollo saved contacts checked</span></div><div><strong id="ip-sync-time">—</strong><span>Last completed sync</span></div></div>
     <p id="ip-sync-detail" class="ip-note"></p>
-    <div class="ip-actions"><button id="ip-sync" type="button">Sync GHL → Apollo</button><button id="ip-resume" class="secondary" type="button" hidden>Resume sync</button></div>
+    <div class="ip-actions"><button id="ip-sync" type="button">Start background sync</button><button id="ip-resume" class="secondary" type="button" hidden>Resume sync</button><button id="ip-refresh" class="secondary" type="button">Refresh progress</button></div>
+    <p class="ip-note">A queued sync advances one page per scheduler tick (about a minute), even after you close this page. Errors pause the job for review. A queued job with no progress may mean the scheduler is unavailable.</p>
   </section>
   <section class="ip-card" aria-labelledby="audience-heading">
     <div class="ip-section-head"><div><span class="ip-step">02</span><h2 id="audience-heading">Build an industry audience</h2></div><span class="ip-badge">Search uses 0 Apollo credits</span></div>
@@ -32,9 +40,9 @@
         <label>Assign to GHL user ID (optional)<input name="owner" maxlength="100" placeholder="Leave blank for no assignment"></label>
       </div>
       <p class="ip-note">Industry targeting uses Apollo keyword matching; review company fit in the results. Geography matches company headquarters, not a ZIP radius. Only verified-email availability is requested; email addresses stay hidden until reveal.</p>
-      <button type="submit">Create audience & search</button>
+      <button id="ip-create" type="submit">Create audience & search</button>
     </form>
-    <div class="ip-actions"><label class="ip-existing">Saved audiences<select id="ip-campaign"><option value="">Choose an audience</option></select></label><button id="ip-open" class="secondary" type="button">Open audience</button></div>
+    <div class="ip-actions"><label class="ip-existing">Saved audiences<select id="ip-campaign"><option value="">Choose an audience</option></select></label><button id="ip-open" class="secondary" type="button">Open history</button><button id="ip-search" type="button">Search audience</button><a id="ip-factory" href="/sales/industry-factory">Build an industry page</a></div>
   </section>
   <section class="ip-card" aria-labelledby="results-heading">
     <div class="ip-section-head"><div><span class="ip-step">03</span><h2 id="results-heading">Review before spending</h2></div><span id="ip-count" class="ip-badge">No audience selected</span></div>
@@ -42,11 +50,13 @@
     <div class="ip-table-wrap"><table><thead><tr><th><input id="ip-all" type="checkbox" aria-label="Select eligible contacts on this page"></th><th>Person</th><th>Company</th><th>Title</th><th>Duplicate check</th></tr></thead><tbody id="ip-results"><tr><td colspan="5">Create or open an audience to begin.</td></tr></tbody></table></div>
     <div class="ip-actions"><button id="ip-prev" class="secondary" type="button" disabled>Previous page</button><span id="ip-page">Page —</span><button id="ip-next" class="secondary" type="button" disabled>Next page</button><button id="ip-review" type="button" disabled>Review selected contacts</button></div>
     <p class="ip-note">Counts describe this returned page, not a guaranteed net-new total. Hidden names and emails can prevent a match before purchase; the exact-email check after reveal provides a second check.</p>
-    <div id="ip-review-box" class="ip-review" hidden><h3>Approve this purchase</h3><p id="ip-quote"></p><label class="ip-check"><input type="checkbox" id="ip-confirm"> I approve these Apollo credits and the separate GHL email-verification charges.</label><div class="ip-actions"><button id="ip-buy" type="button">Buy & verify selected contacts</button><button id="ip-cancel" type="button" class="secondary">Cancel</button></div></div>
+    <div id="ip-review-box" class="ip-review" hidden><h3>Review this purchase</h3><p id="ip-quote"></p><p id="ip-estimate" class="ip-note"></p><label class="ip-check"><input type="checkbox" id="ip-confirm"> I approve the selected contacts and my account’s Apollo and GHL verification charges.</label><div class="ip-actions"><button id="ip-buy" type="button">Buy & verify selected contacts</button><button id="ip-cancel" type="button" class="secondary">Cancel</button></div></div>
   </section>
   <section class="ip-card" aria-labelledby="history-heading">
     <div class="ip-section-head"><div><span class="ip-step">04</span><h2 id="history-heading">Verify & hand off to GHL</h2></div></div>
     <p>Only contacts with a deliverable, low-risk GHL verification result can be imported. Imported contacts receive industry and audience tags. The landing page stays attached to this audience for campaign setup.</p>
+    <p class="ip-note">Approved purchase batches run one contact per scheduler tick after you close the page. They stop on uncertain attempts, expired approval or stale suppression. Refresh progress to see updates. Stop affects future contacts; it cannot undo a call already in progress.</p>
+    <div id="ip-jobs" aria-live="polite"></div>
     <div class="ip-table-wrap"><table><thead><tr><th>Email</th><th>Status</th><th>Details</th><th>Action</th></tr></thead><tbody id="ip-history"><tr><td colspan="4">No purchase history loaded.</td></tr></tbody></table></div>
     <p class="ip-note">Importing can trigger your existing GHL workflows. The builder does not send outreach. Review-required attempts are never automatically repurchased or re-imported.</p>
   </section>

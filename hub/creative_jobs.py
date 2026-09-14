@@ -183,12 +183,15 @@ def enqueue_for_lead(row: dict) -> CreativeJob | None:
     """
     try:
         source = str(row.get("source") or "")
-        if source not in autostart_sources():
+        from hub.industry_creative import profile_for
+        profile = profile_for(row)
+        if profile is None and source not in autostart_sources():
             return None
         # "radio" is the only kind a lead source starts today; a source list
         # that grows still only ever asks for the same one.
-        payload = _PAYLOAD_BUILDERS["radio"](row)
-        job = CreativeJob(lead_id=str(row.get("id") or ""), kind="radio",
+        payload = profile or _PAYLOAD_BUILDERS["radio"](row)
+        kind = profile["kind"] if profile else "radio"
+        job = CreativeJob(lead_id=str(row.get("id") or ""), kind=kind,
                           state=QUEUED, attempts=0,
                           payload_json=json.dumps(payload))
         db.session.add(job)
@@ -265,7 +268,9 @@ def _run_radio(job: CreativeJob) -> dict:
     return {"set_id": row.id, "client_name": row.client_name}
 
 
-_RUNNERS = {"radio": _run_radio}
+from hub.industry_creative import run as _run_industry
+
+_RUNNERS = {"radio": _run_radio, "industry_concepts": _run_industry}
 
 
 def run_one() -> dict:

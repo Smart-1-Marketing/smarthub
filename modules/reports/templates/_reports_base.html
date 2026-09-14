@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{% block title %}Reports{% endblock %} · Smart 1 Hub</title>
+<style>
+  /* The page head, cards, buttons, tables, pills and form controls come from
+     hub/static/hub-detail.css via the `s1d-page` class on the wrapper -- the
+     arrangement modules/scans settled on so one module does not carry three
+     palettes. What is here is what is genuinely this module's. */
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px 'Segoe UI', system-ui, sans-serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 22px 80px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; min-width: 120px; }
+  .field label { font-size: 12px; color: var(--muted); font-weight: 600; }
+  .field input, .field select, .field textarea { padding: 7px 9px; border: 1px solid #cbd5e1;
+    border-radius: 7px; font: inherit; background: #fff; }
+  .grow { flex: 1; }
+  .notice { margin: 0 0 16px; padding: 11px 14px; border-radius: 8px; font-size: 13px; }
+  .notice.err { background: #fdecec; border: 1px solid #f3c1c1; color: #a12626; }
+  .notice.ok { background: #ecfdf3; border: 1px solid #b7e4c7; color: #15803d; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .empty { text-align: center; color: var(--muted); padding: 30px; }
+  .picker { position: relative; }
+  .picker-list { position: absolute; z-index: 20; left: 0; right: 0; top: 100%;
+    background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; margin-top: 3px;
+    box-shadow: 0 8px 24px rgba(15,23,42,.12); max-height: 260px; overflow: auto; display: none; }
+  .picker-list.show { display: block; }
+  .picker-list button { display: block; width: 100%; text-align: left; border: 0;
+    background: none; padding: 8px 10px; font: inherit; cursor: pointer; }
+  .picker-list button:hover, .picker-list button:focus { background: #f1f5f9; }
+  .picker-list small { color: var(--muted); margin-left: 6px; }
+  {% block style %}{% endblock %}
+</style>
+</head>
+<body data-module="reports">
+<div class="wrap s1d-page">
+  <div class="s1d-head">
+    <div>
+      <div class="s1d-crumb"><a href="/reports/">Reports</a></div>
+      <h1>{% block heading %}Reports{% endblock %}</h1>
+      <p>{% block lede %}{% endblock %}</p>
+    </div>
+    <div class="s1d-actions">
+      <a class="s1d-btn sec" href="/reports/unmapped">Unmapped campaigns</a>
+      <a class="s1d-btn sec" href="/reports/budgets">Budgets</a>
+      <a class="s1d-btn sec" href="/reports/pacing">Pacing</a>
+      <a class="s1d-btn sec" href="/reports/cost">Cost</a>
+      <a class="s1d-btn sec" href="/reports/markup">Markup</a>
+      <a class="s1d-btn sec" href="/reports/provider-check">Provider check</a>
+      <a class="s1d-btn sec" href="/reports/audiogo-check">AudioGo check</a>
+    </div>
+  </div>
+
+  {% if error %}<div class="notice err">{{ error }}</div>{% endif %}
+  {% if saved %}<div class="notice ok">{% block saved_text %}Saved.{% endblock %}</div>{% endif %}
+
+  {% block body %}{% endblock %}
+</div>
+{% block script %}{% endblock %}
+</body>
+</html>

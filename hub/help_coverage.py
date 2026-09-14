@@ -140,13 +140,16 @@ PREFIXES: dict[str, str] = {
     # A hub route rather than a mounted module, so its keys are `hub.ad_assets.*`
     # for the same reason the Website Audit's are `hub.website_audit.*`.
     "/tools/ad-assets": "hub.ad_assets",
+    "/tools/sites-builder": "sites_builder",
     "/sales/builder/": "sales_builder",
     "/tools/io/": "io_builder",
     "/tools/weather-setup/": "weather_setup",
+    "/tools/360-skills/": "skills360",
     "/sales/landing": "landing_maker",
     "/tools/pdf/": "pdf_optimizer",
     "/tools/short-links": "short_links",
     "/tools/ads/": "ads_builder",
+    "/reports/": "reports",
     "/tools/gpt-ads/": "gpt_ads",
     "/tools/social/": "social",
     "/tools/site-blocks/": "site_blocks",

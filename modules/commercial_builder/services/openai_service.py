@@ -50,7 +50,7 @@ def is_live():
     return bool(_key())
 
 
-def _chat_json(system, user, max_tokens=1500, client=""):
+def _chat_json(system, user, max_tokens=1500, client="", *, purpose="script"):
     """One JSON call, through ``hub.ai`` rather than this module's own SDK
     client — the one wrapper, so a call here gets the client brief injected
     (``client=`` is the business name off the client profile, where the
@@ -62,15 +62,21 @@ def _chat_json(system, user, max_tokens=1500, client=""):
     is a fact about which model is selected, not about the transport, and
     ``hub.ai.chat_json``'s ``extra_payload`` exists to carry exactly this.
     """
+    from ..usage import _scope
+    active = _scope.get()
+    if active:
+        from ..budget import reject_unpriced
+        reject_unpriced(active[0])
     from hub import ai as _hub_ai
-    selected_model = profile_model("commercial.text")
+    selected_model = ((os.environ.get("COMMERCIAL_CREATIVE_MODEL") or "gpt-6-astra").strip()
+                      if purpose in ("concepts", "creative_review") else profile_model("commercial.text"))
     extra = None
     if re.match(r"^(?:gpt-[56](?:[.-]|$)|o[134](?:[-.]|$))", selected_model):
         extra = {"max_completion_tokens": max(4096, max_tokens * 4),
                  "reasoning_effort": "low"}
     return _hub_ai.chat_json(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        module="commercial_builder", purpose="script", model=selected_model,
+        module="commercial_builder", purpose=purpose, model=selected_model,
         max_tokens=max_tokens, temperature=0.8, extra_payload=extra,
         client=client or None, audience="strategy")
 
@@ -165,7 +171,7 @@ def generate_concepts(brief, client_profile, commercial_type, *, archetype_keys=
                     "production_method": library_spec.production_method(commercial_type),
                     "archetype_guidances": guidances,
                 }),
-                max_tokens=900,
+                max_tokens=900, purpose="concepts",
             )
             concepts = result.get("concepts", [])[:3]
             for i, c in enumerate(concepts):
@@ -212,7 +218,7 @@ def generate_concepts(brief, client_profile, commercial_type, *, archetype_keys=
                 "production_method": library_spec.production_method(commercial_type),
                 "guidance": guidance,
             }),
-            max_tokens=700,
+            max_tokens=700, purpose="concepts",
             client=client_profile.get("business_name") or client_profile.get("name") or "",
         )
         concepts = result.get("concepts", [])[:3]

@@ -316,14 +316,20 @@ section("A cut the client refused does not reach their library")
 anon.post(f"{MOUNT}/review/{token}/decide",
           json={"outcome": "changes_required", "name": "Bob",
                 "email": "bob@acme.test", "note": "Old phone number"})
-blocked = staff.post(f"{MOUNT}/api/projects/{pid}/render-jobs/{job_id}/approve", json={})
+from unittest.mock import patch as _patch_video
+_video_status = _patch_video("modules.commercial_builder.services.finished_video.creative_status", return_value="current")
+_video_inspection = _patch_video("modules.commercial_builder.services.finished_video.inspect_job", return_value={"status": "passed", "checks": []})
+_video_status.start()
+_video_inspection.start()
+
+blocked = staff.post(f"{MOUNT}/api/projects/{pid}/render-jobs/{job_id}/approve", json={"acknowledge_unverified_video": True, })
 check("filing is refused", blocked.status_code, 409)
 check("and it names who asked", "Bob" in blocked.get_json()["error"], True)
 # Not a wall. A rep who has settled it on the phone must not be stuck behind a
 # rule the client has already moved past — but the override is recorded.
 check("it says it can be overridden", blocked.get_json()["can_override"], True)
 forced = staff.post(f"{MOUNT}/api/projects/{pid}/render-jobs/{job_id}/approve",
-                    json={"override": True})
+                    json={"acknowledge_unverified_video": True, "override": True})
 check("filing anyway works", forced.status_code, 200)
 check("and is flagged as exactly that",
       forced.get_json()["filed_over_client_objection"], True)
@@ -341,7 +347,7 @@ with hub_app.app_context():
     job2_id = j2.id
 # Internal-only sign-off is still how most of these are built, and the gate
 # must not have quietly made a review compulsory.
-plain = staff.post(f"{MOUNT}/api/projects/{pid2}/render-jobs/{job2_id}/approve", json={})
+plain = staff.post(f"{MOUNT}/api/projects/{pid2}/render-jobs/{job2_id}/approve", json={"acknowledge_unverified_video": True, })
 check("it files", plain.status_code, 200)
 check("with no client verdict claimed",
       plain.get_json()["client_verdict"]["outcome"], "")
@@ -394,8 +400,9 @@ check("with somewhere to put the link", 'id="review-link"' in preview, True)
 # There is no mail sender in the Hub. A panel implying we email it is a
 # promise nothing here can keep — hub/user_directory.py made the same point
 # about a forgotten-password form that flagged an admin nobody watches.
-check("and it says the sending is yours to do",
-      "no mail sender" in preview, True)
+check("link creation explicitly does not send", "this does not send a message" in preview, True)
+check("sending names the destination workflow", "through Smart 1 Suite" in preview, True)
+check("link creation and sending have separate controls", 'id="review-create-btn"' in preview and 'id="review-send-btn"' in preview, True)
 check("the bubble is placed", "commercial_builder.preview.review" in preview, True)
 from hub import help as hub_help                                        # noqa: E402
 check("and it resolves to content",
@@ -464,7 +471,7 @@ check("with no outcome claimed for them", notes_row["outcome"], "")
 
 # Filing is acting on it. A spot that has been filed leaves the queue.
 staff.post(f"{MOUNT}/api/projects/{pid3}/render-jobs/{job3_id}/approve",
-           json={"override": True})
+           json={"acknowledge_unverified_video": True, "override": True})
 inbox = staff.get(f"{MOUNT}/api/reviews/waiting").get_json()
 check("a filed spot leaves the queue",
       pid3 in {r["project_id"] for r in inbox["waiting"]}, False)

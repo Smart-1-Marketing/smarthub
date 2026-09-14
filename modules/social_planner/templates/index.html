@@ -114,6 +114,10 @@
   <nav class="steps" aria-label="Plan progress" id="steps"></nav>
   <p id="wizardMsg" role="status" class="hint"></p>
   <p id="saveNotice" role="status" class="hint"></p>
+  <p id="openNotice" role="status" class="hint"></p>
+  <button id="retryOpen" class="btn sec sm" hidden>Retry opening plan</button>
+  <p id="contextNotice" role="status" class="hint"></p>
+  <div id="setupRecovery"><span id="draftStatus" role="status"></span> <button id="resumeSetup" class="btn sec sm" hidden>Resume setup draft</button> <button id="discardSetup" class="btn sec sm" hidden>Discard setup draft</button></div>
   <button class="btn sec sm" id="retrySave" hidden>Retry saving this post</button>
 
   {# The queue is the other half of the same tool and it needs a way in from
@@ -166,6 +170,8 @@
     <div id="ideaOptions"></div>
     <div class="grid"><input id="customIdea" type="text" aria-label="Your own idea" placeholder="Add your own topic"><button class="btn sec" id="addIdea">Add topic</button></div>
     <div class="ctx" id="gapSummary" role="status"></div>
+    <div id="coverageSummary" role="status" class="hint"></div>
+    <button id="checkSuiteCalendar" class="btn sec sm">Check Suite calendar too</button>
     <button class="btn sec sm" id="findGaps">Find topics to fill the gaps</button>
     <p class="hint">Open posting dates receive a balanced mix of topics. You can choose specific gap suggestions above.</p>
   </div>
@@ -262,6 +268,8 @@
       <button class="btn sec sm" id="approve">Mark approved</button>
     </div>
     <div class="count" id="counts"></div>
+    <div id="readiness" aria-label="Plan readiness"></div>
+    <details><summary>Version history</summary><p class="hint">Keeps the last 20 saves. Restoring removes approvals and does not change Suite posts.</p><button id="loadHistory" class="btn sec sm">Load versions</button><div id="historyList"></div><p id="historyMsg" role="status"></p></details>
     <div class="msg" id="planmsg"></div>
     <div class="note" id="csvnote">Review the copy, photos, and flagged gaps before approving. Export the CSV for Smart 1 Suite's Social Planner when ready.</div>
     <label class="f" for="reviewPost" style="margin-top:14px">Review a post</label>
@@ -453,6 +461,11 @@ $("results").addEventListener("click", function(ev){
   choose(row.getAttribute("data-name"), row.getAttribute("data-url"));
 });
 function choose(name, url){
+  ++openContextRequest;
+  state.contextLoading=false;
+  $("contextNotice").textContent='';
+  $("openNotice").textContent='';
+  $("retryOpen").hidden=true;
   state.context = null;
   state.holidays = []; suggestions = []; renderIdeas();
   state.client = name;
@@ -530,6 +543,7 @@ $("build").addEventListener("click", function(){
     state.batch = d.batch;
     say("buildmsg", d.batch.slots.length + " slots ready.", "ok");
     showPlan(3);
+    clearSetupDraft();
     loadSaved();
   });
 });
@@ -578,6 +592,7 @@ $("pagesReview").addEventListener("click", function(){
 });
 
 function showPlan(step){
+  $('historyList').innerHTML='';$('historyMsg').textContent='';
   say("planmsg", "");
   $("planCard").hidden = false;
   var id = state.batch.id;
@@ -663,6 +678,7 @@ function renderSlots(){
   renderCounts();
 }
 function renderCounts(){
+  renderReadiness();
   var b = state.batch, drafted = 0, blocks = 0, warns = 0, noimg = 0;
   b.slots.forEach(function(s){
     if (s.copy) drafted++;
@@ -857,10 +873,15 @@ $("saved").addEventListener("click", function(ev){
 });
 function openBatch(id){
   if(unsavedPost && !confirm('Reopen the saved plan and discard the unsaved edit? Copy any text you want to keep first.'))return;
+  $("openNotice").textContent='Opening your saved plan…';
+  $("openNotice").scrollIntoView({block:'nearest'});
+  $("retryOpen").hidden=true;
+  $("retryOpen").onclick=function(){openBatch(id);};
+  var controller=new AbortController();
+  var timeout=setTimeout(function(){controller.abort();},20000);
   lockUI(true);
-  api("batches/" + id).then(function(d){
-    lockUI(false);
-    if (!d.ok) { say("planmsg", d.error, "err"); return; }
+  api("batches/" + id + "?context=0", {signal:controller.signal}).then(function(d){
+    if (!d.ok) { throw new Error(d.error || 'Could not open this plan.'); }
     state.batch = d.batch;
     unsavedPost=null;$("retrySave").hidden=true;$("saveNotice").textContent='';
     state.context = d.context;
@@ -885,7 +906,28 @@ function openBatch(id){
     $("phone").value = (d.batch.brief || {}).phone || "";
     $("avoid").value = (d.batch.brief || {}).avoid || "";
     showPlan();
-  });
+    $("openNotice").textContent='Saved plan opened.';
+    refreshOpenContext(state.batch);
+  }).catch(function(error){
+    $("openNotice").textContent=error.message+' Your saved plan has not changed. Retry opening it.';
+    $("retryOpen").hidden=false;
+  }).finally(function(){clearTimeout(timeout);lockUI(false);});
+}
+
+var openContextRequest=0;
+function refreshOpenContext(batch){
+  var requestId=++openContextRequest;
+  var controller=new AbortController();
+  var timeout=setTimeout(function(){controller.abort();},30000);
+  state.contextLoading=true;
+  $("contextNotice").textContent='Refreshing client details and photo library. You can review and edit your plan now.';
+  api('context?client='+encodeURIComponent(batch.client)+'&url='+encodeURIComponent(batch.url || ''),{signal:controller.signal}).then(function(d){
+    if(requestId!==openContextRequest || !state.batch || state.batch.id!==batch.id || state.client!==batch.client)return;
+    state.contextLoading=false;
+    if(d.ok){state.context=d.context;renderContext(d.context);}
+    $("contextNotice").textContent=d.ok ? '' : 'Client details and library could not refresh. Your saved posts are available. Reopen the plan to retry.';
+    if(stepIndex===3 && document.querySelector('[data-source="gallery"][aria-pressed="true"]'))photoSource('gallery');
+  }).finally(function(){clearTimeout(timeout);});
 }
 
 // ---------------------------------------------------------------- boot
@@ -895,6 +937,7 @@ var stepNames = ["Client & month", "Choose ideas", "Details", "Photos", "Review"
 function showStep(index){
   if(unsavedPost){$("saveNotice").textContent='Save your pending edit before changing steps.';return;}
   stepIndex = index;
+  $("setupRecovery").hidden=!!state.batch;
   stepCards.forEach(function(id, i){ $(id).hidden = i !== index; });
   $("savedCard").hidden = index !== 0;
   $("steps").innerHTML = stepNames.map(function(name, i){
@@ -939,6 +982,7 @@ researchTools.appendChild($("analyzerCard"));
 $("ideasCard").appendChild(researchTools);
 $("holidayList").addEventListener('change', updateGaps);
 function refreshPreview(){
+  refreshCoverage(false);
   var month = $("month").value, frequency = $("perweek").value;
   post('preview',{month:month,per_week:frequency}).then(function(d){
     if(month !== $("month").value || frequency !== $("perweek").value) return;
@@ -956,6 +1000,7 @@ function updateGaps(){
     Math.max(0,open.length-picked.length)+' open posting dates.'+
     (picked.length > open.length ? ' Too many topics: uncheck some ideas or increase posts per week.' :
     gaps.length ? ' Gaps: '+gaps.join(', ')+'.' : ' All available posting dates are covered.');
+  renderCoverage();
 }
 function renderIdeas(){
   $("ideaOptions").innerHTML = suggestions.map(function(s,i){return '<label class="suggestion"><input type="checkbox" data-idea="'+i+'" '+
@@ -967,6 +1012,7 @@ $("ideaOptions").onchange = function(e){
 };
 function addGapIdeas(){
   var covered = suggestions.filter(function(s){return s.checked;}).map(function(s){return s.type;});
+  covered=covered.concat(coveragePosts.map(function(p){return p.type;}));
   var themes = {educational:'Share one useful tip customers can try today',faq:'Answer a common customer question',
     service_spotlight:'Explain a service and who it helps',behind_the_scenes:'Show the people or process behind the work',
     community:'Highlight a local connection',review_request:'Invite customers to share their feedback',seasonal:'Share a timely seasonal tip'};
@@ -1058,7 +1104,7 @@ function photoSource(source){
     $("searchPhotos").onclick=search; search();
   } else if(source==='gallery'){
     var pool=((state.context && state.context.gallery)||[]).map(function(p){return Object.assign({},p,{source:'gallery'});});
-    $("photoMsg").textContent=pool.length ? 'Choose a photo from the client library.' : 'No photos in this client library yet. Upload a new one.';
+    $("photoMsg").textContent=state.contextLoading ? 'Loading the client library…' : !state.context ? 'Client library is unavailable. Reopen the plan to retry, or choose another photo source.' : pool.length ? 'Choose a photo from the client library.' : 'No photos in this client library yet. Upload a new one.';
     drawPhotos(pool,token);
   } else if(source==='uploaded'){
     $("photoTools").innerHTML='<label class="f" for="photoUpload">Upload a photo (up to 12 MB)</label><input id="photoUpload" type="file" accept="image/png,image/jpeg,image/webp">';
@@ -1095,6 +1141,112 @@ $("nextPhoto").onclick=function(){
   if(select.selectedIndex<select.options.length-1){select.selectedIndex++;photoSource('stock');}
   else showStep(4);
 };
+// Included inside the planner's closure so recovery uses the same state and save guards.
+var draftKey='social-setup-v1:'+encodeURIComponent(BOOT.actor || 'Unknown');
+var draftTimer, restoringSetup=false, pendingSetup=false, coveragePosts=[], coverageNote='', coverageRequest=0;
+var setupFields=['month','perweek','offers','notes','promote','tone','phone','avoid','customIdea'];
+function clearSetupDraft(){
+  clearTimeout(draftTimer);
+  pendingSetup=false;
+  try{localStorage.removeItem(draftKey);}catch(e){}
+  $('resumeSetup').hidden=true;$('discardSetup').hidden=true;$('draftStatus').textContent='';
+}
+function saveSetupDraft(){
+  if(restoringSetup || pendingSetup || state.batch || !state.client)return;
+  var fields={};setupFields.forEach(function(id){fields[id]=$(id).value;});
+  var draft={version:1,saved:new Date().toISOString(),client:state.client,url:state.url,
+    fields:fields,channels:state.channels,tones:state.tones,ideas:suggestions,
+    holidays:state.holidays,selectedHolidays:pickedHolidays(),useHolidays:$('useHolidays').checked,
+    suggestions:$('wantSuggestions').checked,step:Math.min(stepIndex,2)};
+  try{localStorage.setItem(draftKey,JSON.stringify(draft));$('draftStatus').textContent='Setup saved on this browser.';$('discardSetup').hidden=false;}
+  catch(e){$('draftStatus').textContent='This browser could not save your setup. Keep this tab open until you create the plan.';}
+}
+function initRecovery(){
+  try{var draft=JSON.parse(localStorage.getItem(draftKey)||'null');
+    if(draft && draft.version===1){pendingSetup=true;$('draftStatus').textContent='Unfinished setup for '+draft.client+' ('+draft.fields.month+'). Resume or discard it to save a new setup.';$('resumeSetup').hidden=false;$('discardSetup').hidden=false;}
+  }catch(e){$('draftStatus').textContent='The saved setup could not be read. Start a new setup.';}
+  ['input','change','click'].forEach(function(event){document.addEventListener(event,function(e){
+    if(restoringSetup || state.batch || e.target.closest('#setupRecovery'))return;
+    clearTimeout(draftTimer);draftTimer=setTimeout(saveSetupDraft,400);
+  });});
+  window.addEventListener('pagehide',saveSetupDraft);
+  $('discardSetup').onclick=clearSetupDraft;
+  $('resumeSetup').onclick=function(){
+    try{
+      var d=JSON.parse(localStorage.getItem(draftKey)||'null');if(!d || d.version!==1)return;
+      restoringSetup=true;pendingSetup=false;state.client=d.client;state.url=d.url;state.context=null;
+      state.channels=d.channels;state.tones=d.tones;state.holidays=d.holidays || [];
+      suggestions=d.ideas || [];setupFields.forEach(function(id){$(id).value=d.fields[id] || '';});
+      $('clientq').value=d.client;$('chosen').textContent='Planning for '+d.client+'.';
+      $('wantSuggestions').checked=d.suggestions;$('useHolidays').checked=d.useHolidays;
+      $('holidayList').innerHTML=state.holidays.map(function(h){return '<label><input type="checkbox" data-holiday="'+esc(h.date)+'" '+((d.selectedHolidays||[]).some(function(s){return s.date===h.date;})?'checked':'')+'> '+esc(h.date+' '+h.name)+'</label>';}).join('');
+      renderChannels();renderTones();renderIdeas();showStep(d.fields.month<BOOT.today.slice(0,7)?0:Math.min(d.step||0,2));
+      $('resumeSetup').hidden=true;$('draftStatus').textContent='Setup restored. Check the month before creating your plan.';
+      var restoredClient=state.client;
+      api('context?client='+encodeURIComponent(state.client)+'&url='+encodeURIComponent(state.url||'')).then(function(result){
+        if(state.client!==restoredClient)return;
+        if(result.ok){state.context=result.context;renderContext(result.context);}
+        else{$('chosen').textContent='Setup restored. Client details could not load; retry selecting the client if you need its library.';}
+      });
+    }catch(e){$('draftStatus').textContent='Unable to restore this setup. Start a new setup.';}
+    finally{restoringSetup=false;}
+  };
+}
+function jumpToPost(id,photo){
+  if(unsavedPost){$('saveNotice').textContent='Save your pending edit before opening another post.';return;}
+  if(photo){showStep(3);$('photoPost').value=id;photoSource('stock');}
+  else{$('reviewPost').value=id;renderSlots();$('slots').scrollIntoView({block:'start'});}
+}
+function renderReadiness(){
+  if(!state.batch)return;
+  var groups=[['copy','Need copy',function(s){return !s.copy || !s.copy.trim();}],
+    ['photo','Need required media',function(s){return (s.flags||[]).some(function(f){return f.level==='block' && f.code==='asset';});}],
+    ['block','Other blocking issues',function(s){return (s.flags||[]).some(function(f){return f.level==='block' && f.code!=='asset';});}],
+    ['approval','Need staff approval',function(s){return s.copy && s.status!=='approved';}],
+    ['client','Need client approval',function(s){return s.client_state==='pending_client_approval';}],
+    ['past','Past dates — reschedule before publishing',function(s){return s.date<BOOT.today && !s.ghl_post_id;}]];
+  $('readiness').innerHTML=groups.map(function(g){var posts=state.batch.slots.filter(g[2]);if(!posts.length)return '';
+    return '<details><summary>'+posts.length+' '+g[1]+'</summary>'+posts.map(function(s){return '<button class="btn sec sm" data-readiness="'+esc(s.id)+'" data-photo-step="'+(g[0]==='photo')+'">'+esc(s.date+' · '+(s.idea_title||typeLabel(s.type)))+'</button>';}).join('')+'</details>';
+  }).join('') || '<p>All posts pass the readiness checklist.</p>';
+}
+$('readiness').onclick=function(e){var b=e.target.closest('[data-readiness]');if(b)jumpToPost(b.dataset.readiness,b.dataset.photoStep==='true');};
+$('loadHistory').onclick=function(){
+  var id=state.batch.id;$('historyMsg').textContent='Loading versions…';
+  api('batches/'+id+'/history').then(function(d){if(!state.batch || state.batch.id!==id)return;
+    $('historyMsg').textContent=d.ok?(d.versions.length?'Choose a saved version to restore.':'No previous versions yet.'):(d.error||'Could not load versions.');
+    $('historyList').innerHTML=d.ok?d.versions.map(function(v){return '<p>Version '+v.revision+' · '+esc(v.updated_at||'')+' · '+v.written+' posts written <button class="btn sec sm" data-restore-version="'+v.revision+'" data-history-batch="'+esc(id)+'">Restore version '+v.revision+'</button></p>';}).join(''):'';
+  });
+};
+$('historyList').onclick=function(e){var b=e.target.closest('[data-restore-version]');if(!b || b.dataset.historyBatch!==state.batch.id)return;
+  if(unsavedPost){$('historyMsg').textContent='Save your pending edit first.';return;}
+  if(!confirm('Restore this version’s copy, brief and photos? Current content is retained in version history. Approvals will need review again.'))return;
+  lockUI(true);post('batches/'+state.batch.id+'/restore',{version:Number(b.dataset.restoreVersion),revision:state.batch.revision}).then(function(d){
+    if(d.ok){state.batch=d.batch;showPlan();$('historyList').innerHTML='';}
+    $('historyMsg').textContent=d.ok?'Version restored. Review content before approving.':d.error;
+  }).finally(function(){lockUI(false);});
+};
+function refreshCoverage(suite){
+  var token=++coverageRequest, client=state.client, month=$('month').value;
+  coveragePosts=[];coverageNote='Checking saved plans…';renderCoverage();
+  if(!client){coverageNote='Choose a client to check existing plans.';renderCoverage();return;}
+  post('coverage',{client:client,url:state.url,month:month,exclude:state.batch?state.batch.id:null,suite:!!suite}).then(function(d){
+    if(token!==coverageRequest || client!==state.client || month!==$('month').value)return;
+    coveragePosts=d.ok?d.posts:[];coverageNote=d.ok?d.note:(d.error||'Coverage check unavailable.');renderCoverage();
+  });
+}
+function topicWords(text){return String(text||'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(function(w){return w.length>3;});}
+function similarTopic(a,b){var x=new Set(topicWords(a)),y=new Set(topicWords(b));if(!x.size||!y.size)return false;var same=Array.from(x).filter(function(w){return y.has(w);}).length;return same/(new Set(Array.from(x).concat(Array.from(y))).size)>=0.65;}
+function renderCoverage(){
+  var picked=suggestions.filter(function(s){return s.checked;}), dates=previewDates.filter(function(d){return coveragePosts.some(function(p){return p.date===d;});});
+  var duplicate=picked.filter(function(s){return coveragePosts.some(function(p){return similarTopic(s.title,p.title);});});
+  var covered=new Set(coveragePosts.map(function(p){return p.type;}).concat(picked.map(function(s){return s.type;})));
+  var missing=['educational','faq','service_spotlight','behind_the_scenes','community','review_request','seasonal'].filter(function(t){return !covered.has(t);});
+  $('coverageSummary').textContent=coverageNote+(dates.length?' Existing posts on planned dates: '+dates.join(', ')+'. Review before adding more.':'')+
+    (duplicate.length?' Similar topics already planned: '+duplicate.map(function(s){return s.title;}).join('; ')+'.':'')+
+    (missing.length?' Content types not yet covered: '+missing.map(typeLabel).join(', ')+'.':'');
+}
+$('checkSuiteCalendar').onclick=function(){refreshCoverage(true);};
+
 renderChannels();
 renderTones();
 (function(){
@@ -1106,6 +1258,7 @@ renderTones();
 showStep(0);
 if (BOOT.client) { choose(BOOT.client, BOOT.url); }
 loadSaved();
+initRecovery();
 })();
 </script>
 </body>

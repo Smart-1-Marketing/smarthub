@@ -36,9 +36,9 @@ from hub import weather_triggers as wt                    # noqa: E402
 
 
 section("The vocabulary")
-check("ten verticals", set(wt.VERTICALS),
+check("twelve verticals", set(wt.VERTICALS),
      {"restaurant", "hvac", "retail", "auto", "landscaping", "pool_spa", "roofing",
-      "pest_control", "moving", "tree_service"})
+      "pest_control", "moving", "tree_service", "golf_recreation", "concrete_paving"})
 check("fourteen restaurant triggers", len(wt.triggers_for_vertical("restaurant")), 14)
 check("thirteen hvac triggers", len(wt.triggers_for_vertical("hvac")), 13)
 check("thirteen retail triggers", len(wt.triggers_for_vertical("retail")), 13)
@@ -49,7 +49,9 @@ check("thirteen roofing triggers", len(wt.triggers_for_vertical("roofing")), 13)
 check("thirteen pest_control triggers", len(wt.triggers_for_vertical("pest_control")), 13)
 check("thirteen moving triggers", len(wt.triggers_for_vertical("moving")), 13)
 check("thirteen tree_service triggers", len(wt.triggers_for_vertical("tree_service")), 13)
-check("every trigger is one of the ten verticals",
+check("thirteen golf_recreation triggers", len(wt.triggers_for_vertical("golf_recreation")), 13)
+check("thirteen concrete_paving triggers", len(wt.triggers_for_vertical("concrete_paving")), 13)
+check("every trigger is one of the twelve verticals",
      all(t.vertical in wt.VERTICALS for t in wt.TRIGGERS.values()), True)
 check("no trigger id is shared across verticals",
      len(wt.TRIGGERS), sum(len(wt.triggers_for_vertical(v)) for v in wt.VERTICALS))
@@ -88,6 +90,12 @@ check("moving's Jul order leads with the heat pair",
 check("tree_service's Jul order leads with the heat pair",
      wt.month_order("tree_service", "Jul")[:3],
      ["heat-wave-tree-stress", "heat-index-canopy-stress", "storm-damage-tree-removal"])
+check("golf_recreation's Jul order leads with the heat pair",
+     wt.month_order("golf_recreation", "Jul")[:3],
+     ["heat-advisory-course", "heat-index-player-safety", "perfect-golf-day"])
+check("concrete_paving's Jul order leads with the hot-pour pair",
+     wt.month_order("concrete_paving", "Jul")[:3],
+     ["hot-pour-risk", "heat-index-crew-safety", "perfect-pour-day"])
 check("unknown month falls back to the registry order, restaurant",
      set(wt.month_order("restaurant", "Nope")), set(wt.triggers_for_vertical("restaurant")))
 check("unknown month falls back to the registry order, hvac",
@@ -140,6 +148,16 @@ check("unknown month falls back to the registry order, tree_service",
 _OTHER_NINE = (_OTHER_EIGHT | set(wt.triggers_for_vertical("moving")))
 check("tree_service's month order never leaks any other vertical's ids",
      bool(set(wt.month_order("tree_service", "Jan")) & _OTHER_NINE), False)
+check("unknown month falls back to the registry order, golf_recreation",
+     set(wt.month_order("golf_recreation", "Nope")), set(wt.triggers_for_vertical("golf_recreation")))
+_OTHER_TEN = (_OTHER_NINE | set(wt.triggers_for_vertical("tree_service")))
+check("golf_recreation's month order never leaks any other vertical's ids",
+     bool(set(wt.month_order("golf_recreation", "Jan")) & _OTHER_TEN), False)
+check("unknown month falls back to the registry order, concrete_paving",
+     set(wt.month_order("concrete_paving", "Nope")), set(wt.triggers_for_vertical("concrete_paving")))
+_OTHER_ELEVEN = (_OTHER_TEN | set(wt.triggers_for_vertical("golf_recreation")))
+check("concrete_paving's month order never leaks any other vertical's ids",
+     bool(set(wt.month_order("concrete_paving", "Jan")) & _OTHER_ELEVEN), False)
 
 
 section("The cap is enforced server-side, not only in the picker")
@@ -230,6 +248,22 @@ ok, err = wt.validate_picks(["high-wind-limb-risk", "perfect-moving-day"], "tree
 check("a moving id is not a recognized tree_service trigger", ok, False)
 ok, err = wt.validate_picks(["spring-pruning-season", "patio-day"])
 check("a tree_service id is not a recognized restaurant trigger", ok, False)
+ok, err = wt.validate_picks(["high-wind-play-advisory", "perfect-golf-day"], "golf_recreation")
+check("two golf_recreation picks: ok", ok, True)
+ok, err = wt.validate_picks(["high-wind-play-advisory", "patio-day"], "golf_recreation")
+check("a restaurant id is not a recognized golf_recreation trigger", ok, False)
+ok, err = wt.validate_picks(["high-wind-play-advisory", "spring-pruning-season"], "golf_recreation")
+check("a tree_service id is not a recognized golf_recreation trigger", ok, False)
+ok, err = wt.validate_picks(["perfect-golf-day", "patio-day"])
+check("a golf_recreation id is not a recognized restaurant trigger", ok, False)
+ok, err = wt.validate_picks(["cold-pour-advisory", "perfect-pour-day"], "concrete_paving")
+check("two concrete_paving picks: ok", ok, True)
+ok, err = wt.validate_picks(["cold-pour-advisory", "patio-day"], "concrete_paving")
+check("a restaurant id is not a recognized concrete_paving trigger", ok, False)
+ok, err = wt.validate_picks(["cold-pour-advisory", "spring-pruning-season"], "concrete_paving")
+check("a tree_service id is not a recognized concrete_paving trigger", ok, False)
+ok, err = wt.validate_picks(["perfect-pour-day", "patio-day"])
+check("a concrete_paving id is not a recognized restaurant trigger", ok, False)
 
 
 section("Plain range rules")
@@ -998,6 +1032,172 @@ check("canopy-disease-risk with no cloud data is not measured", r["measured"], F
 r10 = wt.evaluate_trigger("first-freeze-tree-service", {"forecast_low": 20}, {},
                           today=date(2026, 11, 2))
 check("first-freeze-tree-service has its own, separate state and fires", r10["active"], True)
+
+
+section("Golf Course / Outdoor Recreation — the eleventh vertical, same rule vocabulary")
+r = wt.evaluate_trigger("storm-closure-golf", {"official_alerts": ["Severe Thunderstorm Warning"]})
+check("storm-closure-golf fires on a real alert", r["active"], True)
+r = wt.evaluate_trigger("storm-closure-golf", {"official_alerts": []})
+check("storm-closure-golf does not fire with no alert", r["active"], False)
+
+r = wt.evaluate_trigger("high-wind-play-advisory", {"wind_mph": 22}, now_hhmm="10:00")
+check("high-wind-play-advisory fires at 22 mph", r["active"], True)
+r = wt.evaluate_trigger("high-wind-play-advisory", {"wind_mph": 10}, now_hhmm="10:00")
+check("high-wind-play-advisory does not fire at 10 mph", r["active"], False)
+r = wt.evaluate_trigger("wind-advisory-course-closure", {"wind_mph": 22})
+check("wind-advisory-course-closure does not fire at 22 mph -- it escalates past high-wind-play-advisory",
+     r["active"], False)
+r = wt.evaluate_trigger("wind-advisory-course-closure", {"wind_mph": 40})
+check("wind-advisory-course-closure fires at 40 mph", r["active"], True)
+
+r = wt.evaluate_trigger("frost-delay-tee-times", {"temperature": 30}, now_hhmm="06:00")
+check("frost-delay-tee-times fires at 30F in the morning window", r["active"], True)
+r = wt.evaluate_trigger("frost-delay-tee-times", {"temperature": 30}, now_hhmm="14:00")
+check("frost-delay-tee-times does not fire outside the morning window", r["active"], False)
+
+state = {}
+r = wt.evaluate_trigger("first-frost-course-prep", {"forecast_low": 25}, state,
+                        today=date(2026, 11, 1))
+check("first-frost-course-prep fires the first time it is cold enough", r["active"], True)
+r = wt.evaluate_trigger("first-frost-course-prep", {"forecast_low": 20}, r["state"],
+                        today=date(2026, 11, 10))
+check("first-frost-course-prep does not fire again the same season", r["active"], False)
+
+r = wt.evaluate_trigger("deep-freeze-course-closure", {"temperature": 25})
+check("deep-freeze-course-closure does not fire at 25F", r["active"], False)
+r = wt.evaluate_trigger("deep-freeze-course-closure", {"temperature": 10})
+check("deep-freeze-course-closure fires at 10F", r["active"], True)
+
+r = wt.evaluate_trigger("heat-advisory-course", {"temperature": 97})
+check("heat-advisory-course fires at 97F", r["active"], True)
+r = wt.evaluate_trigger("heat-index-player-safety", {"temperature": 96, "humidity": 70})
+check("heat-index-player-safety fires on hot + humid", r["active"], True)
+r = wt.evaluate_trigger("heat-index-player-safety", {"temperature": 96})
+check("heat-index-player-safety with no humidity is not measured", r["measured"], False)
+
+r = wt.evaluate_trigger("perfect-golf-day",
+                        {"temperature": 72, "rain_probability": 10, "wind_mph": 8})
+check("perfect-golf-day fires on a calm, dry, comfortable day", r["active"], True)
+r = wt.evaluate_trigger("perfect-golf-day",
+                        {"temperature": 90, "rain_probability": 10, "wind_mph": 8})
+check("perfect-golf-day does not fire outside its temperature band", r["active"], False)
+
+r = wt.evaluate_trigger("rain-delay-tee-times", {"rain_probability": 70})
+check("rain-delay-tee-times fires at 70% chance of rain", r["active"], True)
+r = wt.evaluate_trigger("rain-delay-tee-times", {"rain_probability": 20})
+check("rain-delay-tee-times does not fire at 20% chance of rain", r["active"], False)
+
+r = wt.evaluate_trigger("spring-course-opening",
+                        {"temperature": 60, "rain_probability": 10},
+                        today=date(2026, 4, 1))
+check("spring-course-opening fires on a mild dry April day", r["active"], True)
+r = wt.evaluate_trigger("spring-course-opening",
+                        {"temperature": 60, "rain_probability": 10},
+                        today=date(2026, 8, 1))
+check("spring-course-opening does not fire in August -- outside its active months", r["active"], False)
+r = wt.evaluate_trigger("fall-golf-season",
+                        {"temperature": 55, "rain_probability": 10},
+                        today=date(2026, 10, 15))
+check("fall-golf-season fires on a mild dry October day", r["active"], True)
+
+state = {}
+for cloud in (85, 85, 85):
+    r = wt.evaluate_trigger("turf-disease-risk", {"cloud_percent": cloud}, state)
+    state = r["state"]
+check("turf-disease-risk fires on the third consecutive overcast day", r["active"], True)
+r = wt.evaluate_trigger("turf-disease-risk", {"cloud_percent": None})
+check("turf-disease-risk with no cloud data is not measured", r["measured"], False)
+
+# All eleven once-per-season "cold" triggers across every vertical carry
+# separate state, keyed on the campaign's own trigger_id in store.py, not on
+# the shared rule value they all use ("cold").
+r11 = wt.evaluate_trigger("first-frost-course-prep", {"forecast_low": 20}, {},
+                          today=date(2026, 11, 2))
+check("first-frost-course-prep has its own, separate state and fires", r11["active"], True)
+
+
+section("Concrete & Paving — the twelfth vertical, same rule vocabulary")
+r = wt.evaluate_trigger("storm-pour-delay", {"official_alerts": ["Severe Thunderstorm Warning"]})
+check("storm-pour-delay fires on a real alert", r["active"], True)
+r = wt.evaluate_trigger("storm-pour-delay", {"official_alerts": []})
+check("storm-pour-delay does not fire with no alert", r["active"], False)
+
+r = wt.evaluate_trigger("cold-pour-advisory", {"temperature": 35})
+check("cold-pour-advisory fires at 35F", r["active"], True)
+r = wt.evaluate_trigger("cold-pour-advisory", {"temperature": 55})
+check("cold-pour-advisory does not fire at 55F", r["active"], False)
+r = wt.evaluate_trigger("deep-freeze-pour-halt", {"temperature": 35})
+check("deep-freeze-pour-halt does not fire at 35F -- it escalates past cold-pour-advisory",
+     r["active"], False)
+r = wt.evaluate_trigger("deep-freeze-pour-halt", {"temperature": 10})
+check("deep-freeze-pour-halt fires at 10F", r["active"], True)
+
+state = {}
+r = wt.evaluate_trigger("first-freeze-concrete-season", {"forecast_low": 25}, state,
+                        today=date(2026, 11, 1))
+check("first-freeze-concrete-season fires the first time it is cold enough", r["active"], True)
+r = wt.evaluate_trigger("first-freeze-concrete-season", {"forecast_low": 20}, r["state"],
+                        today=date(2026, 11, 10))
+check("first-freeze-concrete-season does not fire again the same season", r["active"], False)
+
+r = wt.evaluate_trigger("freeze-thaw-crack-risk", {"temperature": 32})
+check("freeze-thaw-crack-risk fires in the freeze-thaw band", r["active"], True)
+r = wt.evaluate_trigger("freeze-thaw-crack-risk", {"temperature": 10})
+check("freeze-thaw-crack-risk does not fire on a hard freeze", r["active"], False)
+r = wt.evaluate_trigger("freeze-thaw-crack-risk", {"temperature": 50})
+check("freeze-thaw-crack-risk does not fire well above freezing", r["active"], False)
+
+r = wt.evaluate_trigger("hot-pour-risk", {"temperature": 92})
+check("hot-pour-risk fires at 92F", r["active"], True)
+r = wt.evaluate_trigger("heat-index-crew-safety", {"temperature": 96, "humidity": 70})
+check("heat-index-crew-safety fires on hot + humid", r["active"], True)
+r = wt.evaluate_trigger("heat-index-crew-safety", {"temperature": 96})
+check("heat-index-crew-safety with no humidity is not measured", r["measured"], False)
+
+r = wt.evaluate_trigger("rain-delay-pour", {"rain_probability": 70})
+check("rain-delay-pour fires at 70% chance of rain", r["active"], True)
+r = wt.evaluate_trigger("rain-delay-pour", {"rain_probability": 30})
+check("rain-delay-pour does not fire at 30% chance of rain", r["active"], False)
+
+r = wt.evaluate_trigger("perfect-pour-day",
+                        {"temperature": 70, "rain_probability": 5})
+check("perfect-pour-day fires on a comfortable, dry day", r["active"], True)
+r = wt.evaluate_trigger("perfect-pour-day",
+                        {"temperature": 95, "rain_probability": 5})
+check("perfect-pour-day does not fire outside its temperature band", r["active"], False)
+
+r = wt.evaluate_trigger("spring-paving-season",
+                        {"temperature": 65, "rain_probability": 10},
+                        today=date(2026, 4, 1))
+check("spring-paving-season fires on a mild dry April day", r["active"], True)
+r = wt.evaluate_trigger("spring-paving-season",
+                        {"temperature": 65, "rain_probability": 10},
+                        today=date(2026, 8, 1))
+check("spring-paving-season does not fire in August -- outside its active months", r["active"], False)
+r = wt.evaluate_trigger("fall-sealcoating-season",
+                        {"temperature": 60, "rain_probability": 10},
+                        today=date(2026, 10, 1))
+check("fall-sealcoating-season fires on a mild dry October day", r["active"], True)
+
+state = {}
+for cloud in (85, 85, 85):
+    r = wt.evaluate_trigger("pothole-formation-risk", {"cloud_percent": cloud}, state)
+    state = r["state"]
+check("pothole-formation-risk fires on the third consecutive overcast day", r["active"], True)
+r = wt.evaluate_trigger("pothole-formation-risk", {"cloud_percent": None})
+check("pothole-formation-risk with no cloud data is not measured", r["measured"], False)
+
+r = wt.evaluate_trigger("snow-plow-damage-inspection", {"snow_inches": 5})
+check("snow-plow-damage-inspection fires at 5 inches of snow", r["active"], True)
+r = wt.evaluate_trigger("snow-plow-damage-inspection", {"snow_inches": 1})
+check("snow-plow-damage-inspection does not fire at 1 inch of snow", r["active"], False)
+
+# All twelve once-per-season "cold" triggers across every vertical carry
+# separate state, keyed on the campaign's own trigger_id in store.py, not on
+# the shared rule value they all use ("cold").
+r12 = wt.evaluate_trigger("first-freeze-concrete-season", {"forecast_low": 20}, {},
+                          today=date(2026, 11, 2))
+check("first-freeze-concrete-season has its own, separate state and fires", r12["active"], True)
 
 
 print(f"\n{_passed} passed, {_failed} failed")

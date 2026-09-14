@@ -495,6 +495,13 @@ FULL_ASSET_ON_PURPOSE = {
 
 import pathlib
 import re as _re
+from modules.gpt_ads.app import _preview_pack
+_original = {"image": {"url": _img}, "history": [{"snapshot": {"image": {"url": _img}}}]}
+_decorated = _preview_pack(_original)
+check("GPT Ads layout and history use capped previews",
+      "c_limit" in _decorated["image"]["thumb"] and "c_limit" in _decorated["history"][0]["snapshot"]["image"]["thumb"])
+check("GPT Ads preview decoration never mutates saved originals",
+      "thumb" not in _original["image"] and "thumb" not in _original["history"][0]["snapshot"]["image"])
 _BOUND = _re.compile(r"<img[^>]*\bsrc=[^>]*?(?:\.url|image_url|secure_url)")
 _found, _unexplained = set(), []
 for _dir in ("hub/templates", "modules"):

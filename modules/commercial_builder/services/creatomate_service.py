@@ -176,6 +176,19 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
             }
         video_elements.append(element)
 
+        if cta.get("captions_enabled") and scene.get("narration"):
+            # Phrase timing is estimated evenly across the scene; the preview
+            # uses these exact elements and labels this as estimated alignment.
+            words = scene["narration"].split()
+            chunks = [" ".join(words[i:i + 8]) for i in range(0, len(words), 8)]
+            span = (scene["end"] - scene["start"]) / max(1, len(chunks))
+            for i, text in enumerate(chunks):
+                video_elements.append({"id": f"caption_{scene['id']}_{i}", "track": 30, "type": "text",
+                    "time": scene["start"] + i * span, "duration": span, "text": text,
+                    "x": "47.5%" if format_id == "9:16" else "50%", "y": "70%", "width": "70%", "height": "14%",
+                    "font_size": "4.5vmin", "fill_color": "#ffffff", "stroke_color": "#000000",
+                    "stroke_width": "0.25vmin", "x_alignment": "50%", "y_alignment": "50%"})
+
         # A spokesperson generated to stand over this scene's footage was
         # rendered against a chroma matte for exactly this moment. Without
         # this element the clip was either dropped full-frame over the footage
@@ -251,6 +264,7 @@ def build_source(project_dict, scenes, format_id, voice_track_url=None, music_tr
 
     return {
         "output_format": "mp4",
+        "frame_rate": 25,
         "width": width,
         "height": height,
         "duration": float(length_seconds),
@@ -380,6 +394,8 @@ def _cta_overlay_elements(cta, project_dict, scene, platform):
     # "Living room" legibility for CTV — bigger, bolder end-card text than a
     # spot that only ever plays on a phone/laptop screen.
     font_size = "8vmin" if platform in ("ctv", "both") else "6vmin"
+    if cta.get("captions_enabled"):
+        font_size = "5vmin"
     font_weight = "800" if platform in ("ctv", "both") else "700"
 
     elements = [
@@ -395,6 +411,11 @@ def _cta_overlay_elements(cta, project_dict, scene, platform):
          "y": "74%", "font_size": font_size, "font_weight": font_weight},
     ]
 
+    if cta.get("captions_enabled"):
+        # Keep the lower third for speech, including on the closing card.
+        positions = {"18%": "16%", "40%": "30%", "58%": "44%", "74%": "56%"}
+        for element in elements:
+            element["y"] = positions.get(element.get("y"), element.get("y"))
     qr_url = cta.get("qr_image_url") or cta.get("qr_data_url")
     if cta.get("qr_enabled") and qr_url:
         corner = cta.get("qr_corner", QR_CODE_RULES["default_corner"])

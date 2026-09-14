@@ -439,6 +439,8 @@ def get_json(path):
 
 
 def post_json(path, body=None, method="post"):
+    if path.endswith('/approve'):
+        body = {**(body or {}), 'acknowledge_unverified_video': True}
     fn = client.post if method == "post" else client.put
     return fn(path, data=json.dumps(body or {}),
               headers={"Content-Type": "application/json"})
@@ -977,6 +979,14 @@ check("the same size twice is one render", dupe.status_code, 200)
 check("and one job", len(dupe.get_json()["render_jobs"]), 1)
 check("no size at all is refused", post_json(
     MOUNT + f"/api/projects/{pid}/render", {"formats": []}).status_code, 400)
+
+# These fixtures exercise filing/compliance; decoder and stale-cut gates have
+# independent integration coverage in test_video_workflow.py.
+from unittest.mock import patch as _patch_video
+_video_status = _patch_video("modules.commercial_builder.services.finished_video.creative_status", return_value="current")
+_video_inspection = _patch_video("modules.commercial_builder.services.finished_video.inspect_job", return_value={"status": "passed", "checks": []})
+_video_status.start()
+_video_inspection.start()
 
 section("Approving is what files it, and only a real file can be approved")
 # Approving a mock would file nothing into the client's library and log it as

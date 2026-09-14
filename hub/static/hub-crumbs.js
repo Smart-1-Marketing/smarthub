@@ -47,7 +47,7 @@
   // is right for "site-blocks" and wrong for "io" and "msa" -- so every tool
   // that has a tile is named here, spelled the way its tile spells it.
   var LABELS = {
-    "tools": "Tools", "qa": "QA Reports", "scans": "Site Scans",
+    "tools": "Tools", "qa": "QA Reports", "scans": "Site Scans", "reports": "Reports",
     "client360": "Client 360", "seo": "SEO Clients", "diagnostics": "Diagnostics",
     "activity": "Activity Log", "status": "System Status", "sites": "Sites",
     "suite": "Suite", "google": "Google Finder", "clients": "Clients",
@@ -69,7 +69,8 @@
     "radio-promo": "Radio Ad Creator", "fan-radio": "Fan Radio",
     "radio-scripts": "Radio Scripts",
     // Tools
-    "website-audit": "Website Audit", "builder": "Proposal Builder",
+    "website-audit": "Website Audit", "sites-builder": "Smart 1 Sites Builder",
+    "builder": "Proposal Builder",
     "io": "IO Builder", "landing": "Landing Page Maker",
     "msa": "Master Services Agreement", "pdf": "PDF Optimizer",
     "short-links": "Client Link Masking",
@@ -107,7 +108,7 @@
   // /qa/stale-creative is Stale Creative rather than QA Reports twice over.
   // Only /tools was read this way before, which is why every page under
   // /sales, /qa and /scans drew its own mount's name as both crumbs.
-  var CONTAINERS = ["tools", "sales", "qa", "scans", "google", "land"];
+  var CONTAINERS = ["tools", "sales", "qa", "scans", "google", "land", "reports"];
 
   // Which index page each tool is tiled on, so the trail is meaningful rather
   // than a copy of the URL — and, more to the point, so "back" lands on a
@@ -115,6 +116,9 @@
   // mount it sits under, which is right for a tool tiled where its URL says.
   var PARENT = {
     "tools": null, "qa": null, "scans": null, "client360": null,
+    // Tiled on Tools beside Smart 1 Ads, and in the nav; back goes to the
+    // index the tile is on.
+    "reports": ["/tools", "Tools"],
     "diagnostics": null, "activity": null, "status": null,
     // In the nav AND tiled on Tools (Web Development / SEO groups) -- the
     // my-clients rule below: back goes to the index the tool is listed on

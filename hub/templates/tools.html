@@ -46,6 +46,10 @@
     <div class="t-ico">&#127780;</div>
     <h3>Weather Trigger Setup</h3>
   </a>
+  <a class="tool-tile" href="/tools/sites-builder">
+    <div class="t-ico">&#10024;</div>
+    <h3>Smart 1 Sites Builder</h3>
+  </a>
   <a class="tool-tile" href="/sales/builder/">
     <div class="t-ico">&#128196;</div>
     <h3>Proposal Builder</h3>
@@ -106,6 +110,17 @@
   <a class="tool-tile" href="/tools/ad-assets">
     <div class="t-ico">&#128193;</div>
     <h3>Ad Assets</h3>
+  </a>
+  {#
+    Beside Smart 1 Ads because it is the other half of it: that tool starts
+    the spend and this one says what every platform did with it, which
+    campaigns are not yet filed under a client, and what they pace against.
+    A tool with no tile is invisible; it is in the nav as well, the way
+    Smart 1 Ads is.
+  #}
+  <a class="tool-tile" href="/reports/">
+    <div class="t-ico">&#128202;</div>
+    <h3>Reports</h3>
   </a>
 </div>
 
@@ -304,6 +319,15 @@
   <a class="tool-tile" href="/tools/google-access/">
     <div class="t-ico">&#128273;</div>
     <h3>Google Access</h3>
+  </a>
+  {#
+    Switches a client's skills on -- Ecwid Ecommerce, Email Creator -- which
+    is what decides which cards Client 360 draws for them. Setup, so it sits
+    with Google Access; test_menu_layout.py asserts a tool is tiled once.
+  #}
+  <a class="tool-tile" href="/tools/360-skills/">
+    <div class="t-ico">&#129513;</div>
+    <h3>360 Skills</h3>
   </a>
   <a class="tool-tile" href="/tools/seo-images/house">
     <div class="t-ico">&#127968;</div>

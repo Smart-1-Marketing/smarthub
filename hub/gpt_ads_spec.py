@@ -304,10 +304,17 @@ def check_landing_page(url: str, timeout: int = 12) -> dict:
     else:
         out["mobile"] = None
 
-    if not out["ok"]:
+    login_path = re.search(r"/(?:login|log-in|signin|sign-in|sign_in)(?:/|$)",
+                           urlparse(out["final_url"] or out["url"]).path, re.I)
+    password_form = re.search(r'<input\b[^>]*\btype\s*=\s*[\"\x27]?password\b', body, re.I)
+    login_title = re.search(r'<title[^>]*>[^<]*(?:sign in|log in|login)', body, re.I)
+    if login_path or (password_form and login_title) or out["status"] in (401, 403):
+        out["ok"] = False
+        out["note"] = "This destination requires sign-in or denies public access. Use a public landing page."
+    elif not out["ok"]:
         out["note"] = f"The page returned HTTP {out['status']}."
     elif out["final_url"] and out["final_url"].rstrip("/") != out["url"].rstrip("/"):
-        out["note"] = f"Redirects to {out['final_url']} — send ad ops that one."
+        out["note"] = f"Redirects to {out['final_url']} — verify this is the intended public destination."
     return out
 
 
@@ -411,6 +418,9 @@ def readiness(ad: dict) -> dict:
         flags.append({"level": "warn", "code": "image_mirror",
                       "message": "This image is still on the provider's own "
                                  "URL — that link expires. Re-save it."})
+    if image.get("url") and not image.get("visual_approved"):
+        flags.append({"level": "block", "code": "image_approval",
+                      "message": "Review the image for unwanted text, visual errors, and brand suitability, then approve it."})
     sections.append(section("image", flags))
 
     # ---- 2. the copy ----
@@ -431,6 +441,11 @@ def readiness(ad: dict) -> dict:
                               "message": f"{names[kind].title()} “"
                                          f"{str(row.get('text'))[:40]}”: "
                                          f"{flag['message']}"})
+    for kind in ("headlines", "bodies", "ctas"):
+        selected = (ad.get("selected_copy") or {}).get(kind)
+        if not selected or selected not in [r.get("text") for r in copy_options(ad, kind)]:
+            flags.append({"level": "block", "code": "copy_selection",
+                          "message": f"Choose the final {names[kind]} for the ad preview and handoff."})
     sections.append(section("copy", flags))
 
     # ---- 3. the landing page ----
@@ -602,7 +617,7 @@ def copy_messages(ad: dict, kind: str, context: dict | None = None,
         "a media buyer to choose between, not a sequence.\n"
     )
     if kind == "ctas":
-        system += ("6. Return only labels from this list, choosing the ones that "
+        system += ("6. Return exact labels as JSON strings, without punctuation or extra words, from this list, choosing the ones that "
                    "fit: " + ", ".join(CTA_OPTIONS) + ".\n")
 
     user = (
@@ -668,14 +683,15 @@ def copy_csv(ad: dict) -> str:
     ad = revalidate(ad or {})
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(COPY_COLUMNS)
+    writer.writerow(list(COPY_COLUMNS) + ["Selection"])
     for kind, label in (("headlines", "Headline"), ("bodies", "Body"),
                         ("ctas", "CTA")):
         for row in copy_options(ad, kind):
             text = str(row.get("text") or "").strip()
             flags = "; ".join(f"{f['level']}: {f['message']}"
                               for f in (row.get("flags") or []))
-            writer.writerow([label, text, len(text), flags])
+            writer.writerow([label, text, len(text), flags,
+                             "FINAL" if (ad.get("selected_copy") or {}).get(kind) == text else "Alternative"])
     return buf.getvalue()
 
 
@@ -713,6 +729,9 @@ def manifest(ad: dict, *, image_filename: str = "") -> dict:
             "source": image.get("source") or "",
             "alt": image.get("alt") or "",
             "spec_result": verdict.get("result"),
+            "visual_approved": bool(image.get("visual_approved")),
+            "reviewed_by": image.get("reviewed_by") or "",
+            "reviewed_at": image.get("reviewed_at") or "",
             "spec_summary": verdict.get("summary"),
         },
         "copy": {
@@ -720,6 +739,7 @@ def manifest(ad: dict, *, image_filename: str = "") -> dict:
             for kind in ("headlines", "bodies", "ctas")
         },
         "copy_guidance": {"limits": dict(LIMITS), "source": LIMITS_SOURCE},
+        "selected_copy": ad.get("selected_copy") or {},
         "landing_page": {
             "url": landing.get("url") or "",
             "tracking": landing.get("tracking") or "",
@@ -765,6 +785,9 @@ def handoff_brief(ad: dict, *, image_filename: str = "") -> str:
     L: list[str] = []
     L.append("GPT AD — CREATIVE HANDOFF")
     L.append("=" * 60)
+    L.append("FINAL COPY SELECTION (other copy below is alternative copy)")
+    for kind in ("headlines", "bodies", "ctas"):
+        L.append(f"{kind}: {(ad.get('selected_copy') or {}).get(kind) or 'Not selected'}")
     L.append(f"Client:    {_v(ad.get('client'))}")
     L.append(f"Campaign:  {_v(ad.get('campaign'))}")
     L.append(f"Prepared:  {_now()} by {_v(ad.get('updated_by') or ad.get('created_by'))}")

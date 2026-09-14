@@ -138,7 +138,7 @@ def generate_scene_voiceover(project_id, scene_id):
     client = Client.query.get_or_404(project.client_id)
     data = request.get_json(force=True) or {}
 
-    voice_id = data.get("voice_id") or client.preferred_voiceover_id
+    voice_id = data.get("voice_id") or (project.music or {}).get("voice_id") or client.preferred_voiceover_id
     if not voice_id:
         return jsonify({"ok": False, "error": "Choose a voice first (or set the client's preferred voiceover)."}), 400
     if media_state.has_presenter(scene.to_dict()):
@@ -153,12 +153,15 @@ def _generate_scene_audio(scene, client, voice_id, data):
     signature = media_state.speech_signature(scene.to_dict())
     settings = {key: float(data.get(key, default)) for key, default in
                 (("stability", 0.5), ("style", 0.5), ("speed", 1.0))}
-    take_key = media_state.fingerprint([signature, voice_id, settings, client.pronunciation_dict])
+    pronunciation = (scene.project.music or {}).get("pronunciation_dict", client.pronunciation_dict)
+    take_key = media_state.fingerprint([signature, voice_id, settings, pronunciation])
     prior = (scene.asset_meta or {}).get("voiceover") or {}
-    if prior.get("take_key") == take_key and prior.get("audio_url") and not prior.get("stale"):
+    if prior.get("take_key") == take_key and prior.get("audio_url") and not prior.get("stale") and data.get("regenerate") is not True:
+        from ..usage import record
+        record("elevenlabs", operation="scene_voice", cached=True)
         return {**prior, "stored": True, "store_note": "Using the saved narration."}
     result = elevenlabs_service.generate_voiceover(text=scene.narration or "", voice_id=voice_id,
-        pronunciation_dict=client.pronunciation_dict, **settings)
+        pronunciation_dict=pronunciation, **settings)
     audio = result.pop("audio_bytes", None)
     result.update(voice_id=voice_id, provider="elevenlabs", speech_signature=signature, take_key=take_key)
     if audio:
@@ -191,7 +194,7 @@ def generate_full_voiceover(project_id):
     snapshot = [s.to_dict() for s in scenes]
     signature = media_state.timeline_signature(snapshot)
     presenter_mode = any(media_state.has_presenter(s) for s in snapshot)
-    voice_id = data.get("voice_id") or client.preferred_voiceover_id
+    voice_id = data.get("voice_id") or (project.music or {}).get("voice_id") or client.preferred_voiceover_id
     narration_scenes = [s for s in scenes if (s.narration or "").strip() and
                         not media_state.has_presenter(s.to_dict())]
     if not voice_id and (not presenter_mode or narration_scenes):
@@ -236,7 +239,7 @@ def generate_full_voiceover(project_id):
             project, client, voice_id,
             stability=float(data.get("stability", 0.5)),
             style=float(data.get("style", 0.5)),
-            speed=float(data.get("speed", 1.0)))
+            speed=float(data.get("speed", 1.0)), regenerate=data.get("regenerate") is True)
     except ValueError as exc:
         # The take that could not be kept, logged all the same: "generated,
         # but it could not be stored" is still work somebody asked for, and
