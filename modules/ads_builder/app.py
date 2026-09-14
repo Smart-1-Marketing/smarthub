@@ -59,6 +59,7 @@ from . import (ad_intel, api_readiness, campaign_ai, client_link, copy_ideas, ex
                pmax_images, pmax_spec, spec, store)
 from .campaign_ai import SECTOR_CPC, GenerationError, analyse_budget
 from .google_ads import GoogleAdsError
+from . import bing_ads
 from hub.webargs import clamp_int
 
 BASE_DIR = Path(__file__).parent
@@ -509,6 +510,12 @@ def page_settings():
         ad_intel=ad_intel.status(),
         expected_redirect=(os.environ.get("PUBLIC_BASE_URL", "").rstrip("/") + MOUNT
                            + "/oauth/callback"),
+        # The Microsoft Advertising connection, the sibling of `status`: the
+        # same shape, so the two cards draw alike, and its callback is
+        # PUBLIC_BASE_URL's origin plus the mount's own path -- read at call
+        # time in bing_ads.redirect_uri(), which is also what
+        # hub/oauth_redirects.py prints for the Azure portal.
+        bing=bing_ads.connection_status(store),
     )
 
 
@@ -574,6 +581,93 @@ def api_disconnect():
     })
 
 
+# ------------------------------------------------- OAuth: Microsoft Advertising
+# The Google flow above, for the other platform. Its own state cookie, its
+# own settings key and its own log events, because a rep connecting one
+# must not read as having connected the other -- and the callback path is
+# /oauth/bing/callback beside Google's /oauth/callback, which is what the
+# Azure portal is told to expect (hub/oauth_redirects.py prints it).
+
+@app.get("/connect/bing")
+def oauth_connect_bing():
+    status = bing_ads.connection_status(store)
+    if status["missing"] or status["manager_id_problem"]:
+        why = ", ".join(status["missing"]) if status["missing"] else (
+            "BING_MANAGER_ACCOUNT_ID " + status["manager_id_problem"])
+        return render_template(
+            "ads_error.html",
+            error="Microsoft sign-in cannot start until these are set: " + why,
+        ), 400
+    state = secrets.token_hex(16)
+    resp = make_response(redirect(bing_ads.build_auth_url(state)))
+    resp.set_cookie("s1ads_bing_oauth_state", state, httponly=True, samesite="Lax", max_age=600)
+    return resp
+
+
+@app.get("/oauth/bing/callback")
+def oauth_bing_callback():
+    error = request.args.get("error")
+    code = request.args.get("code")
+    state = request.args.get("state")
+
+    if error:
+        store.log_event("BING_OAUTH_DENIED", current_user(), error=error)
+        return render_template("ads_error.html",
+                               error=f"Microsoft sign-in was cancelled: {error}"), 400
+    if not code:
+        return render_template("ads_error.html",
+                               error="Microsoft did not return an authorization code."), 400
+
+    expected = request.cookies.get("s1ads_bing_oauth_state")
+    if expected and state != expected:
+        return render_template(
+            "ads_error.html",
+            error="Sign-in state mismatch. Start the connection again from Settings.",
+        ), 400
+
+    try:
+        tokens = bing_ads.exchange_code(code)
+    except bing_ads.BingAdsError as exc:
+        store.log_event("BING_OAUTH_FAILED", current_user(), error=exc.message[:300])
+        return render_template("ads_error.html", error=exc.message), 502
+    refresh = tokens.get("refresh_token", "")
+    if refresh:
+        store.set_setting("bing_refresh_token", refresh)
+
+    store.log_event("BING_OAUTH_SUCCESS", current_user(), got_refresh_token=bool(refresh))
+
+    resp = make_response(render_template(
+        "ads_connected.html",
+        refresh_token=refresh,
+        pinned=bool(os.environ.get("BING_AD_REFRESH_TOKEN", "").strip()),
+        provider="Microsoft Advertising",
+        pin_var="BING_AD_REFRESH_TOKEN",
+        blurb="The reports module can now pull campaign figures for every advertiser account "
+              "under the manager, every six hours.",
+        # A personal Microsoft account revokes at account.live.com; a work
+        # account at myapps.microsoft.com. Both are named because a
+        # Microsoft Advertising login is as often one as the other.
+        revoke_note="Revoke the app's access at account.live.com/consent/Manage (a personal "
+                    "account) or myapps.microsoft.com (a work account), then connect again — "
+                    "Microsoft issues a refresh token on a consented authorization.",
+        next_url=MOUNT + "/settings",
+        next_label="Back to settings",
+    ))
+    resp.delete_cookie("s1ads_bing_oauth_state")
+    return resp
+
+
+@app.post("/api/bing/disconnect")
+def api_bing_disconnect():
+    store.set_setting("bing_refresh_token", "")
+    bing_ads.forget_tokens()
+    store.log_event("BING_DISCONNECTED", current_user())
+    return jsonify({
+        "ok": True,
+        "note": "Also clear BING_AD_REFRESH_TOKEN in the environment if it is set there.",
+    })
+
+
 # -------------------------------------------------------------------- API
 @app.get("/api/version")
 def api_version():
@@ -603,7 +697,13 @@ def api_status():
             "read_live_campaigns": {"ready": google["deploy_ready"], "needs": google["missing"]},
             "deploy_via_api": {"ready": google["deploy_ready"], "needs": google["missing"]},
         },
-        "bing": {"configured": False, "connected": False, "note": "Phase 2 — not wired yet"},
+        # The Microsoft Advertising connection, in the same shape as
+        # `google`: what is set, whether anybody has consented, and what
+        # that buys -- which is the reports module's native pull and, so
+        # far, nothing else.
+        "bing": {**bing_ads.connection_status(store),
+                 "note": "Connected, the reports module pulls campaign figures every six "
+                         "hours. Campaign management is not built."},
     })
 
 
@@ -1769,11 +1869,17 @@ def api_deploy():
     return jsonify({"result": result})
 
 
-# --------------------------------------------------------- Bing (phase 2)
+# ------------------------------------------- Bing campaign management (not built)
+# The connection and the performance pull are live (/connect/bing above,
+# modules/reports/bing.py); creating, pausing and budgeting a Microsoft
+# Advertising campaign from here is not, and a write path nothing sells is
+# left unbuilt rather than half-built. /api/bing/disconnect is a static rule
+# and wins over this catch-all.
 @app.route("/api/bing/<path:_rest>", methods=["GET", "POST", "PUT", "DELETE"])
 def api_bing(_rest):
     return jsonify({
-        "error": "Microsoft Advertising (Bing) is not implemented yet. Google Ads is live.",
+        "error": "Microsoft Advertising campaign management is not built. The connection "
+                 "(Settings → Connect Microsoft Ads) and the performance pull (/reports/) are.",
         "code": "NOT_IMPLEMENTED",
     }), 501
 

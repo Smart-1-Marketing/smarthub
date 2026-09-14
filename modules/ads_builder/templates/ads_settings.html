@@ -150,14 +150,75 @@
     Hub's SEO, FAQ Builder and proposal tools — no separate key, and nothing to enter per generation.</div>
 </div>
 
+{# The Microsoft Advertising connection: the Google card's shape, for the
+   reports module's native pull. `bing` is the same dict shape as `status`
+   and is guarded, because test_ads_explainer renders this page with none. #}
+{% if bing %}
 <div class="card">
-  <h3>Microsoft Advertising (Bing)</h3>
-  <span class="tag t-mute">Phase 2</span>
-  <p style="color:#64748b;margin-bottom:0">
-    Google Ads is live end to end. The proposal format is platform neutral, so Bing arrives as a sibling
-    client module — the generator, approval hub, client proposal and activity log need no changes.
+  <div class="row" style="margin-bottom:12px">
+    <h3 style="margin:0">Microsoft Advertising (Bing) {{ help_dot('ads_builder.settings.bing') if help_dot is defined else '' }}</h3>
+    <div class="spacer"></div>
+    {% if bing.connected %}
+      <button class="b-bad b-sm" onclick="disconnectBing()">Disconnect</button>
+    {% elif bing.configured %}
+      <a class="btn b-primary" href="{{ mount }}/connect/bing" target="_blank" rel="noopener">Connect Microsoft Ads</a>
+    {% endif %}
+  </div>
+
+  <div class="grid g3" style="margin-bottom:12px">
+    <div class="s1d-tile">
+      <div class="l">Credentials</div>
+      <div class="v" style="font-size:17px">{{ 'Configured' if bing.configured else 'Incomplete' }}</div>
+      <div class="f">{{ ('Missing: ' + bing.missing|join(', ')) if bing.missing else ('BING_MANAGER_ACCOUNT_ID is not a customer id' if bing.manager_id_problem else 'All four present') }}</div>
+    </div>
+    <div class="s1d-tile">
+      <div class="l">Authorization</div>
+      <div class="v" style="font-size:17px">{{ 'Connected' if bing.connected else 'Not connected' }}</div>
+      <div class="f">{{ bing.refresh_token_source }}</div>
+    </div>
+    <div class="s1d-tile">
+      <div class="l">Manager account</div>
+      <div class="v" style="font-size:17px">{{ bing.manager_id or '—' }}</div>
+      <div class="f">{{ ('No. ' + bing.manager_number) if bing.manager_number else 'BING_MANAGER_ACCOUNT_NUMBER not set' }} &middot; {{ bing.environment }}</div>
+    </div>
+  </div>
+
+  {% if bing.missing %}
+    <div class="note n-bad">
+      <b>Missing environment variables</b>
+      Set these on the Hub service, then redeploy: <span class="mono">{{ bing.missing|join(', ') }}</span>
+    </div>
+  {% endif %}
+  {% if bing.manager_id_problem %}
+    <div class="note n-bad">
+      <b>BING_MANAGER_ACCOUNT_ID is not a customer id</b>
+      It {{ bing.manager_id_problem }}
+    </div>
+  {% endif %}
+
+  {% if bing.connected and bing.refresh_token_source.startswith('hub database') %}
+    <div class="note n-warn">
+      <b>This connection is not pinned</b>
+      The refresh token lives in the Hub database. Setting
+      <span class="mono">BING_AD_REFRESH_TOKEN</span> in the environment makes it immune to a database reset.
+      Reconnect to see the value again.
+    </div>
+  {% endif %}
+
+  <p style="color:#64748b">
+    What the connection buys is the native pull on <a href="/reports/">Reports</a>: every six hours,
+    campaign-day figures for every advertiser account under the manager, the way Google Ads is pulled.
+    Managing a Microsoft Advertising campaign from here is not built.
   </p>
+
+  <div class="hint">
+    Redirect URI in use: <span class="mono brk">{{ bing.redirect_uri or 'not set — PUBLIC_BASE_URL is empty' }}</span><br>
+    Register it, character for character, under the app registration&rsquo;s <b>Authentication → Redirect URIs</b>
+    in the Azure portal, on a registration that allows <b>personal Microsoft accounts as well as
+    organizational ones</b> — a Microsoft Advertising login is as often one as the other.
+  </div>
 </div>
+{% endif %}
 
 {# The access tier. Google publishes it nowhere an API can read, so this panel
    is deliberately three claims of different weight: what somebody typed, what
@@ -236,6 +297,13 @@
       <tr><td class="mono">GOOGLE_ADS_REDIRECT_URI</td><td>Hub URL + <span class="mono">{{ mount }}/oauth/callback</span></td></tr>
       <tr><td class="mono">GOOGLE_ADS_REFRESH_TOKEN</td><td>Shown once after you connect — paste it back to pin it</td></tr>
       <tr><td class="mono">GOOGLE_ADS_API_VERSION</td><td>Optional. Defaults to <span class="mono">{{ status.api_version }}</span></td></tr>
+      <tr><td class="mono">BING_AD_CLIENT_ID</td><td>Azure portal → App registrations → your app (personal + work accounts)</td></tr>
+      <tr><td class="mono">BING_AD_CLIENT_SECRET</td><td>Same registration → Certificates &amp; secrets</td></tr>
+      <tr><td class="mono">BING_AD_DEVELOPER_TOKEN</td><td>Microsoft Advertising manager account → Tools → Developer token</td></tr>
+      <tr><td class="mono">BING_MANAGER_ACCOUNT_ID</td><td>The manager&rsquo;s customer <b>id</b>, digits only</td></tr>
+      <tr><td class="mono">BING_MANAGER_ACCOUNT_NUMBER</td><td>The account <b>number</b> beside it (letters and digits); shown, never sent</td></tr>
+      <tr><td class="mono">BING_AD_REFRESH_TOKEN</td><td>Shown once after you connect — paste it back to pin it</td></tr>
+      <tr><td class="mono">BING_AD_ENVIRONMENT</td><td>Optional. <span class="mono">sandbox</span> points every call at the sandbox hosts</td></tr>
       <tr><td class="mono">BRANDFETCH_API</td>
         <td>Optional. Powers the logo lookup on a proposal; without it the logo comes from
           the client record or an upload. Also spelled <span class="mono">BRANDFETCH_API_KEY</span>
@@ -253,6 +321,14 @@
 {% block script %}
 <script>
 const MOUNT = {{ mount|tojson }};
+async function disconnectBing() {
+  if (!confirm('Disconnect Microsoft Advertising from the Hub?')) return;
+  try {
+    const d = await api('POST', MOUNT + '/api/bing/disconnect');
+    toast('good', d.note || 'Disconnected.');
+    setTimeout(() => location.reload(), 900);
+  } catch (e) { toast('bad', e.message); }
+}
 async function disconnect() {
   if (!confirm('Disconnect Google Ads from the Hub?')) return;
   try {

@@ -172,6 +172,19 @@ QUOTAS: dict[str, Quota] = {
         "One use per call to a workspace Pickaxe (SEM Quote Help, Audience "
         "Finder). A call that failed is recorded with ok=False and is out of "
         "the billable total. No ceiling until PICKAXE_MONTHLY_LIMIT is set."),
+    # Microsoft Advertising bills nothing for the API and limits by request
+    # (a per-account, per-service ceiling it publishes as "rate limits" with
+    # no number this deployment can cite), so this is counted in calls and
+    # the row reads *not measured* against a limit until somebody sets one.
+    # Every call the pull makes -- the account list, the report submit, each
+    # poll, the download -- is a row, filed under `api` by service.
+    "microsoft_ads": Quota(
+        "microsoft_ads", "Microsoft Ads", "calls", 0, 0,
+        "MICROSOFT_ADS_WARN_AT", "MICROSOFT_ADS_MONTHLY_LIMIT",
+        "Reporting and Customer Management calls made by the native pull and "
+        "the nightly reconcile. Microsoft charges nothing per call and "
+        "publishes no ceiling this Hub can read; no limit until "
+        "MICROSOFT_ADS_MONTHLY_LIMIT is set."),
     # Google costs nothing and is limited by requests per day, so a monthly
     # allowance would be the wrong shape entirely -- google_estimate() does
     # the per-day, per-API comparison. This row is the monthly total, for
@@ -363,6 +376,18 @@ def record_image(*, module: str, model: str = "", count: int = 1,
         record("openai", module=module, units=max(1, int(count or 1)),
                model=model or "gpt-image-1", detail="image generation", ok=ok)
     except Exception:                                    # noqa: BLE001
+        pass
+
+
+def record_microsoft_ads(url: str, *, module: str, api: str = "",
+                         ok: bool = True) -> None:
+    """One call to a Microsoft Advertising REST service, filed under the
+    service (``reporting``, ``customer``, ``download``) so the usage page
+    can say which half of a pull spent it."""
+    try:
+        record("microsoft_ads", module=module, units=1, api=api or "",
+               detail=str(url or "")[:120], ok=ok)
+    except Exception:                                   # noqa: BLE001
         pass
 
 
@@ -1502,6 +1527,24 @@ _PROVIDER_MARKERS = {
         "detail": "Calls a Google API without recording it, so its calls do "
                   "not count towards the daily quota shown on /diagnostics.",
         "fix": "Add quotas.record_google(url, module=...) after the response.",
+    },
+    "microsoft_ads": {
+        # Both v13 REST hosts share this suffix (reporting.api. and
+        # clientcenter.api.bingads.microsoft.com, and their sandbox twins),
+        # so the marker is the suffix rather than either host: a module that
+        # reached the one this check did not think of would otherwise get
+        # a clean bill. The token endpoint (login.microsoftonline.com) is
+        # deliberately not here -- a token refresh is not a metered call.
+        "calls": lambda src: "api.bingads.microsoft.com" in src and "requests." in src,
+        "recorded": ("record_microsoft_ads", 'record("microsoft_ads"',
+                     "from modules.ads_builder import bing_ads",
+                     "modules.ads_builder.bing_ads"),
+        "detail": "Calls a Microsoft Advertising REST service outside "
+                  "modules/ads_builder/bing_ads.py and without recording it, "
+                  "so the pull's calls never reach the usage page.",
+        "fix": "Call through bing_ads.call(), which records every request, or "
+               "add quotas.record_microsoft_ads(url, module=..., api=...) after "
+               "the response.",
     },
     "pickaxe": {
         # The host AND a requests call, because hub/config.py carries the
