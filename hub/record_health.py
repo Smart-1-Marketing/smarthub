@@ -370,6 +370,31 @@ def client360(name: str, *, group: dict | None = None,
     queue += q
     unread += seo_unread
 
+    # The gap since anybody did anything for this client -- the churn signal
+    # no other pill carries. hub/client_upcoming.last_activity(); "never" is
+    # its own state rather than a zero.
+    try:
+        from . import client_upcoming
+        act = client_upcoming.last_activity(name, domain, today)
+        if not act.get("measured"):
+            pills.append(_unread("activity", "Last activity", act.get("error") or "the activity log would not answer"))
+            unread.append("last activity: " + (act.get("error") or ""))
+        elif act.get("state") == "idle":
+            pills.append(_pill("activity", "Last activity", "idle", "Nothing logged", measured=True,
+                               detail="No Hub tool has logged work for this client.", go="work"))
+        else:
+            d = act.get("days")
+            pills.append(_pill("activity", "Last activity", act["state"],
+                               ("today" if d == 0 else f"{d}d ago"), measured=True,
+                               detail=f"{act.get('kind') or 'Work'} via {act.get('source') or 'the Hub'}"
+                                      + (f" by {act['actor']}" if act.get("actor") else ""), go="work"))
+            if act["state"] == "bad":
+                queue.append({"level": "warn", "section": "work",
+                              "title": f"Nothing done for this client in {d} days",
+                              "detail": "The last logged work was " + (act.get("when") or "a while ago") + "."})
+    except Exception as exc:                     # noqa: BLE001
+        pills.append(_unread("activity", "Last activity", type(exc).__name__))
+
     order = {"bad": 0, "warn": 1, "info": 2}
     queue.sort(key=lambda x: order.get(x.get("level"), 3))
     return {

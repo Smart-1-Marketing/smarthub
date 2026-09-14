@@ -294,6 +294,10 @@ with Stub(**{
     "upsell.audits_for": lambda domains: ({}, "OperationalError: scans"),
     "sales_status.by_client": lambda: {"measured": False, "error": "quotes table gone", "clients": {}},
     "seo._client_base": boom,
+    # The activity log too: hub/client_upcoming.last_activity() answers
+    # for the Last activity pill, and a log that will not answer must not
+    # read as "nothing has ever been done".
+    "client_upcoming.last_activity": lambda *a, **k: {"measured": False, "error": "the activity log could not be read (OSError)."},
 }):
     out = rh.client360("Acme Boats", today=TODAY)
 p = pills(out)
@@ -332,9 +336,9 @@ with Stub(**{
 p = pills(out)
 check("no pill reads ok on a client with nothing on file",
       [k for k, x in p.items() if x["state"] == "ok"], [])
-check("products, billing, site, google, proposals, seo and blogs are idle",
+check("activity, products, billing, site, google, proposals, seo and blogs are idle",
       sorted(k for k, x in p.items() if x["state"] == "idle"),
-      ["billing", "blogs", "google", "products", "proposals", "seo", "site"])
+      ["activity", "billing", "blogs", "google", "products", "proposals", "seo", "site"])
 check("...each saying what is absent", p["site"]["value"], "No website on file")
 with Stub(**{
     "knack_data.search_client": lambda q, limit=8: [],
@@ -404,7 +408,7 @@ check("staff gets the strip", r.status_code, 200)
 body = r.get_json() or {}
 check("...with the pill keys the renderer expects",
       sorted(p["key"] for p in body.get("pills", [])),
-      ["billing", "blogs", "google", "products", "proposals", "seo", "site"])
+      ["activity", "billing", "blogs", "google", "products", "proposals", "seo", "site"])
 check("...every pill in a state the renderer knows",
       all(p["state"] in rh.STATES for p in body.get("pills", [])))
 check("...and none of them ok on a client nobody has heard of",
