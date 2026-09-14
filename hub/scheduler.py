@@ -898,7 +898,7 @@ def job_reports_native_pull(app) -> dict:
         from modules.reports import audiogo, automap, google_ads_perf, stackadapt, ttd
     except Exception as exc:                            # noqa: BLE001
         return {"skipped": f"unavailable ({type(exc).__name__})"}
-    out: dict = {"platforms": {}, "rows": 0, "errors": {}, "skipped": []}
+    out: dict = {"platforms": {}, "rows": 0, "errors": {}, "skipped": [], "pending": []}
     with app.app_context():
         # An app context: the automap reaches hub/clients_registry and the
         # activity rows reach hub/audit -- the flask.g trap that had the
@@ -915,6 +915,11 @@ def job_reports_native_pull(app) -> dict:
                 out["skipped"].append(name)
             elif res.get("error") and str(res["error"]).startswith("not connected"):
                 out["skipped"].append(name)
+            elif res.get("pending"):
+                # The platform is still preparing the report and this run
+                # stopped waiting for it rather than hold every job behind
+                # it: not a failure, and the next tick asks again.
+                out["pending"].append(name)
             elif res.get("error"):
                 out["errors"][name] = res["error"]
         try:

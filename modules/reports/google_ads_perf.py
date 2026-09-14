@@ -31,13 +31,23 @@ NOT_CONNECTED = "not connected — Connect Google Ads in /tools/ads/settings"
 
 
 def gaql(start: date, end: date) -> str:
-    """The query, one place: campaign, day, and the five metrics the fact
-    table names. Cost comes back in micros and is divided by
-    ``google_ads.micros()`` on the way in, nowhere else."""
+    """The query, one place: campaign, its channel type, day, the five
+    metrics the fact table names, and the video completion rate. Cost
+    comes back in micros and is divided by ``google_ads.micros()`` on the
+    way in, nowhere else.
+
+    ``campaign.advertising_channel_type`` is what tells a YouTube buy from
+    a search one: without it every Google Ads campaign whose name carries
+    no product segment files as Paid Search, and a TrueView campaign reads
+    as search on the client's own page. ``metrics.video_quartile_p100_rate``
+    is the share of impressions watched to the end; times impressions it
+    is the completes figure the "Video ads completed" tile draws for the
+    Trade Desk, and Google publishes no count of its own."""
     return (
-        "SELECT campaign.id, campaign.name, segments.date, "
+        "SELECT campaign.id, campaign.name, campaign.advertising_channel_type, "
+        "segments.date, "
         "metrics.cost_micros, metrics.impressions, metrics.clicks, "
-        "metrics.conversions, metrics.video_views "
+        "metrics.conversions, metrics.video_views, metrics.video_quartile_p100_rate "
         "FROM campaign "
         f"WHERE segments.date BETWEEN '{start.isoformat()}' AND '{end.isoformat()}' "
         "AND campaign.status != 'REMOVED'"
@@ -92,16 +102,36 @@ def _facts(account_id: str, rows: list[dict], micros) -> list[dict]:
         cid = str(c.get("id") or "")
         if not day or not cid:
             continue
-        out.append({
+        imps = int(float(m.get("impressions") or 0))
+        views = int(float(m.get("videoViews") or 0))
+        channel = str(c.get("advertisingChannelType") or "").strip().upper()
+        fact = {
             "platform": "google", "source": "native", "date": day,
             "account_id": account_id, "campaign_id": cid,
             "campaign_name": c.get("name") or "",
             "spend": round(micros(m.get("costMicros")), 2),
-            "impressions": int(float(m.get("impressions") or 0)),
+            "impressions": imps,
             "clicks": int(float(m.get("clicks") or 0)),
             "conversions": float(m.get("conversions") or 0),
-            "video_views": int(float(m.get("videoViews") or 0)),
-        })
+            "video_views": views,
+        }
+        if channel:
+            # Carried on the row, where the auto-mapper and the unmapped
+            # queue read it: the channel is a fact about the campaign that
+            # the campaign's name does not have to carry.
+            fact["extras"] = {"channel_type": channel}
+        # Completes = the p100 rate x impressions, and only for a campaign
+        # that serves video (the VIDEO channel, or a row carrying views).
+        # A search campaign's rate is 0, and "0 completes" on it would be a
+        # measurement of a metric that does not apply -- absent is not
+        # measured, which is what the tile gates on.
+        rate = m.get("videoQuartileP100Rate")
+        if rate not in (None, "") and (channel == "VIDEO" or views > 0):
+            try:
+                fact["completes"] = int(round(float(rate) * imps))
+            except (TypeError, ValueError):
+                pass
+        out.append(fact)
     return out
 
 

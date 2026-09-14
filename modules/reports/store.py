@@ -1261,14 +1261,18 @@ def unmapped_campaigns(days: int = 30, limit: int = 200) -> list[dict]:
         out = {}
         # Latest name per campaign: the rows come newest-first, so the first
         # one seen wins.
-        for p, a, c, name, when in (
+        for p, a, c, name, when, extras in (
                 db.query(AdPerfDaily.platform, AdPerfDaily.account_id,
                          AdPerfDaily.campaign_id, AdPerfDaily.campaign_name,
-                         AdPerfDaily.date)
+                         AdPerfDaily.date, AdPerfDaily.extras_json)
                   .order_by(AdPerfDaily.date.desc()).all()):
             key = (p, a, c)
             if key in mapped or key in out:
                 continue
+            # The channel type Google reports on the campaign, off its
+            # newest row: what the queue's product box opens on and what
+            # the auto-mapper files under when the name says no product.
+            channel = str((extras or {}).get("channel_type") or "") if isinstance(extras, dict) else ""
             out[key] = {
                 "platform": p, "platform_label": platform_label(p),
                 "account_id": a, "campaign_id": c,
@@ -1276,6 +1280,8 @@ def unmapped_campaigns(days: int = 30, limit: int = 200) -> list[dict]:
                 "last_seen": when.isoformat() if when else None,
                 "spend_30d": recent.get(key, Decimal(0)),
                 "refused": None,
+                "channel_type": channel,
+                "default_product": _default_product(p, channel),
             }
     finally:
         db.close()
@@ -1291,6 +1297,17 @@ def unmapped_campaigns(days: int = 30, limit: int = 200) -> list[dict]:
     rows = sorted(out.values(), key=lambda r: (-r["spend_30d"], r["platform"],
                                                r["campaign_name"]))
     return rows[:limit]
+
+
+def _default_product(platform: str, channel: str = "") -> str:
+    """``products.default_for`` without a hard import at the top: products
+    reads nothing from here, so the lazy import is only about keeping this
+    module's import order the way every other reader found it."""
+    try:
+        from . import products as _products
+        return _products.default_for(platform, channel)
+    except Exception:                  # noqa: BLE001
+        return ""
 
 
 def unmapped_count() -> int:

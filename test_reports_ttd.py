@@ -327,7 +327,7 @@ check("...inside an app context, with the flask.g note",
 from flask import Flask                                              # noqa: E402
 out = fn(Flask("t"))
 check("the job returns the shape the panel reads",
-      sorted(out), ["automapped", "errors", "platforms", "rows", "skipped"])
+      sorted(out), ["automapped", "errors", "pending", "platforms", "rows", "skipped"])
 check("...with every unconfigured platform skipped cleanly on this deployment's state",
       sorted(out["skipped"]), ["audiogo", "google", "stackadapt", "ttd"])
 check("...and no errors", out["errors"], {})
