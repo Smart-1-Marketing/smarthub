@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Local Services Ads — Business information</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:#1e293b;font:16px/1.55 system-ui,sans-serif}main{max-width:820px;margin:32px auto;padding:32px;background:#fff;border:1px solid #dbe3ee;border-radius:16px}h1{font-size:30px;line-height:1.2;color:#1a2e58}h2{font-size:21px;color:#1a2e58}.eyebrow{color:#526580;font-size:13px;font-weight:700;letter-spacing:.06em}label{display:block;font-weight:600;margin-bottom:6px}input,textarea{width:100%;padding:12px;border:1px solid #a8b7cc;border-radius:8px;font:inherit}input:focus,textarea:focus{outline:3px solid #bdd7ff;outline-offset:1px}textarea{min-height:105px;resize:vertical}.field{margin:18px 0}.note{padding:16px;border-radius:8px;background:#eff6ff}.success{background:#ecfdf5;color:#065f46}.error{background:#fef2f2;color:#991b1b}button{background:#2563eb;color:white;border:0;border-radius:8px;font:600 16px system-ui;padding:14px 24px;cursor:pointer}.hint{font-size:14px;color:#526580}@media(max-width:600px){main{margin:0;padding:22px 18px;border:0;border-radius:0}}
+</style></head><body><main>
+<p class="eyebrow">SMART 1 · LOCAL SERVICES ADS</p><h1>Tell us about your business</h1>
+<p>Share the details our team needs to prepare your Local Services Ads setup. Required fields are marked with an asterisk.</p>
+<p class="note">Submitting this form saves your information for our team. It does not launch ads or change your advertising spend.</p>
+{% if saved %}<p class="note success" role="status">Your information has been saved. Our team can now review it. You can update your answers below and submit again.</p>{% endif %}
+{% if error %}<p class="note error" role="alert">{{ error }}</p>{% endif %}
+<form method="post"><input type="hidden" name="revision" value="{{ revision }}">
+{% for heading, names in [('Your contact information', ['contact_name','contact_email']), ('Business details', ['business_name','phone','business_address','country','postal_code','website','profile_url']), ('Services and advertising plan', ['services','areas','schedule','weekly_budget','budget_currency','verification_notes'])] %}
+<h2>{{ heading }}</h2>
+{% for name in names %}<div class="field"><label for="{{ name }}">{{ labels[name] }}{% if name in required %} *{% endif %}</label>
+{% if name in ['services','areas','schedule','verification_notes'] %}<textarea id="{{ name }}" name="{{ name }}" maxlength="{{ limits[name] }}" {% if name in required %}required{% endif %}>{{ answers.get(name,'') }}</textarea>
+{% else %}<input id="{{ name }}" name="{{ name }}" value="{{ answers.get(name,'') }}" maxlength="{{ limits[name] }}" type="{{ 'email' if name=='contact_email' else 'tel' if name=='phone' else 'url' if name in ['website','profile_url'] else 'number' if name=='weekly_budget' else 'text' }}" {% if name=='weekly_budget' %}min="0.01" max="1000000" step="0.01"{% endif %} {% if name in required %}required{% endif %}>{% endif %}
+{% if name=='verification_notes' %}<p class="hint">Tell us whether licenses and insurance are available, or where you need help. Do not enter passwords, payment details or sensitive identification documents.</p>{% endif %}
+{% if name=='weekly_budget' %}<p class="hint">A planning amount for discussion with our team; submitting it does not authorize or start spending.</p>{% endif %}</div>{% endfor %}{% endfor %}
+<button type="submit">Save and submit information</button><p class="hint">Answers are saved when you submit. Keep this private link if you need to return later.</p>
+</form></main></body></html>

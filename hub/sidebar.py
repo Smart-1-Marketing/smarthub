@@ -141,6 +141,8 @@ _ITEMS = [
     # it is the one tool here that can start spend in a client's own
     # account, and it is opened directly rather than looked up.
     ("ads", "/tools/ads/", "&#128227;", "Smart 1 Ads"),
+    ("_sec_product_success", "", "", "Product Success"),
+    ("lsa", "/tools/lsa/", "&#128200;", "LSA Ads"),
     # Directly under Smart 1 Ads because it is the other half of the same
     # question: that screen starts the spend, this one says what it did --
     # every platform's performance, the campaigns not yet filed under a

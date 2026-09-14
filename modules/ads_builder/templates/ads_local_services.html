@@ -19,6 +19,18 @@
 {% endblock %}
 {% block content %}
 <div id="lsaMessage" role="status" aria-live="polite"></div>
+<p class="note n-info"><strong>New campaign setup:</strong> Prepare and save the information here, then complete campaign creation in Google in step 4.</p>
+{% if lsa_workspace %}
+<section class="card" style="margin-bottom:20px" aria-labelledby="intakeHeading">
+<h2 id="intakeHeading">Get information from your client</h2>
+<p>Create a private form link to send to your client. Their answers are saved here for review before you use them in this setup. Links expire after 30 days; creating another replaces the previous link.</p>
+<div class="row"><button type="button" id="createIntake">Save setup &amp; create client link</button><button type="button" id="reviewIntake">Check client response</button><button type="button" id="revokeIntake">Disable client link</button></div>
+<div id="intakeLinkWrap" hidden><label for="intakeLink">Client form link</label><input id="intakeLink" readonly><button type="button" id="copyIntake">Copy link</button></div>
+<p id="intakeState" role="status">Save or open a setup to collect client information.</p>
+<pre id="intakeAnswers" style="white-space:pre-wrap;overflow-wrap:anywhere" hidden></pre>
+<button type="button" id="applyIntake" hidden>Use these answers in setup</button>
+</section>
+{% endif %}
 <div class="lsa-layout">
  <aside class="card">
   <h3>Your setup</h3>
@@ -131,4 +143,19 @@ window.addEventListener('beforeunload',e=>{if(lsa.dirty){e.preventDefault();e.re
 showStep(1);
 task('Loading your saved connection and setups…',async()=>{const results=await Promise.allSettled([connect(),api('GET',lsaBase+'/setups')]);if(results[1].status==='fulfilled'){lsa.saved=results[1].value.setups;renderSaved();}else message('Saved setups could not load: '+results[1].reason.message,true);if(results[0].status==='rejected'){el('connectionState').className='note n-warn';el('connectionState').textContent='We could not verify Google access. '+results[0].reason.message+' Your administrator can check the existing connection in Smart 1 Ads Settings.';}});
 </script>
+{% if lsa_workspace %}
+<script>
+let intakeResponse=null;
+const intakeRoot={{ mount|tojson }};
+function clearIntake(){intakeResponse=null;el('intakeLinkWrap').hidden=true;el('intakeAnswers').hidden=true;el('applyIntake').hidden=true;el('intakeState').textContent='Check client response for this setup, or create a link.';}
+function intakeEndpoint(){if(!lsa.id)throw Error('Save or open a setup first.');return intakeRoot+'/api/setups/'+lsa.id+'/intake';}
+async function checkIntake(){const pid=lsa.id;const data=await api('GET',intakeEndpoint());if(pid!==lsa.id)return;intakeResponse=data;el('applyIntake').hidden=!data.submitted_at;el('intakeAnswers').hidden=!data.answers;el('intakeAnswers').textContent=data.answers?Object.entries(data.answers).map(([k,v])=>titleise(k)+': '+(v||'Not provided')).join('\n'):'';el('intakeState').textContent=(data.submitted_at?'Client response saved '+new Date(data.submitted_at).toLocaleString()+(data.imported_at?' · Imported into setup':' · Ready to review'):'No client response yet.')+(data.expires_at?' Link '+(data.revoked?'disabled':new Date(data.expires_at)<new Date()?'expired':'expires '+new Date(data.expires_at).toLocaleDateString())+'.':'');}
+el('createIntake').onclick=()=>task('Creating client form link…',async()=>{await save();clearIntake();const data=await api('POST',intakeEndpoint(),{action:'create'});el('intakeLink').value=new URL(data.path,location.origin).href;el('intakeLinkWrap').hidden=false;await checkIntake();message('Client link created. Copy it and send it to your client.');});
+el('copyIntake').onclick=()=>task('Copying client link…',async()=>{await navigator.clipboard.writeText(el('intakeLink').value);message('Client link copied.');});
+el('reviewIntake').onclick=()=>task('Checking client response…',checkIntake);
+el('revokeIntake').onclick=()=>task('Disabling client link…',async()=>{await api('POST',intakeEndpoint(),{action:'revoke'});el('intakeLinkWrap').hidden=true;await checkIntake();message('Client link disabled. Saved responses are retained.');});
+el('applyIntake').onclick=()=>task('Using client answers…',async()=>{if(lsa.dirty)throw Error('Save your current setup changes before importing client answers.');if(!intakeResponse?.submitted_at)throw Error('Check the client response first.');const data=await api('POST',intakeEndpoint(),{action:'apply',revision:lsa.revision,response_revision:intakeResponse.revision});const s=data.setup;fields.forEach(k=>el(k).value=s[k]||'');Object.assign(lsa,{revision:s.revision,dirty:false});lsa.saved=lsa.saved.filter(r=>r.id!==s.id);lsa.saved.unshift(s);renderSaved();showStep(s.step);el('saveState').textContent='Client answers imported and saved';await checkIntake();message('Client answers saved into this setup. Contact details and notes remain in the response above.');});
+el('savedSetup').addEventListener('change',clearIntake);el('newSetup').addEventListener('click',clearIntake);
+</script>
+{% endif %}
 {% endblock %}
