@@ -13473,6 +13473,58 @@ watermark says `csv` wrote them because a hand upload is not the feed, and
 the notice names what was written, held and skipped. `test_reports_pages.py`
 asserts all three, on SQLite and again on Postgres.
 
+**And four more, each the smallest thing that closed a real hole.** The
+**proposal adapter** minted the client's link and budget lines under
+``run.client`` -- the display name -- because the resolver lived in the
+Flask app and the adapter has no request; every reader that takes a key
+then found one of the two spellings. ``store.resolve_client()`` is that
+reader now, Flask-free, ``app.py``'s ``_resolve_client`` delegates to it,
+and the adapter files under the module's own key. A link or a line
+already sitting under the display name is found **by the name it
+carries** (``links_named``, ``budget_lines_named`` -- exact on the
+normalised form, never a substring) and reused, never re-minted: that
+also covers a registry that answers differently on a retry, since Knack
+down resolves the client to a name key and a second live link under the
+new spelling is the thing ``create_link()`` exists to prevent. Nothing
+is moved, and the Client 360 card goes on reading both.
+
+**The pricing rule is bounded, and a change says what it reaches.** A
+platform markup is global and live: "15" typed as "1500" is sixteen times
+cost on every client page that reads the rule, the moment it is saved,
+with nothing on those pages saying so. ``store.MARKUP_MAX_PCT`` and
+``CPM_MAX`` are house ceilings -- no platform publishes one, and the row
+says whose they are -- refused by name at every door: the platform rule,
+the per-link override and the store itself, because a rule the form
+keeps while the write breaks it is not a rule.
+``pages_on_platform_rule()`` counts the live pages **showing Investment**
+that read each platform's rule (a confirmed campaign on the platform, no
+override of their own), the markup page prints it per row, and a save
+that changes a rule any of them reads is **shown and confirmed** rather
+than written on the first press; a change reaching none saves as it
+always did, because a confirmation on every press is one nobody reads.
+
+**Pacing alerts reach the owner's desk.** The board computed a three-day
+alert on every off-pace line and told nobody -- a page inside a module,
+which is where a queue goes unworked. ``hub/client_health.py`` reads the
+board's own persisted run (never recomputed, so the page, the board, the
+card and the QA report answer from one run) and raises ``pacing_alert``
+once per alerting line, joined on the line's **client name** because
+the store files a client under ``d:acme.com`` or under the display name
+and only the name joins either spelling to the row. The figures that
+move daily are in the title and the fingerprint is over the detail, so a
+Done or Ignored mark stands while the line is in the same trouble and is
+superseded when the trouble changes kind -- a mark retired by tomorrow's
+spend figure is a mark nobody can keep. A job that has never run is a
+named unmeasured source, never an empty book.
+
+**And the PDF is cached like the page.** It was rebuilt on every request
+while the page beside it was served from cache -- a client refreshing the
+download was a reportlab render each time, on a route a stranger reaches
+with no login. ``client_view.pdf_bytes()`` keys on the aggregate's own
+key with a marker on the end, so a markup saved on the other worker or a
+display name corrected on the staff page reaches the document exactly
+when it reaches the page, and ``forget()`` drops both.
+
 ## Conventions
 
 - **No new Python dependencies** unless genuinely unavoidable.

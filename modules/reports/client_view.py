@@ -474,6 +474,33 @@ def aggregate(link, period: str, today: date | None = None) -> dict:
     return data
 
 
+def pdf_bytes(link, period: str, today: date | None = None) -> bytes:
+    """``client_pdf.build(aggregate(...))`` behind the same cache as the
+    aggregate: the same key with a marker on the end, the same fifteen
+    minutes, and dropped by the same ``forget()``.
+
+    The PDF used to be rebuilt on every request while the page beside it
+    was served from cache -- a client refreshing the download was a
+    reportlab render each time, on the one route a stranger can hit with
+    no login. The key is the aggregate's, so a markup saved on the other
+    worker or a display name corrected on the staff page reaches the
+    document exactly when it reaches the page; nothing here can serve a
+    PDF of numbers the page has stopped showing.
+    """
+    from . import client_pdf
+    key = (link.token, period_range(period, today)["key"], store.iso(link.updated_at),
+           store.pricing_version(), store.mapping_version(link.client), "pdf")
+    now = time.monotonic()
+    with _LOCK:
+        hit = _CACHE.get(key)
+        if hit and now - hit[0] < CACHE_SECONDS:
+            return hit[1]
+    data = client_pdf.build(aggregate(link, period, today))
+    with _LOCK:
+        _CACHE[key] = (now, data)
+    return data
+
+
 def forget(token: str) -> None:
     with _LOCK:
         for k in [k for k in _CACHE if k[0] == token]:

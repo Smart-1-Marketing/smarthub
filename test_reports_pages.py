@@ -243,6 +243,94 @@ check("a blank row clears the platform",
       [m["platform"] for m in store.markups() if m["markup"] is not None or m["cpm"] is not None],
       ["ttd"])
 
+# ---- the bounds. No platform publishes a ceiling, so these are ours, and
+# the slip they exist for is 1500 typed for 15 reaching every client page
+# that reads the platform's rule at once.
+r = staff.post("/reports/markup", data={"markup_google": "1500", "cpm_ttd": "12.5"},
+               follow_redirects=True)
+body = r.get_data(as_text=True)
+check("1500 typed for 15 is refused by name, with the ceiling",
+      "1500%" in body and "outside the 0-300%" in body and "15 means 15%" in body)
+check("...and nothing was written",
+      [m["platform"] for m in store.markups() if m["markup"] is not None], [])
+r = staff.post("/reports/markup", data={"cpm_ttd": "9999"}, follow_redirects=True)
+body = r.get_data(as_text=True)
+check("a $9,999 CPM is refused by name", "$9,999.00" in body and "$0-$250" in body)
+check("the ttd CPM is what it was", str(store.markups()[0]["cpm"]), "12.50")
+try:
+    store.set_markup("google", markup="15", updated_by="Todd")   # a FRACTION of 15 is 1500%
+    check("the store's own door refuses a markup over the ceiling", False)
+except ValueError as exc:
+    check("the store's own door refuses a markup over the ceiling",
+          "outside the 0-300%" in str(exc))
+check("...and one at the ceiling is accepted",
+      str(store.set_markup("google", markup="3", updated_by="Todd").markup), "3.0000")
+store.clear_markup("google")
+check("the bounds say whose they are", store.BOUNDS_SOURCE, "house")
+check("the page says the ceilings in words",
+      "above 300%" in staff.get("/reports/markup").get_data(as_text=True))
+
+# ---- what a change reaches, said before it is saved. A platform rule is
+# global: saving one moves the Investment figure on every client page that
+# reads it, live, with nothing on those pages saying so.
+meta_label = store.platform_label("meta")
+lk = store.create_link("d:acme.com", client_name="Acme Co", created_by="Todd")
+store.update_link(lk.token, show_spend=True)
+pages = store.pages_on_platform_rule()
+check("Acme's page reads the meta rule: a confirmed meta campaign, Investment shown, no override",
+      [p["client_name"] for p in pages["meta"]], ["Acme Co"])
+check("...and every platform is a key, empty for the ones no page reads",
+      sorted(p for p, v in pages.items() if v), ["meta"])
+body = staff.get("/reports/markup").get_data(as_text=True)
+check("the markup page says so on the meta row", "1 showing Investment" in body)
+r = staff.post("/reports/markup", data={"markup_meta": "20", "cpm_ttd": "12.5"})
+body = " ".join(r.get_data(as_text=True).split())
+check("a change to a rule a client page reads is not saved on the first press",
+      r.status_code, 200)
+check("...it names the platform, the change and who reads it",
+      f"<b>{meta_label}</b>: at cost &rarr; 20%" in body
+      and "read by 1 client page showing Investment (Acme Co)" in body)
+check("...with a Save anyway that re-posts the same values",
+      'name="confirm" value="1"' in body and 'name="markup_meta" value="20"' in body)
+check("...and nothing was written",
+      [m["platform"] for m in store.markups() if m["markup"] is not None], [])
+r = staff.post("/reports/markup", data={"markup_meta": "20", "cpm_ttd": "12.5", "confirm": "1"},
+               follow_redirects=True)
+check("confirmed, it saves", "Markups saved" in r.get_data(as_text=True))
+check("...as 0.20 in the column",
+      str({m["platform"]: m for m in store.markups()}["meta"]["markup"]), "0.2000")
+r = staff.post("/reports/markup", data={"markup_meta": "20", "cpm_ttd": "12.5", "markup_google": "10"},
+               follow_redirects=True)
+check("a change reaching no client page saves on the first press, and an unchanged rule is not re-asked",
+      "Markups saved" in r.get_data(as_text=True)
+      and str({m["platform"]: m for m in store.markups()}["google"]["markup"]) == "0.1000")
+store.update_link(lk.token, markup_json={"meta": {"markup": "0.30"}})
+check("a link carrying its own override for the platform no longer reads the rule",
+      store.pages_on_platform_rule()["meta"], [])
+store.update_link(lk.token, markup_json={}, show_spend=False)
+check("a page hiding Investment is not counted either -- the change does not reach it",
+      store.pages_on_platform_rule()["meta"], [])
+r = staff.post("/reports/markup", data={"markup_meta": "25", "cpm_ttd": "12.5", "markup_google": "10"},
+               follow_redirects=True)
+check("...so a change to that rule now saves on the first press",
+      "Markups saved" in r.get_data(as_text=True))
+try:
+    store.update_link(lk.token, markup_json={"meta": {"cpm": "9999"}})
+    check("the per-link override goes through the same CPM door", False)
+except ValueError as exc:
+    check("the per-link override goes through the same CPM door", "$0-$250" in str(exc))
+staff.post("/reports/markup", data={"cpm_ttd": "12.5"}, follow_redirects=True)
+# Retire the link: the sections below were written against a store where
+# Acme has no live link yet, and a link left live here would read on the
+# Client 360 card as one the adapter never minted.
+_db = store.SessionLocal()
+try:
+    _row = _db.get(store.ReportLink, lk.id)
+    _row.enabled = False
+    _db.commit()
+finally:
+    _db.close()
+
 r = staff.post("/reports/budgets", data={
     "client_name": "Acme Co", "client_key": "d:acme.com", "product": "CTV",
     "platform": "ttd", "monthly_budget": "2,500", "flight_start": "2026-09-01",
