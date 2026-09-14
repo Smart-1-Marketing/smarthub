@@ -65,6 +65,9 @@ BASE_DIR = Path(__file__).parent
 app = Flask(__name__, template_folder=str(BASE_DIR / "templates"))
 app.config.update(JSON_SORT_KEYS=False)
 
+from .local_services import bp as local_services_bp
+app.register_blueprint(local_services_bp)
+
 MOUNT = "/tools/ads"
 
 OBJECTIVES = [
