@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}YouTube Ads · Product Success{% endblock %}
+{% block content %}
+<div class="yta" data-csrf="{{ csrf }}">
+  <header class="yta-hero"><div><p>PRODUCT SUCCESS</p><h1>YouTube Ads</h1><p>Build video campaigns. Find improvements. Keep results in view.</p></div><a href="/tools/ads/settings">Google Ads connection ↗</a></header>
+  <div class="yta-notice">{% if connection.deploy_ready %}Google Ads credentials are configured. Load accounts to verify access.{% else %}Connect Google Ads to validate campaigns and read paid results. YouTube API access alone does not grant advertising access. You can still prepare and save drafts.{% endif %}</div>
+  <div class="yta-toolbar"><label>Google Ads account<select id="yta-account"><option value="">Load connected accounts</option></select></label><button id="yta-accounts">Load accounts</button><label>Or enter customer ID<input id="yta-customer" placeholder="123-456-7890" inputmode="numeric"></label></div>
+  <p id="yta-message" role="status" aria-live="polite"></p>
+  <nav class="yta-tabs" aria-label="YouTube Ads workflows"><button data-tab="build" aria-pressed="true">Build</button><button data-tab="optimize" aria-pressed="false">Optimize</button><button data-tab="monitor" aria-pressed="false">Monitor</button><button data-tab="report" aria-pressed="false">Report</button></nav>
+  <section id="yta-build" class="yta-panel">
+    <div class="yta-heading"><div><h2>Build a YouTube campaign</h2><p>Demand Gen · Maximize conversions · Created paused for launch review</p></div><a href="/tools/commercial-builder/">Create video ↗</a></div>
+    <form id="yta-form">
+      <div class="yta-grid">
+        <label>Campaign name<input name="name" required maxlength="128"></label>
+        <label>Business name<input name="business_name" required maxlength="25"></label>
+        <label>YouTube video URL or ID<input name="video_id" required placeholder="https://www.youtube.com/watch?v=…"></label>
+        <label>Landing page<input name="final_url" type="url" required placeholder="https://"></label>
+        <label>Daily budget · account currency<input name="daily_budget" type="number" min="1" max="100000" step="0.01" required></label>
+        <label>Existing square logo asset ID<input name="logo_asset_id" inputmode="numeric" required></label>
+        <label>Location criterion ID<input name="location_id" inputmode="numeric" required placeholder="2840 = United States"></label>
+        <label>Language criterion ID<input name="language_id" inputmode="numeric" required placeholder="1000 = English"></label>
+        <label>Headline · 40 characters<input name="headline" maxlength="40" required></label>
+        <label>Long headline · 90 characters<input name="long_headline" maxlength="90" required></label>
+        <label class="yta-wide">Description · 90 characters<input name="description" maxlength="90" required></label>
+        <label class="yta-wide">Audience and creative test brief<textarea name="audience_notes" maxlength="2000" placeholder="Who should respond? What offer, opening hook and creative variant will you test?"></textarea></label>
+        <label class="yta-wide">EU political advertising<select name="eu_political" required><option value="">Choose a disclosure</option><option value="DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING">Does not contain EU political advertising</option><option value="CONTAINS_EU_POLITICAL_ADVERTISING">Contains EU political advertising</option></select></label>
+      </div>
+      <fieldset><legend>YouTube placements</legend><label><input type="checkbox" name="placements" value="youtubeInStream" checked> In-stream</label><label><input type="checkbox" name="placements" value="youtubeInFeed" checked> In-feed</label><label><input type="checkbox" name="placements" value="youtubeShorts" checked> Shorts</label></fieldset>
+      <p class="yta-muted">Use a public or unlisted video you are authorized to advertise and a logo asset from this Ads account. Confirm conversion tracking is ready. Audience notes are a planning brief; configure audience targeting and review location presence settings in Google Ads before enabling. Location and language IDs are applied during creation.</p>
+      <button type="submit" class="yta-primary">Save campaign draft</button>
+    </form>
+    <div class="yta-heading"><h2>Saved drafts</h2><button id="yta-drafts-refresh">Load drafts</button></div><div id="yta-drafts"><p>Select an account to see saved work.</p></div>
+  </section>
+  <section id="yta-optimize" class="yta-panel" hidden><h2>Optimization review</h2><p>Recommendations use campaign results. Review conversion delay, creative quality and business goals before applying changes in Google Ads.</p><button class="yta-refresh">Refresh results and recommendations</button><div id="yta-advice"></div></section>
+  <section id="yta-monitor" class="yta-panel" hidden><h2>Campaign monitor</h2><div class="yta-toolbar"><label>Reporting window<select id="yta-range"><option value="LAST_30_DAYS">Last 30 days</option><option value="LAST_7_DAYS">Last 7 days</option></select></label><button class="yta-refresh">Refresh now</button><label><input type="checkbox" id="yta-auto"> Refresh every 5 minutes while this page is open</label></div><p id="yta-checked">No results loaded.</p><p>Windows use the Ads account timezone and exclude today. No background monitoring runs after this page closes.</p><div id="yta-metrics"></div></section>
+  <section id="yta-report" class="yta-panel" hidden><h2>Performance report</h2><p>Export a fresh campaign report with account currency, timezone, reporting window, spend, impressions, clicks, conversions, CTR, CPA and conversion-value ROAS.</p><p>Video and Demand Gen campaign totals may include non-YouTube placements. They are not organic channel analytics or YouTube-only attribution.</p><button id="yta-export">Download CSV report</button><button id="yta-print">Print loaded report</button><div id="yta-report-copy"></div></section>
+</div>
+<style>
+.yta{max-width:1180px;margin:24px auto;padding:0 20px;color:#17263e}.yta-hero{display:flex;justify-content:space-between;gap:24px;background:#12223d;color:white;padding:28px;border-radius:16px}.yta-hero h1{font-size:34px;margin:8px 0}.yta-hero a{color:#bcd8ff}.yta-notice{padding:16px;background:#edf4ff;border-radius:10px;margin:18px 0}.yta-toolbar,.yta-heading{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:20px 0}.yta-heading{justify-content:space-between}.yta label{display:flex;flex-direction:column;gap:7px;font-weight:600}.yta input,.yta select,.yta textarea{font:inherit;padding:10px;border:1px solid #aebdd0;border-radius:7px;background:white;color:#17263e;max-width:100%;box-sizing:border-box}.yta button{padding:10px 16px;border:1px solid #9eb1c9;border-radius:8px;background:white;color:#17263e;cursor:pointer;font:inherit}.yta button:disabled{opacity:.5;cursor:wait}.yta .yta-primary,.yta-tabs button[aria-pressed=true]{background:#174f9b;color:white}.yta-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}.yta-panel{background:white;border:1px solid #d8e1ed;border-radius:12px;padding:24px}.yta-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.yta-wide{grid-column:1/-1}.yta fieldset{display:flex;gap:20px;flex-wrap:wrap;margin:20px 0;border:1px solid #d8e1ed}.yta fieldset label{display:block;padding:10px}.yta-muted{color:#52647b;line-height:1.6}.yta-card{padding:18px;border:1px solid #d8e1ed;border-radius:9px;margin:16px 0}.yta-card button{margin:8px 8px 0 0}.yta table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}.yta td,.yta th{padding:12px;text-align:left;border-bottom:1px solid #dde5ef}.yta-scroll{overflow:auto}#yta-message{min-height:24px;font-weight:600}.yta :focus-visible{outline:3px solid #1973d1;outline-offset:3px}@media(max-width:700px){.yta-grid{grid-template-columns:1fr}.yta-hero{flex-direction:column}.yta-panel{padding:16px}.yta{padding:0 8px}}@media print{.yta-hero,.yta-tabs,.yta-toolbar,.yta-notice,.yta button,#yta-message,.s1hub-sb{display:none!important}.yta-panel{border:0}.yta{max-width:none}}
+</style>
+<script src="{{ url_for('static', filename='youtube-ads.js') }}" defer></script>
+{% endblock %}

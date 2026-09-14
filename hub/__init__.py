@@ -7923,4 +7923,6 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    from .youtube_ads import install as install_youtube_ads
+    install_youtube_ads(app, current_user)
     return app

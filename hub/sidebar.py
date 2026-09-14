@@ -140,6 +140,8 @@ _ITEMS = [
     # Media buying sits in the nav rather than only on the Tools page:
     # it is the one tool here that can start spend in a client's own
     # account, and it is opened directly rather than looked up.
+    ("_sec_product_success", "", "", "Product Success"),
+    ("youtube_ads", "/tools/youtube-ads/", "&#9654;", "YouTube Ads"),
     ("ads", "/tools/ads/", "&#128227;", "Smart 1 Ads"),
     # Directly under Smart 1 Ads because it is the other half of the same
     # question: that screen starts the spend, this one says what it did --
