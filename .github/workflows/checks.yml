@@ -2058,6 +2058,11 @@ jobs:
       - name: Client 360 pipeline card
         run: python3 test_client360_pipeline.py
 
+
+      # The Social suggestions card on Client 360: reads the planner's idea
+      # store, keeps its three empties apart, and writes through the planner.
+      - name: Client 360 social suggestions card
+        run: python3 test_client360_social_ideas.py
       # 360 Skills: the per-client skill store (verify-then-activate, masked
       # secrets), the Ecwid hotsheet maths, the Suite email send path, the
       # three blueprints and the gate Client 360 draws its skill cards behind.

@@ -224,10 +224,10 @@ const C360_SECTIONS=[
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
   {key:'creative', label:'Creative & brand',  match:['creative infor','client images','brand']},
-  {key:'social',   label:'Social & links',    match:['social media','social content','tracked links','form submissions','approvals & proof links']},
+  {key:'social',   label:'Social & links',    match:['social media','social content','social suggestions','tracked links','form submissions','approvals & proof links']},
   {key:'work',     label:'Work & requests',   match:['work for this','web tickets','execution plan']},
   // Skill-gated cards (modules/skills360). Drawn only for a client whose
-  // skill is on; an empty section is the CSS fallback's "nothing here".
+  // skill is on; an empty section is the CSS fallback's nothing here.
   {key:'skills',   label:'Skills',            match:['ecommerce','email creator']},
 ];
 function c360SectionFor(title){
@@ -566,6 +566,15 @@ function render(g,q){
   // on the record a rep opens, which is the "a link that exists and nobody
   // can reach" failure this repo counts six of.
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e0e7ff;color:#3730a3">Social</span><h3>Social content requests</h3><a class="open-link" id="c-scq" href="/tools/social/requests">Open the queue →</a></div><div class="card-b" id="c-social-content"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  /* ---------- Social suggestions ----------
+     The planner's idea board (modules/social_planner/ideas.py): one-line
+     post ideas the client Likes or Passes on from their own link, which
+     steers the mix of the next month's posts. It was a count on the card
+     above; the ideas themselves, what the client has answered, and the
+     two buttons that make more were only on the planner screen. */
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e0e7ff;color:#3730a3">Social</span><h3>Social suggestions</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center" id="c-social-ideas-acts"><a class="open-link" href="/tools/social/?client=${encodeURIComponent(name)}">Open the planner →</a></div></div>
+    <div class="card-b" id="c-social-ideas"><div class="empty">Loading ideas… <span class="spin"></span></div></div></div>`;
 
   // ---------- Traffic Summary (GA4: last month vs previous) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span><a class="open-link" id="c-traffic-ask" style="cursor:pointer;display:none">✨ Ask AI about this data</a></div><div class="card-b"><div id="c-traffic-range" style="margin-bottom:14px"></div><div id="c-traffic-askbox" style="display:none;margin-bottom:14px"></div><div id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div></div>`;
@@ -2432,6 +2441,91 @@ function scStat(label,value,href,warn){
              :`<div>${v}${l}</div>`;
 }
 
+/* ---- social suggestions (lifted and driven in node by test_client360_social_ideas.py) ---- */
+function renderSocialIdeas(d){
+  d=d||{};
+  if(d.measured===false) return '<div class="empty">'+esc(d.error||'The ideas could not be read.')+'</div>';
+  const c=d.counts||{}, rows=d.ideas||[], link=d.link||{};
+  const RESP={pending:['Unanswered','neutral'],liked:['Liked','ok'],passed:['Passed','warn']};
+  let h='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">'
+    +'<span class="pill neutral">'+(c.pending||0)+' unanswered</span>'
+    +'<span class="pill ok">'+(c.liked||0)+' liked</span>'
+    +'<span class="pill warn">'+(c.passed||0)+' passed</span>'
+    +(c.promoted?'<span class="pill info">'+c.promoted+' in a plan</span>':'')
+    +'</div>';
+  // What they like: every tag with a swipe, strongest first. Nothing answered
+  // is a state of its own -- it is the one that means send them the link.
+  const answered=(d.weights||[]).filter(w=>w.answered);
+  if(answered.length){
+    h+='<div class="muted" style="font-size:12px;margin-bottom:4px">What this client responds to</div>'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">'
+      +answered.map(w=>'<span class="pill '+(w.weight>=1?'ok':'neutral')+'" title="'+w.liked+' liked, '+w.passed+' passed" style="font-size:11.5px">'+esc(w.label)+' · '+w.liked+'/'+w.answered+'</span>').join('')
+      +'</div>';
+  }
+  if(!rows.length){
+    h+='<div class="muted" style="font-size:12.5px">No ideas yet for this client. <b>Suggest more</b> asks the AI for a batch built on what the Hub knows about them, or type one below.</div>';
+  }else{
+    if(!answered.length) h+='<div class="muted" style="font-size:12.5px;margin-bottom:8px">Nobody at this client has swiped yet -- the ideas link below is what gets that started.</div>';
+    const order={pending:0,liked:1,passed:2};
+    const shown=rows.slice().sort((a,b)=>(order[a.response]??3)-(order[b.response]??3)).slice(0,10);
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+shown.map(r=>{
+      const rp=RESP[r.response]||RESP.pending;
+      return '<tr><td style="padding:5px 8px 5px 0">'+esc(r.title)+(r.promoted?' <span class="muted" style="font-size:11px">· in a plan</span>':'')+'</td>'
+        +'<td style="padding:5px 8px" class="muted">'+esc(r.tag_label||'')+'</td>'
+        +'<td style="padding:5px 8px" class="muted" style="white-space:nowrap">'+esc(r.source==='model'?'AI':(r.origin==='staff'?'Staff':'House'))+'</td>'
+        +'<td style="padding:5px 0;text-align:right;white-space:nowrap"><span class="pill '+rp[1]+'" style="font-size:11px">'+rp[0]+'</span></td></tr>';
+    }).join('')+'</table>';
+    if(rows.length>shown.length) h+='<div class="muted" style="font-size:12px;margin-top:4px">'+(rows.length-shown.length)+' more on the planner.</div>';
+  }
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">'
+    +'<button type="button" class="btn-ghost" id="si-more" title="AI -- a batch of ideas from what the Hub knows about this client; nothing is sent to them until they open their link">Suggest more (AI)</button>'
+    +'<input type="text" id="si-title" placeholder="Or type an idea…" style="padding:7px 9px;border:1px solid #d6dde5;border-radius:6px;font-size:13px;flex:1;min-width:200px">'
+    +'<select id="si-tag" style="padding:7px 9px;border:1px solid #d6dde5;border-radius:6px;font-size:13px"><option value="">Type of post…</option>'+(d.tags||[]).map(t=>'<option value="'+esc(t.key)+'">'+esc(t.label)+'</option>').join('')+'</select>'
+    +'<button type="button" class="btn-ghost" id="si-add">Add</button></div>';
+  if(link.measured!==false){
+    h+='<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="muted" style="font-size:12px">Their ideas link:</span>'
+      +(link.revoked?'<b style="color:var(--bad,#dc2626);font-size:12.5px">turned off</b>'
+        :'<code style="font-size:11.5px;background:var(--bg,#f8fafc);border:1px solid var(--line);border-radius:6px;padding:4px 7px;overflow-wrap:anywhere">'+esc(link.url||'')+'</code>'
+         +(link.url?'<button type="button" class="gbtn" data-si-copy="'+esc(link.url)+'">Copy</button>':''))
+      +'</div>';
+  }
+  h+='<div id="si-msg" class="muted" style="font-size:12.5px;margin-top:8px"></div>';
+  return h;
+}
+/* ---- end social suggestions ---- */
+function loadSocialIdeas(name,note){
+  const el=$('c-social-ideas'); if(!el) return;
+  const gen=c360Generation;
+  fetch('/api/client/social-ideas?name='+encodeURIComponent(name)+'&url='+encodeURIComponent(window.__c360domain||''),{credentials:'same-origin'})
+    .then(r=>r.json()).then(d=>{
+      if(gen!==c360Generation) return;
+      el.innerHTML=renderSocialIdeas(d);
+      wireSocialIdeas(name,d);
+      if(note){ const m=$('si-msg'); if(m) m.textContent=note; }
+    }).catch(()=>{ if(gen!==c360Generation) return; el.innerHTML=renderSocialIdeas({measured:false,error:'The ideas could not be read.'}); });
+}
+function wireSocialIdeas(name,d){
+  const url=(d&&d.url)||'';
+  const say=(t,bad)=>{ const m=$('si-msg'); if(m){ m.textContent=t; m.style.color=bad?'#9c2b25':''; } };
+  const post=(path,body)=>fetch('/tools/social'+path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(Object.assign({client:name,url:url},body||{}))}).then(r=>r.json());
+  const more=$('si-more'); if(more) more.onclick=async()=>{
+    more.disabled=true; say('Asking for a batch of ideas…');
+    const r=await post('/api/ideas/generate',{}).catch(()=>({ok:false,error:'no answer'}));
+    more.disabled=false;
+    if(!r.ok){ say(r.error||'Could not suggest ideas.',true); return; }
+    loadSocialIdeas(name,(r.ideas||[]).length+' ideas added'+(r.source==='house'?' from the house list (the AI could not be asked'+(r.note?': '+r.note:'')+')':' by AI')+'. Nothing reaches the client until they open their link.');
+  };
+  const add=$('si-add'); if(add) add.onclick=async()=>{
+    const title=($('si-title').value||'').trim(); if(!title){ say('Type the idea first.',true); return; }
+    add.disabled=true;
+    const r=await post('/api/ideas',{title:title,idea_tag:$('si-tag').value}).catch(()=>({ok:false,error:'no answer'}));
+    add.disabled=false;
+    if(!r.ok){ say(r.error||'Could not add it.',true); return; }
+    loadSocialIdeas(name,'Added. The client sees it the next time they open their ideas link.');
+  };
+  document.querySelectorAll('#c-social-ideas [data-si-copy]').forEach(b=>{ b.onclick=()=>copyToClipboard(b.getAttribute('data-si-copy'), b); });
+}
 function socialContentHtml(d,name){
   if(!d||d.measured===false)
     return '<div class="empty">'+esc((d&&d.error)||'Not measured.')+'</div>';
@@ -4101,6 +4195,7 @@ function loadBrandAndWork(name){
   loadPlan(name);
   fetch('/api/client/utm?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderUtm).catch(function(){});
+  loadSocialIdeas(name);
   fetch('/api/client/analytics-ids?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderAnalyticsIds).catch(function(){});
   if(!name) return;

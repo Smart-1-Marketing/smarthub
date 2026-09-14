@@ -4272,6 +4272,64 @@ def create_hub_app() -> Flask:
             return jsonify({"state": "not_measured", "measured": False,
                             "detail": f"Could not read ({type(exc).__name__})."})
 
+    @app.route("/api/client/social-ideas")
+    def api_client_social_ideas():
+        """The suggestion board for the Social suggestions card on Client 360.
+
+        Read straight from the planner's own store (modules/social_planner/
+        ideas.py) rather than a copy -- two lists of the same ideas is how one
+        goes stale and the other gets swiped on. Writes (suggest more, add
+        one) go to the planner's own routes for the same reason.
+
+        Three empties kept apart, renderUtm's rule: the planner could not be
+        read, nobody has generated an idea yet, and ideas exist but nobody at
+        the client has swiped. Only the last two carry an action.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        name = (request.args.get("name") or "").strip()
+        url = (request.args.get("url") or "").strip()
+        if not name:
+            return jsonify({"measured": False, "error": "No client was named."})
+        try:
+            from modules.social_planner import ideas as _ideas, links as _links
+            from . import social_content as _sc
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"measured": False, "client": name,
+                            "error": f"The Social Content Planner is not available ({type(exc).__name__})."})
+        try:
+            rows = _ideas.for_client(name, url, limit=60)
+            table = _ideas.weight_table(name, url)
+            prefs = _ideas.preferences(name, url)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"measured": False, "client": name,
+                            "error": f"The ideas could not be read ({type(exc).__name__})."})
+        out = {
+            "measured": True, "client": name, "url": url,
+            "ideas": [{"id": r.get("id"), "title": r.get("title") or "",
+                       "tag": r.get("idea_tag") or "", "tag_label": _sc.idea_tag_label(r.get("idea_tag") or ""),
+                       "response": str(r.get("client_response") or "pending"),
+                       "origin": r.get("origin") or "", "source": r.get("source") or "",
+                       "created": (r.get("created_at") or "")[:10],
+                       "responded": (r.get("responded_at") or "")[:10],
+                       "promoted": bool(r.get("promoted_batch_id"))} for r in rows],
+            "counts": {"pending": sum(1 for r in rows if str(r.get("client_response") or "pending") == "pending"),
+                       "liked": sum(1 for r in rows if r.get("client_response") == "liked"),
+                       "passed": sum(1 for r in rows if r.get("client_response") == "passed"),
+                       "promoted": sum(1 for r in rows if r.get("promoted_batch_id"))},
+            "weights": table,
+            "topics_wanted": list(prefs.get("topics_wanted") or []),
+            "tags": [{"key": k, "label": v["label"]} for k, v in _sc.IDEA_TAGS.items()],
+            "planner_url": f"/tools/social/?client={name}",
+        }
+        try:
+            out["link"] = {"revoked": _links.is_revoked(name),
+                           "url": _links.link(name, url, "ideas", request.host_url)}
+        except Exception as exc:  # noqa: BLE001
+            out["link"] = {"measured": False, "error": f"{type(exc).__name__}"}
+        return jsonify(out)
+
     @app.route("/api/social/scoreboard")
     def api_social_scoreboard():
         """Who is waiting on us, for the dashboard.
