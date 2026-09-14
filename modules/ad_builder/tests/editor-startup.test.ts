@@ -8,7 +8,7 @@ import { withBase } from '../src/basepath';
 function editorHarness(expose = false) {
   const html = fs.readFileSync(path.join(__dirname, '../public/build.html'), 'utf8');
   let code = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).join('\n');
-  if (expose) { const end = code.lastIndexOf('})();'); code = code.slice(0, end) + 'window.testEditor = {state, preview, schedule};\n' + code.slice(end); }
+  if (expose) { const end = code.lastIndexOf('})();'); code = code.slice(0, end) + 'window.testEditor = {state, preview, schedule, saveCampaign};\n' + code.slice(end); }
   const events = new Map<string, Set<string>>();
   const nodes = new Map<string, any>();
   function node(id: string): any {
@@ -19,12 +19,13 @@ function editorHarness(expose = false) {
     return nodes.get(id);
   }
   const document = { getElementById: node, querySelectorAll: () => [], addEventListener() {}, body: node('body') };
-  const requests: { url: string; resolve: (result: any) => void }[] = [];
-  const context = { document, window: { addEventListener() {} } as any, location: { search: '', pathname: '/build' },
-    fetch: (url: string) => new Promise(resolve => { requests.push({ url, resolve }); }), setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1,
-    URLSearchParams, console, navigator: {} };
+  const requests: { url: string; options?: any; resolve: (result: any) => void }[] = [];
+  const removed: string[] = [];
+  const context = { localStorage: {removeItem: (key:string)=>removed.push(key)}, document, window: { addEventListener() {} } as any, location: { search: '', pathname: '/build' },
+    fetch: (url: string, options?: any) => new Promise(resolve => { requests.push({ url, options, resolve }); }), setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1,
+    URLSearchParams, console, navigator: {}, MutationObserver: class { observe() {} } };
   vm.runInNewContext(code, context, { timeout: 2000 });
-  return { events, nodes, requests, editor: context.window.testEditor };
+  return { events, nodes, requests, removed, editor: context.window.testEditor };
 }
 
 test('the complete editor script starts and registers animation and workflow handlers', () => {
@@ -53,4 +54,48 @@ test('mounted core navigation is correct before browser JavaScript runs', () => 
   assert.match(html, /href="\/tools\/display-ads\/diagnostics"/);
   assert.match(html, /href="\/tools\/display-ads\/projects\?q=test"/);
   assert.doesNotMatch(html, /href="\/diagnostics"/);
+});
+
+test('overlapping saves serialize and preserve edits made while the first request is pending', async () => {
+  const {editor,requests,nodes}=editorHarness(true);
+  editor.state.requestId='save-test';editor.state.doc={revision:'old',campaign:{concepts:[]},platforms:['google']};editor.state.dirty=true;
+  const first=editor.saveCampaign();
+  editor.state.doc.campaign.campaignName='Newer edit';
+  const second=editor.saveCampaign();
+  const writes=()=>requests.filter(r=>r.url==='/api/campaign/save-test');
+  assert.equal(writes().length,1);
+  writes()[0].resolve({ok:true,json:async()=>({revision:'one'})});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(writes().length,2);
+  const newer=JSON.parse(writes()[1].options.body);
+  assert.equal(newer.revision,'one');assert.equal(newer.campaign.campaignName,'Newer edit');
+  writes()[1].resolve({ok:true,json:async()=>({revision:'two'})});
+  await Promise.all([first,second]);
+  assert.equal(editor.state.dirty,false);assert.equal(editor.state.doc.revision,'two');
+  assert.equal(nodes.get('saveHint').textContent,'Saved');
+});
+
+test('a failed autosave keeps edits and a manual retry can finish saving', async () => {
+  const {editor,requests,nodes}=editorHarness(true);
+  editor.state.requestId='retry-test';editor.state.doc={revision:'old',campaign:{concepts:[]},platforms:['google']};editor.state.dirty=true;
+  const first=editor.saveCampaign();
+  requests.find(r=>r.url==='/api/campaign/retry-test')!.resolve({ok:false,status:503,json:async()=>({error:'Temporarily unavailable'})});
+  await assert.rejects(first,/Temporarily unavailable/);
+  assert.equal(editor.state.dirty,true);assert.match(nodes.get('saveHint').textContent,/Save now to retry/);
+  const retry=editor.saveCampaign();
+  requests.filter(r=>r.url==='/api/campaign/retry-test')[1].resolve({ok:true,json:async()=>({revision:'saved'})});
+  await retry;assert.equal(editor.state.dirty,false);assert.equal(nodes.get('saveHint').textContent,'Saved');
+});
+
+test('a save finishing after switching campaigns cannot clear the other draft or its status',async()=>{
+  const {editor,requests,nodes,removed}=editorHarness(true);
+  editor.state.requestId='first';editor.state.doc={revision:'old',campaign:{concepts:[]}};editor.state.dirty=true;
+  const saving=editor.saveCampaign();
+  editor.state.requestId='second';editor.state.doc={revision:'second-version',campaign:{concepts:[]}};editor.state.dirty=false;
+  nodes.get('saveHint').textContent='An unfinished draft is available';
+  requests.find(r=>r.url==='/api/campaign/first')!.resolve({ok:true,json:async()=>({revision:'first-saved'})});
+  await saving;
+  assert.equal(editor.state.doc.revision,'second-version');
+  assert.equal(nodes.get('saveHint').textContent,'An unfinished draft is available');
+  assert.ok(!removed.includes('s1-ad-draft:second'));
 });

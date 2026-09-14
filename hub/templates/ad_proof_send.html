@@ -1,0 +1,22 @@
+{% extends 'base.html' %}{% block title %}Send ad proof{% endblock %}{% block content %}
+<main style="max-width:800px;margin:auto"><nav aria-label="Display ad steps">1. Brief → 2. Design → <a id="back">3. Review</a> → <strong aria-current="step">4. Send</strong></nav>
+<h1>Send the client their ad proof</h1><p id="client"></p><p id="recipient" role="status">Checking the linked recipient…</p><a id="contact-link">Verify or change client contact</a>
+<form id="compose"><p><label for="sender">From: your sender address in Smart 1’s GHL account</label><input id="sender" type="email" required value="{{ sender }}" style="width:100%"></p>
+<p><label for="subject">Subject</label><input id="subject" required maxlength="200" style="width:100%"></p>
+<p><label for="message">Message</label><textarea id="message" required maxlength="10000" rows="7" style="width:100%">Your display ads are ready for review. Please use the link below to approve this version or tell us what you would like changed.
+
+Thank you,
+Smart 1</textarea></p><p>The link to the exact reviewed version will be added automatically.</p><button id="prepare" type="submit" disabled>Preview email</button></form>
+<section id="preview" hidden class="card" style="padding:20px"><h2>Check before sending</h2><p id="addresses"></p><h3 id="preview-subject"></h3><p id="preview-message" style="white-space:pre-wrap"></p><a id="proof" target="_blank" rel="noopener">Open the client’s proof</a><p><button id="send">Send proof through GHL</button> <button id="edit">Edit message</button></p></section>
+<p id="result" role="status" aria-live="polite"></p><a id="history" hidden>Open client email history</a></main>
+<script>(()=>{const project={{ project|tojson }},review={{ review|tojson }},$=id=>document.getElementById(id);let draft;
+const api=async(path,body)=>{const r=await fetch('/api/display-ad-send/'+path,body?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:undefined);const b=await r.json();if(!r.ok)throw Error(b.error||'Please try again.');return b;};
+$('back').href='/tools/display-ads/review?project='+encodeURIComponent(project);
+api('context?project='+encodeURIComponent(project)).then(b=>{$('client').textContent=b.project.client+' · '+b.project.name;$('subject').value='Your display ad proof — '+b.project.name;const contactUrl='/client-email?client='+encodeURIComponent(b.project.client)+'&domain='+encodeURIComponent(b.project.domain);$('contact-link').href=contactUrl;$('history').href=contactUrl;$('recipient').textContent=b.contact.linked?'To: '+b.contact.contact.name+' · '+b.contact.contact.email:'Link the client’s email contact to continue.';$('prepare').disabled=!b.contact.linked;
+const prior=(b.attempts||[]).find(a=>a.review_id===review && ['queued','sending','unknown'].includes(a.status));
+if(prior){$('compose').hidden=true;$('history').hidden=false;$('result').textContent=prior.status==='queued'?'GHL accepted this proof email. Check client email history for delivery and replies.':prior.error||'This proof already has a send attempt. Check the GHL conversation before sending again.';}
+}).catch(e=>$('result').textContent=e.message);
+$('compose').onsubmit=async e=>{e.preventDefault();$('prepare').disabled=true;$('result').textContent='Preparing the exact proof and verifying the recipient…';try{draft=await api('prepare',{project,review,sender:$('sender').value,subject:$('subject').value,message:$('message').value});$('addresses').textContent='From: '+draft.sender+' → To: '+draft.recipient;$('preview-subject').textContent=draft.subject;$('preview-message').textContent=draft.message;$('proof').href=draft.proof_url;$('preview').hidden=false;$('compose').hidden=true;$('result').textContent='Nothing has been sent yet.';}catch(e){$('result').textContent=e.message;}finally{$('prepare').disabled=false;}};
+$('edit').onclick=()=>{$('preview').hidden=true;$('compose').hidden=false;draft=null;};
+$('send').onclick=async()=>{if(!draft)return;$('send').disabled=true;$('edit').disabled=true;$('result').textContent='Sending through GHL…';try{const b=await api('send',{id:draft.id});$('result').textContent=b.status==='queued'?(b.error||'GHL accepted the email for delivery. Refresh Client 360 email history to check delivery and replies.'):b.error||'A send attempt is already in progress. Check GHL before retrying.';$('history').hidden=false;}catch(e){$('result').textContent=e.message+' Check GHL before trying to send again.';$('history').hidden=false;}};
+})();</script>{% endblock %}

@@ -77,6 +77,8 @@ check("the template still yields a readable set of card titles",
 WANT = {
     "Products & IOs": "overview",
     "Orders we have sent": "overview",
+    "Coming up": "overview",
+
     "Ad performance": "overview",
     "Google listing": "overview",
     "YouTube channel": "overview",
@@ -97,7 +99,9 @@ WANT = {
     "Client Images": "creative",
     "Brand & logos": "creative",
     "Social Media": "social",
+    "YouTube accounts": "social",
     "Social content requests": "social",
+    "Social suggestions": "social",
     "Tracked links": "social",
     "Form submissions": "social",
     "Approvals & proof links": "social",

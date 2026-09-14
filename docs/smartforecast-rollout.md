@@ -5,6 +5,9 @@
 **Runtime:** existing `smart1-hub` Render web service
 
 **Plan date:** 2026-09-01
+
+**Latest verification:** [September 14 rollout evidence](smartforecast-verification-2026-09-14.md). Live deployment and durable database path are confirmed; production provider/scheduler/backup acceptance, live QA, pilot observation, and CRM reconciliation remain open. Historical deployment wording below is superseded only by that evidence.
+
 **Objective:** ship weather-triggered website personalization safely, prove it
 with one HVAC client, then expand by client count and industry without weakening
 the lifecycle, audit, or rollback controls.

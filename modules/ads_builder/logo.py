@@ -135,7 +135,7 @@ def from_client_record(client_name: str, website: str = "") -> dict:
             kit = client_brand.brand_kit(pair["name"], pair["domain"])
         except Exception:  # noqa: BLE001
             continue
-        if not kit.get("found"):
+        if not kit.get("authoritative"):
             continue
         had_brand = True
         best = _pick(kit.get("logos") or [])

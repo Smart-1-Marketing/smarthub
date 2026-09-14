@@ -73,7 +73,7 @@ DEFAULT_ENDPOINT = "https://api.stackadapt.com/graphql"
 DEFAULT_HEADER = "Authorization"
 TIMEOUT = 60
 PAGE_SIZE = 500
-DAYS = 14
+DAYS = 30
 PROGRESS_TRIES = 6
 PROGRESS_WAIT = 5
 # The most wall-clock one pull may spend waiting on a report, in seconds.

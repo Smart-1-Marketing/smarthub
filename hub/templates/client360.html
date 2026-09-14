@@ -219,15 +219,15 @@ const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href=
    twenty-two into the first section. */
 /* ---- c360 sections (lifted and driven in node by test_client360_layout.py) ---- */
 const C360_SECTIONS=[
-  {key:'overview', label:'Overview',          match:['products','orders we have sent','ad performance','google listing','youtube channel','smart 1 suite','pipeline & leads','proposals','client notes','target audience']},
+  {key:'overview', label:'Overview',          match:['products','orders we have sent','coming up','ad performance','google listing','youtube channel','smart 1 suite','pipeline & leads','proposals','client notes','target audience']},
   {key:'billing',  label:'Billing',           match:['invoices']},
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
   {key:'creative', label:'Creative & brand',  match:['creative infor','client images','brand']},
-  {key:'social',   label:'Social & links',    match:['social media','social content','tracked links','form submissions','approvals & proof links']},
+  {key:'social',   label:'Social & links',    match:['social media','social content','social suggestions','youtube','tracked links','form submissions','approvals & proof links']},
   {key:'work',     label:'Work & requests',   match:['work for this','web tickets','execution plan']},
   // Skill-gated cards (modules/skills360). Drawn only for a client whose
-  // skill is on; an empty section is the CSS fallback's "nothing here".
+  // skill is on; an empty section is the CSS fallback's nothing here.
   {key:'skills',   label:'Skills',            match:['ecommerce','email creator']},
 ];
 function c360SectionFor(title){
@@ -400,6 +400,7 @@ function render(g,q){
      card. The group button keeps the s1-acc-group class because
      loadGroup() and S1GroupLabel() address it by that name. */
   head+='<div class="c360-actions">'
+    +'<a class="ce-client-link" href="/tools/display-ads/_hub/start?client='+encodeURIComponent(name)+'&website='+encodeURIComponent(emailDomain)+'">Create display ads</a>'
     +'<a class="ce-client-link" href="/client-email?client='+encodeURIComponent(name)+'&domain='+encodeURIComponent(emailDomain)+'">Email client &amp; history</a>'
     +'<button type="button" onclick="ioStart(\'new\')">New IO</button>'
     +'<button type="button" onclick="ioStart(\'renewal\')">Renew IO</button>'
@@ -493,6 +494,12 @@ function render(g,q){
     .map(p=>String(p.io||'').replace(/[^0-9a-z]+/gi,'').toLowerCase())
     .filter(Boolean));
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Orders we have sent</h3><a class="open-link" href="/tools/io/">Open the IO Builder →</a></div><div class="card-b" id="c-orders"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  /* ---------- Coming up (hub/client_upcoming.py) ----------
+     Orders ending, domains renewing, soonest first, with the gap since we
+     last did anything. Every source above already had these on the record
+     somewhere; none of them said WHEN, which is the only thing a renewal
+     conversation needs. */
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Dates</span><h3>Coming up</h3></div><div class="card-b" id="c-upcoming"><div class="empty">Reading dates… <span class="spin"></span></div></div></div>`;
 
   // ---------- Ad performance ----------
   // What the Reports module holds for this client: the campaigns filed
@@ -534,6 +541,7 @@ function render(g,q){
   html+='</div></div>';
 
   // ---------- Google card ----------
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Video</span><h3>YouTube accounts</h3><a class="open-link" href="${'/tools/youtube/?client='+encodeURIComponent(name)}">Add account &amp; manage access →</a></div><div class="card-b" id="c-youtube"><div class="empty">Loading YouTube accounts…</div></div></div>`;
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GA4, GTM &amp; more</h3><a class="open-link" href="${'/google/?q='+encodeURIComponent(name)}">Open Google Finder →</a></div><div class="card-b" id="c-google"><div id="c-analytics-ids" style="margin-bottom:10px"></div><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
 
   // ---------- GTM Containers (replaces the old Simvoly box) ----------
@@ -568,6 +576,15 @@ function render(g,q){
   // on the record a rep opens, which is the "a link that exists and nobody
   // can reach" failure this repo counts six of.
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e0e7ff;color:#3730a3">Social</span><h3>Social content requests</h3><a class="open-link" id="c-scq" href="/tools/social/requests">Open the queue →</a></div><div class="card-b" id="c-social-content"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  /* ---------- Social suggestions ----------
+     The planner's idea board (modules/social_planner/ideas.py): one-line
+     post ideas the client Likes or Passes on from their own link, which
+     steers the mix of the next month's posts. It was a count on the card
+     above; the ideas themselves, what the client has answered, and the
+     two buttons that make more were only on the planner screen. */
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e0e7ff;color:#3730a3">Social</span><h3>Social suggestions</h3>
+    <div class="right" style="display:flex;gap:10px;align-items:center" id="c-social-ideas-acts"><a class="open-link" href="/tools/social/?client=${encodeURIComponent(name)}">Open the planner →</a></div></div>
+    <div class="card-b" id="c-social-ideas"><div class="empty">Loading ideas… <span class="spin"></span></div></div></div>`;
 
   // ---------- Traffic Summary (GA4: last month vs previous) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span><a class="open-link" id="c-traffic-ask" style="cursor:pointer;display:none">✨ Ask AI about this data</a></div><div class="card-b"><div id="c-traffic-range" style="margin-bottom:14px"></div><div id="c-traffic-askbox" style="display:none;margin-bottom:14px"></div><div id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div></div>`;
@@ -768,6 +785,12 @@ function render(g,q){
   html+='</div></div>';               // close the staging grid and its wrapper
   $('results').innerHTML=html;
   sectionize();                       // move every card into its section
+  const youtubeTarget=$('c-youtube');
+  fetch('/tools/youtube/api/client?client='+encodeURIComponent(name)).then(r=>{if(!r.ok)throw new Error();return r.json();}).then(d=>{
+    if(!youtubeTarget.isConnected)return;
+    const channels=(d.client||{}).channels||[];
+    youtubeTarget.innerHTML=channels.length?channels.map(c=>'<div style="padding:8px 0"><b>'+esc(c.title)+'</b><div class="muted">'+esc(c.connection_error?'Reconnect required':c.connected?'Connected for management':'Linked — owner access needed')+'</div></div>').join(''):'<p>No YouTube account linked yet. Add a channel or create an owner access link.</p>';
+  }).catch(()=>{if(youtubeTarget.isConnected)youtubeTarget.textContent='YouTube accounts could not be loaded. Open YouTube Studio to retry.';});
   loadHealth(name);
   if(skillsOn.indexOf('ecwid')>-1) loadEcwid(name);
   if(skillsOn.indexOf('email')>-1) loadEmailCreator(name);
@@ -2260,7 +2283,8 @@ function render(g,q){
       +'border-radius:8px;font:12.5px inherit">'
       +(safeExternalUrl(v)?'<a href="'+esc(safeExternalUrl(v))+'" target="_blank"'
         +' rel="noopener" style="flex:none" title="Open">↗</a>':'')
-      +'<button type="button" class="s-del" title="Remove this link"'
+        +(k==='youtube'&&v?'<a class="gbtn" href="/tools/youtube/?client='+encodeURIComponent(name)+'&channel='+encodeURIComponent(v)+'">Add account</a>':'')
+        +'<button type="button" class="s-del" title="Remove this link"'
       +' style="flex:none;border:0;background:none;cursor:pointer;color:#94a3b8;'
       +'font-size:16px;line-height:1;padding:0 2px">&times;</button></div>';
   }
@@ -2434,6 +2458,129 @@ function scStat(label,value,href,warn){
              :`<div>${v}${l}</div>`;
 }
 
+/* ---- social suggestions (lifted and driven in node by test_client360_social_ideas.py) ---- */
+function renderSocialIdeas(d){
+  d=d||{};
+  if(d.measured===false) return '<div class="empty">'+esc(d.error||'The ideas could not be read.')+'</div>';
+  const c=d.counts||{}, rows=d.ideas||[], link=d.link||{};
+  const RESP={pending:['Unanswered','neutral'],liked:['Liked','ok'],passed:['Passed','warn']};
+  let h='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">'
+    +'<span class="pill neutral">'+(c.pending||0)+' unanswered</span>'
+    +'<span class="pill ok">'+(c.liked||0)+' liked</span>'
+    +'<span class="pill warn">'+(c.passed||0)+' passed</span>'
+    +(c.promoted?'<span class="pill info">'+c.promoted+' in a plan</span>':'')
+    +'</div>';
+  // What they like: every tag with a swipe, strongest first. Nothing answered
+  // is a state of its own -- it is the one that means send them the link.
+  const answered=(d.weights||[]).filter(w=>w.answered);
+  if(answered.length){
+    h+='<div class="muted" style="font-size:12px;margin-bottom:4px">What this client responds to</div>'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">'
+      +answered.map(w=>'<span class="pill '+(w.weight>=1?'ok':'neutral')+'" title="'+w.liked+' liked, '+w.passed+' passed" style="font-size:11.5px">'+esc(w.label)+' · '+w.liked+'/'+w.answered+'</span>').join('')
+      +'</div>';
+  }
+  if(!rows.length){
+    h+='<div class="muted" style="font-size:12.5px">No ideas yet for this client. <b>Suggest more</b> asks the AI for a batch built on what the Hub knows about them, or type one below.</div>';
+  }else{
+    if(!answered.length) h+='<div class="muted" style="font-size:12.5px;margin-bottom:8px">Nobody at this client has swiped yet -- the ideas link below is what gets that started.</div>';
+    const order={pending:0,liked:1,passed:2};
+    const shown=rows.slice().sort((a,b)=>(order[a.response]??3)-(order[b.response]??3)).slice(0,10);
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+shown.map(r=>{
+      const rp=RESP[r.response]||RESP.pending;
+      return '<tr><td style="padding:5px 8px 5px 0">'+esc(r.title)+(r.promoted?' <span class="muted" style="font-size:11px">· in a plan</span>':'')+'</td>'
+        +'<td style="padding:5px 8px" class="muted">'+esc(r.tag_label||'')+'</td>'
+        +'<td style="padding:5px 8px" class="muted" style="white-space:nowrap">'+esc(r.source==='model'?'AI':(r.origin==='staff'?'Staff':'House'))+'</td>'
+        +'<td style="padding:5px 0;text-align:right;white-space:nowrap"><span class="pill '+rp[1]+'" style="font-size:11px">'+rp[0]+'</span></td></tr>';
+    }).join('')+'</table>';
+    if(rows.length>shown.length) h+='<div class="muted" style="font-size:12px;margin-top:4px">'+(rows.length-shown.length)+' more on the planner.</div>';
+  }
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">'
+    +'<button type="button" class="btn-ghost" id="si-more" title="AI -- a batch of ideas from what the Hub knows about this client; nothing is sent to them until they open their link">Suggest more (AI)</button>'
+    +'<input type="text" id="si-title" placeholder="Or type an idea…" style="padding:7px 9px;border:1px solid #d6dde5;border-radius:6px;font-size:13px;flex:1;min-width:200px">'
+    +'<select id="si-tag" style="padding:7px 9px;border:1px solid #d6dde5;border-radius:6px;font-size:13px"><option value="">Type of post…</option>'+(d.tags||[]).map(t=>'<option value="'+esc(t.key)+'">'+esc(t.label)+'</option>').join('')+'</select>'
+    +'<button type="button" class="btn-ghost" id="si-add">Add</button></div>';
+  if(link.measured!==false){
+    h+='<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="muted" style="font-size:12px">Their ideas link:</span>'
+      +(link.revoked?'<b style="color:var(--bad,#dc2626);font-size:12.5px">turned off</b>'
+        :'<code style="font-size:11.5px;background:var(--bg,#f8fafc);border:1px solid var(--line);border-radius:6px;padding:4px 7px;overflow-wrap:anywhere">'+esc(link.url||'')+'</code>'
+         +(link.url?'<button type="button" class="gbtn" data-si-copy="'+esc(link.url)+'">Copy</button>':''))
+      +'</div>';
+  }
+  h+='<div id="si-msg" class="muted" style="font-size:12.5px;margin-top:8px"></div>';
+  return h;
+}
+/* ---- end social suggestions ---- */
+function loadSocialIdeas(name,note){
+  const el=$('c-social-ideas'); if(!el) return;
+  const gen=c360Generation;
+  fetch('/api/client/social-ideas?name='+encodeURIComponent(name)+'&url='+encodeURIComponent(window.__c360domain||''),{credentials:'same-origin'})
+    .then(r=>r.json()).then(d=>{
+      if(gen!==c360Generation) return;
+      el.innerHTML=renderSocialIdeas(d);
+      wireSocialIdeas(name,d);
+      if(note){ const m=$('si-msg'); if(m) m.textContent=note; }
+    }).catch(()=>{ if(gen!==c360Generation) return; el.innerHTML=renderSocialIdeas({measured:false,error:'The ideas could not be read.'}); });
+}
+function wireSocialIdeas(name,d){
+  const url=(d&&d.url)||'';
+  const say=(t,bad)=>{ const m=$('si-msg'); if(m){ m.textContent=t; m.style.color=bad?'#9c2b25':''; } };
+  const post=(path,body)=>fetch('/tools/social'+path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(Object.assign({client:name,url:url},body||{}))}).then(r=>r.json());
+  const more=$('si-more'); if(more) more.onclick=async()=>{
+    more.disabled=true; say('Asking for a batch of ideas…');
+    const r=await post('/api/ideas/generate',{}).catch(()=>({ok:false,error:'no answer'}));
+    more.disabled=false;
+    if(!r.ok){ say(r.error||'Could not suggest ideas.',true); return; }
+    loadSocialIdeas(name,(r.ideas||[]).length+' ideas added'+(r.source==='house'?' from the house list (the AI could not be asked'+(r.note?': '+r.note:'')+')':' by AI')+'. Nothing reaches the client until they open their link.');
+  };
+  const add=$('si-add'); if(add) add.onclick=async()=>{
+    const title=($('si-title').value||'').trim(); if(!title){ say('Type the idea first.',true); return; }
+    add.disabled=true;
+    const r=await post('/api/ideas',{title:title,idea_tag:$('si-tag').value}).catch(()=>({ok:false,error:'no answer'}));
+    add.disabled=false;
+    if(!r.ok){ say(r.error||'Could not add it.',true); return; }
+    loadSocialIdeas(name,'Added. The client sees it the next time they open their ideas link.');
+  };
+  document.querySelectorAll('#c-social-ideas [data-si-copy]').forEach(b=>{ b.onclick=()=>copyToClipboard(b.getAttribute('data-si-copy'), b); });
+}
+
+/* ---- coming up (lifted and driven in node by test_client360_upcoming.py) ---- */
+function renderUpcoming(d){
+  d=d||{};
+  if(d.measured===false) return '<div class="empty">'+esc(d.error||'Could not read.')+'</div>';
+  const items=d.items||[], act=d.activity||{};
+  let h='';
+  if(act.measured===false){
+    h+='<div class="muted" style="font-size:12.5px;margin-bottom:8px">'+esc(act.error||'Last activity could not be read.')+'</div>';
+  }else if(act.state==='idle'){
+    h+='<div class="muted" style="font-size:12.5px;margin-bottom:8px">No Hub tool has logged work for this client yet.</div>';
+  }else{
+    const col=act.state==='ok'?'#0a6b3c':act.state==='warn'?'#92400e':'#9c2b25';
+    h+='<div style="font-size:12.5px;margin-bottom:8px">Last activity <b style="color:'+col+'">'+(act.days===0?'today':act.days+' days ago')+'</b>'
+      +' <span class="muted">· '+esc(act.kind||'work')+(act.source?' via '+esc(act.source):'')+(act.actor?' by '+esc(act.actor):'')+'</span></div>';
+  }
+  if(!items.length){
+    h+='<div class="muted" style="font-size:12.5px">Nothing ends or renews in the next '+(d.horizon_days||120)+' days'+((d.unread||[]).length?', from what could be read':'')+'.</div>';
+  }else{
+    const cls={bad:'err',warn:'warn',ok:'ok',unread:'neutral'};
+    h+='<table style="width:100%;border-collapse:collapse;font-size:13px">'+items.map(i=>{
+      const when=i.days===null||i.days===undefined?'date not on file':(i.days<0?Math.abs(i.days)+' days ago':i.days===0?'today':'in '+i.days+' days');
+      return '<tr><td style="padding:5px 8px 5px 0;white-space:nowrap"><span class="pill '+(cls[i.state]||'neutral')+'" style="font-size:11px">'+esc(when)+'</span></td>'
+        +'<td style="padding:5px 8px"><b>'+esc(i.label)+'</b> · '+esc(i.what)+(i.detail?'<div class="muted" style="font-size:12px">'+esc(i.detail)+'</div>':'')+'</td>'
+        +'<td style="padding:5px 0;text-align:right;white-space:nowrap" class="muted">'+esc(i.when||'')+'</td></tr>';
+    }).join('')+'</table>';
+  }
+  if((d.unread||[]).length) h+='<div class="muted" style="font-size:11.5px;margin-top:8px">Not measured: '+d.unread.map(esc).join(' ')+'</div>';
+  return h;
+}
+/* ---- end coming up ---- */
+function loadUpcoming(name){
+  const el=$('c-upcoming'); if(!el) return;
+  const gen=c360Generation;
+  fetch('/api/client/upcoming?name='+encodeURIComponent(name)+'&url='+encodeURIComponent(window.__c360domain||''),{credentials:'same-origin'})
+    .then(r=>r.json()).then(d=>{ if(gen!==c360Generation) return; el.innerHTML=renderUpcoming(d); })
+    .catch(()=>{ if(gen!==c360Generation) return; el.innerHTML=renderUpcoming({measured:false,error:'The dates could not be read.'}); });
+}
 function socialContentHtml(d,name){
   if(!d||d.measured===false)
     return '<div class="empty">'+esc((d&&d.error)||'Not measured.')+'</div>';
@@ -3925,6 +4072,14 @@ function renderEcwid(d){
   h+=tile('This year',skMoney(y.revenue),(y.orders||0)+' orders','');
   if(d.abandoned){const a=d.abandoned; h+=tile('Abandoned carts',String((a.month||{}).carts||0),skMoney((a.month||{}).value)+' left in carts this month','');}
   h+='</div>';
+  const W=d.windows||{}; if(Object.keys(W).length){
+    const pick=String(window.__ecDays||'30'); const w=W[pick]||W[Object.keys(W)[0]]||{};
+    h+='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:2px 0 8px"><span class="muted" style="font-size:12px">Rolling:</span>'
+      +Object.keys(W).map(k=>'<button type="button" class="gbtn" data-ec-days="'+k+'"'+(k===pick?' style="background:var(--navy);color:#fff"':'')+'>Last '+k+' days</button>').join('')
+      +'<span style="font-size:13px;margin-left:6px"><b>'+skMoney(w.revenue)+'</b> · '+(w.orders||0)+' orders · avg '+skMoney2(w.avg_order)+'</span>'
+      +(w.change_pct===null||w.change_pct===undefined?'<span class="muted" style="font-size:12px">no prior period</span>':'<span style="font-size:12px;color:'+(w.change_pct>=0?'#0a6b3c':'#9c2b25')+'">'+(w.change_pct>=0?'&#9650;':'&#9660;')+' '+Math.abs(w.change_pct)+'% vs the '+w.days+' days before</span>')
+      +'</div>';
+  }
   const ms=d.monthly||[]; const max=Math.max(1,...ms.map(x=>x.revenue||0));
   h+='<div style="display:flex;align-items:flex-end;gap:5px;height:110px;margin:4px 0 14px">'+ms.map(x=>
     '<div title="'+esc(x.month)+': '+skMoney2(x.revenue)+' · '+x.orders+' orders" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0">'
@@ -3946,6 +4101,9 @@ function renderEcwid(d){
   return h;
 }
 /* ---- end ecommerce ---- */
+function wireEcwidDays(el){
+  el.querySelectorAll('[data-ec-days]').forEach(b=>{ b.onclick=()=>{ window.__ecDays=b.dataset.ecDays; el.innerHTML=renderEcwid(window.__ecData); wireEcwidDays(el); }; });
+}
 function loadEcwid(name,fresh){
   const el=$('c-ecwid'); if(!el) return;
   const gen=c360Generation;
@@ -3953,7 +4111,9 @@ function loadEcwid(name,fresh){
   fetch(SK_API+'/ecwid/dashboard?name='+encodeURIComponent(name)+(fresh?'&fresh=1':''),{credentials:'same-origin'})
     .then(r=>r.json()).then(d=>{
       if(gen!==c360Generation) return;
+      window.__ecData=d;
       el.innerHTML=renderEcwid(d);
+      wireEcwidDays(el);
       const acts=$('c-ecwid-acts');
       if(acts&&!acts.querySelector('[data-ecwid-refresh]')){
         const b=document.createElement('button'); b.type='button'; b.className='gbtn'; b.textContent='Refresh'; b.setAttribute('data-ecwid-refresh','1');
@@ -3984,6 +4144,13 @@ function renderEmailReadiness(r){
   h+='</div><div class="muted" style="font-size:12.5px;line-height:1.5">'+esc(r.detail||'')
     +(d.state==='missing'?' <a href="'+esc(r.settings_url||'#')+'" target="_blank" rel="noopener">Email Services in Suite &rarr;</a> · <a href="'+esc(r.tool_url||'/tools/360-skills/')+'">DNS records in 360 Skills &rarr;</a>':'')
     +'</div>';
+  const sends=r.sends||[];
+  if(sends.length){
+    const KIND={template:'Saved to Suite templates',test:'Test',batch:'Sent to contacts'};
+    h+='<div style="margin-top:8px"><span class="muted" style="font-size:12px">Recent sends</span><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+      +sends.slice(0,6).map(x=>'<tr><td style="padding:3px 8px 3px 0;white-space:nowrap" class="muted">'+esc((x.at||'').slice(0,10))+'</td><td style="padding:3px 8px">'+esc(KIND[x.kind]||x.kind)+(x.kind==='batch'?' ('+(x.count||0)+')':'')+(x.to?' → '+esc(x.to):'')+'</td><td style="padding:3px 0"><b>'+esc(x.subject||'')+'</b>'+(x.detail?' <span class="muted">'+esc(x.detail)+'</span>':'')+'</td><td style="padding:3px 0 3px 8px;text-align:right" class="muted">'+esc(x.by||'')+'</td></tr>').join('')
+      +'</table></div>';
+  }
   return h;
 }
 let skEmailReady=false;
@@ -4007,7 +4174,8 @@ function renderEmailComposer(){
   h+=inp('em-headline','Headline','');
   h+='<div class="field"><label style="font-size:11.5px;font-weight:600;color:#5a6b7c;display:block;margin:8px 0 3px" for="em-body">Body</label><textarea id="em-body" rows="7" placeholder="Short paragraphs separated by a blank line. '+'{'+'{contact.first_name}'+'}'+' works." style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid #d6dde5;border-radius:6px;font-size:13px;font-family:inherit"></textarea></div>';
   h+='<div class="grid-2" style="gap:0 14px">'+inp('em-cta','Button text','Reserve your spot')+inp('em-url','Button link','https://…')+'</div>';
-  h+=inp('em-hero','Hero image URL (optional)','https://…');
+  h+='<div style="display:flex;gap:8px;align-items:flex-end"><div style="flex:1">'+inp('em-hero','Hero image URL (optional)','https://…')+'</div><button type="button" class="btn-ghost" id="em-pick" style="margin-bottom:1px">Pick from client images</button></div>'
+    +'<div id="em-pick-box" hidden style="display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px;margin-top:8px"></div>';
   h+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px">'
     +'<button type="button" class="btn-ghost" id="em-preview-btn">Preview</button>'
     +'<button type="button" class="btn-ghost" id="em-template-btn">Save to Suite templates</button>'
@@ -4065,6 +4233,15 @@ function wireEmailComposer(name){
     emSay(d.ok?'ok':'err',esc(d.detail||''));
   };
   $('em-send-open').onclick=()=>{ $('em-send-box').hidden=!$('em-send-box').hidden; };
+  $('em-pick').onclick=async()=>{
+    const box=$('em-pick-box'); if(!box.hidden){ box.hidden=true; return; }
+    box.hidden=false; box.innerHTML='<span class="muted" style="font-size:12px">Loading the client\'s images…</span>';
+    const d=await fetch('/tools/seo-images/api/gallery?company='+encodeURIComponent(name)+'&limit=24',{credentials:'same-origin'}).then(r=>r.ok?r.json():{gallery:[]}).catch(()=>({gallery:[]}));
+    const rows=(d.gallery||[]).filter(r=>r.url);
+    if(!rows.length){ box.innerHTML='<span class="muted" style="font-size:12px">No images saved for this client yet — the Client Images card is where they are added.</span>'; return; }
+    box.innerHTML=rows.map(r=>'<img src="'+esc(r.thumb||r.url)+'" data-full="'+esc(r.url)+'" alt="'+esc(r.alt_text||'')+'" loading="lazy" title="'+esc(r.filename||'')+'" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;border:2px solid transparent;cursor:pointer">').join('');
+    box.querySelectorAll('img[data-full]').forEach(im=>{ im.onclick=()=>{ $('em-hero').value=im.dataset.full; box.querySelectorAll('img').forEach(x=>x.style.borderColor='transparent'); im.style.borderColor='var(--navy)'; emSay('note','Hero image set. Preview to see it in place.'); }; });
+  };
   $('em-search').onclick=async()=>{
     const q=$('em-q').value.trim(), tag=$('em-tag').value.trim();
     $('em-contacts').innerHTML='<div class="muted" style="font-size:12.5px">Searching…</div>';
@@ -4105,6 +4282,9 @@ function loadBrandAndWork(name){
   loadPlan(name);
   fetch('/api/client/utm?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderUtm).catch(function(){});
+  loadSocialIdeas(name);
+
+  loadUpcoming(name);
   fetch('/api/client/analytics-ids?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderAnalyticsIds).catch(function(){});
   if(!name) return;

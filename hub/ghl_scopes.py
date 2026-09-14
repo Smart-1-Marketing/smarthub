@@ -176,12 +176,25 @@ WRITE: tuple[Scope, ...] = (
 
 REQUESTED: tuple[Scope, ...] = READ + WRITE
 
+# Internal client-service email always uses Smart 1's configured integration
+# credential. Its callers must not broaden Marketplace grants on client
+# accounts. Email Creator independently needs message.write on client accounts.
+SMART1_ONLY: tuple[Scope, ...] = (
+    Scope("conversations/message.write", "Smart 1 sends reviewed display ad proofs to its clients",
+          ("hub/ad_proof_email.py",), False),
+    Scope("conversations/message.readonly", "Client 360 reads the linked Smart 1 email conversation",
+          ("hub/client_email.py",), False),
+)
+
 # --------------------------------------------------------------------------
 # Left out on purpose. Each of these has a live call site running on the agency
 # Private Integration Token, so the omission is a decision and not an oversight
 # — which is exactly why it is written down rather than simply absent.
 # --------------------------------------------------------------------------
 NOT_REQUESTED: tuple[tuple[str, str], ...] = (
+    ("conversations/message.readonly",
+     "Client 360 email history reads Smart 1's linked client contact. This "
+     "workflow does not read conversations inside the client's own sub-account."),
     ("locations.write",
      "Creating and deleting sub-accounts stays on the agency token. A "
      "location-scoped token that can delete its own location is a blast radius "
@@ -420,7 +433,7 @@ def write_call_sites() -> list[str]:
 def declared_files() -> set[str]:
     """Every file named by any scope in the table."""
     out: set[str] = set()
-    for s in REQUESTED:
+    for s in REQUESTED + SMART1_ONLY:
         out.update(s.needed_by)
     return out
 
