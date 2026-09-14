@@ -1083,6 +1083,46 @@ def create_hub_app() -> Flask:
         rows.sort(key=lambda r: str(r.get("updated_at") or ""), reverse=True)
         return jsonify({"runs": rows, "measured": measured, "error": error})
 
+    @app.route("/api/client/ad-performance")
+    def api_client_ad_performance():
+        """What this client's advertising is doing, from the Reports module.
+
+        The campaigns filed under them and how many are still waiting for a
+        person to confirm the filing, this month's spend by platform beside
+        what the client is billed, whether the sold lines are pacing, the
+        days held in quarantine, the client's live link and whether they
+        have opened it. All of it lived on the Reports module's own client
+        page, reached by knowing the client's key; the record a rep opens
+        for a client said nothing about it.
+
+        `modules/reports/client_card.py` is the one reading and it gathers
+        every spelling the store may file this client under -- the Hub-wide
+        key, the name key and the display name -- because two writers file
+        under two of them. Four kinds of nothing come back apart: the store
+        would not answer, nothing is filed, everything filed is pending, or
+        the confirmed campaigns spent nothing this period.
+
+        Under `/api/client/` for the reason `/api/client/orders` gives: the
+        Suite frame allowlists that prefix and nothing else. A grouped
+        client reads across the group, the way the orders do.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_groups
+        name = request.args.get("name", "") or request.args.get("client", "")
+        url = request.args.get("url", "")
+        names = client_groups.member_names(name, url) or [name]
+        ordered = [name] + [n for n in names if n != name]
+        try:
+            from modules.reports import client_card as _rcard
+            out = _rcard.summary(ordered, url=url)
+        except Exception as exc:  # noqa: BLE001
+            out = {"measured": False, "state": "unread",
+                   "error": f"Reports could not be read ({type(exc).__name__}).",
+                   "keys": [], "campaigns": {"confirmed": 0, "pending": 0}}
+        return jsonify(out)
+
     @app.route("/api/client/brand/push-to-suite", methods=["POST"])
     def api_brand_push():
         """Send the brand guide into the client's Smart 1 Suite sub-account."""

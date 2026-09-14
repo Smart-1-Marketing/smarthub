@@ -1,6 +1,7 @@
 {% extends "_reports_base.html" %}
 {% block title %}Reports{% endblock %}
 {% block heading %}Reports{% endblock %}
+{% block saved_text %}{{ saved }}{% endblock %}
 {% block lede %}Ad performance across every platform: what has synced, what is
   not yet filed under a client, and what the campaigns pace against.{% endblock %}
 
@@ -78,6 +79,30 @@
   <div class="s1d-kv"><b><span class="s1d-pill {{ 'ok' if n.connected else 'warn' }}">{{ 'connected' if n.connected else 'not connected' }}</span></b>
     <span>{{ n.line }}{% if n.missing %} <span class="s1d-muted">Set {{ n.missing|join(', ') }} on the service.</span>{% endif %}{% if n.check_page %} <a href="{{ n.check_page }}">Check the field map</a>{% endif %}</span></div>
   {% endfor %}
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>Upload a CSV {{ help_dot('reports.index.upload') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">A platform's own export, for a platform with no feed connected or a month a feed missed.</span></div>
+  <form method="post" action="/reports/upload" enctype="multipart/form-data" class="row" id="csv-upload">
+    <div class="field">
+      <label for="upload-platform">Platform</label>
+      <select name="platform" id="upload-platform" required>
+        {% for p in platforms %}<option value="{{ p.platform }}">{{ p.label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field grow">
+      <label for="upload-file">CSV file</label>
+      <input type="file" name="file" id="upload-file" accept=".csv,text/csv" required>
+    </div>
+    <div class="field"><button class="s1d-btn" type="submit">Upload</button></div>
+  </form>
+  <p class="s1d-hint">One row per campaign-day, with a <b>date</b>, an <b>account or advertiser id</b>
+    and a <b>campaign id</b> &mdash; those three are required and a file without them is refused
+    naming the columns it has &mdash; plus campaign name, spend, impressions, clicks and conversions
+    where the export carries them (listens and completions for audio). A row for a campaign-day
+    already in the table replaces it; a row that cannot be true is held in quarantine rather than
+    filed; and the platform's sync row says <b>csv</b> wrote it, because a hand upload is not the feed.</p>
 </div>
 
 <div class="s1d-card">

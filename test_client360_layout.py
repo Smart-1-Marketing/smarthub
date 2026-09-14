@@ -77,6 +77,7 @@ check("the template still yields a readable set of card titles",
 WANT = {
     "Products & IOs": "overview",
     "Orders we have sent": "overview",
+    "Ad performance": "overview",
     "Smart 1 Suite Account": "overview",
     "Proposals": "overview",
     "Client Notes": "overview",
