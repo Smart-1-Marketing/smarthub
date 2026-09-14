@@ -219,6 +219,14 @@ ISSUE_KINDS = {
         "where": "Proposal Execution",
         "href": "/proposal-execution",
     },
+    "plan_overdue": {
+        "label": "Plan item past due",
+        "blurb": "A launch task or a piece of creative the plan keeps, past "
+                 "the date the launch date put on it, that nobody has marked "
+                 "done and nothing has landed for.",
+        "where": "Proposal Execution",
+        "href": "/proposal-execution",
+    },
     "proof_waiting": {
         "label": "Proof answered, not acted on",
         "blurb": "The client replied to a review round and no cut has been "
@@ -724,6 +732,19 @@ def _plan_issues(plans: list[dict]) -> list[dict]:
                               f"{miss.get('title') or 'Promise'} — {miss.get('month_label') or ''}",
                               "Nothing landed for it and nobody marked it done.",
                               link=link, at=str(plan.get("updated_at") or "")))
+        # One issue per launch task or creative item past its date, keyed
+        # on `hub/proposal_progress.done_key()` so a Done pressed on the
+        # plan page clears it on read. The detail is deliberately stable --
+        # the day count is on the title, not in the fingerprint -- or a
+        # mark made here would read as superseded every morning.
+        for late in (plan.get("progress") or {}).get("overdue_items") or []:
+            days = int(late.get("days") or 0)
+            what = "creative" if late.get("list") == "creative" else "launch task"
+            out.append(_issue("plan_overdue", str(late.get("key") or ""),
+                              f"{late.get('title') or 'Plan item'} — {what}, "
+                              f"{days} day{'' if days == 1 else 's'} past due",
+                              "Past the date the launch date put on it; nothing marked done and nothing landed.",
+                              link=link, at=str(plan.get("updated_at") or "")))
     return out
 
 
@@ -824,14 +845,23 @@ def _pacing_issues(rows: list[dict]) -> list[dict]:
 
 
 def _promise_marks() -> dict:
-    """`{mark key: mark}` from the promise schedule, read per request so a
-    month marked done on the plan page leaves this report at once. Never
+    """`{mark key: mark}` from the promise schedule and the done marks on
+    the open plans, read per request so a month or an item marked done on
+    the plan page leaves this report at once. The two key spellings cannot
+    collide -- a promise mark has three parts and a done mark two. Never
     raises: a store that would not answer costs the overlay, not the page."""
+    out: dict = {}
     try:
         from hub import proposal_promises
-        return proposal_promises.marks()
+        out.update(proposal_promises.marks())
     except Exception:                                   # noqa: BLE001
-        return {}
+        pass
+    try:
+        from hub import proposal_execution
+        out.update(proposal_execution.done_index())
+    except Exception:                                   # noqa: BLE001
+        pass
+    return out
 
 
 def _audits(domains) -> tuple[dict, str]:
@@ -1310,10 +1340,11 @@ def _apply_overlay(data: dict, *, owner_index: dict, mark_index: dict,
         open_issues, handled = [], []
         for issue in row.get("issues") or ():
             mark = mark_index.get(f"{key}|{issue['key']}")
-            if not mark and issue.get("kind") == "plan_promise" and promise_index:
-                # A month marked done on the plan page is the same statement
-                # as Done here, made on the other screen; reading it lets the
-                # press take effect today rather than at the next rebuild.
+            if not mark and issue.get("kind") in ("plan_promise", "plan_overdue") and promise_index:
+                # A month or an item marked done on the plan page is the same
+                # statement as Done here, made on the other screen; reading
+                # it lets the press take effect today rather than at the
+                # next rebuild.
                 pm = promise_index.get(str(issue.get("subject") or ""))
                 if pm:
                     mark = {"state": "done", "by": pm.get("by") or "",
