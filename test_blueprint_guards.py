@@ -452,6 +452,16 @@ PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
                                            "with counted:false, because a "
                                            "mail gateway fetching the link is "
                                            "not somebody reading it",
+    "/sales/landing/p/<slug>/opened": "the built landing page reporting that "
+                                      "a browser rendered it -- the same "
+                                      "beacon the proposal page fires, one "
+                                      "tool over, and public for the same "
+                                      "reason: a prospect on the client's own "
+                                      "domain holds no Hub session. Answers "
+                                      "200 to an unknown slug with "
+                                      "counted:false and carries no counts "
+                                      "back, so it says nothing to whoever "
+                                      "posts it",
     "/scans/api/callback/<public_id>": "Insites POSTing a finished audit back "
                                        "to us. It is their server rather than "
                                        "a browser, so there is no session to "

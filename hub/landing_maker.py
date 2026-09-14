@@ -570,10 +570,10 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
                        slug=slug, offer=offer,
                        offer_usable=offer_state == spec.READ)
     # Absolute, so the form still reaches us from wherever the page is pasted.
+    _lead_ep, _view_ep = _endpoints(slug)
+    html = with_endpoint(html, _lead_ep, _view_ep)
     from hub.config import settings
     base = settings.public_base_url
-    html = with_endpoint(html, f"{base}/api/leads/capture" if base
-                         else "/api/leads/capture")
     row = {
         "id": page_id,
         "slug": slug,
@@ -583,6 +583,10 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
         "images": {"available": pics.get("available", False),
                    "source": pics.get("source", ""),
                    "cards": len(pics.get("cards") or [])},
+        # The set itself, not just a count of it. Without this a rewrite
+        # re-ran two live provider searches and quietly replaced the
+        # photographs on a page already running -- see _picks_for_revision().
+        "picks": _keep_picks(pics),
         "proposal_id": proposal_id or uploaded_id,
         "proposal_kind": ("saved" if proposal_id else
                           "uploaded" if uploaded_id else ""),
@@ -685,6 +689,170 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
             "copy_source": copy.get("source"),
             "thin": brief.get("thin", False),
             "note": note}
+
+
+
+# What `pick()` chose, kept on the row so a rewrite does not choose again.
+_PICK_KEYS = ("hero", "cards", "band", "credits", "source", "available")
+
+
+def _keep_picks(pics: dict) -> dict:
+    """The picture set, small enough to store beside the page.
+
+    `not_theirs` is deliberately left out: it is a count of what a *search*
+    rejected on the day it ran, which is a fact about that search rather than
+    about this page, and carrying it forward would make it read as a finding
+    about a set nobody re-searched.
+    """
+    return {k: pics.get(k) for k in _PICK_KEYS}
+
+
+def _picks_for_revision(row: dict, brief: dict, benefits: int) -> tuple[dict, str]:
+    """The pictures a rewrite should use, and a sentence if they changed.
+
+    `revise()` re-ran `pick()` on every rewrite -- which is two live provider
+    searches and a fetch of the client's own site, answered differently on
+    different days. So "make the headline shorter" silently **replaced the
+    photographs** on a page already taking paid traffic: the hero a rep chose
+    the page for, gone, with the response saying only "Rewritten." Nothing
+    errored at either end, and the rep would find out by looking.
+
+    So the set is stored at build and reused. It is re-picked in exactly one
+    case -- the rewrite changed how many benefit cards the page draws, so the
+    stored row cannot fill it, and `pick()`'s own all-or-nothing rule would
+    otherwise leave a row of empty cards. That is said out loud rather than
+    done quietly, because it is the one rewrite that does change the pictures.
+    """
+    # Whether the set was STORED, not whether it has anything in it. A page
+    # built with no image provider configured -- which `create()`'s own note
+    # calls the default state of a fresh deployment -- keeps an empty set
+    # perfectly deliberately, and reading that as an old row sent every one of
+    # those pages back through two live searches on every rewrite while
+    # telling the rep the page predated a feature it was built under.
+    #
+    # Reusing an empty set is the right answer as well as the deterministic
+    # one: a provider configured since the build does not retrospectively
+    # change a page somebody has already sent. `create()` already says to
+    # rebuild for a richer page, and a rebuild is what picks.
+    if "picks" in row:
+        stored = dict(row.get("picks") or {})
+        if len(stored.get("cards") or []) == benefits:
+            return stored, ""
+        from .landing_images import pick
+        return pick(brief, benefits=benefits), (
+            " The rewrite changed how many benefits the page lists, so the "
+            "photographs were chosen again to fill the new row — check them "
+            "before you send the link.")
+    # A page built before the set was stored. Re-picking is the only thing
+    # available, and saying so is better than a rep wondering why the hero
+    # moved. Once rebuilt, the row carries its own and this stops happening.
+    from .landing_images import pick
+    return pick(brief, benefits=benefits), (
+        " This page predates stored photography, so the pictures were chosen "
+        "again — from now on a rewrite will keep them.")
+
+
+def _lead_counts(slugs, firsts: dict) -> tuple[dict, dict, bool]:
+    """Leads per page, split at the first open each page recorded.
+
+    One pass over the lead store for the whole page of rows, not one read
+    per row: `leads._read_all()` walks the file, and `listing()` draws up to
+    three hundred.
+
+    The split is what makes the rate honest. Opens have only been counted
+    since `hub/landing_views.py` shipped, so a page that ran a campaign
+    before then carries leads with no visits behind them -- counted into the
+    numerator they would read as converting several hundred per cent, and
+    dropped they would vanish from a screen somebody is using to judge the
+    page. They are counted apart, and `landing_views.conversion()` names
+    them.
+
+    Returns `(after, before, measured)`. A lead store that will not answer is
+    **not measured**, never a page of noughts: "nobody filled the form in"
+    and "we could not look" send somebody to opposite conclusions about a
+    campaign they are paying for.
+    """
+    from datetime import datetime, timezone
+
+    def _at(value: str):
+        """One reading of a timestamp, because these come from two stores.
+
+        `hub/leads.py` writes `...+00:00` to the second and
+        `hub/landing_views.py` writes a naive UTC stamp with microseconds.
+        Compared as STRINGS -- which the first version of this did -- "+"
+        sorts before ".", so every lead landed on the wrong side of the
+        split and every page read as having taken all its leads before
+        counting began. Both screens stayed internally consistent and the
+        only symptom was a rate that never arrived.
+        """
+        try:
+            dt = datetime.fromisoformat(str(value or ""))
+        except ValueError:
+            return None
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+    want = {str(s or "") for s in (slugs or []) if s}
+    after = {s: 0 for s in want}
+    before = {s: 0 for s in want}
+    if not want:
+        return after, before, True
+    try:
+        from hub import leads as _leads
+        rows = _leads._read_all()
+    except Exception:                                       # noqa: BLE001
+        return after, before, False
+    for r in rows:
+        if r.get("merged_into"):
+            # A row merged into another is not a second lead -- the rule
+            # `leads.listing()` already applies, read from the other end.
+            continue
+        page = str(r.get("page") or "")
+        if page not in want:
+            continue
+        first = _at(firsts.get(page))
+        # Floored to the second, because `hub/leads.py` stamps to the second
+        # and `hub/landing_views.py` keeps microseconds: compared at the
+        # finer store's precision, a lead captured in the SAME second as the
+        # page's first open reads as having come before it. That is
+        # precision the coarser store does not have, and claiming it puts a
+        # real lead on the wrong side of the split.
+        if first:
+            first = first.replace(microsecond=0)
+        created = _at(r.get("created"))
+        # No open recorded at all, a stamp neither store could parse, or a
+        # lead older than the first open: all of them are leads this page
+        # took outside anything we counted.
+        if first and created and created >= first:
+            after[page] += 1
+        else:
+            before[page] += 1
+    return after, before, True
+
+def _endpoints(slug: str) -> tuple[str, str]:
+    """Where a built page posts its leads, and where it reports being read.
+
+    One reading of the base, because the two must agree: a page whose form
+    reaches the Hub while its beacon does not is a page whose leads are
+    counted against visits nobody recorded, which is the ratio-with-no-
+    denominator this whole measurement exists to close.
+
+    `config.public_base_origin()` rather than `settings.public_base_url`,
+    because `settings` is a frozen dataclass built once at import and this is
+    the one variable somebody corrects mid-incident -- the reasoning
+    `hub/oauth_redirects.py` already gives about a callback URI, applied to
+    the address a page posts its leads to. Read from `settings`, a corrected
+    PUBLIC_BASE_URL needed a redeploy before a rebuilt page picked it up,
+    which is when nobody wants one.
+
+    With none set both fall back to a relative path, which works while the
+    page is served from the Hub and is what the form has always done.
+    """
+    from hub.config import public_base_origin
+    base = (public_base_origin() or "").rstrip("/")
+    lead = f"{base}/api/leads/capture" if base else "/api/leads/capture"
+    view = (f"{base}/sales/landing/p/{slug}/opened" if base
+            else f"/sales/landing/p/{slug}/opened")
+    return lead, view
 
 
 def _google_standing_note(domain: str) -> str:
@@ -894,7 +1062,13 @@ REVISE_SYSTEM = (
     "the current copy as JSON and an instruction from the person who owns "
     "the page.\n\n"
     "Change what the instruction asks for and leave everything else exactly "
-    "as it is. Return the SAME JSON shape with the same keys.\n\n"
+    "as it is.\n\n"
+    "Return a JSON object containing ONLY the keys you actually changed, "
+    "using the same key names and the same shapes as the copy you were "
+    "given. Do not return a key you did not change, even unaltered. If the "
+    "instruction is about the headline, the object has one key in it.\n\n"
+    "Returning the whole document is how a rewrite of one line comes back "
+    "having reworded five others, on a page that is already running.\n\n"
     "The rules the original copy was written under still hold, and an "
     "instruction does not lift them: never invent reviews, testimonials, "
     "awards, guarantees, prices, discounts, locations, staff or years in "
@@ -944,15 +1118,24 @@ def revise(id_or_slug: str, instructions: str, actor: str = "") -> dict:
 
     # Only keys that were already there, so a stray key cannot reshape the
     # page, and a section the model dropped keeps its existing copy.
+    #
+    # `changed` is what the rewrite actually touched, compared rather than
+    # taken on trust: asking for only the changed keys is a request, and a
+    # model that returns the whole document anyway must not read as having
+    # rewritten one line. It is what the undo below is offered against, and
+    # the one number that answers "what did that do to my page".
+    changed = []
     for key in list(copy):
         if key in data and data[key] not in (None, ""):
+            if data[key] != copy[key]:
+                changed.append(key)
             copy[key] = data[key]
     copy["source"] = "ai"
 
     from .landing_render import render_page, with_endpoint
-    from .landing_images import pick
-    pics = pick(brief, benefits=len([b for b in (copy.get("benefits") or [])
-                                     if isinstance(b, dict) and b.get("title")]))
+    pics, pics_note = _picks_for_revision(
+        row, brief, benefits=len([b for b in (copy.get("benefits") or [])
+                                  if isinstance(b, dict) and b.get("title")]))
     # `goal_id` is passed explicitly. Left off, `render_page()` fell back to
     # `copy["goal_id"]` and, where a rewrite dropped that key, to the default
     # general-inquiry goal -- so a rewrite could quietly change which fields
@@ -969,18 +1152,27 @@ def revise(id_or_slug: str, instructions: str, actor: str = "") -> dict:
                        ga4_id=row.get("ga4_id", ""),
                        slug=row.get("slug", ""), offer=_row_offer,
                        offer_usable=_spec.offer_state(_row_offer)[0] == _spec.READ)
-    from hub.config import settings
-    base = settings.public_base_url
-    html = with_endpoint(html, f"{base}/api/leads/capture" if base
-                         else "/api/leads/capture")
+    _lead_ep, _view_ep = _endpoints(row.get("slug", ""))
+    html = with_endpoint(html, _lead_ep, _view_ep)
 
     rows = _load()
+    undo_index = None
     for r in rows:
         if r.get("id") == row["id"]:
             _push_version(r, instructions[:200] or "rewritten")
+            # The version just pushed is the page as it stood a moment ago,
+            # and it is the last one on the stack. Named here rather than
+            # left for the rep to find in History: an undo two screens away
+            # from the button that caused it is an undo nobody presses, and
+            # every other index shifts the next time anything is pushed.
+            undo_index = len(r["versions"]) - 1
             r["page_html"] = html
             r["copy"] = copy
             r["headline"] = copy.get("headline", r.get("headline", ""))
+            r["picks"] = _keep_picks(pics)
+            r["images"] = {"available": pics.get("available", False),
+                           "source": pics.get("source", ""),
+                           "cards": len(pics.get("cards") or [])}
             r["updated"] = _now()
             r["updated_by"] = actor
             r["last_instruction"] = instructions[:400]
@@ -993,11 +1185,30 @@ def revise(id_or_slug: str, instructions: str, actor: str = "") -> dict:
                   client=row.get("client"), page=row.get("slug"))
     except Exception:                                       # noqa: BLE001
         pass
+    # What it did, rather than that it did something. "Rewritten" over a
+    # rewrite that reworded five sections and one that changed a headline
+    # reads identically, and only one of them is what was asked for.
+    if not changed:
+        note = ("Rewritten, and nothing came back different — the instruction "
+                "may already be satisfied, or it asked for something the "
+                "copy rules do not allow inventing.")
+    else:
+        note = ("Rewritten. Changed: " + ", ".join(changed[:6])
+                + (f" and {len(changed) - 6} more" if len(changed) > 6 else "")
+                + ".")
+    note += pics_note
+    if undo_index is not None:
+        note += " The previous version is kept — Undo puts it straight back."
     return {"ok": True, "slug": row["slug"],
             "preview": f"/sales/landing/p/{row['slug']}",
             "url": page_url(row["slug"]),
+            "changed": changed,
+            # The one press that reverses this rewrite. `None` where the row
+            # could not be written, so a screen cannot offer an undo for
+            # something that did not happen.
+            "undo_index": undo_index,
             "versions": len(get(row["id"]).get("versions") or []),
-            "note": "Rewritten. The previous version is kept."}
+            "note": note}
 
 
 def remove(id_or_slug: str, actor: str = "") -> dict:
@@ -1038,6 +1249,28 @@ def listing(client: str = "", q: str = "") -> dict:
             {k: r.get(k) for k in ("client", "campaign", "headline", "goal",
                                    "offer", "slug")}).lower()]
     shown = rows[:300]
+    # Whether anybody has actually seen these. One query for the page of
+    # rows rather than one per row, and one answer about whether it could be
+    # read at all -- a table that will not answer and a page nobody has
+    # visited both render as a nought, and only one of them is a reason to
+    # stop spending on the campaign.
+    try:
+        from hub import landing_views as lv
+        lv_conversion = lv.conversion
+        counts = lv.summary_for([r.get("slug") for r in shown])
+    except Exception as exc:                                # noqa: BLE001
+        lv_conversion = None
+        counts = {"measured": False, "pages": {},
+                  "error": f"The visit counts could not be read. ({type(exc).__name__})"}
+    seen = counts.get("pages") or {}
+    # The rate the whole of Tier 2 made computable. Joined here rather than
+    # in either store, because it is the one place that already holds both
+    # halves -- and the numerator and the denominator have to cover the same
+    # period or the answer is a wrong number with two right ones either side
+    # of it.
+    _after, _before, _leads_ok = _lead_counts(
+        [r.get("slug") for r in shown],
+        {s: (v or {}).get("first", "") for s, v in seen.items()})
     return {
         # `url` is derived per row rather than stored, so a corrected
         # PUBLIC_BASE_URL reaches every page already built. "" means the Hub
@@ -1048,8 +1281,30 @@ def listing(client: str = "", q: str = "") -> dict:
                        "direction", "created", "by", "proposal_id", "updated",
                        "kind", "website", "images")},
                    "url": page_url(r.get("slug") or ""),
-                   "versions": len(r.get("versions") or [])}
+                   "versions": len(r.get("versions") or []),
+                   # Drawn on the row rather than only on the build result:
+                   # the moment somebody needs this is the one before they
+                   # send the link, which is days later and on this screen.
+                   "readiness": readiness(r),
+                   # Absent rather than zero where nothing could be read:
+                   # the screen says "not measured" instead of telling a rep
+                   # nobody has opened a page that may be doing fine.
+                   "views": (seen.get(r.get("slug")) or {}) if counts.get("measured") else None,
+                   "conversion": (
+                       lv_conversion(seen.get(r.get("slug")) or {},
+                                     _after.get(r.get("slug"), 0),
+                                     _before.get(r.get("slug"), 0))
+                       if counts.get("measured") and _leads_ok
+                       else {"measured": False, "state": "not_measured",
+                             "line": ("The lead store could not be read, so "
+                                      "there is no rate.") if not _leads_ok
+                                     else ("Opens were not measured, so there "
+                                           "is no rate.")})}
                   for r in shown],
+        "conversion_measured": bool(counts.get("measured") and _leads_ok),
+        "views_measured": bool(counts.get("measured")),
+        "views_error": counts.get("error", ""),
+        "views_recent_days": counts.get("recent_days", 0),
         # Three numbers because there are three questions, and the page was
         # printing the second under the first: `count` is how many matched and
         # the table only ever drew 300 of them, so a book past that cap read
@@ -1061,6 +1316,51 @@ def listing(client: str = "", q: str = "") -> dict:
         "directions": {k: v["label"] for k, v in DIRECTIONS.items()},
     }
 
+
+
+def readiness(row: dict) -> dict:
+    """What is still open on a built page, for the screen the rep is on.
+
+    `landing_spec.open_questions()` has computed exactly this since the day it
+    was written -- what a page will otherwise write around, and writing around
+    a gap is what produces copy that could be about any business in the
+    industry. `create()` put the answer on its response as `questions` and
+    **no screen has ever drawn it**, so the one list telling a rep what to fix
+    before the link goes to a prospect existed, was correct, and was read by
+    nobody. The declared-and-never-wired failure this Hub counts a dozen of.
+
+    Asked of the stored row rather than of the build, because the moment that
+    matters is the one before somebody hands the link over -- which is days
+    after the build and on a different screen. A row that cannot answer is
+    said to be unmeasured rather than drawn as a clean bill: "nothing is
+    outstanding" and "we could not tell" are different sentences and only the
+    first means send it.
+    """
+    try:
+        from hub import landing_spec as spec
+        brief = row.get("brief") or {}
+        open_q = spec.open_questions(brief, row.get("goal") or "",
+                                     row.get("offer") or "",
+                                     row.get("promoting") or "")
+    except Exception as exc:                                # noqa: BLE001
+        return {"measured": False, "questions": [],
+                "note": f"The checklist could not be built ({type(exc).__name__})."}
+
+    # Two things that are not open questions about the brief and are still
+    # reasons not to send the link yet. Both are facts about the built row
+    # rather than judgments, so they are listed with it rather than being a
+    # second checklist somewhere else.
+    extra = []
+    if not page_url(row.get("slug") or ""):
+        extra.append("The Hub does not know its own public address, so there "
+                     "is no link to send yet." + NO_URL_NOTE.strip())
+    if not (row.get("reviews") or []):
+        extra.append("No reviews are on the page. Paste in one or two real "
+                     "ones and rebuild — the page will never invent one.")
+    questions = list(open_q) + extra
+    return {"measured": True, "questions": questions,
+            "ready": not questions,
+            "count": len(questions)}
 
 def for_client(client: str) -> list[dict]:
     """Used by the Client 360 / proposals card."""

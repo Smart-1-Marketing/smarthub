@@ -687,17 +687,46 @@ Array.prototype.forEach.call(document.querySelectorAll('a[href^="tel:"]'),
   function(a){{ a.addEventListener('click', function(){{
     if(typeof gtag === 'function'){{ gtag('event','phone_click',
       {{event_category:'landing_page'}}); }} }}); }});
+
+/* Tell the Hub a browser actually rendered this page.
+
+   Fired from the page rather than recorded on the HTML request, because a
+   mail security gateway and a chat client's preview card both fetch the URL
+   and run no JavaScript -- counted there, a page pasted into an email reads
+   as seen by everyone it was sent to, the moment it was sent.
+   hub/view_tracking.py carries the rest of the rules and hub/landing_views.py
+   applies them.
+
+   `sendBeacon` rather than `fetch`, for two reasons that are the same reason:
+   this page is routinely pasted onto a domain nobody here owns, and the
+   capture endpoint sends no CORS headers -- a beacon is a simple request that
+   needs none, and nothing here reads the answer. The slug is in the URL, so
+   there is no body to parse and no content type to negotiate. Wrapped whole:
+   a counter that throws on a page a stranger is reading is worse than a
+   number nobody has. */
+try {{
+  if (navigator && typeof navigator.sendBeacon === 'function') {{
+    navigator.sendBeacon('{{VIEW_ENDPOINT}}');
+  }}
+}} catch (e) {{ /* a view we could not report costs a number, never the page */ }}
 </script>
 </body>
 </html>"""
 
 
-def with_endpoint(html: str, endpoint: str) -> str:
-    """Point the form at wherever the page will actually live.
+def with_endpoint(html: str, endpoint: str, view_endpoint: str = "") -> str:
+    """Point the form, and the view beacon, at wherever the page will live.
 
-    Left as a token until export so a page pasted into Smart 1 Sites, a GHL
-    funnel or the client's own CMS still reaches the Hub's lead panel -- a
-    relative URL would post to whatever domain it was pasted onto and quietly
-    404.
+    Left as tokens until export so a page pasted into Smart 1 Sites, a GHL
+    funnel or the client's own CMS still reaches the Hub -- a relative URL
+    would post to whatever domain it was pasted onto and quietly 404.
+
+    Both are replaced here rather than in two calls, because they are the same
+    decision made once about the same base: a page whose form reaches the Hub
+    and whose beacon does not is a page whose leads are counted against visits
+    nobody recorded. An unresolved `{VIEW_ENDPOINT}` would be sent to as a
+    relative URL by a browser, so it is always replaced -- with the relative
+    path when no base is known, which is exactly what the form already does.
     """
-    return html.replace("{LEAD_ENDPOINT}", endpoint)
+    html = html.replace("{LEAD_ENDPOINT}", endpoint)
+    return html.replace("{VIEW_ENDPOINT}", view_endpoint or "")
