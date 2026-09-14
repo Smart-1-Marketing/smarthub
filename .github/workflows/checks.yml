@@ -32,6 +32,10 @@ jobs:
     name: syntax, links and tests
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4, 5, 6, 7, 8]
 
     # Postgres rather than SQLite, for the steps that boot the app. Sites Admin
     # refuses to start without a real Postgres URL and serves wsgi.py's 503
@@ -87,24 +91,45 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # Combined so this only costs one apt-get update across the job instead
+      # of two. Ghostscript/qPDF back the PDF optimizer (test_image_pdf_optimizers.py);
+      # the rest back the HyperFrames render service's real headless-Chromium
+      # capture and ffmpeg encode. Installed for every parallel group below so
+      # no group has to be tracked as "the one that needs system packages" --
+      # apt-get with -qq is a few seconds per runner, done in parallel, not
+      # worth the fragility of wiring it to specific matrix groups.
+      - name: Install shared system packages (Ghostscript, qPDF, headless-Chromium libs, ffmpeg)
+        run: sudo apt-get update -qq
+             && sudo apt-get install -y -qq --no-install-recommends
+                ghostscript qpdf
+                libnss3 libatk-bridge2.0-0t64 libgbm1 libxkbcommon0 libasound2t64
+                ffmpeg fonts-liberation
+
       - name: Google Access offline route and OAuth regression tests
+        if: matrix.group == 1
         run: python test_google_access_flow.py
 
       - name: YouTube client access and publishing safeguards
+        if: matrix.group == 1
         run: python test_youtube_studio.py
 
       - name: Client email contact mapping and GHL history
+        if: matrix.group == 1
         run: python test_client_email.py
       - name: Display ad proof email safety and duplicate protection
+        if: matrix.group == 1
         run: python test_ad_proof_email.py
 
       - name: Client 360 proposal-to-IO navigation
+        if: matrix.group == 1
         run: node test_client360_proposal_io.js
 
       - name: Uploaded proposal filenames
+        if: matrix.group == 1
         run: python test_proposal_filename.py
 
       - name: IO template and media-mix validation
+        if: matrix.group == 1
         run: |
           python test_io_template.py
           python test_io_media_mix.py
@@ -121,11 +146,8 @@ jobs:
       # test_image_pdf_optimizers.py still passes: it says out loud that the
       # path was not covered rather than reporting an unrun path as a clean
       # run, which is the thing it is guarding against.
-      - name: Install Ghostscript and qPDF (the PDF optimizer's binaries)
-        run: sudo apt-get update -qq
-             && sudo apt-get install -y -qq --no-install-recommends ghostscript qpdf
-
       - name: Python syntax
+        if: matrix.group == 1
         run: |
           python -c "import ast, pathlib, sys; \
             files = [p for p in pathlib.Path('.').rglob('*.py') if '_attic' not in p.parts]; \
@@ -133,6 +155,7 @@ jobs:
             print(f'parsed {len(files)} Python files')"
 
       - name: Image tool orientation, compression and provider failures
+        if: matrix.group == 1
         run: |
           python test_image_tools.py
           python test_background_providers.py
@@ -140,24 +163,29 @@ jobs:
           node test_image_optimizer_ui.js
 
       - name: JavaScript syntax
+        if: matrix.group == 1
         run: python tools/jscheck.py
 
       # The other half: jscheck skips blocks carrying Jinja, because Node would
       # reject them for the wrong reason. This balance-checks exactly those, so
       # "not checked (Jinja)" in the step above is not the end of the story.
       - name: JavaScript inside Jinja templates
+        if: matrix.group == 1
         run: python tools/checktemplates.py
 
       # Boots the composed app and checks every internal URL literal against
       # the route table of whichever app owns that path. This is the one that
       # catches the mount trap.
       - name: Link and mount check
+        if: matrix.group == 1
         run: python tools/linkcheck.py
 
       - name: Ad builder module tests
+        if: matrix.group == 1
         run: python test_ads_module.py
 
       - name: Guided Ads optimization tests
+        if: matrix.group == 1
         run: |
           if [ -f test_ads_optimization.py ]; then
             python test_ads_optimization.py
@@ -166,6 +194,7 @@ jobs:
           fi
 
       - name: Scheduled Google Ads optimization sweep
+        if: matrix.group == 1
         # The half that makes account monitoring unattended: every live account
         # gets a row, one account's Google failure does not cost the rest their
         # scan, and the run paces itself against the day's operation budget
@@ -173,6 +202,7 @@ jobs:
         run: python test_ads_optimization_scheduler.py
 
       - name: The Google Ads sweep on the dashboard
+        if: matrix.group == 1
         # The sweep ran twice a day and told nobody. This is the alerting half:
         # five signals kept apart, every kind of nothing saying which kind it
         # is, and every count opening the rows it counted — including that the
@@ -182,6 +212,7 @@ jobs:
         run: python test_ads_dashboard_card.py
 
       - name: Narrowing the activity log
+        if: matrix.group == 1
         # The page read nothing from the URL and its module dropdown was three
         # hand-typed names, so a figure elsewhere in the Hub could not link to
         # the rows it counted. Asserts that both filters filter, that the list
@@ -192,6 +223,7 @@ jobs:
         run: python test_activity_filter.py
 
       - name: Auto-applied Google Ads changes
+        if: matrix.group == 1
         # Nobody presses anything at the moment one of these happens, so what
         # this asserts is mostly the refusals: off by default, high severity
         # only, inside a per-run cap and the day's operation budget, and one
@@ -199,24 +231,28 @@ jobs:
         run: python test_ads_optimization_autoapply.py
 
       - name: Competitor ad intelligence scaffolding
+        if: matrix.group == 1
         # The state this ships in is the one that matters: no vendor chosen, so
         # the feature is invisible and research_competitors returns exactly
         # what it returned before.
         run: python test_ad_intel.py
 
       - name: Performance Max campaign type
+        if: matrix.group == 1
         # The half asserted hardest is the one that must not have moved: a
         # Search proposal generates and deploys byte-for-byte as it did, and a
         # proposal written before campaignType existed still reads as Search.
         run: python test_ads_pmax.py
 
       - name: Recurring client Google Ads reports
+        if: matrix.group == 1
         # Off until somebody turns it on, a month that could not be measured is
         # never sent, and delivery stops at hub/leads.py -- this Hub claims to
         # have emailed nobody.
         run: python test_ads_performance_reports.py
 
       - name: Public Google Ads Grader
+        if: matrix.group == 1
         # Two properties above all: the lead is captured before OAuth starts,
         # so an abandoned consent screen costs the grade and not the prospect;
         # and no credential is ever stored, asserted from the model columns
@@ -235,6 +271,7 @@ jobs:
       # So the renderer is compiled and tested here, and the file-content
       # checks below keep the job they are uniquely good at.
       - name: Display ad renderer — install
+        if: matrix.group == 1
         working-directory: modules/ad_builder
         run: npm ci
 
@@ -242,10 +279,12 @@ jobs:
       # are different problems, and a combined step reports whichever came
       # first as though it were the only one.
       - name: Display ad renderer — typecheck
+        if: matrix.group == 1
         working-directory: modules/ad_builder
         run: npx tsc --noEmit
 
       - name: Display ad renderer — tests
+        if: matrix.group == 1
         working-directory: modules/ad_builder
         run: npm test
 
@@ -253,17 +292,13 @@ jobs:
       # directly. Ubuntu's chromium package installs Snap and can spend many
       # minutes downloading another browser that these tests never launch.
       # ffmpeg and fonts are still required for the real render/encode tests.
-      - name: Install browser runtime libraries and ffmpeg (hf-render-service)
-        run: sudo apt-get update -qq
-             && sudo apt-get install -y -qq --no-install-recommends
-                libnss3 libatk-bridge2.0-0t64 libgbm1 libxkbcommon0 libasound2t64
-                ffmpeg fonts-liberation
-
       - name: HyperFrames render service — install
+        if: matrix.group == 1
         working-directory: modules/hf_render_service
         run: npm ci
 
       - name: HyperFrames render service — typecheck
+        if: matrix.group == 1
         working-directory: modules/hf_render_service
         run: npx tsc -p tsconfig.json --noEmit
 
@@ -274,10 +309,12 @@ jobs:
       # written to catch, two of them a local variable named `text`/`pop`
       # silently shadowing p5.js's own drawing functions.
       - name: HyperFrames render service — tests
+        if: matrix.group == 1
         working-directory: modules/hf_render_service
         run: npm test
 
       - name: Display ad layout and build screen tests
+        if: matrix.group == 1
         # This is NOT made redundant by the suite above, and the two do not
         # overlap at all. Every node test imports a module from src/; this
         # reads the things nothing imports — the hand-authored template JSON,
@@ -297,6 +334,7 @@ jobs:
           fi
 
       - name: Marketing Efficiency Audit tests
+        if: matrix.group == 1
         # The accounting-partner lead form: the other module that is not
         # Python. Asserts what a runtime test of either half would need the
         # Node process running to notice -- every asset and fetch call
@@ -316,6 +354,7 @@ jobs:
           fi
 
       - name: Ads estimate and client review tests
+        if: matrix.group == 1
         # The campaign estimate a CLIENT reads: reachable without a Hub login,
         # carrying no staff chrome, one document shared with the internal
         # preview, every avg CPC labelled an industry estimate, and an edit
@@ -329,6 +368,7 @@ jobs:
           fi
 
       - name: Measured CPC, access tier and deploy preflight tests
+        if: matrix.group == 1
         # Google is stubbed throughout, deliberately: what is worth asserting
         # is what the module does when Google says NO, and that is unreachable
         # from a deployment where Google says yes. A top-of-page bid must never
@@ -345,6 +385,7 @@ jobs:
           fi
 
       - name: Smart 1 Ads explainer tests
+        if: matrix.group == 1
         # The bubbles, the per-screen tour and the two walkthroughs. Every
         # failure this covers is silent by design: a bubble whose key is not in
         # the registry is removed rather than left dead on the page, a tour step
@@ -362,9 +403,11 @@ jobs:
           fi
 
       - name: JSON store tests
+        if: matrix.group == 2
         run: python test_jsonstore.py
 
       - name: Database boot tests
+        if: matrix.group == 2
         # A database briefly unreachable during a deploy, and the four ways
         # that used to become permanent: a boot DDL that did not retry, a
         # verdict nothing re-asked (which 503s every Scans route and the
@@ -382,6 +425,7 @@ jobs:
           fi
 
       - name: Report day-cache tests
+        if: matrix.group == 2
         # One run per report per day: that the build is called once however
         # many times a report is opened, that a failed or unmeasurable run
         # never becomes the day's answer, that re-running is a POST, and that
@@ -397,6 +441,7 @@ jobs:
           fi
 
       - name: QA report tests
+        if: matrix.group == 2
         # Every report on /qa answers, returns a table the page can draw, and
         # is JSON-encodable -- run with no Knack, no QuickBooks and no
         # GoHighLevel, which is the state that produces a confident empty.
@@ -415,31 +460,39 @@ jobs:
           fi
 
       - name: Landing page maker tests
+        if: matrix.group == 2
         run: python test_landing_maker.py
 
       - name: Gallery filing identity and failed-transaction recovery
+        if: matrix.group == 2
         run: python test_gallery_filing_regression.py
 
       - name: Industry factory config, routes, leads and creative tests
+        if: matrix.group == 2
         run: |
           python test_industry_core.py
           python test_industry_factory.py
 
       - name: Quote numbering and draft deletion tests
+        if: matrix.group == 2
         run: python test_quote_numbers.py
 
       - name: Commercial Builder HeyGen tests
+        if: matrix.group == 2
         run: python test_commercial_heygen.py
 
       - name: Commercial Builder media reliability tests
+        if: matrix.group == 2
         run: python test_commercial_reliability.py
 
       - name: Commercial Builder finishing tests
+        if: matrix.group == 2
         run: |
           python test_commercial_finishing.py
           python test_video_workflow.py
 
       - name: Commercial Builder provider key tests
+        if: matrix.group == 2
         run: |
           if [ -f test_commercial_providers.py ]; then
             python test_commercial_providers.py
@@ -448,6 +501,7 @@ jobs:
           fi
 
       - name: HyperFrames render service tests
+        if: matrix.group == 2
         # The two HyperFrames skills -- paint animation and the Vox explainer --
         # and the sidecar renderer both ride on. Unlike every other provider
         # here that is a self-hosted service rather than a hosted API, so the
@@ -465,6 +519,7 @@ jobs:
           fi
 
       - name: Cross-Hub job-finished notification tests
+        if: matrix.group == 2
         # hub/job_notify.py — the pointer registry hub-job-notify.js polls
         # from wherever somebody is, not only from the tool that started the
         # render. Same skip-rather-than-fail shape as the tests around it.
@@ -476,6 +531,7 @@ jobs:
           fi
 
       - name: Commercial Builder wizard tests
+        if: matrix.group == 2
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
         run: |
@@ -486,6 +542,7 @@ jobs:
           fi
 
       - name: Commercial Builder scene-asset routes (Runway, upload, client assets)
+        if: matrix.group == 2
         # The six routes on routes/assets.py that generate-ai and generate-paint's
         # own test files never covered: choose-ai-option, upload, use-client-asset,
         # asset-source-priority, and the Runway pair generate-video / .../status.
@@ -497,6 +554,7 @@ jobs:
           fi
 
       - name: Client 360 social & links tests
+        if: matrix.group == 2
         # The card renders only links that exist and offers the rest from a
         # catalogue that ships from the server, so the menu and the keys the
         # server accepts cannot drift. Guarded like the steps above so this
@@ -509,6 +567,7 @@ jobs:
           fi
 
       - name: SEO client page social & links tests
+        if: matrix.group == 2
         # The same catalog, read by the second screen that shows it -- a link
         # saved on Client 360 used to be invisible here, behind a hard-coded
         # nine-key grid reading the same store. Guarded like the step above.
@@ -520,6 +579,7 @@ jobs:
           fi
 
       - name: Commercial Builder dashboard layout tests
+        if: matrix.group == 2
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
         run: |
@@ -530,6 +590,7 @@ jobs:
           fi
 
       - name: Commercial Builder client review tests
+        if: matrix.group == 2
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
         run: |
@@ -540,6 +601,7 @@ jobs:
           fi
 
       - name: Commercial Builder mock-mode tests
+        if: matrix.group == 2
         # The mark that says a provider is not live. Every one of these
         # routes already answered `live: false` or `mock: true` and nothing
         # in the browser read it, so a spot built entirely from templates
@@ -554,6 +616,7 @@ jobs:
           fi
 
       - name: Commercial Builder advertising-rule tests
+        if: matrix.group == 2
         # Which published rules a spot's copy engages, and the two ways the
         # feature would be worse than absent: a tool that claims a spot is
         # compliant, and a rule that fires on every spot. Also that nothing
@@ -569,6 +632,7 @@ jobs:
           fi
 
       - name: Commercial Builder archetype and category tests
+        if: matrix.group == 2
         # What a spot IS as distinct from how it gets made, the legacy
         # commercial_type reading as the archetype it always was, pack ids
         # matching hub/industries.py so one client cannot get two taxonomies,
@@ -584,6 +648,7 @@ jobs:
           fi
 
       - name: Commercial Builder metering and spot library tests
+        if: matrix.group == 2
         # That every billed call site records, that the scanner has a marker
         # for each of them so the gap cannot go quiet again, that no price is
         # invented where none is published, and that the library counts what
@@ -598,6 +663,7 @@ jobs:
           fi
 
       - name: Commercial Builder generated audio tests
+        if: matrix.group == 2
         # Sound effects and music. That ElevenLabs' published limits are
         # refused by name rather than clamped, that a retry cannot re-spend on
         # either worker, that a length is derived or is not measured, that a
@@ -613,6 +679,7 @@ jobs:
           fi
 
       - name: Commercial Builder dashboard rail
+        if: matrix.group == 2
         # The dashboard is the one screen in the module that asks the Hub for
         # its icon rail and opts the generic accordion out, and its section
         # rail is read by assistive technology — so both are asserted against
@@ -629,6 +696,7 @@ jobs:
           fi
 
       - name: Website block tests
+        if: matrix.group == 2
         # Same skip-rather-than-fail shape as the tests below: a branch cut
         # before this file exists should not fail on its absence.
         run: |
@@ -639,6 +707,7 @@ jobs:
           fi
 
       - name: MSA signing page and embed tests
+        if: matrix.group == 2
         # Skipped rather than failed on a branch that predates the file, so
         # this workflow can merge before the branch that adds it.
         run: |
@@ -649,6 +718,7 @@ jobs:
           fi
 
       - name: Landing-page embeds for smart1marketing.com
+        if: matrix.group == 2
         # The one check that would have caught the marketing site's forms and
         # the Hub's forms being two different things. It also holds the line on
         # sendBeacon('/api/partial-lead'), which tools/linkcheck.py cannot see:
@@ -663,6 +733,7 @@ jobs:
           fi
 
       - name: Calculator embed tests
+        if: matrix.group == 2
         # The same rules as the step above, on the path they did not cover.
         # The calculators are a blueprint on the hub app and every gameplan
         # tool is dispatcher-mounted, so nothing written for /land/<tool>/embed
@@ -678,6 +749,7 @@ jobs:
           fi
 
       - name: IO Builder start-screen tests
+        if: matrix.group == 2
         # Same skip-rather-than-fail shape as the steps around it.
         run: |
           if [ -f test_io_start.py ]; then
@@ -687,6 +759,7 @@ jobs:
           fi
 
       - name: Landing page goal and offer tests
+        if: matrix.group == 2
         # Same skip-rather-than-fail shape as the steps around it.
         run: |
           if [ -f test_landing_spec.py ]; then
@@ -696,6 +769,7 @@ jobs:
           fi
 
       - name: Scan widget tests
+        if: matrix.group == 2
         # The widget maker as a tool of its own: the Leads column, and the
         # pause/edit/delete a list of placements is useless without. Guarded
         # like the steps around it so this workflow stays mergeable on a branch
@@ -708,6 +782,7 @@ jobs:
           fi
 
       - name: Prospect queue tests
+        if: matrix.group == 3
         # Who to call, in the order the work has to happen. Guarded like the
         # steps around it so this workflow stays mergeable on a branch that
         # predates the file.
@@ -719,6 +794,7 @@ jobs:
           fi
 
       - name: Upsell report tests
+        if: matrix.group == 3
         # What we could sell each client, out of audits already paid for:
         # coverage named rather than left off, recorded-vs-observed kept
         # apart, and a run that could not look never becoming the day's
@@ -732,6 +808,7 @@ jobs:
           fi
 
       - name: Prospect record tests
+        if: matrix.group == 3
         # The record a scanned business gets before it is a client: four kinds
         # of empty on the Suite card, a timeline that names what it could not
         # read, and files that report the record and the stored copy apart.
@@ -745,6 +822,7 @@ jobs:
           fi
 
       - name: Website audit tests
+        if: matrix.group == 3
         # The spend block that leads every rendering of a site audit, the
         # customer-facing audit placement, the lead every audit files, and
         # merging two rows that are one prospect. Guarded like the steps around
@@ -758,6 +836,7 @@ jobs:
           fi
 
       - name: Stock photo search tests
+        if: matrix.group == 3
         # Four sources in one search — the three free libraries and our own
         # Cloudinary folders. Asserts that a folder nobody has created reads as
         # missing rather than as a search that found nothing, that a provider
@@ -772,6 +851,7 @@ jobs:
           fi
 
       - name: Image picker tests
+        if: matrix.group == 3
         # Where a client can upload from, deleting a gallery, and what a
         # General Business client is asked. Guarded like the steps around it so
         # this workflow stays mergeable on a branch that predates the file.
@@ -783,6 +863,7 @@ jobs:
           fi
 
       - name: Image Creator gallery tests
+        if: matrix.group == 3
         # The "Client gallery" chip reads the real shared gallery now, not the
         # SEO Image Pipeline's own archive, and always offers a way to the
         # full gallery. Guarded like the steps around it.
@@ -794,6 +875,7 @@ jobs:
           fi
 
       - name: Display ad QC tests
+        if: matrix.group == 3
         # The seven checks in modules/image_creator/qc.py: a GDN size is
         # judged by the spec kit's own ceiling rather than a restated number,
         # everything else is advisory, and contrast/safe-margin are measured
@@ -808,6 +890,7 @@ jobs:
           fi
 
       - name: Animated GIF export tests
+        if: matrix.group == 3
         # The timeline math in modules/image_creator/animation.py and the
         # Pillow assembly behind it: no motion means no export, the timeline
         # is the slowest object to settle, an over-length animation is
@@ -822,6 +905,7 @@ jobs:
           fi
 
       - name: Image Creator review link tests
+        if: matrix.group == 3
         # The client review link ported from Commercial Builder's: token
         # minting and round rollover, the four approval states with the most
         # restrictive answer winning, the four-round cap flagging rather than
@@ -836,6 +920,7 @@ jobs:
           fi
 
       - name: Lead delivery tests
+        if: matrix.group == 3
         # Skipped rather than failed on a branch that predates the file, so
         # this workflow can merge before the branch that adds it.
         run: |
@@ -846,6 +931,7 @@ jobs:
           fi
 
       - name: Target area and delivery tests
+        if: matrix.group == 3
         # Guarded like the step above, so this workflow stays mergeable on a
         # branch that predates the file.
         #
@@ -879,6 +965,7 @@ jobs:
           fi
 
       - name: API usage estimate tests
+        if: matrix.group == 3
         # Guarded like the steps around it so this workflow stays mergeable on
         # a branch that predates the file.
         run: |
@@ -889,6 +976,7 @@ jobs:
           fi
 
       - name: Google account index tests
+        if: matrix.group == 3
         # Guarded like the step above, for the same reason.
         run: |
           if [ -f test_google_index.py ]; then
@@ -898,6 +986,7 @@ jobs:
           fi
 
       - name: Diagnostics — the QuickBooks check
+        if: matrix.group == 3
         # link_status() and health() each had no reader; both now answer
         # through one row on the panel every other provider reports on.
         run: |
@@ -908,6 +997,7 @@ jobs:
           fi
 
       - name: Proposal specification and creative gate tests
+        if: matrix.group == 3
         run: |
           if [ -f test_proposal_spec.py ]; then
             python test_proposal_spec.py
@@ -916,12 +1006,14 @@ jobs:
           fi
 
       - name: Proposal and IO integrity regressions
+        if: matrix.group == 3
         run: |
           node test_proposal_integrity.js
           python test_proposal_integrity.py
           python test_proposal_handoff.py
 
       - name: The consulting line the rate card does not name
+        if: matrix.group == 3
         run: |
           if [ -f test_proposal_consulting.py ]; then
             python test_proposal_consulting.py
@@ -930,6 +1022,7 @@ jobs:
           fi
 
       - name: Rate card coverage — every product, on a proposal that renders
+        if: matrix.group == 3
         # The tests around the card check its rules against the rows somebody
         # thought to write down, which is the set that was already right. This
         # builds eight proposals from the card's own categories, buys every
@@ -946,6 +1039,7 @@ jobs:
           fi
 
       - name: Knack field map tests — what is mapped, and what is assumed
+        if: matrix.group == 3
         # The map is read from the modules that own the ids rather than
         # restated, a confirmation is retired when its field is repinned, and
         # nothing in it can write to Knack. Guarded like the steps around it.
@@ -957,6 +1051,7 @@ jobs:
           fi
 
       - name: IO record tests — the order as a record, not just a PDF
+        if: matrix.group == 3
         # One row per order, a resubmission that updates rather than doubling,
         # and bookkeeping that cannot fail the submit it is bookkeeping for.
         # Guarded like the steps around it; nothing in it reaches a third
@@ -969,6 +1064,7 @@ jobs:
           fi
 
       - name: IO reconciliation tests — orders with no campaign in Knack
+        if: matrix.group == 3
         # Whether the campaign an insertion order was written for was ever set
         # up. A stale source read as proof that nothing was trafficked is the
         # failure this must not have, so the refusal is asserted as hard as
@@ -982,6 +1078,7 @@ jobs:
           fi
 
       - name: Sales scoreboard tests — the pipeline on the dashboard
+        if: matrix.group == 3
         # The five signals, one reading behind both screens, and each count
         # landing on the rows it counted. Guarded like the steps around it;
         # nothing in it reaches a third party, and nothing it tests writes.
@@ -993,6 +1090,7 @@ jobs:
           fi
 
       - name: Campaign cost tests — one number for what it costs
+        if: matrix.group == 3
         # The plan is the number: the cover, the media plan, the investment
         # summary, the insertion order and the dashboard all read it. Guarded
         # like the steps around it; nothing in it reaches a third party.
@@ -1004,6 +1102,7 @@ jobs:
           fi
 
       - name: Quote validity tests — the clock, and what Suite decides
+        if: matrix.group == 3
         # How long a sent proposal's pricing stands, the Expired status that
         # nothing used to set, the Suite stage change that reaches the quote
         # row, and the delivery figures back on the media plan. Guarded like
@@ -1016,6 +1115,7 @@ jobs:
           fi
 
       - name: Draft tests — unfinished IOs and proposals
+        if: matrix.group == 3
         # Both halves of coming back to interrupted work: the server-side
         # draft store, the IO builder's list, and the proposal wizard
         # reopening where it was left. Guarded like the steps around it, and
@@ -1028,6 +1128,7 @@ jobs:
           fi
 
       - name: Proposal share tests
+        if: matrix.group == 3
         # The client's copy, and what counts as somebody having read it.
         # Guarded like the steps around it. Nothing in it reaches a third
         # party: the "client" is a second test client with no Hub cookie.
@@ -1039,6 +1140,7 @@ jobs:
           fi
 
       - name: Short.io link masking — the slug, reuse, conflicts, opens
+        if: matrix.group == 3
         # hub/short_links.py masks a client-facing link under s1report.co and
         # counts opens through Short.io. Nothing in it reaches the network:
         # requests.post/get are stubbed, so a green run here means the same
@@ -1053,6 +1155,7 @@ jobs:
           fi
 
       - name: Proposal targeting tests — the map, the pastes, the research
+        if: matrix.group == 3
         # Guarded like the steps around it so this workflow stays mergeable on
         # a branch that predates the file. Nothing in it reaches a third party:
         # the tile server and the geocoder are stubbed, so a green run here
@@ -1071,6 +1174,7 @@ jobs:
       # itself, so a bad future edit to that file is caught here rather than
       # in a proposal. Reaches no network and no database.
       - name: ZIP-radius lookup — the real case, pinned against the real data
+        if: matrix.group == 3
         run: |
           if [ -f test_zip_geo.py ]; then
             python test_zip_geo.py
@@ -1084,6 +1188,7 @@ jobs:
       # answer, and the "completed but empty" gap this pass closed) directly,
       # rather than only through whichever caller happens to stub it.
       - name: The shared OpenAI Responses reader — every way it fails, named
+        if: matrix.group == 3
         run: |
           if [ -f test_openai_responses.py ]; then
             python test_openai_responses.py
@@ -1096,6 +1201,7 @@ jobs:
       # three, and reading /api/ai/rewrite closely for this pass is what
       # found the empty-answer-reads-as-success gap above.
       - name: Proposal Builder AI buttons — refusal, cut-short, and an empty answer
+        if: matrix.group == 3
         run: |
           if [ -f test_proposal_ai.py ]; then
             python test_proposal_ai.py
@@ -1104,6 +1210,7 @@ jobs:
           fi
 
       - name: Social content planner tests
+        if: matrix.group == 3
         # Guarded like the steps above so this workflow stays mergeable on a
         # branch that predates the file. Safe to run after the others despite
         # sharing the job's Postgres: every plan id is minted per run, so the
@@ -1117,6 +1224,7 @@ jobs:
           fi
 
       - name: GPT ad pack tests
+        if: matrix.group == 4
         # The 1:1 image gate, the copy checks, the landing-page verdicts and
         # what the ad-ops ZIP actually contains. Guarded like the steps around
         # it so this workflow stays mergeable on a branch that predates the
@@ -1131,6 +1239,7 @@ jobs:
           fi
 
       - name: Sites match and client URL discovery tests
+        if: matrix.group == 4
         # Live-only matching, the file-host gate, and the overlay that fills a
         # client's missing website without relabelling them. Guarded like the
         # steps around it so this workflow stays mergeable on a branch that
@@ -1144,6 +1253,7 @@ jobs:
           fi
 
       - name: Sites billing tests
+        if: matrix.group == 4
         # The QA Sites Billing Report: the three QuickBooks hosting products
         # joined to Smart 1 Sites projects by a typed invoice description. The
         # check that matters most is the silent one -- rename a product in
@@ -1161,6 +1271,7 @@ jobs:
           fi
 
       - name: Smart 1 Sites Builder tests
+        if: matrix.group == 4
         # Ported: test_ci_gate.py's own sweep found this file added by a
         # prior, unrelated merge with no step to run it. Unrelated to this
         # PR's own change, ported here because it is a one-line,
@@ -1175,6 +1286,7 @@ jobs:
           fi
 
       - name: Domain attach, orphan URL and domain purchase tests
+        if: matrix.group == 4
         # One domain attached to one client in four systems at once, the
         # orphan list that finds a URL nobody owns, and the purchased-domain
         # renewal calendar whose "billed" tick lapses when the renewal date
@@ -1189,6 +1301,7 @@ jobs:
           fi
 
       - name: Nightly-window helper tests
+        if: matrix.group == 4
         # hub/nightly.py — "run once after 2am Eastern," shared by every job
         # that wants a once-a-day window rather than restating it. The thing
         # worth proving is the DST awareness a fixed-UTC-hour scheme cannot
@@ -1198,6 +1311,7 @@ jobs:
         run: python3 test_nightly.py
 
       - name: Suite embed tests
+        if: matrix.group == 4
         # Hub pages framed inside Smart 1 Suite: the SameSite=None companion
         # cookie that reaches a cross-site frame, the safe-method + allowlist
         # limits that stop it being a second front door, the frame-ancestors
@@ -1212,6 +1326,7 @@ jobs:
           fi
 
       - name: Calculator embed tests
+        if: matrix.group == 4
         # The media calculators framed on smart1marketing.com. Two rules, and
         # the second is the one to be afraid of: the public calculator pages
         # are framable from any domain, and the staff index and the lead list
@@ -1226,6 +1341,7 @@ jobs:
           fi
 
       - name: Marketplace app scope tests
+        if: matrix.group == 4
         # The scope set the GHL Marketplace app asks for, and the diff between
         # what was requested and what HighLevel actually granted. Adding a
         # scope costs an agency re-consent, so a write call site with no scope
@@ -1241,6 +1357,7 @@ jobs:
           fi
 
       - name: Orphaned Google account tests
+        if: matrix.group == 4
         # The GA4 / Tag Manager / Search Console orphan list, the suggestions
         # it makes (a recorded id is evidence; a shared domain is not), and the
         # three systems an attach writes. The index is written as a fixture, so
@@ -1254,9 +1371,11 @@ jobs:
           fi
 
       - name: Google Access OAuth flow tests
+        if: matrix.group == 4
         run: python test_google_access_flow.py
 
       - name: Google Access tests
+        if: matrix.group == 4
         # Google Ads is paused: the assertion is that no client-facing page
         # still offers or explains it, and that a request created before the
         # pause still renders and can still be closed off. Plus the
@@ -1273,6 +1392,7 @@ jobs:
           fi
 
       - name: Google Access inactive-accounts scan progress tests
+        if: matrix.group == 4
         # The QA scan runs on a background thread now rather than blocking
         # the request thread for the life of the scan, with progress on the
         # shared data disk so either gunicorn worker can answer a poll. A
@@ -1289,6 +1409,7 @@ jobs:
           fi
 
       - name: Google Access inactive-accounts scan resource-cache tests
+        if: matrix.group == 4
         # A GA4 property or GTM container checked within RESOURCE_STALE_HOURS
         # is read back from google_inactive_qa_resource_cache.json rather than
         # re-checked live -- the same property/container is never asked about
@@ -1307,6 +1428,7 @@ jobs:
           fi
 
       - name: Blog taxonomy, guardrail and CMS publish tests
+        if: matrix.group == 4
         # The blog section's approved-topic list, the never-mention check and
         # what the two CMS panels are handed. Guarded like the steps above so
         # this workflow stays mergeable on a branch that predates the file. It
@@ -1320,6 +1442,7 @@ jobs:
           fi
 
       - name: The hub's own tours and walkthrough buttons
+        if: matrix.group == 4
         # That every registered hub tour can actually be offered, and that a
         # walkthrough button appears only where a scenario for that page
         # exists. Guarded like the steps around it so this workflow stays
@@ -1332,6 +1455,7 @@ jobs:
           fi
 
       - name: linkcheck helper and sendBeacon coverage tests
+        if: matrix.group == 4
         # The helper tables linkcheck resolves URLs through, and that a
         # browser-only pattern never reads Python prose as a call site.
         # Guarded like the steps around it so this workflow stays mergeable
@@ -1344,6 +1468,7 @@ jobs:
           fi
 
       - name: SEO client list and record tests
+        if: matrix.group == 4
         # The four status pills, the empty client name that matched the whole
         # website registry, the failed record load that rendered as an empty
         # record, and that SEO work reaches the client's own 360 page. Guarded
@@ -1357,6 +1482,7 @@ jobs:
           fi
 
       - name: SEO Intelligence recommendations
+        if: matrix.group == 4
         # SEORecommendation declared a column named `query`, which shadows
         # Flask-SQLAlchemy's Model.query on that one class: every weekly
         # refresh rolled back and the action queue answered 500, with every
@@ -1371,6 +1497,7 @@ jobs:
           fi
 
       - name: Client 360 workspace layout
+        if: matrix.group == 4
         # The record's cards are moved into rail sections by title, and the
         # matching is driven in node against the template's own card titles —
         # if it stops matching, every card piles into Overview with the page
@@ -1385,6 +1512,7 @@ jobs:
           fi
 
       - name: Client 360 Tracked links reads Knack too
+        if: matrix.group == 4
         # A tagged click-thru typed onto an insertion order is a tracked link
         # as much as one built in the UTM Builder; reading only the builder
         # made a client whose links all arrived that way read as a client with
@@ -1400,6 +1528,7 @@ jobs:
           fi
 
       - name: Commercial Builder dashboard layout tests
+        if: matrix.group == 4
         # The dashboard's sections, and the rail label assistive technology
         # reads. Guarded like the steps above so this workflow stays mergeable
         # on a branch that predates the file.
@@ -1411,6 +1540,7 @@ jobs:
           fi
 
       - name: Image download and shared zip builder tests
+        if: matrix.group == 4
         # The SEO pipeline's downloads, hub/storage.bundle_zip, and the image
         # picker's gallery download now that it runs on the shared builder.
         # Guarded like the steps above so this workflow stays mergeable on a
@@ -1424,6 +1554,7 @@ jobs:
           fi
 
       - name: Client 360 images, the brand card and the way back
+        if: matrix.group == 4
         # Deleting one image from the record it belongs to, the count that
         # used to report the whole archive, the client carried on every link
         # that leaves Client 360, and the brand card that read stored data
@@ -1439,6 +1570,7 @@ jobs:
           fi
 
       - name: The client upload link, and the client an IO brings into being
+        if: matrix.group == 4
         # One gallery or none (never a substring), the link on Client 360, in
         # the IO wizard, on both PDFs and in the Suite payload, and the
         # registration of a client whose only trace is an insertion order --
@@ -1454,6 +1586,7 @@ jobs:
           fi
 
       - name: Ad Assets — Drive creative into the client library
+        if: matrix.group == 4
         # The folder shape, the dedupe key, and the two writes a copy must not
         # make: nothing to Drive at all, and nothing to Knack until somebody
         # applies a proposal they have read. Also that a Drive scope Google
@@ -1468,6 +1601,7 @@ jobs:
           fi
 
       - name: Image attribution audit, and the gallery that reads it
+        if: matrix.group == 4
         # Every tool that creates, uploads or lets somebody choose an image
         # files it against a client or a lead; the audit reports the ones that
         # do not; and the gallery reads one label table rather than a second
@@ -1481,6 +1615,7 @@ jobs:
           fi
 
       - name: Alt text and Claude-in-Chrome publish prompts
+        if: matrix.group == 4
         # The alt-text scan, its clamps, and the prompts handed to a browser
         # agent -- including that no stored credential can reach one. Guarded
         # like the steps above so this workflow stays mergeable on a branch
@@ -1494,6 +1629,7 @@ jobs:
           fi
 
       - name: Video library tests
+        if: matrix.group == 4
         # Safe to re-run, unlike the target-areas step above: this file *sets*
         # DATABASE_URL and HUB_DATA_DIR rather than setdefault-ing them, so it
         # always gets its own throwaway mirror and never restores a previous
@@ -1506,6 +1642,7 @@ jobs:
           fi
 
       - name: Video Search gallery tests
+        if: matrix.group == 4
         # Same shape as the step above: this file also sets its own throwaway
         # DATABASE_URL and HUB_DATA_DIR, so it is safe to re-run.
         run: |
@@ -1516,6 +1653,7 @@ jobs:
           fi
 
       - name: Video Tools tests
+        if: matrix.group == 4
         # Dead Air Cutter and Vertical Reframe. No network: every decision the
         # module makes lives in pure functions handed synthetic waveforms and
         # known frame sizes, and the wiring half boots the app with Cloudinary
@@ -1531,6 +1669,7 @@ jobs:
           fi
 
       - name: Radio Scripts tests
+        if: matrix.group == 4
         # The standalone script-writing tool: the word-budget gate, the
         # forced-empty legal line, coverage and copy checks, and the guarded
         # blueprint. No network -- OpenAI is stubbed at the same transport
@@ -1545,6 +1684,7 @@ jobs:
           fi
 
       - name: Creative Studio tests
+        if: matrix.group == 4
         # WO-CS1-4: the front door, projects, the extended Brand Kit, the
         # Media Library, the AI Tools registry and the creative_jobs sweep
         # (index/storyboard/script/image). No network -- Cloudinary, OpenAI
@@ -1560,6 +1700,7 @@ jobs:
           fi
 
       - name: Creative jobs tests
+        if: matrix.group == 5
         # The lead-triggered queue (build spec WO-2): the autostart gate on
         # the real Stadium source string, enqueue-never-raises, the three
         # attempts before a job is given up on in writing, a stale running
@@ -1576,6 +1717,7 @@ jobs:
           fi
 
       - name: Radio Scripts review link tests
+        if: matrix.group == 5
         # Build spec WO-3: the client review link for a radio script set,
         # ported from modules/commercial_builder's review pattern (its own
         # review_spec.py rather than a cross-module import, the reason
@@ -1591,6 +1733,7 @@ jobs:
           fi
 
       - name: Web ticket field tests
+        if: matrix.group == 5
         # The pinned object_107 ids, the form built from them, and what a
         # write may and may not contain. Guarded like the steps above so this
         # workflow stays mergeable on a branch that predates the file. Needs
@@ -1603,6 +1746,7 @@ jobs:
           fi
 
       - name: Ad copy request tests
+        if: matrix.group == 5
         # The Ad Copy Request object: the ids the campaign team gave us, the
         # object discovered from them rather than guessed at, and a prefill
         # that fills in exactly one candidate or none. Guarded like the steps
@@ -1616,6 +1760,7 @@ jobs:
           fi
 
       - name: Campaign support request tests
+        if: matrix.group == 5
         # The pinned object_121 ids, the form built from them — every option
         # off the live object, never a guessed choice — and what a write may
         # and may not contain. Guarded like the steps above so this workflow
@@ -1629,6 +1774,7 @@ jobs:
           fi
 
       - name: Campaign asset queue tests
+        if: matrix.group == 5
         # The two object_135 fields behind /tools/campaign-assets: the tickbox
         # that gates the asset text, the partner-then-sales ordering, and that
         # a product cache predating the fields reads as "not measured" rather
@@ -1643,6 +1789,7 @@ jobs:
           fi
 
       - name: Stale Creative row-action tests
+        if: matrix.group == 5
         # The three actions at the end of a row, and the evergreen overlay
         # behind the first of them: applied on every read of the cached audit
         # rather than inside it, so a mark taken in one gunicorn worker is not
@@ -1658,6 +1805,7 @@ jobs:
           fi
 
       - name: Dashboard trend tests
+        if: matrix.group == 5
         # The month-over-month comparisons: keyed on the calendar, resolving
         # next month, naming the month each is against. Guarded like the steps
         # above so this workflow stays mergeable on a branch that predates the
@@ -1670,6 +1818,7 @@ jobs:
           fi
 
       - name: Client group tests
+        if: matrix.group == 5
         # The Client 360 Group button: what merges across a grouped record,
         # what must not be counted twice, and that one client can only be in
         # one group. Guarded like the steps above so this workflow stays
@@ -1685,6 +1834,7 @@ jobs:
           fi
 
       - name: User account, access level and crawler tests
+        if: matrix.group == 5
         # The census roster and the two levels it creates: that a re-run never
         # resets a password or takes back a promotion, that the starting
         # password is valid for exactly one sign-in (mounted modules included
@@ -1716,6 +1866,7 @@ jobs:
           fi
 
       - name: Nothing answers a stranger
+        if: matrix.group == 5
         # Boots the composed app and requests every static GET route it serves
         # with no session at all. A module registered as a blueprint on the hub
         # app never passes through wsgi.py's AuthGuard, so one that does not
@@ -1736,6 +1887,7 @@ jobs:
           fi
 
       - name: Environment resolution and per-module attribution tests
+        if: matrix.group == 5
         # One setting, several variable names. This deployment's environment is
         # assembled from linked Render env groups that each named things their
         # own way, so a key set as PEXELS_API has to resolve in code written
@@ -1758,6 +1910,7 @@ jobs:
           fi
 
       - name: OAuth redirect URI tests
+        if: matrix.group == 5
         # Every callback the Hub hands a provider, and the hostname trap under
         # it: that a host-derived callback is one string PER HOSTNAME (a second
         # domain on the service doubles what has to be registered, and nothing
@@ -1777,6 +1930,7 @@ jobs:
           fi
 
       - name: Birthday and work-anniversary tests
+        if: matrix.group == 5
         # The dashboard block and the once-a-day popup: that a date nobody
         # recorded is named rather than dropped, that no year of birth reaches
         # the payload, that 29 February is marked in a common year, that only
@@ -1793,6 +1947,7 @@ jobs:
           fi
 
       - name: Housekeeping tests
+        if: matrix.group == 5
         # Warnings that show on a page the whole company reads and that only
         # an admin can act on: that each one is listed with the page it shows
         # on and where it is fixed, that a source which could not be read
@@ -1810,6 +1965,7 @@ jobs:
           fi
 
       - name: Client ownership and the My Clients report
+        if: matrix.group == 5
         # Who owns which client, and what is outstanding on each of them: that
         # a client has exactly one owner and a handover names who held it, that
         # "Riverside HVAC" never collects "Riverside HVAC Supply", that a bulk
@@ -1837,6 +1993,7 @@ jobs:
           fi
 
       - name: Boot the composed app
+        if: matrix.group == 5
         # Static analysis misses what booting catches; several serious bugs in
         # this repo were only ever found by running it. Requests the pages a
         # change is most likely to break.
@@ -1921,6 +2078,7 @@ jobs:
       # the whole tool rendered blank. Every template was valid. Every link
       # resolved. Nothing above would have caught it.
       - name: Rendered pages (chrome is markup, scripts still parse)
+        if: matrix.group == 5
         run: python tools/pagecheck.py --strict
 
       # The Hub's own defect-pattern check, which otherwise lives behind a
@@ -1929,6 +2087,7 @@ jobs:
       # activity log) and are printed every run, so switching this on did not
       # start it red.
       - name: Known defect patterns (/api/integrity)
+        if: matrix.group == 5
         run: python tools/integritycheck.py
 
       # American English, over the copy this Hub puts on a screen. Smart 1
@@ -1940,6 +2099,7 @@ jobs:
       # a new "colour" is a failing build rather than something a client finds
       # on a proposal.
       - name: American English in the copy
+        if: matrix.group == 5
         run: python tools/spellcheck.py
 
       # ...and that the check above cannot be silenced by an edit somewhere
@@ -1947,6 +2107,7 @@ jobs:
       # so, and its exemption list is required to still name real files and
       # real words. The failure hub/config.py's ALIASES table describes.
       - name: The spelling check still bites
+        if: matrix.group == 5
         run: python3 test_spelling.py
 
       # One client reader. `context()` asked the site scan for `detected_phone`
@@ -1957,6 +2118,7 @@ jobs:
       # rule that an offer never overwrites what somebody typed, and the block
       # every AI feature hands a model.
       - name: Client prefill and the block a model is handed
+        if: matrix.group == 5
         run: python3 test_client_prefill.py
 
       # A logo we found is a logo the client's gallery holds. Brandfetch is
@@ -1968,6 +2130,7 @@ jobs:
       # one, a dead URL drawn as a broken tile, and a billed provider called
       # on a page load.
       - name: Logos reach the client gallery
+        if: matrix.group == 5
         run: python3 test_client_logos.py
 
       # The top search box. A client the query *names* comes first -- but
@@ -1979,6 +2142,7 @@ jobs:
       # a client book which could not be read is named rather than silently
       # answered with only the pages.
       - name: The search box finds clients first, and finds the Hub
+        if: matrix.group == 5
         run: python3 test_search.py
 
       # A client's llms.txt is hosted here and reached by a redirect on the
@@ -1993,6 +2157,7 @@ jobs:
       # header the route sets for itself, the 301-versus-302 verdict, and that
       # a robots.txt we could not reach is not read as permission.
       - name: The client llms.txt is readable, redirected and verified
+        if: matrix.group == 5
         run: python3 test_llms_hosting.py
 
       # The help layer, both halves. A bubble whose key the registry does not
@@ -2005,6 +2170,7 @@ jobs:
       # is a refusal to answer rather than a clean bill. This file was in
       # CLAUDE.md's list and in no CI step, so it was a check nobody ran.
       - name: Every bubble has help behind it, and coverage is measured
+        if: matrix.group == 5
         run: |
           python3 test_help_layer.py
           python3 test_help_center.py
@@ -2024,6 +2190,7 @@ jobs:
       # ideas restored into its fresh temporary directory and fail on the
       # counts. Reproduced before it was fixed, and both runs are green now.
       - name: Content requests, ideas and the Suite push
+        if: matrix.group == 5
         run: python3 test_social_content.py
 
       # The client registry ran on a 610-row JSON file committed to the repo
@@ -2033,6 +2200,7 @@ jobs:
       # measuring the dashboard scorecard against the export -- pointed at the
       # live list it reports 2 active websites instead of 610.
       - name: Websites read live, with the export as the fallback
+        if: matrix.group == 5
         run: python3 test_knack_websites_source.py
 
       # The client half of the Suite embed. The location id inside the
@@ -2041,6 +2209,7 @@ jobs:
       # record, and every one of them is silent. Carries its own encryptor so
       # the CryptoJS envelope is round-tripped rather than assumed.
       - name: Suite SSO — who is looking, inside a client's own sub-account
+        if: matrix.group == 5
         run: python3 test_suite_sso.py
 
       # Eleven background jobs share one thread. The panel said the loop was
@@ -2049,22 +2218,25 @@ jobs:
       # all, showed every job as never run. This holds the three answers it
       # could not give: overdue, a failure streak, and not-measured-here.
       - name: Background jobs report whether they are working
+        if: matrix.group == 5
         run: python3 test_scheduler_health.py
 
       - name: Nightly reporting and historical imports
+        if: matrix.group == 5
         run: python3 test_reports_nightly.py
 
       # SmartForecast is a stateful public experience: verify lifecycle rules,
       # immutable history, public embeds, and Render disk recovery together.
       - name: GA4 unassigned traffic diagnostics and usage
+        if: matrix.group == 5
         run: python3 test_unassigned_traffic.py
 
       - name: Canonical company identity and master links
-        run: |
-          python -m pip install pytest==8.4.2
-          python -m pytest -q tests/test_company_identity.py tests/test_master_identity.py tests/test_master_identity_backfill.py tests/test_master_links.py
+        if: matrix.group == 5
+        run: python -m pytest -q tests/test_company_identity.py tests/test_master_identity.py tests/test_master_identity_backfill.py tests/test_master_links.py
 
       - name: SmartForecast lifecycle, storage and embed tests
+        if: matrix.group == 6
         run: python3 test_smartforecast.py
 
       # The five self-contained partner pages: LINKS resolves under the
@@ -2072,40 +2244,47 @@ jobs:
       # not only the one page where a 404 was reported), and a mailto that
       # can fire silently keeps a visible address beside it.
       - name: Partner pages cross-links and fallbacks
+        if: matrix.group == 6
         run: python3 test_partner_pages.py
 
       # Weather Trigger Setup's own vocabulary: the cap enforced server-side,
       # the month ordering, and evaluate_trigger() answering "not measured"
       # rather than a guessed verdict when a snapshot cannot answer a rule.
       - name: Weather trigger vocabulary and evaluation
+        if: matrix.group == 6
         run: python3 test_weather_triggers.py
 
       # The campaign store, the copy guardrails, work order numbering, and
       # the two blueprints -- one gated, one the client's own unguessable link.
       - name: Weather Trigger Setup campaigns, copy and the public wizard
+        if: matrix.group == 6
         run: python3 test_weather_setup.py
 
       # The Coming up card and the Last activity pill on Client 360: orders
       # ending, domains renewing, the gap since anything was done -- dates
       # read never guessed, exact client match, never raises.
       - name: Client 360 coming-up card and last-activity pill
+        if: matrix.group == 6
         run: python3 test_client360_upcoming.py
 
       # Client 360 pipeline card: the client's own Suite pipelines, counted
       # from raw rows; tri-state on the sub-account token; no token in the
       # answer; paging capped and flagged.
       - name: Client 360 pipeline card
+        if: matrix.group == 6
         run: python3 test_client360_pipeline.py
 
 
       # The Social suggestions card on Client 360: reads the planner's idea
       # store, keeps its three empties apart, and writes through the planner.
       - name: Client 360 social suggestions card
+        if: matrix.group == 6
         run: python3 test_client360_social_ideas.py
       # 360 Skills: the per-client skill store (verify-then-activate, masked
       # secrets), the Ecwid hotsheet maths, the Suite email send path, the
       # three blueprints and the gate Client 360 draws its skill cards behind.
       - name: 360 Skills store, Ecwid hotsheet, Suite email and the Client 360 gate
+        if: matrix.group == 6
         run: python3 test_skills360.py
 
       # The two radio commercial builders. Neither had a test, and the
@@ -2122,9 +2301,11 @@ jobs:
       # and that both stores write under the shared data root rather than
       # their own copy of it.
       - name: Radio builders — the client's page, the marks, and the clock
+        if: matrix.group == 6
         run: python3 test_radio_builders.py
 
       - name: Audio response and render regression tests
+        if: matrix.group == 6
         run: |
           python3 test_customer_voices.py
           python3 test_radio_production.py
@@ -2145,6 +2326,7 @@ jobs:
       # opportunity it already opened rather than adding a second to the same
       # client's pipeline.
       - name: Commercial Builder parity — the copy it carries, and the Suite
+        if: matrix.group == 6
         run: python3 test_commercial_parity.py
 
       # The Radio Ad Creator's second half: the music bed, the mix, the checks
@@ -2166,6 +2348,7 @@ jobs:
       # only what the project's own row recorded, and that a variation carries
       # the scripts without the audio.
       - name: Radio Ad Creator — beds composed, the mix measured off the file
+        if: matrix.group == 6
         run: python3 test_radio_ads.py
 
       # Radio Promo's half of the same list. The length menu held the :15/:30
@@ -2181,6 +2364,7 @@ jobs:
       # report is certainty rather than severity, so a missing disclaimer
       # blocks and a read length -- words divided by a pace -- does not.
       - name: Radio Promo parity — the lengths, their costs, the beats, the panel
+        if: matrix.group == 6
         run: python3 test_radio_parity.py
 
       # The sample campaigns both radio builders open empty without. Two
@@ -2196,6 +2380,7 @@ jobs:
       # projects, two of them client-attached, so it is asserted rather than
       # reasoned about.
       - name: Radio samples — in budget, and never deleting adopted work
+        if: matrix.group == 6
         run: python3 test_radio_samples.py
 
       # Every module's work is attributable, and the two checks that say so
@@ -2212,6 +2397,7 @@ jobs:
       # radio_promo logged client work that never reached the client record
       # while fan_radio, doing the same job, did.
       - name: Every module's work is attributable
+        if: matrix.group == 6
         run: python3 test_activity_logging.py
       # Declared and never wired is the failure this repo has paid for most
       # often -- an ">>> INTEGRATION POINT <<<" naming three writers that have
@@ -2222,6 +2408,7 @@ jobs:
       # survivor carries the reason it is allowed to, and an entry naming a
       # function that is gone -- or one something now calls -- fails.
       - name: Nothing is declared and left unwired
+        if: matrix.group == 6
         run: python3 test_unwired.py
 
       # `.spin` was defined nine times before hub-thinking.js. The script reaches
@@ -2231,6 +2418,7 @@ jobs:
       # step -- same paths, same speed, same reduced-motion rule -- so a prospect
       # and a rep are not looking at two different features.
       - name: One mark for a wait, in all four places it is drawn
+        if: matrix.group == 6
         run: python3 test_thinking.py
 
       # The three index pages, and the crumb map held against the tiles rather
@@ -2240,6 +2428,7 @@ jobs:
       # the link resolves and the page renders, it simply lands where the tool
       # is not. Lifts the resolution block out of the page and runs it in node.
       - name: Every tool is tiled once, and the trail names it
+        if: matrix.group == 6
         run: python3 test_menu_layout.py
 
       # Asking somebody to check a page, and getting their answer back. Four
@@ -2251,6 +2440,7 @@ jobs:
       # the blueprint's own login gate, the tile, and a dashboard card that
       # never draws a zero over a table it could not read.
       - name: A QA review asked for, answered and closed
+        if: matrix.group == 6
         run: python3 test_qa_tasks.py
 
       # A second proposal for a client that already has one execution run
@@ -2263,6 +2453,7 @@ jobs:
       # unchanged payload -- and the shared inputs already answered --
       # forward onto the run that replaces it.
       - name: Proposal Execution — supersede, don't duplicate
+        if: matrix.group == 6
         run: python3 test_proposal_execution.py
 
       # Analyzing a proposal produced a task board and nothing a person
@@ -2277,6 +2468,7 @@ jobs:
       # it, including that the page's result renderer, lifted out of the
       # template and run in node, writes directions and never braces.
       - name: Proposal Execution — the plan a person reads, not JSON
+        if: matrix.group == 6
         run: |
           if [ -f test_proposal_plan.py ]; then
             python3 test_proposal_plan.py
@@ -2295,6 +2487,7 @@ jobs:
       # the QA report's shape, the health issue per missed month, and that a
       # mark on the plan page clears the issue on read.
       - name: Proposal Execution — monthly promises against the work log
+        if: matrix.group == 6
         run: |
           if [ -f test_proposal_promises.py ]; then
             python3 test_proposal_promises.py
@@ -2314,6 +2507,7 @@ jobs:
       # no staff email, outside both the login and the chrome, and revoked,
       # unknown and malformed answering one 404.
       - name: Proposal Execution — owners, the kickoff document, the client's page
+        if: matrix.group == 6
         run: |
           if [ -f test_proposal_kickoff.py ]; then
             python3 test_proposal_kickoff.py
@@ -2322,6 +2516,7 @@ jobs:
           fi
 
       - name: Proposal Execution — done, landed and overdue on the launch tasks and the creative
+        if: matrix.group == 6
         run: |
           if [ -f test_proposal_progress.py ]; then
             python3 test_proposal_progress.py
@@ -2336,6 +2531,7 @@ jobs:
       # supply key answered smart1, the same 404 on the POST as on the
       # page, and a pending reply counted everywhere an open question is.
       - name: Proposal Execution — the client answers on their page
+        if: matrix.group == 6
         run: |
           if [ -f test_proposal_client_answers.py ]; then
             python3 test_proposal_client_answers.py
@@ -2349,6 +2545,7 @@ jobs:
       # saying it was automatic on the plan, the event and the quote's own
       # strip, and a table that would not answer never a clean sweep.
       - name: Proposal Execution — a won proposal starts its own plan
+        if: matrix.group == 6
         run: |
           if [ -f test_proposal_autostart.py ]; then
             python3 test_proposal_autostart.py
@@ -2370,6 +2567,7 @@ jobs:
       # UTM-source channels completes cleanly rather than reading as a
       # failure, and that a second run never duplicates a saved link.
       - name: Proposal Execution — real-tool adapters (UTM tracking links)
+        if: matrix.group == 6
         run: |
           if [ -f test_proposal_adapters.py ]; then
             python3 test_proposal_adapters.py
@@ -2389,6 +2587,7 @@ jobs:
       # are stubbed, the way test_ads_module.py and test_gpt_ads.py already
       # stub them; nothing here makes a real network call.
       - name: Proposal Execution — real-tool adapters (Paid Search ad copy)
+        if: matrix.group == 6
         run: |
           if [ -f test_proposal_adapters_search_ads.py ]; then
             python3 test_proposal_adapters_search_ads.py
@@ -2409,6 +2608,7 @@ jobs:
       # client's real social accounts. OpenAI is stubbed; nothing here makes
       # a real network call.
       - name: Proposal Execution — real-tool adapters (Social content calendar)
+        if: matrix.group == 6
         run: |
           if [ -f test_proposal_adapters_social.py ]; then
             python3 test_proposal_adapters_social.py
@@ -2430,6 +2630,7 @@ jobs:
       # scan row is seeded through modules.scans.app.Scan, the way
       # test_website_audit.py already does.
       - name: Proposal Execution — real-tool adapters (SEO discovery audit)
+        if: matrix.group == 6
         run: |
           if [ -f test_proposal_adapters_seo.py ]; then
             python3 test_proposal_adapters_seo.py
@@ -2460,6 +2661,7 @@ jobs:
       # "retargeting creative" on the task that is not retargeting. Same
       # test file, same stub, one more section.
       - name: Proposal Execution — real-tool adapters (Display Ad Builder, Stadium companion banners)
+        if: matrix.group == 6
         run: |
           if [ -f test_proposal_adapters_display_ads.py ]; then
             python3 test_proposal_adapters_display_ads.py
@@ -2479,6 +2681,7 @@ jobs:
       # test the way hub.ai.chat_json already is elsewhere -- no real
       # OpenAI call in CI.
       - name: Proposal Execution — real-tool adapters (Meta carousel creative)
+        if: matrix.group == 6
         run: |
           if [ -f test_proposal_adapters_image_creator.py ]; then
             python3 test_proposal_adapters_image_creator.py
@@ -2500,6 +2703,7 @@ jobs:
       # key at all. hub.ai.chat_json is stubbed the way it already is
       # elsewhere -- no real OpenAI call in CI.
       - name: Proposal Execution — real-tool adapters (Monthly sales video concept)
+        if: matrix.group == 6
         run: |
           if [ -f test_proposal_adapters_commercial.py ]; then
             python3 test_proposal_adapters_commercial.py
@@ -2519,6 +2723,7 @@ jobs:
       # budget line already on file rather than doubling it on a retry, the
       # same "already existed and were left as-is" shape utm.py uses.
       - name: Proposal Execution — real-tool adapters (Cross-channel reporting dashboard)
+        if: matrix.group == 7
         run: |
           if [ -f test_proposal_adapters_reports.py ]; then
             python3 test_proposal_adapters_reports.py
@@ -2534,6 +2739,7 @@ jobs:
       # not, and the blueprint actually guarded rather than open to a
       # stranger.
       - name: Department Views — curated per department, gated at the editor
+        if: matrix.group == 7
         run: python3 test_department_views.py
 
       # One design into the whole size set. The failure it exists to catch is
@@ -2543,6 +2749,7 @@ jobs:
       # the two halves of the propagation rule, which fail in opposite
       # directions: copy must reach a hand-tuned frame and layout must not.
       - name: One design, the whole size set
+        if: matrix.group == 7
         run: python3 test_magic_resize.py
 
       # The BrandTemplate decision the build plan left open: a rep's
@@ -2553,6 +2760,7 @@ jobs:
       # refusal: a pick has to be one of the tiles brand_kit() is offering
       # right now, never an invented URL or hex.
       - name: A rep's brand pick, not every tool's guess
+        if: matrix.group == 7
         run: python3 test_brand_template.py
 
       # The primitives four screens of one product share. It also walks the
@@ -2561,6 +2769,7 @@ jobs:
       # silently stops applying -- valid markup, resolving links, passing
       # pagecheck, and invisible in the diff.
       - name: One description of the record-page look
+        if: matrix.group == 7
         run: python3 test_detail_ui.py
 
       # Three places a model reads something the Hub already holds -- a project
@@ -2568,6 +2777,7 @@ jobs:
       # that none of them writes by arriving, and this asserts it from the AST:
       # the source of each carries no path to a write.
       - name: The model proposes, the code decides, a person presses
+        if: matrix.group == 7
         run: python3 test_ai_proposals.py
 
       # Its walkthrough described a wizard that no longer exists -- a Storyboard
@@ -2575,18 +2785,21 @@ jobs:
       # called required where the rule is advisory. A rep believes a
       # walkthrough, so this asserts against each of those by name.
       - name: The Commercial Builder explains the tool it is
+        if: matrix.group == 7
         run: python3 test_commercial_explainer.py
 
       # Every help key placed resolves, every tour step rings a card its own
       # screen actually draws, and none of it reaches the two pages a prospect
       # reads -- a staff note there is an internal note in front of a client.
       - name: The prospect record and the audit explain themselves
+        if: matrix.group == 7
         run: python3 test_prospect_explainer.py
 
       # Named in neither this workflow nor CLAUDE.md's list until now, which is
       # the same gap one step further on: a check nobody runs and nobody has
       # written down is one nothing would miss.
       - name: Website block tests (the second file)
+        if: matrix.group == 7
         run: python3 test_site_blocks.py
 
       # CLAUDE.md ends its list of checks by saying all of it runs on every
@@ -2595,6 +2808,7 @@ jobs:
       # making the claim is the file listing them. This asserts it in both
       # directions, so the next check added cannot be gated by nobody.
       - name: Client 360 derived health strip
+        if: matrix.group == 7
         # hub/record_health.client360(): every pill derived from the stores,
         # a source that refuses drawn as its own state rather than a clean
         # one, a client with nothing on file drawn as unknown, the blogs
@@ -2602,6 +2816,7 @@ jobs:
         run: python3 test_client360_health.py
 
       - name: Suite billing reports against a stubbed SaaS API
+        if: matrix.group == 7
         # The two GHL billing reports had never been run live and had no test.
         # An unrecognised subscription status is named on the report rather
         # than dropped, a refused plan catalogue is said rather than passed
@@ -2610,12 +2825,14 @@ jobs:
         run: python3 test_ghl_billing.py
 
       - name: Client 360 Tracked links card and copy controls
+        if: matrix.group == 7
         # Tracked links must render beside Social Media, and every copy button
         # must be a class the stylesheets define (.mini is not one) going
         # through copyToClipboard rather than reporting a copy it never made.
         run: python3 test_client360_utm_card.py
 
       - name: The gate runs every check a person runs
+        if: matrix.group == 7
         run: python3 test_ci_gate.py
 
       # The IO Builder had no test of its own, and booting it and pressing its
@@ -2630,6 +2847,7 @@ jobs:
       # that now reads the page rather than asking a model to visit it, and
       # where the line falls between an order and an attempt on submit.
       - name: IO Builder — the model calls, and the landing page it now reads
+        if: matrix.group == 7
         run: python3 test_io_builder.py
 
       # The three PDF-producing routes and the per-product checklist logic
@@ -2645,6 +2863,7 @@ jobs:
       # (upload, gallery filing, the SECURE_INTERNAL_PDF signed-URL branch)
       # and the not-configured 503 path.
       - name: IO Builder — every product's PDF checklist, and the three download routes
+        if: matrix.group == 7
         run: python3 test_io_downloads.py
 
       # The panel that creates and deletes clients' Smart 1 Suite sub-accounts
@@ -2656,6 +2875,7 @@ jobs:
       # clean success, and the activity entry for a deletion carried the name
       # the browser claimed rather than the one GHL held. This holds all three.
       - name: Suite Panel — the guard on creating, the record of deleting
+        if: matrix.group == 7
         run: python3 test_suite_panel.py
 
       # The last two modules named by no test at all. Both take a file a
@@ -2667,6 +2887,7 @@ jobs:
       # PDF tool's /health also answered "ok" while Ghostscript was missing
       # and every optimize was failing, contradicting the Hub's own /status.
       - name: The image and PDF optimizers
+        if: matrix.group == 7
         run: python3 test_image_pdf_optimizers.py
 
       # The third distinct way a tool's work has gone missing from the client
@@ -2679,6 +2900,7 @@ jobs:
       # Background Remover wrote detail=client too, with the gallery half of
       # the same fix already done beside it.
       - name: Work filed against a client reaches that client's record
+        if: matrix.group == 7
         run: python3 test_work_attribution.py
       # The last two modules no test named except in passing. Each carried a
       # failure no screen could report: UTM Builder printed the length of its
@@ -2692,6 +2914,7 @@ jobs:
       # workers; and set Flask to refuse at 40 MB a batch its own screen
       # offers at 120, as an HTML 413 the page could only report as "Failed".
       - name: UTM Builder and Background Remover
+        if: matrix.group == 7
         run: python3 test_utm_bg_tools.py
       # /api/integrity's silent-module check reads a call rather than an
       # import now, and the seven modules that had bound hub.audit and never
@@ -2704,6 +2927,7 @@ jobs:
       # holds both -- and each module declares the writes that deliberately
       # record nothing, so a silent one is a decision rather than an oversight.
       - name: Every write into a client's own account has a name on it
+        if: matrix.group == 7
         run: python3 test_write_attribution.py
       # hub/analytics_ids.py compares the GA/GTM ids recorded in Knack against
       # the ones Google can reach, and its own docstring says a false mismatch
@@ -2716,6 +2940,7 @@ jobs:
       # client record and a report of "reporting may be pointed at the wrong
       # property" about properties we administer, correctly recorded.
       - name: Two names for one property is not a disagreement
+        if: matrix.group == 7
         run: python3 test_analytics_ids.py
       # hub/ghl_oauth.py mints the location-scoped tokens the Suite panel, the
       # social planner and every sub-account join run on, and no test named it
@@ -2727,6 +2952,7 @@ jobs:
       # Register what the panel says and consent fails on redirect_uri_mismatch;
       # google_access is the one the panel itself marks client-facing.
       - name: The Suite install, and the callback the panel promises
+        if: matrix.group == 7
         run: python3 test_ghl_oauth.py
       # hub/seo_tasks.py raises the web tickets that get schema, FAQs and blog
       # posts onto a client's live site, and its docstring opens by forbidding
@@ -2739,6 +2965,7 @@ jobs:
       # with an identical title. An http -> https migration would have
       # duplicated the whole book in one pass.
       - name: One page, however its URL was written
+        if: matrix.group == 7
         run: python3 test_seo_tasks.py
       # hub/ghl_blog.py publishes a client's llms.txt into Suite as a blog
       # post -- a public URL on somebody's blog -- and read GHL_COMPANY_ID as
@@ -2754,6 +2981,7 @@ jobs:
       # nothing fell through to blogs[0]; and the URL was built from the slug
       # we asked for rather than the one Suite assigned.
       - name: companyId is not locationId, for the third time
+        if: matrix.group == 7
         run: python3 test_ghl_blog.py
       # The Client 360 forms card asked for forms with no sub-account and fell
       # back to GHL_LEAD_LOCATION_ID -- the sub-account Smart 1's OWN leads are
@@ -2762,6 +2990,7 @@ jobs:
       # before the skipped tally, so all-forms-failing rendered as "no form
       # submissions"; and a baseline nobody could read was recorded as 0.
       - name: Whose forms, and what an empty card means
+        if: matrix.group == 7
         run: python3 test_ghl_forms.py
       # The client-to-sub-account mapping, in its own store. Every
       # location-scoped feature needs it, and getting a pairing wrong puts
@@ -2769,6 +2998,7 @@ jobs:
       # exact or it is not a proposal, two candidates propose neither, and a
       # sub-account already held is refused rather than reassigned.
       - name: Which Suite sub-account belongs to which client
+        if: matrix.group == 7
         run: python3 test_suite_map.py
       # Landed on main invoked by nothing, so test_ci_gate.py -- the check that
       # exists to catch exactly this -- was already failing on main when this
@@ -2776,6 +3006,7 @@ jobs:
       # gate names and the workflow never runs is the sweep that has quietly
       # stopped sweeping, which is worse than not having one.
       - name: The Commercial Builder dashboard stays wired
+        if: matrix.group == 7
         run: python3 test_commercial_dashboard_layout.py
       # hub/audit_summary.py grounds every dollar figure in the two paragraphs
       # a prospect reads at the top of their own website audit, which is right
@@ -2787,6 +3018,7 @@ jobs:
       # view" — true of a real refusal, false of this one. One dropped comma
       # cost that audit its opening paragraphs permanently.
       - name: A measured figure, re-typed, is not an invented one
+        if: matrix.group == 7
         run: python3 test_audit_summary.py
       # hub/blog_images.py names a post's Cloudinary object after its TITLE,
       # with overwrite=True — and hub/seo.py tops a short plan up from six
@@ -2800,6 +3032,7 @@ jobs:
       # what the pending/ folder exists to prevent; and a gallery folder
       # assigned after the save, so it reached the browser and never the disk.
       - name: One image per post, and a badge you can act on
+        if: matrix.group == 7
         run: python3 test_blog_images.py
       # hub/analytics_ask.py turns a plain-English question into a GA4 report,
       # and its docstring says what it replaced: a keyword matcher that
@@ -2816,6 +3049,7 @@ jobs:
       # and a "total" that is the sum of whatever came back, which under a
       # limit is the top N presented as the whole.
       - name: July versus June, and the comparison that answered with June
+        if: matrix.group == 7
         run: python3 test_analytics_ask.py
       # Two buttons -- "Month to date" and "Custom compare" -- and four empty
       # date boxes behind the second one. Every period but the current month
@@ -2830,6 +3064,7 @@ jobs:
       # PLACEHOLDER, where the first keystroke erased it -- leaving someone
       # answering a question they could no longer read.
       - name: The period picker, and the question that asks a better one back
+        if: matrix.group == 7
         run: python3 test_analytics_ranges.py
       # hub/webargs.py is 51 lines reached from twenty files, named by no
       # test. Its docstring lists three faults it exists to end -- int()
@@ -2846,6 +3081,7 @@ jobs:
       # `Infinity`, and three call sites pass a JSON body straight in -- was
       # a 500 out of the helper whose first promise is that it never raises.
       - name: A number a stranger controls
+        if: matrix.group == 7
         run: python3 test_webargs.py
       # Eight things here are signed with itsdangerous and six resolved the
       # secret their own way. Four fell back to a literal in their own source:
@@ -2858,6 +3094,7 @@ jobs:
       # process. The check is a sweep over the AST, so a ninth signing site
       # cannot quietly add a literal.
       - name: What this Hub signs with
+        if: matrix.group == 7
         run: python3 test_signing.py
       # The owner-only QuickBooks check reconciliation tool: name
       # normalization, match scoring, allocation suggestions (an exact
@@ -2868,6 +3105,7 @@ jobs:
       # that once existed was folded in -- two gates disagreeing about what
       # green means is worse than either alone.
       - name: Check reconciliation matching and payloads
+        if: matrix.group == 8
         run: |
           if [ -f test_check_reconciliation.py ]; then
             python3 test_check_reconciliation.py
@@ -2880,6 +3118,7 @@ jobs:
       # The model proposes and a person ticks; confirm is the only write; a
       # failed lookup is an error and never an empty audience.
       - name: Audience Finder — one audience, four readers
+        if: matrix.group == 8
         run: |
           if [ -f test_audience_finder.py ]; then
             python3 test_audience_finder.py
@@ -2900,10 +3139,13 @@ jobs:
       # `source` said "their site" whenever the site search returned
       # anything, however much of what was picked came from a stock library.
       - name: AI model review permissions, profiles and accounting
+        if: matrix.group == 8
         run: python3 test_ai_model_review.py
       - name: Google Access client connection flow
+        if: matrix.group == 8
         run: python3 test_google_access_flow.py
       - name: A picture is theirs, or it is not on the page as theirs
+        if: matrix.group == 8
         run: python3 test_landing_images.py
       # hub/schema_questions.py refuses to let a schema be approved while any
       # of its 35 questions is unanswered -- "The block is the feature". The
@@ -2918,6 +3160,7 @@ jobs:
       # by_confidence reported site: 0 and search: 0 for two sources nothing
       # has ever consulted, which reads as a fact about the client's website.
       - name: 'A "none" answer, and the block that could not be cleared'
+        if: matrix.group == 8
         run: python3 test_schema_questions.py
       # modules/scans is the second largest module in the Hub and the most
       # client-facing thing in it, and only its placement admin was tested.
@@ -2932,14 +3175,17 @@ jobs:
       # unlock rewrote the contact on somebody else's run while the lead it
       # pointed at kept the first name.
       - name: What a prospect on somebody else's website is told
+        if: matrix.group == 8
         run: python3 test_scan_run.py
       # A completed scan is also an observed brand source. Keep every safe
       # logo variant, color role, site icon, screenshot and homepage message
       # visible without presenting a scraped asset as client-approved.
       - name: Brand elements found by the InSites scan
+        if: matrix.group == 8
         run: python3 test_scan_brand.py
 
       - name: Video search and render recovery
+        if: matrix.group == 8
         run: |
           python3 test_video_render.py
           node test_video_search_ui.js
@@ -2954,17 +3200,20 @@ jobs:
       # the next direct call fails CI rather than reading as tracked because
       # some other call site in the same file happened to import hub.ai.
       - name: Every OpenAI call site routes through hub.ai
+        if: matrix.group == 8
         run: python3 test_ai_callers.py
       # hub/client_brief.py: what build() assembles per section, what a
       # failing source costs (only its own section), what render() cuts for
       # "image" against "strategy", and that for_prompt() is unchanged from
       # the caller's point of view.
       - name: One client brief, and what each audience is shown
+        if: matrix.group == 8
         run: python3 test_client_brief.py
       # hub/ai.py: the client brief is injected as a system message when
       # client=/brief= is passed and is a no-op when neither is, so the ~40
       # existing call sites that pass neither keep working unchanged.
       - name: The client brief is injected at the one wrapper
+        if: matrix.group == 8
         run: python3 test_ai_injection.py
 
       # The Reports module's store: the fact table is in its own database
@@ -2974,6 +3223,7 @@ jobs:
       # unmapped queue, and a platform bills at a markup or a fixed CPM and
       # never both.
       - name: The reporting fact table, and what sits beside it
+        if: matrix.group == 8
         run: python3 test_reports_store.py
       # And its pages: every route under /reports refuses a stranger, read
       # off the module's own URL map; staff get every screen; a mapping is
@@ -2981,23 +3231,27 @@ jobs:
       # name; and the module is in the nav, tiled once and mounted with its
       # public list read from the module.
       - name: The Reports screens, refused and served
+        if: matrix.group == 8
         run: python3 test_reports_pages.py
       # The native pulls. The Trade Desk: a long-lived token sent as one
       # header and carried nowhere else, advertisers paged, the MyReports
       # CSV parsed the same way whether it was downloaded or emailed, and a
       # native watermark the provider normalize defers to for a day.
       - name: The native Trade Desk pull and the MyReports CSV
+        if: matrix.group == 8
         run: python3 test_reports_ttd.py
       # Google Ads: one GAQL query per client account, micros divided once,
       # and not connected -- this deployment's state -- a sentence rather
       # than a traceback.
       - name: The native Google Ads pull
+        if: matrix.group == 8
         run: python3 test_reports_google_perf.py
       # StackAdapt: the key as the bearer header the official SDK sends and
       # nowhere else, ONE query constant naming the schema-verified fields,
       # a sample response parsed defensively (a missing metric is zero, a
       # keyless record is counted), pages followed and Progress polled.
       - name: The native StackAdapt pull
+        if: matrix.group == 8
         run: python3 test_reports_stackadapt.py
       # Microsoft Ads: one consent kept the way Google's is, every call
       # carrying the bearer token, the developer token and the manager
@@ -3007,12 +3261,14 @@ jobs:
       # from failed, CampaignType filing a default product, and the
       # Settings card, callback and disconnect in Smart 1 Ads.
       - name: The native Microsoft Ads pull and its connection
+        if: matrix.group == 8
         run: python3 test_reports_bing.py
       # AudioGo: the call shaped by audiogo_map.py's placeholders and by
       # nothing else, the check page printing the raw keys an endpoint
       # answered with, a map that does not resolve refused by name, and
       # the UI's CSV export read through alias spellings.
       - name: The config-driven AudioGo pull and its check page
+        if: matrix.group == 8
         run: python3 test_reports_audiogo.py
       # The organic-search section: gated on an SEO product AND a linked
       # analytics property, the client-facing labels naming no product by
@@ -3020,11 +3276,13 @@ jobs:
       # name to staff, work counted only where it exists, and the PDF
       # carrying the same figures.
       - name: The organic search section for SEO clients
+        if: matrix.group == 8
         run: python3 test_reports_seo.py
       # A client's Google listing read live: a person confirms it, one
       # billed read a night, four kinds of nothing kept apart, and the
       # coming-soon promise retired from the client's page.
       - name: The Google Business Profile reading
+        if: matrix.group == 8
         run: python3 test_places.py
       # A client's YouTube channel read live: the key falling back to the
       # Places key and saying which answered, a link resolved for one unit
@@ -3033,6 +3291,7 @@ jobs:
       # page gated on a video or social product AND a confirmed, read
       # channel.
       - name: The YouTube channel reading
+        if: matrix.group == 8
         run: python3 test_youtube.py
       # The provider normalize: raw provider tables read through
       # provider_map's placeholder column names, spend divided on the way in,
@@ -3041,6 +3300,7 @@ jobs:
       # auto-mapper filing a campaign from its S1M | client | product name
       # without ever overwriting a mapping a person made.
       - name: The provider normalize, provider check and auto-mapper
+        if: matrix.group == 8
         run: python3 test_reports_normalize.py
       # The client's live dashboard: the spend rule (link override, then
       # platform markup, then delivery only) in one function; with
@@ -3050,6 +3310,7 @@ jobs:
       # staff-only; and the push writes the URL onto the client's Suite
       # contact through ghl_contacts, never the lead book.
       - name: The client's live report page, its link and the spend rule
+        if: matrix.group == 8
         run: python3 test_reports_public.py
       # The crossover: the client reads the Smart 1 PRODUCT, never the
       # platform. Two platforms sold as one product are one bar; the table
@@ -3058,6 +3319,7 @@ jobs:
       # public HTML, data.json or the PDF bytes -- is swept for a client
       # mapped across four platforms, with the allowed phrases passing.
       - name: The product-level crossover and the forbidden-word sweep
+        if: matrix.group == 8
         run: python3 test_reports_crossover.py
       # The pacing board and the cost report: every band (under, on, over,
       # stalled, unmapped) and the proration, projection and daily-needed
@@ -3067,6 +3329,7 @@ jobs:
       # anonymously; and the cost-per-lead columns omitted rather than
       # zeroed where no client has a Suite outcome row.
       - name: The pacing board and the cost report
+        if: matrix.group == 8
         run: python3 test_reports_pacing.py
       # The same files a second time, against this job's Postgres. Every
       # reports test binds through _reports_testdb.py, which takes a SQLite
@@ -3082,12 +3345,14 @@ jobs:
       # the day a client's figures run through, said on the page and the PDF
       # rather than implied to be today.
       - name: Reports feed health, and the day the figures run through
+        if: matrix.group == 8
         run: python3 test_reports_health.py
       # What the syncs propose and a person has to stand behind: a campaign
       # the auto-mapper files from its NAME is pending, reaches no figure on
       # the client's page until somebody presses Confirm, and a refusal is
       # remembered so the next hourly run cannot undo it.
       - name: Reports confirmations
+        if: matrix.group == 8
         run: python3 test_reports_confirmations.py
       # A fact row that cannot be true -- more clicks than impressions, a
       # negative figure, a day after today, a spend spike against the
@@ -3096,6 +3361,7 @@ jobs:
       # decision is about the row as it was, and a clean restatement
       # supersedes a held one by itself.
       - name: Reports quarantine
+        if: matrix.group == 8
         run: python3 test_reports_quarantine.py
       # Does the fact table add up to the month the platform would invoice?
       # Google's customer-level query as the one independent total, a
@@ -3103,8 +3369,10 @@ jobs:
       # whole, compared through yesterday on both sides; a platform that
       # cannot be asked is not measured with the reason, never agreeing.
       - name: Reports reconcile
+        if: matrix.group == 8
         run: python3 test_reports_reconcile.py
       - name: The reports tests against Postgres
+        if: matrix.group == 8
         env:
           REPORTS_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
         run: |
@@ -3118,11 +3386,14 @@ jobs:
           done
 
       - name: Industry prospect suppression and paid-attempt safety
+        if: matrix.group == 8
         run: |
           python3 test_industry_prospects.py
           node tests/industry_prospects_ui.test.js
 
       - name: Ask SmartHub role and tool boundary
+        if: matrix.group == 8
         run: python3 test_ask_smarthub.py
       - name: Local Services Ads setup and reporting
+        if: matrix.group == 8
         run: python3 test_ads_local_services.py
