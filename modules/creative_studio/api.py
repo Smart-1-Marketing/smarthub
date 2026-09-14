@@ -1355,6 +1355,7 @@ def brand_kit_page(client):                                # noqa: ANN202
     kit = brand_ext.kit(client, domain)
     review = brand_review.get(client)
     form_ext, drafted_fields = brand_review.form_values(kit.get("ext") or {}, review)
+    review_fields = brand_review.review_items(kit.get("ext") or {}, review)
     # A grid of several logo tiles, never one logo shown once -- the shape
     # hub/storage.preview_url() exists to cap rather than the _LOGO exemption
     # test_image_download.py carries for a lone mark. It is a no-op on
@@ -1369,6 +1370,7 @@ def brand_kit_page(client):                                # noqa: ANN202
     return render_template("cs_brand_kit.html", title=f"Brand Kit — {client}",
                            client=client, domain=domain, kit=kit, review=review,
                            form_ext=form_ext, drafted_fields=drafted_fields,
+                           review_fields=review_fields,
                            brand_field_labels=brand_review.FIELD_LABELS)
 
 
@@ -1393,6 +1395,17 @@ def api_brand_kit_lookup(client):                          # noqa: ANN202
 @bp.post("/api/brand-kits/<path:client>")
 def api_save_brand_kit(client):                            # noqa: ANN202
     data = request.get_json(silent=True) or {}
+    if isinstance(data.get("visuals"), dict):
+        try:
+            from hub.clients_registry import find_client
+            domain = (find_client(client) or {}).get("domain") or ""
+            from hub import brand_template
+            visual_result = brand_template.save_many(client, domain, data["visuals"],
+                                                     actor=_actor())
+            if not visual_result.get("ok"):
+                return jsonify(visual_result), 400
+        except Exception as exc:                          # noqa: BLE001
+            return jsonify({"ok": False, "error": str(exc)[:300]}), 400
     result = brand_ext.save(client, data, actor=_actor())
     if result.get("ok"):
         brand_review.note_manual_change(client, actor=_actor())
@@ -1441,6 +1454,22 @@ def api_approve_brand_kit(client):                         # noqa: ANN202
         from hub import audit
         audit.log("creative_studio", "brand_kit_approved", actor=_actor(),
                   client=client)
+    except Exception:                                     # noqa: BLE001
+        pass
+    return jsonify(result)
+
+
+@bp.post("/api/brand-kits/<path:client>/rollback")
+def api_rollback_brand_kit(client):                        # noqa: ANN202
+    data = request.get_json(silent=True) or {}
+    result = brand_review.rollback(client, str(data.get("snapshot_id") or ""),
+                                   actor=_actor())
+    if not result.get("ok"):
+        return jsonify(result), 409
+    try:
+        from hub import audit
+        audit.log("creative_studio", "brand_kit_rolled_back", actor=_actor(),
+                  client=client, detail=f"snapshot={data.get('snapshot_id') or ''}")
     except Exception:                                     # noqa: BLE001
         pass
     return jsonify(result)

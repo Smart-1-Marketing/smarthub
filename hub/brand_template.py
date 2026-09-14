@@ -51,13 +51,10 @@ declared-and-unwired field this codebase already lists.
 
 It does not reach a provider, and it does not touch the raw Brandfetch or
 scan data those two continue to own — a pick names an existing tile, it does
-not replace the merge. And it does not (yet) let `brand_guide_payload()` push
-a template built from an *observed*-only tile — that function still gates on
-`kit["found"]`, which is Brandfetch data specifically, so a pick made for a
-client with no Brandfetch record shows on the card and on a Magic Resize
-project but does not yet reach the Suite push. Widening that gate is a real
-next step and a separate change: it moves what "there is brand data to push"
-means, which is the Suite button's own error message as well as its gate.
+not replace the merge. Once approved, however, that choice is authoritative:
+even an observed-only logo reaches the shared brand payload and downstream
+builders. Unapproved observations remain candidates and never cross that
+boundary.
 """
 from __future__ import annotations
 
@@ -67,7 +64,8 @@ from datetime import datetime, timezone
 
 from hub import jsonstore
 
-COLOR_ROLES = ("primary", "secondary", "accent")
+COLOR_ROLES = ("primary", "secondary", "accent", "background", "text")
+FONT_ROLES = ("heading", "body")
 
 
 def _key(client: str) -> str:
@@ -92,15 +90,18 @@ def get(client: str) -> dict:
         row = {}
     colors_in = row.get("colors") if isinstance(row.get("colors"), dict) else {}
     colors = {role: str(colors_in.get(role) or "") for role in COLOR_ROLES}
+    fonts_in = row.get("fonts") if isinstance(row.get("fonts"), dict) else {}
+    fonts = {role: str(fonts_in.get(role) or "") for role in FONT_ROLES}
     out = {
         "client": client,
         "logo_url": str(row.get("logo_url") or ""),
         "logo_theme": str(row.get("logo_theme") or ""),
         "colors": colors,
+        "fonts": fonts,
         "updated_at": str(row.get("updated_at") or ""),
         "updated_by": str(row.get("updated_by") or ""),
     }
-    out["picked"] = bool(out["logo_url"] or any(colors.values()))
+    out["picked"] = bool(out["logo_url"] or any(colors.values()) or any(fonts.values()))
     return out
 
 
@@ -123,7 +124,8 @@ def save(client: str, domain: str, field: str, value: str, actor: str = "") -> d
     client = str(client or "").strip()
     if not client:
         return {"ok": False, "error": "No client named."}
-    if field != "logo" and field not in COLOR_ROLES:
+    font_role = field.removeprefix("font_") if field.startswith("font_") else ""
+    if field != "logo" and field not in COLOR_ROLES and font_role not in FONT_ROLES:
         return {"ok": False, "error": f"{field!r} is not something this can confirm."}
 
     value = str(value or "").strip()
@@ -138,12 +140,19 @@ def save(client: str, domain: str, field: str, value: str, actor: str = "") -> d
                 return {"ok": False, "error": "That logo is not one this Hub "
                         "currently has on file for this client."}
             logo_theme = tile.get("theme", "")
-        else:
+        elif field in COLOR_ROLES:
             hx = _hex_of(value)
             if not hx:
                 return {"ok": False, "error": "That isn't a color code — use "
                         "a hex value like #0077B4."}
             value = hx
+        else:
+            from hub.client_brand import brand_kit
+            names = {str(f.get("name") or "") for f in
+                     (brand_kit(client, domain).get("fonts") or [])}
+            if value not in names:
+                return {"ok": False, "error": "That font is not one this Hub "
+                        "currently has on file for this client."}
 
     row = jsonstore.read_json(_path(client), default={}) or {}
     if not isinstance(row, dict):
@@ -151,13 +160,20 @@ def save(client: str, domain: str, field: str, value: str, actor: str = "") -> d
     if field == "logo":
         row["logo_url"] = value
         row["logo_theme"] = logo_theme
-    else:
+    elif field in COLOR_ROLES:
         colors = row.get("colors") if isinstance(row.get("colors"), dict) else {}
         if value:
             colors[field] = value
         else:
             colors.pop(field, None)
         row["colors"] = colors
+    else:
+        fonts = row.get("fonts") if isinstance(row.get("fonts"), dict) else {}
+        if value:
+            fonts[font_role] = value
+        else:
+            fonts.pop(font_role, None)
+        row["fonts"] = fonts
     row["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     row["updated_by"] = actor or ""
     jsonstore.write_json(_path(client), row)
@@ -169,3 +185,65 @@ def save(client: str, domain: str, field: str, value: str, actor: str = "") -> d
     except Exception:                                   # noqa: BLE001
         pass
     return {"ok": True, "template": get(client)}
+
+
+def save_many(client: str, domain: str, values: dict, actor: str = "",
+              *, allow_stale: bool = False) -> dict:
+    """Validate and save a complete visual identity as one review action.
+
+    Validation happens before the first write, so an invalid stale logo or
+    font cannot leave half of an approval applied.
+    """
+    values = values if isinstance(values, dict) else {}
+    color_values = values.get("colors") if isinstance(values.get("colors"), dict) else values
+    font_values = values.get("fonts") if isinstance(values.get("fonts"), dict) else values
+    proposed = {
+        "logo": str(values.get("logo") or values.get("logo_url") or "").strip(),
+        **{role: str(color_values.get(role) or "").strip()
+           for role in COLOR_ROLES},
+        **{f"font_{role}": str(font_values.get(role) or
+                                font_values.get(f"font_{role}") or "").strip()
+           for role in FONT_ROLES},
+    }
+    if not str(client or "").strip():
+        return {"ok": False, "error": "No client named."}
+    from hub.client_brand import brand_kit
+    kit = brand_kit(client, domain)
+    offered_logos = {str(t.get("url") or "") for t in kit.get("logo_tiles") or []}
+    offered_fonts = {str(f.get("name") or "") for f in kit.get("fonts") or []}
+    if proposed["logo"] and proposed["logo"] not in offered_logos and not allow_stale:
+        return {"ok": False, "error": "That logo is not one this Hub currently "
+                "has on file for this client."}
+    for role in COLOR_ROLES:
+        if proposed[role] and not _hex_of(proposed[role]):
+            return {"ok": False, "error": f"The {role} color is not a valid hex value."}
+    for role in FONT_ROLES:
+        value = proposed[f"font_{role}"]
+        if value and value not in offered_fonts and not allow_stale:
+            return {"ok": False, "error": f"The {role} font is not currently on file."}
+
+    row = jsonstore.read_json(_path(client), default={}) or {}
+    if not isinstance(row, dict):
+        row = {}
+    selected = next((t for t in kit.get("logo_tiles") or []
+                     if t.get("url") == proposed["logo"]), {})
+    row["logo_url"] = proposed["logo"]
+    row["logo_theme"] = str(selected.get("theme") or
+                            (values.get("logo_theme") if allow_stale else "") or "")
+    row["colors"] = {role: _hex_of(proposed[role]) for role in COLOR_ROLES
+                     if proposed[role]}
+    row["fonts"] = {role: proposed[f"font_{role}"] for role in FONT_ROLES
+                    if proposed[f"font_{role}"]}
+    row["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    row["updated_by"] = actor or ""
+    jsonstore.write_json(_path(client), row)
+    try:
+        from hub import audit
+        audit.log("hub", "brand_template_set", actor=actor or None, client=client,
+                  detail="visual identity approved")
+    except Exception:                                   # noqa: BLE001
+        pass
+    return {"ok": True, "template": get(client)}
+
+
+__all__ = ["COLOR_ROLES", "FONT_ROLES", "get", "save", "save_many"]

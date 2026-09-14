@@ -2,9 +2,9 @@
 {% block title %}Start a display ad build — Smart 1 Hub{% endblock %}
 {% block content %}
 <div class="page-head">
-  <h2>Start a display ad build</h2>
-  <p>Opens a build in the Display Ad Builder with the account already filled in.
-     Works for a client we have, or a prospect who does not exist yet.</p>
+  <nav aria-label="Display ad steps"><strong aria-current="step">1. Brief</strong> → 2. Design → 3. Review → 4. Send</nav>
+  <h2>{% if client %}Create display ads for {{ client }}{% else %}Create display ads{% endif %}</h2>
+  <p>Tell us what the campaign should achieve. We’ll use the client’s saved logo and available brand details, and build the sizes for the platforms you select.</p>
 </div>
 
 {% if error %}
@@ -15,6 +15,7 @@
   <div class="card-h"><h3 data-tour="ads-kind">Who is it for? {{ help_dot('display_ads.start.kind') if help_dot is defined else '' }}</h3></div>
   <div class="card-b">
     <form method="post" action="{{ url_prefix }}/_hub/start">
+      {% if client %}<details><summary>Client: {{ client }} — change account or contact details</summary>{% endif %}
       <div class="field">
         <label>Is this for an existing client, or someone new?</label>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
@@ -97,6 +98,7 @@
           build — and can be linked to the account later if they sign.</p>
       </div>
 
+      {% if client %}</details>{% endif %}
       <div class="field">
         <label for="campaign">Campaign name</label>
         <input id="campaign" name="campaign" required
@@ -110,6 +112,14 @@
                value="{{ form.get('promoting', '') }}"
                placeholder="Free system check, booked online">
       </div>
+
+      <div class="field"><label for="objective">Campaign goal</label>
+        <select id="objective" name="objective">
+        {% for goal in ['Generate inquiries', 'Book appointments', 'Drive online sales', 'Build awareness'] %}
+          <option {% if form.get('objective', 'Generate inquiries') == goal %}selected{% endif %}>{{ goal }}</option>
+        {% endfor %}</select>
+      </div>
+      <div class="field"><label for="offer">Offer (optional)</label><input id="offer" name="offer" value="{{ form.get('offer', '') }}" placeholder="For example, free consultation — leave blank if there is no offer"></div>
 
       <div class="field">
         <label for="website">Website or landing page</label>
@@ -161,7 +171,8 @@
       </div>
       {% endif %}
 
-      <button class="btn-primary" type="submit">Open the builder</button>
+      <button class="btn-primary" type="submit" id="start-build">Create my first draft</button>
+      <p id="start-progress" role="status" aria-live="polite"></p>
       <a class="btn-ghost" href="{{ url_prefix }}/projects" style="margin-left:8px">All builds</a>
       <!-- The other half of this tool, linked rather than tiled: presets are
            the Display Ad Builder, not a second tool, and a second tile is two
@@ -183,6 +194,10 @@
 // back what was typed on either side.
 (function () {
   var radios = document.querySelectorAll('input[name="kind"]');
+  document.querySelector('form').addEventListener('submit', function () {
+    document.getElementById('start-build').disabled = true;
+    document.getElementById('start-progress').textContent = 'Preparing your first draft and brand details. This can take a minute; your campaign will appear in All builds.';
+  });
   var clientBox = document.getElementById('client');
   var prospectBox = document.getElementById('prospect_name');
 

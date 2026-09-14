@@ -227,11 +227,19 @@ def set_skill(client: str, key: str, fields: dict, *, by: str = "",
     return skill(client, key)
 
 
+MAX_SENDS = 30
+
+
 def activate(client: str, key: str, *, by: str = "", url: str = "",
              verified: dict | None = None) -> dict:
     def fn(row):
         rec = row["skills"].setdefault(key, {})
         rec["active"] = True
+        # The Ecwid webhook address is per store and unguessable, minted
+        # once: a client's admin pastes it into their Ecwid app and it must
+        # not change under them on a later re-activation.
+        if key == "ecwid" and not rec.get("hook_token"):
+            rec["hook_token"] = new_token()
         rec["activated_at"] = _now()
         rec["activated_by"] = (by or "")[:60]
         if verified:
@@ -256,6 +264,44 @@ def deactivate(client: str, key: str, *, by: str = "", forget: bool = False) -> 
         _event(row, f"{key}_deactivated", by, forgot=forget or None)
     _mutate(client, fn)
     return skill(client, key)
+
+
+def log_send(client: str, kind: str, *, by: str = "", subject: str = "",
+             count: int = 0, to: str = "", detail: str = "") -> None:
+    """One line per Email Creator action, newest first, capped. What the
+    card shows as "recent sends" so a rep can see what already went out
+    before sending again. Never raises."""
+    def fn(row):
+        rec = row["skills"].setdefault("email", {"active": False})
+        sends = [s for s in (rec.get("sends") or []) if isinstance(s, dict)]
+        sends.insert(0, {"at": _now(), "by": (by or "")[:60], "kind": kind[:20],
+                         "subject": (subject or "")[:120], "count": int(count or 0),
+                         "to": (to or "")[:120], "detail": (detail or "")[:160]})
+        rec["sends"] = sends[:MAX_SENDS]
+    try:
+        _mutate(client, fn)
+    except Exception:                                      # noqa: BLE001
+        pass
+
+
+def resolve_hook(token: str) -> dict | None:
+    """``{"client", "store_id"}`` for a live Ecwid webhook token, or None.
+    Exact equality, active skill only -- resolve_share's rule."""
+    tok = _TOKEN_RE.sub("", str(token or ""))[:80]
+    if not tok:
+        return None
+    try:
+        names = sorted(os.listdir(_dir()))
+    except OSError:
+        return None
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        row = _raw(name[:-5])
+        rec = (row.get("skills") or {}).get("ecwid") or {}
+        if rec.get("active") and rec.get("hook_token") == tok:
+            return {"client": row.get("client") or name[:-5], "store_id": str(rec.get("store_id") or "")}
+    return None
 
 
 # ------------------------------------------------------------------ shares

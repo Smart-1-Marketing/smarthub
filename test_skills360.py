@@ -156,6 +156,13 @@ check("twelve months, oldest first", len(d["monthly"]) == 12 and d["monthly"][-1
 check("this month's bar", d["monthly"][-1]["revenue"], 250.0)
 check("abandoned carts this week", d["abandoned"]["week"], {"carts": 1, "value": 60.0})
 check("latest orders lead with the newest", d["recent"][0]["number"], 110)
+W = d["windows"]
+check("three rolling windows are computed at once", sorted(W.keys(), key=int), ["30", "90", "365"])
+check("last 30 days counts the four September orders", (W["30"]["orders"], W["30"]["revenue"]), (4, 550.0))
+check("against the 30 days before them", W["30"]["prev_orders"], 0)
+check("a window with no prior period says so rather than dividing by zero", W["30"]["change_pct"], None)
+check("last 365 days is everything", W["365"]["orders"], 5)
+check("window top products are named from the catalog", W["30"]["top_products"][0]["name"], "Case of 12")
 check("the fixtures are not mutated with a private key", "_dt" in ORDERS[0], False)
 
 calls = []
@@ -384,6 +391,34 @@ try:
 finally:
     ecwid.dashboard = _orig_dash
 
+# the Ecwid webhook: minted at activation, forgets the cache, trusts nothing
+st = staff.get(sk_app.MOUNT + "/api/status?client=" + CLIENT).get_json()
+hook = st["record"]["skills"]["ecwid"].get("hook_token")
+check("activation minted a webhook token", bool(hook) and len(hook) >= 30, True)
+check("and the tool shows its address", st["record"]["skills"]["ecwid"].get("hook_url", "").endswith("/hot/ecwid-hook/" + hook), True)
+forgotten = []
+_orig_forget = ecwid.forget
+ecwid.forget = lambda sid: forgotten.append(sid)
+try:
+    resp = anon.post("/hot/ecwid-hook/" + hook, json={"eventType": "order.created", "storeId": "111281497"})
+    check("Ecwid can call it with no login", (resp.status_code, resp.get_json().get("ok")), (200, True))
+    check("and the store's cache is forgotten", forgotten, ["111281497"])
+    resp = anon.post("/hot/ecwid-hook/" + hook, json={"eventType": "order.created", "storeId": "999"})
+    check("a body naming another store is ignored, quietly", resp.get_json().get("ignored"), True)
+    check("...and forgets nothing", forgotten, ["111281497"])
+    check("a token nobody minted is a 404", anon.post("/hot/ecwid-hook/nope", json={}).status_code, 404)
+    check("the same token is kept across re-activation",
+          (store.deactivate(CLIENT, "ecwid"), store.activate(CLIENT, "ecwid"), store.skill(CLIENT, "ecwid").get("hook_token"))[2], hook)
+finally:
+    ecwid.forget = _orig_forget
+
+# the send log
+store.log_send(CLIENT, "test", by="Todd", subject="Hello", count=1, to="todd@smart1marketing.com")
+store.log_send(CLIENT, "batch", by="Todd", subject="Fall release", count=12, detail="1 failed")
+sends = store.skill(CLIENT, "email").get("sends") or []
+check("sends are logged newest first", [x["kind"] for x in sends], ["batch", "test"])
+check("with the count and subject a rep needs", (sends[0]["count"], sends[0]["subject"]), (12, "Fall release"))
+
 resp = staff.post(sk_app.MOUNT + "/api/share/revoke", json={"client": CLIENT, "token": link["token"]})
 check("revoke works", resp.get_json().get("ok"), True)
 check("and the link is dead", anon.get("/hot/" + link["token"]).status_code, 404)
@@ -427,6 +462,9 @@ check("the Skills section exists", "{key:'skills'" in REC, True)
 check("both loaders honor the generation guard",
       REC.count("if(gen!==c360Generation) return;") >= 4, True)
 check("the composer confirms before a batch send", "confirmed:true" in REC and "em-confirm" in REC, True)
+check("the hero image can come from the client's own images", "em-pick" in REC and "/tools/seo-images/api/gallery?company=" in REC, True)
+check("the Email Creator card shows recent sends", "Recent sends" in REC, True)
+check("the Ecommerce card offers the rolling windows", "data-ec-days" in REC, True)
 check("no card writes to the clipboard behind copyToClipboard's back",
       len(re.findall(r"navigator\.clipboard\.writeText\(", REC)), 1)
 

@@ -50,6 +50,7 @@ TMP = tempfile.mkdtemp(prefix="s1cs_test_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "db.sqlite3")
 os.environ.setdefault("SECRET_KEY", "creative-studio-test-secret")
+os.environ["SESSION_FILE_DIR"] = os.path.join(TMP, "sessions")
 
 _passed = _failed = 0
 
@@ -105,6 +106,16 @@ r3 = brand_ext.save("Acme Plumbing",
 check("pronunciation dictionary round-trips",
       brand_ext.get("Acme Plumbing")["pronunciation_dict"], {"Gahanna": "guh-HAN-uh"})
 
+brand_ext.save("Acme Plumbing", {
+    "tagline": "Built for better", "preferred_vocabulary": ["clear", "local"],
+    "field_metadata": {"promotions": {"verified_at": "2025-01-01T00:00:00+00:00",
+                                        "valid_until": "2025-01-31"}},
+}, actor="Todd")
+check("the expanded voice fields live on the shared Brand Kit",
+      brand_ext.get("Acme Plumbing")["tagline"], "Built for better")
+check("expired time-sensitive facts are visibly stale",
+      brand_ext.get("Acme Plumbing")["field_metadata"]["promotions"]["stale"], True)
+
 kit = brand_ext.kit("Acme Plumbing", "")
 check("kit() merges brand_kit() output with the overlay",
       set(kit.keys()) >= {"found", "logos", "colors", "ext"}, True)
@@ -121,12 +132,16 @@ from modules.creative_studio import brand_review  # noqa: E402
 fake_sources = {
     "client": "Review Co", "domain": "review.example",
     "website": "https://review.example",
-    "website_pages": [{"url": "https://review.example", "text": "Roof repair"}],
+    "website_pages": [{"url": "https://review.example", "text": "Roof repair"},
+                      {"url": "https://review.example/services", "text": "Roof repair"}],
     "social_profiles": {"facebook": "https://facebook.com/reviewco"},
     "search_results": [], "hub_brief": "Roofing contractor",
     "current_brand_kit": {},
     "sources": [
-        {"kind": "website", "label": "Review Co", "url": "https://review.example"},
+        {"kind": "website", "label": "Review Co", "url": "https://review.example",
+         "excerpt": "Call for an inspection"},
+        {"kind": "website", "label": "Services", "url": "https://review.example/services",
+         "excerpt": "Roof repair"},
         {"kind": "social", "label": "Facebook", "url": "https://facebook.com/reviewco"},
     ],
     "source_summary": {"website_pages": 1, "website_read": True,
@@ -161,6 +176,10 @@ check("a suggestion without a source URL is dropped",
 check("field-level evidence URLs join the reviewed source list",
       "https://review.example/services" in
       [s["url"] for s in reviewed["review"]["sources"]], True)
+check("evidence stores the excerpt that was actually reviewed",
+      reviewed["review"]["field_evidence"]["services"][0]["excerpt"], "Roof repair")
+check("review versions have an immutable draft id",
+      bool(reviewed["review"]["draft_id"]), True)
 check("research does not change the live Brand Kit",
       brand_ext.get("Review Co")["services"], before_review["services"])
 check("provider ids cannot enter a researched draft",
@@ -174,7 +193,13 @@ check("the form labels which values are still suggestions", "cta_style" in draft
 approval_fields = dict(reviewed["review"]["fields"])
 approval_fields["cta_style"] = "Edited before approval"
 approval_fields["preferred_voice_id"] = "chosen-by-the-reviewer"
-approved = brand_review.approve("Review Co", approval_fields, actor="Approver")
+approved = brand_review.approve("Review Co", {
+    "review_version": reviewed["review"]["version"],
+    "draft_id": reviewed["review"]["draft_id"],
+    "fields": approval_fields,
+    "field_decisions": {"services": "accept", "cta_style": "edit"},
+    "questions_acknowledged": True, "visuals_acknowledged": True,
+}, actor="Approver")
 check("approval writes the reviewed Brand Kit", approved["ok"], True)
 check("an edit made during review is the approved value",
       brand_ext.get("Review Co")["cta_style"], "Edited before approval")
@@ -182,10 +207,55 @@ check("a provider voice id typed by the reviewer is accepted",
       brand_ext.get("Review Co")["preferred_voice_id"], "chosen-by-the-reviewer")
 check("the review records who approved it", brand_review.get("Review Co")["approved_by"],
       "Approver")
+check("approval writes immutable version history",
+      any(v["event"] == "approved" for v in brand_review.history("Review Co")), True)
 
+brand_ext.save("Review Co", {"cta_style": "Later manual edit"}, actor="Editor")
 brand_review.note_manual_change("Review Co", actor="Editor")
 check("a later manual edit is no longer presented as the approved snapshot",
       brand_review.get("Review Co")["status"], "changed")
+approved_snapshot = next(v for v in brand_review.history("Review Co")
+                         if v["event"] == "approved")
+rolled = brand_review.rollback("Review Co", approved_snapshot["snapshot_id"], actor="Restorer")
+check("an approved version can be restored without mutating its snapshot", rolled["ok"], True)
+check("rollback creates a new version with the approved value",
+      brand_ext.get("Review Co")["cta_style"], "Edited before approval")
+
+untrusted_answer = """{"fields":{"services":["Invented service"]},
+"field_evidence":{"services":[{"url":"https://uncollected.example/claim",
+"note":"A model-added URL","confidence":"high"}]},"open_questions":[]}"""
+untrusted = brand_review.research(
+    "Evidence Co", "review.example", actor="Researcher",
+    ask=lambda _prompt: untrusted_answer,
+    source_loader=lambda _client, _domain: fake_sources)
+check("a model citation that was never collected cannot support a field",
+      untrusted["review"]["fields"]["services"], [])
+check("an uncollected citation is not laundered into the source list",
+      "https://uncollected.example/claim" in
+      [s["url"] for s in untrusted["review"]["sources"]], False)
+
+stale = brand_review.research(
+    "Stale Co", "review.example", actor="Researcher",
+    ask=lambda _prompt: fake_answer,
+    source_loader=lambda _client, _domain: fake_sources)
+brand_ext.save("Stale Co", {"cta_style": "Someone else's newer edit"}, actor="Other")
+stale_result = brand_review.approve("Stale Co", {
+    "review_version": stale["review"]["version"], "draft_id": stale["review"]["draft_id"],
+    "fields": {}, "field_decisions": {"services": "accept", "cta_style": "accept"},
+    "questions_acknowledged": True,
+}, actor="Late reviewer")
+check("a stale draft cannot overwrite a newer live edit", stale_result.get("stale"), True)
+
+scan_seed = brand_review.seed_from_scan("Scan Draft Co", "scan.example",
+                                       scan_id="scan-123")
+check("a completed scan creates an in-review draft", scan_seed["review"]["status"],
+      "in_review")
+check("a scan-created draft is visibly identified and never auto-approved",
+      scan_seed["review"]["auto_created"], True)
+duplicate_seed = brand_review.seed_from_scan("Scan Draft Co", "scan.example",
+                                            scan_id="scan-123")
+check("a retried callback cannot replace the same scan's review draft",
+      duplicate_seed.get("duplicate"), True)
 
 # ---------------------------------------------------------------------------
 section("creative_jobs: enqueue now, run later")
@@ -357,6 +427,17 @@ r = client.get("/creative-studio/brand-kits/Acme%20Plumbing")
 check("the brand kit page renders", r.status_code, 200)
 check("  ...carrying the saved field", b"Bold" in r.data, True)
 check("  ...and offers source-backed research", b"Research &amp; draft Brand Kit" in r.data, True)
+check("  ...and exposes complete visual identity roles", b"Visual identity" in r.data and
+      b"Typography" in r.data and b"Text/background contrast" in r.data, True)
+check("  ...and exposes the expanded voice guidance", b"Channel-specific voice" in r.data and
+      b"Prohibited words / phrases" in r.data, True)
+
+r = client.get("/creative-studio/brand-kits/Stale%20Co")
+check("an in-review page renders field-level decisions and verified evidence",
+      r.status_code == 200 and b"data-review-field" in r.data and
+      b"verified source" in r.data and b"Decision required" in r.data, True)
+check("the review requires an explicit visual-identity acknowledgment",
+      b"bkVisualAcknowledged" in r.data, True)
 
 r = client.post("/creative-studio/api/brand-kits/Acme%20Plumbing",
                 json={"cta_style": "Friendly"})
@@ -659,12 +740,18 @@ check("  ...but the public gallery is still open to them", r.status_code, 200)
 
 # Approval is deliberately not an admin action. Any authenticated Hub user
 # can review the evidence, edit the fields and accept the shared kit.
-brand_review.research(
+member_review = brand_review.research(
     "Member Review Co", "review.example", actor="Researcher",
     ask=lambda _prompt: fake_answer,
     source_loader=lambda _client, _domain: fake_sources)
 r = member_client.post("/creative-studio/api/brand-kits/Member%20Review%20Co/approve",
-                       json={"cta_style": "Approved by member"})
+                       json={
+                           "review_version": member_review["review"]["version"],
+                           "draft_id": member_review["review"]["draft_id"],
+                           "fields": {"cta_style": "Approved by member"},
+                           "field_decisions": {"services": "accept", "cta_style": "edit"},
+                           "questions_acknowledged": True, "visuals_acknowledged": True,
+                       })
 check("a General Access member may approve a Brand Kit review", r.status_code, 200)
 check("  ...and their approval becomes the shared kit value",
       brand_ext.get("Member Review Co")["cta_style"], "Approved by member")

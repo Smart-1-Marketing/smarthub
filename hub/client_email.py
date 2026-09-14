@@ -1,7 +1,7 @@
 """Client 360 links to Smart 1's GHL contacts and reads their email history.
 
-Email composition and sending remain in GHL. This module never sends a message
-or uses the client's own subaccount mapping. Links are explicit Hub overlays.
+The guided proof sender lives in hub.ad_proof_email. This module never sends
+a message or uses the client's own subaccount mapping. Links are explicit Hub overlays.
 """
 from __future__ import annotations
 import os

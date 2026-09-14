@@ -194,6 +194,39 @@ def _monthly(orders: list[dict], now: datetime) -> list[dict]:
     return out
 
 
+WINDOWS = (30, 90, 365)
+
+
+def _window(orders: list[dict], now: datetime, days: int, names: dict) -> dict:
+    """The last `days` days against the `days` before them -- the comparison
+    a client asks for first, and the one the fixed calendar periods cannot
+    answer on the 3rd of a month."""
+    end = now
+    start = now - timedelta(days=days)
+    prev_start = start - timedelta(days=days)
+    cur = [o for o in orders if _within(o.get("_dt"), start, end)]
+    prev = [o for o in orders if _within(o.get("_dt"), prev_start, start)]
+    rev = round(sum(float(o.get("total") or 0) for o in cur), 2)
+    prev_rev = round(sum(float(o.get("total") or 0) for o in prev), 2)
+    agg: dict = {}
+    for o in cur:
+        for it in o.get("items") or []:
+            pid = it.get("productId")
+            row = agg.setdefault(pid, {"product_id": pid, "name": names.get(pid) or it.get("name") or "Unknown",
+                                       "quantity": 0, "revenue": 0.0})
+            qty = int(it.get("quantity") or 0)
+            row["quantity"] += qty
+            row["revenue"] += float(it.get("price") or 0) * qty
+    top = sorted(agg.values(), key=lambda r: r["revenue"], reverse=True)[:6]
+    for r in top:
+        r["revenue"] = round(r["revenue"], 2)
+    return {"days": days, "orders": len(cur), "revenue": rev,
+            "avg_order": round(rev / len(cur), 2) if cur else 0,
+            "prev_orders": len(prev), "prev_revenue": prev_rev,
+            "change_pct": round(100.0 * (rev - prev_rev) / prev_rev, 1) if prev_rev else None,
+            "top_products": top}
+
+
 def dashboard(store_id: str, token: str, *, now: datetime | None = None,
               fresh: bool = False, orders: list[dict] | None = None,
               products: list[dict] | None = None,
@@ -236,6 +269,7 @@ def dashboard(store_id: str, token: str, *, now: datetime | None = None,
                          "month": _top_products(orders, R["month"][0], names),
                          "year": _top_products(orders, R["year"][0], names)},
         "monthly": _monthly(orders, now),
+        "windows": {str(d): _window(orders, now, d, names) for d in WINDOWS},
         "abandoned": None,
         "recent": [],
     }

@@ -196,6 +196,13 @@ def _record_manual_only(req, chosen):
 @public_bp.route("/callback")
 @rate_limited
 def callback():
+    if request.args.get("state", "").startswith("yt_"):
+        from flask import make_response
+        from modules.youtube_studio.app import oauth_callback
+        response = make_response(oauth_callback())
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
     error = request.args.get("error")
     state_value = request.args.get("state", "")
     code = request.args.get("code", "")

@@ -690,7 +690,8 @@ PLATFORM_CHOICES = (
 def start_project(*, client_name: str, campaign: str, website: str = "",
                   promoting: str = "", contact: str = "", email: str = "",
                   phone: str = "", kind: str = "", proposal_id: str = "",
-                  platforms: list | None = None, actor: str = "") -> dict:
+                  platforms: list | None = None, actor: str = "",
+                  objective: str = "", offer: str = "") -> dict:
     """Create a build in the renderer, prefilled from what the Hub knows.
 
     The renderer's intake wants a business, a website, a contact and something
@@ -783,6 +784,8 @@ def start_project(*, client_name: str, campaign: str, website: str = "",
                      or "creative@smart1marketing.com").strip(),
         "campaignName": campaign,
         "promoting": str(promoting or campaign).strip(),
+        "objective": str(objective or "Generate inquiries").strip()[:300],
+        "offer": str(offer or "").strip()[:1000],
         # Submitted by signed-in staff, not the public form: the honeypot is
         # empty and the elapsed time is deliberately above the bot threshold so
         # a server-side submission is not read as a script.
@@ -798,6 +801,31 @@ def start_project(*, client_name: str, campaign: str, website: str = "",
     }
     if saved_logo:
         payload["pickedLogoUrl"] = saved_logo["url"]
+    if kind == "client":
+        from hub import client_email
+        from hub import brand_template
+        from hub import client_brand
+        chosen_brand = brand_template.get(client_name)
+        kit = client_brand.brand_kit(client_name, website)
+        fonts = kit.get('fonts') or []
+        if fonts:
+            heading = next((f['name'] for f in fonts if f.get('usage') in ('title','heading','headline')), fonts[0]['name'])
+            body_font = next((f['name'] for f in fonts if f.get('usage') in ('body','text')), heading)
+            payload['fontOverrides'] = {'headline': heading, 'body': body_font}
+        chosen_colors = chosen_brand.get('colors') or {}
+        if chosen_brand.get('logo_url'):
+            payload['pickedLogoUrl'] = chosen_brand['logo_url']
+        confirmed = {k: v for k, v in chosen_colors.items() if k in ('primary', 'accent') and re.fullmatch(r'#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?', str(v or ''))}
+        if confirmed:
+            payload['colorOverrides'] = confirmed
+            payload['brandSource'] = 'Client 360 confirmed brand kit'
+        try:
+            linked = client_email.lookup(client_name, website)
+            if linked:
+                payload["contact"] = linked.get("name") or payload["contact"]
+                payload["email"] = linked["email"]
+        except client_email.EmailError:
+            pass  # Sending requires fresh verification in the Send step.
     ok, data = _api("POST", "/api/requests", payload, timeout=(10, 120))
     if not ok:
         return {"ok": False,
@@ -852,6 +880,8 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
     def start_form():
         """Pick a client -- or a prospect -- and open a build for them."""
         client = str(request.args.get("client") or "").strip()
+        known = _known_client(client) if client else None
+        website = str(request.args.get("website") or (known or {}).get("domain") or "").strip()
         proposals = []
         if client:
             try:
@@ -862,7 +892,7 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
         return render_template("ad_builder_start.html", client=client,
                                kind="client" if client else "",
                                saved_logo=client_logo(client) if client else None,
-                               form={}, proposals=proposals,
+                               form={"website": website, "campaign": (client + " display ads") if client else ""}, proposals=proposals,
                                platform_choices=PLATFORM_CHOICES,
                                selected_platforms=["google"],
                                url_prefix=url_prefix, error="")
@@ -880,6 +910,7 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
             campaign=body.get("campaign", ""),
             website=body.get("website", ""),
             promoting=body.get("promoting", ""),
+            objective=body.get("objective", ""), offer=body.get("offer", ""),
             contact=body.get("contact", ""),
             email=body.get("email", ""),
             phone=body.get("phone", ""),

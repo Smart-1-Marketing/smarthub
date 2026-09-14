@@ -23,6 +23,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { Brand, RenderResult } from './types';
 
 /**
@@ -38,6 +39,16 @@ import type { Brand, RenderResult } from './types';
  * screen locks the controls on a size that carries one. Unapproving is one
  * click, because a lock nobody can undo is a lock people work around.
  */
+function atomicJson(file: string, value: unknown) {
+  const temp = file + '.' + randomUUID() + '.tmp';
+  try {
+    fs.writeFileSync(temp, JSON.stringify(value, null, 2));
+    fs.renameSync(temp, file);
+  } finally {
+    try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch { /* retain the original write error */ }
+  }
+}
+
 export interface SizeApproval {
   conceptId: string;
   platform: string;
@@ -306,7 +317,7 @@ export class ProjectStore {
 
   save(project: Project): Project {
     project.updatedAt = new Date().toISOString();
-    fs.writeFileSync(this.file(project.projectId), JSON.stringify(project, null, 2));
+    atomicJson(this.file(project.projectId), project);
     this.reindex();
     return project;
   }
@@ -574,6 +585,6 @@ export class ProjectStore {
         landingPage: p.landingPage,
       }))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    fs.writeFileSync(path.join(this.dir, INDEX), JSON.stringify({ generatedAt: new Date().toISOString(), rows }, null, 2));
+    atomicJson(path.join(this.dir, INDEX), { generatedAt: new Date().toISOString(), rows });
   }
 }
