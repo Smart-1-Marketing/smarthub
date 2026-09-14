@@ -479,6 +479,23 @@ REGISTRY: list[Help] = [
        "filed, everything waiting for confirmation, or no spend this period. "
        "Every figure is Reports' own, so this card and the client's page "
        "cannot disagree."),
+    _h("hub.client360.landing", "The landing pages we built for them",
+       "Every page the Landing Page Maker has built for this client, newest "
+       "first, with the link and two things that are only worth knowing "
+       "before you send it. **Ready** is the page's own open questions -- what "
+       "it would otherwise write around -- plus whether it has a real review "
+       "on it and whether the Hub can name its own public address. "
+       "**Conversion** is the share of the people who opened it who became a "
+       "lead, and it says which of five situations it is in rather than "
+       "printing a percentage over anything: nobody has opened it yet, too "
+       "early to call at under 25 opens, more leads than opens (which means "
+       "the opens are undercounted, not that the page converts above a "
+       "hundred per cent), a rate, or not measured. Leads taken before opens "
+       "were ever counted are named apart rather than folded into the "
+       "numerator. The pages list, the visit table and the lead store are "
+       "three separate reads, so each says separately when it could not "
+       "answer -- a nought here would be a reason to pause a campaign that "
+       "may be doing fine."),
     _h("hub.client360.spend", "What they are already spending",
        "The first thing worth knowing about a client, and the one that decides "
        "what the next conversation is about. Every figure is a third-party "

@@ -6726,6 +6726,52 @@ finished, and `plan_creative` for creative nobody has said who supplies.
 Both carry the run's own link. A superseded or completed run raises nothing,
 which is what `_OPEN_STATES_EXCLUDED` says in one place for both readers.
 
+### A landing page nobody's record mentioned
+
+`landing_maker.for_client()` was written with the docstring *"used by the
+Client 360 / proposals card"* and had **no caller**, because there was no
+such card. So a client could have three landing pages live, taking leads,
+and the one screen a rep opens to ask what we are doing for somebody said
+nothing about any of them — the declared-and-never-wired failure this file
+counts a dozen of, and `test_unwired.py` could not see this one because the
+token `for_client` is also a function name in three other modules.
+
+**It answered a bare list, and that is the half that mattered.**
+`listing()` carries `views_measured` and `conversion_measured` precisely
+because a visit table that will not answer and a page nobody has opened
+both render as a nought, and only one of them is a reason to stop spending
+on the campaign — and taking `["pages"]` off the answer dropped exactly
+those two on the floor. A card built on the old shape would have drawn
+*"0 opens"* over a database that was down. `summary_for_client()` replaces
+it: the flags travel, and the rows are trimmed to what a card prints (the
+stored pictures and the source website are the tool's own screen's
+business, and are kilobytes a row on a record drawing twenty other cards).
+
+**Three reads stand behind one card and each says separately when it could
+not answer.** The pages store, the visit table and the lead store — the
+rate needs all three, and a page can perfectly well be listed with no rate
+behind it. `measured` is False only where the listing itself **raised**: a
+store that reads back empty is not claimed as an outage, because
+`jsonstore.read_json` answers `default` for a missing file, so *no pages*
+and *the file is gone* are genuinely one answer here and inventing a
+distinction the data cannot support is its own confident wrong answer.
+The flags are ANDed over the group's members that actually **had rows**,
+since a member with none never asked the visit table anything and comes
+back measured — ANDing those in would read a client with one empty sibling
+as fully measured while the real member's counts were missing.
+
+The card is in *Overview*, beside Ad performance, because what it answers
+is whether a campaign is working rather than what our website records say.
+It draws the four non-rate states as themselves — nobody has opened it,
+too early under 25 opens, more leads than opens (the opens are
+undercounted, not a page converting above a hundred per cent), or not
+measured — and never as `0%`. A page with no `url` says *no public
+address* rather than drawing an empty link, because that is a fact about
+`PUBLIC_BASE_URL` and not about the page. `renderLandingPages()` is lifted
+out of the template and driven in **node**, the arrangement
+`test_menu_layout.py` uses over `hub-crumbs.js`, and every one of those
+states was confirmed red against a card that drew it as a rate first.
+
 ### A monthly promise kept once, and nothing asked about month two
 
 Every-month items were kept on the plan and that was the end of it: a kept
@@ -14348,7 +14394,10 @@ python3 test_rate_card_coverage.py # every product on the card, bought on a
                                    #   a ninth holding every name that means
                                    #   two products, and a new category that
                                    #   fails by name rather than being skipped
-python3 test_landing_maker.py      # built pages stay public and chrome-free
+python3 test_landing_maker.py      # built pages stay public and chrome-free,
+                                   #   and the card on the client's own record:
+                                   #   three reads behind it, each saying when it
+                                   #   could not answer, and no state drawn as 0%
 python3 test_quote_numbers.py      # uploaded quotes are numbered, drafts delete
 python3 test_api_usage.py          # the Google/ElevenLabs/Cloudinary estimates
 python3 test_social_plan.py        # the post mix, the copy checks, the CSV

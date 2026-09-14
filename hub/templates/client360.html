@@ -219,7 +219,7 @@ const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href=
    twenty-two into the first section. */
 /* ---- c360 sections (lifted and driven in node by test_client360_layout.py) ---- */
 const C360_SECTIONS=[
-  {key:'overview', label:'Overview',          match:['products','orders we have sent','coming up','ad performance','google listing','youtube channel','smart 1 suite','pipeline & leads','proposals','client notes','target audience']},
+  {key:'overview', label:'Overview',          match:['products','orders we have sent','coming up','ad performance','landing pages','google listing','youtube channel','smart 1 suite','pipeline & leads','proposals','client notes','target audience']},
   {key:'billing',  label:'Billing',           match:['invoices']},
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
@@ -508,6 +508,12 @@ function render(g,q){
   // live link. It lived on /reports/client/<key>, reached by knowing the
   // client's key; the record said nothing about any of it.
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Ad performance {{ help_dot('hub.client360.adperf') if help_dot is defined else '' }}</h3><a class="open-link" href="/reports/">Open Reports →</a></div><div class="card-b" id="c-adperf"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  // The landing pages built for this client, and whether they work. The
+  // Landing Page Maker's list is searchable by client and is a screen inside
+  // the tool, so knowing a page existed meant knowing to go and look. What
+  // makes it worth a card here is the pair Tier 2 added: whether it is ready
+  // to send, and what share of the people who opened it became a lead.
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Landing pages {{ help_dot('hub.client360.landing') if help_dot is defined else '' }}</h3><a class="open-link" href="/sales/landing">Open the Landing Page Maker &rarr;</a></div><div class="card-b" id="c-landing"><div class="empty">Loading&hellip; <span class="spin"></span></div></div></div>`;
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Google</span><h3>Google listing {{ help_dot('hub.client360.places') if help_dot is defined else '' }}</h3><span class="right" id="c-places-acts"></span></div><div class="card-b" id="c-places"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fdecec;color:#b3261e">YouTube</span><h3>YouTube channel {{ help_dot('hub.client360.youtube') if help_dot is defined else '' }}</h3><span class="right" id="c-youtube-acts"></span></div><div class="card-b" id="c-youtube"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
@@ -4280,6 +4286,7 @@ function loadBrandAndWork(name){
   loadPlaces(name);
   loadYouTube(name);
   loadPlan(name);
+  loadLanding(name);
   fetch('/api/client/utm?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderUtm).catch(function(){});
   loadSocialIdeas(name);
@@ -4490,6 +4497,82 @@ function renderAdPerformance(d,name){
   return h+open;
 }
 /* ---- end c360 ad performance ---- */
+/* ---- c360 landing pages (lifted and driven in node by test_landing_maker.py) ---- */
+/* Draws /api/client/landing-pages. Pure: takes the payload and the client's
+   name and returns markup, so the test can run it without a browser.
+
+   Three reads stand behind one card -- the pages store, the visit table and
+   the lead store -- and each says separately when it could not answer. The
+   card never turns any of those into a nought: "nobody has opened it" and
+   "we could not read the opens" send a rep to opposite conclusions about a
+   campaign somebody is paying for, and only one of them is a reason to
+   pause it. Nothing here is a figure this card computed; the readiness and
+   the conversion line are the server's own, so the card and the Landing
+   Page Maker cannot disagree about a page. */
+function landingReadyPill(r){
+  if(!r||r.measured===false) return '<span class="pill neutral">readiness not measured</span>';
+  if(r.ready) return '<span class="pill ok">ready to send</span>';
+  var n=Number(r.count||0);
+  return '<span class="pill warn">'+n+' to fix before sending</span>';
+}
+function landingRatePill(c){
+  if(!c||c.measured===false) return '<span class="pill neutral">not measured</span>';
+  if(c.state==='measured') return '<span class="pill ok">'+esc(String(c.rate))+'%</span>';
+  if(c.state==='over') return '<span class="pill warn">opens undercounted</span>';
+  if(c.state==='too_early') return '<span class="pill neutral">too early</span>';
+  return '<span class="pill neutral">no opens yet</span>';
+}
+function renderLandingPages(d,name){
+  if(d && d.measured===false){
+    return '<div class="empty">The landing pages could not be read'
+      + (d.error?' &mdash; '+esc(d.error):'') + '. That is not the same as '
+      + 'this client having none.</div>';
+  }
+  var rows=(d&&d.pages)||[];
+  if(!rows.length){
+    return '<div class="empty">No landing page has been built for this client. '
+      + '<a href="/sales/landing?client='+encodeURIComponent(name||'')+'">'
+      + 'Build one</a> and the link, its readiness and its conversion rate '
+      + 'appear here.</div>';
+  }
+  var h='<table><thead><tr><th>Page</th><th>Link</th><th>Ready</th>'
+    + '<th>Opens</th><th>Conversion</th></tr></thead><tbody>';
+  rows.forEach(function(p){
+    var title=p.headline||p.campaign||p.slug||'Landing page';
+    var v=p.views, c=p.conversion||{};
+    var opens = (v && typeof v.views!=='undefined')
+      ? esc(String(v.views))+(v.recent?' <span class="muted" style="font-size:11.5px">('+esc(String(v.recent))+' recent)</span>':'')
+      : '<span class="muted">not measured</span>';
+    h+='<tr><td><b>'+esc(title)+'</b>'
+      + (p.campaign&&p.campaign!==title?'<div class="muted" style="font-size:12px">'+esc(p.campaign)+'</div>':'')
+      + (p.member&&p.member!==name?memberTag(p.member):'')+'</td>'
+      /* No url means the Hub cannot name its own public address -- the row
+         says so rather than drawing a link that would hand over a path. */
+      + '<td>'+(p.url?'<a href="'+esc(p.url)+'" target="_blank" rel="noopener">'+esc(p.slug||'open')+'</a>'
+               :'<span class="muted" title="PUBLIC_BASE_URL is not set">no public address</span>')+'</td>'
+      + '<td>'+landingReadyPill(p.readiness)+'</td>'
+      + '<td>'+opens+'</td>'
+      + '<td>'+landingRatePill(c)
+      + (c&&c.line?'<div class="muted" style="font-size:11.5px">'+esc(c.line)+'</div>':'')
+      + '</td></tr>';
+  });
+  h+='</tbody></table>';
+  /* Said once under the table rather than per row: a caveat on every line is
+     a caveat nobody reads, and these are one table and one store either way. */
+  var notes=[];
+  if(d && d.views_measured===false){
+    notes.push('The visit table could not be read'
+      + (d.views_error?' &mdash; '+esc(d.views_error):'')
+      + ', so the opens and the rates are missing from this rather than nought.');
+  } else if(d && d.conversion_measured===false){
+    notes.push('The lead store could not be read, so there is no rate.');
+  }
+  if(notes.length){
+    h+='<div class="muted" style="font-size:11.5px;margin-top:6px">'+notes.join(' ')+'</div>';
+  }
+  return h;
+}
+/* ---- end c360 landing pages ---- */
 /* ---- c360 google listing (lifted and driven in node by test_places.py) ---- */
 /* Draws /api/client/places' payload. Pure: takes the payload, the client's
    name and any candidates a lookup returned, and returns markup. Five kinds
@@ -4812,6 +4895,22 @@ function loadAdPerformance(name){
       var b=document.getElementById('c-adperf');
       if(b) b.innerHTML='<div class="empty">The ad-performance store could not be read. '
         + 'That is not the same as no campaign running for this client.</div>';
+    });
+}
+function loadLanding(name){
+  var box=document.getElementById('c-landing');
+  if(!box) return;
+  if(!name){box.innerHTML='<div class="empty">No client selected.</div>';return;}
+  fetch('/api/client/landing-pages?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      box=document.getElementById('c-landing');
+      if(box) box.innerHTML=renderLandingPages(d,name);
+    })
+    .catch(function(){
+      var b=document.getElementById('c-landing');
+      if(b) b.innerHTML='<div class="empty">The landing pages could not be read. '
+        + 'That is not the same as this client having none.</div>';
     });
 }
 /* ---- pipeline (lifted and driven in node by test_client360_pipeline.py) ---- */
