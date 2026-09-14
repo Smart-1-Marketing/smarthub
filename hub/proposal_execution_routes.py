@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, redirect, render_template, request
 
 from hub.blueprint_guard import install as install_guard
 from hub import proposal_execution as pe
@@ -117,7 +117,50 @@ def needs(token):
     if not run:
         return render_template("proposal_needs.html", doc=None, unavailable=False), 404
     return render_template("proposal_needs.html", doc=pe.client_needs(run, base=request.host_url),
-                           unavailable=False)
+                           unavailable=False, thanks=request.args.get("thanks") == "1")
+
+
+@bp.post("/proposal-execution/needs/<token>")
+def needs_answer(token):
+    """The client answering their questions on that same page.
+
+    A plain HTML form rather than a fetch, so the page a stranger reads
+    loads no Hub script and a failed post is a page saying why rather than
+    a button that did nothing. The fields are `a:<key>` for a question and
+    `h:<channel>` for a tick handing a file back to Smart 1, which is the
+    same supply key answered `smart1`. Everything lands beside the plan as
+    the client's proposal (`pe.record_client_answers`) and nothing in the
+    plan's own answers moves until a person takes it. The same 404 for a
+    token that is gone and the same 503 for a store that would not answer
+    as the page itself; a refusal re-renders the page with the reason and
+    what they typed, and a success redirects so a refresh cannot post twice.
+    """
+    run, error = pe.run_for_client_token(token)
+    if error:
+        return render_template("proposal_needs.html", doc=None, unavailable=True), 503
+    if not run:
+        return render_template("proposal_needs.html", doc=None, unavailable=False), 404
+    form = request.form
+    answers = {}
+    for key, value in form.items():
+        if key.startswith("a:"):
+            answers[key[2:]] = value
+        elif key.startswith("h:") and str(value or "").strip():
+            answers["creative_supply:" + key[2:]] = "smart1"
+    typed = {"name": str(form.get("name") or ""), "email": str(form.get("email") or "")}
+    try:
+        pe.record_client_answers(run, answers, name=typed["name"], email=typed["email"])
+    except ValueError as exc:
+        return render_template("proposal_needs.html", doc=pe.client_needs(run, base=request.host_url),
+                               unavailable=False, error=str(exc), typed=typed), 400
+    except Exception as exc:                             # noqa: BLE001
+        try:
+            from hub import errors
+            errors.log_exception("proposal_execution", exc, path=request.path, actor="client")
+        except Exception:                                # noqa: BLE001
+            pass
+        return render_template("proposal_needs.html", doc=None, unavailable=True), 503
+    return redirect(request.path + "?thanks=1", code=303)
 
 
 @bp.get("/api/proposal-execution/proposals")
@@ -153,6 +196,18 @@ def analyze():
     except pe.ProposalRunConflict as exc:
         return jsonify(ok=False, conflict=True, error=str(exc),
                        previous_run=exc.previous_run.as_dict(full=True)), 409
+    except Exception as exc:  # noqa: BLE001
+        return _error(exc)
+
+
+@bp.post("/api/proposal-execution/start-won")
+def start_won():
+    """Start a plan now for every quote marked Approved or Converted that
+    has none -- the same sweep the scheduler runs hourly, on demand. Staff
+    only; the answer is the sweep's own counts, conflicts named."""
+    owner, _name = _who()
+    try:
+        return jsonify(ok=True, result=pe.start_won(actor=owner))
     except Exception as exc:  # noqa: BLE001
         return _error(exc)
 

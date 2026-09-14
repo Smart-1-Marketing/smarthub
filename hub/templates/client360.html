@@ -4159,6 +4159,10 @@ function loadPlan(name){
         var todo=[];
         if(p.to_review) todo.push(p.to_review+' item'+(p.to_review===1?'':'s')+' to review');
         if(p.open_questions) todo.push(p.open_questions+' question'+(p.open_questions===1?'':'s')+' open');
+        /* What the client answered on their own page and nobody has taken
+           onto the plan yet -- a reply read by nothing. */
+        if(p.client_answers_pending) todo.push(p.client_answers_pending+' answer'
+          + (p.client_answers_pending===1?'':'s')+' from the client to confirm');
         if(p.creative_unassigned) todo.push(p.creative_unassigned+' creative item'
           + (p.creative_unassigned===1?'':'s')+' with no supplier named');
         /* Launch tasks and creative past the date the launch date put on

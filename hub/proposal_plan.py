@@ -1209,6 +1209,11 @@ def carry_forward(new_plan: dict, old_plan: dict) -> dict:
     for q in plan.get("questions") or []:
         if q["key"] in carried:
             q["answer"], q["from_text"] = carried[q["key"]], False
+    # What the client told us follows the question it answered, for the
+    # same reason: a launch date they gave on their page is about this
+    # campaign, and the new document has not changed who they are.
+    plan["client_answers"] = {k: json.loads(json.dumps(v))
+                              for k, v in (old_plan.get("client_answers") or {}).items() if k in asked}
     plan["summary"] = summarize(plan)
     return plan
 
@@ -1228,6 +1233,10 @@ def summarize(plan: dict) -> dict:
     out["open_questions"] = sum(1 for q in plan.get("questions") or [] if not str(q.get("answer") or "").strip())
     out["unverified"] = sum(1 for it in _all_items(plan)
                             if it.get("source") == SOURCE_AI and it.get("grounded") is False)
+    # What the client answered on their page and nobody has taken onto the
+    # plan yet. A reply that arrived and was read by nothing is the form
+    # field failure one audience further out.
+    out["client_answers_pending"] = sum(1 for row in client_answers_view(plan) if not row["taken"])
     return out
 
 
@@ -1357,6 +1366,15 @@ def resolve(plan: dict, *, owner: dict | None = None, names: dict | None = None)
         if cadence and "report" in str(it.get("title") or "").lower():
             it["cadence"] = cadence
             it["cadence_label"] = CADENCE_LABELS.get(cadence, cadence)
+    # The client's own answer beside the question it answers -- a proposal
+    # until a person takes it, and marked `taken` once the plan carries the
+    # same value, so the screen offers a press rather than a second box.
+    proposed = {row["key"]: row for row in client_answers_view(plan)}
+    for q in plan.get("questions") or []:
+        row = proposed.get(str(q.get("key") or ""))
+        if row:
+            q["client_proposed"] = {k: row[k] for k in ("value", "label", "by", "at", "taken")}
+    resolved["client_answers_pending"] = sum(1 for row in proposed.values() if not row["taken"])
     resolved["owner"] = ({"email": default, "label": owner_label(default, names),
                           "source": str((owner or {}).get("source") or ""),
                           "partner": str((owner or {}).get("partner") or "")}
@@ -1388,22 +1406,156 @@ CLIENT_QUESTION_WORDING = {
 }
 
 
+# The same choices, worded for the person being asked: "the client is
+# supplying it" is a sentence about them and "our team is supplying it" is
+# one they would say. Same values, so an answer lands on the plan unchanged.
+CLIENT_SUPPLY_LABELS = {"smart1": "Smart 1 produces it", "client": "Our team is supplying it",
+                        "mixed": "Some of each"}
+CLIENT_CADENCE_LABELS = {"monthly": "Monthly", "weekly": "Weekly", "quarterly": "Quarterly",
+                         "none": "No regular report needed"}
+# How many answers a client's page may hold on one plan. A page reached at
+# a token anybody holding the link can post to; the cap is what keeps a
+# script from filling the column, and it is far above what a plan asks.
+MAX_CLIENT_ANSWERS = 40
+MAX_CLIENT_NAME = 120
+
+
+def _client_options(key: str, q: dict) -> list[dict]:
+    """The choices a client is offered for one question, in their words."""
+    if key.startswith("creative_supply:"):
+        return [{"value": v, "label": CLIENT_SUPPLY_LABELS.get(v, l)} for v, l in SUPPLY_CHOICES]
+    if key == "reporting_cadence":
+        return [{"value": o.get("value"), "label": CLIENT_CADENCE_LABELS.get(o.get("value"), o.get("label"))}
+                for o in q.get("options") or []]
+    return []
+
+
 def client_questions(plan: dict) -> list[dict]:
     """The open questions a client can answer, in the client's own words.
     Anything answered is left out; anything not on `CLIENT_QUESTION_WORDING`
-    is ours to answer and never reaches them."""
+    is ours to answer and never reaches them. Each row carries the control
+    to draw (`type`, `options`) and `proposed` -- what the client already
+    told us, so their page shows their own answer rather than asking again
+    while a person is still to take it onto the plan."""
     out: list[dict] = []
+    said = {row["key"]: row for row in client_answers_view(plan)}
     for q in (plan or {}).get("questions") or []:
         key = str(q.get("key") or "")
         if _answer_of(plan, key):
             continue
         if key == "launch_date" or key == "reporting_cadence":
-            out.append({"key": key, "question": CLIENT_QUESTION_WORDING[key]})
+            row = {"key": key, "question": CLIENT_QUESTION_WORDING[key],
+                   "type": "date" if key == "launch_date" else "choice",
+                   "options": _client_options(key, q)}
         elif key.startswith("creative_supply:"):
             channel = key.split(":", 1)[1]
             name = next((it.get("channel_name") or channel for it in (plan or {}).get("creative") or []
                          if it.get("channel") == channel), channel)
-            out.append({"key": key, "question": CLIENT_QUESTION_WORDING["creative_supply"].format(name=name)})
+            row = {"key": key, "question": CLIENT_QUESTION_WORDING["creative_supply"].format(name=name),
+                   "type": "choice", "options": _client_options(key, q)}
+        else:
+            continue
+        row["proposed"] = str((said.get(key) or {}).get("value") or "")
+        out.append(row)
+    return out
+
+
+def client_answerable(plan: dict) -> dict:
+    """The keys a client may answer, each with its choices.
+
+    The open client questions, plus the supply question for every kept
+    creative item that is theirs to supply -- a client who agreed to send
+    the banners and now wants Smart 1 to make them answers the same key
+    with `smart1`, which is a hand-back rather than a new question. Every
+    other key on the plan is ours to answer, and a client naming one is
+    refused by name: the page a stranger can post to must not be able to
+    set a budget or answer what the model was unsure of.
+    """
+    out: dict = {}
+    for row in client_questions(plan):
+        out[row["key"]] = {"options": [o["value"] for o in row.get("options") or []], "handback": False}
+    kept = {it.get("channel") for it in (plan or {}).get("creative") or []
+            if it.get("accepted") is True and it.get("kind") != "copy"}
+    for q in (plan or {}).get("questions") or []:
+        key = str(q.get("key") or "")
+        if not key.startswith("creative_supply:") or key in out:
+            continue
+        if key.split(":", 1)[1] in kept and _answer_of(plan, key) in ("client", "mixed"):
+            out[key] = {"options": [v for v, _l in SUPPLY_CHOICES], "handback": True}
+    return out
+
+
+def record_client_answers(plan: dict, answers: dict, *, name: str, email: str = "") -> tuple[dict, int]:
+    """What the client answered on their page, kept **apart** from the
+    plan's own answers.
+
+    Nothing here writes `plan["answers"]`: the client's reply is a proposal
+    a person takes onto the plan with one press (`apply_decisions` with
+    `answers`), for the reason a researched competitor stays unticked until
+    a rep ticks it -- a value posted at a token anybody holding the link
+    can post to must not move a due date on every task by arriving. A name
+    is required, because an answer nobody can attribute is one nobody can
+    ring back about; the email is kept where given and never required. A
+    key the client may not answer, or a choice that is not one of the
+    offered ones, is refused by name and nothing is half-recorded. Returns
+    the plan and how many answers were recorded.
+    """
+    plan = json.loads(json.dumps(plan or {}))
+    who = " ".join(str(name or "").split())[:MAX_CLIENT_NAME]
+    if not who:
+        raise ValueError("Please tell us your name, so we know who answered.")
+    addr = " ".join(str(email or "").split())[:200].lower()
+    if addr and "@" not in addr:
+        raise ValueError("That email address does not look right -- check it, or leave it blank.")
+    if not isinstance(answers, dict):
+        raise ValueError("answers must map question keys to values.")
+    allowed = client_answerable(plan)
+    stored = dict(plan.get("client_answers") or {})
+    taken = 0
+    stamp = _now_iso()
+    for key, value in answers.items():
+        key = str(key)
+        value = " ".join(str(value if value is not None else "").split())[:MAX_ANSWER]
+        if not value:
+            continue
+        if key not in allowed:
+            raise ValueError(f"{key!r} is not a question the client can answer on this plan.")
+        options = allowed[key].get("options") or []
+        if options and value not in options:
+            raise ValueError(f"{value!r} is not one of the choices offered for {key!r}.")
+        stored[key] = {"value": value, "by": who, "email": addr, "at": stamp}
+        taken += 1
+    if not taken:
+        raise ValueError("Nothing was filled in -- answer at least one question before sending.")
+    if len(stored) > MAX_CLIENT_ANSWERS:
+        raise ValueError("This page cannot hold any more answers; reply to your Smart 1 contact instead.")
+    plan["client_answers"] = stored
+    plan["summary"] = summarize(plan)
+    return plan, taken
+
+
+def client_answers_view(plan: dict) -> list[dict]:
+    """Every answer the client gave, with whether the plan now carries it.
+
+    `taken` is the plan answering the same value -- whether a person kept
+    it or the document already said it -- so a proposal that agrees with
+    the plan is not offered as a press. `label` is the choice in words
+    where the key has choices, else the value itself."""
+    out: list[dict] = []
+    questions = {str(q.get("key") or ""): q for q in (plan or {}).get("questions") or []}
+    for key, row in ((plan or {}).get("client_answers") or {}).items():
+        if not isinstance(row, dict):
+            continue
+        value = str(row.get("value") or "")
+        q = questions.get(key) or {}
+        label = value
+        if key.startswith("creative_supply:"):
+            label = SUPPLY_LABELS.get(value, value)
+        elif key == "reporting_cadence":
+            label = CADENCE_LABELS.get(value, value)
+        out.append({"key": key, "question": str(q.get("question") or key), "value": value, "label": label,
+                    "by": str(row.get("by") or ""), "email": str(row.get("email") or ""),
+                    "at": str(row.get("at") or ""), "taken": _answer_of(plan, key) == value})
     return out
 
 
@@ -1547,4 +1699,5 @@ __all__ = ["LISTS", "LIST_LABELS", "RECIPES", "SUPPLY_CHOICES", "SUPPLY_LABELS",
            "LEAD_DAYS_CREATIVE", "CREATIVE_TOOLS", "COPY_TASKS", "build_plan", "rule_items",
            "ai_items", "questions", "apply_decisions", "carry_forward", "summarize", "kept_items",
            "resolve", "answers_for", "parse_day", "tool_for", "item_actions", "with_actions",
-           "owner_label", "client_questions", "CLIENT_QUESTION_WORDING"]
+           "owner_label", "client_questions", "CLIENT_QUESTION_WORDING", "client_answerable",
+           "record_client_answers", "client_answers_view", "MAX_CLIENT_ANSWERS"]

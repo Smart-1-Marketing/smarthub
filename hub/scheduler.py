@@ -829,6 +829,39 @@ def job_qa_task_vision(app) -> dict:
         return qa_tasks.describe_image_backlog()
 
 
+def job_proposal_autostart(app) -> dict:
+    """Start an execution plan for every proposal the Proposal Builder has
+    marked won -- Approved by the client at their link, or Converted to an
+    insertion order -- that has none yet.
+
+    The plan used to exist only when somebody remembered to open Proposal
+    Execution and press Analyze, and the day a proposal is signed is the
+    day that is most likely to be forgotten. Bounded per tick
+    (`AUTOSTART_LIMIT`) because each run is a model pass where a key is
+    set and this thread is shared; what the cap defers is counted and the
+    next tick starts it. A client who already has a different run open is
+    named as a conflict and never superseded from here -- superseding
+    carries approved work forward, and that is a person's press.
+    """
+    try:
+        from hub import proposal_execution
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        out = proposal_execution.start_won()
+    # Nothing started and nothing failed is the ordinary hour, and it reads
+    # as skipped rather than as an empty run -- the job_social_idea_batches
+    # rule. A standing conflict is a state rather than an event, so it
+    # rides in the sentence instead of making every quiet hour a result.
+    if out.get("measured") and not out.get("started") and not out.get("errors"):
+        conflicts = out.get("conflicts") or []
+        return {"skipped": f"nothing to start ({out.get('checked', 0)} won quote(s) checked, "
+                           f"{out.get('already', 0)} already have a plan"
+                           + (f", {len(conflicts)} client(s) with another run open" if conflicts else "")
+                           + ")"}
+    return out
+
+
 def job_industry_prospect_sync(app):
     from hub.industry_prospects import scheduled_step
     return scheduled_step(app)
@@ -998,6 +1031,13 @@ JOBS = {
                           "as standing in."),
     "qa_task_vision":    (10, job_qa_task_vision,
                           "Read screenshots linked in QA task instructions."),
+    # Here for the same reason as the two above: it reads this Hub's own
+    # database and starts at most a handful of runs a tick, and a proposal
+    # won this morning should have its plan by lunch rather than after the
+    # Google sweep finishes.
+    "proposal_autostart": (60, job_proposal_autostart,
+                           "Start an execution plan for each proposal marked "
+                           "Approved or Converted in the Proposal Builder."),
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
     "clear_stuck_scans": (15, job_clear_stuck_scans,
