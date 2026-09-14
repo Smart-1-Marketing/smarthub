@@ -210,11 +210,13 @@ def _access_token(login: str) -> str:
 
 def _run_report(token: str, property_id: str, payload: dict) -> dict:
     url = f"https://analyticsdata.googleapis.com/v1beta/properties/{property_id}:runReport"
-    r = requests.post(url, headers={"Authorization": f"Bearer {token}"}, json=payload, timeout=25)
+    from hub import quotas
     try:
-        _gf()._note_google(url, ok=r.ok)
-    except Exception:  # noqa: BLE001
-        pass
+        r = requests.post(url, headers={"Authorization": f"Bearer {token}"}, json=payload, timeout=25)
+    except requests.RequestException:
+        quotas.record_google(url, module="unassigned_traffic", ok=False)
+        raise
+    quotas.record_google(url, module="unassigned_traffic", ok=r.ok)
     if not r.ok:
         detail = ""
         try:
