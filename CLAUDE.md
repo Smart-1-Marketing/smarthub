@@ -6769,6 +6769,63 @@ not from the chrome is a client reading our staff nav, and the other way
 round is a sign-in form in front of somebody with no account. The staff
 kickoff sits under the guarded mount and is in neither list.
 
+### A due date nothing checks, and creative the plan did not notice arriving
+
+`hub/proposal_progress.py`, the Done press on the plan page, the Status
+column on the kickoff document, and `plan_overdue` on My Clients.
+`resolve()` had put a due date on every kept launch task and creative item
+the moment the launch date was answered, the kickoff document printed them
+-- and the plan's decisions were keep, drop, add, answer and owner. Nothing
+could say a task was done and nothing computed overdue, so a task due last
+Tuesday looked identical to one due next month and My Clients could not
+raise it. And a banner set the Display Ad Builder had already delivered for
+the client sat on the plan exactly as it did the day the plan was built,
+with a *Make it in Display Ad Builder* button beside it. The monthly
+promises had all of this answered one list over; this is the same reading
+for the two lists that are not monthly.
+
+**Done is a press with a name on it, and the only thing written.** It goes
+through the same plan route as every other decision (`done`), is stored on
+the item with who and when, follows the item onto a superseding plan like
+its verdict, and is refused by name where it would be a tick on nothing:
+an item nobody has kept, or a monthly promise, which is marked month by
+month on its own strip.
+
+**Landed is derived on every read and stored nowhere.** The evidence is the
+work log, through the same `client_rows()` the promise schedule reads, and
+it is keyed on **the tool that makes the item** -- `proposal_plan.tool_for()`,
+the table the item's own button is drawn from -- rather than on the kind of
+file, because the smoke run of the first version closed a social post
+graphic with a Display Ad Builder pack: both are images, and they are made
+in different tools. It **follows the supplier answer**: the client uploading
+through their link proves what the client supplies, our tools prove what we
+produce, and an item nobody has answered for is proved by either. And it
+**starts when the run started**, at the earliest run in the supersede chain,
+because the same client's display pack from two years ago is not this
+plan's banners. What that costs is the file that arrived before the plan
+was built, which reads as open until somebody presses Done -- the safe
+direction, since a false landed hides a gap and a false open costs a press.
+What it still cannot tell apart is two kept items of one tool on one plan,
+so the row names the delivery and the module does not guess.
+
+**Overdue is a fact about the calendar, so it still counts when the log
+could not be read** -- and the item then says whether it landed is *not
+known*, rather than the silence reading as nothing having arrived. Copy
+lands when its board task does; a launch task lands never, because nothing
+here can see one happen, and is done by hand.
+
+**One issue per past-due item on My Clients, and the fingerprint does not
+move with the date.** The first draft put the day count in the detail, and
+the detail is in `fingerprint()` -- so a mark made there would have read as
+superseded every morning. The days are on the title; the subject is
+`done_key()`, and a Done pressed on the plan page clears the issue on read
+through `proposal_execution.done_index()`, the overlay the promise marks
+already ride. The Client 360 card prints the count beside the others, and
+the client's own page says *received* about a file that has landed and
+nothing about how we know. `test_proposal_progress.py` drives the clock
+rather than waiting on it, and holds `TOOL_EVIDENCE` to `CREATIVE_TOOLS` in
+both directions so a seventh tool cannot join with no evidence behind it.
+
 ## Opportunistic migration — read this before editing any module
 
 `hub/storage.py` (Cloudinary), `hub/images.py` (resize/convert),
@@ -13562,6 +13619,13 @@ python3 test_proposal_kickoff.py   # whose each plan item is, following the
                                    #   from the kept plan and counting what
                                    #   is not; and the client's page at a
                                    #   stored token, carrying the fields only
+python3 test_proposal_progress.py  # where each launch task and creative item
+                                   #   stands: done is a press with a name on
+                                   #   it, landed is read off the work log for
+                                   #   the tool that makes the item and never
+                                   #   stored, overdue still counts when the
+                                   #   log cannot be read, and each reaches
+                                   #   My Clients one issue per item
 python3 test_io_reconcile.py       # the orders we sent against the campaigns
                                    #   Knack has: a stale source never reads as
                                    #   proof, a row can be settled, and the
