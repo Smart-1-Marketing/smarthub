@@ -975,6 +975,54 @@ def job_reports_reconcile(app) -> dict:
             "changed": [f"{p} {m}: {a} -> {b}" for p, m, a, b in res["changed"]]}
 
 
+def job_retry_leads(app) -> dict:
+    """Hourly: push every lead that has not reached Smart 1 Suite yet.
+
+    `hub/leads.py` stores a lead first and delivers second, deliberately --
+    a GoHighLevel outage, a rotated token or a typo'd variable must never
+    destroy a lead we already have -- and anything that fails its write
+    stays queued. Its own `retry_undelivered()` has said "called by hand or
+    the scheduler" since it was written and **there was no such job**, so
+    the queue was drained only when somebody happened to press the button on
+    the lead panel, which in practice is never. Every landing page, every
+    calculator, every scan widget and all five standalone Render apps write
+    down this one path, so what was owed was owed across the whole Hub.
+
+    The sweep is bounded on both axes by `leads.retry_undelivered()` and it
+    reports what it did not reach, which is the half that matters here: a
+    queue that stops part-way and says nothing reads exactly like one that
+    is drained.
+
+    Safe to run late, skip and repeat, as the job contract requires. A row
+    carrying a contact id is skipped by `deliver()` itself, so a double run
+    cannot write a second contact for a lead that landed -- the duplicate
+    this whole design exists to avoid.
+    """
+    try:
+        from hub import leads
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    if leads.delivery_mode() == "none":
+        # A state, not a failure. An unconfigured Hub would otherwise write
+        # an identical row into the activity log every hour for ever, and
+        # the real failures would be sitting in the middle of them -- the
+        # noise hub/google_index.py had to learn to stop making.
+        return {"skipped": "Suite API delivery is not configured"}
+    with app.app_context():
+        # An app context: deliver() reaches hub/audit and hub/config from a
+        # background thread, which is the flask.g trap that had the Google
+        # sweep reporting an empty book.
+        try:
+            res = leads.retry_undelivered()
+        except Exception as exc:                        # noqa: BLE001
+            # A provider outage must not take the scheduler down with it.
+            # The undelivered leads simply come back next hour.
+            return {"ok": False, "error": type(exc).__name__}
+    return {"delivered": res["delivered"], "still_failing": res["still_failing"],
+            "needs_attention": res["needs_attention"], "left": res["left"],
+            "out_of_time": res["out_of_time"], "seconds": res["seconds"]}
+
+
 JOBS = {
     "industry_prospect_sync": (1, job_industry_prospect_sync,
                                "Advance the opt-in GHL to Apollo suppression sync."),
@@ -998,6 +1046,15 @@ JOBS = {
                           "as standing in."),
     "qa_task_vision":    (10, job_qa_task_vision,
                           "Read screenshots linked in QA task instructions."),
+    # Ahead of every slow provider sweep, for the reason the note above
+    # gives and one of its own: this is the only job in the list whose being
+    # starved means a client's lead sits undelivered. It is a network sweep
+    # rather than a database read, so it does not get the cheap-and-local
+    # argument the two QA jobs get -- what it has instead is a hard
+    # four-minute wall-clock ceiling, so what it can cost everything behind
+    # it is bounded and small, and what starving it costs is not.
+    "retry_leads":       (60, job_retry_leads,
+                          "Push every lead that has not reached Smart 1 Suite yet."),
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
     "clear_stuck_scans": (15, job_clear_stuck_scans,

@@ -423,6 +423,224 @@ def meta_tag_checks():
           leads.capture("x", "/y", {"email": "a@example.com"}, meta="nope")["meta"], {})
 
 
+# --- The retry queue, and the job that finally drains it --------------------
+#
+# hub/leads.py stores a lead first and delivers second, so anything that
+# fails its write stays queued -- and retry_undelivered()'s own docstring has
+# said "called by hand or the scheduler" since it was written, with no such
+# job anywhere. What the queue was drained by was somebody pressing a button
+# on the lead panel, which in practice is never.
+#
+# Two halves are asserted here and the second is the one that could have
+# shipped a worse bug than it fixed: the sweep has to be bounded and say what
+# it did not reach, and the *store* has to survive being rewritten hourly
+# while the other gunicorn worker is taking live traffic.
+
+
+class _FakeApp:
+    """Just enough app for a job that only wants a context."""
+
+    def app_context(self):
+        import contextlib
+        return contextlib.nullcontext()
+
+
+def _drain():
+    """Deliver everything already queued, so a count below is about its own
+    fixture rather than about whatever the checks above happened to leave."""
+    responds(200, {"contact": {"id": "DRAINED", "new": True}})
+    for _ in range(10):
+        if not leads.retry_undelivered()["retried"]:
+            return
+
+
+def _queue(n, prefix):
+    """n undelivered leads in the store, returned newest-last."""
+    responds(500, {"message": "upstream is down"})
+    return [leads.capture("landing_ads", f"/{prefix}",
+                          {"email": f"{prefix}{i}@example.com"})
+            for i in range(n)]
+
+
+def retry_sweep_checks():
+    print()
+    print("the sweep delivers what is queued, and skips what is not retryable")
+    _drain()
+    queued = _queue(3, "sweep")
+    # One of them will never come right however often it is asked: a config
+    # or payload problem fails identically every hour. Picked by id rather
+    # than "the first undelivered row", which lands on a row an earlier check
+    # left behind and quietly tests nothing this fixture set up.
+    rows = leads._read_all()
+    for r in rows:
+        if r.get("id") == queued[0]["id"]:
+            r["retryable"] = False
+    leads._rewrite(rows)
+    # Checks above this file leave their own non-retryable rows behind, and
+    # those are real: counted against a baseline rather than assumed away,
+    # because an absolute number here would be asserting how many checks run
+    # before this one.
+    blocked_before = sum(1 for r in rows
+                         if not r.get("delivered")
+                         and not r.get("retryable", True)) - 1
+
+    responds(200, {"contact": {"id": "SWEEP_OK", "new": True}})
+    res = leads.retry_undelivered()
+    check("delivered", res["delivered"], 2)
+    check("needs attention rather than a retry",
+          res["needs_attention"] - blocked_before, 1)
+    check("nothing left unreached", res["left"], 0)
+    check("the blocked one is named in the note",
+          "need attention" in res["note"], True)
+
+    print("a delivered lead is not written a second time by the sweep")
+    before = CALLS["n"]
+    res = leads.retry_undelivered()
+    check("write calls on a drained queue", CALLS["n"] - before, 0)
+    check("retried", res["retried"], 0)
+
+    print("the call limit bounds the sweep, and what it missed is counted")
+    _queue(5, "limit")
+    responds(200, {"contact": {"id": "LIMIT_OK", "new": True}})
+    res = leads.retry_undelivered(limit=2)
+    check("delivered", res["delivered"], 2)
+    check("left for next time", res["left"], 3)
+    check("the queue says it is not drained",
+          "still queued" in res["note"], True)
+
+    print("and so does the wall clock — checked after a call, never before")
+    # A budget of zero is the sharp end of it: the sweep must still make its
+    # first call (a deployment whose provider is merely slow would otherwise
+    # deliver nothing at all, for ever) and must not make a second.
+    res = leads.retry_undelivered(budget_seconds=0)
+    check("delivered before the clock stopped it", res["delivered"], 1)
+    check("out of time", res["out_of_time"], True)
+    check("the rest are left rather than lost", res["left"], 2)
+    check("the note says the clock ran out",
+          "ran out of time" in res["note"], True)
+
+    print("everything queued is delivered once nothing is bounding it")
+    res = leads.retry_undelivered()
+    check("delivered", res["delivered"], 2)
+    check("left", res["left"], 0)
+    check("nothing undelivered remains",
+          sum(1 for r in leads._read_all()
+              if not r.get("delivered") and r.get("retryable", True)), 0)
+
+
+def store_rewrite_checks():
+    print()
+    print("a lead captured mid-sweep survives the rewrite")
+    # The failure this is about: worker A reads the file, worker B appends a
+    # lead from a live landing page, A's os.replace lands the file it read
+    # before the append. The lead is gone, atomically, with a 200 already in
+    # front of the visitor. Rare while the only rewrite was a staff press;
+    # a matter of traffic once an hourly job does it.
+    rows = leads._read_all()                      # what the sweep read
+    arrived = {"id": "ARRIVED_MID_SWEEP", "created": leads._now(),
+               "source": "landing_ads", "page": "/boat",
+               "email": "late@example.com", "delivered": False,
+               "retryable": True}
+    with open(os.environ["HUB_LEADS_FILE"], "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(arrived) + "\n")      # the other worker
+
+    rows[0]["last_error"] = "a change the sweep made"
+    leads._rewrite(rows)                          # the sweep writes back
+
+    after = {r.get("id"): r for r in leads._read_all()}
+    check("the lead that arrived is still there",
+          "ARRIVED_MID_SWEEP" in after, True)
+    # Both halves, because keeping every row would pass the first one while
+    # throwing away the thing the rewrite was called to do.
+    check("and the sweep's own change stuck",
+          after[rows[0]["id"]]["last_error"], "a change the sweep made")
+
+    print("it holds the cross-worker lock, not just a thread lock")
+    # A threading.Lock serialises the threads inside one worker and says
+    # nothing whatever about the other one, which is the half that was
+    # missing. Asserted by driving the real helper rather than by reading
+    # the source: prose naming a lock is not a lock being taken.
+    from hub import jsonstore
+    taken = {"n": 0}
+    real = jsonstore.exclusive
+
+    import contextlib
+
+    @contextlib.contextmanager
+    def counting(path):
+        taken["n"] += 1
+        with real(path):
+            yield
+
+    jsonstore.exclusive = counting
+    try:
+        leads._rewrite(leads._read_all())
+        check("rewrite took it", taken["n"], 1)
+        leads.capture("landing_ads", "/locked", {"email": "l@example.com"})
+        check("and so does the append", taken["n"], 2)
+    finally:
+        jsonstore.exclusive = real
+
+
+def retry_job_checks():
+    print()
+    print("the scheduler actually runs it")
+    from hub import scheduler
+    check("registered", "retry_leads" in scheduler.JOBS, True)
+    if "retry_leads" not in scheduler.JOBS:
+        # Returning rather than unpacking: an assertion that raises takes
+        # every check after it out of the file, which is how one failure
+        # comes to hide five.
+        return
+    every, fn, desc = scheduler.JOBS["retry_leads"]
+    check("hourly", every, 60)
+    check("described", bool(desc), True)
+
+    # The insertion order of that dict is load-bearing -- _loop runs every due
+    # job synchronously on one thread in this order, and the slow provider
+    # sweeps routinely starve everything after them. This is the one job whose
+    # starvation means a client's lead sits undelivered.
+    order = list(scheduler.JOBS)
+    check("placed ahead of the slow provider sweeps",
+          order.index("retry_leads") < order.index("google_index"), True)
+
+    print("an unconfigured Hub is a state, not an hourly failure")
+    saved = {n: os.environ.pop(n) for n in ghl_contacts.LOCATION_ENV
+             if n in os.environ}
+    before = CALLS["n"]
+    res = fn(_FakeApp())
+    check("skipped", bool(res.get("skipped")), True)
+    check("nothing was asked of the provider", CALLS["n"] - before, 0)
+    os.environ.update(saved)
+
+    print("a provider outage does not take the scheduler down")
+    boom = leads.retry_undelivered
+
+    def _raise(*a, **kw):
+        raise RuntimeError("provider exploded")
+
+    leads.retry_undelivered = _raise
+    try:
+        res = fn(_FakeApp())
+    except Exception as exc:                            # noqa: BLE001
+        # The whole point of the check is that this cannot happen, so it is
+        # reported as the failure it is rather than ending the run.
+        res = {"ok": None, "error": f"raised {type(exc).__name__}"}
+    finally:
+        leads.retry_undelivered = boom
+    check("answered rather than raised", res["ok"], False)
+    check("named the cause", res["error"], "RuntimeError")
+
+    print("and a normal run reports what it did")
+    _drain()
+    _queue(2, "job")
+    responds(200, {"contact": {"id": "JOB_OK", "new": True}})
+    res = fn(_FakeApp())
+    check("delivered", res["delivered"], 2)
+    check("left", res["left"], 0)
+    check("carries the clock", "seconds" in res, True)
+
+
 def main():
     os.environ["GHL_PRIVATE_TOKEN"] = "pit-test-token"
     os.environ["GHL_COMPANY_ID"] = "COMPANY123"
@@ -500,6 +718,9 @@ def main():
     row5 = leads.deliver(leads.capture("x", "/y", {"name": "No Contact Details"}))
     check("retryable", row5["retryable"], False)
 
+    retry_sweep_checks()
+    store_rewrite_checks()
+    retry_job_checks()
     tag_and_link_checks()
     trusted_source_checks()
     meta_tag_checks()

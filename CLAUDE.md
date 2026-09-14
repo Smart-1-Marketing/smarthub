@@ -1024,6 +1024,71 @@ when unset instead of returning a quiet 200. Check the two do not hold the
 same URL before switching a trigger off, or the thing that stops is insertion
 orders.
 
+**The queue that is the safety net for all of it was drained by nobody.**
+`retry_undelivered()` has said *"Called by hand or the scheduler"* since the
+day it was written, and **there was no such scheduler job** — the only thing
+that drained it was a rep pressing *Retry undelivered* on the lead panel,
+which is a button nobody has a reason to look at on a morning when nothing
+looks wrong. So the whole design above — store first, deliver second, never
+destroy a lead we already have — ended in a queue whose second half was
+optional. Every landing page, every calculator, every scan widget and all
+five standalone Render apps write down this one path, so what was owed was
+owed across the Hub rather than in one tool. The declared-and-never-wired
+failure this file counts seven of, on the safety net rather than on a
+feature.
+
+`job_retry_leads` runs hourly. Three rules on it, none of them new here.
+**A skip is a state and a failure is an event** — an unconfigured Hub would
+otherwise write an identical row into the activity log every hour for ever
+with the real failures sitting in the middle of them, which is the noise
+`hub/google_index.py` had to learn to stop making, so delivery being
+unconfigured returns `skipped` before anything is attempted. **It is bounded
+on both axes and says what it did not reach**: fifty calls and a four-minute
+wall clock, because every retry is an HTTP call to GoHighLevel with no
+ceiling of its own and scheduler jobs share one thread — and `left` is
+counted and printed, since a queue that stops part-way and says nothing reads
+exactly like one that is drained, which on this queue means concluding every
+lead is in Smart 1 Suite when a hundred are not. The budget is checked
+**after** a call rather than before it, or a deployment whose provider is
+merely slow delivers nothing at all, for ever. And **it sits ahead of the
+slow provider sweeps in `JOBS`**, which is insertion order and load-bearing:
+`_loop` runs every due job synchronously on one thread, `google_index`
+routinely spends twenty minutes on rate-limited GTM calls, and this is the
+one job in the list whose starvation means a client's lead sits undelivered.
+It does not get the cheap-and-local argument the two QA jobs get — it is a
+network sweep — what it has instead is a hard ceiling, so what it can cost
+everything behind it is bounded and what starving it costs is not.
+
+**And wiring it would have shipped a worse bug than it fixed.** The lead
+store is a JSONL file that is **appended** on capture — which is what makes
+the public endpoint cheap — and rewritten whole by three callers that read
+the file, change something in it and write the lot back. That is the
+read-modify-write `hub/jsonstore.py` documents at length, and here what goes
+missing is a **lead**: a visitor fills in a landing page on worker B while
+worker A is part-way through a sweep, B appends the row, A's `os.replace`
+lands a file read before that append, and the lead is gone — atomically,
+silently, with a 200 already in front of the visitor. The lock in front of it
+was a `threading.Lock`, which serialises the threads inside one worker and
+says nothing whatever about the other one, and threads cannot show that
+failure: it takes two real processes. Measured with two, appending against a
+sweeping one, **30 of 60 leads survived**. It was survivable only because the
+sole rewrite was a press nobody made; an hourly job turns it from unlikely
+into a matter of traffic.
+
+So `_rewrite` holds `jsonstore.exclusive()` — the same two locks, the thread
+one and the `flock` on a sidecar, rather than a second implementation of
+them — and re-reads the file **inside** the lock, keeping any row the caller
+has never seen. That is safe here rather than generally because **this store
+never deletes**: merging keeps the absorbed row, converting marks it, and
+this module opens by saying a lead we already have is never destroyed. A row
+the caller does not know about is therefore one that arrived while they were
+working, and the only correct thing to do with it is let it survive. The
+append takes the same lock, or it is serialised against other appends and not
+against the rewrite, which is the half that was missing. `_exclusive` in
+`hub/jsonstore.py` is public as `exclusive()` for it. 60 of 60 now, and
+`test_lead_delivery.py` drives the real helper rather than reading the source
+for the word *lock*: prose naming a lock is not a lock being taken.
+
 **And five landing apps outside this repo were still on the webhook the Hub
 retired.** `smart1boat`, `smart1legal`, `smart1ski`, `smarthvac` and
 `smart1rv` are their own Render services, so every rule above was written
@@ -13640,7 +13705,10 @@ python3 test_help_layer.py         # every bubble placed has help behind it, bot
                                    #   against the tiles rather than a list
                                    #   that went stale
 python3 test_target_areas.py       # target areas, delivery, the Suite push
-python3 test_lead_delivery.py      # one write path per lead
+python3 test_lead_delivery.py      # one write path per lead, the hourly sweep
+                                   #   that finally drains the queue, and a
+                                   #   store that survives being rewritten
+                                   #   while the other worker takes traffic
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
 python3 test_scan_run.py           # what a prospect on somebody else's
                                    #   website is told: a callback token
