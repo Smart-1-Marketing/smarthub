@@ -21,7 +21,8 @@ What it holds:
     first;
   * a pull lands rows as platform ttd / source native and stamps the native
     watermark, so the provider normalize then skips ttd for a day;
-  * the scheduler job is registered every six hours and isolates the two
+  * the scheduler job is registered on the daily tick that
+    hub/report_schedule.py gates to 3 AM Eastern, and isolates the two
     platforms.
 """
 import json
@@ -316,7 +317,7 @@ from hub import scheduler                                            # noqa: E40
 
 check("the job is registered", "reports_native" in scheduler.JOBS)
 every, fn, desc = scheduler.JOBS["reports_native"]
-check("...every six hours", every, 360)
+check("...on the daily tick", every, 1440)
 check("...as the thin function", fn.__name__, "job_reports_native_pull")
 check("...apart from the provider job", scheduler.JOBS["reports_normalize"][1].__name__, "job_reports_normalize")
 src = (ROOT / "hub" / "scheduler.py").read_text(encoding="utf-8")
