@@ -193,8 +193,8 @@ def context(client: str, domain: str = "") -> dict:
     try:
         from hub.client_brand import brand_kit
         kit = brand_kit(client, domain or out.get("website", ""))
-        tried["brand"] = "ok" if kit.get("found") else "none on file"
-        if kit.get("found"):
+        tried["brand"] = "ok" if kit.get("authoritative") else "none on file"
+        if kit.get("authoritative"):
             if kit["colors"]:
                 out.setdefault("brand_primary_color", kit["colors"][0]["hex"])
                 sources.setdefault("brand_primary_color", "brand")
@@ -598,7 +598,7 @@ def tool_context(client: str, url: str = "", *, gallery: bool = True) -> dict:
     try:
         from hub import client_brand
         kit = client_brand.brand_kit(client, out["domain"])
-        if kit.get("found"):
+        if kit.get("authoritative"):
             out["description"] = kit.get("description") or ""
             out["colors"] = [c["hex"] for c in (kit.get("colors") or [])][:6]
             logos = kit.get("logos") or []

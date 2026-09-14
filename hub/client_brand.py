@@ -551,7 +551,7 @@ def _template_for(client: str) -> dict:
         return brand_template.get(client)
     except Exception:                                   # noqa: BLE001
         return {"client": client, "logo_url": "", "logo_theme": "",
-                "colors": {}, "picked": False,
+                "colors": {}, "fonts": {}, "picked": False,
                 "updated_at": "", "updated_by": ""}
 
 
@@ -587,6 +587,7 @@ def _tag_confirmed(tiles: list[dict], palette: list[dict], tmpl: dict) -> None:
         roles = [role for role, hx in colors.items() if hx and hx == c.get("hex")]
         c["confirmed"] = bool(roles)
         c["role"] = roles[0] if roles else ""
+        c["roles"] = roles
 
 def _add_manual_colors(palette: list[dict], tmpl: dict) -> None:
     """A colour a rep typed straight in (`hub/brand_template.py`) may not be
@@ -634,10 +635,10 @@ def _merge(logos: list[dict], colors: list[dict], observed: dict) -> tuple[list,
     So the card is one card. What does **not** merge is the claim: a logo the
     client gave us and a logo lifted off their home page are different things,
     and only the first belongs on a document a client reads. Each tile
-    carries its own origin and `logos` is left exactly as it was, which is
-    what `brand_guide_payload()` pushes to Suite and what `hub/io_prefill.py`,
-    `hub/landing_maker.py` and `hub/client_context.py` read. Merging is a
-    thing this card does for a reader; it is not a thing done to the data.
+    carries its own origin. An observed candidate enters `logos` only after a
+    person approves it through the shared template; at that point it is the
+    authoritative asset `brand_guide_payload()`, `hub/io_prefill.py`,
+    `hub/landing_maker.py` and `hub/client_context.py` should read.
 
     A colour is deduped on the hex, so a palette both sources agree on draws
     once — and it keeps the stored role label when it has one, because
@@ -645,7 +646,9 @@ def _merge(logos: list[dict], colors: list[dict], observed: dict) -> tuple[list,
     it and the brand's own answer is not.
     """
     tiles = [{"url": l["url"], "origin": "file", "label": "On file",
-              "format": l.get("format") or "", "theme": l.get("theme") or ""}
+              "kind": l.get("kind") or "logo",
+              "format": l.get("format") or "", "theme": l.get("theme") or "",
+              "width": l.get("width"), "height": l.get("height")}
              for l in logos if l.get("url")]
     seen = {c["hex"].upper() for c in colors if c.get("hex")}
     palette = [{"hex": c["hex"].upper(), "type": c.get("type") or "",
@@ -655,14 +658,15 @@ def _merge(logos: list[dict], colors: list[dict], observed: dict) -> tuple[list,
         if observed.get("logo_url") and observed["logo_url"] not in [t["url"] for t in tiles]:
             tiles.append({"url": observed["logo_url"], "origin": "site",
                           "label": "Seen on their website",
-                          "format": "", "theme": ""})
+                          "kind": "observed", "format": "", "theme": "",
+                          "width": None, "height": None})
         for c in (observed.get("colors") or []):
             hx = str(c.get("hex") or "").upper()
             if hx and hx not in seen:
                 seen.add(hx)
                 palette.append({"hex": hx, "type": c.get("type") or "",
                                 "origin": "site"})
-    return tiles[:8], palette[:14]
+    return tiles, palette
 
 
 def brand_kit(client: str, domain: str = "") -> dict:
@@ -721,10 +725,32 @@ def brand_kit(client: str, domain: str = "") -> dict:
             note = f"No brand data on file yet. Look it up from {dom}."
         tiles, palette = _merge([], [], observed)
         tmpl = _template_for(client)
+        if tmpl.get("logo_url") and not any(t.get("url") == tmpl["logo_url"] for t in tiles):
+            tiles.insert(0, {"url": tmpl["logo_url"], "origin": "approved",
+                             "label": "Approved logo", "kind": "logo", "format": "",
+                             "theme": tmpl.get("logo_theme") or "", "width": None,
+                             "height": None})
         _add_manual_colors(palette, tmpl)
         _tag_confirmed(tiles, palette, tmpl)
+        selected_tile = next((t for t in tiles if t.get("confirmed")), None)
+        approved_logos = ([{k: selected_tile.get(k) for k in
+                            ("url", "kind", "theme", "format", "width", "height")}]
+                          if selected_tile else [])
+        approved_colors = []
+        for role in ("primary", "secondary", "accent", "background", "text"):
+            hx = str((tmpl.get("colors") or {}).get(role) or "")
+            if hx and hx not in [c["hex"] for c in approved_colors]:
+                approved_colors.append({"hex": hx, "type": role, "brightness": None})
+        approved_fonts = [{"name": name, "usage": role, "google": "",
+                           "confirmed": True, "roles": [role]}
+                          for role, name in (tmpl.get("fonts") or {}).items() if name]
         return {"found": False, "client": client, "domain": domain,
-                "logos": [], "colors": [], "fonts": [],
+                # Once a person confirms an observed logo or manually enters
+                # colors, these are the authoritative lists every downstream
+                # builder already reads. Unconfirmed observations stay only
+                # in the candidate tiles below.
+                "logos": approved_logos, "colors": approved_colors,
+                "fonts": approved_fonts,
                 "can_lookup": bool(dom and ready),
                 "lookup_domain": dom,
                 "observed": observed,
@@ -735,10 +761,11 @@ def brand_kit(client: str, domain: str = "") -> dict:
                 # there anything to draw", which is what the card asks.
                 "logo_tiles": tiles, "palette": palette,
                 "has_brand": bool(tiles or palette),
+                "authoritative": bool(tmpl.get("picked")),
                 # The rep's confirmed pick, even with nothing found at
                 # Brandfetch — an observed-only tile can still be confirmed.
-                # See hub/brand_template.py for what does not yet follow from
-                # that: brand_guide_payload() still gates on `found` below.
+                # Once confirmed it also enters the authoritative lists above,
+                # so every downstream consumer sees the same approved answer.
                 "template": tmpl,
                 "note": note}
 
@@ -784,8 +811,23 @@ def brand_kit(client: str, domain: str = "") -> dict:
     # both take [0] outright. Promoting the confirmed pick there means
     # neither has to change to start reading it.
     logos = _promote(logos, "url", tmpl.get("logo_url") or "")
+    if tmpl.get("logo_url") and not any(l.get("url") == tmpl["logo_url"] for l in logos):
+        logos.insert(0, {"url": tmpl["logo_url"], "kind": "logo",
+                         "theme": tmpl.get("logo_theme") or "", "format": "",
+                         "width": None, "height": None})
     primary_hex = (tmpl.get("colors") or {}).get("primary") or ""
     colors = _promote(colors, "hex", primary_hex)
+    heading_font = (tmpl.get("fonts") or {}).get("heading") or ""
+    fonts = _promote(fonts, "name", heading_font)
+    for role in reversed(("heading", "body")):
+        selected_font = (tmpl.get("fonts") or {}).get(role) or ""
+        if selected_font and not any(f.get("name") == selected_font for f in fonts):
+            fonts.insert(0, {"name": selected_font, "usage": "", "google": ""})
+    for font in fonts:
+        roles = [role for role, name in (tmpl.get("fonts") or {}).items()
+                 if name and name == font.get("name")]
+        font["confirmed"] = bool(roles)
+        font["roles"] = roles
     # A logo can only ever be one already on offer, so `_promote` finding
     # nothing to reorder is always a stale pick. A colour can be one nobody
     # ever observed — that is the whole point of letting a rep type theirs in
@@ -796,7 +838,7 @@ def brand_kit(client: str, domain: str = "") -> dict:
         colors = [{"hex": primary_hex, "type": "", "brightness": None}] + colors
 
     observed = _observed(domain or payload.get("domain") or "")
-    tiles, palette = _merge(logos[:8], colors[:10], observed)
+    tiles, palette = _merge(logos, colors, observed)
     _add_manual_colors(palette, tmpl)
     _tag_confirmed(tiles, palette, tmpl)
 
@@ -804,7 +846,7 @@ def brand_kit(client: str, domain: str = "") -> dict:
         "found": True, "client": client,
         "domain": payload.get("domain") or domain,
         "name": payload.get("name") or client,
-        "logos": logos[:8], "colors": colors[:10], "fonts": fonts[:6],
+        "logos": logos, "colors": colors, "fonts": fonts,
         # Was cut at 280 characters, which lands mid-sentence on most
         # Brandfetch descriptions — the card looked like it had rendered a
         # broken string rather than a shortened one. 1200 is generous enough
@@ -825,6 +867,7 @@ def brand_kit(client: str, domain: str = "") -> dict:
         # swatch saying which it came from. See `_merge`.
         "logo_tiles": tiles, "palette": palette,
         "has_brand": bool(tiles or palette or fonts),
+        "authoritative": True,
         # The rep's confirmed pick. `logos[0]` and `colors[0]` already carry
         # it where one exists — this is what a screen reads to say so.
         "template": tmpl,
@@ -885,7 +928,7 @@ def brand_guide_payload(client: str, domain: str = "") -> dict:
     builder.
     """
     kit = brand_kit(client, domain)
-    if not kit["found"]:
+    if not kit.get("authoritative"):
         return {"found": False, "client": client}
     primary = kit["colors"][0]["hex"] if kit["colors"] else ""
     return {
