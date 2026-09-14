@@ -941,7 +941,17 @@ def job_reports_normalize(app) -> dict:
             "automapped": (res.get("automap") or {}).get("mapped", 0)}
 
 
-def job_reports_native_pull(app, completed_platforms=()) -> dict:
+def job_reports_native_pull(app) -> dict:
+    """Run every native reporting provider once.
+
+    Scheduler jobs intentionally share the single ``app`` argument contract.
+    Retry state is an orchestration detail and enters through the private
+    helper below instead of changing that public contract.
+    """
+    return _job_reports_native_pull(app)
+
+
+def _job_reports_native_pull(app, completed_platforms=()) -> dict:
     """Pull the Trade Desk, Google Ads, StackAdapt and AudioGo from their own
     APIs, then automap.
 
@@ -1205,11 +1215,11 @@ JOBS = {
 # Loop
 # ---------------------------------------------------------------------------
 
-def _run_job(app, name: str, **kwargs) -> dict:
+def _run_job(app, name: str, invoke=None) -> dict:
     every, fn, _ = JOBS[name]
     started = time.time()
     try:
-        result = fn(app, **kwargs) or {}
+        result = (invoke or fn)(app) or {}
         ok, err = True, ""
     except Exception as exc:                            # noqa: BLE001
         result, ok, err = {}, False, f"{type(exc).__name__}: {exc}"
@@ -1254,7 +1264,15 @@ def _loop(app) -> None:
         for name, (every, _fn, _desc) in JOBS.items():
             if name == 'reports_native':
                 from . import report_schedule
-                report_schedule.run_due(lambda done: _run_job(app, name, completed_platforms=done))
+                report_schedule.run_due(
+                    lambda done: _run_job(
+                        app,
+                        name,
+                        invoke=lambda target_app: _job_reports_native_pull(
+                            target_app, completed_platforms=done
+                        ),
+                    )
+                )
                 continue
             if now >= due[name]:
                 _run_job(app, name)
