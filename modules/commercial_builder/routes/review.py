@@ -252,6 +252,15 @@ def send_for_review(project_id):
     project = CommercialProject.query.get_or_404(project_id)
     body = request.get_json(silent=True) or {}
 
+    if not isinstance(body, dict):
+        return jsonify(ok=False, error="Send a review form object."), 400
+    mode = body.get("delivery_mode", "link")
+    if mode not in ("link", "send"):
+        return jsonify(ok=False, error="Choose Create review link or Send for review."), 400
+    email = str(body.get("reviewer_email") or "").strip()
+    if mode == "send" and (not email or "@" not in email or len(email) > 200):
+        return jsonify(ok=False, error="Enter the reviewer's email before sending."), 400
+
     cuts = _reviewable_cuts(project)
     if not cuts:
         # Refused by name rather than served as an empty page. A review link
@@ -290,7 +299,7 @@ def send_for_review(project_id):
     row["delivery"] = _deliver_review(
         project, share, row["url"],
         name=str(body.get("reviewer_name") or "").strip()[:200],
-        email=str(body.get("reviewer_email") or "").strip()[:200])
+        email=email if mode == "send" else "")
     return jsonify({"ok": True, "review": row})
 
 

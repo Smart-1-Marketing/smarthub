@@ -480,6 +480,288 @@ check("and its help key resolves",
       hub_help.get("landing_maker.snap.concept") is not None, True)
 
 
+# ---------------------------------------------------------------------------
+section("Tier 1 — what the page tells the prospect, and what a lead carries")
+# ---------------------------------------------------------------------------
+#
+# Every check here was confirmed red against the code as it stood. They are
+# the conversion audit's Tier 1: a page that thanked visitors whose lead was
+# refused, a form that demanded what the page said was optional, leads that
+# could not name their own page or the advert that paid for it, an offer that
+# reached the prospect only if a model felt like it, and a star rating and a
+# byline nobody supplied.
+
+from hub import landing_spec as _ls                               # noqa: E402
+from hub.landing_render import render_page as _rp                 # noqa: E402
+
+# `lm` is the module this file already imported at the top -- read through it
+# rather than re-importing names out of it, so there is one spelling of
+# hub.landing_maker in the file.
+_DIRS, _pr = lm.DIRECTIONS, lm._parse_reviews
+
+_BRIEF = {"client": "Icon Solar", "service_area": "Carmel and Hamilton County",
+          "geo": "Carmel, IN + 10-mile radius / Indianapolis DMA / +3 more",
+          "phone": "3175550142", "city": "Carmel", "state": "IN",
+          "colors": ["#0b5544"]}
+_COPY = {"headline": "H", "subhead": "s", "cta": "Get my quote",
+         "benefits": [], "how_it_works": [], "faqs": [], "why_us": []}
+
+
+def _page(**kw):
+    return _rp(_BRIEF, _COPY, _DIRS["trust"], {}, **kw)
+
+
+# -- 1. a refusal is not a thank-you ----------------------------------------
+_html = _page(goal_id="quote")
+check("the form reads the server's answer before thanking anybody",
+      "res.d.ok === false" in _html and "!res.ok" in _html, True)
+check("a refusal shows the server's own sentence",
+      "res.d.error" in _html, True)
+check("and never its hint, which names environment variables",
+      "res.d.hint" in _html, False)
+# `.find()` rather than `.index()`: against the unfixed renderer the guard
+# is absent and `.index()` raises, which would take every check below it out
+# of the run -- a file that reports two failures where there are fourteen.
+check("the conversion event fires only past that gate",
+      0 <= _html.find("res.d.ok === false") < _html.find("generate_lead"), True)
+check("a double-submit is refused by the page",
+      "dataset.sending" in _html, True)
+
+# -- 2. required-ness matches what the page promises ------------------------
+_both = [f["name"] for f in _ls.form_fields("quote") if f["required"]]
+check("a goal offering both contacts requires neither", _both, ["name"])
+check("a phone-only goal requires the phone",
+      sorted(f["name"] for f in _ls.form_fields("call") if f["required"]),
+      ["name", "phone"])
+check("an email-only goal requires the email",
+      sorted(f["name"] for f in _ls.form_fields("download") if f["required"]),
+      ["email", "name"])
+check("and the fine print is derived, not hard-coded",
+      _ls.contact_note("call"),
+      "We\u2019ll need a phone number to call you back.")
+check("so no goal offers a choice its form does not draw",
+      [g["id"] for g in _ls.PAGE_GOALS
+       if "whichever" in _ls.contact_note(g["id"])
+       and not {"phone", "email"} <= set(g["fields"])], [])
+
+# -- 3. a lead names its page and the advert that paid for it ---------------
+_html = _page(goal_id="quote", slug="icon-solar-ab12cd")
+check("the lead is filed under the page, not the client's name",
+      '"icon-solar-ab12cd"' in _html, True)
+check("the client still travels beside it", '"Icon Solar"' in _html, True)
+for _k in ("utm_source", "utm_campaign", "gclid", "fbclid"):
+    check(f"the arrival carries {_k}", _k in _html, True)
+check("and the referrer and landing url",
+      "document.referrer" in _html and "landing_url" in _html, True)
+check("campaign tags never reach the controlled segmentation field",
+      "tags" in _html.split("function arrivalMeta")[1].split("}")[0], False)
+
+# -- 4. the offer is on the page, not only in the prompt --------------------
+_off = "Free spring service with every new system"
+check("a usable offer is printed once, above the button",
+      _page(goal_id="quote", offer=_off, offer_usable=True).count(_off), 1)
+check("an offer the checker could not read is not printed",
+      _off in _page(goal_id="quote", offer=_off, offer_usable=False), False)
+
+# -- 5. stars and bylines nobody supplied -----------------------------------
+_rows, _refused = _pr("Jane D. | 4.5 | They came same day")
+check("a half-star rating is refused rather than rounded",
+      ("rating" in _rows[0], _refused), (False, ["4.5"]))
+_html = _page(goal_id="quote",
+              reviews=[{"quote": "Great work", "author": ""},
+                       {"quote": "On time", "author": "Jane D.", "rating": 4}])
+check("a rating that is not a whole 1-5 draws no stars",
+      (_html.count("&#9733;"), _html.count("&#9734;")), (4, 1))
+check("a quote with no name gets no byline",
+      "Google review" in _html, False)
+check("a name that was given still does", "<cite>Jane D.</cite>" in _html, True)
+
+# -- 6. the client brief reaches the copy writer, for a client only ---------
+_seen = {}
+
+
+def _spy(messages, **kw):
+    _seen["text"] = messages[-1]["content"]
+    raise RuntimeError("stop after capture")
+
+
+_real = hub_ai.chat
+try:
+    hub_ai.chat = _spy
+    # A website, because hub/client_brief.py answers "" for a client it can
+    # join to nothing at all -- which is its own correct behaviour and would
+    # make this assertion pass whether or not the wiring existed.
+    lm.write_copy({"client": "Icon Solar", "kind": "client",
+                    "website": "iconsolar.com"}, "quote", "", "")
+    _client_prompt = _seen.pop("text", "")
+    lm.write_copy({"client": "Icon Solar", "kind": "prospect",
+                    "website": "iconsolar.com"}, "quote", "", "")
+    _prospect_prompt = _seen.pop("text", "")
+finally:
+    hub_ai.chat = _real
+check("a client page is handed what the Hub already holds",
+      "Use it as proof" in _client_prompt, True)
+check("a prospect page is not — a same-named client is another business",
+      "Use it as proof" in _prospect_prompt, False)
+
+# -- 7. the media plan's targeting string is not the service area -----------
+_html = _page(goal_id="quote")
+check("the confirmed service area is what the page prints",
+      "Serving Carmel and Hamilton County" in _html, True)
+check("the media buy's targeting string never reaches the prospect",
+      "Indianapolis DMA" in _html, False)
+_bare = dict(_BRIEF)
+_bare["service_area"] = ""
+check("and with none confirmed the line is omitted, never guessed",
+      "Serving" in _rp(_bare, _COPY, _DIRS["trust"], {}, goal_id="quote"), False)
+
+
+# =========================================================================
+# Tier 2/3 — after the page is built: who may frame it, how it shares,
+#            how you hand it over, and how you take a change back
+# =========================================================================
+section("Tier 3 — the page after it is built")
+
+# -- 1. a framed page must not answer a prospect with a staff refusal -------
+#
+# hub/landing_render.py opens by saying the page is one self-contained file
+# "pasteable into Smart 1 Sites, a GoHighLevel funnel, or a client's own CMS"
+# -- and a funnel builder pastes a page by framing it. Named in neither embed
+# tuple it fell through to `refuse()`, which prints an internal path and an
+# internal filename to whoever is looking at it.
+from hub import suite_embed as _emb                              # noqa: E402
+
+check("a built landing page may be framed",
+      _emb.embeddable("/sales/landing/p/icon-solar-ab12cd"), True)
+check("as a public page, so any domain may do it",
+      _emb.public_embeddable("/sales/landing/p/icon-solar-ab12cd"), True)
+# The maker is a staff screen and must not have come along with it.
+check("the maker itself is still not framable",
+      _emb.embeddable("/sales/landing"), False)
+# `suite_cookie_allowed` keys on EMBEDDABLE alone, so widening the public
+# tuple must not have widened where a signed cookie is honoured.
+check("and no signed cookie is honored on the built page",
+      _emb.suite_cookie_allowed("/sales/landing/p/icon-solar-ab12cd"), False)
+
+# -- 2. the share card ------------------------------------------------------
+_pics = {"hero": {"url": "https://images.example.com/hero.jpg"}}
+_shared = _rp(_BRIEF, _COPY, _DIRS["trust"], _pics, goal_id="quote",
+              slug="icon-solar-ab12cd")
+check("a shared link carries a title",
+      'property="og:title"' in _shared, True)
+check("and a description",
+      'property="og:description"' in _shared, True)
+check("and the hero as its picture",
+      'property="og:image" content="https://images.example.com/hero.jpg"'
+      in _shared, True)
+check("large-image card where there is a picture",
+      'content="summary_large_image"' in _shared, True)
+# A page with no photography must not claim one: a share card pointing at a
+# 404 is worse than one with no picture, because the platform caches the miss.
+_nopic = _rp(_BRIEF, _COPY, _DIRS["trust"], {}, goal_id="quote",
+             slug="icon-solar-ab12cd")
+check("no picture means no og:image rather than a broken one",
+      "og:image" in _nopic, False)
+check("and the card degrades to a summary",
+      'content="summary"' in _nopic, True)
+# og:url and the canonical are absolute or absent. PUBLIC_BASE_URL is unset
+# under test, so this is the live shape of this deployment rather than a
+# contrived one -- and a relative og:url is meaningless off-site.
+check("no origin means no og:url rather than a path",
+      "og:url" in _shared, False)
+check("and no canonical either", 'rel="canonical"' in _shared, False)
+os.environ["PUBLIC_BASE_URL"] = "https://smart1.agency"
+try:
+    _abs = _rp(_BRIEF, _COPY, _DIRS["trust"], _pics, goal_id="quote",
+               slug="icon-solar-ab12cd")
+    check("with an origin it is the page's own absolute address",
+          'content="https://smart1.agency/sales/landing/p/icon-solar-ab12cd"'
+          in _abs, True)
+    check("and the canonical agrees with it",
+          'href="https://smart1.agency/sales/landing/p/icon-solar-ab12cd"'
+          in _abs, True)
+    # Read at call time, not stamped at build: PUBLIC_BASE_URL is the one
+    # variable somebody corrects mid-incident.
+    check("the hand-off URL is absolute once the Hub knows its own host",
+          lm.page_url("icon-solar-ab12cd"),
+          "https://smart1.agency/sales/landing/p/icon-solar-ab12cd")
+finally:
+    os.environ.pop("PUBLIC_BASE_URL", None)
+check("and is refused rather than handed over as a path",
+      lm.page_url("icon-solar-ab12cd"), "")
+check("a page with no slug has no address at all", lm.page_url(""), "")
+
+# -- 3. the hand-off ---------------------------------------------------------
+_listed = lm.listing()
+check("every row carries the address to send",
+      all("url" in r for r in _listed["pages"]), True)
+check("and how many earlier versions it has",
+      all("versions" in r for r in _listed["pages"]), True)
+# Three numbers because there are three questions: the table draws 300 and
+# the count line was printing the match total under it.
+check("the listing says how many it drew as well as how many matched",
+      _listed["shown"], len(_listed["pages"]))
+_maker = client.get("/sales/landing")
+check("the maker offers a copy control", b"lpCopy(" in _maker.data, True)
+# Never a claim it cannot make good: clipboard, then execCommand, then the
+# link on screen for a human to copy.
+check("which falls back rather than lying about having copied",
+      b"execCommand" in _maker.data and b"Ctrl-C" in _maker.data, True)
+
+# -- 4. the versions that were already being kept ---------------------------
+#
+# `revise()` has answered "the previous version is kept" since it was written
+# and kept ten of them on every row, and nothing could read one back.
+_v = lm.create(client="Riverside HVAC", direction="trust",
+               goal="Request a quote", actor="Test")
+_vid = _v["id"]
+check("a fresh page has no history yet",
+      lm.versions(_vid)["count"], 0)
+lm.update_html(_vid, "<html>second</html>", "Test")
+lm.update_html(_vid, "<html>third</html>", "Test")
+_hist = lm.versions(_vid)
+check("every save is kept", _hist["count"], 2)
+check("newest first", _hist["versions"][0]["index"], 1)
+# Metadata only. A version is a whole rendered page and ten of them is most
+# of a megabyte into a panel that only has to say which one to put back.
+check("the history carries no page html",
+      any("html" in v for v in _hist["versions"]), False)
+# Through the `index` the reader hands back, which is what the screen passes.
+# It is the position in the stored list and deliberately not the position in
+# this newest-first view: a caller that counted rows would put back the page
+# at the other end of the history, which is the one mistake a restore must
+# not be able to make quietly.
+_newest = _hist["versions"][0]["index"]
+_back = lm.restore(_vid, _newest, "Test")
+check("a version can be put back", _back.get("ok"), True)
+check("and it is the page that was asked for",
+      lm.get(_vid)["page_html"], "<html>second</html>")
+check("the stored index is not the row number in the view",
+      _newest != 0, True)
+# Restoring is itself undoable: the page as it stood goes onto the stack
+# before the old one is written back.
+check("the page it replaced is kept",
+      any(v["why"] == "replaced by a restore"
+          for v in lm.versions(_vid)["versions"]), True)
+check("an index nobody kept is refused by name",
+      "error" in lm.restore(_vid, 99, "Test"), True)
+check("and so is a page that does not exist",
+      "error" in lm.restore("nope", 0, "Test"), True)
+# The route half, because a rule the function keeps while the route does not
+# is not a rule.
+check("the versions route answers for a real page",
+      client.get(f"/api/landing/{_vid}/versions").status_code, 200)
+check("and 404s for one that is not there",
+      client.get("/api/landing/nope/versions").status_code, 404)
+check("restore refuses a body that names no version",
+      client.post(f"/api/landing/{_vid}/restore", json={}).status_code, 400)
+check("both are behind the login",
+      anon.get(f"/api/landing/{_vid}/versions").status_code in (302, 401, 403),
+      True)
+check("including the write",
+      anon.post(f"/api/landing/{_vid}/restore",
+                json={"index": 0}).status_code in (302, 401, 403), True)
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")

@@ -48,7 +48,8 @@ TMP = tempfile.mkdtemp(prefix="s1reports_pacing_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["AUDIT_LOG_PATH"] = os.path.join(TMP, "audit.jsonl")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "hub.sqlite3")
-os.environ["REPORTS_DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "reports.sqlite3")
+import _reports_testdb                                               # noqa: E402
+REPORTS_DB = _reports_testdb.bind(TMP)
 os.environ["REPORTS_PROVIDER_SCHEMA"] = ""
 os.environ["SECRET_KEY"] = "reports-pacing-test"
 os.environ.pop("PANEL_PASSWORD", None)
@@ -76,6 +77,7 @@ from werkzeug.test import Client                                     # noqa: E40
 import wsgi                                                          # noqa: E402
 from hub import auth                                                 # noqa: E402
 from modules.reports import pacing, store                            # noqa: E402
+_reports_testdb.reset(store)
 
 TODAY = date(2026, 9, 20)                 # a 30-day month, day 20
 A, B, C = "d:acme.test", "d:bravo.test", "d:charlie.test"
@@ -106,7 +108,10 @@ store.upsert_rows(
     + daily("google", "123", "g1", "Acme Search", {date(2026, 9, d): 10 for d in range(1, 21)})
     + daily("audiogo", "ag", "a1", "Acme Audio", {date(2026, 9, d): 20 for d in range(1, 18)})
     + daily("stackadapt", "sa", "s1", "Bravo Display", {date(2026, 9, d): 150 for d in range(16, 21)})
-    + daily("ttd", "adv2", "t2", "Charlie CTV", {date(2026, 8, d): 50 for d in range(1, 31)})
+    + daily("ttd", "adv2", "t2", "Charlie CTV", {date(2026, 8, d): 50 for d in range(1, 31)}),
+    # The store's quarantine reads the clock this test drives, or every day
+    # after the real today is held as "dated after today".
+    today=TODAY,
 )
 for plat, acct, camp, client, name, product in (
         ("ttd", "adv", "t1", A, "Acme Co", "Streaming TV"),
@@ -174,6 +179,12 @@ check("a flight starting on the 16th paces against 15/30 of the month: $1,500",
 check("...expected = 1500 x 5/15", br["expected_to_date"], Decimal("500.00"))
 check("...actual $750, pace 1.50, over", (br["actual_to_date"], br["pace"], br["band"]),
       (Decimal("750.00"), Decimal("1.5"), "over"))
+check("...and the board's bar is the pace out of 2.00x, decided on the row",
+      (tv["bar_pct"], se["bar_pct"], br["bar_pct"]), (50.0, 15.0, 75.0))
+check("...capped at a full bar, so a 10x line cannot draw off the page",
+      max(r["bar_pct"] for r in rows.values() if r["bar_pct"] is not None) <= 100.0)
+check("...and a line with no pace has no bar rather than a zero one",
+      all(r["bar_pct"] is None for r in rows.values() if r["pace"] is None))
 check("...projected: 750 + (4 days x 150 / 7) x 10 remaining", br["projected_month_end"], Decimal("1607.14"))
 check("...daily needed is (1500 - 750) / 10", br["daily_needed"], Decimal("75.00"))
 
@@ -243,8 +254,13 @@ check("...carrying the band summary", acme["detail"], "1 line on pace, 1 under, 
 check("...and the alert count: the search line and the unmapped one", acme["alerts"], 2)
 check("summary_line words a single band", pacing.summary_line([{"band": "over"}, {"band": "over"}]), "2 lines over")
 
-# A change to the store is not on the board until the next run.
-store.upsert_rows(daily("google", "123", "g1", "Acme Search", {date(2026, 9, 20): 900}))
+# A change to the store is not on the board until the next run. Two days
+# of $400 rather than one of $900: the store's quarantine holds a day at
+# more than fifty times the campaign's trailing average, and a $10/day
+# search campaign spending $900 on one day is exactly that -- which is
+# right, and is test_reports_quarantine.py's to assert, not this file's.
+store.upsert_rows(daily("google", "123", "g1", "Acme Search",
+                        {date(2026, 9, 19): 400, date(2026, 9, 20): 400}), today=TODAY)
 board = pacing.board()
 check("the board reads the snapshot: the search line still reads under after a spend lands",
       [r["band"] for r in board["rows"] if r["line_id"] == L_SEARCH.id], ["under"])
@@ -304,9 +320,9 @@ check("...for the month asked for", "September 2026" in page)
 check("...with the three clients", all(n in page for n in ("Acme Co", "Bravo Inc", "Charlie LLC")))
 data = pacing.cost("2026-09", TODAY)
 acme = [x for x in data["rows"] if x["client"] == A][0]
-check("Acme's media spend is raw, across its platforms: 2000 + (190 + 900) + 340",
+check("Acme's media spend is raw, across its platforms: 2000 + (180 + 800) + 340",
       (acme["spend"], acme["by_platform"]["ttd"], acme["by_platform"]["audiogo"]),
-      (Decimal("3430.00"), Decimal("2000.00"), Decimal("340.00")))
+      (Decimal("3320.00"), Decimal("2000.00"), Decimal("340.00")))
 # Spend is read to the 20th; the sold amount is a monthly figure. Compared
 # whole, the margin was inflated by the ten days not yet spent -- so sold
 # is prorated to the same window, and the month figure rides beside it.
@@ -314,7 +330,7 @@ check("...sold for the month is the sum of its lines' sold amounts overlapping i
 check("...and sold to date is that prorated to the 20 of 30 days the spend covers",
       acme["sold"], Decimal("5400.00"))
 check("...margin is sold-to-date minus spend, and the percent of sold-to-date",
-      (acme["margin"], acme["margin_pct"]), (Decimal("1970.00"), 36.5))
+      (acme["margin"], acme["margin_pct"]), (Decimal("2080.00"), 38.5))
 check("...and the report says it is partial", (data["partial"], data["days_elapsed"], data["days_in_month"]), (True, 20, 30))
 check("...on the page, in the column heading and the hint (the page runs on the real clock)",
       "Sold (to date)" in page and "prorated to the same" in page)
@@ -323,7 +339,7 @@ check("a line whose flight ended last month is not sold this month, nor is a pau
       (charlie["sold"], charlie["spend"]), (None, Decimal("0.00")))
 check("the totals row sums spend and, for sold, only the clients with a sold amount",
       (data["totals"]["spend"], data["totals"]["sold"], data["totals"]["sold_month"], data["totals"]["margin"]),
-      (Decimal("4180.00"), Decimal("8066.67"), Decimal("12100.00"), Decimal("3886.67")))
+      (Decimal("4070.00"), Decimal("8066.67"), Decimal("12100.00"), Decimal("3996.67")))
 check("the CSV carries both sold figures under their own names",
       "sold_to_date" in pacing.cost_csv(data).splitlines()[0] and "sold_month" in pacing.cost_csv(data).splitlines()[0])
 check("a completed month is not partial and sold-to-date is the whole figure",
@@ -348,8 +364,8 @@ store.map_campaign("suite", "loc1", "forms", client=A, client_name="Acme Co", pr
 data = pacing.cost("2026-09", TODAY)
 acme = [x for x in data["rows"] if x["client"] == A][0]
 check("with a Suite row the outcome columns appear", data["outcomes"], True)
-check("...cost per lead = Acme's spend / 20 leads", acme["cpl"], Decimal("171.50"))
-check("...cost per appointment = spend / 4", acme["cpa"], Decimal("857.50"))
+check("...cost per lead = Acme's spend / 20 leads", acme["cpl"], Decimal("166.00"))
+check("...cost per appointment = spend / 4", acme["cpa"], Decimal("830.00"))
 check("...and a client with no Suite row shows a dash, not a zero",
       [x["cpl"] for x in data["rows"] if x["client"] == B], [None])
 page = staff.get("/reports/cost?month=2026-09").get_data(as_text=True)

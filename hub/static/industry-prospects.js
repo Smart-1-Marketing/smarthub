@@ -82,6 +82,7 @@
     $('ip-campaign').replaceChildren(new Option('Choose an audience', ''));
     data.campaigns.forEach(c => $('ip-campaign').add(new Option(c.name, c.id)));
     $('ip-campaign').value = active || choice;
+    $('ip-factory').href = '/sales/industry-factory' + ($('ip-campaign').value ? '?audience=' + encodeURIComponent($('ip-campaign').value) : '');
     return data;
   }
   async function sync(resume) {
@@ -135,6 +136,19 @@
   async function history() {
     if (!active) return;
     const data = await json('/api/industry-prospects/history/' + encodeURIComponent(active));
+    $('ip-jobs').replaceChildren();
+    for (const job of data.jobs || []) {
+      const item = document.createElement('p');
+      item.textContent = `Purchase batch: ${job.status}. ${job.processed}/${job.total} processed. ${job.reason || ''} Approval expires ${new Date(job.expires_at * 1000).toLocaleString()}.`;
+      if (job.status === 'queued') {
+        const stop = document.createElement('button'); stop.textContent = 'Stop remaining purchases';
+        stop.addEventListener('click', () => run(async () => {
+          await action('purchase_stop', {job: job.id}); await history();
+          message('Remaining purchases stopped. Already processed contacts are unchanged.');
+        })); item.append(stop);
+      }
+      $('ip-jobs').append(item);
+    }
     $('ip-history').replaceChildren();
     for (const row of data.rows) {
       const tr = document.createElement('tr');
@@ -184,6 +198,9 @@
     if (!active) throw new Error('Choose a saved audience.');
     await search(1);
   });
+  $('ip-campaign').onchange = () => {
+    $('ip-factory').href = '/sales/industry-factory' + ($('ip-campaign').value ? '?audience=' + encodeURIComponent($('ip-campaign').value) : '');
+  };
   $('ip-prev').onclick = () => run(() => search(page - 1));
   $('ip-next').onclick = () => run(() => search(page + 1));
   $('ip-all').onchange = event => {
@@ -204,16 +221,10 @@
   $('ip-buy').onclick = () => run(async () => {
     if (!plan || !$('ip-confirm').checked) throw new Error('Confirm the displayed purchase and verification charges first.');
     const approved = await action('approve', {plan: plan.id, confirmed: true});
+    await action('purchase_queue', {plan: approved.id});
     $('ip-review-box').hidden = true;
-    let completed = 0;
-    for (const id of approved.ids) {
-      message(`Revealing and verifying contact ${completed + 1} of ${approved.ids.length}…`);
-      const result = await action('buy', {plan: approved.id, person: id});
-      completed += 1; await history();
-      if (result.status === 'review_required') throw new Error(result.reason + ' Remaining contacts were not purchased.');
-    }
     selections.clear(); plan = null;
-    await history(); message(`Processed ${completed} contacts. Review verified contacts below before importing to GHL.`);
+    await history(); message('Purchase batch queued. You can close this page; refresh progress to review results before importing.');
   });
   run(refresh);
 })();

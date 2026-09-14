@@ -39,7 +39,8 @@ TMP = tempfile.mkdtemp(prefix="s1reports_norm_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["AUDIT_LOG_PATH"] = os.path.join(TMP, "audit.jsonl")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "hub.sqlite3")
-os.environ["REPORTS_DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "reports.sqlite3")
+import _reports_testdb                                               # noqa: E402
+REPORTS_DB = _reports_testdb.bind(TMP)
 os.environ["REPORTS_PROVIDER_SCHEMA"] = ""
 os.environ["SECRET_KEY"] = "reports-normalize-test"
 
@@ -63,6 +64,7 @@ def section(title):
 from sqlalchemy import text                                          # noqa: E402
 
 from modules.reports import automap, normalize, provider_map, store  # noqa: E402
+_reports_testdb.reset(store, extra_tables=("google_ads", "facebook_ads", "ttd"))
 
 TODAY = date(2026, 9, 6)
 
@@ -93,17 +95,21 @@ section("Fake raw tables with the placeholder column names")
 G = provider_map.PLATFORM_SOURCES["google"]
 M = provider_map.PLATFORM_SOURCES["meta"]
 T = provider_map.PLATFORM_SOURCES["ttd"]
+# The raw date column is DATE on Postgres (what the provider writes there)
+# and TEXT on SQLite (which has no date type); normalize binds its bound
+# per dialect, and this is the half of that rule a fake table has to keep.
+DT = "DATE" if store.is_postgres() else "TEXT"
 with store.engine.begin() as conn:
-    conn.execute(text(f'CREATE TABLE "{G["table"]}" ("{G["date"]}" TEXT, "{G["account_id"]}" TEXT, '
+    conn.execute(text(f'CREATE TABLE "{G["table"]}" ("{G["date"]}" {DT}, "{G["account_id"]}" TEXT, '
                       f'"{G["campaign_id"]}" TEXT, "{G["campaign_name"]}" TEXT, "{G["spend"]}" REAL, '
                       f'"{G["impressions"]}" INTEGER, "{G["clicks"]}" INTEGER, "{G["conversions"]}" REAL)'))
-    conn.execute(text(f'CREATE TABLE "{M["table"]}" ("{M["date"]}" TEXT, "{M["account_id"]}" TEXT, '
+    conn.execute(text(f'CREATE TABLE "{M["table"]}" ("{M["date"]}" {DT}, "{M["account_id"]}" TEXT, '
                       f'"{M["campaign_id"]}" TEXT, "{M["campaign_name"]}" TEXT, "{M["spend"]}" REAL, '
                       f'"{M["impressions"]}" INTEGER, "{M["clicks"]}" INTEGER, "{M["conversions"]}" REAL, '
                       f'"video_views" INTEGER)'))
     # The Trade Desk table is present but missing two of the columns the map
     # names -- the state provider-check exists to show.
-    conn.execute(text(f'CREATE TABLE "{T["table"]}" ("{T["date"]}" TEXT, "{T["account_id"]}" TEXT, '
+    conn.execute(text(f'CREATE TABLE "{T["table"]}" ("{T["date"]}" {DT}, "{T["account_id"]}" TEXT, '
                       f'"{T["campaign_id"]}" TEXT, "{T["campaign_name"]}" TEXT)'))
     for d, spend, imps, clicks in (
             (TODAY - timedelta(days=1), 12_500_000, 1000, 40),   # micros
@@ -203,9 +209,16 @@ section("The run")
 
 # The provider reports Google in micros on this deployment.
 provider_map.PLATFORM_SOURCES["google"]["spend_divisor"] = 1_000_000
+# A resolved map is read only once a person has confirmed it against a raw
+# row -- test_reports_confirmations.py holds that gate; here the two
+# platforms the run is about are confirmed as they stand, and the Trade
+# Desk deliberately is not, because it does not resolve.
+for _p in ("google", "meta"):
+    store.confirm_provider(_p, by="Todd", fingerprint=provider_map.fingerprint(_p))
 res = normalize.run(today=TODAY, actor="test")
 
-check("google synced the rows inside the window", res["google"], {"rows": 3, "error": None})
+check("google synced the rows inside the window", res["google"],
+      {"rows": 3, "error": None, "quarantined": 0, "quarantine_reasons": {}})
 check("meta failed on its bad row and is isolated",
       bool(res["meta"]["error"]) and res["meta"]["rows"] == 0)
 check("...naming the cause", "campaign_id" in res["meta"]["error"])
@@ -283,7 +296,19 @@ auto = [e for e in entries if e.get("action") == "campaign_automapped"]
 check("the automap wrote an activity row under the client's name",
       bool(auto) and auto[0].get("client") == "Acme Plumbing" and auto[0].get("module") == "reports")
 sync = [e for e in entries if e.get("action") == "reports_sync"]
-check("the sync wrote one activity row per client touched",
+# Acme's only mapping so far is the auto-mapper's proposal, and a proposal
+# is not yet a fact about whose campaign it is: a sync row on Acme's record
+# would say we synced their campaigns before anybody had agreed they were
+# theirs. Confirmed, the next run files it.
+check("no sync row while the client's only mapping is waiting for confirmation", sync, [])
+check("...because the automap's filing is pending",
+      store.mapped_campaigns(limit=100)[0].get("pending") in (True, False) and
+      all(m["pending"] for m in store.mapped_campaigns(limit=100) if m["client"] == "d:acme.com"))
+store.confirm_mapping("google", "123-456", "g-1", by="Todd")
+normalize.run(today=TODAY, actor="test")
+entries = [json.loads(l) for l in Path(os.environ["AUDIT_LOG_PATH"]).read_text().splitlines() if l.strip()]
+sync = [e for e in entries if e.get("action") == "reports_sync"]
+check("confirmed, the sync wrote one activity row per client touched",
       sorted(e.get("client") for e in sync[:1]), ["Acme Plumbing"])
 check("...saying what it did", bool(sync) and sync[0]["detail"].startswith("synced "))
 check("...and not for the client whose campaign received no rows",

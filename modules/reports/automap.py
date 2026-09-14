@@ -26,10 +26,21 @@ Rules, each a way to file spend under the wrong client:
   ``CampaignMap`` row is considered; a row somebody made, and a row this
   module made on an earlier run, both stand. Re-mapping is a person's press
   on the unmapped queue.
+* **A refusal is remembered.** Not theirs on the queue deletes the row, so
+  without ``store.MapRefusal`` the next run would file the campaign under
+  the same client again from the same name and the button would undo
+  itself within the hour. A campaign is skipped while its name is the one
+  it was refused under; renamed, it is read again.
 
 Every mapping it writes is ``mapped_by="auto"`` with ``auto_rule="name_v1"``
 on the row, so a report can tell a filed-by-name campaign from one a person
-chose, and an activity row under the client's name says it happened.
+chose, and an activity row under the client's name says it happened. **And
+it is a proposal**: the row carries no confirmation, ``store.facts_for()``
+does not read it, and the campaign reaches no figure on the client's page
+until a person presses Confirm on ``/reports/unmapped`` or the client's own
+staff page. A name is somebody's typing in somebody else's platform; a
+typo there would otherwise file one client's spend under another with every
+screen reading as working.
 """
 from __future__ import annotations
 
@@ -41,7 +52,7 @@ from . import store
 log = logging.getLogger(__name__)
 
 RULE = "name_v1"
-MAPPED_BY = "auto"
+MAPPED_BY = store.AUTO_MAPPED_BY
 
 _MARK = re.compile(r"^\s*s1m\s*$", re.IGNORECASE)
 
@@ -109,17 +120,23 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
     """File every unmapped campaign whose name parses and resolves.
 
     Returns ``{"mapped": n, "unparsed": n, "unresolved": [...], "clients":
-    {key: name}}``. ``unresolved`` names the client tokens that parsed and
-    matched nobody, because those are the ones a rename typo produces and
-    the unmapped queue is where somebody meets them.
+    {key: name}, "refused": n}``. ``unresolved`` names the client tokens that
+    parsed and matched nobody, because those are the ones a rename typo
+    produces and the unmapped queue is where somebody meets them;
+    ``refused`` counts the campaigns left alone because a person refused
+    this filing under this name. Every mapping counted in ``mapped`` is
+    pending confirmation.
     """
-    out = {"mapped": 0, "unparsed": 0, "unresolved": [], "clients": {}}
+    out = {"mapped": 0, "unparsed": 0, "unresolved": [], "clients": {}, "refused": 0}
     try:
         from hub import audit as hub_audit
     except Exception:                      # noqa: BLE001 - standalone
         hub_audit = None
     cache: dict[str, tuple[str, str] | None] = {}
     for row in store.unmapped_campaigns(days=3650, limit=limit):
+        if row.get("refused"):
+            out["refused"] += 1
+            continue
         parsed = parse_name(row.get("campaign_name") or "")
         if not parsed:
             out["unparsed"] += 1
@@ -168,7 +185,8 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
                               product=product, rule=rule,
                               detail=f"{store.platform_label(row['platform'])} campaign "
                                      f"{row.get('campaign_name') or row['campaign_id']} "
-                                     f"filed under {name} from its name"
+                                     f"filed under {name} from its name, waiting for "
+                                     f"confirmation on /reports/unmapped"
                                      + (f" (product segment {typed!r} is not in the catalog; "
                                         f"filed under {product or 'no product'})"
                                         if "unknown_product" in rule else ""))

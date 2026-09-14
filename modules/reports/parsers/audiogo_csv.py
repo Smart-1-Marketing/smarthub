@@ -13,6 +13,14 @@ fact table's ``completes`` column (completed listens preferred) and every
 audio figure also rides in ``extras`` under its own name. A row missing the
 day, the advertiser or the campaign is dropped and counted; a file carrying
 none of the key columns is refused naming the columns it has.
+
+``parse(text, platform=...)`` is also the reader behind the staff upload on
+``/reports/`` for **any** platform: the ordinary columns (day, account,
+campaign, spend, impressions, clicks, conversions) are what every
+platform's export carries, and the audio ones are simply absent from the
+others. One reader rather than a copy per platform, so a header alias
+added for one export is matched for all of them; the platform is the
+caller's and is checked against ``store.PLATFORMS`` before it lands.
 """
 from __future__ import annotations
 
@@ -83,8 +91,10 @@ def _day(value) -> date | None:
         return None
 
 
-def parse(text: str | bytes) -> dict:
-    """``{"rows": [...], "skipped": n, "columns": {...}, "error": str}``."""
+def parse(text: str | bytes, platform: str = PLATFORM) -> dict:
+    """``{"rows": [...], "skipped": n, "columns": {...}, "error": str}``.
+    ``platform`` is what the rows land as; AudioGo by default."""
+    platform = str(platform or PLATFORM).strip().lower() or PLATFORM
     if isinstance(text, bytes):
         text = text.decode("utf-8-sig", errors="replace")
     text = text.lstrip("﻿")
@@ -123,7 +133,7 @@ def parse(text: str | bytes) -> dict:
         fact = keyed.get(key)
         if fact is None:
             fact = keyed[key] = {
-                "platform": PLATFORM, "source": SOURCE, "date": day,
+                "platform": platform, "source": SOURCE, "date": day,
                 "account_id": acct, "campaign_id": camp,
                 "campaign_name": str(get(row, "campaign_name") or "").strip(),
                 "spend": 0.0, "impressions": 0, "clicks": 0, "conversions": 0.0,

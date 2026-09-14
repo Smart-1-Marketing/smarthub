@@ -11,6 +11,9 @@ def serve():
     CoreTests.setUpClass()
     app=CoreTests.app
     auth.user_from_environ=lambda environ:'Browser test'
+    from hub import industry_prospect_store
+    industry_prospect_store.init_store()
+    industry_prospect_store.put('campaign:browser-audience', 'campaign', {'id':'browser-audience', 'name':'Ohio roofing audience', 'industry':'roofing', 'filters':{'organization_locations[]':['Columbus, OH']}})
 
     @app.get('/assets/<path:name>')
     def assets(name):

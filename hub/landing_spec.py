@@ -188,14 +188,61 @@ def goal_choices() -> list[dict]:
              "cta": g["cta"], "kpi": g["kpi"]} for g in PAGE_GOALS]
 
 
+# The two fields a business can actually reply to. Everything else on a
+# landing form is context for the reply, not a way to make one.
+CONTACT_FIELDS = ("phone", "email")
+
+
+def _required(field: str, drawn: list[str]) -> bool:
+    """Is this field required, given the whole form this goal draws?
+
+    `name` always. A contact field only when it is the goal's **only** way
+    to reply -- because the page prints, directly under the button, that a
+    phone number or an email is enough. Marking phone `required` on a goal
+    that also draws an email box makes the browser refuse what the page has
+    just promised, with a tooltip, on a phone with the keyboard up: the
+    visitor who would have given an email is hard-blocked and reads it as a
+    broken form. Six of the eight goals were in exactly that state.
+
+    The other direction is real too. `visit` and `download` draw an email
+    and no phone, and nothing was required on either -- so the JS "a phone
+    or email is needed" refusal was the only gate, after a round trip.
+    """
+    if field == "name":
+        return True
+    if field not in CONTACT_FIELDS:
+        return False
+    return [f for f in drawn if f in CONTACT_FIELDS] == [field]
+
+
 def form_fields(goal_id: str) -> list[dict]:
     """The form for this goal, as the renderer wants it."""
+    drawn = [f for f in goal(goal_id)["fields"] if f in KNOWN_FIELDS]
     return [{"name": f, "label": FIELD_LABELS.get(f, f.title()),
              "type": ("tel" if f == "phone" else
                       "email" if f == "email" else
                       "textarea" if f == "details" else "text"),
-             "required": f in ("name", "phone")}
-            for f in goal(goal_id)["fields"] if f in KNOWN_FIELDS]
+             "required": _required(f, drawn)}
+            for f in drawn]
+
+
+def contact_note(goal_id: str) -> str:
+    """The fine print under the button, derived from the fields drawn.
+
+    It was a hard-coded sentence offering a choice the form did not always
+    offer: on `call` there is no email box at all, and the page still said
+    "whichever you prefer". A promise the page cannot keep is the thing this
+    module exists to refuse, one line further down the page than usual.
+    """
+    drawn = [f for f in goal(goal_id)["fields"]
+             if f in KNOWN_FIELDS and f in CONTACT_FIELDS]
+    if "phone" in drawn and "email" in drawn:
+        return "A phone number or an email is enough \u2014 whichever you prefer."
+    if drawn == ["phone"]:
+        return "We\u2019ll need a phone number to call you back."
+    if drawn == ["email"]:
+        return "We\u2019ll reply by email \u2014 no phone number needed."
+    return ""
 
 
 # ---------------------------------------------------------------------------

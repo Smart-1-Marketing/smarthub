@@ -607,6 +607,52 @@ check("missing-image approval error names the actual issue and counts posts",
 with patch.object(mod, '_client_context', return_value={'gallery':[]}) as lookup:
     full = client.get(f"/api/batches/{plan['id']}").get_json()
     check("full context remains available to existing callers", full['context'] == {'gallery':[]} and lookup.called)
+section('Recovery, coverage and controlled media/scheduling')
+history = client.get(f"/api/batches/{plan['id']}/history").get_json()['versions']
+check('version history is bounded and not nested in normal plan responses',
+      0 < len(history) <= 20 and '_history' not in mod.load_batch(plan['id']))
+before_restore = mod.load_batch(plan['id'])
+restore = client.post(f"/api/batches/{plan['id']}/restore", json={'revision':before_restore['revision'], 'version':history[0]['revision']})
+check('restoring creates a new review revision without restoring approvals', restore.status_code == 200 and
+      restore.get_json()['batch']['revision'] > before_restore['revision'] and restore.get_json()['batch']['status'] == 'review' and
+      all(s['status'] != 'approved' for s in restore.get_json()['batch']['slots']))
+check('stale restore cannot overwrite newer work', client.post(f"/api/batches/{plan['id']}/restore",
+      json={'revision':before_restore['revision'], 'version':history[0]['revision']}).status_code == 409)
+coverage = client.post('/api/coverage', json={'client':plan['client'], 'month':plan['month']}).get_json()
+check('coverage includes existing plans for the selected client', any(p['batch']==plan['id'] for p in coverage['posts']))
+other = client.post('/api/coverage', json={'client':'Unrelated business', 'month':plan['month']}).get_json()
+check('coverage does not cross clients', other['posts']==[])
+excluded = client.post('/api/coverage', json={'client':plan['client'], 'month':plan['month'], 'exclude':plan['id']}).get_json()
+check('coverage can exclude the plan being edited', all(p['batch']!=plan['id'] for p in excluded['posts']))
+with patch.object(mod.suite_client,'performance',return_value={'ok':False,'error':'readback unavailable','rows':[]}):
+    result=client.post('/api/coverage',json={'client':plan['client'],'month':plan['month'],'suite':True}).get_json()
+    check('unavailable Suite is not reported as an empty calendar', 'unavailable' in result['note'] and bool(result['posts']))
+with patch.object(mod.suite_client,'performance',return_value={'ok':True,'rows':[{'id':'scheduled-test','status':'scheduled','scheduleDate':plan['month']+'-20T10:00:00','summary':'Existing scheduled topic'}]}):
+    result=client.post('/api/coverage',json={'client':plan['client'],'month':plan['month'],'suite':True}).get_json()
+    check('Suite scheduled posts are included with a bounded-coverage notice', any(p['source']=='Suite' for p in result['posts']) and '100' in result['note'])
+from unittest.mock import Mock
+from io import BytesIO
+upload_bytes=BytesIO()
+Image.new('RGB',(32,32),'blue').save(upload_bytes,format='PNG')
+with patch('hub.storage.put',return_value=asset), patch.object(mod,'_file_into_gallery') as gallery:
+    uploaded=client.post(f"/api/batches/{plan['id']}/photo",data={'slot':topic['id'],'file':(BytesIO(upload_bytes.getvalue()),'qa.png')})
+    check('valid uploads pass decoding and are filed into the client gallery',uploaded.status_code==200 and gallery.called)
+current=mod.load_batch(plan['id'])
+for s in current['slots']:
+    s.update(copy='A useful maintenance tip.',image_url='https://example.com/photo.jpg',link='',status='approved',channels=['instagram'])
+mod.save_batch(current)
+client.post(f"/api/batches/{plan['id']}/status",json={'status':'approved'})
+response=Mock(ok=True,status_code=200,text='response')
+response.json.return_value={'post':{'id':'qa-controlled-post'}}
+with patch.object(mod.suite_client,'publishing',return_value={'ready':True}), patch.object(mod.suite_client,'token_for',return_value={'state':'connected','token':'test-token','location_id':'test-location'}), patch('requests.post',return_value=response) as outbound:
+    pushed=client.post(f"/api/batches/{plan['id']}/push",json={'slot':current['slots'][0]['id']})
+    check('controlled scheduling route sends the selected date to the correct account',pushed.status_code==200 and
+          outbound.call_args.kwargs['json']['locationId']=='test-location' and
+          outbound.call_args.kwargs['json']['scheduleDate'].startswith(current['slots'][0]['date']))
+    duplicate=client.post(f"/api/batches/{plan['id']}/push",json={'slot':current['slots'][0]['id']})
+    check('retry cannot double-schedule an accepted post',duplicate.status_code==409 and outbound.call_count==1)
+current=mod.load_batch(plan['id'])
+check('restore refuses a plan already sent to Suite',client.post(f"/api/batches/{plan['id']}/restore",json={'revision':current['revision'],'version':history[0]['revision']}).status_code==400)
 snapshot=mod.load_batch(plan['id'])
 mod.delete_batch(plan['id'])
 conflict=False

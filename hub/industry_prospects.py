@@ -436,7 +436,78 @@ def recovery_hint(row):
     return ""
 
 
+def purchase_jobs(cid):
+    campaign(cid)
+    return [{k: v for k, v in row.items() if k != "scope"}
+            for row in store.rows("purchase-job") if row["campaign"] == cid]
+
+
+def queue_purchase(plan_id, actor):
+    from hub import scheduler
+    if not scheduler.enabled():
+        raise ProspectError("The Hub scheduler must be enabled before queueing a purchase.")
+    plan = store.get("plan:" + plan_id)
+    if not plan or plan["actor"] != actor or not plan.get("approved") or plan["scope"] != scope():
+        raise ProspectError("Review and approve this exact selection before queueing it.")
+    previous = store.get("purchase-job:" + plan_id)
+    if previous:
+        return previous
+    paid_enabled()
+    ready()
+    if time.time() - plan["created"] > MAX_AGE:
+        raise ProspectError("Purchase approval expired. Review a new selection.")
+    job = {"id": plan_id, "campaign": plan["campaign"], "actor": actor,
+           "scope": plan["scope"], "created": time.time(), "updated": time.time(),
+           "status": "queued", "processed": 0, "total": len(plan["ids"]),
+           "expires_at": plan["created"] + MAX_AGE}
+    store.put("purchase-job:" + plan_id, "purchase-job", job)
+    return job
+
+
+def pause_purchase(job_id, actor):
+    job = store.get("purchase-job:" + job_id)
+    if not job or job["actor"] != actor:
+        raise ProspectError("Only the approving user can stop this purchase batch.")
+    if job["status"] == "queued":
+        job.update(status="stopped", updated=time.time(), reason="Stopped by the approving user. Review a new selection for remaining contacts.")
+        store.put("purchase-job:" + job_id, "purchase-job", job)
+    return job
+
+
+def purchase_step():
+    jobs = sorted((j for j in store.rows("purchase-job") if j["status"] == "queued"), key=lambda j: j["created"])
+    if not jobs:
+        return None
+    job = jobs[0]
+    try:
+        plan = store.get("plan:" + job["id"])
+        if not plan or job["scope"] != scope() or time.time() > job["expires_at"]:
+            raise ProspectError("Approval expired or the connection changed. Review a new selection for remaining contacts.")
+        pid = plan["ids"][job["processed"]]
+        # buy_one persists before spending and will return an existing attempt,
+        # including an uncertain one, without repeating its provider call.
+        result = buy_one(job["id"], pid, job["actor"])
+        job["last_person"] = pid
+        job["last_status"] = result["status"]
+        job["processed"] += 1
+        if result["status"] in {"review_required", "reveal_pending", "verify_pending", "import_pending", "revealed"}:
+            job.update(status="paused", reason="An attempt needs reconciliation. Remaining contacts were not purchased. Review a new selection to continue.")
+        elif job["processed"] >= job["total"]:
+            job["status"] = "complete"
+    except ProspectError as exc:
+        job.update(status="paused", reason=str(exc))
+    job["updated"] = time.time()
+    store.put("purchase-job:" + job["id"], "purchase-job", job)
+    return {k: v for k, v in job.items() if k != "scope"}
+
+
 def scheduled_step(app):
+    with app.app_context():
+        with store.operation("scheduler", "approved purchase batch"):
+            purchase = purchase_step()
+    # Only one contact per tick; imports always remain a separate user action.
+    if purchase is not None:
+        return purchase
     job = store.get("sync-job", {})
     manual = job.get("status") == "queued"
     if job.get("status") == "paused":

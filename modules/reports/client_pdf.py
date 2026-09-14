@@ -261,7 +261,8 @@ def build(agg: dict) -> bytes:
     name = agg.get("client_name") or "Your campaign"
     d = _Doc(f"{name} — marketing report")
     d.text(name, size=20, bold=True, color=NAVY, gap=4)
-    d.text(f"Marketing report from Smart 1 Marketing  ·  {agg.get('period', {}).get('label', '')}",
+    d.text(f"Marketing report from Smart 1 Marketing  ·  {agg.get('period', {}).get('label', '')}"
+           + (f"  ·  figures through {agg['data_through_label']}" if agg.get("data_through_label") else ""),
            size=10, color=MUTED, gap=10)
 
     d.tiles(agg.get("tiles") or [])
