@@ -25,3 +25,8 @@ cloudinary==1.41.0
 qrcode[pil]==8.0
 openai==1.59.6
 MarkupSafe==3.0.2
+# Already a de facto dependency -- four tests under tests/ run via pytest
+# instead of the usual `python3 test_x.py`. It used to be pip-installed as
+# its own CI step, mid-job; pinning it here means it installs once, from the
+# same cached step as everything else, in every parallel CI group.
+pytest==8.4.2
