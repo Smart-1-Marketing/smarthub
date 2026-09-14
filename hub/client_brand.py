@@ -84,6 +84,7 @@ WORK_KINDS = {
     # renaming the log name would orphan every row already written under
     # `utm`, and `audit.LOG_NAMES` is where that mapping is written down.
     "utm":                  ("Tracked links", "UTM Builder"),
+    "unassigned_traffic":   ("Traffic attribution analysis", "Unassigned Traffic Resolver"),
     "social_planner":       ("Social calendar", "Social Content Planner"),
     "calculators":          ("Calculator published", "Calculators"),
     "google_access":        ("Google access", "Google Access"),
