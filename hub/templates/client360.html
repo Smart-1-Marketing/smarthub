@@ -225,7 +225,7 @@ const C360_SECTIONS=[
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
   {key:'creative', label:'Creative & brand',  match:['creative infor','client images','brand']},
   {key:'social',   label:'Social & links',    match:['social media','social content','tracked links','form submissions','approvals & proof links']},
-  {key:'work',     label:'Work & requests',   match:['work for this','web tickets']},
+  {key:'work',     label:'Work & requests',   match:['work for this','web tickets','execution plan']},
   // Skill-gated cards (modules/skills360). Drawn only for a client whose
   // skill is on; an empty section is the CSS fallback's "nothing here".
   {key:'skills',   label:'Skills',            match:['ecommerce','email creator']},
@@ -493,6 +493,13 @@ function render(g,q){
     .map(p=>String(p.io||'').replace(/[^0-9a-z]+/gi,'').toLowerCase())
     .filter(Boolean));
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Orders we have sent</h3><a class="open-link" href="/tools/io/">Open the IO Builder →</a></div><div class="card-b" id="c-orders"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+
+  // ---------- Execution plan ----------
+  // What the proposal committed us to -- creative, launch and monthly lists
+  // -- and how much of it nobody has reviewed yet. The plan lived on one
+  // page, so a client with open items was invisible on their own record.
+  // Counts beside a link: the plan is worked on its own page.
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Execution plan</h3><a class="open-link" href="/proposal-execution">Open Proposal Execution →</a></div><div class="card-b" id="c-plan"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   // ---------- Creative Information (replaces the old website-record spot) ----------
   const cre=g.creative||[];
@@ -4076,6 +4083,7 @@ function loadBrandAndWork(name){
   loadGroup(name);
   loadOwner(name);
   loadOrders(name);
+  loadPlan(name);
   fetch('/api/client/utm?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderUtm).catch(function(){});
   fetch('/api/client/analytics-ids?name='+encodeURIComponent(name),{credentials:'same-origin'})
@@ -4103,6 +4111,69 @@ function loadBrandAndWork(name){
    on the page — a second reconciliation here would be a second answer to a
    question `hub/io_reconcile.py` already answers, and the two would come to
    disagree on one screen. */
+/* The execution plan a proposal produced: counts beside a link, never the
+   items. Three answers are kept apart -- the table would not answer, no plan
+   has been built, and a plan with nothing left to do here -- because the
+   first two render identically as an empty card and only one of them means
+   there is nothing to do. */
+function loadPlan(name){
+  var box=document.getElementById('c-plan');
+  if(!box) return;
+  if(!name){box.innerHTML='<div class="empty">No client selected.</div>';return;}
+  fetch('/api/client/execution-plan?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      box=document.getElementById('c-plan');
+      if(!box) return;
+      if(d && d.measured===false){
+        box.innerHTML='<div class="empty">The execution plans could not be read'
+          + (d.error?' &mdash; '+esc(d.error):'') + '. That is not the same as '
+          + 'no plan existing.</div>';
+        return;
+      }
+      var rows=(d&&d.runs)||[];
+      if(!rows.length){
+        box.innerHTML='<div class="empty">No execution plan has been built for this '
+          + 'client. <a href="/proposal-execution?client='+encodeURIComponent(name)+'">'
+          + 'Analyze a proposal</a> to get the creative, launch and monthly lists.</div>';
+        return;
+      }
+      var h='<table><thead><tr><th>Proposal</th><th>Launch</th><th>Kept</th>'
+        + '<th>Still to do on the plan</th><th></th></tr></thead><tbody>';
+      rows.forEach(function(p){
+        var todo=[];
+        if(p.to_review) todo.push(p.to_review+' item'+(p.to_review===1?'':'s')+' to review');
+        if(p.open_questions) todo.push(p.open_questions+' question'+(p.open_questions===1?'':'s')+' open');
+        if(p.creative_unassigned) todo.push(p.creative_unassigned+' creative item'
+          + (p.creative_unassigned===1?'':'s')+' with no supplier named');
+        /* The monthly promises, month by month, are on the plan; what the
+           record says is whether any is missed or still due this month. A
+           schedule with no launch date to measure from says nothing here --
+           the plan's own line names that gap. */
+        var pr=p.promises||{};
+        if(pr.measured!==false){
+          if(pr.missed) todo.push(pr.missed+' monthly promise'+(pr.missed===1?'':'s')+' missed');
+          if(pr.due) todo.push(pr.due+' due this month');
+        }
+        var kept=p.kept||{};
+        h+='<tr><td><b>'+esc(p.title||'Proposal')+'</b> <span class="pill neutral">'
+          + esc(String(p.state||'').replace(/_/g,' '))+'</span>'
+          + (p.member&&p.member!==name?memberTag(p.member):'')+'</td>'
+          + '<td class="muted" style="font-size:12.5px">'+esc(p.launch_date_label||'not answered')+'</td>'
+          + '<td class="muted" style="font-size:12.5px">'+esc(kept.creative||0)+' creative &middot; '
+          + esc(kept.launch||0)+' launch &middot; '+esc(kept.monthly||0)+' monthly</td>'
+          + '<td>'+(todo.length?todo.map(function(t){return '<span class="pill warn">'+esc(t)+'</span>';}).join(' ')
+                   :'<span class="pill neutral">reviewed and answered</span>')+'</td>'
+          + '<td><a href="'+esc(p.url||'/proposal-execution')+'">Open the plan &rarr;</a></td></tr>';
+      });
+      box.innerHTML=h+'</tbody></table>';
+    })
+    .catch(function(){
+      var b=document.getElementById('c-plan');
+      if(b) b.innerHTML='<div class="empty">The execution plans could not be read. '
+        + 'That is not the same as no plan existing.</div>';
+    });
+}
 function loadOrders(name){
   var box=document.getElementById('c-orders');
   if(!box) return;

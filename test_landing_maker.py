@@ -480,6 +480,142 @@ check("and its help key resolves",
       hub_help.get("landing_maker.snap.concept") is not None, True)
 
 
+# ---------------------------------------------------------------------------
+section("Tier 1 — what the page tells the prospect, and what a lead carries")
+# ---------------------------------------------------------------------------
+#
+# Every check here was confirmed red against the code as it stood. They are
+# the conversion audit's Tier 1: a page that thanked visitors whose lead was
+# refused, a form that demanded what the page said was optional, leads that
+# could not name their own page or the advert that paid for it, an offer that
+# reached the prospect only if a model felt like it, and a star rating and a
+# byline nobody supplied.
+
+from hub import landing_spec as _ls                               # noqa: E402
+from hub.landing_render import render_page as _rp                 # noqa: E402
+
+# `lm` is the module this file already imported at the top -- read through it
+# rather than re-importing names out of it, so there is one spelling of
+# hub.landing_maker in the file.
+_DIRS, _pr = lm.DIRECTIONS, lm._parse_reviews
+
+_BRIEF = {"client": "Icon Solar", "service_area": "Carmel and Hamilton County",
+          "geo": "Carmel, IN + 10-mile radius / Indianapolis DMA / +3 more",
+          "phone": "3175550142", "city": "Carmel", "state": "IN",
+          "colors": ["#0b5544"]}
+_COPY = {"headline": "H", "subhead": "s", "cta": "Get my quote",
+         "benefits": [], "how_it_works": [], "faqs": [], "why_us": []}
+
+
+def _page(**kw):
+    return _rp(_BRIEF, _COPY, _DIRS["trust"], {}, **kw)
+
+
+# -- 1. a refusal is not a thank-you ----------------------------------------
+_html = _page(goal_id="quote")
+check("the form reads the server's answer before thanking anybody",
+      "res.d.ok === false" in _html and "!res.ok" in _html, True)
+check("a refusal shows the server's own sentence",
+      "res.d.error" in _html, True)
+check("and never its hint, which names environment variables",
+      "res.d.hint" in _html, False)
+# `.find()` rather than `.index()`: against the unfixed renderer the guard
+# is absent and `.index()` raises, which would take every check below it out
+# of the run -- a file that reports two failures where there are fourteen.
+check("the conversion event fires only past that gate",
+      0 <= _html.find("res.d.ok === false") < _html.find("generate_lead"), True)
+check("a double-submit is refused by the page",
+      "dataset.sending" in _html, True)
+
+# -- 2. required-ness matches what the page promises ------------------------
+_both = [f["name"] for f in _ls.form_fields("quote") if f["required"]]
+check("a goal offering both contacts requires neither", _both, ["name"])
+check("a phone-only goal requires the phone",
+      sorted(f["name"] for f in _ls.form_fields("call") if f["required"]),
+      ["name", "phone"])
+check("an email-only goal requires the email",
+      sorted(f["name"] for f in _ls.form_fields("download") if f["required"]),
+      ["email", "name"])
+check("and the fine print is derived, not hard-coded",
+      _ls.contact_note("call"),
+      "We\u2019ll need a phone number to call you back.")
+check("so no goal offers a choice its form does not draw",
+      [g["id"] for g in _ls.PAGE_GOALS
+       if "whichever" in _ls.contact_note(g["id"])
+       and not {"phone", "email"} <= set(g["fields"])], [])
+
+# -- 3. a lead names its page and the advert that paid for it ---------------
+_html = _page(goal_id="quote", slug="icon-solar-ab12cd")
+check("the lead is filed under the page, not the client's name",
+      '"icon-solar-ab12cd"' in _html, True)
+check("the client still travels beside it", '"Icon Solar"' in _html, True)
+for _k in ("utm_source", "utm_campaign", "gclid", "fbclid"):
+    check(f"the arrival carries {_k}", _k in _html, True)
+check("and the referrer and landing url",
+      "document.referrer" in _html and "landing_url" in _html, True)
+check("campaign tags never reach the controlled segmentation field",
+      "tags" in _html.split("function arrivalMeta")[1].split("}")[0], False)
+
+# -- 4. the offer is on the page, not only in the prompt --------------------
+_off = "Free spring service with every new system"
+check("a usable offer is printed once, above the button",
+      _page(goal_id="quote", offer=_off, offer_usable=True).count(_off), 1)
+check("an offer the checker could not read is not printed",
+      _off in _page(goal_id="quote", offer=_off, offer_usable=False), False)
+
+# -- 5. stars and bylines nobody supplied -----------------------------------
+_rows, _refused = _pr("Jane D. | 4.5 | They came same day")
+check("a half-star rating is refused rather than rounded",
+      ("rating" in _rows[0], _refused), (False, ["4.5"]))
+_html = _page(goal_id="quote",
+              reviews=[{"quote": "Great work", "author": ""},
+                       {"quote": "On time", "author": "Jane D.", "rating": 4}])
+check("a rating that is not a whole 1-5 draws no stars",
+      (_html.count("&#9733;"), _html.count("&#9734;")), (4, 1))
+check("a quote with no name gets no byline",
+      "Google review" in _html, False)
+check("a name that was given still does", "<cite>Jane D.</cite>" in _html, True)
+
+# -- 6. the client brief reaches the copy writer, for a client only ---------
+_seen = {}
+
+
+def _spy(messages, **kw):
+    _seen["text"] = messages[-1]["content"]
+    raise RuntimeError("stop after capture")
+
+
+_real = hub_ai.chat
+try:
+    hub_ai.chat = _spy
+    # A website, because hub/client_brief.py answers "" for a client it can
+    # join to nothing at all -- which is its own correct behaviour and would
+    # make this assertion pass whether or not the wiring existed.
+    lm.write_copy({"client": "Icon Solar", "kind": "client",
+                    "website": "iconsolar.com"}, "quote", "", "")
+    _client_prompt = _seen.pop("text", "")
+    lm.write_copy({"client": "Icon Solar", "kind": "prospect",
+                    "website": "iconsolar.com"}, "quote", "", "")
+    _prospect_prompt = _seen.pop("text", "")
+finally:
+    hub_ai.chat = _real
+check("a client page is handed what the Hub already holds",
+      "Use it as proof" in _client_prompt, True)
+check("a prospect page is not — a same-named client is another business",
+      "Use it as proof" in _prospect_prompt, False)
+
+# -- 7. the media plan's targeting string is not the service area -----------
+_html = _page(goal_id="quote")
+check("the confirmed service area is what the page prints",
+      "Serving Carmel and Hamilton County" in _html, True)
+check("the media buy's targeting string never reaches the prospect",
+      "Indianapolis DMA" in _html, False)
+_bare = dict(_BRIEF)
+_bare["service_area"] = ""
+check("and with none confirmed the line is omitted, never guessed",
+      "Serving" in _rp(_bare, _COPY, _DIRS["trust"], {}, goal_id="quote"), False)
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")

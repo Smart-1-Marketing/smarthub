@@ -43,6 +43,26 @@ the text already answers (``"3 custom audio commercials"`` says who makes
 the audio) is answered from the text and shown as such, because asking
 somebody what the document in front of them says is how a question list
 stops being read.
+
+**A quote built in the Hub is read as data, and the creative is the gate's
+own reading.** `hub/proposal_quote_facts.py` hands the analysis a `quote`
+block -- the channels as rate-card line items, the start date, who
+supplies each medium's files, the reporting cadence the document states.
+Where it is present the creative for a channel comes from
+`creative_needs.required_units()` over the quote's *actual* products rather
+than from a recipe's representative one, and each of those facts arrives as
+a question already answered, marked as the quote's, so a rep is not asked
+what the document in front of them says.
+
+**An answer is read by the work, or it was not worth asking.** `resolve()`
+lays the answers over the plan at read time -- a launch date becomes a due
+date on every launch task (each carries how many days before launch it has
+to be done), a supplier becomes a mark on every creative item for that
+channel, a reporting cadence lands on the report tasks -- and
+`answers_for()` hands a brief or a packet the answers for its channel.
+Derived, never stored: `hub/creative_evergreen.py`'s rule, because a date
+written into the items would survive the answer changing and the two
+gunicorn workers would disagree about which copy is current.
 """
 from __future__ import annotations
 
@@ -50,7 +70,7 @@ import hashlib
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 LISTS = ("creative", "launch", "monthly")
 LIST_LABELS = {"creative": "Creative needed", "launch": "Before launch",
@@ -80,6 +100,74 @@ MAX_DETAIL = 500
 MAX_EVIDENCE = 300
 MAX_ANSWER = 1000
 
+# How a supplier answer and a cadence answer read on an item. One table,
+# because the page, the brief and the handoff packet all print them.
+SUPPLY_LABELS = {"smart1": "Smart 1 produces it", "client": "the client supplies it",
+                 "mixed": "some of each"}
+CADENCE_LABELS = {"monthly": "every month", "weekly": "every week",
+                  "quarterly": "every quarter", "none": "no report is promised"}
+# Creative has to be in hand before the launch tasks that traffic it can
+# run. Two weeks is the house figure, not a platform's; a recipe's launch
+# row carries its own lead time where one applies.
+LEAD_DAYS_CREATIVE = 14
+
+# ---------------------------------------------------------------------------
+# What a monthly promise is, and what proves it landed.
+#
+# Every monthly recipe row names one of these. The kind is what joins a
+# promise to the work log: `content` is proved by the SEO section writing a
+# blog or filing schema, `social_post` by the planner exporting or pushing a
+# batch, `video` by a commercial being approved -- each a module
+# `hub/client_brand.WORK_KINDS` can already name, because a row the work log
+# cannot attribute to a client is one this cannot read either. A kind with no
+# evidence modules is **recorded by hand only**: nothing here logs that a
+# report was sent to a client, so a person marks the month and the schedule
+# says that is how it was recorded.
+#
+# `deliverable` is the line between what a client notices when it stops and
+# what is our own housekeeping. A report, the month's content, a video, the
+# posts, the sends: those are raised when a month goes by without them.
+# Reviewing bids, checking frequency and confirming a game schedule are
+# drawn on the plan and never raised as a finding -- a report that fires on
+# "review search terms" for every client every month is the crying-wolf
+# failure `QR_CODE_RULES` paid for, and it takes the real findings with it.
+# Only spellings actually in use, the `ALIASES` rule: a kind is added here
+# the day a recipe row or an evidence source needs it.
+# ---------------------------------------------------------------------------
+PROMISE_KINDS: dict[str, dict] = {
+    "report": {"label": "Report to the client", "deliverable": True, "evidence": ()},
+    "content": {"label": "SEO + AI work delivered", "deliverable": True,
+                "evidence": (("seo", ("seo_blog_write", "seo_publish_instructions", "faq_page_saved",
+                                      "schema_answers_saved", "seo_alt_write", "seo_task_created")),
+                             ("seo_intelligence", ()),
+                             ("suite", ("llms_txt_published",)))},
+    "video": {"label": "Video produced", "deliverable": True,
+              "evidence": (("commercial_builder", ("commercial_approved",)),
+                           ("video_tools", ("_saved",)),
+                           ("vox_explainer", ()), ("paint_animation", ()))},
+    "social_plan": {"label": "Social calendar approved", "deliverable": True,
+                    "evidence": (("social_planner", ("batch_approved", "sent_to_client")),)},
+    "social_post": {"label": "Posts scheduled", "deliverable": True,
+                    "evidence": (("social_planner", ("exported", "post_pushed")),)},
+    "email": {"label": "Email sent", "deliverable": True,
+              "evidence": (("skills360", ("email_batch_sent",)),)},
+    "web": {"label": "Site maintenance", "deliverable": True, "evidence": ()},
+    "creative_refresh": {"label": "Creative refresh", "deliverable": False,
+                         "evidence": (("display_ads", ("creative_attached", "animation_attached")),
+                                      ("magic_resize", ()), ("image_creator", ()))},
+    "optimize": {"label": "Optimization", "deliverable": False, "evidence": ()},
+    "review": {"label": "Promise review", "deliverable": False, "evidence": ()},
+}
+# A monthly item with no kind -- one the model found or a person typed -- is
+# a promise somebody wrote down, so it is a deliverable recorded by hand: the
+# Hub has no way to see it land and no grounds to call it housekeeping.
+PROMISE_KIND_UNKNOWN = {"label": "Promise", "deliverable": True, "evidence": ()}
+
+
+def promise_kind(kind: str) -> dict:
+    """The table's entry for a kind, or the unknown-kind entry. Never raises."""
+    return PROMISE_KINDS.get(str(kind or "")) or PROMISE_KIND_UNKNOWN
+
 
 # ---------------------------------------------------------------------------
 # The recipes: what each channel the analyzer can detect always needs.
@@ -99,14 +187,14 @@ RECIPES: dict[str, dict] = {
         "copy": [],
         "launch": [
             ("Confirm the retargeting pixel or tag is on every page of the site",
-             "Retargeting cannot build an audience until the tag fires; check it before the flight starts."),
+             "Retargeting cannot build an audience until the tag fires; check it before the flight starts.", 14),
             ("Build the site-visitor audience and set the lookback window", ""),
             ("Traffic the retargeting campaign with the approved banners and tagged destination links", ""),
             ("Click every banner size through to the landing page before launch", ""),
         ],
         "monthly": [
-            ("Report retargeting delivery and click-through to the client", ""),
-            ("Check frequency and refresh the banners if the audience is seeing them too often", ""),
+            ("Report retargeting delivery and click-through to the client", "", "report"),
+            ("Check frequency and refresh the banners if the audience is seeing them too often", "", "creative_refresh"),
         ],
     },
     "paid_search": {
@@ -120,11 +208,11 @@ RECIPES: dict[str, dict] = {
             ("Build the Paid Search campaign structure: campaigns, ad groups, keywords and negatives", ""),
             ("Confirm conversion tracking fires on the form, call or booking the campaign is measured on", ""),
             ("Set the daily budget and bidding to match the proposal's monthly spend", ""),
-            ("Get the ad copy approved before the campaign is enabled", ""),
+            ("Get the ad copy approved before the campaign is enabled", "", 5),
         ],
         "monthly": [
-            ("Review search terms, add negatives and adjust bids", ""),
-            ("Report Paid Search spend, clicks, conversions and cost per lead", ""),
+            ("Review search terms, add negatives and adjust bids", "", "optimize"),
+            ("Report Paid Search spend, clicks, conversions and cost per lead", "", "report"),
         ],
     },
     "seo_ai": {
@@ -137,8 +225,8 @@ RECIPES: dict[str, dict] = {
             ("Record the baseline rankings and traffic the monthly work is measured against", ""),
         ],
         "monthly": [
-            ("Deliver the month's SEO + AI work: on-page fixes, schema, content and AI-search optimization", ""),
-            ("Report rankings, organic traffic and what was changed this month", ""),
+            ("Deliver the month's SEO + AI work: on-page fixes, schema, content and AI-search optimization", "", "content"),
+            ("Report rankings, organic traffic and what was changed this month", "", "report"),
         ],
     },
     "stadium_audio": {
@@ -146,14 +234,14 @@ RECIPES: dict[str, dict] = {
         "kit_units": ["radio_audio", "radio_companion"],
         "copy": [],
         "launch": [
-            ("Write the audio scripts and get them approved before voice production", ""),
-            ("Produce and approve the finished audio spots", ""),
+            ("Write the audio scripts and get them approved before voice production", "", 14),
+            ("Produce and approve the finished audio spots", "", 7),
             ("Confirm the venue geo-fence, the game schedule and the flight dates", ""),
             ("Traffic the audio and companion banners with tagged destination links", ""),
         ],
         "monthly": [
-            ("Confirm the coming month's game schedule and adjust the flight", ""),
-            ("Report audio delivery, completion rate and companion banner clicks", ""),
+            ("Confirm the coming month's game schedule and adjust the flight", "", "optimize"),
+            ("Report audio delivery, completion rate and companion banner clicks", "", "report"),
         ],
     },
     "meta": {
@@ -166,11 +254,11 @@ RECIPES: dict[str, dict] = {
         "launch": [
             ("Confirm the Meta pixel or Conversions API is installed and firing", ""),
             ("Build the in-market audience and the geography in Ads Manager", ""),
-            ("Get the carousel and image creative approved before the campaign is enabled", ""),
+            ("Get the carousel and image creative approved before the campaign is enabled", "", 7),
         ],
         "monthly": [
-            ("Report Meta reach, clicks, leads and cost per lead", ""),
-            ("Refresh creative that is fatiguing and pause the weakest ads", ""),
+            ("Report Meta reach, clicks, leads and cost per lead", "", "report"),
+            ("Refresh creative that is fatiguing and pause the weakest ads", "", "creative_refresh"),
         ],
     },
     "youtube_ads": {
@@ -178,12 +266,12 @@ RECIPES: dict[str, dict] = {
         "kit_units": ["youtube_trueview"],
         "copy": [],
         "launch": [
-            ("Link the YouTube channel to Google Ads and upload the approved spot", ""),
+            ("Link the YouTube channel to Google Ads and upload the approved spot", "", 3),
             ("Build the in-market audience and the geography", ""),
             ("Confirm view and conversion tracking before the campaign is enabled", ""),
         ],
         "monthly": [
-            ("Report YouTube views, view rate, clicks and cost per view", ""),
+            ("Report YouTube views, view rate, clicks and cost per view", "", "report"),
         ],
     },
     "social": {
@@ -200,8 +288,8 @@ RECIPES: dict[str, dict] = {
             ("Agree the posting channels, the mix and the first month's calendar", ""),
         ],
         "monthly": [
-            ("Build next month's social content calendar and get it approved", ""),
-            ("Schedule the approved posts", ""),
+            ("Build next month's social content calendar and get it approved", "", "social_plan"),
+            ("Schedule the approved posts", "", "social_post"),
         ],
     },
     "youtube_video": {
@@ -215,7 +303,7 @@ RECIPES: dict[str, dict] = {
             ("Agree the sales video format, length and who appears on camera", ""),
         ],
         "monthly": [
-            ("Script, produce and publish this month's YouTube sales video", ""),
+            ("Script, produce and publish this month's YouTube sales video", "", "video"),
         ],
     },
     "youtube_optimization": {
@@ -239,7 +327,122 @@ RECIPES: dict[str, dict] = {
             ("Set up the AI advertising test with the approved budget, destination and tracking", ""),
         ],
         "monthly": [
-            ("Report AI advertising delivery and results, and decide whether the test continues", ""),
+            ("Report AI advertising delivery and results, and decide whether the test continues", "", "report"),
+        ],
+    },
+    # ----------------------------------------------------------------------
+    # The rate card's other families. A quote built in the Hub lands its
+    # lines on these through hub/proposal_quote_facts.channel_for_item();
+    # the text analyzer does not detect them yet, so `kit_product` here is
+    # a representative product the kit maps, for the day it does. On the
+    # quote path the channel's own products are what the kit is asked about.
+    # ----------------------------------------------------------------------
+    "display": {
+        "kit_product": "Display - Category",
+        "kit_units": None,
+        "creative_title": "Display banner set",
+        "copy": [],
+        "launch": [
+            ("Build the display audience, the geography and the frequency cap", ""),
+            ("Get the banner set approved and click every size through to the landing page", "", 7),
+            ("Traffic the display campaign with tagged destination links", ""),
+        ],
+        "monthly": [
+            ("Report display delivery, viewability and click-through to the client", "", "report"),
+            ("Rotate or refresh the banners where a size is under-performing", "", "creative_refresh"),
+        ],
+    },
+    "ctv": {
+        "kit_product": "Connected TV - Targeted",
+        "kit_units": None,
+        "creative_title": "Connected TV spot",
+        "copy": [],
+        "launch": [
+            ("Confirm the spot lengths and formats against the buy before anything is trafficked", "", 14),
+            ("Get the finished spot approved and QC'd for broadcast", "", 7),
+            ("Build the household audience and the geography", ""),
+            ("Traffic the spot and confirm the completion tracking", ""),
+        ],
+        "monthly": [
+            ("Report impressions, completion rate and the households reached", "", "report"),
+            ("Check the spot is not wearing out and plan the next cut if it is", "", "optimize"),
+        ],
+    },
+    "digital_radio": {
+        "kit_product": "Programmatic - Targeted digital radio",
+        "kit_units": None,
+        "creative_title": "Digital radio spot",
+        "copy": [],
+        "launch": [
+            ("Write the audio script and get it approved before voice production", "", 14),
+            ("Produce and approve the finished audio spot", "", 7),
+            ("Build the audience, the geography and the daypart plan", ""),
+            ("Traffic the audio and any companion banner with tagged destination links", ""),
+        ],
+        "monthly": [
+            ("Report audio delivery, completion rate and companion banner clicks", "", "report"),
+        ],
+    },
+    "paid_social": {
+        "kit_product": "Facebook | Instagram - Paid Social Media Video Advertising",
+        "kit_units": None,
+        "copy": [
+            ("Paid social ad copy: primary text, headlines and descriptions",
+             "One set per ad, matched to the creative and the landing destination, within each platform's text limits."),
+        ],
+        "launch": [
+            ("Confirm the platform pixel or conversions API is installed and firing", "", 14),
+            ("Build the audience and the geography in the platform's ads manager", ""),
+            ("Get the creative approved before the campaign is enabled", "", 7),
+        ],
+        "monthly": [
+            ("Report paid social reach, clicks, leads and cost per lead", "", "report"),
+            ("Refresh creative that is fatiguing and pause the weakest ads", "", "creative_refresh"),
+        ],
+    },
+    "email": {
+        "kit_product": "List Provided Email",
+        "kit_units": None,
+        "copy": [
+            ("Email subject line, preheader and body copy",
+             "Written to the approved offer and landing page, with the unsubscribe and sender details the send requires."),
+        ],
+        "launch": [
+            ("Confirm the list source and that it may be mailed", "", 7),
+            ("Get the email creative approved and test-render it on phone and desktop", "", 5),
+            ("Schedule the send and confirm the tracking on every link", ""),
+        ],
+        "monthly": [
+            ("Send the month's email and report delivered, opened and clicked", "", "email"),
+        ],
+    },
+    "dooh": {
+        "kit_product": "Digital Outdoor & Indoor Signage",
+        "kit_units": None,
+        "copy": [],
+        "launch": [
+            ("Confirm the screens, the venues and the dayparts on the buy", ""),
+            ("Get the signage artwork approved for every screen size on the buy", "", 7),
+            ("Traffic the artwork and confirm the flight dates with the network", ""),
+        ],
+        "monthly": [
+            ("Report plays, venues and estimated impressions to the client", "", "report"),
+        ],
+    },
+    "web": {
+        "kit_product": "",
+        "kit_units": None,
+        "copy": [
+            ("Website content: page copy, photography and logo files",
+             "Everything the build needs from the client before design starts; the site cannot launch on placeholder copy."),
+        ],
+        "launch": [
+            ("Agree the sitemap, the pages and who supplies the content", "", 14),
+            ("Build the site, review it with the client and get sign-off", "", 3),
+            ("Point the domain, confirm analytics and forms, and launch", ""),
+        ],
+        "monthly": [
+            ("Confirm hosting, backups and updates ran, and report any site changes made", "", "web"),
         ],
     },
 }
@@ -247,14 +450,14 @@ RECIPES: dict[str, dict] = {
 # Every run gets these whatever the channels are.
 GENERIC_LAUNCH = [
     ("Confirm the signed proposal, the budget and the launch date with the client", ""),
-    ("Confirm the landing page is live, loads on a phone and carries the primary call to action", ""),
-    ("Confirm conversion tracking is in place before any spend starts", ""),
+    ("Confirm the landing page is live, loads on a phone and carries the primary call to action", "", 7),
+    ("Confirm conversion tracking is in place before any spend starts", "", 7),
     ("Send the client a launch confirmation saying what goes live and when", ""),
 ]
 GENERIC_MONTHLY = [
-    ("Send the client the monthly performance report covering every channel", ""),
-    ("Check that spend is pacing to the monthly budget in the proposal", ""),
-    ("Review what the proposal promised for this month against what was delivered", ""),
+    ("Send the client the monthly performance report covering every channel", "", "report"),
+    ("Check that spend is pacing to the monthly budget in the proposal", "", "optimize"),
+    ("Review what the proposal promised for this month against what was delivered", "", "review"),
 ]
 
 
@@ -279,7 +482,7 @@ def _squash(text: str) -> str:
 
 def _item(list_name: str, title: str, detail: str = "", *, channel: str = "",
           channel_name: str = "", source: str = SOURCE_RULE, evidence: str = "",
-          grounded=None, key: str = "", kind: str = "") -> dict:
+          grounded=None, key: str = "", kind: str = "", lead_days: int = 0) -> dict:
     title = " ".join(str(title or "").split())[:MAX_TITLE]
     ident = key or f"{list_name}:{channel or 'all'}:{_slug(title)}"
     row = {
@@ -290,34 +493,92 @@ def _item(list_name: str, title: str, detail: str = "", *, channel: str = "",
         "evidence": str(evidence or "").strip()[:MAX_EVIDENCE],
         "grounded": grounded,
     }
+    if list_name == "launch":
+        # How many days before launch this has to be done. Zero is launch
+        # day; `resolve()` turns it into a date once a launch date is known.
+        try:
+            row["lead_days"] = max(0, int(lead_days or 0))
+        except (TypeError, ValueError):
+            row["lead_days"] = 0
     if list_name == "creative":
         # A file (image, video, audio) has a supplier to ask about; copy is
         # always ours to write, and asking who supplies the ad copy is the
         # question that teaches people to stop reading the list.
         row["kind"] = kind or "file"
+    if list_name == "monthly":
+        # Which promise this is -- a report, the month's content, a video --
+        # read by `hub/proposal_promises.py` to decide what proves it landed.
+        # Blank for an item the model found or a person typed.
+        row["kind"] = kind if kind in PROMISE_KINDS else ""
     return row
 
 
 # ---------------------------------------------------------------------------
 # Creative from the kit
 # ---------------------------------------------------------------------------
-def _kit_creative(key: str, recipe: dict, channel_name: str) -> tuple[list[dict], str]:
+def _launch_rows(rows) -> list[tuple[str, str, int]]:
+    """A recipe's launch rows as (title, detail, lead_days) -- a row may be
+    written with or without its lead time."""
+    out = []
+    for row in rows or []:
+        title, detail = row[0], row[1] if len(row) > 1 else ""
+        lead = row[2] if len(row) > 2 else 0
+        out.append((title, detail, lead))
+    return out
+
+
+def _monthly_rows(rows) -> list[tuple[str, str, str]]:
+    """A recipe's monthly rows as (title, detail, kind) -- a row may be
+    written without its kind, and an unknown kind reads as none."""
+    out = []
+    for row in rows or []:
+        title, detail = row[0], row[1] if len(row) > 1 else ""
+        kind = row[2] if len(row) > 2 else ""
+        out.append((title, detail, kind if kind in PROMISE_KINDS else ""))
+    return out
+
+
+def _kit_creative(key: str, recipe: dict, channel_name: str, *, state: dict | None = None,
+                  medium: str = "") -> tuple[list[dict], str]:
     """The kit's units for one channel, as plan items. `(items, note)` --
     the note says when the kit maps nothing, so an empty creative list can
-    be told from a channel that genuinely needs no file."""
-    product = recipe.get("kit_product") or ""
-    if not product:
-        return [], ""
+    be told from a channel that genuinely needs no file.
+
+    Handed a `state` (the quote's own line items for this channel) the kit
+    is asked about those products -- the Proposal Builder's creative gate's
+    own reading. Without one the recipe's representative product stands in,
+    which is the text path.
+    """
+    if state is None:
+        product = recipe.get("kit_product") or ""
+        if not product:
+            return [], ""
+        state = {"items": [{"product": product, "category": ""}]}
     try:
         from hub import creative_needs
-        state = {"items": [{"product": product, "category": ""}]}
-        medium = creative_needs.medium_of({"product": product, "category": ""})
-        result = creative_needs.required_units(state, medium)
+        # A channel's lines are asked about medium by medium, because the
+        # gate files a Snapchat buy under the card's video heading and a
+        # display family carries a video product or two: asking for one
+        # medium would find none of the lines of the other.
+        media: list[str] = []
+        for item in state.get("items") or [{}]:
+            m = creative_needs.medium_of(item)
+            if m not in media:
+                media.append(m)
+        units, notes = [], []
+        for m in media:
+            result = creative_needs.required_units(state, m)
+            if result.get("measured"):
+                for u in result["units"]:
+                    if all(u["id"] != x["id"] for x in units):
+                        units.append(u)
+            elif result.get("note"):
+                notes.append(result["note"])
+        medium = media[0] if media else (medium or "other")
     except Exception as exc:                            # noqa: BLE001
         return [], f"The creative spec kit could not be read for {channel_name} ({type(exc).__name__})."
-    if not result.get("measured"):
-        return [], result.get("note") or f"The spec kit maps no unit for {channel_name}."
-    units = result["units"]
+    if not units:
+        return [], f"The spec kit maps no unit for {channel_name}" + (f" ({'; '.join(notes)})" if notes else ".")
     wanted = recipe.get("kit_units")
     if wanted:
         by_id = {u["id"]: u for u in units}
@@ -343,7 +604,13 @@ def _kit_creative(key: str, recipe: dict, channel_name: str) -> tuple[list[dict]
     for unit in units:
         label = unit.get("label") or unit["id"]
         detail = creative_needs._describe_unit(unit)
-        title = recipe.get("creative_title") if len(units) == 1 and recipe.get("creative_title") else f"{channel_name}: {label}"
+        # One unit is the channel's one ask and is named for itself -- the
+        # channel is on the tag beside it, and "Connected TV: Connected TV"
+        # says one thing twice. Several are told apart by the channel.
+        if len(units) == 1:
+            title = recipe.get("creative_title") or label
+        else:
+            title = f"{channel_name}: {label}"
         items.append(_item("creative", title, detail, channel=key, channel_name=channel_name,
                            key=f"creative:{key}:{unit['id']}", kind=unit.get("kind") or "image"))
     return items, ""
@@ -368,19 +635,33 @@ def rule_items(analysis: dict, client: str = "") -> tuple[dict, list[str]]:
     Returns `({"creative": [...], "launch": [...], "monthly": [...]}, notes)`.
     """
     channels = [c for c in (analysis or {}).get("channels") or [] if isinstance(c, dict)]
+    quote = (analysis or {}).get("quote") if isinstance((analysis or {}).get("quote"), dict) else None
     out = {name: [] for name in LISTS}
     notes: list[str] = []
-    for title, detail in GENERIC_LAUNCH:
-        out["launch"].append(_item("launch", title, detail))
+    for title, detail, lead in _launch_rows(GENERIC_LAUNCH):
+        out["launch"].append(_item("launch", title, detail, lead_days=lead))
     for ch in channels:
         key = str(ch.get("key") or "other")
         name = str(ch.get("name") or key.replace("_", " ").title())
         recipe = RECIPES.get(key)
-        if not recipe:
+        if not recipe and not quote:
             notes.append(f"{name} is not a channel this Hub has a recipe for, so its creative "
                          f"and tasks are asked about rather than listed.")
             continue
-        kit_items, kit_note = _kit_creative(key, recipe, name)
+        recipe = recipe or {}
+        if quote and ch.get("products"):
+            # The quote's own lines for this channel are what the kit is
+            # asked about -- a Connected TV buy gets the kit's CTV units
+            # whatever representative product the recipe names, and a
+            # channel the gate treats as copy-only (search, SEO) gets none.
+            if recipe.get("kit_product") or not recipe:
+                kit_items, kit_note = _kit_creative(
+                    key, recipe, name, state={"items": list(ch["products"])},
+                    medium=str(ch.get("medium") or ""))
+            else:
+                kit_items, kit_note = [], ""
+        else:
+            kit_items, kit_note = _kit_creative(key, recipe, name)
         out["creative"].extend(kit_items)
         if kit_note:
             notes.append(kit_note)
@@ -391,14 +672,35 @@ def rule_items(analysis: dict, client: str = "") -> tuple[dict, list[str]]:
                 # so this one is asked about like a banner is.
                 detail = f"{detail} {_social_sizes_note()}".strip()
                 kind = "image"
+            elif key == "web":
+                kind = "image"
             out["creative"].append(_item("creative", title, detail, channel=key,
                                          channel_name=name, kind=kind))
-        for title, detail in recipe.get("launch") or []:
-            out["launch"].append(_item("launch", title, detail, channel=key, channel_name=name))
-        for title, detail in recipe.get("monthly") or []:
-            out["monthly"].append(_item("monthly", title, detail, channel=key, channel_name=name))
-    for title, detail in GENERIC_MONTHLY:
-        out["monthly"].append(_item("monthly", title, detail))
+        for title, detail, lead in _launch_rows(recipe.get("launch")):
+            out["launch"].append(_item("launch", title, detail, channel=key, channel_name=name,
+                                       lead_days=lead))
+        for title, detail, kind in _monthly_rows(recipe.get("monthly")):
+            out["monthly"].append(_item("monthly", title, detail, channel=key, channel_name=name,
+                                        kind=kind))
+    if quote:
+        # Lines on the quote that are not a campaign -- a production line,
+        # a tracking number, a list purchase -- are still work somebody does
+        # before launch. Named rather than folded into a channel; a fee is
+        # left alone, because nobody sets up a management fee.
+        for line in quote.get("other_lines") or []:
+            category = str(line.get("category") or "").upper()
+            label = str(line.get("label") or line.get("product") or "").strip()
+            if not label or category in ("MANAGEMENT", "CONSULTING"):
+                continue
+            if category == "CREATIVE / DESIGN SERVICES":
+                out["launch"].append(_item("launch", f"Produce the {label} the quote sells",
+                                           line.get("description") or "", lead_days=7))
+            elif category == "ADD-ON PRODUCT":
+                out["launch"].append(_item("launch", f"Set up {label}",
+                                           line.get("description") or "A line on the quote that is not a campaign of its own.",
+                                           lead_days=3))
+    for title, detail, kind in _monthly_rows(GENERIC_MONTHLY):
+        out["monthly"].append(_item("monthly", title, detail, kind=kind))
     return out, notes
 
 
@@ -601,18 +903,38 @@ def questions(analysis: dict, items: dict, text: str, client: str,
     out: list[dict] = []
     channels = [c for c in (analysis or {}).get("channels") or [] if isinstance(c, dict)]
     low = str(text or "").lower()
+    quote = (analysis or {}).get("quote") if isinstance((analysis or {}).get("quote"), dict) else None
+    quote_supply = (quote or {}).get("supply") or {}
+    document = "quote" if quote else "proposal"
 
-    def add(key, question, why, *, type_="text", options=None, from_text="", evidence=""):
+    def add(key, question, why, *, type_="text", options=None, from_text="", evidence="",
+            source=""):
         row = {"key": key, "question": question, "why": why, "type": type_,
                "answer": answers.get(key, "") if key in answers else (from_text or ""),
-               "from_text": bool(from_text) and key not in answers, "evidence": evidence}
+               "from_text": bool(from_text) and key not in answers, "evidence": evidence,
+               # Which document answered, so the screen can say "from the
+               # quote" rather than "from the proposal" about a quote.
+               "source_label": (source or document) if from_text else ""}
         if options:
             row["options"] = [{"value": v, "label": l} for v, l in options]
         out.append(row)
 
-    if not (analysis or {}).get("flight_dates"):
+    # The launch date is always asked: every launch task is measured from
+    # it. A quote's own start date answers it, marked as the quote's; a
+    # text proposal carrying flight dates is answered from the first one.
+    start = str((quote or {}).get("start_date") or "").strip()
+    dates = [str(d) for d in (analysis or {}).get("flight_dates") or [] if str(d).strip()]
+    if start:
         add("launch_date", "When does the campaign launch?",
-            "The proposal carries no start date, and every launch task is measured from one.")
+            "Every launch task is measured from the start date.",
+            from_text=start, evidence=f"Start date on the quote: {start}.", source="quote")
+    elif dates:
+        add("launch_date", "When does the campaign launch?",
+            "Every launch task is measured from the start date.",
+            from_text=dates[0], evidence=f"The proposal's flight dates: {', '.join(dates[:3])}.")
+    else:
+        add("launch_date", "When does the campaign launch?",
+            f"The {document} carries no start date, and every launch task is measured from one.")
 
     creative_channels = {}
     for it in items.get("creative") or []:
@@ -626,7 +948,14 @@ def questions(analysis: dict, items: dict, text: str, client: str,
         # the channel says who makes it. Any of them is the document's
         # answer; none of them stops a person changing it.
         recipe = RECIPES.get(key) or {}
-        if recipe.get("supplier"):
+        source = ""
+        if key in quote_supply:
+            # The quote's creative step, or a production line on it: the
+            # rep answered this on the proposal, and asking again is asking
+            # what the document in front of them says.
+            inferred, line = quote_supply[key]["who"], quote_supply[key]["evidence"]
+            source = "quote"
+        elif recipe.get("supplier"):
             inferred, line = recipe["supplier"], "This product includes production."
         elif key in supply:
             inferred, line = supply[key]["who"], supply[key]["evidence"]
@@ -637,23 +966,38 @@ def questions(analysis: dict, items: dict, text: str, client: str,
             f"Who is supplying the {name} creative?",
             "The plan lists what has to exist; whether the client hands it over or Smart 1 produces it "
             "decides whether the launch tasks include production.",
-            type_="choice", options=SUPPLY_CHOICES, from_text=inferred, evidence=line)
+            type_="choice", options=SUPPLY_CHOICES, from_text=inferred, evidence=line, source=source)
 
     for ch in channels:
         key = str(ch.get("key") or "other")
         name = str(ch.get("name") or key)
         if not ch.get("budgets"):
             add(f"budget:{key}", f"What is the monthly budget for {name}?",
-                "The proposal names the channel and no dollar amount was found beside it.")
+                f"The {document} names the channel and no dollar amount was found beside it.")
         if key == "other" or key not in RECIPES:
             add(f"creative_for:{_slug(name)}", f"What creative does {name} need?",
                 "This Hub has no recipe for that channel, so nothing was listed for it rather than guessing.")
 
-    if "report" not in low:
+    cadence_options = (("monthly", "Monthly"), ("weekly", "Weekly"),
+                       ("quarterly", "Quarterly"), ("none", "No report is promised"))
+    reporting = (quote or {}).get("reporting") or {}
+    if quote:
+        # A quote always has a Reporting section, so "the word report
+        # appears" proves nothing; what counts is whether the section names
+        # a cadence. One it names is the quote's answer; none is a question.
+        if reporting.get("cadence"):
+            add("reporting_cadence", f"How often does {client or 'the client'} get a performance report?",
+                "The monthly report is on the task list; the cadence decides how often.",
+                type_="choice", options=cadence_options, from_text=reporting["cadence"],
+                evidence=reporting.get("evidence") or "", source="quote")
+        else:
+            add("reporting_cadence", f"How often does {client or 'the client'} get a performance report?",
+                "The quote's Reporting section names no cadence, and a monthly report is on the task list by default.",
+                type_="choice", options=cadence_options)
+    elif "report" not in low:
         add("reporting_cadence", f"How often does {client or 'the client'} get a performance report?",
             "The proposal does not mention reporting, and a monthly report is on the task list by default.",
-            type_="choice", options=(("monthly", "Monthly"), ("weekly", "Weekly"),
-                                      ("quarterly", "Quarterly"), ("none", "No report is promised")))
+            type_="choice", options=cadence_options)
 
     for row in unclear or []:
         key = f"ai:{_slug(row.get('question') or '')}"
@@ -828,5 +1172,244 @@ def kept_items(plan: dict, list_name: str) -> list[dict]:
     return [it for it in (plan or {}).get(list_name) or [] if it.get("accepted") is True]
 
 
-__all__ = ["LISTS", "LIST_LABELS", "RECIPES", "SUPPLY_CHOICES", "build_plan", "rule_items",
-           "ai_items", "questions", "apply_decisions", "carry_forward", "summarize", "kept_items"]
+# ---------------------------------------------------------------------------
+# Answers, read by the work
+# ---------------------------------------------------------------------------
+_DATE_FORMATS = ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%B %d, %Y", "%B %d %Y", "%b %d, %Y",
+                 "%b %d %Y", "%Y-%m-%dT%H:%M:%S", "%m-%d-%Y", "%d %B %Y")
+
+
+def parse_day(value) -> date | None:
+    """A typed or stored date as a `date`, or None. Never raises: an answer
+    nothing can read is an answer, and a launch date the page cannot place
+    costs the due dates rather than the plan."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    text = re.sub(r"(\d)(st|nd|rd|th)\b", r"\1", text)
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(text[:len(text)], fmt).date()
+        except ValueError:
+            continue
+    m = re.search(r"\d{4}-\d{2}-\d{2}", text)
+    if m:
+        try:
+            return datetime.strptime(m.group(0), "%Y-%m-%d").date()
+        except ValueError:
+            return None
+    return None
+
+
+def _day_label(day: date) -> str:
+    return day.strftime("%b ") + str(day.day) + (day.strftime(", %Y") if day.year != date.today().year else "")
+
+
+def _answer_of(plan: dict, key: str) -> str:
+    """A question's answer as it stands: what a person typed, else what the
+    document itself said. The same reading the screen shows."""
+    stored = (plan or {}).get("answers") or {}
+    if key in stored:
+        return str(stored[key] or "")
+    for q in (plan or {}).get("questions") or []:
+        if q.get("key") == key:
+            return str(q.get("answer") or "")
+    return ""
+
+
+def resolve(plan: dict) -> dict:
+    """The plan with its answers applied, for reading -- never for storing.
+
+    A launch date becomes a due date on every launch task and creative item
+    (each launch row carries the days before launch it needs; creative is
+    wanted `LEAD_DAYS_CREATIVE` ahead); a supplier answer becomes a mark on
+    every creative item of its channel; a reporting cadence lands on the
+    report tasks. `resolved` carries the answers themselves so a brief or a
+    packet reads one dict rather than walking the questions.
+
+    Derived on every read and written nowhere: a date baked into the items
+    would outlive the answer that produced it, and there are two gunicorn
+    workers to disagree about which copy is current.
+    """
+    plan = json.loads(json.dumps(plan or {}))
+    launch_raw = _answer_of(plan, "launch_date")
+    launch = parse_day(launch_raw)
+    cadence = _answer_of(plan, "reporting_cadence")
+    resolved = {"launch_date": launch.isoformat() if launch else "",
+                "launch_date_raw": launch_raw, "launch_date_label": _day_label(launch) if launch else "",
+                "reporting_cadence": cadence,
+                "reporting_cadence_label": CADENCE_LABELS.get(cadence, cadence),
+                "supply": {}, "budgets": {}, "unreadable_launch_date": bool(launch_raw and not launch)}
+    for q in plan.get("questions") or []:
+        key = str(q.get("key") or "")
+        value = _answer_of(plan, key)
+        if not value:
+            continue
+        if key.startswith("creative_supply:"):
+            resolved["supply"][key.split(":", 1)[1]] = value
+        elif key.startswith("budget:"):
+            resolved["budgets"][key.split(":", 1)[1]] = value
+    for it in plan.get("creative") or []:
+        who = resolved["supply"].get(it.get("channel") or "")
+        if who and it.get("kind") != "copy":
+            it["supplier"] = who
+            it["supplier_label"] = SUPPLY_LABELS.get(who, who)
+        if launch:
+            due = launch - timedelta(days=LEAD_DAYS_CREATIVE)
+            it["due"] = due.isoformat()
+            it["due_label"] = f"in hand by {_day_label(due)}, {LEAD_DAYS_CREATIVE} days before launch"
+    for it in plan.get("launch") or []:
+        if not launch:
+            continue
+        lead = int(it.get("lead_days") or 0)
+        due = launch - timedelta(days=lead)
+        it["due"] = due.isoformat()
+        it["due_label"] = f"by {_day_label(due)}" + (f", {lead} days before launch" if lead else " (launch day)")
+    for it in plan.get("monthly") or []:
+        if launch:
+            first = (launch.replace(day=1) + timedelta(days=32)).replace(day=1)
+            it["starts"] = first.isoformat()
+            it["due_label"] = f"first due {first.strftime('%B %Y')}"
+        if cadence and "report" in str(it.get("title") or "").lower():
+            it["cadence"] = cadence
+            it["cadence_label"] = CADENCE_LABELS.get(cadence, cadence)
+    plan["resolved"] = resolved
+    return plan
+
+
+def answers_for(plan: dict, channel: str = "") -> dict:
+    """The answers a downstream draft for one channel may read, as
+    `{question: answer}` -- the run-wide ones (launch date, reporting
+    cadence, anything the model asked) and the ones keyed on this channel.
+    An unanswered question is left out rather than handed over blank."""
+    out = {}
+    for q in (plan or {}).get("questions") or []:
+        key = str(q.get("key") or "")
+        value = _answer_of(plan, key)
+        if not value:
+            continue
+        scoped = key.split(":", 1)[1] if ":" in key else ""
+        if key.startswith(("creative_supply:", "budget:")):
+            if channel and scoped != channel:
+                continue
+        elif key.startswith("creative_for:") and channel:
+            continue
+        label = str(q.get("question") or key)
+        if key.startswith("creative_supply:"):
+            value = SUPPLY_LABELS.get(value, value)
+        elif key == "reporting_cadence":
+            value = CADENCE_LABELS.get(value, value)
+        out[label] = value
+    return out
+
+
+# ---------------------------------------------------------------------------
+# What to do about a creative item
+# ---------------------------------------------------------------------------
+# A creative item that names a set and offers nothing to do about it sends a
+# rep through two screens to find the tool. The tools already exist -- Stale
+# Creative sends a rep to the Display Ad Builder's start form with the client
+# filled in, and this is the same press one screen earlier -- so each item
+# carries the action its kind and its supplier decide, from this table and
+# never from a copy of it in the page.
+CREATIVE_TOOLS = {
+    "display": {"label": "Display Ad Builder", "href": "/tools/display-ads/_hub/start?client={client}"},
+    "video": {"label": "Commercial Builder", "href": "/tools/commercial-builder/new"},
+    "audio": {"label": "Radio Ad Creator", "href": "/tools/radio-promo/"},
+    "image": {"label": "Image Creator", "href": "/tools/image-creator/"},
+    "social": {"label": "Social Content Planner", "href": "/tools/social/"},
+    "gpt": {"label": "GPT Ads Builder", "href": "/tools/gpt-ads/"},
+}
+# Which tool makes an image for which channel. Banners -- a display buy, a
+# retargeting set, a companion banner beside a spot -- are the Display Ad
+# Builder's; a post graphic is the planner's; the AI placement's square is
+# GPT Ads'; anything else is an Image Creator canvas.
+_IMAGE_TOOL_BY_CHANNEL = {"display": "display", "retargeting": "display",
+                          "stadium_audio": "display", "digital_radio": "display",
+                          "social": "social", "ai_ads": "gpt"}
+# Copy is written by a task on the board rather than in a tool; the action
+# points at that task where the run has one.
+COPY_TASKS = {"paid_search": "paid_search_ads", "meta": "meta_carousel",
+              "ai_ads": "ai_ads_plan", "social": "social_posts"}
+
+
+def tool_for(item: dict) -> dict | None:
+    """The tool that makes this item's kind of file, or None for copy."""
+    kind = str((item or {}).get("kind") or "")
+    if kind == "copy":
+        return None
+    if kind == "video":
+        return CREATIVE_TOOLS["video"]
+    if kind == "audio":
+        return CREATIVE_TOOLS["audio"]
+    if kind == "package":
+        return CREATIVE_TOOLS["display"]
+    key = _IMAGE_TOOL_BY_CHANNEL.get(str((item or {}).get("channel") or ""), "image")
+    return CREATIVE_TOOLS[key]
+
+
+def item_actions(item: dict, *, client: str = "", task_keys=(), upload: dict | None = None) -> list[dict]:
+    """The presses a creative item offers, decided by its kind and supplier.
+
+    Smart 1 produces it -> make it in the tool, with the client filled in
+    where the tool takes one. The client supplies it -> the upload link,
+    which is the gallery's own share link where one exists and a press that
+    creates one where it does not (creating is asked for, never assumed --
+    `modules/image_picker/provisioning.py`'s rule). Nobody has said ->
+    both are offered, because the item is still somebody's to act on.
+    Copy points at the board task that drafts it, where the run has one.
+    """
+    from urllib.parse import quote_plus
+    item = item or {}
+    upload = upload or {}
+    out: list[dict] = []
+    if item.get("kind") == "copy":
+        task = COPY_TASKS.get(str(item.get("channel") or ""))
+        if task and task in set(task_keys or ()):
+            out.append({"kind": "task", "label": "Drafted by the board", "task_key": task,
+                        "href": f"#task-{task}"})
+        return out
+    who = str(item.get("supplier") or "")
+    tool = tool_for(item)
+    if who in ("smart1", "mixed", "") and tool:
+        out.append({"kind": "create", "label": f"Make it in {tool['label']}", "tool": tool["label"],
+                    "href": tool["href"].format(client=quote_plus(client or ""))})
+    if who in ("client", "mixed", ""):
+        share = str(upload.get("share_url") or "")
+        act: dict = {"kind": "request", "label": "Request from the client", "href": share}
+        if not share:
+            # No link yet: the press creates the gallery. Two galleries that
+            # could be this client is the one case nothing may be created,
+            # because the wrong one collects their photographs.
+            act["provision"] = not upload.get("ambiguous") and not upload.get("error")
+            if upload.get("error"):
+                act["note"] = str(upload["error"])
+        elif upload.get("share_enabled") is False:
+            act["note"] = str(upload.get("note") or "This gallery's link is switched off.")
+        out.append(act)
+    return out
+
+
+def with_actions(plan: dict, *, client: str = "", task_keys=(), upload: dict | None = None) -> dict:
+    """The resolved plan with an `actions` list on every creative item, and
+    the client's upload link on `resolved` so the page can show it once.
+    Never raises: an item whose action cannot be decided carries none."""
+    plan = json.loads(json.dumps(plan or {}))
+    upload = upload or {}
+    resolved = plan.setdefault("resolved", {})
+    resolved["upload_link"] = {k: upload.get(k) for k in
+                               ("ok", "share_url", "exists", "created", "ambiguous", "error",
+                                "note", "share_enabled", "can_create") if k in upload}
+    keys = set(task_keys or ())
+    for it in plan.get("creative") or []:
+        try:
+            it["actions"] = item_actions(it, client=client, task_keys=keys, upload=upload)
+        except Exception:                               # noqa: BLE001
+            it["actions"] = []
+    return plan
+
+
+__all__ = ["LISTS", "LIST_LABELS", "RECIPES", "SUPPLY_CHOICES", "SUPPLY_LABELS", "CADENCE_LABELS",
+           "LEAD_DAYS_CREATIVE", "CREATIVE_TOOLS", "COPY_TASKS", "build_plan", "rule_items",
+           "ai_items", "questions", "apply_decisions", "carry_forward", "summarize", "kept_items",
+           "resolve", "answers_for", "parse_day", "tool_for", "item_actions", "with_actions"]

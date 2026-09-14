@@ -272,6 +272,31 @@ def brief_from_proposal(proposal_id: str = "", client: str = "",
         except Exception:                               # noqa: BLE001
             pass
 
+    # The service area a PERSON confirmed, and nothing else.
+    #
+    # `geo` is the proposal's own geo_summary -- a media-buying targeting
+    # string like "Carmel, IN + 10-mile radius / Indianapolis DMA / +3 more".
+    # The renderer printed it above the fold as "Serving ...", so the first
+    # proof a visitor read on a page carrying the client's name was an
+    # internal buying instruction, with no field anywhere for a rep to
+    # correct it. It stays on the brief because the copy writer is allowed
+    # to know where the media runs; it is never what the page prints.
+    #
+    # A prospect is asked nothing and has no record, so there is nothing
+    # confirmed to read -- and the fallback is the client's own city, never
+    # the targeting string.
+    brief["service_area"] = ""
+    if kind != "prospect" and brief["client"]:
+        try:
+            from hub.schema_questions import confirmed_answer
+            brief["service_area"] = confirmed_answer(brief["client"],
+                                                     "service_area")
+        except Exception:                               # noqa: BLE001
+            pass
+    if not brief["service_area"]:
+        brief["service_area"] = ", ".join(
+            p for p in (brief.get("city"), brief.get("state")) if p)
+
     # The brand, so the page looks like theirs.
     try:
         from hub.client_brand import brand_kit
@@ -365,6 +390,30 @@ def write_copy(brief: dict, goal: str, offer: str,
     payload = spec.copy_brief(brief, goal, offer, promoting)
     offer_used = payload["offer_state"] == spec.READ
 
+    # What the Hub already knows about this client, assembled once by
+    # hub/client_brief.py -- the Google rating and review count with a date
+    # and a source on each, the products, the location, the voice, and an
+    # explicit "not on file, and not to be invented" list. Every other AI
+    # landing surface in the building passes it and this one passed nothing,
+    # so the "why choose us" section was written with no proof to answer a
+    # stranger's doubt with.
+    #
+    # Only for a client. A prospect has no record here, and a same-named
+    # client in the register is a DIFFERENT business -- printing their rating
+    # on a stranger's page is the one mistake in this corner that cannot be
+    # taken back. The typed form fields are all a prospect page gets, which
+    # is what it had before.
+    known = ""
+    if brief.get("kind") != "prospect" and brief.get("client"):
+        try:
+            from hub import client_brief
+            known = client_brief.for_prompt(
+                brief["client"], brief.get("website") or "",
+                heading="What we already hold about this client. Use it as "
+                        "proof; never state anything it does not.")
+        except Exception:                               # noqa: BLE001
+            known = ""
+
     fallback = {
         "headline": (f"{payload['promoting'] or brief.get('industry') or 'Local'}"
                      f" in {brief.get('city') or brief.get('geo') or 'your area'}"),
@@ -401,7 +450,8 @@ def write_copy(brief: dict, goal: str, offer: str,
               + " Before asking, the page must establish "
               + payload["must_establish"] + ".\n"
               + payload["offer_guidance"] + "\n\n"
-              + json.dumps(payload)}],
+              + json.dumps(payload)
+              + (("\n\n" + known) if known else "")}],
             module="landing_maker", purpose="page_copy",
             json_mode=True, max_tokens=1600, temperature=0.6)
         data = json.loads(re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.M))
@@ -422,16 +472,33 @@ def write_copy(brief: dict, goal: str, offer: str,
 # Real reviews, real tracking -- read, never invented
 # ---------------------------------------------------------------------------
 
-def _parse_reviews(raw: str) -> list[dict]:
-    """A rep's own pasted reviews, one per line.
+def _parse_reviews(raw: str) -> tuple[list[dict], list[str]]:
+    """A rep's own pasted reviews, one per line, and what was refused.
 
     ``Author | rating | quote`` -- the author and the rating are both
     optional, so a bare pasted quote still comes through as a review with no
     attribution rather than being dropped. Nothing here writes review text;
     it only reads what a person typed, the trust the offer field already
     gets. Capped at two, which is what the page has room for.
+
+    Two things it will not do, because both publish a claim nobody made
+    about a client's own reputation:
+
+    **A rating is a whole 1-5 or it is not a rating.** The old reading was
+    ``re.sub(r"[^0-9]", "", rating_raw)``, so a genuine ``4.5`` became the
+    integer 45 and the renderer clamped it to five filled stars -- a
+    five-star claim typed by nobody, on the one input this tool tells reps
+    is never invented. Anything else is refused **by name** and the review
+    still runs without stars, rather than being silently shown as zero: a
+    rep who watches the stars vanish types ``5`` to get them back, which
+    re-enters the false claim by hand.
+
+    **No name is no attribution.** An unattributed quote used to be
+    captioned "Google review" by the renderer -- a source nobody supplied.
+    It is published as a quote with no byline instead.
     """
     out: list[dict] = []
+    refused: list[str] = []
     for line in str(raw or "").splitlines():
         line = line.strip()
         if not line:
@@ -447,13 +514,15 @@ def _parse_reviews(raw: str) -> list[dict]:
         if not quote:
             continue
         row = {"quote": quote, "author": author}
-        digits = re.sub(r"[^0-9]", "", rating_raw)
-        if digits:
-            row["rating"] = int(digits)
+        if rating_raw:
+            if re.fullmatch(r"[1-5]", rating_raw):
+                row["rating"] = int(rating_raw)
+            else:
+                refused.append(rating_raw)
         out.append(row)
         if len(out) >= 2:
             break
-    return out
+    return out, refused
 
 
 # ---------------------------------------------------------------------------
@@ -478,12 +547,19 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
     from .landing_images import pick
 
     page_id = uuid.uuid4().hex[:12]
-    review_rows = _parse_reviews(reviews)
+    # Minted before the render rather than after it: the slug is what the
+    # form posts as `page`, so a lead can name which of a client's pages
+    # produced it. Built once here and stored on the row below.
+    slug = f"{_slug(brief['client'])}-{page_id[:6]}"
+    review_rows, refused_ratings = _parse_reviews(reviews)
     ga4_id = ga4_id.strip()
+    offer_state, _offer_note = spec.offer_state(offer)
     pics = pick(brief, benefits=len([b for b in (copy.get("benefits") or [])
                                      if isinstance(b, dict) and b.get("title")]))
     html = render_page(brief, copy, DIRECTIONS.get(direction, DIRECTIONS["trust"]),
-                       pics, goal_id=goal_id, reviews=review_rows, ga4_id=ga4_id)
+                       pics, goal_id=goal_id, reviews=review_rows, ga4_id=ga4_id,
+                       slug=slug, offer=offer,
+                       offer_usable=offer_state == spec.READ)
     # Absolute, so the form still reaches us from wherever the page is pasted.
     from hub.config import settings
     base = settings.public_base_url
@@ -491,7 +567,7 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
                          else "/api/leads/capture")
     row = {
         "id": page_id,
-        "slug": f"{_slug(brief['client'])}-{page_id[:6]}",
+        "slug": slug,
         "client": brief["client"],
         "kind": kind,
         "website": brief.get("website", ""),
@@ -504,7 +580,7 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
         "campaign": brief.get("campaign") or offer or goal,
         "direction": direction,
         "goal": goal_id, "goal_label": spec.goal(goal)["label"],
-        "offer": offer, "offer_state": spec.offer_state(offer)[0],
+        "offer": offer, "offer_state": offer_state,
         "promoting": promoting,
         "headline": copy.get("headline", ""),
         "copy_source": copy.get("source", ""),
@@ -545,6 +621,20 @@ def create(proposal_id: str = "", client: str = "", text: str = "",
         note += (" No reviews were given, so the page has no social-proof "
                  "section — paste in 1-2 real Google reviews and rebuild if "
                  "you have them. The page will never invent one.")
+    if refused_ratings:
+        # Named rather than silently shown as no stars: a rep who watches
+        # the stars vanish types "5" to get them back, which re-enters by
+        # hand the false claim this refusal exists to stop.
+        note += (" A star rating has to be a whole number 1-5; "
+                 + ", ".join(f"\u201c{r}\u201d" for r in refused_ratings[:2])
+                 + " couldn't be read, so that review is on the page with no "
+                   "stars. Fix the rating and rebuild rather than rounding "
+                   "it — the page will never round one up for you.")
+    if not brief.get("service_area"):
+        note += (" No service area is confirmed for this client, so the page "
+                 "doesn't say where they work. Answer \u201cwhich towns, "
+                 "counties or radius does the business serve?\u201d on their "
+                 "SEO record and rebuild.")
     if ga4_id and not is_valid_ga4_id(ga4_id):
         note += (" That GA4 ID didn't look like a real measurement ID "
                  "(G-XXXXXXX), so no tracking script was added.")
@@ -660,10 +750,22 @@ def revise(id_or_slug: str, instructions: str, actor: str = "") -> dict:
     from .landing_images import pick
     pics = pick(brief, benefits=len([b for b in (copy.get("benefits") or [])
                                      if isinstance(b, dict) and b.get("title")]))
+    # `goal_id` is passed explicitly. Left off, `render_page()` fell back to
+    # `copy["goal_id"]` and, where a rewrite dropped that key, to the default
+    # general-inquiry goal -- so a rewrite could quietly change which fields
+    # the form draws and which of them are required, on a page already taking
+    # paid traffic. The offer and the page's own slug travel for the same
+    # reason: a re-render must not lose the offer above the button or the
+    # identity every lead is filed under.
+    from hub import landing_spec as _spec
+    _row_offer = row.get("offer") or ""
     html = render_page(brief, copy,
                        DIRECTIONS.get(row.get("direction"), DIRECTIONS["trust"]),
-                       pics, reviews=row.get("reviews"),
-                       ga4_id=row.get("ga4_id", ""))
+                       pics, goal_id=row.get("goal") or "",
+                       reviews=row.get("reviews"),
+                       ga4_id=row.get("ga4_id", ""),
+                       slug=row.get("slug", ""), offer=_row_offer,
+                       offer_usable=_spec.offer_state(_row_offer)[0] == _spec.READ)
     from hub.config import settings
     base = settings.public_base_url
     html = with_endpoint(html, f"{base}/api/leads/capture" if base

@@ -2231,6 +2231,24 @@ jobs:
             echo "test_proposal_plan.py not on this branch — nothing to run."
           fi
 
+      # Every monthly promise on a plan was kept once and nothing asked about
+      # month two. hub/proposal_promises.py turns each kept monthly item into
+      # a row per month since launch -- landed (the work log has the work),
+      # marked done by hand, due until the 25th, missed after it, or not
+      # measured where the log cannot answer -- derived on read and stored
+      # nowhere but the mark. Asserts the kind table joins to modules the work
+      # log can name, the five states and the day boundary, that housekeeping
+      # is never raised, that a month before the log's horizon is not a miss,
+      # the QA report's shape, the health issue per missed month, and that a
+      # mark on the plan page clears the issue on read.
+      - name: Proposal Execution — monthly promises against the work log
+        run: |
+          if [ -f test_proposal_promises.py ]; then
+            python3 test_proposal_promises.py
+          else
+            echo "test_proposal_promises.py not on this branch — nothing to run."
+          fi
+
       # WO-2: real-tool adapters. Every task on the graph used to run as
       # `brief` -- an AI-written paragraph describing what somebody should
       # go and build, never the tool itself. hub/proposal_adapters/utm.py is
@@ -2326,7 +2344,15 @@ jobs:
       # Node process this test does not start, so the one HTTP-calling
       # function (hub.ad_builder_link._api) is stubbed; nothing here makes
       # a real network call.
-      - name: Proposal Execution — real-tool adapters (Display Ad Builder)
+      #
+      # Backlog item #5's other half: stadium_banners ("300x250 companion
+      # banner brief") is the same kind of build and ran as `brief` too. It
+      # now shares this file's starter (_start_build()) under its own
+      # adapter key, display_ads_banner, registered here alongside
+      # display_ads -- so a reviewer reads "companion banner" rather than
+      # "retargeting creative" on the task that is not retargeting. Same
+      # test file, same stub, one more section.
+      - name: Proposal Execution — real-tool adapters (Display Ad Builder, Stadium companion banners)
         run: |
           if [ -f test_proposal_adapters_display_ads.py ]; then
             python3 test_proposal_adapters_display_ads.py
@@ -2372,6 +2398,25 @@ jobs:
             python3 test_proposal_adapters_commercial.py
           else
             echo "test_proposal_adapters_commercial.py not on this branch — nothing to run."
+          fi
+
+      # Backlog item #7: reporting_plan ran as `brief` -- a paragraph
+      # describing a reporting cadence, with no client-facing dashboard
+      # anybody could open. modules/reports (the ad-performance reporting
+      # module, merged independently of WO-2) already has both halves this
+      # needs: a ReportLink is the client's own dashboard token
+      # (/reports/r/c/<token>) and a BudgetLine is what its pacing measures
+      # against. hub/proposal_adapters/reports.py mints one link per client
+      # and one budget line per channel the proposal's own analysis quotes a
+      # dollar figure for -- reusing a client's existing link and skipping a
+      # budget line already on file rather than doubling it on a retry, the
+      # same "already existed and were left as-is" shape utm.py uses.
+      - name: Proposal Execution — real-tool adapters (Cross-channel reporting dashboard)
+        run: |
+          if [ -f test_proposal_adapters_reports.py ]; then
+            python3 test_proposal_adapters_reports.py
+          else
+            echo "test_proposal_adapters_reports.py not on this branch — nothing to run."
           fi
 
       # A curated shortlist per department, laid over the sidebar rather than

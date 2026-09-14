@@ -228,5 +228,72 @@ finally:
     ad_builder_link._api = _real_api
 
 
+# ---------------------------------------------------------------------------
+section("stadium_banners reuses the same starter, under its own adapter and wording")
+# ---------------------------------------------------------------------------
+
+check("hub.proposal_adapters registered display_ads_banner",
+      "display_ads_banner" in {a["key"] for a in pe.adapters()}, True)
+
+clients_registry.find_client = lambda name: {"name": name, "domain": ""}
+try:
+    with hub_app.app_context():
+        run = _new_run("Stadium Banners Adapter Test Co",
+                       "PLAN\nStadium to Screen $2,000\n")
+        tasks = {t.task_key: t for t in pe.tasks_for_run(run.id)}
+        check("stadium_banners exists (the proposal mentions Stadium to Screen)",
+              "stadium_banners" in tasks, True)
+        check("...and uses the display_ads_banner adapter, not display_ads",
+              tasks["stadium_banners"].adapter, "display_ads_banner")
+        check("...in approval mode -- a person finishes the build",
+              tasks["stadium_banners"].execution_mode, "approval")
+finally:
+    clients_registry.find_client = _real_find_client
+
+
+# ---------------------------------------------------------------------------
+section("stadium_banners: a real run reaches the same real endpoint, its own wording")
+# ---------------------------------------------------------------------------
+
+_seen_banner_payloads = []
+
+
+def fake_banner_api(method, path, payload=None, timeout=(10, 60)):
+    _seen_banner_payloads.append((method, path, payload))
+    if method == "POST" and path == "/api/requests":
+        return True, {"requestId": "req-banner-1"}
+    return False, {"error": "unexpected call"}
+
+
+clients_registry.find_client = lambda name: {"name": name, "domain": "stadiumbannerstest.example.com"}
+ad_builder_link._api = fake_banner_api
+try:
+    with hub_app.app_context():
+        run = _new_run("Stadium Banners Real Run Co",
+                       "PLAN\nStadium to Screen $2,000\n")
+        run = pe.update_inputs(run.id, {"landing_url": "stadiumbannerstest.example.com",
+                                        "target_geography": "Columbus, OH",
+                                        "primary_cta": "Get tickets",
+                                        "conversion_goal": "form fill"}, actor="rep@example.com")
+        run = pe.start_run(run.id, actor="rep@example.com")
+        tasks = _drain(run)
+        banner_task = tasks["stadium_banners"]
+        check("stadium_banners reaches needs_approval (mode=approval)",
+              banner_task.state, pe.NEEDS_APPROVAL)
+        result = banner_task.result()
+        check("a real request_id came back", result.get("request_id"), "req-banner-1")
+        check("the summary reads 'companion banner', not 'retargeting creative'",
+              "companion banner" in result.get("summary", ""), True)
+
+        method, path, payload = _seen_banner_payloads[-1]
+        check("the same real renderer endpoint was called", (method, path),
+              ("POST", "/api/requests"))
+        check("the campaign name carries the channel's own name",
+              "Stadium to Screen" in (payload.get("campaignName") or ""), True)
+finally:
+    clients_registry.find_client = _real_find_client
+    ad_builder_link._api = _real_api
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

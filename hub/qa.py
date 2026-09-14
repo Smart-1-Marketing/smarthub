@@ -2479,6 +2479,99 @@ def io_delivery_report() -> dict:
 
 
 
+def monthly_promises() -> dict:
+    """Every monthly promise the open execution plans keep, this month and
+    last, against the work log.
+
+    `hub/proposal_promises.py` holds every rule. What matters here is the
+    shape: a missed deliverable is the finding and is drawn red; one still
+    due this month is amber, because there is time; a landed or hand-marked
+    month is listed under its own heading so the report is a picture of the
+    book and not only of what is wrong; and a month the log cannot answer
+    for is *not measured*, never missed. Housekeeping promises are on each
+    plan and never here. A run that could not read its plans answers
+    `measured: False`, so `report_cache` never freezes "we could not look"
+    into the shape of "every promise was kept".
+    """
+    from . import proposal_promises as pp
+
+    data = pp.report()
+    note = pp.note(data)
+    columns = ["Client", "Promise", "Month", "Status", "Evidence", "Plan", "Mark"]
+    if not data.get("measured"):
+        return {"columns": columns, "rows": [], "row_styles": [],
+                "measured": False, "error": data.get("error", ""), "note": note}
+
+    rows, styles = [], []
+
+    def _evidence(row):
+        ev = row.get("evidence") or []
+        if ev:
+            first = ev[0]
+            more = len(ev) - 1
+            return (f"{first.get('source') or first.get('action')} · {first.get('when')}"
+                    + (f" (+{more} more)" if more > 0 else ""))
+        if row.get("state") == pp.MARKED:
+            mk = row.get("mark") or {}
+            return (f"marked by {mk.get('by') or 'somebody'} on {str(mk.get('at') or '')[:10]}"
+                    + (f" — {mk['note']}" if mk.get("note") else ""))
+        if row.get("state") == pp.NOT_MEASURED:
+            return {"muted": True, "text": row.get("reason") or "not measured"}
+        if row.get("tracked"):
+            return {"muted": True, "text": "nothing in the activity log for this client"}
+        return {"muted": True, "text": "recorded by hand only — nothing here logs it"}
+
+    def _mark_cell(row):
+        ref = {"run": row["run"], "item": row["item"], "month": row["month"]}
+        if row.get("state") == pp.MARKED:
+            return {"promise_unmark": ref}
+        if row.get("state") == pp.LANDED:
+            return ""
+        return {"promise_mark": ref}
+
+    def _row(row):
+        return [
+            _c360_link(row["client"]),
+            {"text": row["promise"], "title": row.get("kind_label") or ""},
+            row["month_label"],
+            row["state_label"],
+            _evidence(row),
+            {"text": row.get("title") or "Proposal", "href": row["url"]},
+            _mark_cell(row),
+        ]
+
+    bands = (
+        (pp.MISSED, "Missed — nothing landed and nobody marked it", "now", "bad"),
+        (pp.DUE, f"Due this month — nothing yet, before the {pp.DUE_DAY}th", "soon", "warn"),
+        (pp.NOT_MEASURED, "Not measured — the activity log cannot answer for the month", "later", None),
+        (pp.LANDED, "Landed — the activity log has the work", "later", None),
+        (pp.MARKED, "Marked done by hand", "later", None),
+    )
+    all_rows = data.get("rows") or []
+    for state, heading, tone, style in bands:
+        band = [r for r in all_rows if r.get("state") == state]
+        if not band:
+            continue
+        band.sort(key=lambda r: (r["month"], str(r["client"]).lower(), r["promise"]))
+        rows.append([{"group": f"{heading} ({len(band)})", "tone": tone}, "", "", "", "", "", ""])
+        styles.append(None)
+        for r in band:
+            rows.append(_row(r))
+            styles.append(style)
+    if data.get("no_launch"):
+        rows.append([{"group": f"No launch date answered — months cannot be measured "
+                               f"({len(data['no_launch'])})", "tone": "later"},
+                     "", "", "", "", "", ""])
+        styles.append(None)
+        for r in data["no_launch"]:
+            rows.append([_c360_link(r["client"]), {"muted": True, "text": r.get("why") or ""},
+                         "", "", "", {"text": r.get("title") or "Proposal", "href": r["url"]}, ""])
+            styles.append(None)
+
+    return {"columns": columns, "rows": rows, "row_styles": styles,
+            "measured": True, "note": note}
+
+
 def knack_field_map() -> dict:
     """Every Knack object and field this Hub knows about, and who owns each.
 
@@ -2721,6 +2814,16 @@ REPORTS = {
         "ico": "&#128222;",
         "fn": prospect_queue,
         "group": "Sales",
+    },
+    "monthly-promises": {
+        "title": "Promises Not Kept This Month",
+        "desc": "What the open execution plans promise every month — the "
+                "report, the content, the video, the posts — against what "
+                "the activity log shows landed, with nothing by the 25th "
+                "raised and a month the log cannot answer for left unmeasured.",
+        "ico": "&#128197;",
+        "fn": monthly_promises,
+        "group": "Clients",
     },
     "active-clients": {
         "title": "Active Clients",

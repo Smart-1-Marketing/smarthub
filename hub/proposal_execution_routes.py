@@ -151,6 +151,38 @@ def save_plan(run_id):
         return _error(exc)
 
 
+@bp.post("/api/proposal-execution/run/<int:run_id>/upload-link")
+def upload_link(run_id):
+    """Create the client's upload gallery so a creative item the client
+    supplies can hand them the link. A press, never a page load: creating a
+    gallery is asked for, not assumed."""
+    owner, _name = _who()
+    try:
+        run, got = pe.provision_upload_link(run_id, base=request.host_url, actor=owner)
+        return jsonify(ok=True, link=got, run=run.as_dict(full=True))
+    except Exception as exc:  # noqa: BLE001
+        return _error(exc)
+
+
+@bp.post("/api/proposal-execution/run/<int:run_id>/promise")
+def promise(run_id):
+    """Mark a monthly promise kept for one month, or take the mark back.
+
+    Body: `item`, `month` (YYYY-MM), `done` (default true), `note`. The mark
+    is the one thing the schedule writes; everything else on it is derived
+    from the launch date, the calendar and the work log on every read.
+    """
+    owner, _name = _who()
+    body = request.get_json(silent=True) or {}
+    try:
+        run = pe.mark_promise(run_id, body.get("item"), body.get("month"),
+                              done=body.get("done", True) is not False,
+                              note=str(body.get("note") or ""), actor=owner)
+        return jsonify(ok=True, run=run.as_dict(full=True))
+    except Exception as exc:  # noqa: BLE001
+        return _error(exc)
+
+
 @bp.post("/api/proposal-execution/run/<int:run_id>/start")
 def start(run_id):
     owner, _name = _who()
