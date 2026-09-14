@@ -45,6 +45,10 @@ def _h(*a, **kw) -> Help:
 
 
 REGISTRY: list[Help] = [
+    _h("youtube_ads.workspace.overview", "Build and review YouTube advertising",
+       "Choose the advertiser's Google Ads account, save a video campaign draft, review its settings and validate it with Google. Creation leaves the campaign and ad paused. Review conversion tracking, audience targeting and policy approval in Google Ads before enabling. YouTube Data API access alone does not authorize paid advertising."),
+    _h("youtube_ads.workspace.results", "Read paid results in context",
+       "Monitor reads Video and Demand Gen campaign totals for the last 7 or 30 days in the account timezone. Existing campaigns may include non-YouTube placements. Optimize provides review suggestions rather than automatic changes; Report exports a fresh CSV or prints loaded results. Optional five-minute refresh runs only while the page is open and visible."),
     _h("customer_voices.library.recordings", "Save a customer's voice",
        "Upload clear recordings of one speaker with their permission, or save an existing voice from the connected ElevenLabs account. The Hub stores the voice details for reuse across audio tools; recordings are sent to ElevenLabs for cloning."),
     _h("customer_voices.library.status", "When a voice is ready",

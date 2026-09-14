@@ -2,10 +2,11 @@
 {% block title %}YouTube Ads · Product Success{% endblock %}
 {% block content %}
 <div class="yta" data-csrf="{{ csrf }}">
-  <header class="yta-hero"><div><p>PRODUCT SUCCESS</p><h1>YouTube Ads</h1><p>Build video campaigns. Find improvements. Keep results in view.</p></div><a href="/tools/ads/settings">Google Ads connection ↗</a></header>
+  <header class="yta-hero"><div><p>PRODUCT SUCCESS</p><h1>YouTube Ads {{ help_dot('youtube_ads.workspace.overview') if help_dot is defined else '' }}</h1><p>Build video campaigns. Find improvements. Keep results in view.</p></div><a href="/tools/ads/settings">Google Ads connection ↗</a></header>
   <div class="yta-notice">{% if connection.deploy_ready %}Google Ads credentials are configured. Load accounts to verify access.{% else %}Connect Google Ads to validate campaigns and read paid results. YouTube API access alone does not grant advertising access. You can still prepare and save drafts.{% endif %}</div>
   <div class="yta-toolbar"><label>Google Ads account<select id="yta-account"><option value="">Load connected accounts</option></select></label><button id="yta-accounts">Load accounts</button><label>Or enter customer ID<input id="yta-customer" placeholder="123-456-7890" inputmode="numeric"></label></div>
   <p id="yta-message" role="status" aria-live="polite"></p>
+  <p class="yta-muted">How paid reporting works {{ help_dot('youtube_ads.workspace.results') if help_dot is defined else '' }}</p>
   <nav class="yta-tabs" aria-label="YouTube Ads workflows"><button data-tab="build" aria-pressed="true">Build</button><button data-tab="optimize" aria-pressed="false">Optimize</button><button data-tab="monitor" aria-pressed="false">Monitor</button><button data-tab="report" aria-pressed="false">Report</button></nav>
   <section id="yta-build" class="yta-panel">
     <div class="yta-heading"><div><h2>Build a YouTube campaign</h2><p>Demand Gen · Maximize conversions · Created paused for launch review</p></div><a href="/tools/commercial-builder/">Create video ↗</a></div>
