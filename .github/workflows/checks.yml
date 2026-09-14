@@ -2326,6 +2326,33 @@ jobs:
             echo "test_proposal_progress.py not on this branch — nothing to run."
           fi
 
+      # The client answers their questions on their own page. Recorded
+      # beside the plan with their name on it and never written into its
+      # answers -- a person takes each with one press -- only the client's
+      # keys and only the offered choices, a hand-back that is the same
+      # supply key answered smart1, the same 404 on the POST as on the
+      # page, and a pending reply counted everywhere an open question is.
+      - name: Proposal Execution — the client answers on their page
+        run: |
+          if [ -f test_proposal_client_answers.py ]; then
+            python3 test_proposal_client_answers.py
+          else
+            echo "test_proposal_client_answers.py not on this branch — nothing to run."
+          fi
+
+      # A won quote starts its own plan: Approved and Converted and nothing
+      # else, once per quote, a client with another run open named rather
+      # than superseded, won too long ago skipped and counted, the run
+      # saying it was automatic on the plan, the event and the quote's own
+      # strip, and a table that would not answer never a clean sweep.
+      - name: Proposal Execution — a won proposal starts its own plan
+        run: |
+          if [ -f test_proposal_autostart.py ]; then
+            python3 test_proposal_autostart.py
+          else
+            echo "test_proposal_autostart.py not on this branch — nothing to run."
+          fi
+
       # WO-2: real-tool adapters. Every task on the graph used to run as
       # `brief` -- an AI-written paragraph describing what somebody should
       # go and build, never the tool itself. hub/proposal_adapters/utm.py is

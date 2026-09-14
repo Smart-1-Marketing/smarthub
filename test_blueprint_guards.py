@@ -441,6 +441,16 @@ PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
                                "reads nothing from the body; a token nobody "
                                "minted is a 404",
     "/tools/commercial-builder/review/voice/<token>/submit": "client recording submission requires a pending, unrevoked capture token and speaker consent",
+    "/proposal-execution/needs/<token>": "the client answering the questions "
+                                         "on their own page -- a launch date, "
+                                         "who produces each channel's creative, "
+                                         "the report cadence -- at the random "
+                                         "token stored on their plan. Recorded "
+                                         "beside the plan as their proposal and "
+                                         "never written into its answers; a key "
+                                         "that is not theirs is refused by name, "
+                                         "and a revoked or unknown token answers "
+                                         "the same 404 the page does",
     "/connect/<token>/start": "the client starting the Google Access flow",
     "/sales/builder/api/p/<token>/accept": "the client accepting the "
                                            "proposal. A rep cannot press it "
