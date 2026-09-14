@@ -1040,13 +1040,20 @@ def _all_items(plan: dict) -> list[dict]:
     return [it for name in LISTS for it in (plan.get(name) or [])]
 
 
-def apply_decisions(plan: dict, decisions: dict) -> dict:
+def apply_decisions(plan: dict, decisions: dict, *, known_owners=None) -> dict:
     """A person's review of the plan, applied in one press.
 
     `decisions` may carry `accept` ({id: true|false|null}), `add`
-    ([{list, title, detail}]), `remove` ([ids], manual items only) and
-    `answers` ({key: value}). Anything it cannot apply is refused by name
+    ([{list, title, detail}]), `remove` ([ids], manual items only),
+    `answers` ({key: value}) and `owners` ({id: email}, blank to follow
+    the client's owner again). Anything it cannot apply is refused by name
     with a ValueError, and nothing is half-applied.
+
+    `known_owners` is the set of account emails an item may be given to.
+    Handed in by the caller that can read the account table, because this
+    module reads no database; `None` means the table could not be read,
+    and a well-formed address is then taken as typed rather than every
+    assignment being refused over a table that blinked.
     """
     plan = json.loads(json.dumps(plan or {}))
     decisions = decisions or {}
@@ -1110,6 +1117,28 @@ def apply_decisions(plan: dict, decisions: dict) -> dict:
             q["answer"], q["from_text"] = stored[q["key"]], False
         elif not q.get("from_text"):
             q["answer"] = ""
+
+    # An owner set on the item itself. Stored as `owner_override` and
+    # nothing else: the default -- the client's owner, through
+    # hub/client_owner.py -- is laid over on read by `resolve()`, so a
+    # handover of the client moves every item that was following them and
+    # leaves the ones somebody named by hand exactly where they were.
+    owners = decisions.get("owners") or {}
+    if not isinstance(owners, dict):
+        raise ValueError("owners must map item ids to an email address, or blank to follow the client's owner.")
+    for ident, value in owners.items():
+        it = by_id.get(str(ident))
+        if not it:
+            raise ValueError(f"No plan item has the id {ident!r}.")
+        addr = " ".join(str(value if value is not None else "").split()).lower()
+        if addr and "@" not in addr:
+            raise ValueError(f"{addr!r} is not an email address.")
+        if addr and known_owners is not None and addr not in known_owners:
+            raise ValueError(f"{addr} is not a Hub account this can be given to.")
+        if addr:
+            it["owner_override"] = addr
+        else:
+            it.pop("owner_override", None)
     plan["reviewed_at"] = _now_iso()
     plan["summary"] = summarize(plan)
     return plan
@@ -1135,6 +1164,10 @@ def carry_forward(new_plan: dict, old_plan: dict) -> dict:
             prior = old_by_id.get(it["id"])
             if prior is not None and prior.get("accepted") is not None:
                 it["accepted"] = prior["accepted"]
+            # An owner named on the item travels with the verdict: it was a
+            # decision about this piece of work, and the work is still here.
+            if prior is not None and prior.get("owner_override"):
+                it["owner_override"] = prior["owner_override"]
         for prior in old_plan.get(name) or []:
             if prior.get("source") == SOURCE_MANUAL and prior["id"] not in ids:
                 plan.setdefault(name, []).append(json.loads(json.dumps(prior)))
@@ -1217,7 +1250,18 @@ def _answer_of(plan: dict, key: str) -> str:
     return ""
 
 
-def resolve(plan: dict) -> dict:
+def owner_label(email: str, names: dict | None = None) -> str:
+    """The name to print for an owner, or the address where no account is
+    known -- `hub/client_owner.display_name()`'s rule, read from a
+    `{email: name}` index handed in so this module opens no table. Never
+    invents a name from the address: `todd@` is not "Todd"."""
+    email = str(email or "").strip().lower()
+    if not email:
+        return ""
+    return str((names or {}).get(email) or "") or email
+
+
+def resolve(plan: dict, *, owner: dict | None = None, names: dict | None = None) -> dict:
     """The plan with its answers applied, for reading -- never for storing.
 
     A launch date becomes a due date on every launch task and creative item
@@ -1227,11 +1271,19 @@ def resolve(plan: dict) -> dict:
     report tasks. `resolved` carries the answers themselves so a brief or a
     packet reads one dict rather than walking the questions.
 
+    `owner` is the client's owner as `hub/client_owner.owner_of()` answers
+    it (or None), and `names` an `{email: name}` index; both are handed in
+    because this module reads no table. Every item then carries `owner`,
+    `owner_label` and `owner_source` -- `item` where somebody named one on
+    the item, `client` where it follows the client's owner -- and an item
+    with neither carries no owner at all rather than a guess.
+
     Derived on every read and written nowhere: a date baked into the items
     would outlive the answer that produced it, and there are two gunicorn
     workers to disagree about which copy is current.
     """
     plan = json.loads(json.dumps(plan or {}))
+    default = str((owner or {}).get("email") or "").strip().lower()
     launch_raw = _answer_of(plan, "launch_date")
     launch = parse_day(launch_raw)
     cadence = _answer_of(plan, "reporting_cadence")
@@ -1273,8 +1325,54 @@ def resolve(plan: dict) -> dict:
         if cadence and "report" in str(it.get("title") or "").lower():
             it["cadence"] = cadence
             it["cadence_label"] = CADENCE_LABELS.get(cadence, cadence)
+    resolved["owner"] = ({"email": default, "label": owner_label(default, names),
+                          "source": str((owner or {}).get("source") or ""),
+                          "partner": str((owner or {}).get("partner") or "")}
+                         if default else {})
+    for it in _all_items(plan):
+        over = str(it.get("owner_override") or "").strip().lower()
+        if over:
+            it["owner"], it["owner_label"], it["owner_source"] = over, owner_label(over, names), "item"
+        elif default:
+            it["owner"], it["owner_label"], it["owner_source"] = default, resolved["owner"]["label"], "client"
     plan["resolved"] = resolved
     return plan
+
+
+# ---------------------------------------------------------------------------
+# The questions that are the client's to answer
+# ---------------------------------------------------------------------------
+# The plan asks about what the proposal does not say, and most of it is ours:
+# a budget the parser missed, a channel with no recipe, whatever the model
+# was unsure of. Three are genuinely the client's call and are the only ones
+# the page a client reads may carry, each reworded for the person being
+# asked -- "who is supplying the display creative?" is a question about the
+# client and "who is producing the display creative, your team or Smart 1?"
+# is a question to them.
+CLIENT_QUESTION_WORDING = {
+    "launch_date": "When would you like the campaign to launch?",
+    "creative_supply": "Who is producing the {name} creative -- your team, or Smart 1?",
+    "reporting_cadence": "How often would you like a performance report?",
+}
+
+
+def client_questions(plan: dict) -> list[dict]:
+    """The open questions a client can answer, in the client's own words.
+    Anything answered is left out; anything not on `CLIENT_QUESTION_WORDING`
+    is ours to answer and never reaches them."""
+    out: list[dict] = []
+    for q in (plan or {}).get("questions") or []:
+        key = str(q.get("key") or "")
+        if _answer_of(plan, key):
+            continue
+        if key == "launch_date" or key == "reporting_cadence":
+            out.append({"key": key, "question": CLIENT_QUESTION_WORDING[key]})
+        elif key.startswith("creative_supply:"):
+            channel = key.split(":", 1)[1]
+            name = next((it.get("channel_name") or channel for it in (plan or {}).get("creative") or []
+                         if it.get("channel") == channel), channel)
+            out.append({"key": key, "question": CLIENT_QUESTION_WORDING["creative_supply"].format(name=name)})
+    return out
 
 
 def answers_for(plan: dict, channel: str = "") -> dict:
@@ -1412,4 +1510,5 @@ def with_actions(plan: dict, *, client: str = "", task_keys=(), upload: dict | N
 __all__ = ["LISTS", "LIST_LABELS", "RECIPES", "SUPPLY_CHOICES", "SUPPLY_LABELS", "CADENCE_LABELS",
            "LEAD_DAYS_CREATIVE", "CREATIVE_TOOLS", "COPY_TASKS", "build_plan", "rule_items",
            "ai_items", "questions", "apply_decisions", "carry_forward", "summarize", "kept_items",
-           "resolve", "answers_for", "parse_day", "tool_for", "item_actions", "with_actions"]
+           "resolve", "answers_for", "parse_day", "tool_for", "item_actions", "with_actions",
+           "owner_label", "client_questions", "CLIENT_QUESTION_WORDING"]

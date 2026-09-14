@@ -139,14 +139,23 @@ class ProposalExecutionRun(db.Model):
             # and the column never carries a derived value.
             from hub import proposal_plan
             tasks = tasks_for_run(self.id)
-            plan = proposal_plan.resolve(plan_for(self))
+            # Who owns each item: the client's owner laid over on read, an
+            # owner named on the item on top of that. The account list is
+            # served beside it so the page draws the picker from the Hub's
+            # own roster rather than restating one.
+            owner, names, choices, owner_error = _owner_context(self.client)
+            plan = proposal_plan.resolve(plan_for(self), owner=owner, names=names)
             plan = proposal_plan.with_actions(plan, client=self.client,
                                               task_keys=[t.task_key for t in tasks],
                                               upload=_upload_link(self.client))
+            plan["owners"] = {"choices": choices, "error": owner_error}
             # The monthly promises month by month since launch, against the
             # work log -- derived here and stored nowhere, the same rule as
             # the due dates beside it.
             plan["schedule"] = _promise_schedule(self, plan)
+            # The client's own link, with its URL built from the host that
+            # served this page -- the token is stored, the address is not.
+            plan["client_link"] = client_link_view(self, plan)
             row.update(analysis=self.analysis(), context=self.context(), inputs=self.inputs(),
                        summary=summary(self), missing_inputs=missing_input_manifest(self),
                        plan=plan)
@@ -689,7 +698,14 @@ def update_plan(run_id, decisions, *, actor=""):
     run = get_run(run_id)
     if not run: raise ValueError("That execution run could not be found.")
     from hub import proposal_plan
-    plan = proposal_plan.apply_decisions(plan_for(run), decisions or {})
+    known = None
+    if (decisions or {}).get("owners"):
+        _owner, names, _choices, error = _owner_context(run.client)
+        # A table that answered is the list an item may be given to; one
+        # that did not is None, and a well-formed address is then taken as
+        # typed rather than every assignment refused over a blip.
+        known = set(names) if names and not error else None
+    plan = proposal_plan.apply_decisions(plan_for(run), decisions or {}, known_owners=known)
     run.plan_json = _dumps(plan)
     db.session.commit()
     what = []
@@ -698,6 +714,7 @@ def update_plan(run_id, decisions, *, actor=""):
     if d.get("add"): what.append(f"{len(d['add'])} item(s) added")
     if d.get("remove"): what.append(f"{len(d['remove'])} item(s) removed")
     if d.get("answers"): what.append(f"{len(d['answers'])} question(s) answered")
+    if d.get("owners"): what.append(f"{len(d['owners'])} owner(s) set")
     _event(run.id, run.state, "Updated the plan: " + (", ".join(what) or "no change") + ".", actor=actor)
     return run
 
@@ -734,6 +751,261 @@ def provision_upload_link(run_id, *, base="", actor=""):
     if got.get("created"):
         _event(run.id, run.state, f"Created the client upload link for {run.client}.", actor=actor)
     return run, got
+
+
+def _owner_context(client):
+    """`(the client's owner or None, {email: name}, [{email, name}], error)`.
+
+    One reading of who may own a plan item, for `as_dict()`, `update_plan()`
+    and the documents alike. The owner comes from `hub/client_owner.py`'s
+    own resolution -- a direct assignment or a standing partner rule -- and
+    the names from `assignable_users()`, which says which list answered.
+    Never raises: a roster that will not answer costs the picker and the
+    labels, named, and never the plan.
+    """
+    try:
+        from hub import client_owner
+        users, why = client_owner.assignable_users()
+        names = {u["email"]: u.get("name") or u["email"] for u in users}
+        choices = [{"email": u["email"], "name": u.get("name") or u["email"]}
+                   for u in users if u.get("active", True)]
+        owner = None
+        try:
+            owner = client_owner.owner_of(client)
+        except Exception as exc:                         # noqa: BLE001
+            why = (why + " " if why else "") + \
+                f"The client's owner could not be read ({type(exc).__name__})."
+        return owner, names, choices, why
+    except Exception as exc:                             # noqa: BLE001
+        return None, {}, [], f"The account list could not be read ({type(exc).__name__})."
+
+
+def _resolved_plan(run):
+    """The run's plan with its answers and owners applied -- the one
+    reading every document and every brief starts from."""
+    from hub import proposal_plan
+    owner, names, _choices, _error = _owner_context(run.client)
+    return proposal_plan.resolve(plan_for(run), owner=owner, names=names)
+
+
+# ---------------------------------------------------------------------------
+# The client's own link
+# ---------------------------------------------------------------------------
+# A page a client reads at a random token, listing what we need from them.
+# The token is stored on the plan and never derived: it is going into an
+# email on somebody else's side, so it has to outlive a restart, and a
+# revocation has to make the address in that email answer 404 rather than
+# a second copy of what it used to say. `hub/radio_share.py`'s token and
+# the same 404 for revoked, deleted and never-existed -- a client-facing
+# URL that says "this one expired" tells somebody probing which are real.
+def _link_origin(base=""):
+    base = str(base or "").strip()
+    if not base:
+        try:
+            from flask import has_request_context, request as _req
+            if has_request_context():
+                base = _req.host_url
+        except Exception:                                # noqa: BLE001
+            base = ""
+    if not base:
+        try:
+            from hub import config
+            base = config.public_base_origin()
+        except Exception:                                # noqa: BLE001
+            base = ""
+    return base.rstrip("/")
+
+
+def client_link_path(token):
+    return f"/proposal-execution/needs/{token}"
+
+
+def client_link_view(run, plan=None, *, base=""):
+    """What the page and the kickoff say about the client's link: the URL,
+    who made it and when, and whether it has been revoked. `{}` when none
+    has ever been made. The token itself rides only inside the URL."""
+    link = dict(((plan if plan is not None else run.plan()) or {}).get("client_link") or {})
+    token = str(link.get("token") or "")
+    if not token:
+        return {}
+    revoked = bool(link.get("revoked_at"))
+    return {"url": _link_origin(base) + client_link_path(token) if not revoked else "",
+            "path": client_link_path(token) if not revoked else "",
+            "created_at": link.get("created_at") or "", "created_by": link.get("created_by") or "",
+            "revoked": revoked, "revoked_at": link.get("revoked_at") or "",
+            "revoked_by": link.get("revoked_by") or ""}
+
+
+def create_client_link(run_id, *, actor="", base=""):
+    """Mint the client's link, or hand back the live one. A press, never a
+    page load: a link that exists is a link somebody may have sent."""
+    run = get_run(run_id)
+    if not run:
+        raise ValueError("That execution run could not be found.")
+    from hub.radio_share import new_token
+    plan = plan_for(run)
+    link = dict(plan.get("client_link") or {})
+    created = False
+    if not link.get("token") or link.get("revoked_at"):
+        link = {"token": new_token(), "created_at": _now().isoformat(timespec="seconds"),
+                "created_by": str(actor or "")[:240]}
+        created = True
+        plan["client_link"] = link
+        run.plan_json = _dumps(plan)
+        db.session.commit()
+        _event(run.id, run.state, f"Created the client's link for {run.client}: what we need from them.",
+               actor=actor)
+    return run, dict(client_link_view(run, plan, base=base), created=created)
+
+
+def revoke_client_link(run_id, *, actor=""):
+    """Take the client's link back. The token stays on the plan as the
+    record that one was sent; the address answers 404 from now on."""
+    run = get_run(run_id)
+    if not run:
+        raise ValueError("That execution run could not be found.")
+    plan = plan_for(run)
+    link = dict(plan.get("client_link") or {})
+    if not link.get("token"):
+        raise ValueError("No client link has been created for this plan.")
+    if link.get("revoked_at"):
+        return run, client_link_view(run, plan)
+    link["revoked_at"] = _now().isoformat(timespec="seconds")
+    link["revoked_by"] = str(actor or "")[:240]
+    plan["client_link"] = link
+    run.plan_json = _dumps(plan)
+    db.session.commit()
+    _event(run.id, run.state, "Revoked the client's link.", actor=actor)
+    return run, client_link_view(run, plan)
+
+
+def run_for_client_token(token):
+    """`(run, error)` for a live client link. `(None, "")` for a token that
+    is unknown, revoked or malformed -- all three the same answer -- and
+    `(None, why)` when the store would not answer, because a client meeting
+    a 404 concludes the link expired and one meeting a 503 tries again."""
+    from hub.radio_share import is_token
+    token = str(token or "")
+    if not is_token(token):
+        return None, ""
+    try:
+        rows = (ProposalExecutionRun.query
+                .filter(ProposalExecutionRun.plan_json.contains(token)).all())
+    except Exception as exc:                             # noqa: BLE001
+        db.session.rollback()
+        return None, f"The plans could not be read ({type(exc).__name__})."
+    for run in rows:
+        link = (run.plan() or {}).get("client_link") or {}
+        if link.get("token") == token and not link.get("revoked_at"):
+            return run, ""
+    return None, ""
+
+
+# ---------------------------------------------------------------------------
+# The two documents built from the kept plan
+# ---------------------------------------------------------------------------
+def _kept(plan, name):
+    from hub import proposal_plan
+    return proposal_plan.kept_items(plan, name)
+
+
+def kickoff_document(run, *, base=""):
+    """The internal kickoff: one printable page for the team on the day the
+    proposal is signed. Built from the **kept** plan with its answers and
+    owners applied -- only what a person kept, and what is still to review
+    is counted rather than silently absent, because a document that quietly
+    leaves items off is the list that gets shorter with nothing saying so.
+    """
+    from hub import proposal_plan
+    plan = _resolved_plan(run)
+    resolved = plan.get("resolved") or {}
+    analysis = run.analysis() or {}
+    summary_ = plan.get("summary") or proposal_plan.summarize(plan)
+    lists = summary_.get("lists") or {}
+    budgets = resolved.get("budgets") or {}
+    supply = resolved.get("supply") or {}
+    channels = []
+    for ch in analysis.get("channels") or []:
+        if not isinstance(ch, dict):
+            continue
+        key = str(ch.get("key") or "")
+        who = supply.get(key, "")
+        channels.append({"key": key, "name": ch.get("name") or key,
+                         "budget": budgets.get(key) or " / ".join(str(b) for b in ch.get("budgets") or []),
+                         "supply_label": proposal_plan.SUPPLY_LABELS.get(who, who) if who else ""})
+    creative = _kept(plan, "creative")
+    launch = sorted(_kept(plan, "launch"), key=lambda it: (-int(it.get("lead_days") or 0), it.get("title") or ""))
+    monthly = _kept(plan, "monthly")
+    for it in monthly:
+        kind = proposal_plan.promise_kind(it.get("kind") or "")
+        it["kind_label"] = kind.get("label") or ""
+        it["deliverable"] = bool(kind.get("deliverable"))
+    for it in creative:
+        tool = proposal_plan.tool_for(it)
+        it["tool_label"] = (tool or {}).get("label") or ""
+    open_questions = [{"question": q.get("question") or q.get("key"), "why": q.get("why") or ""}
+                      for q in plan.get("questions") or []
+                      if not str(q.get("answer") or "").strip()]
+    unowned = [it["title"] for it in creative + launch + monthly if not it.get("owner")]
+    return {
+        "run_id": run.id, "client": run.client, "state": run.state,
+        "proposal": run.proposal_title or run.proposal_filename or "",
+        "generated_at": _now().isoformat(timespec="seconds"),
+        "launch": {"label": resolved.get("launch_date_label") or "",
+                   "raw": resolved.get("launch_date_raw") or "",
+                   "unreadable": bool(resolved.get("unreadable_launch_date"))},
+        "reporting_cadence": resolved.get("reporting_cadence_label") or "",
+        "owner": resolved.get("owner") or {},
+        "channels": channels,
+        "creative": creative,
+        "creative_unassigned": sum(1 for it in creative if it.get("kind") != "copy" and not it.get("supplier")),
+        "launch_tasks": launch,
+        "monthly": monthly,
+        "questions": open_questions,
+        "unowned": unowned,
+        "to_review": int(summary_.get("to_review") or 0),
+        "unverified": int(summary_.get("unverified") or 0),
+        "dropped": sum(int((lists.get(k) or {}).get("dropped") or 0) for k in proposal_plan.LISTS),
+        "notes": list(plan.get("notes") or []),
+        "board": summary(run),
+        "client_link": client_link_view(run, plan, base=base),
+        "upload_link": str((_upload_link(run.client, base=base) or {}).get("share_url") or ""),
+    }
+
+
+def client_needs(run, *, base=""):
+    """What the client reads at their link: the files they are supplying,
+    with the sizes and the date each is wanted by, the place to upload them,
+    the questions that are theirs to answer, and who at Smart 1 to talk to.
+
+    Built server-side and only the fields: no dropped items, no item Smart 1
+    is producing, no internal note, no flag about how an item was found, no
+    budget and no staff email. A subset a template merely happens to omit is
+    one the next renderer prints, which is why `modules/scans` strips its
+    audit the same way.
+    """
+    from hub import proposal_plan
+    plan = _resolved_plan(run)
+    resolved = plan.get("resolved") or {}
+    files = []
+    for it in _kept(plan, "creative"):
+        if it.get("kind") == "copy" or it.get("supplier") not in ("client", "mixed"):
+            continue
+        files.append({"title": it.get("title") or "", "detail": it.get("detail") or "",
+                      "channel_name": it.get("channel_name") or "", "due_label": it.get("due_label") or "",
+                      "shared": it.get("supplier") == "mixed"})
+    owner = resolved.get("owner") or {}
+    upload = _upload_link(run.client, base=base) or {}
+    return {
+        "client": run.client,
+        "proposal": run.proposal_title or run.proposal_filename or "",
+        "launch_label": resolved.get("launch_date_label") or "",
+        "contact": owner.get("label") or "",
+        "files": files,
+        "upload_url": str(upload.get("share_url") or "") if upload.get("share_enabled") is not False else "",
+        "questions": proposal_plan.client_questions(plan),
+        "generated_at": _now().isoformat(timespec="seconds"),
+    }
 
 
 def _promise_schedule(run, plan, *, work=None, marks_index=None):
@@ -941,7 +1213,7 @@ def _kept_plan_for(run, task):
     supplying the files rather than guessing at either. Never raises."""
     try:
         from hub import proposal_plan
-        plan = proposal_plan.resolve(plan_for(run))
+        plan = _resolved_plan(run)
         channel = (task.payload().get("channel") or {}).get("key") or ""
         out = {}
         for name in proposal_plan.LISTS:
@@ -951,6 +1223,8 @@ def _kept_plan_for(run, task):
             for it in rows:
                 line = it["title"] + (f" — {it['detail']}" if it.get("detail") else "")
                 extra = [it[k] for k in ("due_label", "supplier_label", "cadence_label") if it.get(k)]
+                if it.get("owner_label"):
+                    extra.append(f"owner: {it['owner_label']}")
                 if extra:
                     line += " (" + "; ".join(extra) + ")"
                 lines.append(line)
@@ -1243,6 +1517,8 @@ def install_scheduler_bridge():
 __all__ = ["ProposalExecutionRun", "ProposalExecutionTask", "ProposalExecutionEvent",
            "ProposalRunConflict", "create_run", "get_run", "list_runs", "tasks_for_run",
            "proposal_choices", "update_inputs", "update_plan", "plan_for", "provision_upload_link",
+           "create_client_link", "revoke_client_link", "run_for_client_token", "client_link_view",
+           "client_link_path", "kickoff_document", "client_needs",
            "plan_summary_for_client", "open_plan_summaries", "open_runs", "mark_promise",
            "start_run", "pause_run", "retry_failed", "run_one",
            "approve_task", "request_changes", "rerun_task", "mark_task", "events_for_run",

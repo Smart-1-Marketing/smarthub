@@ -7061,6 +7061,13 @@ def create_hub_app() -> Flask:
                   # has a high-severity check for exactly that, and it caught
                   # this one before it shipped.
                   "/suite-app",
+                  # The page a client reads at their Proposal Execution
+                  # link -- what we need from them, at a random token
+                  # (hub/proposal_execution_routes.needs). The prefix is
+                  # the client's and the staff plan at /proposal-execution
+                  # keeps its chrome; the login exemption is the other
+                  # half, on the blueprint guard in that file.
+                  "/proposal-execution/needs/",
                   # The Marketing Efficiency Audit -- an accounting or
                   # bookkeeping partner running this has no Hub account and
                   # never should need one, so the staff sidebar, help layer
