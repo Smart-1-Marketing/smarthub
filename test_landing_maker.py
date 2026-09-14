@@ -1147,6 +1147,146 @@ check("a state that is not a rate is never drawn as nought per cent",
       "0%" in _TEMPLATE.split("function rateCell(")[1].split("}")[0], False)
 
 
+section("The card on the client's own record")
+# `for_client()` stood in landing_maker with the docstring "used by the
+# Client 360 / proposals card" and had no caller, because there was no such
+# card: a client could have three pages live and taking leads and their own
+# record said nothing about any of them. It also answered a BARE LIST, which
+# is the half that mattered -- `listing()` carries views_measured and
+# conversion_measured precisely because a table that will not answer and a
+# page nobody has opened both render as a nought, and taking ["pages"]
+# dropped exactly those two.
+
+check("the shape that dropped the flags is gone",
+      hasattr(lm, "for_client"), False)
+
+with _hub_app.app_context():
+    _sum = lm.summary_for_client("Rate Marine")
+check("the summary is measured", _sum.get("measured"), True)
+check("it finds the client's page",
+      any(p.get("slug") == _cslug for p in _sum.get("pages") or []), True)
+check("and never another client's",
+      any(p.get("client") == "Riverside HVAC" for p in _sum.get("pages") or []),
+      False)
+for _k in ("views_measured", "conversion_measured"):
+    check(f"the flag {_k} survives onto the card's payload", _k in _sum, True)
+_row = next(p for p in _sum["pages"] if p["slug"] == _cslug)
+for _k in ("url", "readiness", "views", "conversion"):
+    check(f"the row carries {_k}", _k in _row, True)
+# Trimmed to what a card prints. The stored pictures are the tool's own
+# screen's business and are several kilobytes a row on a record that draws
+# twenty other cards.
+check("and not the stored images", "images" in _row, False)
+
+# A client nobody has built a page for is an empty list and still measured:
+# "none" and "we could not look" are the two this card must never merge.
+with _hub_app.app_context():
+    _none = lm.summary_for_client("Nobody Ever Heard Of Ltd")
+check("a client with no pages is still measured", _none.get("measured"), True)
+check("and comes back empty rather than with somebody else's",
+      _none.get("pages"), [])
+
+# The route. Under /api/client/ because suite_embed allowlists that prefix
+# and nothing else -- a card pointed anywhere else renders on every screen
+# except inside the Suite frame, and fails silently there.
+from hub import suite_embed as _emb2                             # noqa: E402
+check("the route is one the Suite frame may fetch",
+      _emb2.embeddable("/api/client/landing-pages"), True)
+check("and a stranger cannot",
+      anon.get("/api/client/landing-pages?name=Rate+Marine").status_code
+      in (301, 302, 303, 401, 403), True)
+_r = client.get("/api/client/landing-pages?name=Rate+Marine")
+check("a signed-in rep can", _r.status_code, 200)
+_j = _r.get_json() or {}
+check("and the page is on it",
+      any(p.get("slug") == _cslug for p in _j.get("pages") or []), True)
+check("the route carries the visit flag too", "views_measured" in _j, True)
+check("and the rate flag", "conversion_measured" in _j, True)
+
+# ---- the card itself, lifted and driven in node ------------------------
+_REC = (Path(__file__).parent / "hub" / "templates" / "client360.html").read_text()
+_a = _REC.find("/* ---- c360 landing pages (lifted")
+_b = _REC.find("/* ---- end c360 landing pages ----")
+_SRC = _REC[_a:_b] if 0 < _a < _b else ""
+check("the card block is still marked for lifting", bool(_SRC), True)
+
+import subprocess                                               # noqa: E402
+
+def _draw(payload, name="Rate Marine"):
+    js = ("const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;')"
+          ".replace(/</g,'&lt;');\n"
+          "const memberTag=m=>m?'<span class=\"member\">'+esc(m)+'</span>':'';\n"
+          + _SRC
+          + "\nconsole.log(renderLandingPages(" + json.dumps(payload)
+          + "," + json.dumps(name) + "));\n")
+    r = subprocess.run(["node", "-"], input=js, capture_output=True, text=True)
+    if r.returncode:
+        return "NODE FAILED: " + (r.stderr or "")[:400]
+    return r.stdout
+
+_out = _draw({"measured": False, "error": "OperationalError"})
+check("a store that would not answer says so",
+      "could not be read" in _out, True)
+check("and is not drawn as the client having none",
+      "No landing page has been built" in _out, False)
+
+_out = _draw({"measured": True, "pages": []})
+check("a client with no pages is told how to get one",
+      "No landing page has been built" in _out, True)
+
+_PAGE = {"slug": "rate-marine-ab12cd", "client": "Rate Marine",
+         "campaign": "Spring", "headline": "Book a haul-out",
+         "url": "https://smart1.agency/sales/landing/p/rate-marine-ab12cd",
+         "readiness": {"measured": True, "ready": True, "count": 0},
+         "views": {"views": 40, "recent": 12},
+         "conversion": {"measured": True, "state": "measured", "rate": 10.0,
+                        "line": "10.0% - 4 leads from 40 opens."}}
+_out = _draw({"measured": True, "pages": [_PAGE],
+              "views_measured": True, "conversion_measured": True})
+check("a real rate is drawn as a rate", "10%" in _out or "10.0%" in _out, True)
+check("a ready page says so", "ready to send" in _out, True)
+check("and the link is the public one", _PAGE["url"] in _out, True)
+
+# The four states that are not a rate. None of them may render as nought per
+# cent: a page nobody has opened has not failed to convert anybody, and a
+# rate over a denominator nobody could read is the confident wrong answer.
+for _state, _want in (("none_yet", "no opens yet"),
+                      ("too_early", "too early"),
+                      ("over", "opens undercounted")):
+    _o = _draw({"measured": True, "views_measured": True,
+                "conversion_measured": True,
+                "pages": [dict(_PAGE, conversion={"measured": True,
+                                                  "state": _state,
+                                                  "rate": None, "line": ""})]})
+    check(f"{_state} is drawn as itself", _want in _o, True)
+    check(f"and {_state} is never drawn as a rate of nought",
+          "0%" in _o, False)
+
+_o = _draw({"measured": True, "views_measured": False,
+            "views_error": "The visit counts could not be read.",
+            "conversion_measured": False,
+            "pages": [dict(_PAGE, views=None,
+                           conversion={"measured": False,
+                                       "state": "not_measured", "line": ""})]})
+check("an unreadable visit table is named under the table",
+      "missing from this rather than nought" in _o, True)
+check("and the opens cell says not measured rather than nought",
+      "not measured" in _o, True)
+
+# No public address is a fact about PUBLIC_BASE_URL, not about the page.
+# Drawing a link there hands somebody a path.
+_o = _draw({"measured": True, "views_measured": True,
+            "conversion_measured": True,
+            "pages": [dict(_PAGE, url="")]})
+check("a page with no public address says so", "no public address" in _o, True)
+check("rather than drawing an empty link", 'href=""' in _o, False)
+
+# The help bubble. A key with no entry behind it is removed client-side, so
+# the template reads as helped and the screen shows nothing.
+check("the card's help key is registered",
+      bool(hub_help.get("hub.client360.landing")), True)
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")

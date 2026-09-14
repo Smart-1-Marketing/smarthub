@@ -1362,6 +1362,49 @@ def readiness(row: dict) -> dict:
             "ready": not questions,
             "count": len(questions)}
 
-def for_client(client: str) -> list[dict]:
-    """Used by the Client 360 / proposals card."""
-    return listing(client=client)["pages"]
+def summary_for_client(client: str) -> dict:
+    """This client's built landing pages, for the card on their own record.
+
+    `for_client()` stood here with that docstring -- *"used by the Client 360
+    / proposals card"* -- and had **no caller**, because there was no such
+    card: a client could have three pages live, taking leads, and their
+    record said nothing about any of them. The declared-and-never-wired
+    failure this Hub counts a dozen of, on the one screen a rep opens to ask
+    what we are doing for somebody.
+
+    It answered a **bare list**, which is why replacing it rather than
+    calling it matters. `listing()` carries `views_measured` and
+    `conversion_measured` precisely because a view table that will not answer
+    and a page nobody has opened both render as a nought, and only one of
+    them is a reason to stop spending on the campaign -- and taking `["pages"]`
+    dropped exactly those two flags on the floor. A card built on the old
+    shape would have drawn "0 opens" over a database that was down.
+
+    Rows are trimmed to what a card prints. The images, the source website
+    and the stored `by` are on the tool's own screen; a record card is the
+    link, whether it is ready to send, and whether anybody has opened it.
+
+    `measured` is False only where the listing itself raised. A store that
+    reads back empty is **not** claimed as an outage: `jsonstore.read_json`
+    answers `default` for a missing file, so "no pages" and "the file is
+    gone" are genuinely one answer here, and inventing a distinction the data
+    cannot support is its own confident wrong answer.
+    """
+    try:
+        got = listing(client=client)
+    except Exception as exc:                                # noqa: BLE001
+        return {"measured": False, "pages": [],
+                "views_measured": False, "conversion_measured": False,
+                "error": f"The landing pages could not be read. ({type(exc).__name__})"}
+    keep = ("id", "slug", "client", "campaign", "headline", "kind",
+            "direction", "created", "updated", "versions", "url",
+            "readiness", "views", "conversion")
+    return {
+        "measured": True,
+        "error": "",
+        "pages": [{k: p.get(k) for k in keep} for p in got.get("pages") or []],
+        "views_measured": bool(got.get("views_measured")),
+        "conversion_measured": bool(got.get("conversion_measured")),
+        "views_error": got.get("views_error", ""),
+        "views_recent_days": got.get("views_recent_days", 0),
+    }
