@@ -55,6 +55,23 @@ Resources:
 
 All normal tool calls are written to SmartHub's existing `hub.audit` activity log under module `mcp`.
 
+
+## Tool metadata
+
+Every exported tool includes a human-readable title and explicit MCP safety
+annotations:
+
+- `readOnlyHint: true`
+- `destructiveHint: false`
+- `idempotentHint: true`
+- `openWorldHint: false`
+
+The tools read from SmartHub and its bounded, configured account connections;
+they do not browse or operate on an unrestricted external domain. These hints
+help MCP hosts present and review the tools accurately, but they are not an
+authorization mechanism. The gateway's authentication and server-side role
+checks remain authoritative.
+
 ## Security model
 
 V1 is deliberately read-only. The gateway cannot:

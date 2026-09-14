@@ -1,99 +1,28 @@
-/* Smart 1 Hub — the thing that says something is running.
+/* Smart 1 Hub — one loading/thinking system for current and future tools.
  *
- * Nine copies of one border spinner
- * -----------------------------------------------------------------
- * `.spin` was defined seven times and `.spinner` twice more — hub.css,
- * sales_builder, page_image_optimizer, stock_photos, ads_base, the two scan
- * widgets, and the two Node-served ad builder pages — each a 2px border arc
- * at a slightly different size in a slightly different gray. That is the
- * drift hub/storage.py and hub/images.py exist to stop, wearing a spinner:
- * the next improvement would have had to land nine times and would have
- * landed in one.
+ * Existing tool-specific progress stays authoritative. This file upgrades the
+ * Hub's historic spinner classes, exposes S1Think for explicit waits, and now
+ * also watches fetch/XHR requests so slow work gets a shared Smart 1 status
+ * card automatically. Fast requests never draw the card. New tools inherit the
+ * behavior because this script is injected by the Hub shell, HubBar, and the
+ * blueprint injector rather than wired into individual tools.
  *
- * So there is one implementation, and it is loaded the way hub-crumbs.js is
- * — from base.html on hub pages and injected by HubBar into all twenty
- * mounted modules — which means a tool added next month gets it without
- * being edited. It **upgrades what is already there** rather than asking
- * fifty call sites to be rewritten: every `.spin` and `.spinner` on the page
- * becomes the animated glyph, including ones drawn into a panel by a fetch
- * ten seconds after load. Nothing downstream has to know this file exists.
- *
- * Three glyphs, because they answer three different questions
- * -----------------------------------------------------------------
- * A spinner says *something* is happening. It cannot say **what**, and the
- * three waits in this Hub are not alike:
- *
- *   ai    — a model is writing. Tens of seconds, billed, and the answer is
- *           prose somebody will read. ✨ is already the Hub's own mark for
- *           this ("✨ Ask AI about this data" on Client 360), so the glyph
- *           is that sparkle, thinking.
- *   scan  — we are reading somebody else's website or sweeping an account.
- *           Minutes, and the wait is somebody else's server. A radar.
- *   wait  — our own database or Knack. Seconds. The arc, which is what
- *           every one of the nine copies already drew.
- *
- * A bare `.spin` upgrades to `wait`, because that is what it meant. A screen
- * declares the other two with `data-s1-thinking="ai"` on any ancestor — one
- * attribute on a panel rather than one per call site, so a button added to
- * that panel later is right by default.
- *
- * Why a spinner alone is not enough, and where that was learnt
- * -----------------------------------------------------------------
- * modules/ads_builder/templates/ads_generator.html already carries the note:
- * "a spinner for a minute reads as a hung page, so the stages are drawn".
- * It was the only screen in the Hub that had worked that out, and it had its
- * own copy of the stage timer. Two things move here so nothing else has to
- * discover it again:
- *
- *   - **A stage line.** `handle.stage("Writing ad groups…")` replaces the
- *     label. `attach(el, {stages: [...]})` advances them on a timer, which
- *     is the ads generator's arrangement generalised.
- *   - **An elapsed line, after SLOW_AT.** Not from the first second: a
- *     stopwatch on a two-second read is noise, and a screen that counts at
- *     you teaches people to expect a wait. It appears only once the wait has
- *     gone past what anybody would call quick, and from then on it is the
- *     one thing that distinguishes a slow answer from a dead one.
- *
- * Rules it is held to
- * -----------------------------------------------------------------
- *   - **Nothing here may raise.** An indicator that breaks the page it is
- *     reporting on is worse than no indicator: every entry point is wrapped,
- *     and a failure costs the animation and nothing else. `attach()` always
- *     returns a handle with a `.done()` on it, so a caller's `finally` is
- *     safe even when the attach itself found nothing to attach to.
- *   - **It never claims to know what it does not.** `.done()` stops the
- *     animation; it does not write "Done". Whether the thing that was
- *     running succeeded is the caller's answer, and a tick drawn here over a
- *     failed call is the confident wrong answer this codebase keeps undoing.
- *   - **`currentColor`, never a palette.** Forty modules and no shared
- *     stylesheet between them. Inheriting the surrounding text color is the
- *     only way one glyph is legible on a white card, a navy button and a
- *     dark landing page without any of them being edited.
- *   - **`prefers-reduced-motion` keeps the glyph and drops the motion.** The
- *     setting asks for less animation, not less information — a wait that
- *     becomes invisible for those readers is the feature failing exactly
- *     where it was needed. The mark stays, the label stays, the elapsed line
- *     stays; only the movement goes.
- *   - **`aria-live="polite"` and `role="status"`.** A spinner is invisible to
- *     a screen reader; the label is the whole message.
- *
- * There is no Python mirror of any of this. hub/target_areas.py and the
- * creative classifier each carry one already and each needs a test proving
- * the halves still agree; the vocabulary lives here alone and
- * test_thinking.py reads this file for it.
+ * The personality layer is intentionally progressive: informative first,
+ * playful next, sarcastic only when the wait has earned it. It never claims a
+ * request succeeded; the caller still owns the answer.
  */
 (function () {
   "use strict";
 
   var KINDS = ["ai", "scan", "wait"];
+  var CONTEXTS = ["generic", "ai", "api", "database", "analytics", "creative",
+                  "weather", "search", "report", "deployment"];
 
-  /* How long before the elapsed line appears, and how often it ticks.
-     Six seconds because a Knack read is under two and a model is over ten:
-     the line should never appear on the first, and should always appear on
-     the second. */
   var SLOW_AT = 6000;
   var TICK = 1000;
-
+  var NETWORK_DELAY = 700;
+  var MESSAGE_MIN = 3200;
+  var MESSAGE_JITTER = 1600;
   var NS = "http://www.w3.org/2000/svg";
 
   function reduced() {
@@ -102,12 +31,6 @@
                 window.matchMedia("(prefers-reduced-motion: reduce)").matches);
     } catch (e) { return false; }
   }
-
-  /* ---------------------------------------------------------------- glyphs
-     Each is a 24x24 viewBox drawn in currentColor. The animation is CSS, in
-     hub-help.css, so a page that fails to load this script still gets a
-     static mark rather than an empty box — and so reduced motion is one
-     media query rather than a branch in here. */
 
   function el(name, attrs) {
     var n = document.createElementNS(NS, name);
@@ -119,9 +42,6 @@
     return n;
   }
 
-  /* A four-point sparkle, turning and breathing, with two smaller ones
-     twinkling off-beat. The same ✨ Client 360 already puts on its own AI
-     control, so the two read as the same thing happening. */
   function glyphAI(svg) {
     var star = "M12 3.2 13.6 9.1 19.4 10.7 13.6 12.3 12 18.2 10.4 12.3 4.6 10.7 10.4 9.1Z";
     svg.appendChild(el("path", { d: star, fill: "currentColor",
@@ -132,9 +52,6 @@
                                    "class": "s1-think-tw s1-think-tw2" }));
   }
 
-  /* A dish with a sweeping wedge and a contact that pings. Reads as "we are
-     looking at something of theirs", which is what every scan in this Hub
-     actually is. */
   function glyphScan(svg) {
     svg.appendChild(el("circle", { cx: 12, cy: 12, r: 9.2, fill: "none",
                                    stroke: "currentColor", "stroke-width": 1.6,
@@ -149,8 +66,6 @@
                                    "class": "s1-think-ping" }));
   }
 
-  /* The arc. What all nine copies drew, kept because for a two-second read
-     it is exactly right and anything livelier is a distraction. */
   function glyphWait(svg) {
     svg.appendChild(el("circle", { cx: 12, cy: 12, r: 8.6, fill: "none",
                                    stroke: "currentColor", "stroke-width": 2.4,
@@ -165,9 +80,6 @@
   var DRAW = { ai: glyphAI, scan: glyphScan, wait: glyphWait };
 
   function kindOf(node) {
-    /* Declared on the element or on any ancestor — one attribute on a panel
-       covers every control inside it, so a button added there next month is
-       right without being told. */
     var n = node;
     while (n && n.getAttribute) {
       var k = n.getAttribute("data-s1-thinking");
@@ -178,33 +90,15 @@
   }
 
   function mark(kind) {
+    var k = KINDS.indexOf(kind) >= 0 ? kind : "wait";
     var svg = el("svg", { viewBox: "0 0 24 24", "aria-hidden": "true",
                           focusable: "false",
-                          "class": "s1-think-svg s1-think-" + kind });
-    (DRAW[kind] || glyphWait)(svg);
+                          "class": "s1-think-svg s1-think-" + k });
+    (DRAW[k] || glyphWait)(svg);
     return svg;
   }
 
-  /* The class names actually in use, and only those. Five spellings of a
-     spinner exist in this repo; three of them are a mark and are listed here.
-     The rule is hub/config.py's ALIASES rule, and it is the same rule for the
-     same reason: a speculative name costs nothing to resolve and a great deal
-     to police. `.search-spinner` is Google Finder's, and is already an SVG of
-     its own; `.spin-cap` is stadium's caption text, which is not a mark at
-     all. Both are left alone rather than added on the chance they might one
-     day mean this.
-
-     `[data-s1-think]` is how a screen asks for a specific glyph on an element
-     that carries no spinner class at all. */
   var SELECTOR = ".spin, .spinner, .cb-spinner, [data-s1-think]";
-
-  /* ------------------------------------------------------------- upgrading
-     Every `.spin` and `.spinner` already on a page becomes the glyph. The
-     border those nine stylesheets draw is neutralised by `.s1-think` in
-     hub-help.css rather than by clearing inline styles here: a template that
-     sets `border-color:#fff` on its spinner is describing a color, and
-     currentColor is now what answers that, so overriding the rule is the
-     honest fix and stripping the author's attribute is not. */
 
   function upgrade(root) {
     var scope = root || document;
@@ -214,10 +108,6 @@
     } catch (e) { return; }
     Array.prototype.forEach.call(found, function (node) {
       if (node.getAttribute("data-s1-upgraded")) return;
-      /* Two of the nine are a layout box rather than a mark — stadium's
-         `.spinner` is a 340px centering grid with the caption inside it. A
-         node with element children of its own is a container, and replacing
-         its contents would take the caption with it. */
       if (node.firstElementChild) {
         node.setAttribute("data-s1-upgraded", "skipped");
         return;
@@ -227,10 +117,6 @@
       node.appendChild(mark(node.getAttribute("data-s1-think") || kindOf(node)));
     });
   }
-
-  /* --------------------------------------------------------------- attach
-     The API a call site uses when it wants a label, stages and the elapsed
-     line rather than a bare mark. */
 
   function fmt(ms) {
     var s = Math.round(ms / 1000);
@@ -243,9 +129,6 @@
     var host = typeof target === "string"
       ? document.getElementById(target) || document.querySelector(target)
       : target;
-
-    /* A handle is returned even when there is nothing to draw on, so a
-       caller's finally { h.done(); } is safe and never has to null-check. */
     var handle = {
       stage: function () { return handle; },
       done: function () { return handle; },
@@ -255,7 +138,6 @@
 
     var kind = o.kind || kindOf(host);
     var box, label, clock, timers = [];
-
     try {
       box = document.createElement("div");
       box.className = "s1-thinking s1-thinking-" + kind;
@@ -278,23 +160,11 @@
 
       var started = Date.now();
       timers.push(setInterval(function () {
-        /* Stops itself the moment its box leaves the page.
-           Half this Hub draws a panel by assigning innerHTML or textContent
-           over whatever was there, which is the ordinary way one of these is
-           taken down — and a caller that ends a wait that way has not done
-           anything wrong. Requiring fifty call sites to remember .done() is
-           how one of them forgets and leaves a timer running for the life of
-           the tab; asking the timer whether it is still attached costs one
-           property read a second and cannot be forgotten. */
         if (box && box.isConnected === false) { handle.done(); return; }
         var ms = Date.now() - started;
-        /* Silent until SLOW_AT. A stopwatch on a quick read is noise, and
-           one that starts at zero teaches people to expect a wait. */
         clock.textContent = ms < SLOW_AT ? "" : fmt(ms);
       }, TICK));
 
-      /* Stages: [{at: ms, note: "…"}], the ads generator's arrangement, so
-         a long call says what it is doing rather than counting at you. */
       (o.stages || []).forEach(function (s) {
         timers.push(setTimeout(function () {
           if (label) label.textContent = s.note;
@@ -302,19 +172,6 @@
       });
     } catch (e) { return handle; }
 
-    /* A wait that changes what it is waiting on. `stage(text)` moves the
-       words; `stage(text, kind)` moves the glyph with them, because some
-       waits genuinely change hands halfway. The Display Ad Builder fetches
-       the client's own landing page and then asks a model to write from
-       it: one is somebody else's server and one is billed, they run back to
-       back, and drawing the dish for both says the model never started
-       while drawing the star for both bills them for a page fetch.
-
-       Two marks in sequence would say it too, and would read as two waits
-       rather than one that moved on -- and each would restart the elapsed
-       line, which on the longest wait on that screen is the number that
-       matters. So the box is kept and its glyph is swapped. An unknown kind
-       changes nothing rather than drawing the wrong one. */
     handle.stage = function (text, nextKind) {
       try {
         if (label && text) label.textContent = text;
@@ -328,10 +185,6 @@
       } catch (e) {}
       return handle;
     };
-    /* Stops and removes. Deliberately does not write "Done" or draw a tick:
-       whether the call succeeded is the caller's answer, and a tick here
-       over a failed one is a wrong answer that looks exactly like a right
-       one. */
     handle.done = function () {
       try {
         timers.forEach(function (t) { clearTimeout(t); clearInterval(t); });
@@ -343,11 +196,6 @@
     return handle;
   }
 
-  /* ----------------------------------------------------------------- busy
-     A button that keeps its width while it works. The ordinary shape across
-     this Hub is `btn.disabled = true; btn.innerHTML = '<span class="spin">…'`
-     written out longhand, which loses the original label and re-enables the
-     button in whichever of the two exit paths the author remembered. */
   function busy(button, opts) {
     var o = opts || {};
     var btn = typeof button === "string"
@@ -386,9 +234,6 @@
     return handle;
   }
 
-  /* Markup, for a template that wants the glyph in a string it is building.
-     Half this Hub draws its panels with innerHTML and a template literal,
-     and handing those a DOM node would mean rewriting the panel. */
   function html(kind, label) {
     var k = KINDS.indexOf(kind) >= 0 ? kind : "wait";
     var box = document.createElement("div");
@@ -406,27 +251,459 @@
   }
 
   function watch() {
-    if (!window.MutationObserver) return;
+    if (!window.MutationObserver || !document.body) return;
     var timer = null;
-    /* Debounced, for the reason hub-help.js gives about its bubbles: Client
-       360, the SEO client page and half the tools draw their panels from a
-       fetch, so a single pass at load upgrades the shell and misses every
-       spinner that has not been drawn yet. */
     new MutationObserver(function () {
       clearTimeout(timer);
       timer = setTimeout(function () { upgrade(document); }, 120);
     }).observe(document.body, { childList: true, subtree: true });
   }
 
+  /* ---------------------------------------------------- personality layer */
+
+  var COMMON = [
+    [
+      "Connecting the dots…",
+      "Checking the data before we pretend to know the answer.",
+      "Smart 1 is finding the useful part.",
+      "Stand by. Smart things are happening."
+    ],
+    [
+      "Marketing magic takes at least a few milliseconds.",
+      "We asked the machines. They have follow-up questions.",
+      "Smart 1 is looking under every digital rock.",
+      "Turning caffeine into marketing intelligence."
+    ],
+    [
+      "Artificial intelligence. Natural impatience.",
+      "Somewhere, a server is working very hard to impress you.",
+      "Your competitors probably still use ‘Loading…’",
+      "We could guess. We’d rather actually find it."
+    ],
+    [
+      "The algorithm is being dramatic. We’re supervising.",
+      "Smart 1 Marketing AI: mildly terrifying, extremely useful.",
+      "Please enjoy this brief moment of artificial suspense.",
+      "The robots assure us this is worth the wait.",
+      "Patient, young marketer. Dramatic, the computers have become."
+    ]
+  ];
+
+  var MESSAGES = {
+    generic: [
+      ["Smart 1 is working on it.", "Finding the answer that actually helps."],
+      ["The Smart 1 machine is warming up.", "Connecting systems that were clearly never introduced properly."],
+      ["The mainframe has opinions. This should be interesting.", "Making marketing smarter one unnecessarily complicated request at a time."],
+      ["The machine considered world domination. We redirected it to conversions.", "No dramatic movie computer sequence required. Probably."]
+    ],
+    ai: [
+      ["Asking the model to think about this…", "Giving the AI enough context to be useful."],
+      ["The AI is overthinking it. We encouraged that.", "Asking billions of parameters to agree on something."],
+      ["Our AI just said ‘interesting.’ That’s usually a good sign.", "Teaching a computer about marketing. Again."],
+      ["The machines are holding a strategy meeting. Humans were not invited.", "Global domination postponed. Conversion optimization has priority."]
+    ],
+    api: [
+      ["Calling the other computer…", "Request sent. Waiting for the other system."],
+      ["The API says ‘one moment.’ Classic.", "Translating computer into other computer."],
+      ["Waiting for the internet equivalent of ‘I’ll check in the back.’", "Request sent. Now staring professionally at the API."],
+      ["Their server. Our patience. Your answer.", "Carrier pigeon remains available as a fallback architecture."]
+    ],
+    database: [
+      ["Querying Smart 1’s data…", "Checking the records."],
+      ["Opening a suspicious number of digital filing cabinets.", "The database knows we saved it somewhere."],
+      ["Asking SQL nicely.", "Following the data trail without stepping on the joins."],
+      ["Somewhere in here is exactly what you asked for.", "The database would like everyone to know this is technically very impressive."]
+    ],
+    analytics: [
+      ["Crunching the numbers…", "Checking what actually happened."],
+      ["Making the numbers tell the truth.", "Turning rows into decisions."],
+      ["Separating impressions from actual results.", "Looking for the part where marketing made money."],
+      ["Preparing charts executives will insist they already understood.", "Data in. Excuses out."]
+    ],
+    creative: [
+      ["Building the creative…", "Giving the pixels something useful to do."],
+      ["Moving pixels until marketing gets happier.", "Making it look expensive."],
+      ["Teaching AI the difference between clean and boring.", "Creative department currently arguing with mathematics."],
+      ["Making the logo bigger in spirit, if not literally.", "Rendering pixels at an irresponsible rate."]
+    ],
+    weather: [
+      ["Checking the forecast…", "Reading the conditions before the campaign reacts."],
+      ["Consulting the atmosphere.", "Asking the clouds whether the budget should move."],
+      ["Mother Nature just entered the media plan.", "Forecast: a strong chance of smarter targeting."],
+      ["Somewhere, a cold front just triggered an ad.", "The temperature changed. So did the opportunity."]
+    ],
+    search: [
+      ["Searching Smart 1’s sources…", "Looking for the useful result."],
+      ["Looking under every digital rock.", "We found the haystack. Working on the needle."],
+      ["Finding the needle. Ignoring several million pieces of hay.", "Searching faster than a human with 37 browser tabs."],
+      ["Enhancing… except we’re actually querying the data.", "Satellite-level paranoia not required. The search data is enough."]
+    ],
+    report: [
+      ["Building the report…", "Turning data into something readable."],
+      ["Turning rows into something a client can actually read.", "Making analytics slightly less boring."],
+      ["Data in. Excuses out.", "Calculating. Recalculating. Blaming rounding."],
+      ["The numbers are ready. Now making them look less like homework.", "Converting a small mountain of data into one useful answer."]
+    ],
+    deployment: [
+      ["Putting the pieces together…", "Checking the build before it goes anywhere."],
+      ["Convincing the computers this was always the plan.", "Packaging optimism with version control."],
+      ["Deploying optimism with a rollback plan.", "The servers are discussing who gets to do the work."],
+      ["If this works, it was automation. If not, it was character building.", "Mainframe says hello. Deployment says keep going."]
+    ]
+  };
+
+  function tierFor(elapsed) {
+    if (elapsed < 3500) return 0;
+    if (elapsed < 8000) return 1;
+    if (elapsed < 15000) return 2;
+    return 3;
+  }
+
+  function normalContext(context) {
+    return CONTEXTS.indexOf(context) >= 0 ? context : "generic";
+  }
+
+  function messageFor(context, elapsed, previous) {
+    var c = normalContext(context);
+    var tier = tierFor(elapsed || 0);
+    var specific = (MESSAGES[c] && MESSAGES[c][tier]) || [];
+    var pool = specific.concat(COMMON[tier] || []);
+    if (!pool.length) return "Smart 1 is working on it.";
+    var start = Math.floor(Math.random() * pool.length);
+    for (var i = 0; i < pool.length; i += 1) {
+      var candidate = pool[(start + i) % pool.length];
+      if (pool.length === 1 || candidate !== previous) return candidate;
+    }
+    return pool[0];
+  }
+
+  function inferContext(value, explicit) {
+    if (explicit && CONTEXTS.indexOf(String(explicit).toLowerCase()) >= 0) {
+      return String(explicit).toLowerCase();
+    }
+    var text = "";
+    try {
+      if (typeof value === "string") text = value;
+      else if (value && value.url) text = value.url;
+      else text = String(value || "");
+    } catch (e) { text = ""; }
+    text = text.toLowerCase();
+
+    if (/weather|forecast|temperature|precip|humidity|smartforecast/.test(text)) return "weather";
+    if (/image|creative|video|commercial|audio|voice|radio|artwork|banner/.test(text)) return "creative";
+    if (/analytics|ga4|looker|metric|kpi|conversion|attribution/.test(text)) return "analytics";
+    if (/report|reporting|audit|summary|insight|pdf/.test(text)) return "report";
+    if (/deploy|publish|release|render|build/.test(text)) return "deployment";
+    if (/search|lookup|find|scan|scrape|crawl|prospect/.test(text)) return "search";
+    if (/database|\bdb\b|knack|sql|record|ledger/.test(text)) return "database";
+    if (/openai|\bai\b|gpt|model|assistant|generate|draft|rewrite|chat/.test(text)) return "ai";
+    if (/\/api\//.test(text) || /^api[:/]/.test(text)) return "api";
+    return "generic";
+  }
+
+  function kindForContext(context) {
+    if (context === "ai" || context === "creative") return "ai";
+    if (context === "search" || context === "weather" || context === "api") return "scan";
+    return "wait";
+  }
+
+  function injectPersonalityStyle() {
+    if (document.getElementById("s1-thinking-personality-style")) return;
+    try {
+      var style = document.createElement("style");
+      style.id = "s1-thinking-personality-style";
+      style.textContent =
+        ".s1-global-thinking{position:fixed;right:18px;bottom:18px;z-index:2147483000;" +
+        "width:min(410px,calc(100vw - 36px));box-sizing:border-box;display:flex;align-items:flex-start;" +
+        "gap:12px;padding:13px 15px;background:rgba(255,255,255,.97);color:#1b2733;" +
+        "border:1px solid #dfe6ee;border-left:4px solid #1769AA;border-radius:12px;" +
+        "box-shadow:0 14px 38px rgba(6,18,32,.22);font:400 13px/1.45 system-ui,-apple-system,sans-serif}" +
+        ".s1-global-thinking[hidden]{display:none!important}" +
+        ".s1-global-thinking-mark{display:flex;align-items:center;justify-content:center;width:24px;height:24px;" +
+        "flex:0 0 24px;color:#1769AA;margin-top:1px}" +
+        ".s1-global-thinking-mark .s1-think-svg{width:22px;height:22px}" +
+        ".s1-global-thinking-copy{min-width:0;display:flex;flex-direction:column;gap:2px}" +
+        ".s1-global-thinking-title{font-weight:750;color:#0d2340;font-size:13px;letter-spacing:.01em}" +
+        ".s1-global-thinking-message{color:#41525f;overflow-wrap:anywhere}" +
+        "@media(max-width:640px){.s1-global-thinking{right:10px;left:10px;bottom:10px;width:auto}}" +
+        "@media(prefers-reduced-motion:reduce){.s1-global-thinking{transition:none!important}}";
+      (document.head || document.documentElement).appendChild(style);
+    } catch (e) {}
+  }
+
+  var globalCard = null;
+  var globalMessageTimer = null;
+  var lastGlobalMessage = "";
+  var activeWaits = {};
+  var waitSeq = 0;
+
+  function ensureGlobalCard() {
+    if (globalCard && globalCard.box && globalCard.box.isConnected) return globalCard;
+    try {
+      injectPersonalityStyle();
+      var box = document.createElement("div");
+      box.className = "s1-global-thinking";
+      box.hidden = true;
+      box.setAttribute("role", "status");
+      box.setAttribute("aria-live", "polite");
+      box.setAttribute("aria-atomic", "true");
+
+      var icon = document.createElement("span");
+      icon.className = "s1-global-thinking-mark";
+      box.appendChild(icon);
+
+      var copy = document.createElement("span");
+      copy.className = "s1-global-thinking-copy";
+      var title = document.createElement("strong");
+      title.className = "s1-global-thinking-title";
+      title.textContent = "Smart 1 Thinking…";
+      var message = document.createElement("span");
+      message.className = "s1-global-thinking-message";
+      copy.appendChild(title);
+      copy.appendChild(message);
+      box.appendChild(copy);
+
+      (document.body || document.documentElement).appendChild(box);
+      globalCard = { box: box, icon: icon, message: message, token: null, kind: null };
+    } catch (e) { return null; }
+    return globalCard;
+  }
+
+  function visibleWait() {
+    var choice = null;
+    Object.keys(activeWaits).forEach(function (token) {
+      var w = activeWaits[token];
+      if (!w.visible) return;
+      if (!choice || w.started < choice.started) choice = w;
+    });
+    return choice;
+  }
+
+  function stopMessageTimer() {
+    try { if (globalMessageTimer) clearTimeout(globalMessageTimer); } catch (e) {}
+    globalMessageTimer = null;
+  }
+
+  function paintGlobal(wait) {
+    var card = ensureGlobalCard();
+    if (!card || !wait) return;
+    try {
+      var nextKind = kindForContext(wait.context);
+      if (card.kind !== nextKind) {
+        card.icon.innerHTML = "";
+        card.icon.appendChild(mark(nextKind));
+        card.kind = nextKind;
+      }
+      var msg = messageFor(wait.context, Date.now() - wait.started, lastGlobalMessage);
+      card.message.textContent = msg;
+      lastGlobalMessage = msg;
+      card.token = wait.token;
+      card.box.setAttribute("data-s1-context", wait.context);
+      card.box.hidden = false;
+    } catch (e) {}
+  }
+
+  function scheduleGlobalMessage(wait) {
+    stopMessageTimer();
+    if (!wait) return;
+    var delay = MESSAGE_MIN + Math.floor(Math.random() * MESSAGE_JITTER);
+    globalMessageTimer = setTimeout(function () {
+      var current = activeWaits[wait.token];
+      if (!current || !current.visible) return;
+      var shown = visibleWait();
+      if (!shown || shown.token !== wait.token) return;
+      paintGlobal(shown);
+      scheduleGlobalMessage(shown);
+    }, delay);
+  }
+
+  function refreshGlobal() {
+    var wait = visibleWait();
+    if (!wait) {
+      stopMessageTimer();
+      try { if (globalCard && globalCard.box) globalCard.box.hidden = true; } catch (e) {}
+      return;
+    }
+    paintGlobal(wait);
+    scheduleGlobalMessage(wait);
+  }
+
+  function startGlobal(opts) {
+    var o = opts || {};
+    var context = inferContext(o.url || "", o.context);
+    var token = "s1w-" + (++waitSeq);
+    var wait = {
+      token: token,
+      context: context,
+      started: Date.now(),
+      visible: false,
+      timer: null
+    };
+    activeWaits[token] = wait;
+
+    var delay = typeof o.delay === "number" ? Math.max(0, o.delay) : NETWORK_DELAY;
+    wait.timer = setTimeout(function () {
+      if (!activeWaits[token]) return;
+      wait.visible = true;
+      refreshGlobal();
+    }, delay);
+
+    var ended = false;
+    return {
+      token: token,
+      context: context,
+      done: function () {
+        if (ended) return;
+        ended = true;
+        try { clearTimeout(wait.timer); } catch (e) {}
+        delete activeWaits[token];
+        refreshGlobal();
+      }
+    };
+  }
+
+  function trackPromise(promise, opts) {
+    var h = startGlobal(opts || {});
+    if (!promise || typeof promise.then !== "function") { h.done(); return promise; }
+    return promise.then(function (value) {
+      h.done();
+      return value;
+    }, function (err) {
+      h.done();
+      throw err;
+    });
+  }
+
+  function requestURL(input) {
+    try {
+      if (typeof input === "string") return input;
+      if (input && input.url) return input.url;
+    } catch (e) {}
+    return "";
+  }
+
+  function headerOptOut(headers) {
+    try {
+      if (!headers) return false;
+      if (window.Headers && headers instanceof window.Headers) {
+        return String(headers.get("X-S1-Thinking") || "").toLowerCase() === "off";
+      }
+      if (Array.isArray(headers)) {
+        for (var i = 0; i < headers.length; i += 1) {
+          if (String(headers[i][0]).toLowerCase() === "x-s1-thinking" &&
+              String(headers[i][1]).toLowerCase() === "off") return true;
+        }
+      } else {
+        for (var key in headers) {
+          if (Object.prototype.hasOwnProperty.call(headers, key) &&
+              String(key).toLowerCase() === "x-s1-thinking" &&
+              String(headers[key]).toLowerCase() === "off") return true;
+        }
+      }
+    } catch (e) {}
+    return false;
+  }
+
+  function shouldTrack(input, init) {
+    try {
+      var o = init || {};
+      if (o.s1Thinking === false || headerOptOut(o.headers)) return false;
+      var method = String(o.method || (input && input.method) || "GET").toUpperCase();
+      if (method === "HEAD" || method === "OPTIONS") return false;
+      var url = requestURL(input);
+      if (!url) return true;
+      if (/\.(?:js|css|map|png|jpe?g|gif|webp|svg|ico|woff2?|ttf)(?:\?|$)/i.test(url)) return false;
+      if (/\/hub-thinking\.js(?:\?|$)|\/hub-help\.css(?:\?|$)/i.test(url)) return false;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function installNetworkHooks() {
+    try {
+      if (window.fetch && !window.fetch.__s1ThinkingWrapped) {
+        var nativeFetch = window.fetch;
+        var wrappedFetch = function (input, init) {
+          if (!shouldTrack(input, init)) return nativeFetch.apply(this, arguments);
+          var o = init || {};
+          var h = startGlobal({
+            url: requestURL(input),
+            context: o.s1Context,
+            delay: typeof o.s1ThinkingDelay === "number" ? o.s1ThinkingDelay : NETWORK_DELAY
+          });
+          var result;
+          try { result = nativeFetch.apply(this, arguments); }
+          catch (e) { h.done(); throw e; }
+          if (!result || typeof result.then !== "function") { h.done(); return result; }
+          return result.then(function (response) {
+            h.done();
+            return response;
+          }, function (err) {
+            h.done();
+            throw err;
+          });
+        };
+        wrappedFetch.__s1ThinkingWrapped = true;
+        wrappedFetch.__s1NativeFetch = nativeFetch;
+        window.fetch = wrappedFetch;
+      }
+    } catch (e) {}
+
+    try {
+      if (window.XMLHttpRequest && !window.XMLHttpRequest.prototype.__s1ThinkingWrapped) {
+        var proto = window.XMLHttpRequest.prototype;
+        var nativeOpen = proto.open;
+        var nativeSend = proto.send;
+        proto.open = function (method, url) {
+          this.__s1Method = method;
+          this.__s1Url = url;
+          return nativeOpen.apply(this, arguments);
+        };
+        proto.send = function () {
+          var xhr = this;
+          var h = null;
+          if (xhr.s1Thinking !== false && String(xhr.__s1Method || "GET").toUpperCase() !== "HEAD") {
+            h = startGlobal({
+              url: xhr.__s1Url || "",
+              context: xhr.s1Context,
+              delay: typeof xhr.s1ThinkingDelay === "number" ? xhr.s1ThinkingDelay : NETWORK_DELAY
+            });
+            try {
+              xhr.addEventListener("loadend", function () { if (h) h.done(); }, { once: true });
+            } catch (e) {}
+          }
+          try { return nativeSend.apply(xhr, arguments); }
+          catch (e) { if (h) h.done(); throw e; }
+        };
+        proto.__s1ThinkingWrapped = true;
+      }
+    } catch (e) {}
+  }
+
   window.S1Think = {
-    KINDS: KINDS, SLOW_AT: SLOW_AT,
-    attach: attach, busy: busy, html: html, mark: mark,
-    upgrade: upgrade, reduced: reduced
+    KINDS: KINDS,
+    CONTEXTS: CONTEXTS,
+    SLOW_AT: SLOW_AT,
+    attach: attach,
+    busy: busy,
+    html: html,
+    mark: mark,
+    upgrade: upgrade,
+    reduced: reduced,
+    inferContext: inferContext,
+    messageFor: messageFor,
+    start: startGlobal,
+    track: trackPromise
   };
 
   function init() {
-    try { upgrade(document); watch(); } catch (e) {}
+    try {
+      injectPersonalityStyle();
+      upgrade(document);
+      watch();
+      installNetworkHooks();
+    } catch (e) {}
   }
+
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
   } else { init(); }

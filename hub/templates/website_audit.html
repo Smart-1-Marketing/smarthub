@@ -72,6 +72,26 @@
   table.mini td{border-top:1px solid var(--line);padding:5px 6px;vertical-align:top}
   table.mini td:first-child{color:var(--muted);white-space:nowrap;width:1%}
   .wrapover{overflow-x:auto}
+  .site-previews{display:grid;grid-template-columns:minmax(0,2fr) minmax(240px,.72fr);
+                 gap:16px;align-items:start;margin-top:12px}
+  .site-preview{min-width:0;border:1px solid var(--line);border-radius:10px;
+                overflow:hidden;background:#f8fafc}
+  .site-preview.mobile{width:100%;max-width:340px;justify-self:center}
+  .site-preview-head{display:flex;align-items:center;justify-content:space-between;
+                     gap:10px;padding:9px 11px;border-bottom:1px solid var(--line);
+                     background:#fff;font-size:12.5px;font-weight:650}
+  .site-preview-head a{font-size:11.5px;font-weight:500;color:var(--ink-2);
+                       text-decoration:none;white-space:nowrap}
+  .site-preview-head a:hover{text-decoration:underline}
+  .site-preview-frame{overflow:auto;background:#edf2f7;scrollbar-gutter:stable}
+  .site-preview.desktop .site-preview-frame{height:390px}
+  .site-preview.mobile .site-preview-frame{height:520px}
+  .site-preview img{display:block;width:100%;height:auto;background:#fff}
+  @media(max-width:760px){
+    .site-previews{grid-template-columns:1fr}
+    .site-preview.desktop .site-preview-frame{height:320px}
+    .site-preview.mobile{max-width:360px}
+  }
 </style>
 </head>
 {# `data-screen` is what OFFERS a tour, so it names the screen the registry
@@ -425,6 +445,42 @@
     return h+'</div>';
   }
 
+  function screenshotCard(kind,label,url,dom){
+    return '<div class="site-preview '+kind+'">'
+      +'<div class="site-preview-head"><span>'+esc(label)+'</span>'
+      +'<a href="'+esc(url)+'" target="_blank" rel="noopener">Open full size &#8599;</a></div>'
+      +'<div class="site-preview-frame"><img src="'+esc(url)+'" alt="'
+      +esc(label+' screenshot of '+(dom||'website'))+'" loading="lazy"></div></div>';
+  }
+
+  function loadScreenshots(d){
+    var host=$('sitePreview');
+    if(!host) return;
+    if(!d||!d.public_id){ host.remove(); return; }
+    fetch('/scans/api/scans/'+encodeURIComponent(d.public_id),{credentials:'same-origin'})
+      .then(function(r){
+        if(!r.ok) throw new Error('scan detail unavailable');
+        return r.json();
+      })
+      .then(function(scan){
+        var raw=(scan&&scan.raw_report&&typeof scan.raw_report==='object')
+          ? scan.raw_report : {};
+        var site=(raw.website_screenshot&&typeof raw.website_screenshot==='object')
+          ? raw.website_screenshot : {};
+        var mobileData=(raw.mobile&&typeof raw.mobile==='object') ? raw.mobile : {};
+        var desktop=String(site.desktop_screenshot_url||'').trim();
+        var mobile=String(site.mobile_screenshot_url||mobileData.mobile_screenshot_url||'').trim();
+        if(!desktop&&!mobile){ host.remove(); return; }
+        var cards=[];
+        if(desktop) cards.push(screenshotCard('desktop','Desktop',desktop,d.domain));
+        if(mobile) cards.push(screenshotCard('mobile','Mobile',mobile,d.domain));
+        host.innerHTML='<h2>Website Preview</h2>'
+          +'<p class="small muted" style="margin:2px 0 0">Desktop and mobile screenshots returned with this Insites audit. Scroll inside a preview to inspect the full page.</p>'
+          +'<div class="site-previews">'+cards.join('')+'</div>';
+      })
+      .catch(function(){ host.remove(); });
+  }
+
   function render(d){
     $('ageBox').innerHTML='';
     if(d.error){
@@ -449,6 +505,9 @@
       h+='<div class="card"><h2>At a glance</h2><div class="figs" style="margin-top:10px">'
         +d.headline.rows.map(figHtml).join('')+'</div></div>';
     }
+
+    h+='<div class="card" id="sitePreview"><h2>Website Preview</h2>'
+      +'<div class="empty"><span class="spin"></span> Loading the desktop and mobile screenshots from this audit…</div></div>';
 
     h+='<div class="card" data-block="opportunities">'
       +'<h2>What this audit says we could fix '
@@ -502,6 +561,7 @@
     h+='</div>';
 
     $('out').innerHTML=h;
+    loadScreenshots(d);
     showForms(d);
   }
 

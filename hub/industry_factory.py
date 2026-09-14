@@ -6,10 +6,21 @@ from flask import Blueprint, abort, jsonify, make_response, render_template, req
 from hub.extensions import db
 from hub import industry_config as config
 from hub.blueprint_guard import install
+from hub import industry_workflow as workflow
 
 bp = Blueprint("industry_factory", __name__)
 install(bp, public=("/industry/p/", "/industry/widget/"))
-QA = {"copy": "Roofing copy, service and market reviewed", "claims": "No unsupported damage, savings or insurance claims", "mobile": "Desktop and mobile preview checked", "lead": "Lead form and follow-up configuration reviewed"}
+QA = {"copy": "Messaging, service and market approved", "claims": "No unsupported damage, savings or insurance claims", "mobile": "Branding and desktop/mobile appearance approved", "lead": "Follow-up owner and publication approved"}
+
+
+@bp.before_request
+def write_guard():
+    if request.method == "POST":
+        if request.headers.get("Sec-Fetch-Site") == "cross-site" or not request.is_json:
+            return jsonify(error="Submit changes from the factory using JSON."), 403
+        if request.content_length and request.content_length > 32768:
+            return jsonify(error="Request is too large."), 413
+    return None
 
 
 class IndustryPage(db.Model):
@@ -34,7 +45,7 @@ class IndustryPage(db.Model):
             if job:
                 artifacts["creative"] = job.result()
                 artifacts["creative_error"] = job.error
-        return dict(id=self.id, version=self.version, parent_id=self.parent_id, status=self.status,
+        return dict(id=self.id, publication_id=workflow.root_id(self), version=self.version, parent_id=self.parent_id, status=self.status,
                     config=json.loads(self.config_json), pack=json.loads(self.pack_json), artifacts=artifacts,
                     qa=json.loads(self.qa_json), states={"page": "ready" if artifacts.get("page") else "not_started",
                     "report": "ready" if artifacts.get("report") else "not_started", "creative": creative})
@@ -50,7 +61,7 @@ def get_page(page_id):
 def metadata(page):
     data = page.data()
     pack, selected = data["pack"], data["config"]
-    return dict(selected, industry_family=pack["industry_family"], page_id=page.id,
+    return dict(selected, publication_id=workflow.root_id(page), industry_family=pack["industry_family"], page_id=page.id,
                 page_version=page.version, trigger_profile=pack["trigger_profile"],
                 creative_profile=pack["creative"]["id"])
 
@@ -62,6 +73,8 @@ def lead_metadata(page, attribution=None):
     meta["tags"] = ["industry-" + meta["industry_id"], "family-" + meta["industry_family"].replace("_", "-"),
                     "market-" + re.sub(r"[^a-z0-9]+", "-", meta["market"].lower()).strip("-"),
                     page.data()["pack"]["widget"]["offer_tag"]]
+    if meta.get("audience_id"):
+        meta["tags"].append("audience-" + meta["audience_id"])
     return meta
 
 
@@ -79,6 +92,32 @@ def factory():
     return render_template("industry_factory.html", packs=config.catalog(), qa=QA)
 
 
+@bp.get("/api/industry-factory/audiences")
+def audiences():
+    from hub import industry_prospect_store
+    supported = {p["id"] for p in config.catalog()}
+    rows = industry_prospect_store.rows("campaign")
+    return jsonify(audiences=[dict(id=r["id"], name=r["name"], industry=r["industry"],
+        market=", ".join(r.get("filters", {}).get("organization_locations[]", [])),
+        supported=r["industry"] in supported, landing_page=r.get("landing_page", "")) for r in rows])
+
+
+def attach_audience(selected, body):
+    aid = body.get("audience_id")
+    if not aid:
+        return
+    from hub.industry_prospects import campaign
+    from hub.industry_prospect_store import ProspectError
+    try:
+        audience = campaign(str(aid))
+    except ProspectError as exc:
+        raise ValueError(str(exc)) from exc
+    if audience["industry"] != selected["industry_id"]:
+        raise ValueError("The saved audience must match this industry.")
+    selected["audience_id"] = audience["id"]
+    selected["audience_name"] = audience["name"]
+
+
 @bp.route("/api/industry-factory/pages", methods=["GET", "POST"])
 def pages():
     if request.method == "GET":
@@ -88,6 +127,7 @@ def pages():
         return jsonify(error="Expected a JSON object"), 400
     try:
         pack, selected = config.selection(body)
+        attach_audience(selected, body)
     except (ValueError, TypeError) as exc:
         return jsonify(error=str(exc)), 400
     page = IndustryPage(id=uuid.uuid4().hex, config_json=json.dumps(selected), pack_json=json.dumps(pack))
@@ -100,14 +140,103 @@ def pages():
     return jsonify(page.data()), 201
 
 
+@bp.get("/api/industry-factory/pages/<page_id>/review")
+def review(page_id):
+    page = get_page(page_id)
+    versions = [p.data() for p in IndustryPage.query.all() if workflow.root_id(p) == workflow.root_id(page)]
+    live = workflow.live_page(page)
+    base = live or (get_page(page.parent_id) if page.parent_id else None)
+    data = page.data()
+    changes = []
+    if base and base.id != page.id:
+        previous = base.data()
+        for section, before, after in (("Setup", previous["config"], data["config"]), ("Messaging", previous["pack"]["messaging"], data["pack"]["messaging"])):
+            for key in sorted(set(before) | set(after)):
+                if key not in ("publication_id",) and before.get(key) != after.get(key):
+                    changes.append(dict(section=section, field=key, before=before.get(key), after=after.get(key)))
+    return jsonify(qa=workflow.technical_qa(data), versions=sorted(versions, key=lambda p: p["version"], reverse=True), active_id=live.id if live else "", changes=changes)
+
+
+@bp.get("/api/industry-factory/pages/<page_id>/metrics")
+def metrics(page_id):
+    try:
+        return jsonify(workflow.report_metrics(get_page(page_id)))
+    except OSError:
+        return jsonify(error="Lead reporting is unavailable; counts have not been replaced with zero."), 503
+
+
 @bp.post("/api/industry-factory/pages/<page_id>/<action>")
 def action(page_id, action):
     page = get_page(page_id)
-    if page.status == "published":
+    # Serialize publication-pointer and revision-number changes across workers.
+    db.session.execute(db.select(IndustryPage).where(IndustryPage.id == workflow.root_id(page)).with_for_update()).scalar_one()
+    db.session.refresh(page)
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify(error="Expected a JSON object"), 400
+    if action == "revise":
+        data = page.data()
+        versions = [p.version for p in IndustryPage.query.all() if workflow.root_id(p) == workflow.root_id(page)]
+        selected = dict(data["config"], publication_id=workflow.root_id(page))
+        draft = IndustryPage(id=uuid.uuid4().hex, parent_id=page.id, version=max(versions) + 1, config_json=json.dumps(selected), pack_json=page.pack_json)
+        db.session.add(draft); db.session.commit()
+        return jsonify(draft.data()), 201
+    if action == "unpublish":
+        live = workflow.live_page(page)
+        if not live:
+            return jsonify(error="This campaign is already unpublished."), 409
+        workflow.activate(live)
+        db.session.get(workflow.Publication, workflow.root_id(page)).active_id = ""
+        live.status = "archived"
+        db.session.commit()
+        return jsonify(page.data())
+    if action == "restore":
+        if page.status != "archived" or set(json.loads(page.qa_json)) != set(QA) or not workflow.technical_qa(page.data())["ready"]:
+            return jsonify(error="Only a previously approved version that passes technical QA can be restored."), 409
+        workflow.activate(page); db.session.commit()
+        return jsonify(page.data())
+    if action == "qualify":
+        from hub.auth import user_from_environ
+        lead_id = str(body.get("lead_id", ""))
+        if not isinstance(body.get("qualified"), bool):
+            return jsonify(error="Choose qualified or not qualified."), 400
+        if not any(r["id"] == lead_id for r in workflow.report_metrics(page)["recent_leads"]):
+            return jsonify(error="Choose a recent lead from this campaign."), 404
+        from datetime import datetime, timezone
+        row = db.session.get(workflow.Qualification, lead_id) or workflow.Qualification(lead_id=lead_id)
+        row.qualified = body["qualified"]
+        row.actor = str(user_from_environ(request.environ))[:120]
+        row.updated = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.session.add(row); db.session.commit()
+        return jsonify(page.data())
+    if page.status != "draft":
         return jsonify(error="Published versions are immutable. Clone to revise."), 409
     data = page.data()
     artifacts = json.loads(page.artifacts_json)
-    if action == "generate-page":
+    if action == "save":
+        try:
+            _, selected = config.selection(body)
+            attach_audience(selected, body)
+            if selected["industry_id"] != data["config"]["industry_id"]:
+                raise ValueError("Create a new campaign to change industry.")
+            selected["publication_id"] = workflow.root_id(page)
+            messaging = body.get("messaging", {})
+            if not isinstance(messaging, dict):
+                raise ValueError("Expected messaging fields.")
+            for key in ("headline", "subhead", "pre_event", "active_event", "post_event"):
+                if key in messaging:
+                    value = messaging[key]
+                    if not isinstance(value, str) or not value.strip() or len(value) > 1000:
+                        raise ValueError("Messaging must contain 1–1000 characters per field.")
+                    data["pack"]["messaging"][key] = value.strip()
+        except (ValueError, TypeError) as exc:
+            return jsonify(error=str(exc)), 400
+        page.config_json = json.dumps(selected)
+        page.pack_json = json.dumps(data["pack"])
+        artifacts = {}
+        page.qa_json = "[]"
+        page.creative_job_id = None
+    elif action == "generate-page":
         artifacts["page"] = True
     elif action == "generate-report":
         artifacts["report"] = report_for(data)
@@ -120,12 +249,14 @@ def action(page_id, action):
             return jsonify(error="Creative queue unavailable; retry generation."), 503
         page.creative_job_id = job.id
     elif action == "publish":
-        body = request.get_json(silent=True) or {}
         checks = body.get("qa") if isinstance(body, dict) else None
         if not isinstance(checks, list) or any(not isinstance(c, str) for c in checks) or set(checks) != set(QA) or not artifacts.get("page") or not artifacts.get("report"):
             return jsonify(error="Generate the page and report and complete every QA check before publishing."), 400
         page.qa_json = json.dumps(checks)
-        page.status = "published"
+        result = workflow.technical_qa(data)
+        if not result["ready"]:
+            return jsonify(error="Resolve the failed technical QA checks before publishing.", qa=result), 400
+        workflow.activate(page)
     else:
         abort(404)
     page.artifacts_json = json.dumps(artifacts)
@@ -149,24 +280,38 @@ def render_public(page, widget=False, preview=False):
 
 @bp.get("/sales/industry-factory/preview/<page_id>")
 def preview(page_id):
-    return render_public(get_page(page_id), preview=True)
+    return render_public(get_page(page_id), widget=request.args.get("widget") == "1", preview=True)
 
 
 @bp.get("/industry/p/<page_id>")
 @bp.get("/industry/widget/<page_id>")
 @bp.get("/industry/widget/<page_id>/embed")
 def public(page_id):
-    page = get_page(page_id)
-    if page.status != "published":
+    candidate = get_page(page_id)
+    if candidate.status == "draft" and candidate.id != workflow.root_id(candidate):
         abort(404)
-    return render_public(page, widget=request.path.startswith("/industry/widget/"))
+    page = workflow.live_page(get_page(page_id))
+    if page is None:
+        abort(404)
+    response = render_public(page, widget=request.path.startswith("/industry/widget/"))
+    if request.method == "GET":
+        try:
+            workflow.record_view(page)
+        except Exception:
+            db.session.rollback()
+            from flask import current_app
+            current_app.logger.exception("Industry page view could not be recorded")
+    return response
 
 
 @bp.get("/industry/widget/<page_id>/embed.js")
 def widget_loader(page_id):
     from hub.embed import loader_js
-    page = get_page(page_id)
-    if page.status != "published":
+    candidate = get_page(page_id)
+    if candidate.status == "draft" and candidate.id != workflow.root_id(candidate):
+        abort(404)
+    page = workflow.live_page(candidate)
+    if page is None:
         abort(404)
     response = make_response(loader_js(page.data()["pack"]["widget"]["title"], 920, forward_attribution=True))
     response.mimetype = "application/javascript"
@@ -176,8 +321,11 @@ def widget_loader(page_id):
 
 @bp.get("/industry/p/<page_id>/report")
 def report(page_id):
-    page = get_page(page_id)
-    if page.status != "published":
+    candidate = get_page(page_id)
+    if candidate.status == "draft" and candidate.id != workflow.root_id(candidate):
+        abort(404)
+    page = workflow.live_page(get_page(page_id))
+    if page is None:
         abort(404)
     return render_template("industry_report.html", report=page.data()["artifacts"]["report"])
 

@@ -144,6 +144,7 @@ PREFIXES: dict[str, str] = {
     "/sales/builder/": "sales_builder",
     "/tools/io/": "io_builder",
     "/tools/weather-setup/": "weather_setup",
+    "/tools/360-skills/": "skills360",
     "/sales/landing": "landing_maker",
     "/tools/pdf/": "pdf_optimizer",
     "/tools/short-links": "short_links",

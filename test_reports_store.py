@@ -36,7 +36,8 @@ TMP = tempfile.mkdtemp(prefix="s1reports_store_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["AUDIT_LOG_PATH"] = os.path.join(TMP, "audit.jsonl")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "hub.sqlite3")
-os.environ["REPORTS_DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "reports.sqlite3")
+import _reports_testdb                                               # noqa: E402
+REPORTS_DB = _reports_testdb.bind(TMP)
 os.environ["SECRET_KEY"] = "reports-store-test"
 
 _passed = _failed = 0
@@ -68,12 +69,17 @@ def raises(fn, *args, **kw):
 section("The engine is bound to the reports database first")
 
 from modules.reports import store                                   # noqa: E402
+_reports_testdb.reset(store)
 
 check("with REPORTS_DATABASE_URL set, that is the database",
       store.database_url(), os.environ["REPORTS_DATABASE_URL"])
 check("and the module reports which binding it is on", store.binding(), "reports")
+# Against whichever database this run was bound to: the SQLite file by
+# default, the Postgres in REPORTS_TEST_DATABASE_URL under checks.yml.
 check("the engine the module built is on that URL",
-      str(store.engine.url).endswith("reports.sqlite3"))
+      (str(store.engine.url).endswith("reports.sqlite3") if REPORTS_DB == "sqlite"
+       else store.engine.dialect.name.startswith("postgres")))
+check("...and says which engine that is", store.is_postgres(), REPORTS_DB == "postgres")
 check("and the boot DDL reported no error", store.DB_BOOT_ERROR, "")
 
 _saved = os.environ.pop("REPORTS_DATABASE_URL")

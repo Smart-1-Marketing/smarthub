@@ -122,12 +122,13 @@ class FinishingTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(RenderApproval.query.count(), 0)
 
-    def test_unavailable_video_requires_explicit_human_acknowledgment(self):
+    def test_unavailable_video_blocks_even_with_human_acknowledgment(self):
         job = RenderJob(project_id=self.project.id, status="succeeded", output_url="https://res.cloudinary.com/test.mp4")
         db.session.add(job); db.session.commit()
         response = self.http.post(f"{self.base}/render-jobs/{job.id}/approve", json={"acknowledge_compliance": True})
         self.assertEqual(response.status_code, 409)
-        self.assertTrue(response.get_json()["needs_video_acknowledgment"])
+        self.assertEqual(RenderApproval.query.count(), 0)
+        self.assertNotIn("needs_video_acknowledgment", response.get_json())
 
     def test_controlled_variation_needs_approved_source(self):
         change = [{"scene_id": self.scene.id, "narration": "A new hook."}]

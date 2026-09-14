@@ -77,6 +77,18 @@ class YouTubeTests(unittest.TestCase):
             self.assertEqual(self.client.get("/tools/youtube/api/client?client=Alpha").status_code, 401)
             self.assertEqual(self.client.get("/tools/youtube/").status_code, 302)
 
+    def test_public_invalid_links_fail_without_bypassing_csrf(self):
+        before = store.read()
+        for action in ("start", "review"):
+            self.assertEqual(self.client.post("/connect/youtube/unknown/" + action).status_code, 400)
+        self.assertEqual(store.read(), before)
+        connect = store.invite("Alpha", CID, "connect")
+        review = store.invite("Alpha", CID, "review", self.draft())
+        before = store.read()
+        for token, action in ((connect, "start"), (review, "review")):
+            self.assertEqual(self.client.post("/connect/youtube/" + token + "/" + action).status_code, 403)
+        self.assertEqual(store.read(), before)
+
     def test_csrf_required(self):
         result = self.client.post("/tools/youtube/api/drafts", json={"client": "Alpha"})
         self.assertEqual(result.status_code, 403)

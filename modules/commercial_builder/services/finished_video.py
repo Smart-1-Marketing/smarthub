@@ -28,6 +28,8 @@ def _allowed(url):
     # a file. No arbitrary client URL is passed to a decoder or fetched here.
     configured = urlparse(os.environ.get("HF_RENDER_SERVICE_URL", "")).hostname
     trusted = (host == "res.cloudinary.com" or host == "creatomate.com"
+               or (bool(re.fullmatch(r"f\d+\.backblazeb2\.com", host))
+                   and bool(re.fullmatch(r"/file/creatomate-[a-z0-9-]+/[a-zA-Z0-9_-]+\.mp4", parsed.path)))
                or host.endswith(".creatomate.com") or host.endswith(".creatomateusercontent.com")
                or bool(configured and host == configured))
     if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port not in (None, 443) or not trusted:
@@ -90,6 +92,7 @@ def evaluate(probe, expected, decoded=True, content_log=""):
             warnings.append(f"Quiet audio for {float(span):.1f}s ending at {float(end):.1f}s: check for missing speech or intentional silence.")
     status = "failed" if not all(c["passed"] for c in checks) else "review" if warnings else "passed"
     return {"status": status, "checks": checks, "warnings": warnings[:12],
+            "measured": {"width": video.get("width"), "height": video.get("height"), "duration": duration},
             "note": "Watch the cut to verify lip-sync, pronunciation, captions, missing visual content and audio quality. Stream checks cannot verify those."}
 
 
@@ -105,6 +108,12 @@ def creative_key(project, scenes):
     return fingerprint({"duration": project.length_seconds, "platform": project.platform,
                         "music": project.music, "cta": project.cta,
                         "scenes": [{k: v for k, v in s.items() if k not in ("locked", "project_id")} for s in scenes]})
+
+
+def creative_status(job, project, scenes):
+    row = db.session.get(RenderInspection, job.id)
+    key = (row.expected or {}).get("creative_key") if row else None
+    return "unknown" if not key else "current" if key == creative_key(project, scenes) else "outdated"
 
 
 def inspect_job(job, *, force=False):

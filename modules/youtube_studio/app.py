@@ -214,8 +214,8 @@ def customer(token):
 
 @public_bp.post("/<token>/start")
 def start(token):
-    check_csrf()
     link = store.lookup(token, "connect")
+    check_csrf()
     if not yt.status()["connect_ready"]:
         raise ValueError("The YouTube connection is not configured yet.")
     value = "yt_" + secrets.token_urlsafe(32)
@@ -325,8 +325,8 @@ def save_draft():
 
 @public_bp.post("/<token>/review")
 def customer_review(token):
-    check_csrf()
     link = store.lookup(token, "review")
+    check_csrf()
     decision = request.form.get("decision")
     if decision not in ("approved", "changes_requested"):
         raise ValueError("Choose approve or request changes.")

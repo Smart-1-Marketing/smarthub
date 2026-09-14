@@ -46,7 +46,8 @@ TMP = tempfile.mkdtemp(prefix="s1reports_public_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["AUDIT_LOG_PATH"] = os.path.join(TMP, "audit.jsonl")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "hub.sqlite3")
-os.environ["REPORTS_DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "reports.sqlite3")
+import _reports_testdb                                               # noqa: E402
+REPORTS_DB = _reports_testdb.bind(TMP)
 os.environ["REPORTS_PROVIDER_SCHEMA"] = ""
 os.environ["SECRET_KEY"] = "reports-public-test"
 os.environ["PUBLIC_BASE_URL"] = "https://hub.example.test"
@@ -76,6 +77,7 @@ import wsgi                                                          # noqa: E40
 from hub import auth                                                 # noqa: E402
 from modules.reports import app as reports_app                       # noqa: E402
 from modules.reports import client_pdf, client_view, pricing, store  # noqa: E402
+_reports_testdb.reset(store)
 
 TODAY = date.today()
 D1 = TODAY - timedelta(days=1) if TODAY.day > 1 else TODAY

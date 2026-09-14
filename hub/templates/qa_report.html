@@ -225,6 +225,20 @@ button.qa-map-opt:hover{background:#f1f5f9;border-color:#94a3b8}
         '<button class="qa-io-go">Put back</button> '+
         '<span class="qa-io-msg" style="font-size:11px;color:#64748b"></span></span>';
     }
+    /* A monthly promise recorded as kept by hand -- the report for a month,
+       which nothing here logs. The row carries the run, the item and the
+       month; the write is the plan's own route, so a mark made here and one
+       made on the plan page are one store. */
+    if(c && typeof c==='object' && (c.promise_mark!==undefined || c.promise_unmark!==undefined)){
+      var pref = c.promise_mark || c.promise_unmark;
+      var pundo = c.promise_unmark!==undefined;
+      return '<span class="qa-promise" data-run="'+esc(pref.run)+'" data-item="'+esc(pref.item)+'" '+
+        'data-month="'+esc(pref.month)+'"'+(pundo?' data-undo="1"':'')+'>'+
+        (pundo ? '' : '<input class="qa-promise-note" placeholder="Note" style="width:110px;padding:5px 7px;'+
+          'border:1px solid #e2e8f0;border-radius:8px;font:12px \'Segoe UI\',system-ui,sans-serif"> ')+
+        '<button class="qa-promise-go">'+(pundo?'Undo':'Mark done')+'</button> '+
+        '<span class="qa-promise-msg" style="font-size:11px;color:#64748b"></span></span>';
+    }
     if(c && typeof c==='object' && c.assign!==undefined)
       return '<div class="qa-assign-host" data-cust="'+esc(c.assign)+'"><button class="qa-assign-btn">+ Add to partner</button></div>';
     if(c && typeof c==='object' && c.status_select!==undefined){
@@ -885,6 +899,38 @@ document.addEventListener('click', function(ev){
       /* The row stays on screen and goes quiet: the report is held for the
          day, so removing it would claim a rebuild that has not happened. */
       msg.textContent = undo ? 'Back on the list \u2713' : 'Settled \u2713';
+      var tr = host.closest('tr');
+      if(tr) tr.style.opacity = '.45';
+    })
+    .catch(function(){ msg.textContent = 'Could not save.'; b.disabled = false; });
+});
+
+/* Marking a monthly promise done for one month. Its own listener for the
+   reason the settle control has one: the row carries a note beside the press
+   and an action button carries only a client. */
+document.addEventListener('click', function(ev){
+  var b = ev.target.closest('.qa-promise-go');
+  if(!b) return;
+  var host = b.closest('.qa-promise');
+  if(!host) return;
+  var undo = host.dataset.undo === '1';
+  var msg  = host.querySelector('.qa-promise-msg');
+  var note = host.querySelector('.qa-promise-note');
+  b.disabled = true; msg.textContent = 'Saving\u2026';
+  fetch('/api/proposal-execution/run/' + encodeURIComponent(host.dataset.run) + '/promise',
+    {method:'POST', credentials:'same-origin',
+     headers:{'Content-Type':'application/json'},
+     body: JSON.stringify({item: host.dataset.item, month: host.dataset.month,
+                           done: !undo, note: note ? note.value : ''})})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if(!d || !d.ok){
+        msg.textContent = (d && d.error) || 'Could not save.';
+        b.disabled = false; return;
+      }
+      /* The row stays on screen and goes quiet: the report is held for the
+         day, so removing it would claim a rebuild that has not happened. */
+      msg.textContent = undo ? 'Mark removed \u2713' : 'Marked done \u2713';
       var tr = host.closest('tr');
       if(tr) tr.style.opacity = '.45';
     })

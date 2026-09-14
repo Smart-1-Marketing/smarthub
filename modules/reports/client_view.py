@@ -74,6 +74,12 @@ SMART1_LOGO = ("https://content.app-sources.com/s/30680510049142132/uploads/"
                "Our_Products_/logo-final-cmyk-hz1line-white-9562849.png?format=webp")
 SMART1_SITE = "https://smart1marketing.com"
 
+# Past this many days between today and the newest day with a figure, the
+# client's page says the figures run through that day rather than
+# implying they are current. Two rather than one: every platform here
+# reports through yesterday, and the six-hourly native pull adds a few
+# hours on top of that.
+DATA_STALE_DAYS = 2
 CACHE_SECONDS = 15 * 60
 _CACHE: dict[tuple, tuple[float, dict]] = {}
 _LOCK = threading.Lock()
@@ -350,6 +356,13 @@ def build(link, period: str, today: date | None = None) -> dict:
                       "completes": c["completes"] if c["kind"] else None})
 
     synced = _safe("synced", store.last_synced_at, None)
+    # The newest day any figure on this page comes from. "Updated" below
+    # is when a sync last WROTE, which stays fresh while the provider
+    # restates last week -- so a feed that stopped delivering new days
+    # read as current. The day the figures run through is the honest
+    # stamp, and past DATA_STALE_DAYS the page says so in words.
+    data_through = max((f["date"] for f in facts), default=None)
+    lag = (today - data_through).days if data_through else None
     out = {
         "client_name": link.client_name or link.client,
         "period": {"key": rng["key"], "label": rng["label"],
@@ -364,6 +377,10 @@ def build(link, period: str, today: date | None = None) -> dict:
         "table": table,
         "updated": store.iso(synced),
         "updated_et": eastern(synced),
+        "data_through": data_through.isoformat() if data_through else None,
+        "data_through_label": f"{data_through:%B %-d}" if data_through else "",
+        "data_lag_days": lag,
+        "data_stale": bool(lag is not None and lag > DATA_STALE_DAYS),
         "logo_url": view.get("logo_url") or _safe("logo", lambda: _client_logo(link), ""),
         "smart1_logo": SMART1_LOGO,
         "smart1_site": SMART1_SITE,

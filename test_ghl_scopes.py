@@ -180,7 +180,10 @@ check("the advice is to grant it, not to re-spell it",
 
 check("every requested scope exists in HighLevel's own console list",
       ghl_scopes.unknown_requested(), [])
-check("the console list was captured whole", len(ghl_scopes.AVAILABLE), 97)
+# 97 from the console picker on 2026-08-30, plus the three conversation
+# message scopes HighLevel's OpenAPI names for POST /conversations/messages
+# (read 2026-09-12 for 360 Skills' Email Creator) that the picker omits.
+check("the console list was captured whole", len(ghl_scopes.AVAILABLE), 100)
 # The three names this Hub had wrong until the console list was read. Each
 # would have been caught at the moment it was written.
 for dead in ("social-media-posting.write", "social-media-posting.readonly",

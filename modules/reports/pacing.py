@@ -187,6 +187,10 @@ def compute_line(line: dict, today: date, mappings: list[dict], facts: list[dict
         "budget_period": _q(budget_period), "expected_to_date": _q(expected),
         "actual_to_date": _q(actual),
         "pace": Decimal(str(round(min(pace, PACE_CAP), 4))) if pace is not None else None,
+        # The bar on the board: 2.00x fills it. Computed here rather than as
+        # {{ [pace * 100, 200]|min / 2 }} in the template, which CodeQL reads
+        # as the filter call (min / 2)([...]) and reports as invoking a number.
+        "bar_pct": round(min(pace, 2.0) * 50, 1) if pace is not None else None,
         "band": band, "stalled": stalled, "unmapped": unmapped,
         "projected_month_end": _q(projected), "daily_needed": _q(daily_needed) if daily_needed is not None else None,
         "avg_daily_7": _q(avg7),
@@ -216,14 +220,24 @@ def compute(today: date | None = None, client: str | None = None) -> list[dict]:
     out = []
     facts_cache: dict[str, list] = {}
     maps_cache: dict[str, list] = {}
+    pending_cache: dict[str, list] = {}
     for line in lines:
         c = line["client"]
         if c not in facts_cache:
             facts_cache[c] = store.facts_for(c, since, today)
-            maps_cache[c] = [m for m in all_maps if m["client"] == c]
+            # Confirmed mappings pace the line; a pending auto-mapping is
+            # a proposal and its spend reaches no figure -- facts_for()
+            # does not return its rows either, so counting it here would
+            # mark the line mapped and pace it against nothing. It is
+            # counted apart so the board can say "unmapped, 2 waiting for
+            # confirmation" rather than "unmapped" about a line whose
+            # campaigns are sitting one press away.
+            maps_cache[c] = [m for m in all_maps if m["client"] == c and not m.get("pending")]
+            pending_cache[c] = [m for m in all_maps if m["client"] == c and m.get("pending")]
         row = compute_line(line, today, maps_cache[c], facts_cache[c],
                            history=store.band_history(line["id"]), last_sync=last_sync)
         if row is not None:
+            row["pending_campaigns"] = sum(1 for m in pending_cache[c] if _matches(line, m))
             out.append(row)
     return out
 
@@ -313,6 +327,7 @@ def board(band: str = "", platform: str = "", owner: str = "", client: str = "",
     run_at = rows[0]["computed_at"] if rows else None
     counts = {b: sum(1 for r in rows if r["band"] == b) for b in BANDS}
     counts["alerts"] = sum(1 for r in rows if r["alert"])
+    _overlay_pending(rows)
     shown = rows
     if band:
         shown = [r for r in shown if r["band"] == band]
@@ -336,6 +351,24 @@ def board(band: str = "", platform: str = "", owner: str = "", client: str = "",
         "sort": sort if sort in SORTS else "band",
         "filters": {"band": band, "platform": platform, "owner": owner, "client": client},
     }
+
+
+def _overlay_pending(rows: list[dict]) -> None:
+    """How many auto-mapped campaigns are waiting for confirmation against
+    each line, read live and laid over the snapshot rather than stored in
+    it: a confirmation is a press that should change the board at once, and
+    a snapshot is the hourly run's answer. Never raises -- a board that
+    cannot count the pending ones still draws the pacing."""
+    try:
+        pending = [m for m in store.mapped_campaigns(limit=10000) if m.get("pending")]
+    except Exception:                                   # noqa: BLE001 - the store refused
+        pending = None
+    for r in rows:
+        if pending is None:
+            r["pending_campaigns"] = None
+            continue
+        r["pending_campaigns"] = sum(1 for m in pending
+                                     if m["client"] == r["client"] and _matches(r, m))
 
 
 BOARD_COLUMNS = ("client", "product", "platforms", "owner", "monthly_budget", "sold_amount",
