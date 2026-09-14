@@ -1040,14 +1040,17 @@ def _all_items(plan: dict) -> list[dict]:
     return [it for name in LISTS for it in (plan.get(name) or [])]
 
 
-def apply_decisions(plan: dict, decisions: dict, *, known_owners=None) -> dict:
+def apply_decisions(plan: dict, decisions: dict, *, known_owners=None, actor: str = "") -> dict:
     """A person's review of the plan, applied in one press.
 
     `decisions` may carry `accept` ({id: true|false|null}), `add`
     ([{list, title, detail}]), `remove` ([ids], manual items only),
-    `answers` ({key: value}) and `owners` ({id: email}, blank to follow
-    the client's owner again). Anything it cannot apply is refused by name
-    with a ValueError, and nothing is half-applied.
+    `answers` ({key: value}), `owners` ({id: email}, blank to follow
+    the client's owner again) and `done` ({id: true|false}, launch and
+    creative items only -- a monthly promise is marked month by month).
+    Anything it cannot apply is refused by name with a ValueError, and
+    nothing is half-applied. `actor` goes onto a done mark, because a
+    mark nobody can attribute is one nobody can revisit.
 
     `known_owners` is the set of account emails an item may be given to.
     Handed in by the caller that can read the account table, because this
@@ -1139,6 +1142,30 @@ def apply_decisions(plan: dict, decisions: dict, *, known_owners=None) -> dict:
             it["owner_override"] = addr
         else:
             it.pop("owner_override", None)
+
+    # A done mark on a launch task or a creative item: who and when, stored
+    # on the item and the one thing hub/proposal_progress.py ever writes.
+    # Applied after `accept`, so keeping and finishing an item is one
+    # press. Only a kept item can be done -- a tick on an item nobody kept
+    # is a tick on nothing -- and a monthly promise is refused by name,
+    # because that one is done month by month on its own strip.
+    done = decisions.get("done") or {}
+    if not isinstance(done, dict):
+        raise ValueError("done must map item ids to true or false.")
+    for ident, value in done.items():
+        it = by_id.get(str(ident))
+        if not it:
+            raise ValueError(f"No plan item has the id {ident!r}.")
+        if value not in (True, False):
+            raise ValueError(f"{ident!r}: done must be true or false.")
+        if it.get("list") == "monthly":
+            raise ValueError(f"{it['title']!r} is a monthly promise; mark the month done on its strip instead.")
+        if value:
+            if it.get("accepted") is not True:
+                raise ValueError(f"Keep {it['title']!r} before marking it done; a done mark on an item nobody kept is a tick on nothing.")
+            it["done"] = {"by": " ".join(str(actor or "").split())[:120], "at": _now_iso()}
+        else:
+            it.pop("done", None)
     plan["reviewed_at"] = _now_iso()
     plan["summary"] = summarize(plan)
     return plan
@@ -1168,6 +1195,11 @@ def carry_forward(new_plan: dict, old_plan: dict) -> dict:
             # decision about this piece of work, and the work is still here.
             if prior is not None and prior.get("owner_override"):
                 it["owner_override"] = prior["owner_override"]
+            # So does a done mark: the work was finished, and it is the
+            # same work. A mark on an item the new document no longer
+            # proposes goes with the item, like its verdict.
+            if prior is not None and prior.get("done"):
+                it["done"] = json.loads(json.dumps(prior["done"]))
         for prior in old_plan.get(name) or []:
             if prior.get("source") == SOURCE_MANUAL and prior["id"] not in ids:
                 plan.setdefault(name, []).append(json.loads(json.dumps(prior)))
@@ -1411,13 +1443,17 @@ def answers_for(plan: dict, channel: str = "") -> dict:
 # carries the action its kind and its supplier decide, from this table and
 # never from a copy of it in the page.
 CREATIVE_TOOLS = {
-    "display": {"label": "Display Ad Builder", "href": "/tools/display-ads/_hub/start?client={client}"},
-    "video": {"label": "Commercial Builder", "href": "/tools/commercial-builder/new"},
-    "audio": {"label": "Radio Ad Creator", "href": "/tools/radio-promo/"},
-    "image": {"label": "Image Creator", "href": "/tools/image-creator/"},
-    "social": {"label": "Social Content Planner", "href": "/tools/social/"},
-    "gpt": {"label": "GPT Ads Builder", "href": "/tools/gpt-ads/"},
+    "display": {"key": "display", "label": "Display Ad Builder", "href": "/tools/display-ads/_hub/start?client={client}"},
+    "video": {"key": "video", "label": "Commercial Builder", "href": "/tools/commercial-builder/new"},
+    "audio": {"key": "audio", "label": "Radio Ad Creator", "href": "/tools/radio-promo/"},
+    "image": {"key": "image", "label": "Image Creator", "href": "/tools/image-creator/"},
+    "social": {"key": "social", "label": "Social Content Planner", "href": "/tools/social/"},
+    "gpt": {"key": "gpt", "label": "GPT Ads Builder", "href": "/tools/gpt-ads/"},
 }
+# Each entry carries its own key because hub/proposal_progress.py reads the
+# evidence for an item off the tool that makes it -- the same reading the
+# item's own Make-it-in button is drawn from, so a display pack cannot close
+# a social graphic.
 # Which tool makes an image for which channel. Banners -- a display buy, a
 # retargeting set, a companion banner beside a spot -- are the Display Ad
 # Builder's; a post graphic is the planner's; the AI placement's square is

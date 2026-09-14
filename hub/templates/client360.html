@@ -4341,6 +4341,10 @@ function loadPlan(name){
         if(p.open_questions) todo.push(p.open_questions+' question'+(p.open_questions===1?'':'s')+' open');
         if(p.creative_unassigned) todo.push(p.creative_unassigned+' creative item'
           + (p.creative_unassigned===1?'':'s')+' with no supplier named');
+        /* Launch tasks and creative past the date the launch date put on
+           them, with nothing marked done and nothing landed. */
+        var pg=p.progress||{};
+        if(pg.overdue) todo.push(pg.overdue+' launch or creative item'+(pg.overdue===1?'':'s')+' past due');
         /* The monthly promises, month by month, are on the plan; what the
            record says is whether any is missed or still due this month. A
            schedule with no launch date to measure from says nothing here --
