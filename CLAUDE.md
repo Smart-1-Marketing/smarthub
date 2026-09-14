@@ -2210,6 +2210,42 @@ every check after it out of the file.
 **Absent data must read as "not measured", not zero.** A clean-looking zero
 is a wrong answer presented confidently.
 
+**A column named `query` on a Flask-SQLAlchemy model hides `Model.query` on
+that one class, and nothing errors until the first read.** `db.Model` carries
+the `query` descriptor every `Model.query.filter_by(...)` in this Hub reads;
+`SEORecommendation` declared a **column** called `query` -- a Search Console
+search term is the obvious thing to call one -- so `SEORecommendation.query`
+answered the column's `InstrumentedAttribute` and `.filter_by()` on it raised
+`AttributeError`. The model imported, `create_all()` made the table, and every
+screen looked fine. Behind that one line: `_save_recommendations()` reaches
+it unconditionally, so **every weekly Search Console refresh rolled back**
+before the snapshot or the memory was written, with the error recorded on
+the property row where no page drew it; the action queue and the client
+overview answered **500**, and the overview page `await r.json()`-ed the
+HTML, rejected unhandled, and left the Agency Action Queue blank -- not even
+its own empty state; and the daily job folded each property's failure into
+a list and returned normally, so the scheduler panel drew a **green pill
+over a run that had refreshed nobody**. The only place it ever surfaced was
+a traceback swallowed in `test_hub_help_layer.py`'s page sweep, which
+requests every route and asserts nothing about a 500.
+
+The attribute is `search_query` and the **column keeps its name**
+(`db.Column("query", …)`), so the table already on the live Postgres needs
+no migration -- the `audit.LOG_NAMES` rule, wearing a column. The wire key
+stays `query` too, because the page reads `x.query` and nothing about the
+JSON changed. `hub/integrity.check_shadowed_model_query()` refuses the next
+one at **high**, from the AST -- prose is not a mapping -- and scoped to a
+base spelled `Model`, since a classic declarative `Base` has no `query` to
+shadow; `query_class` is deliberately not on its list, because assigning one
+is how Flask-SQLAlchemy is *told* to use a custom query. The job **raises**
+now when it attempted refreshes and landed none, because `_run_job` reads an
+exception as a failure and a returned dict as success; one property failing
+beside others that landed stays that row's own state, drawn on the overview
+page with its error, or a job red for one client's revoked grant is the
+check people learn to skip. `test_seo_intelligence.py` drives the refresh
+against a stubbed Search Console, the routes, the page, the job's verdict
+and the sweep -- and was confirmed red against the unfixed model first.
+
 **Two blueprints must not offer a template of the same name.** Module Jinja
 environments are separate *for a dispatcher-mounted module* — a blueprint
 registered on the hub app shares the hub's environment, and that environment
@@ -11403,6 +11439,74 @@ it was never a broken widget, it was the whole page, exactly like
 the module root now and `test_image_picker.py` covers the page that needs a
 gallery id.
 
+**A duplicate was reported and that was the whole of the answer.** Both places
+this Hub detects one — `filing.file_asset()`, which eleven tools file through,
+and the widget upload route beside it — said *already there* and changed not one
+row. That is right when somebody uploaded a file twice by accident and wrong
+every other time: the same photograph genuinely does belong to a second
+project, and a client who sends it again usually means *use this one here as
+well*. There was no way to say so, so the answer was always the one that
+changes nothing.
+
+Three things can be meant and they are three different statements about the
+file rather than three strengths of one. **Keep** is *it belongs in both
+places*: the row that exists is untouched and a second one is recorded against
+the new project pointing at the **same** Cloudinary asset — no second copy of
+the bytes, and deliberately no second push into the client's Suite media
+library, which would be exactly the duplicate it avoids, so the twin carries
+the Suite state its original earned rather than sitting at *pending* for ever.
+**Duplicate** is an independent copy somebody can edit or delete without
+touching the original, and it is the only one of the three that spends storage
+— Cloudinary fetches the file from its own delivery URL through
+`hub/storage.put_remote()`, under the original's public_id with a **random**
+tail, because an explicit public_id with overwrite off hands back the asset
+that is already there and the copy would be the original wearing a new row.
+**Move** is *it belongs here instead*: the existing row's project and folder
+fields are rewritten in place, nothing is created and, in particular, nothing
+is deleted — the Cloudinary object is the same object, and a move that
+destroyed a row would be a delete wearing a filing decision. `tool` and
+`completed_on` are left alone by it, since they record how the file was made,
+and `asset_folder` moves only where the caller named one: a move inside a
+gallery does not move the bytes, so a recomputed folder would have the row
+claim a place they are not.
+
+**The default is none of them**, which is the load-bearing half.
+`hub/ad_builder_link.py`, `hub/blog_images.py`, `modules/seo_images` and the IO
+builder's `fileToGallery()` are all finishing a piece of work with nobody
+watching, so a caller that says nothing gets precisely the answer it has always
+had. What the reply gained is `choices` and `filed_under`, because a screen
+cannot offer three choices without being told where the file already is — and
+`filed_under` is the thing that decides which press is sensible.
+
+**Two rows for one asset need two provider ids.** `SavedImage` carries a unique
+constraint on (client, provider, provider_image_id) — one provider photo lands
+in one client's gallery once, which is what stops a double-tap duplicating the
+Cloudinary asset and the Suite upload — so a kept row is spelled with the
+project it was kept for on the end. The base spelling is never re-used, so the
+row every other caller's duplicate check finds is still the original, and a
+second *keep* into the same project finds its own twin and creates nothing,
+which is what makes that press safe to make twice.
+
+**The choice is offered where somebody can act on it and nowhere else.**
+`_upload_panel.html` is shared by the staff gallery and the client's own share
+link, and *project* is our word rather than the client's: somebody on a share
+link is sending photographs in rather than filing them, so they get exactly
+what they got before — the file reported as already present, no project box and
+no question. `choices` comes back empty for them, which is what tells the panel
+to stay as it was rather than a rule the template keeps while the route breaks
+it.
+
+**And the panel it is offered on could not upload at all.**
+`_client_from_token_or_staff()` asked `g.hub_user` for its staff half, and
+**nothing in this Hub has ever set that** — so a member of staff pressing
+Upload on `/gallery/<id>` or `/c/<id>` got *"That link is not valid."*, the
+widget never opened (the same helper gates the signature), and every widget
+upload that did land was recorded `saved_by="client"` whoever made it, on the
+one column that says who to ask about a file. It reads `hub_login_ok()` now,
+which is what `staff_only` decides with. A duplicate choice offered on a panel
+that cannot upload is a feature nobody can reach, so it is named here rather
+than left as the reason the rest of this works.
+
 **Deleting a gallery deletes files nobody can get back**, so the name is typed
 rather than an OK button pressed: the button sits in a row of four safe ones,
 and for anything the client uploaded our copy is very often the only copy. What
@@ -14004,6 +14108,12 @@ python3 test_seo_tasks.py          # one page, however its URL was written:
                                    #   the ticket dedupe compared the raw
                                    #   string while the title beside it was
                                    #   already canonical
+python3 test_seo_intelligence.py   # the Search Console recommendation path:
+                                   #   a column named query no longer hides
+                                   #   Model.query, the weekly refresh lands,
+                                   #   the queue answers, the page says when
+                                   #   it cannot, and the job reads red when
+                                   #   every refresh failed
 python3 test_seo_page.py           # the SEO list and record: a pill with four
                                    #   answers, a name nobody gave, a failed
                                    #   record that is not an empty one, SEO

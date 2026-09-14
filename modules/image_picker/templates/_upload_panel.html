@@ -30,8 +30,23 @@
     sees that password. Nothing is published anywhere — it goes straight into
     your gallery for our team.
   </p>
+  {# Staff only. "Project" is our word rather than the client's, and the
+     client's own share link is a page whose whole job is that the
+     photographs reach us -- a filing question on it is a question they
+     have no way to answer and one more thing between them and the button. #}
+  {% if is_staff %}
+  <label class="proj-field">Project or folder <span class="hint">(optional — where these belong)</span>
+    <input id="uploadProject" type="text" maxlength="200"
+           placeholder="e.g. Spring refresh, Store photos, October flight">
+  </label>
+  {% endif %}
   <button type="button" class="btn" id="openUpload">Upload files</button>
   <span class="hint" id="uploadState" style="margin-left:10px"></span>
+  {# One card per file the gallery already has, each asking what to do about
+     it. Its own container rather than the strip below: the strip is a record
+     of what went in, and a question waiting on an answer must not scroll
+     away among the thumbnails of the files that did. #}
+  <div id="uploadDupes"></div>
   <div id="uploadJustAdded" class="upload-strip"></div>
 </section>
 
@@ -44,6 +59,16 @@
   display:flex;align-items:center;justify-content:center;font-size:26px;background:var(--paper)}
 .upload-strip figcaption{font-size:10.5px;color:var(--ink-3);margin-top:4px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proj-field{display:block;margin:0 0 12px;font-size:12px;color:var(--ink-3)}
+.proj-field input{display:block;margin-top:4px;width:100%;max-width:420px;
+  box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);
+  border-radius:8px;font:14px inherit}
+.dupe{border:1px solid var(--line);border-left:3px solid #C9922B;border-radius:8px;
+  padding:10px 12px;margin:10px 0;background:#FFFDF6}
+.dupe h3{margin:0 0 4px;font-size:13.5px}
+.dupe p{margin:0 0 9px;font-size:12.5px;color:var(--ink-3);line-height:1.5}
+.dupe .btn{margin:0 6px 0 0}
+.dupe .why{display:block;margin-top:7px;font-size:11.5px;color:var(--ink-3)}
 </style>
 
 <script src="https://upload-widget.cloudinary.com/global/all.js" defer></script>
@@ -62,15 +87,110 @@
   var btn = document.getElementById('openUpload');
   var state = document.getElementById('uploadState');
   var strip = document.getElementById('uploadJustAdded');
+  var dupes = document.getElementById('uploadDupes');
+  var projectBox = document.getElementById('uploadProject');
   var widget = null;
   var lastSource = '';
 
   function say(msg) { state.textContent = msg || ''; }
 
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function project() {
+    return projectBox ? String(projectBox.value || '').trim() : '';
+  }
+
   function body(extra) {
     var b = extra || {};
     if (TOKEN) { b.token = TOKEN; } else { b.client_id = CLIENT_ID; }
+    if (project()) { b.project = project(); }
     return b;
+  }
+
+  function added(info) {
+    var isImg = (info.resource_type === 'image');
+    var fig = document.createElement('figure');
+    fig.innerHTML = (isImg
+        ? '<img src="' + esc(info.secure_url) + '" alt="">'
+        : '<div class="doc">&#128196;</div>')
+      + '<figcaption>' + esc((info.original_filename || 'file') + '').slice(0, 22)
+      + '</figcaption>';
+    strip.appendChild(fig);
+    say('Added ' + strip.children.length + ' file'
+        + (strip.children.length === 1 ? '' : 's') + '.');
+  }
+
+  /* A file this gallery already has. Three things can be meant by uploading
+     it again -- it belongs here as well, it should be an independent copy, or
+     it belongs here INSTEAD -- and reporting "already added" answers only the
+     first one and only by accident. The three are described in
+     modules/image_picker/filing.py; the server decides what each does, and
+     this asks. */
+  function askAboutDuplicate(info, d) {
+    var card = document.createElement('div');
+    card.className = 'dupe';
+    var name = (info.original_filename || 'That file') + '';
+    card.innerHTML =
+      '<h3>' + esc(name) + ' is already in this gallery</h3>'
+      + '<p>It is filed under <strong>' + esc(d.filed_under || 'the gallery')
+      + '</strong>. What should happen to it?</p>'
+      + '<button type="button" class="btn quiet small" data-do="keep">Keep it with this project too</button>'
+      + '<button type="button" class="btn quiet small" data-do="duplicate">Make a separate copy</button>'
+      + '<button type="button" class="btn quiet small" data-do="move">Move it to this project</button>'
+      + '<span class="why"></span>';
+    var why = card.querySelector('.why');
+    Array.prototype.forEach.call(card.querySelectorAll('button[data-do]'), function (b) {
+      b.onclick = function () {
+        var choice = b.getAttribute('data-do');
+        /* Keeping it "with this project" and moving it "to this project"
+           both need a project. With the box empty there is nowhere to put
+           it, so say that rather than quietly filing it into the default
+           group and reporting success for having done nothing. */
+        if (choice !== 'duplicate' && !project()) {
+          why.textContent = 'Name a project above first — that is where it would go.';
+          if (projectBox) { projectBox.focus(); }
+          return;
+        }
+        Array.prototype.forEach.call(card.querySelectorAll('button'), function (x) {
+          x.disabled = true;
+        });
+        why.textContent = 'Working…';
+        fetch(BASE + '/api/uploads', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body({
+            public_id: info.public_id, secure_url: info.secure_url,
+            resource_type: info.resource_type,
+            source: info.source || lastSource || 'local',
+            original_filename: info.original_filename, width: info.width,
+            height: info.height, bytes: info.bytes,
+            on_duplicate: choice
+          }))
+        }).then(function (r) { return r.json(); })
+          .then(function (res) {
+            if (!res || !res.ok) {
+              why.textContent = (res && res.error) || 'That did not work.';
+              Array.prototype.forEach.call(card.querySelectorAll('button'), function (x) {
+                x.disabled = false;
+              });
+              return;
+            }
+            card.innerHTML = '<h3>' + esc(name) + '</h3><p>'
+              + esc(res.note || 'Done.') + '</p>';
+            if (choice !== 'move' && res.created) { added(info); }
+          })
+          .catch(function () {
+            why.textContent = 'That did not work. Try again in a moment.';
+            Array.prototype.forEach.call(card.querySelectorAll('button'), function (x) {
+              x.disabled = false;
+            });
+          });
+      };
+    });
+    dupes.appendChild(card);
   }
 
   /* Cloudinary asks for a signature per upload. Returning it from our own
@@ -103,16 +223,15 @@
     }).then(function (r) { return r.json(); })
       .then(function (d) {
         if (!d.ok) { say(d.error || 'That file did not save.'); return; }
-        var isImg = (info.resource_type === 'image');
-        var fig = document.createElement('figure');
-        fig.innerHTML = (isImg
-            ? '<img src="' + info.secure_url + '" alt="">'
-            : '<div class="doc">&#128196;</div>')
-          + '<figcaption>' + ((info.original_filename || 'file') + '').slice(0, 22)
-          + '</figcaption>';
-        strip.appendChild(fig);
-        say('Added ' + strip.children.length + ' file'
-            + (strip.children.length === 1 ? '' : 's') + '.');
+        /* `choices` is empty for anyone who cannot act on them -- a client on
+           their share link -- so this stays exactly what it was there: the
+           file is reported as already present and nothing is asked. */
+        if (d.duplicate && d.choices && d.choices.length && dupes) {
+          askAboutDuplicate(info, d);
+          say('One file is already in this gallery — see below.');
+          return;
+        }
+        added(info);
       })
       .catch(function () { say('That file did not save.'); });
   }
@@ -181,7 +300,11 @@
             lastSource = String(result.info.source);
           }
           if (result.event === 'success') { record(result.info); }
-          if (result.event === 'queues-end') { say('Done.'); }
+          /* Not over "one file is already in this gallery": that line is a
+             question waiting on an answer, and "Done." over it reads as the
+             question having answered itself. */
+          if (result.event === 'queues-end'
+              && !(dupes && dupes.children.length)) { say('Done.'); }
         });
         widget.open();
       })

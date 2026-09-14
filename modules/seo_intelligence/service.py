@@ -73,7 +73,7 @@ def _save_recommendations(prop, recommendations):
             )
             db.session.add(item)
         item.page_url = rec.get("page_url")
-        item.query = rec.get("query")
+        item.search_query = rec.get("query")
         item.priority_score = rec.get("priority_score", 0)
         item.impact = rec.get("impact", "medium")
         item.effort = rec.get("effort", "medium")

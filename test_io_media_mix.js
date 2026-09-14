@@ -70,7 +70,8 @@ async function testSubmissionReview(){
   productConfig:{display:{product:'Display'}},submissionMissing:()=>[],calculateGuardrails:()=>{},money:String,
   ensurePdfForSuite:async kind=>{pdfs++;return 'https://example.com/'+kind+'.pdf'},
   fetch:async()=>{sends++;return {ok:true,json:async()=>({ok:true,delivered_to_suite:true})}},
-  addMsg:()=>{},clearDraft:()=>{cleared++},console,window:{}});
+  addMsg:()=>{},clearDraft:()=>{cleared++},buildPdfPayload:()=>({...c.state}),console,window:{}});
+ vm.runInContext(source.slice(source.indexOf('function deliveryPdfPayload('),source.indexOf('function receiptLink(')),c);
  vm.runInContext(source.slice(source.indexOf('let _ioSubmitting='),source.indexOf('</script>',source.indexOf('let _ioSubmitting='))),c);
  let submit=c.submitCompletedIO();assert.equal(pdfs,0);
  await c.submitCompletedIO();assert.equal(pdfs,0);
