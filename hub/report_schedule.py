@@ -57,14 +57,24 @@ def run_due(callback, now=None):
             state = {}
         if not ready(state, now):
             return False
+        day = target_day(now)
+        if state.get('progress_day') != day:
+            state['progress_day'] = day
+            state['completed_platforms'] = []
+        done = set(state.get('completed_platforms') or [])
         state['attempted_at'] = now.isoformat()
         if not jsonstore.write_json(path, state):
             raise OSError('could not persist reporting refresh attempt')
-        run = callback()
+        run = callback(sorted(done))
+        result = run.get('result') or {}
+        done.update(name for name, outcome in result.get('platforms', {}).items()
+                    if outcome.get('ok') and not outcome.get('error')
+                    and name not in result.get('errors', {}) and not outcome.get('pending'))
+        state['completed_platforms'] = sorted(done)
         if successful(run):
-            state['completed_day'] = target_day(now)
-            if not jsonstore.write_json(path, state):
-                raise OSError('could not persist reporting refresh completion')
+            state['completed_day'] = day
+        if not jsonstore.write_json(path, state):
+            raise OSError('could not persist reporting refresh progress')
         return True
     except Exception:
         # A failed ledger or pull must not stop every other scheduler job.

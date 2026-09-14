@@ -64,6 +64,21 @@ class NightlyTests(unittest.TestCase):
         self.assertEqual(parsed['error'],'')
         self.assertEqual(parsed['rows'][0]['conversions'],3)
 
+    def test_successful_provider_is_not_retried(self):
+        from hub import jsonstore
+        ledger={}
+        def save(path,state):
+            ledger.clear();ledger.update(state);return True
+        partial={'ok':True,'result':{'platforms':{'google':{'ok':True}},'errors':{'audiogo':'403'}}}
+        with patch.object(jsonstore,'read_json',side_effect=lambda *a:dict(ledger)),patch.object(jsonstore,'write_json',side_effect=save):
+            callback=MagicMock(return_value=partial)
+            schedule.run_due(callback,clock('2026-09-15T07:00:00'))
+            callback.assert_called_with([])
+            schedule.run_due(callback,clock('2026-09-15T07:30:00'))
+            callback.assert_called_with(['google'])
+            schedule.run_due(callback,clock('2026-09-16T07:00:00'))
+            callback.assert_called_with([])
+
     def test_google_current_video_metric(self):
         from datetime import date
         from modules.reports import google_ads_perf as google
