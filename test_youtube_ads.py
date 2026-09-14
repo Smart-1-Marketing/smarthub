@@ -70,6 +70,23 @@ class Workflow(unittest.TestCase):
         self.user = True
         self.assertEqual(self.client.post("/tools/youtube-ads/api/drafts", json=sample()).status_code, 403)
 
+    def test_host_without_flask_secret_can_render_and_save(self):
+        app = Flask("host-with-custom-auth")
+        app.jinja_loader = self.app.jinja_loader
+        self.assertIsNone(app.secret_key)
+        yt.install(app, lambda: True)
+        client = app.test_client()
+        page = client.get("/tools/youtube-ads/")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("s1hub_youtube_ads=", page.headers["Set-Cookie"])
+        self.assertIn("Path=/tools/youtube-ads", page.headers["Set-Cookie"])
+        self.assertIn("HttpOnly", page.headers["Set-Cookie"])
+        with client.session_transaction(path="/tools/youtube-ads/") as sess:
+            token = sess["youtube_ads_csrf"]
+        response = client.post("/tools/youtube-ads/api/drafts", json=sample(),
+                               headers={"X-CSRF-Token": token})
+        self.assertEqual(response.status_code, 201, response.json)
+
     def test_input_validation(self):
         for key, value in [("customer_id", "123 OR 1=1"), ("daily_budget", float("nan")), ("daily_budget", -1), ("final_url", "javascript:alert(1)"), ("video_id", "https://evil.example/dQw4w9WgXcQ"), ("placements", []), ("headline", "x" * 41), ("eu_political", "")]:
             data = sample(); data[key] = value

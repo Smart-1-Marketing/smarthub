@@ -149,6 +149,15 @@ def report(cid, days):
 
 
 def install(app, current_user_fn):
+    # Hub login uses its own signed cookie, so the host Flask app has not
+    # previously needed a session signing key. Use the same shared resolver
+    # and a distinct, scoped cookie for this tool's CSRF state.
+    from . import signing
+    if not app.secret_key:
+        app.secret_key = signing.value()
+    app.config.update(SESSION_COOKIE_NAME="s1hub_youtube_ads",
+                      SESSION_COOKIE_PATH="/tools/youtube-ads",
+                      SESSION_COOKIE_SAMESITE="Lax")
     create_all_metadata(Base.metadata)
     app.config["YOUTUBE_ADS_CURRENT_USER"] = current_user_fn
     app.register_blueprint(bp)
