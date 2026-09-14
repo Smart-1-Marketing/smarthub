@@ -35,7 +35,8 @@ TMP = tempfile.mkdtemp(prefix="s1reports_gperf_")
 os.environ["HUB_DATA_DIR"] = os.path.join(TMP, "data")
 os.environ["AUDIT_LOG_PATH"] = os.path.join(TMP, "audit.jsonl")
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "hub.sqlite3")
-os.environ["REPORTS_DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "reports.sqlite3")
+import _reports_testdb                                               # noqa: E402
+REPORTS_DB = _reports_testdb.bind(TMP)
 os.environ["REPORTS_PROVIDER_SCHEMA"] = ""
 os.environ["SECRET_KEY"] = "reports-gperf-test"
 for k in ("GOOGLE_ADS_REFRESH_TOKEN", "GOOGLE_ADS_DEVELOPER_TOKEN", "GOOGLE_ADS_CLIENT_ID",
@@ -63,6 +64,7 @@ def section(title):
 
 from modules.ads_builder import google_ads                           # noqa: E402
 from modules.reports import google_ads_perf as perf, normalize, store  # noqa: E402
+_reports_testdb.reset(store)
 
 
 # ----------------------------------------------------------- not connected

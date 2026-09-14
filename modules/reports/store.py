@@ -214,6 +214,46 @@ class CampaignMap(Base):
     # Set when the auto-mapper filed it from the campaign name; empty for a
     # mapping a person made. The two are told apart on the record.
     auto_rule = Column(String(120), nullable=True)
+    # Who confirmed the mapping, and when. A mapping a person made is
+    # confirmed by the making; one the auto-mapper filed from the campaign
+    # name is a PROPOSAL until somebody presses Confirm on it, and until then
+    # facts_for() -- the one reader every client-facing figure goes through
+    # -- does not return its rows. A name is a person's typing in somebody
+    # else's platform, and a typo there files one client's spend under
+    # another with every screen reading as working. Both LATE columns:
+    # _LATE_COLUMNS adds them to a live table.
+    confirmed_by = Column(String(160), nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+
+
+# What mapped_by carries on a row the auto-mapper wrote. automap.py reads it
+# from here rather than the other way round -- the store cannot import the
+# automap -- so the two cannot disagree about which rows are proposals.
+AUTO_MAPPED_BY = "auto"
+
+
+class MapRefusal(Base):
+    """An auto-mapping a person refused, so the next run does not re-file it.
+
+    The auto-mapper considers every campaign with no CampaignMap row, and
+    refusing a proposal deletes the row -- so without this, a refused
+    campaign would be filed again under the same client on the next hourly
+    sync, and Not theirs would be a button that undoes itself. The refusal
+    is keyed on the campaign AND remembers the name it was refused under:
+    a campaign renamed since is a new decision, and the auto-mapper reads
+    it again.
+    """
+    __tablename__ = "reports_map_refusals"
+
+    platform = Column(String(20), primary_key=True)
+    account_id = Column(String(80), primary_key=True)
+    campaign_id = Column(String(120), primary_key=True)
+    campaign_name = Column(String(400), default="")
+    client = Column(String(200), default="")
+    client_name = Column(String(300), default="")
+    rule = Column(String(120), nullable=True)
+    refused_by = Column(String(160), default="")
+    refused_at = Column(DateTime(timezone=True), default=now)
 
 
 class BudgetLine(Base):
@@ -366,6 +406,94 @@ class ReportsSync(Base):
     source = Column(String(20), default="windsor")
 
 
+class Quarantine(Base):
+    """A fact row a sync proposed that cannot be true, or almost certainly
+    is not, held apart from the fact table for a person to decide on.
+
+    Keyed on the fact key, so an hourly re-sync of the same impossible row
+    updates one entry (``times`` counts how often it has been proposed)
+    rather than filing a copy per hour. ``row_json`` is the row exactly as
+    it would have been written, so Accept writes that and not a re-read;
+    ``fingerprint`` is a digest of its figures, because a decision is about
+    the row AS IT WAS -- a different figure arriving later under the same
+    key is a new proposal, whatever was decided about the old one.
+    ``modules/reports/quarantine.py`` holds the rules and the arithmetic.
+    """
+    __tablename__ = "reports_quarantine"
+
+    platform = Column(String(20), primary_key=True)
+    account_id = Column(String(80), primary_key=True)
+    campaign_id = Column(String(120), primary_key=True)
+    date = Column(Date, primary_key=True)
+    rule = Column(String(40), nullable=False)
+    reason = Column(Text, default="")
+    row_json = Column(JSON, default=dict)
+    fingerprint = Column(String(40), nullable=False)
+    source = Column(String(20), default="")
+    status = Column(String(20), default="held", index=True)
+    times = Column(Integer, default=1)
+    seen_at = Column(DateTime(timezone=True), default=now)
+    last_seen_at = Column(DateTime(timezone=True), default=now)
+    decided_by = Column(String(160), nullable=True)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    note = Column(Text, default="")
+
+
+QUARANTINE_STATUSES = ("held", "accepted", "discarded", "superseded")
+
+
+class Reconcile(Base):
+    """One platform's month, our fact table's total beside the platform's
+    own, as the nightly reconcile last measured it.
+
+    The fact table is campaign-days summed; nothing else in the module can
+    say whether that sum is the month the platform would invoice. This row
+    is that comparison, kept per platform per month so the page can show
+    the previous month closing as the platform restates it. ``independent``
+    says whether ``theirs`` came from a different aggregation the platform
+    computed (Google's customer-level query) or from the same feed re-read
+    whole (a provider table summed), because the two catch different
+    mistakes and only the first can catch a systematic one.
+    """
+    __tablename__ = "reports_reconcile"
+
+    platform = Column(String(20), primary_key=True)
+    month = Column(String(7), primary_key=True)
+    state = Column(String(20), nullable=False)
+    ours = Column(Numeric(14, 2), nullable=True)
+    theirs = Column(Numeric(14, 2), nullable=True)
+    drift_pct = Column(Numeric(8, 2), nullable=True)
+    ours_impressions = Column(BigInteger, nullable=True)
+    theirs_impressions = Column(BigInteger, nullable=True)
+    held = Column(Integer, default=0)
+    independent = Column(Boolean, nullable=True)
+    source_label = Column(String(200), default="")
+    reason = Column(Text, default="")
+    through = Column(Date, nullable=True)
+    computed_at = Column(DateTime(timezone=True), default=now)
+
+
+class ProviderConfirmation(Base):
+    """A person's confirmation that a platform's provider column map reads
+    the right columns -- taken against a sample raw row on
+    ``/reports/provider-check`` -- keyed on a fingerprint of the map as it
+    stood. The normalize does not read a platform's raw table until one is
+    here, because the map's column names are guesses until the first sync
+    lands, and a guess that happens to match a column of the wrong meaning
+    files the wrong number under the right name on every report. A change
+    to the map (a column, the spend divisor) changes the fingerprint and so
+    retires the confirmation: the row stays, says who confirmed what, and
+    reads as superseded rather than as a confirmation of something nobody
+    has looked at."""
+    __tablename__ = "reports_provider_confirmations"
+
+    platform = Column(String(20), primary_key=True)
+    fingerprint = Column(String(40), nullable=False)
+    table_name = Column(String(120), default="")
+    confirmed_by = Column(String(160), nullable=False)
+    confirmed_at = Column(DateTime(timezone=True), default=now)
+
+
 class ReportLink(Base):
     """A client's live dashboard link, and everything that decides what it shows.
 
@@ -433,6 +561,8 @@ _LATE_COLUMNS = (
     ("reports_budget_lines", "sold_amount", "NUMERIC(12, 2)"),
     ("reports_budget_lines", "owner", "VARCHAR(160)"),
     ("reports_budget_lines", "status", "VARCHAR(20)"),
+    ("reports_campaign_map", "confirmed_by", "VARCHAR(160)"),
+    ("reports_campaign_map", "confirmed_at", "TIMESTAMP WITH TIME ZONE"),
 )
 
 
@@ -580,7 +710,8 @@ def _fact_values(row: dict) -> dict:
 _FACT_KEY = ("platform", "account_id", "campaign_id", "date")
 
 
-def upsert_rows(rows: list[dict]) -> int:
+def upsert_rows(rows: list[dict], *, report: dict | None = None, screen: bool = True,
+                today: date | None = None) -> int:
     """Write fact rows, replacing any already there for the same key.
 
     Idempotent by construction: a sync that runs twice for the same day
@@ -589,8 +720,41 @@ def upsert_rows(rows: list[dict]) -> int:
     SQLite, which is a local run or a test and does not need the throughput.
     Every row is validated **before** anything is written, so a bad row in
     the middle of a batch rejects the batch rather than half of it.
+
+    A row that is well-formed and cannot be true -- more clicks than
+    impressions, a negative figure, a day that has not happened, spend
+    fifty times the campaign's own trailing average -- is not written and
+    not refused: it is held in ``Quarantine`` for a person, the rest of the
+    batch is written, and ``report`` (a dict the caller passes) receives
+    ``written``, ``quarantined`` and the reasons. This is the one door
+    every writer goes through, so the screen is here and not in each pull.
+    ``screen=False`` is Accept's own path back in and nothing else's.
+    ``today`` is the clock the "dated after today" rule reads -- the sync's
+    own day where a caller has one, the wall clock otherwise -- so a test
+    that drives the clock can write the days it is about.
     """
     values = [_fact_values(r) for r in rows]
+    if not values:
+        if report is not None:
+            report.update({"written": 0, "quarantined": 0, "reasons": {}})
+        return 0
+    held = []
+    if screen:
+        from . import quarantine as _quarantine
+        values, held = _quarantine.screen(values, today=today)
+    written = _write_values(values)
+    if screen:
+        _quarantine.settle(held, values)
+    if report is not None:
+        reasons: dict[str, int] = {}
+        for h in held:
+            reasons[h["rule"]] = reasons.get(h["rule"], 0) + 1
+        report.update({"written": written, "quarantined": len(held), "reasons": reasons})
+    return written
+
+
+def _write_values(values: list[dict]) -> int:
+    """The write itself, over rows ``_fact_values()`` has already shaped."""
     if not values:
         return 0
     db = SessionLocal()
@@ -769,23 +933,40 @@ def clients_with_campaigns() -> list[dict]:
         rows = (db.query(CampaignMap.client, func.max(CampaignMap.client_name),
                          func.count())
                   .group_by(CampaignMap.client).all())
+        pending = {c: int(k) for c, k in
+                   (db.query(CampaignMap.client, func.count())
+                      .filter(CampaignMap.confirmed_at.is_(None))
+                      .group_by(CampaignMap.client).all())}
         links = {l.client: l.token for l in
                  db.query(ReportLink).filter(ReportLink.enabled.is_(True)).all()}
     finally:
         db.close()
+    # ``campaigns`` counts every row filed under the client and ``pending``
+    # the ones still waiting for confirmation, because a client with three
+    # campaigns of which three are pending has nothing on their page yet.
     out = [{"client": c, "client_name": n or c, "campaigns": int(k),
-            "token": links.get(c)} for c, n, k in rows]
+            "pending": pending.get(c, 0), "token": links.get(c)} for c, n, k in rows]
     out.sort(key=lambda r: r["client_name"].lower())
     return out
 
 
 def facts_for(client: str, start: date, end: date) -> list[dict]:
-    """The fact rows of one client's mapped campaigns, in a date range
+    """The fact rows of one client's CONFIRMED campaigns, in a date range
     (inclusive). Product and mapping come along, because the client page
-    groups by them."""
+    groups by them.
+
+    Confirmed only, with no switch to widen it: this is the one reader every
+    figure about a client goes through -- the public page, its PDF and
+    data.json, the pacing board, the cost report -- and a mapping the
+    auto-mapper proposed from a campaign name is not yet a fact about whose
+    spend it is. A pending mapping is listed, flagged, on the staff screens
+    through mapped_campaigns(); it reaches no figure until a person confirms
+    it."""
     db = SessionLocal()
     try:
-        maps = db.query(CampaignMap).filter(CampaignMap.client == client).all()
+        maps = (db.query(CampaignMap)
+                  .filter(CampaignMap.client == client, CampaignMap.confirmed_at.isnot(None))
+                  .all())
         if not maps:
             return []
         by_key = {(m.platform, m.account_id, m.campaign_id): m for m in maps}
@@ -1023,9 +1204,19 @@ def unmapped_campaigns(days: int = 30, limit: int = 200) -> list[dict]:
                 "campaign_name": name or "",
                 "last_seen": when.isoformat() if when else None,
                 "spend_30d": recent.get(key, Decimal(0)),
+                "refused": None,
             }
     finally:
         db.close()
+    # A campaign whose auto-mapping somebody refused is still unmapped and
+    # still listed -- filing it by hand is the way forward -- and the row
+    # says who refused what, so the next person does not file it under the
+    # same client from the same name. Only while the name is the one it was
+    # refused under: renamed, it is a new decision.
+    for key, ref in refusals().items():
+        row = out.get(key)
+        if row is not None and (row["campaign_name"] or "").strip() == (ref["campaign_name"] or "").strip():
+            row["refused"] = ref
     rows = sorted(out.values(), key=lambda r: (-r["spend_30d"], r["platform"],
                                                r["campaign_name"]))
     return rows[:limit]
@@ -1086,9 +1277,117 @@ def map_campaign(platform: str, account_id: str, campaign_id: str, *,
         row.mapped_by = _text(mapped_by, 160)
         row.mapped_at = now()
         row.auto_rule = _text(auto_rule, 120) or None
+        # A person's press is its own confirmation; the auto-mapper's filing
+        # is a proposal, confirmed by nobody until somebody presses Confirm.
+        # A person re-mapping a pending row (through the client page's
+        # Save, or the queue) confirms it by the same press.
+        if row.mapped_by and row.mapped_by != AUTO_MAPPED_BY:
+            row.confirmed_by = row.mapped_by
+            row.confirmed_at = now()
+        else:
+            row.confirmed_by = None
+            row.confirmed_at = None
         db.commit()
         db.refresh(row)
         return row
+    finally:
+        db.close()
+
+
+def confirm_mapping(platform: str, account_id: str, campaign_id: str, *,
+                    by: str) -> CampaignMap | None:
+    """A person's confirmation of a mapping the auto-mapper proposed. Sets
+    who and when; the row is otherwise untouched, so the product and the
+    display name the proposal carried stand. None when the campaign is
+    not mapped; a row already confirmed keeps its FIRST confirmation --
+    the record is who first stood behind it."""
+    platform = check_platform(platform)
+    by = _text(by, 160)
+    if not by:
+        raise ValueError("A confirmation needs a name against it")
+    db = SessionLocal()
+    try:
+        row = db.get(CampaignMap, (platform, _text(account_id, 80), _text(campaign_id, 120)))
+        if row is None:
+            return None
+        if row.confirmed_at is None:
+            row.confirmed_by = by
+            row.confirmed_at = now()
+            db.commit()
+        db.refresh(row)
+        db.expunge(row)
+        return row
+    finally:
+        db.close()
+
+
+def refuse_mapping(platform: str, account_id: str, campaign_id: str, *,
+                   by: str) -> dict | None:
+    """Not theirs: delete the mapping and remember the refusal, so the
+    auto-mapper does not file the campaign under the same client again on
+    the next sync. The campaign goes back to the unmapped queue, where a
+    person can file it by hand. Returns what was refused for the activity
+    row, or None when the campaign was not mapped."""
+    platform = check_platform(platform)
+    by = _text(by, 160)
+    if not by:
+        raise ValueError("A refusal needs a name against it")
+    account_id, campaign_id = _text(account_id, 80), _text(campaign_id, 120)
+    db = SessionLocal()
+    try:
+        row = db.get(CampaignMap, (platform, account_id, campaign_id))
+        if row is None:
+            return None
+        name = _latest_name(db, platform, account_id, campaign_id)
+        out = {"platform": platform, "account_id": account_id, "campaign_id": campaign_id,
+               "campaign_name": name, "client": row.client, "client_name": row.client_name or "",
+               "product": row.product or "", "auto_rule": row.auto_rule or "",
+               "was_confirmed": row.confirmed_at is not None}
+        ref = db.get(MapRefusal, (platform, account_id, campaign_id))
+        if ref is None:
+            ref = MapRefusal(platform=platform, account_id=account_id, campaign_id=campaign_id)
+            db.add(ref)
+        ref.campaign_name = name[:400]
+        ref.client = row.client
+        ref.client_name = row.client_name or ""
+        ref.rule = row.auto_rule
+        ref.refused_by = by
+        ref.refused_at = now()
+        db.delete(row)
+        db.commit()
+        return out
+    finally:
+        db.close()
+
+
+def refusals() -> dict[tuple, dict]:
+    """{(platform, account_id, campaign_id): {...}} for every refused
+    auto-mapping. The auto-mapper reads it before it files; the unmapped
+    queue prints it beside the campaign."""
+    db = SessionLocal()
+    try:
+        return {(r.platform, r.account_id, r.campaign_id): {
+                    "campaign_name": r.campaign_name or "", "client": r.client or "",
+                    "client_name": r.client_name or "", "refused_by": r.refused_by or "",
+                    "refused_at": iso(r.refused_at)}
+                for r in db.query(MapRefusal).all()}
+    except Exception:                  # noqa: BLE001 - no table yet
+        return {}
+    finally:
+        db.close()
+
+
+def pending_mappings(limit: int = 500) -> list[dict]:
+    """The mappings the auto-mapper proposed and nobody has confirmed,
+    newest first -- the queue the Confirm / Not theirs buttons work down."""
+    return [m for m in mapped_campaigns(limit=max(limit, 5000)) if m["pending"]][:limit]
+
+
+def pending_count() -> int:
+    db = SessionLocal()
+    try:
+        return int(db.query(func.count()).select_from(CampaignMap)
+                     .filter(CampaignMap.confirmed_at.is_(None)).scalar() or 0)
     finally:
         db.close()
 
@@ -1148,6 +1447,8 @@ def mapped_campaigns(limit: int = 500) -> list[dict]:
                 "display_name": m.display_name or _products.default_display_name(name, m.product),
                 "mapped_by": m.mapped_by or "",
                 "mapped_at": iso(m.mapped_at), "auto_rule": m.auto_rule or "",
+                "confirmed_by": m.confirmed_by or "", "confirmed_at": iso(m.confirmed_at),
+                "pending": m.confirmed_at is None,
             })
         return out
     finally:
@@ -1433,7 +1734,7 @@ def mapping_version(client: str) -> str:
     db = SessionLocal()
     try:
         rows = (db.query(CampaignMap.platform, CampaignMap.account_id, CampaignMap.campaign_id,
-                         CampaignMap.product, CampaignMap.display_name)
+                         CampaignMap.product, CampaignMap.display_name, CampaignMap.confirmed_at)
                   .filter(CampaignMap.client == client)
                   .order_by(CampaignMap.platform, CampaignMap.account_id, CampaignMap.campaign_id).all())
         return hashlib.sha1("|".join(str(v) for r in rows for v in r).encode("utf-8")).hexdigest()[:16]
@@ -1451,6 +1752,141 @@ def has_synced(platform: str) -> bool:
         return db.get(ReportsSync, platform) is not None
     except Exception:                  # noqa: BLE001 - no table yet
         return False
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Reconcile
+# ---------------------------------------------------------------------------
+
+def month_totals(platform: str, start: date, end: date) -> dict:
+    """Our side of a reconcile: every fact row of one platform in a date
+    range summed, mapped or not, confirmed or not -- the platform's own
+    total covers the whole account, so ours has to as well."""
+    platform = check_platform(platform)
+    db = SessionLocal()
+    try:
+        spend, imps, clicks, rows = (db.query(func.sum(AdPerfDaily.spend),
+                                              func.sum(AdPerfDaily.impressions),
+                                              func.sum(AdPerfDaily.clicks), func.count())
+                                       .filter(AdPerfDaily.platform == platform,
+                                               AdPerfDaily.date >= start, AdPerfDaily.date <= end)
+                                       .one())
+        return {"spend": Decimal(spend or 0), "impressions": int(imps or 0),
+                "clicks": int(clicks or 0), "rows": int(rows or 0)}
+    finally:
+        db.close()
+
+
+def write_reconcile(row: dict) -> None:
+    """Upsert one platform-month's comparison. Never raises past the
+    caller's own try: a ledger that fails must not cost the run its
+    answer."""
+    db = SessionLocal()
+    try:
+        r = db.get(Reconcile, (row["platform"], row["month"]))
+        if r is None:
+            r = Reconcile(platform=row["platform"], month=row["month"])
+            db.add(r)
+        for k in ("state", "ours", "theirs", "drift_pct", "ours_impressions", "theirs_impressions",
+                  "held", "independent", "source_label", "reason", "through"):
+            if k in row:
+                setattr(r, k, row[k])
+        r.computed_at = now()
+        db.commit()
+    finally:
+        db.close()
+
+
+def reconcile_rows(months: int = 3) -> list[dict]:
+    """The latest comparison per platform per month, newest month first,
+    every platform listed for each month the run has covered."""
+    db = SessionLocal()
+    try:
+        rows = (db.query(Reconcile).order_by(Reconcile.month.desc(), Reconcile.platform).all())
+    except Exception:                  # noqa: BLE001 - no table yet
+        return []
+    finally:
+        db.close()
+    keep = sorted({r.month for r in rows}, reverse=True)[:max(1, int(months))]
+    out = []
+    for r in rows:
+        if r.month not in keep:
+            continue
+        out.append({
+            "platform": r.platform, "label": platform_label(r.platform), "month": r.month,
+            "state": r.state, "ours": r.ours, "theirs": r.theirs, "drift_pct": r.drift_pct,
+            "ours_impressions": r.ours_impressions, "theirs_impressions": r.theirs_impressions,
+            "held": int(r.held or 0), "independent": r.independent,
+            "source_label": r.source_label or "", "reason": r.reason or "",
+            "through": r.through.isoformat() if r.through else None,
+            "computed_at": iso(r.computed_at),
+        })
+    return out
+
+
+# ---------------------------------------------------------------------------
+# ProviderConfirmation
+# ---------------------------------------------------------------------------
+
+def provider_confirmations() -> dict[str, dict]:
+    """{platform: {"fingerprint", "table", "by", "at"}} for every platform
+    somebody has confirmed a map for. Never raises: a table that will not
+    answer reads as nothing confirmed, which is the safe direction -- the
+    normalize then reads nothing rather than everything."""
+    db = SessionLocal()
+    try:
+        return {r.platform: {"fingerprint": r.fingerprint, "table": r.table_name or "",
+                             "by": r.confirmed_by, "at": iso(r.confirmed_at)}
+                for r in db.query(ProviderConfirmation).all()}
+    except Exception:                  # noqa: BLE001 - no table yet
+        return {}
+    finally:
+        db.close()
+
+
+def confirm_provider(platform: str, *, by: str, fingerprint: str, table: str = "") -> dict:
+    """Record that ``by`` looked at a platform's map against its raw table
+    and confirmed it. Replaces an earlier confirmation of that platform: the
+    record is who last stood behind THIS map."""
+    platform = check_platform(platform)
+    by = _text(by, 160)
+    fingerprint = _text(fingerprint, 40)
+    if not by:
+        raise ValueError("A confirmation needs a name against it")
+    if not fingerprint:
+        raise ValueError("A confirmation needs the map's fingerprint")
+    db = SessionLocal()
+    try:
+        row = db.get(ProviderConfirmation, platform)
+        if row is None:
+            row = ProviderConfirmation(platform=platform)
+            db.add(row)
+        row.fingerprint = fingerprint
+        row.table_name = _text(table, 120)
+        row.confirmed_by = by
+        row.confirmed_at = now()
+        db.commit()
+        return {"platform": platform, "fingerprint": fingerprint, "table": row.table_name,
+                "by": by, "at": iso(row.confirmed_at)}
+    finally:
+        db.close()
+
+
+def withdraw_provider(platform: str) -> dict | None:
+    """Take a confirmation back. The normalize stops reading the platform
+    on its next run. Returns what was withdrawn, or None."""
+    platform = check_platform(platform)
+    db = SessionLocal()
+    try:
+        row = db.get(ProviderConfirmation, platform)
+        if row is None:
+            return None
+        out = {"platform": platform, "by": row.confirmed_by, "at": iso(row.confirmed_at)}
+        db.delete(row)
+        db.commit()
+        return out
     finally:
         db.close()
 

@@ -1,6 +1,6 @@
 # Weather trigger setup — lead → landing pages → approved work order
 
-**Date:** 2026-09-12 · **Verticals:** restaurant, hvac, retail, auto, landscaping, pool_spa, roofing, pest_control, moving, tree_service · **Status:** built (v1 + hvac + retail + auto + landscaping + pool_spa + roofing + pest_control + moving + tree_service)
+**Date:** 2026-09-14 · **Verticals:** restaurant, hvac, retail, auto, landscaping, pool_spa, roofing, pest_control, moving, tree_service, golf_recreation, concrete_paving · **Status:** built (v1 + hvac + retail + auto + landscaping + pool_spa + roofing + pest_control + moving + tree_service + golf_recreation + concrete_paving)
 
 This is the design spec the module in `modules/weather_setup/` and the
 trigger vocabulary in `hub/weather_triggers.py` were built against. What
@@ -719,6 +719,160 @@ business", the same choice as landscaping's, pool_spa's, roofing's,
 pest_control's and moving's. None of the thirteen `reason` strings
 tripped `_OFFER_RE` or `_PROMISE_RE` — checked directly against every
 trigger's generated house draft, the same way moving's were.
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 16. The eleventh vertical (Golf Course / Outdoor Recreation)
+
+Shipped the same way a tenth time: thirteen more rows, still the same
+rule vocabulary, still no change to `evaluate_trigger()`, `store.py`,
+`app.py` or the staff template. Ten verticals of precedent already
+proved the plumbing generalizes; the eleventh confirms it rather than
+testing it again.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="golf_recreation"`.
+`high-wind-play-advisory` and `wind-advisory-course-closure` are an
+escalating wind pair, the same shape as roofing's
+`high-wind-shingle-risk`/`wind-damage-inspection` — club selection and
+ball flight at the low end, carts and standing trees at the high end.
+`frost-delay-tee-times` is its own daily row rather than an escalation of
+anything: frost on the greens is what actually delays the first tee time,
+not the cold air by itself, so it reads a morning temperature rather than
+the once-per-season event. `first-frost-course-prep` is that
+once-per-season event — the first hard frost is when overseeding and
+winterizing actually opens on the calendar — with its own season-state
+key so it cannot collide with any of the other ten verticals'
+first-freeze rows inside one campaign's carried state, for the same
+per-pick, per-`trigger_id` reason the other ten hold.
+`deep-freeze-course-closure` is not an escalation of that event but its
+own emergency angle: genuinely extreme cold is what closes the course
+outright over irrigation lines and cart batteries, a different hazard
+from the calendar event a moderate frost opens. `heat-advisory-course`
+and `heat-index-player-safety` are a second escalating pair for the
+opposite season, the same shape HVAC's `ac-overload`/`heat-index-strain`
+already uses — sustained heat pushing a round toward heat exhaustion,
+then humidity stacked on heat escalating past ordinary heat stress.
+`perfect-golf-day` is the one purely aspirational row, comfortable and
+dry and calm at once, the same multi-condition shape restaurant's
+`patio-day` already uses — the day nobody hesitates to book a tee time.
+`rain-delay-tee-times` is a plain `precip_prob_min` row: this much rain
+is what actually empties a tee sheet, the reschedule ad for a round
+already on the books rather than an invitation to book a new one.
+`spring-course-opening` and `fall-golf-season` are the two
+shoulder-season pushes the vertical leans on hardest, named for the
+season each is *for* rather than left for a rep to infer from the month
+strip. `turf-disease-risk` rounds the book out as the
+`cloud_percent_min`/`consecutive_days` shape restaurant's `gray-streak`
+and tree service's `canopy-disease-risk` already use, named here for
+fungal disease taking hold in turf during a run of overcast, humid days.
+`storm-closure-golf` is the alert-driven row, caught by the same
+`cadence == "alert_driven"` blocklist check every other vertical's alert
+row already exercises.
+
+`MONTHS` gained the same treatment as the prior nine verticals: all
+thirteen golf_recreation ids listed in every month's tuple, in
+month-appropriate priority order, alongside the restaurant, hvac, retail,
+auto, landscaping, pool_spa, roofing, pest_control, moving and
+tree_service ids already there.
+
+**The copy.** `_house_draft_golf_recreation()` is an eleventh per-angle
+template in `modules/weather_setup/copy.py`, dispatched the same way as
+the other ten — by `Trigger.vertical`, not by a swapped-in name. It is
+closer to moving's shape than roofing's: most rows are an advisory about
+a round already on the tee sheet ("check before you head out" or "plan
+around it"), and only the rows tagged `promo` (`perfect-golf-day`,
+`spring-course-opening`, `fall-golf-season`) actually invite booking a
+new tee time. `_PROMPT_CONTEXT["golf_recreation"]` gives the model
+prompt a "golf course / outdoor recreation venue" noun and a "Course or
+event notes" label, and `_FALLBACK_NAME["golf_recreation"]` is "your
+course" — its own choice, since none of the other ten verticals' generic
+fallback names fit a golf course. None of the thirteen `reason` strings
+tripped `_OFFER_RE` or `_PROMISE_RE` — checked directly against every
+trigger's generated house draft, the same way tree_service's were.
+
+**Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
+already drive the dropdown and the fallback-to-`"restaurant"` guard in both
+`store.create()` and `api_start()`.
+
+## 17. The twelfth vertical (Concrete & Paving)
+
+Shipped the same way an eleventh time: thirteen more rows, still the same
+rule vocabulary, still no change to `evaluate_trigger()`, `store.py`,
+`app.py` or the staff template. Eleven verticals of precedent already
+proved the plumbing generalizes; the twelfth confirms it rather than
+testing it again.
+
+**The registry.** Thirteen `Trigger` rows, `vertical="concrete_paving"`.
+The psychology splits into two halves neither of the other eleven
+verticals combines: half the rows are an operational advisory about a
+pour or a sealcoat job already on the schedule, and the other half are
+the inspection call a driveway or a parking lot generates on its own,
+with no job booked at all. `cold-pour-advisory` and
+`deep-freeze-pour-halt` are an escalating cold pair for the operational
+half — cold-weather additives and blankets at the low end, a pour that
+simply does not happen at the deep-freeze end, the same shape HVAC's
+`hard-freeze`/`deep-freeze` already uses. `hot-pour-risk` and
+`heat-index-crew-safety` are a second escalating pair for the opposite
+season — rapid, crack-prone curing at the low end, a crew-safety call
+once humidity stacks on heat, the same shape HVAC's
+`ac-overload`/`heat-index-strain` already uses.
+`first-freeze-concrete-season` is the once-per-season event — the first
+hard freeze is when freeze-thaw damage actually starts working on last
+year's concrete — with its own season-state key so it cannot collide
+with any of the other eleven verticals' first-freeze rows inside one
+campaign's carried state, for the same per-pick, per-`trigger_id` reason
+the other eleven hold. `freeze-thaw-crack-risk` is its own daily row
+rather than an escalation of that event: a band right around freezing,
+not a hard freeze, is what actually cycles water in and out of an
+existing crack until it widens, the same reading roofing's `ice-dam-risk`
+and tree service's `ice-storm-limb-risk` give a shingle or a limb, named
+here for a driveway. `rain-delay-pour` is a plain `precip_prob_min` row:
+this much rain is what actually pushes a scheduled pour to another day,
+not a forecast icon. `perfect-pour-day` is the one purely aspirational
+row, comfortable and dry at once, the same multi-condition shape
+restaurant's `patio-day` already uses — the day nobody hesitates to
+schedule a pour or a sealcoat job. `spring-paving-season` and
+`fall-sealcoating-season` are the two shoulder-season pushes the vertical
+leans on hardest, named for the season each is *for* rather than left
+for a rep to infer from the month strip — the fall row in particular
+argues against the once-per-season event it sits beside, since
+sealcoating has to happen *before* the freeze that opens
+`first-freeze-concrete-season` arrives. `pothole-formation-risk` rounds
+out the `cloud_percent_min`/`consecutive_days` shape restaurant's
+`gray-streak` and tree service's `canopy-disease-risk` already use, named
+here for the water that soaks into a crack over a run of overcast days
+before freeze-thaw cycling turns it into a pothole.
+`snow-plow-damage-inspection` is a plain `snow_in_min` row: heavy
+snowfall means plows are moving on driveways and lots, and the day after
+is the easiest day to spot a scraped edge or a cracked slab.
+`storm-pour-delay` is the alert-driven row, caught by the same
+`cadence == "alert_driven"` blocklist check every other vertical's alert
+row already exercises.
+
+`MONTHS` gained the same treatment as the prior ten verticals: all
+thirteen concrete_paving ids listed in every month's tuple, in
+month-appropriate priority order, alongside the restaurant, hvac, retail,
+auto, landscaping, pool_spa, roofing, pest_control, moving, tree_service
+and golf_recreation ids already there.
+
+**The copy.** `_house_draft_concrete_paving()` is a twelfth per-angle
+template in `modules/weather_setup/copy.py`, dispatched the same way as
+the other eleven — by `Trigger.vertical`, not by a swapped-in name. It
+splits into two psychologies at once: half its rows are an operational
+advisory ("get it before the truck leaves the plant"), and the other
+half are the inspection call a driveway or a parking lot generates on
+its own with no job booked at all ("get that crack looked at before
+it's a pothole") — only the rows tagged `promo` (`perfect-pour-day`,
+`spring-paving-season`, `fall-sealcoating-season`) actually invite
+booking new work. `_PROMPT_CONTEXT["concrete_paving"]` gives the model
+prompt a "concrete & paving contractor" noun and a "Job or service
+notes" label, and `_FALLBACK_NAME["concrete_paving"]` is "your
+business" — the same default most of the service-reminder verticals
+already share. None of the thirteen `reason` strings tripped
+`_OFFER_RE` or `_PROMISE_RE` — checked directly against every trigger's
+generated house draft, the same way golf_recreation's were.
 
 **Starting a campaign.** No change needed: `VERTICALS`/`VERTICAL_LABELS`
 already drive the dropdown and the fallback-to-`"restaurant"` guard in both

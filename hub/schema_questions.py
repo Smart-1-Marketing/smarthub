@@ -411,6 +411,30 @@ def save_answers(client: str, answers: dict, actor: str = "") -> dict:
     return {"ok": True, "answered": len(current)}
 
 
+def confirmed_answer(client: str, key: str) -> str:
+    """One question's answer **as a person saved it**, or "".
+
+    Deliberately only the typed store, and deliberately not `build()`: this
+    is read by surfaces that print a fact to a customer, and an inference or
+    a value merged off a crawl is not a thing a client has confirmed about
+    their own business. `_blank(typed=True)` is the looser test, so "none"
+    is an answer here, the same as everywhere else in this module.
+
+    Never raises -- a missing store is "nobody has answered", which is what
+    a caller does about it either way.
+    """
+    try:
+        from hub import seo
+        typed = dict((seo.load_store(client) or {}).get("answers") or {})
+    except Exception:                                     # noqa: BLE001
+        return ""
+    for name in ALIASES.get(key, (key,)):
+        v = typed.get(name)
+        if not _blank(v, typed=True):
+            return str(v).strip()
+    return ""
+
+
 def can_approve(client: str) -> dict:
     """Whether the schema may be approved, and what's blocking it.
 

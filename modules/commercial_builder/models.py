@@ -136,6 +136,8 @@ class CommercialProject(db.Model):
     production_takes = db.relationship("ProductionTake", lazy="dynamic",
                                        cascade="all, delete-orphan")
     production_usage = db.relationship("ProductionUsage", cascade="all, delete-orphan")
+    spending_budget = db.relationship("ProjectBudget", uselist=False, cascade="all, delete-orphan")
+    budget_reservations = db.relationship("BudgetReservation", cascade="all, delete-orphan")
 
     def to_dict(self, include_scenes=True):
         d = {

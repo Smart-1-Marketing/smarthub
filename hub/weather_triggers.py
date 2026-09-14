@@ -330,6 +330,108 @@ thirteen tree_service ids listed in every month's tuple, in
 month-appropriate priority order, alongside the restaurant, hvac, retail,
 auto, landscaping, pool_spa, roofing, pest_control and moving ids already
 there.
+
+## The eleventh vertical
+
+Golf Course / Outdoor Recreation, and the claim held a tenth time: thirteen
+more rows, still the same rule vocabulary, still no change to
+`evaluate_trigger()`, `store.py`, `app.py` or the staff template.
+`high-wind-play-advisory` and `wind-advisory-course-closure` are an
+escalating wind pair, the same shape as roofing's
+`high-wind-shingle-risk`/`wind-damage-inspection` — club selection and ball
+flight at the low end, carts and standing trees at the high end.
+`frost-delay-tee-times` is its own daily row rather than an escalation of
+anything: frost on the greens is what actually delays the first tee time,
+not the cold air by itself, so it reads a morning temperature rather than
+the once-per-season event. `first-frost-course-prep` is that once-per-season
+event — the first hard frost is when overseeding and winterizing actually
+opens on the calendar — with its own season-state key so it cannot collide
+with any of the other ten verticals' first-freeze rows inside one
+campaign's carried state, for the same per-pick, per-`trigger_id` reason
+the other ten hold. `deep-freeze-course-closure` is not an escalation of
+that event but its own emergency angle: genuinely extreme cold is what
+closes the course outright over irrigation lines and cart batteries, a
+different hazard from the calendar event a moderate frost opens.
+`heat-advisory-course` and `heat-index-player-safety` are a second
+escalating pair for the opposite season, the same shape HVAC's
+`ac-overload`/`heat-index-strain` already uses — sustained heat pushing a
+round toward heat exhaustion, then humidity stacked on heat escalating
+past ordinary heat stress. `perfect-golf-day` is the one purely
+aspirational row, comfortable and dry and calm at once, the same
+multi-condition shape restaurant's `patio-day` already uses — the day
+nobody hesitates to book a tee time. `rain-delay-tee-times` is a plain
+`precip_prob_min` row: this much rain is what actually empties a tee
+sheet, the reschedule ad for a round already on the books rather than an
+invitation to book a new one. `spring-course-opening` and
+`fall-golf-season` are the two shoulder-season pushes the vertical leans
+on hardest, named for the season each is *for* rather than left for a rep
+to infer from the month strip. `turf-disease-risk` rounds the book out as
+the `cloud_percent_min`/`consecutive_days` shape restaurant's `gray-streak`
+and tree service's `canopy-disease-risk` already use, named here for
+fungal disease taking hold in turf during a run of overcast, humid days.
+`storm-closure-golf` is the alert-driven row, caught by the same
+`cadence == "alert_driven"` blocklist check every other vertical's alert
+row already exercises.
+
+`MONTHS` gained the same treatment as the prior nine verticals: all
+thirteen golf_recreation ids listed in every month's tuple, in
+month-appropriate priority order, alongside the restaurant, hvac, retail,
+auto, landscaping, pool_spa, roofing, pest_control, moving and tree_service
+ids already there.
+
+## The twelfth vertical
+
+Concrete & Paving, and the claim held an eleventh time: thirteen more rows,
+still the same rule vocabulary, still no change to `evaluate_trigger()`,
+`store.py`, `app.py` or the staff template. The psychology splits into two
+halves neither of the other eleven verticals combines: half the rows are an
+operational advisory about a pour or a sealcoat job already on the
+schedule, and the other half are the inspection call a driveway or a
+parking lot generates on its own, with no job booked at all.
+`cold-pour-advisory` and `deep-freeze-pour-halt` are an escalating cold
+pair for the operational half — cold-weather additives and blankets at the
+low end, a pour that simply does not happen at the deep-freeze end, the
+same shape HVAC's `hard-freeze`/`deep-freeze` already uses. `hot-pour-risk`
+and `heat-index-crew-safety` are a second escalating pair for the opposite
+season — rapid, crack-prone curing at the low end, a crew-safety call once
+humidity stacks on heat, the same shape HVAC's `ac-overload`/
+`heat-index-strain` already uses. `first-freeze-concrete-season` is the
+once-per-season event — the first hard freeze is when freeze-thaw damage
+actually starts working on last year's concrete — with its own season-state
+key so it cannot collide with any of the other eleven verticals'
+first-freeze rows inside one campaign's carried state, for the same
+per-pick, per-`trigger_id` reason the other eleven hold.
+`freeze-thaw-crack-risk` is its own daily row rather than an escalation of
+that event: a band right around freezing, not a hard freeze, is what
+actually cycles water in and out of an existing crack until it widens, the
+same reading roofing's `ice-dam-risk` and tree service's
+`ice-storm-limb-risk` give a shingle or a limb, named here for a driveway.
+`rain-delay-pour` is a plain `precip_prob_min` row: this much rain is what
+actually pushes a scheduled pour to another day, not a forecast icon.
+`perfect-pour-day` is the one purely aspirational row, comfortable and dry
+at once, the same multi-condition shape restaurant's `patio-day` already
+uses — the day nobody hesitates to schedule a pour or a sealcoat job.
+`spring-paving-season` and `fall-sealcoating-season` are the two
+shoulder-season pushes the vertical leans on hardest, named for the season
+each is *for* rather than left for a rep to infer from the month strip — the
+fall row in particular argues against the once-per-season event it sits
+beside, since sealcoating has to happen *before* the freeze that opens
+`first-freeze-concrete-season` arrives. `pothole-formation-risk` rounds out
+the `cloud_percent_min`/`consecutive_days` shape restaurant's `gray-streak`
+and tree service's `canopy-disease-risk` already use, named here for the
+water that soaks into a crack over a run of overcast days before freeze-thaw
+cycling turns it into a pothole. `snow-plow-damage-inspection` is a plain
+`snow_in_min` row: heavy snowfall means plows are moving on driveways and
+lots, and the day after is the easiest day to spot a scraped edge or a
+cracked slab. `storm-pour-delay` is the alert-driven row, caught by the
+same `cadence == "alert_driven"` blocklist check every other vertical's
+alert row already exercises.
+
+`MONTHS` gained the same treatment as the prior ten verticals: all thirteen
+concrete_paving ids listed in every month's tuple, in month-appropriate
+priority order, alongside the restaurant, hvac, retail, auto, landscaping,
+pool_spa, roofing, pest_control, moving, tree_service and golf_recreation
+ids already there.
 """
 from __future__ import annotations
 
@@ -342,12 +444,14 @@ from datetime import date
 MAX_TRIGGERS = 3
 
 VERTICALS = ("restaurant", "hvac", "retail", "auto", "landscaping", "pool_spa", "roofing",
-            "pest_control", "moving", "tree_service")
+            "pest_control", "moving", "tree_service", "golf_recreation", "concrete_paving")
 VERTICAL_LABELS = {"restaurant": "Restaurant", "hvac": "HVAC / Home Comfort",
                    "retail": "Retail / Home Goods", "auto": "Auto Repair / Service",
                    "landscaping": "Landscaping / Lawn Care", "pool_spa": "Pool & Spa Service",
                    "roofing": "Roofing & Exterior", "pest_control": "Pest Control",
-                   "moving": "Moving Company", "tree_service": "Tree Service"}
+                   "moving": "Moving Company", "tree_service": "Tree Service",
+                   "golf_recreation": "Golf Course / Outdoor Recreation",
+                   "concrete_paving": "Concrete & Paving"}
 
 
 @dataclass(frozen=True)
@@ -1694,6 +1798,275 @@ TRIGGERS: dict[str, Trigger] = {
         windows=(("08:00", "18:00"),),
         cadence="daily", tags=("disease", "inspection"),
     ),
+
+    # -- Golf Course / Outdoor Recreation -----------------------------------
+    "storm-closure-golf": Trigger(
+        id="storm-closure-golf", name="Storm Closure", vertical="golf_recreation",
+        reason="A severe weather or lightning alert means play stops "
+               "immediately — the ad for the make-up round once it clears, "
+               "never an invitation to book tee times while it is still "
+               "coming down.",
+        condition_label="NWS severe weather alert issued",
+        rule={"alert_required": True},
+        cadence="alert_driven", tags=("safety", "emergency"),
+    ),
+    "high-wind-play-advisory": Trigger(
+        id="high-wind-play-advisory", name="High Wind Play Advisory", vertical="golf_recreation",
+        reason="Wind this steady changes club selection and ball flight on "
+               "every hole — an advisory ad for the round already booked, "
+               "not a reason to sell a new one.",
+        condition_label="wind ≥ 20 mph",
+        rule={"wind_mph_min": 20.0},
+        windows=(("06:00", "19:00"),),
+        cadence="daily", tags=("advisory", "operations"),
+    ),
+    "wind-advisory-course-closure": Trigger(
+        id="wind-advisory-course-closure", name="Wind Advisory Course Closure", vertical="golf_recreation",
+        reason="Past this, carts, umbrellas and standing trees are the "
+               "actual hazard — the closure notice, not the club-selection "
+               "tip.",
+        condition_label="wind ≥ 35 mph",
+        rule={"wind_mph_min": 35.0},
+        cadence="daily", tags=("safety", "emergency"),
+    ),
+    "frost-delay-tee-times": Trigger(
+        id="frost-delay-tee-times", name="Frost Delay Tee Times", vertical="golf_recreation",
+        reason="Frost on the greens is what actually delays the first tee "
+               "time, not the cold air itself — the call-ahead ad for "
+               "whoever was about to show up early.",
+        condition_label="morning temp ≤ 34°F",
+        rule={"temp_max": 34.0},
+        windows=(("05:00", "09:00"),),
+        cadence="daily", tags=("advisory", "operations"),
+    ),
+    "first-frost-course-prep": Trigger(
+        id="first-frost-course-prep", name="First Frost Course Prep", vertical="golf_recreation",
+        reason="The first hard frost of the season is when overseeding and "
+               "winterizing actually opens on the calendar — the ad for "
+               "it, not for a round nobody can play yet.",
+        condition_label="first low ≤ 32°F of the season",
+        rule={"temp_low_max": 32.0, "once_per_season": "cold"},
+        cadence="once_per_season", tags=("event", "seasonal"),
+    ),
+    "deep-freeze-course-closure": Trigger(
+        id="deep-freeze-course-closure", name="Deep Freeze Course Closure", vertical="golf_recreation",
+        reason="Genuinely extreme cold is what actually closes the course "
+               "outright — irrigation lines and cart batteries at risk, "
+               "not a day anybody is teeing off.",
+        condition_label="high ≤ 15°F",
+        rule={"temp_max": 15.0},
+        cadence="daily", tags=("emergency", "seasonal"),
+    ),
+    "heat-advisory-course": Trigger(
+        id="heat-advisory-course", name="Heat Advisory Course", vertical="golf_recreation",
+        reason="Heat this sustained is what actually pushes a round toward "
+               "heat exhaustion, not the number on the scorecard — the "
+               "cart-rental and hydration-station ad, not an invitation to "
+               "walk eighteen.",
+        condition_label="high ≥ 95°F",
+        rule={"temp_min": 95.0},
+        windows=(("07:00", "19:00"),),
+        cadence="daily", tags=("stress", "seasonal"),
+    ),
+    "heat-index-player-safety": Trigger(
+        id="heat-index-player-safety", name="Heat Index Player Safety", vertical="golf_recreation",
+        reason="Humidity stacked on heat is what actually puts a player at "
+               "risk, not the thermometer alone — the escalation past "
+               "ordinary heat stress, early tee times only.",
+        condition_label="heat index ≥ 105°F",
+        rule={"heat_index_min": 105.0},
+        windows=(("07:00", "19:00"),),
+        cadence="daily", tags=("stress", "seasonal"),
+    ),
+    "perfect-golf-day": Trigger(
+        id="perfect-golf-day", name="Perfect Golf Day", vertical="golf_recreation",
+        reason="Comfortable, dry and calm is the day nobody hesitates to "
+               "book a tee time — the one purely aspirational row, the "
+               "same multi-condition shape restaurant's patio-day already "
+               "uses.",
+        condition_label="65–80°F, calm and dry",
+        rule={"temp_min": 65.0, "temp_max": 80.0, "precip_prob_max": 20.0,
+              "wind_mph_max": 15.0},
+        cadence="daily", tags=("promo", "seasonal"),
+    ),
+    "rain-delay-tee-times": Trigger(
+        id="rain-delay-tee-times", name="Rain Delay Tee Times", vertical="golf_recreation",
+        reason="This much rain is what actually empties a tee sheet, not a "
+               "forecast icon — the reschedule ad for the round already "
+               "on the books.",
+        condition_label="≥ 60% chance of rain",
+        rule={"precip_prob_min": 60.0},
+        cadence="daily", tags=("advisory", "reschedule"),
+    ),
+    "spring-course-opening": Trigger(
+        id="spring-course-opening", name="Spring Course Opening", vertical="golf_recreation",
+        reason="The first comfortable, dry stretch of spring is when a "
+               "course that has been quiet all winter actually starts "
+               "filling tee sheets again.",
+        condition_label="55–75°F and dry, March–May",
+        rule={"temp_min": 55.0, "temp_max": 75.0, "precip_prob_max": 30.0,
+              "months": (3, 4, 5)},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("promo", "seasonal"),
+    ),
+    "fall-golf-season": Trigger(
+        id="fall-golf-season", name="Fall Golf Season", vertical="golf_recreation",
+        reason="A mild, dry fall stretch is the last real push before the "
+               "course goes quiet for winter — the same logic in reverse.",
+        condition_label="50–70°F and dry, September–November",
+        rule={"temp_min": 50.0, "temp_max": 70.0, "precip_prob_max": 30.0,
+              "months": (9, 10, 11)},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("promo", "seasonal"),
+    ),
+    "turf-disease-risk": Trigger(
+        id="turf-disease-risk", name="Turf Disease Risk", vertical="golf_recreation",
+        reason="Several overcast, humid days in a row is what actually "
+               "lets fungal disease take hold in turf — the same run of "
+               "gray days restaurant's gray-streak and tree service's "
+               "canopy-disease-risk already read, named here for the "
+               "greens.",
+        condition_label="cloud cover ≥ 80% for 3 consecutive days",
+        rule={"cloud_percent_min": 80.0, "consecutive_days": 3},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("disease", "maintenance"),
+    ),
+
+    # -- Concrete & Paving -------------------------------------------------
+    "storm-pour-delay": Trigger(
+        id="storm-pour-delay", name="Storm Pour Delay", vertical="concrete_paving",
+        reason="A severe weather alert means any pour scheduled today gets "
+               "rescheduled before the truck ever leaves the plant — the "
+               "reschedule ad, never an invitation to pour through it.",
+        condition_label="NWS severe weather alert issued",
+        rule={"alert_required": True},
+        cadence="alert_driven", tags=("safety", "reschedule"),
+    ),
+    "cold-pour-advisory": Trigger(
+        id="cold-pour-advisory", name="Cold Pour Advisory", vertical="concrete_paving",
+        reason="Below this, fresh concrete needs cold-weather additives or "
+               "blankets to cure properly — the advisory ad for a pour "
+               "already on the schedule, not a reason to book a new one.",
+        condition_label="high ≤ 40°F",
+        rule={"temp_max": 40.0},
+        windows=(("07:00", "17:00"),),
+        cadence="daily", tags=("advisory", "operations"),
+    ),
+    "deep-freeze-pour-halt": Trigger(
+        id="deep-freeze-pour-halt", name="Deep Freeze Pour Halt", vertical="concrete_paving",
+        reason="Past this, a pour simply does not happen — the halt "
+               "notice, not the cold-weather-additive tip.",
+        condition_label="high ≤ 20°F",
+        rule={"temp_max": 20.0},
+        cadence="daily", tags=("safety", "emergency"),
+    ),
+    "first-freeze-concrete-season": Trigger(
+        id="first-freeze-concrete-season", name="First Freeze", vertical="concrete_paving",
+        reason="The first hard freeze of the season is when freeze-thaw "
+               "damage actually starts working on last year's driveways "
+               "and walkways — the crack-inspection ad, not the pouring "
+               "one.",
+        condition_label="first low ≤ 32°F of the season",
+        rule={"temp_low_max": 32.0, "once_per_season": "cold"},
+        cadence="once_per_season", tags=("event", "seasonal"),
+    ),
+    "freeze-thaw-crack-risk": Trigger(
+        id="freeze-thaw-crack-risk", name="Freeze-Thaw Crack Risk", vertical="concrete_paving",
+        reason="A band right around freezing, not a hard freeze, is what "
+               "actually cycles water in and out of a crack until it "
+               "widens — the same reading roofing's ice-dam trigger gives "
+               "a shingle, named here for a driveway.",
+        condition_label="28–36°F",
+        rule={"temp_min": 28.0, "temp_max": 36.0},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("safety", "inspection"),
+    ),
+    "hot-pour-risk": Trigger(
+        id="hot-pour-risk", name="Hot Pour Risk", vertical="concrete_paving",
+        reason="Above this, fresh concrete cures too fast and cracks "
+               "before it has set — the advisory ad for a pour already "
+               "scheduled, not a reason to book a new one.",
+        condition_label="high ≥ 90°F",
+        rule={"temp_min": 90.0},
+        windows=(("06:00", "14:00"),),
+        cadence="daily", tags=("advisory", "operations"),
+    ),
+    "heat-index-crew-safety": Trigger(
+        id="heat-index-crew-safety", name="Heat Index Crew Safety", vertical="concrete_paving",
+        reason="Humidity stacked on heat is what actually puts a crew "
+               "working on hot asphalt or fresh concrete at risk, not the "
+               "thermometer alone — the escalation past ordinary hot-pour "
+               "conditions.",
+        condition_label="heat index ≥ 105°F",
+        rule={"heat_index_min": 105.0},
+        windows=(("06:00", "14:00"),),
+        cadence="daily", tags=("safety", "emergency"),
+    ),
+    "rain-delay-pour": Trigger(
+        id="rain-delay-pour", name="Rain Delay", vertical="concrete_paving",
+        reason="This much rain is what actually pushes a scheduled pour "
+               "to another day, not a forecast icon — the reschedule ad "
+               "for the job already on the calendar.",
+        condition_label="≥ 60% chance of rain",
+        rule={"precip_prob_min": 60.0},
+        windows=(("06:00", "16:00"),),
+        cadence="daily", tags=("advisory", "reschedule"),
+    ),
+    "perfect-pour-day": Trigger(
+        id="perfect-pour-day", name="Perfect Pour Day", vertical="concrete_paving",
+        reason="Comfortable, dry and mild is the day nobody hesitates to "
+               "schedule a pour or a sealcoat job — the one purely "
+               "aspirational row, the same multi-condition shape "
+               "restaurant's patio-day already uses.",
+        condition_label="50–85°F and dry",
+        rule={"temp_min": 50.0, "temp_max": 85.0, "precip_prob_max": 10.0},
+        cadence="daily", tags=("promo", "seasonal"),
+    ),
+    "spring-paving-season": Trigger(
+        id="spring-paving-season", name="Spring Paving Season", vertical="concrete_paving",
+        reason="The first comfortable, dry stretch of spring is when "
+               "driveway and parking-lot work that waited out winter "
+               "finally gets scheduled.",
+        condition_label="55–80°F and dry, March–May",
+        rule={"temp_min": 55.0, "temp_max": 80.0, "precip_prob_max": 20.0,
+              "months": (3, 4, 5)},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("promo", "seasonal"),
+    ),
+    "fall-sealcoating-season": Trigger(
+        id="fall-sealcoating-season", name="Fall Sealcoating Season", vertical="concrete_paving",
+        reason="A mild, dry fall stretch is the last real window to "
+               "sealcoat before the freeze that would keep the coating "
+               "from curing arrives.",
+        condition_label="50–75°F and dry, September–November",
+        rule={"temp_min": 50.0, "temp_max": 75.0, "precip_prob_max": 20.0,
+              "months": (9, 10, 11)},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("promo", "seasonal"),
+    ),
+    "pothole-formation-risk": Trigger(
+        id="pothole-formation-risk", name="Pothole Formation Risk", vertical="concrete_paving",
+        reason="Several overcast, wet days in a row is what actually "
+               "drives water into a crack until freeze-thaw cycling turns "
+               "it into a pothole — the same run of gray days "
+               "restaurant's gray-streak and tree service's "
+               "canopy-disease-risk already read, named here for "
+               "pavement.",
+        condition_label="cloud cover ≥ 80% for 3 consecutive days",
+        rule={"cloud_percent_min": 80.0, "consecutive_days": 3},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("damage", "inspection"),
+    ),
+    "snow-plow-damage-inspection": Trigger(
+        id="snow-plow-damage-inspection", name="Snow Plow Damage Inspection", vertical="concrete_paving",
+        reason="Heavy snowfall means plows are moving on driveways and "
+               "lots — the day a scraped edge or a cracked slab is "
+               "easiest to spot and easiest to point a camera at.",
+        condition_label="snowfall ≥ 4 in / 24h",
+        rule={"snow_in_min": 4.0},
+        windows=(("07:00", "18:00"),),
+        cadence="daily", tags=("safety", "inspection"),
+    ),
 }
 
 # Ordering for the month strip: which triggers a rep browsing that month is
@@ -1720,6 +2093,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "rodent-cold-intrusion", "deep-freeze-rodent-surge", "storm-pest-disruption", "spider-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             "cold-snap-moving-advisory", "deep-freeze-moving-emergency", "wind-chill-moving-advisory", "snow-day-moving-risk", "storm-reschedule-alert", "high-wind-loading-risk", "first-freeze-moving", "rain-day-moving-prep", "perfect-moving-day", "spring-moving-season", "fall-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
                         "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "fall-pruning-season", "spring-pruning-season", "heat-wave-tree-stress", "heat-index-canopy-stress",
+                        "frost-delay-tee-times", "first-frost-course-prep", "deep-freeze-course-closure", "wind-advisory-course-closure", "high-wind-play-advisory", "storm-closure-golf", "rain-delay-tee-times", "turf-disease-risk", "fall-golf-season", "spring-course-opening", "perfect-golf-day", "heat-advisory-course", "heat-index-player-safety",
+                        "cold-pour-advisory", "deep-freeze-pour-halt", "freeze-thaw-crack-risk", "snow-plow-damage-inspection", "pothole-formation-risk", "first-freeze-concrete-season", "storm-pour-delay", "rain-delay-pour", "perfect-pour-day", "spring-paving-season", "fall-sealcoating-season", "hot-pour-risk", "heat-index-crew-safety",
 ),
     "Feb": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "evening-cooldown", "heat-index",
@@ -1740,6 +2115,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "rodent-cold-intrusion", "deep-freeze-rodent-surge", "storm-pest-disruption", "spider-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             "cold-snap-moving-advisory", "deep-freeze-moving-emergency", "wind-chill-moving-advisory", "snow-day-moving-risk", "storm-reschedule-alert", "high-wind-loading-risk", "first-freeze-moving", "rain-day-moving-prep", "perfect-moving-day", "spring-moving-season", "fall-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
                         "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "fall-pruning-season", "spring-pruning-season", "heat-wave-tree-stress", "heat-index-canopy-stress",
+                        "frost-delay-tee-times", "first-frost-course-prep", "deep-freeze-course-closure", "wind-advisory-course-closure", "high-wind-play-advisory", "storm-closure-golf", "rain-delay-tee-times", "turf-disease-risk", "spring-course-opening", "fall-golf-season", "perfect-golf-day", "heat-advisory-course", "heat-index-player-safety",
+                        "cold-pour-advisory", "deep-freeze-pour-halt", "freeze-thaw-crack-risk", "snow-plow-damage-inspection", "pothole-formation-risk", "first-freeze-concrete-season", "storm-pour-delay", "rain-delay-pour", "perfect-pour-day", "fall-sealcoating-season", "spring-paving-season", "hot-pour-risk", "heat-index-crew-safety",
 ),
     "Mar": ("warm-break", "crisp-day", "rain-delay", "cold-snap", "gray-streak",
             "wind-chill", "storm-watch", "patio-day", "evening-cooldown",
@@ -1760,6 +2137,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "termite-swarm-season", "spring-pest-inspection", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "flea-tick-season", "wasp-hornet-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             "spring-moving-season", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "wind-chill-moving-advisory", "cold-snap-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk", "fall-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
                         "spring-pruning-season", "ice-storm-limb-risk", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "fall-pruning-season", "canopy-disease-risk", "heat-wave-tree-stress", "heat-index-canopy-stress",
+                        "spring-course-opening", "frost-delay-tee-times", "storm-closure-golf", "high-wind-play-advisory", "wind-advisory-course-closure", "rain-delay-tee-times", "first-frost-course-prep", "deep-freeze-course-closure", "turf-disease-risk", "fall-golf-season", "perfect-golf-day", "heat-advisory-course", "heat-index-player-safety",
+                        "spring-paving-season", "freeze-thaw-crack-risk", "first-freeze-concrete-season", "pothole-formation-risk", "perfect-pour-day", "storm-pour-delay", "rain-delay-pour", "cold-pour-advisory", "deep-freeze-pour-halt", "snow-plow-damage-inspection", "fall-sealcoating-season", "hot-pour-risk", "heat-index-crew-safety",
 ),
     "Apr": ("crisp-day", "patio-day", "rain-delay", "gray-streak", "storm-watch",
             "evening-cooldown", "warm-break", "heat-index", "heat-wave",
@@ -1780,6 +2159,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "termite-swarm-season", "spring-pest-inspection", "ant-invasion-after-rain", "wet-week-mosquito-watch", "flea-tick-season", "storm-pest-disruption", "wasp-hornet-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             "spring-moving-season", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk", "fall-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
                         "spring-pruning-season", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "fall-pruning-season", "canopy-disease-risk", "heat-wave-tree-stress", "heat-index-canopy-stress",
+                        "spring-course-opening", "perfect-golf-day", "storm-closure-golf", "high-wind-play-advisory", "wind-advisory-course-closure", "rain-delay-tee-times", "frost-delay-tee-times", "turf-disease-risk", "first-frost-course-prep", "deep-freeze-course-closure", "fall-golf-season", "heat-advisory-course", "heat-index-player-safety",
+                        "spring-paving-season", "perfect-pour-day", "freeze-thaw-crack-risk", "pothole-formation-risk", "storm-pour-delay", "rain-delay-pour", "first-freeze-concrete-season", "cold-pour-advisory", "deep-freeze-pour-halt", "snow-plow-damage-inspection", "fall-sealcoating-season", "hot-pour-risk", "heat-index-crew-safety",
 ),
     "May": ("patio-day", "crisp-day", "rain-delay", "storm-watch",
             "evening-cooldown", "heat-index", "heat-wave", "gray-streak",
@@ -1801,6 +2182,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "mosquito-pressure", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "fall-pest-inspection", "heat-wave-pest-activity",
             "spring-moving-season", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "heat-wave-moving-advisory", "humidity-heat-index-moving", "fall-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
                         "spring-pruning-season", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "heat-wave-tree-stress", "heat-index-canopy-stress", "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "fall-pruning-season",
+                        "perfect-golf-day", "spring-course-opening", "storm-closure-golf", "high-wind-play-advisory", "wind-advisory-course-closure", "rain-delay-tee-times", "turf-disease-risk", "heat-advisory-course", "heat-index-player-safety", "frost-delay-tee-times", "first-frost-course-prep", "deep-freeze-course-closure", "fall-golf-season",
+                        "perfect-pour-day", "spring-paving-season", "storm-pour-delay", "rain-delay-pour", "hot-pour-risk", "heat-index-crew-safety", "pothole-formation-risk", "freeze-thaw-crack-risk", "first-freeze-concrete-season", "cold-pour-advisory", "deep-freeze-pour-halt", "snow-plow-damage-inspection", "fall-sealcoating-season",
 ),
     "Jun": ("patio-day", "heat-wave", "heat-index", "rain-delay",
             "storm-watch", "evening-cooldown", "crisp-day", "gray-streak",
@@ -1822,6 +2205,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "wasp-hornet-season", "flea-tick-season", "mosquito-pressure", "heat-wave-pest-activity", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "spring-pest-inspection", "fall-pest-inspection",
             "heat-wave-moving-advisory", "humidity-heat-index-moving", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "spring-moving-season", "fall-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
                         "heat-wave-tree-stress", "heat-index-canopy-stress", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "spring-pruning-season", "fall-pruning-season", "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load",
+                        "perfect-golf-day", "heat-advisory-course", "heat-index-player-safety", "storm-closure-golf", "high-wind-play-advisory", "wind-advisory-course-closure", "rain-delay-tee-times", "turf-disease-risk", "spring-course-opening", "fall-golf-season", "frost-delay-tee-times", "first-frost-course-prep", "deep-freeze-course-closure",
+                        "hot-pour-risk", "heat-index-crew-safety", "perfect-pour-day", "storm-pour-delay", "rain-delay-pour", "spring-paving-season", "pothole-formation-risk", "fall-sealcoating-season", "freeze-thaw-crack-risk", "first-freeze-concrete-season", "cold-pour-advisory", "deep-freeze-pour-halt", "snow-plow-damage-inspection",
 ),
     "Jul": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "evening-cooldown", "crisp-day", "gray-streak",
@@ -1843,6 +2228,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "wasp-hornet-season", "flea-tick-season", "mosquito-pressure", "heat-wave-pest-activity", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "spring-pest-inspection", "fall-pest-inspection",
             "heat-wave-moving-advisory", "humidity-heat-index-moving", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "spring-moving-season", "fall-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
                         "heat-wave-tree-stress", "heat-index-canopy-stress", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "spring-pruning-season", "fall-pruning-season", "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load",
+                        "heat-advisory-course", "heat-index-player-safety", "perfect-golf-day", "storm-closure-golf", "high-wind-play-advisory", "wind-advisory-course-closure", "rain-delay-tee-times", "turf-disease-risk", "spring-course-opening", "fall-golf-season", "frost-delay-tee-times", "first-frost-course-prep", "deep-freeze-course-closure",
+                        "hot-pour-risk", "heat-index-crew-safety", "perfect-pour-day", "storm-pour-delay", "rain-delay-pour", "pothole-formation-risk", "spring-paving-season", "fall-sealcoating-season", "freeze-thaw-crack-risk", "first-freeze-concrete-season", "cold-pour-advisory", "deep-freeze-pour-halt", "snow-plow-damage-inspection",
 ),
     "Aug": ("heat-wave", "heat-index", "patio-day", "storm-watch",
             "rain-delay", "first-cool-night", "evening-cooldown", "crisp-day",
@@ -1864,6 +2251,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "wasp-hornet-season", "flea-tick-season", "mosquito-pressure", "heat-wave-pest-activity", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "fall-pest-inspection", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spider-season", "spring-pest-inspection",
             "heat-wave-moving-advisory", "humidity-heat-index-moving", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "fall-moving-season", "spring-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
                         "heat-wave-tree-stress", "heat-index-canopy-stress", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "fall-pruning-season", "spring-pruning-season", "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load",
+                        "heat-advisory-course", "heat-index-player-safety", "perfect-golf-day", "storm-closure-golf", "high-wind-play-advisory", "wind-advisory-course-closure", "rain-delay-tee-times", "turf-disease-risk", "fall-golf-season", "spring-course-opening", "frost-delay-tee-times", "first-frost-course-prep", "deep-freeze-course-closure",
+                        "heat-index-crew-safety", "hot-pour-risk", "perfect-pour-day", "storm-pour-delay", "rain-delay-pour", "pothole-formation-risk", "fall-sealcoating-season", "spring-paving-season", "freeze-thaw-crack-risk", "first-freeze-concrete-season", "cold-pour-advisory", "deep-freeze-pour-halt", "snow-plow-damage-inspection",
 ),
     "Sep": ("patio-day", "first-cool-night", "rain-delay", "crisp-day",
             "evening-cooldown", "heat-index", "heat-wave", "storm-watch",
@@ -1885,6 +2274,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "fall-pest-inspection", "spider-season", "flea-tick-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "mosquito-pressure", "heat-wave-pest-activity", "wasp-hornet-season", "termite-swarm-season", "rodent-cold-intrusion", "deep-freeze-rodent-surge", "spring-pest-inspection",
             "fall-moving-season", "perfect-moving-day", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "heat-wave-moving-advisory", "humidity-heat-index-moving", "spring-moving-season", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "first-freeze-moving", "deep-freeze-moving-emergency", "snow-day-moving-risk",
                         "fall-pruning-season", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "heat-wave-tree-stress", "heat-index-canopy-stress", "first-freeze-tree-service", "ice-storm-limb-risk", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "spring-pruning-season",
+                        "fall-golf-season", "perfect-golf-day", "storm-closure-golf", "high-wind-play-advisory", "wind-advisory-course-closure", "rain-delay-tee-times", "turf-disease-risk", "heat-advisory-course", "heat-index-player-safety", "frost-delay-tee-times", "first-frost-course-prep", "deep-freeze-course-closure", "spring-course-opening",
+                        "fall-sealcoating-season", "perfect-pour-day", "storm-pour-delay", "rain-delay-pour", "pothole-formation-risk", "freeze-thaw-crack-risk", "first-freeze-concrete-season", "hot-pour-risk", "heat-index-crew-safety", "cold-pour-advisory", "deep-freeze-pour-halt", "snow-plow-damage-inspection", "spring-paving-season",
 ),
     "Oct": ("crisp-day", "first-cool-night", "first-freeze", "evening-cooldown",
             "rain-delay", "warm-break", "gray-streak", "storm-watch",
@@ -1906,6 +2297,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "fall-pest-inspection", "spider-season", "rodent-cold-intrusion", "ant-invasion-after-rain", "wet-week-mosquito-watch", "storm-pest-disruption", "deep-freeze-rodent-surge", "flea-tick-season", "termite-swarm-season", "wasp-hornet-season", "spring-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             "fall-moving-season", "perfect-moving-day", "first-freeze-moving", "rain-day-moving-prep", "storm-reschedule-alert", "high-wind-loading-risk", "snow-day-moving-risk", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "deep-freeze-moving-emergency", "spring-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
                         "fall-pruning-season", "first-freeze-tree-service", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "ice-storm-limb-risk", "canopy-disease-risk", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "heat-wave-tree-stress", "heat-index-canopy-stress", "spring-pruning-season",
+                        "fall-golf-season", "frost-delay-tee-times", "first-frost-course-prep", "storm-closure-golf", "high-wind-play-advisory", "wind-advisory-course-closure", "rain-delay-tee-times", "turf-disease-risk", "perfect-golf-day", "deep-freeze-course-closure", "heat-advisory-course", "heat-index-player-safety", "spring-course-opening",
+                        "fall-sealcoating-season", "first-freeze-concrete-season", "freeze-thaw-crack-risk", "storm-pour-delay", "rain-delay-pour", "pothole-formation-risk", "perfect-pour-day", "cold-pour-advisory", "deep-freeze-pour-halt", "snow-plow-damage-inspection", "hot-pour-risk", "heat-index-crew-safety", "spring-paving-season",
 ),
     "Nov": ("first-freeze", "cold-snap", "gray-streak", "warm-break",
             "crisp-day", "wind-chill", "storm-watch", "snow-day",
@@ -1928,6 +2321,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "rodent-cold-intrusion", "spider-season", "fall-pest-inspection", "deep-freeze-rodent-surge", "storm-pest-disruption", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             "fall-moving-season", "first-freeze-moving", "cold-snap-moving-advisory", "wind-chill-moving-advisory", "storm-reschedule-alert", "high-wind-loading-risk", "snow-day-moving-risk", "deep-freeze-moving-emergency", "rain-day-moving-prep", "perfect-moving-day", "spring-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
                         "first-freeze-tree-service", "fall-pruning-season", "ice-storm-limb-risk", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-snow-limb-load", "deep-freeze-young-tree-risk", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "heat-wave-tree-stress", "heat-index-canopy-stress", "spring-pruning-season",
+                        "first-frost-course-prep", "fall-golf-season", "frost-delay-tee-times", "deep-freeze-course-closure", "storm-closure-golf", "high-wind-play-advisory", "wind-advisory-course-closure", "rain-delay-tee-times", "turf-disease-risk", "perfect-golf-day", "heat-advisory-course", "heat-index-player-safety", "spring-course-opening",
+                        "first-freeze-concrete-season", "fall-sealcoating-season", "freeze-thaw-crack-risk", "cold-pour-advisory", "storm-pour-delay", "rain-delay-pour", "pothole-formation-risk", "snow-plow-damage-inspection", "deep-freeze-pour-halt", "perfect-pour-day", "hot-pour-risk", "heat-index-crew-safety", "spring-paving-season",
 ),
     "Dec": ("cold-snap", "snow-day", "wind-chill", "warm-break", "gray-streak",
             "storm-watch", "crisp-day", "rain-delay", "evening-cooldown",
@@ -1949,6 +2344,8 @@ MONTHS: dict[str, tuple[str, ...]] = {
             "rodent-cold-intrusion", "deep-freeze-rodent-surge", "storm-pest-disruption", "spider-season", "ant-invasion-after-rain", "wet-week-mosquito-watch", "termite-swarm-season", "wasp-hornet-season", "flea-tick-season", "spring-pest-inspection", "fall-pest-inspection", "heat-wave-pest-activity", "mosquito-pressure",
             "cold-snap-moving-advisory", "deep-freeze-moving-emergency", "wind-chill-moving-advisory", "snow-day-moving-risk", "storm-reschedule-alert", "high-wind-loading-risk", "first-freeze-moving", "rain-day-moving-prep", "fall-moving-season", "perfect-moving-day", "spring-moving-season", "heat-wave-moving-advisory", "humidity-heat-index-moving",
                         "ice-storm-limb-risk", "first-freeze-tree-service", "deep-freeze-young-tree-risk", "heavy-snow-limb-load", "storm-damage-tree-removal", "high-wind-limb-risk", "wind-damage-tree-inspection", "heavy-rain-tree-tip-risk", "canopy-disease-risk", "fall-pruning-season", "spring-pruning-season", "heat-wave-tree-stress", "heat-index-canopy-stress",
+                        "frost-delay-tee-times", "first-frost-course-prep", "deep-freeze-course-closure", "wind-advisory-course-closure", "high-wind-play-advisory", "storm-closure-golf", "rain-delay-tee-times", "turf-disease-risk", "fall-golf-season", "spring-course-opening", "perfect-golf-day", "heat-advisory-course", "heat-index-player-safety",
+                        "cold-pour-advisory", "deep-freeze-pour-halt", "freeze-thaw-crack-risk", "snow-plow-damage-inspection", "pothole-formation-risk", "first-freeze-concrete-season", "storm-pour-delay", "rain-delay-pour", "perfect-pour-day", "spring-paving-season", "fall-sealcoating-season", "hot-pour-risk", "heat-index-crew-safety",
 ),
 }
 

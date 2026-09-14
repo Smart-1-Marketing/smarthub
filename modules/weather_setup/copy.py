@@ -43,18 +43,29 @@ loading harder"), with only its own shoulder-season and perfect-day rows
 reading as an invitation to book at all. A tree-service ad is closest to
 roofing's shape — a tree does not fail on a comfortable day, so the copy
 names the specific hazard a condition puts a limb, a trunk or a root
-system under and the inspection or pruning call that heads it off. One
-generic house template with the business name dropped in would answer a
-hard-freeze ad with "The weather's right for Acme Heating & Air" —
-grammatical, and wrong for what the ad is for — so
+system under and the inspection or pruning call that heads it off. A
+golf-course / outdoor-recreation ad is closer to moving's shape: most of
+its rows are an advisory about a round already on the tee sheet rather
+than an invitation to book a new one ("check before you head out"), with
+only its ideal-day and shoulder-season rows actually trying to fill the
+calendar. A concrete & paving ad splits into two psychologies at once:
+half its rows are an operational advisory about a pour or a sealcoat job
+already on the schedule ("get it before the truck leaves the plant"), and
+the other half are the inspection call a driveway or a parking lot
+generates on its own with no job booked at all ("get that crack looked at
+before it's a pothole") — only the "promo" tag marks a row actually trying
+to book new work. One generic house template with the business name dropped in
+would answer a hard-freeze ad with "The weather's right for Acme Heating &
+Air" — grammatical, and wrong for what the ad is for — so
 `_house_draft_restaurant()`, `_house_draft_hvac()`, `_house_draft_retail()`,
 `_house_draft_auto()`, `_house_draft_landscaping()`,
 `_house_draft_pool_spa()`, `_house_draft_roofing()`,
-`_house_draft_pest_control()`, `_house_draft_moving()` and
-`_house_draft_tree_service()` are ten separate templates per angle, and
-`_house_draft()` dispatches on `Trigger.vertical` rather than guessing from
-the trigger's tags. The model prompt carries the same split, through
-`_PROMPT_CONTEXT`.
+`_house_draft_pest_control()`, `_house_draft_moving()`,
+`_house_draft_tree_service()`, `_house_draft_golf_recreation()` and
+`_house_draft_concrete_paving()` are twelve separate templates per angle,
+and `_house_draft()` dispatches on
+`Trigger.vertical` rather than guessing from the trigger's tags. The model
+prompt carries the same split, through `_PROMPT_CONTEXT`.
 """
 from __future__ import annotations
 
@@ -261,6 +272,48 @@ def _house_draft_tree_service(trig, name: str, angle: str) -> tuple[str, str]:
     return by_angle.get(angle, by_angle["Direct"])
 
 
+def _house_draft_golf_recreation(trig, name: str, angle: str) -> tuple[str, str]:
+    # Closer to moving's shape than roofing's: most rows here are an
+    # advisory about a round already on the tee sheet, and only the
+    # "promo" tag marks a row actually trying to fill it -- the ideal-day
+    # push and the two shoulder-season opens.
+    booking = "promo" in trig.tags
+    urgent = any(t in _URGENT_TAGS for t in trig.tags) or trig.cadence == "alert_driven"
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has tee times today."),
+        "Comfort": ((f"Book your tee time, {name}" if booking
+                    else f"Check before you head out, {name}" if urgent
+                    else f"Plan around it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Book your tee time today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
+def _house_draft_concrete_paving(trig, name: str, angle: str) -> tuple[str, str]:
+    # Splits into two psychologies neither of the other verticals combines:
+    # half the rows are an operational advisory about a pour or a sealcoat
+    # job already on the schedule, and the other half are the inspection
+    # call a driveway or a parking lot generates on its own with no job
+    # booked at all -- only the "promo" tag marks a row actually trying to
+    # book new work.
+    booking = "promo" in trig.tags
+    urgent = any(t in _URGENT_TAGS for t in trig.tags) or trig.cadence == "alert_driven"
+    by_angle = {
+        "Direct": (f"{trig.name} — {name}",
+                  f"{trig.condition_label}. {name} has appointments today."),
+        "Comfort": ((f"Schedule your pour, {name}" if booking
+                    else f"Get it checked before it's a bigger repair, {name}" if urgent
+                    else f"Plan around it with {name}"),
+                    f"{trig.reason}"),
+        "Invitation": (f"{name} is ready when you are",
+                       f"{trig.reason} Schedule your visit today."),
+    }
+    return by_angle.get(angle, by_angle["Direct"])
+
+
 _HOUSE_DRAFT_BY_VERTICAL = {
     "restaurant": _house_draft_restaurant,
     "hvac": _house_draft_hvac,
@@ -272,13 +325,17 @@ _HOUSE_DRAFT_BY_VERTICAL = {
     "pest_control": _house_draft_pest_control,
     "moving": _house_draft_moving,
     "tree_service": _house_draft_tree_service,
+    "golf_recreation": _house_draft_golf_recreation,
+    "concrete_paving": _house_draft_concrete_paving,
 }
 
 _FALLBACK_NAME = {"restaurant": "your table", "hvac": "your business",
                   "retail": "your store", "auto": "your shop",
                   "landscaping": "your business", "pool_spa": "your business",
                   "roofing": "your business", "pest_control": "your business",
-                  "moving": "your business", "tree_service": "your business"}
+                  "moving": "your business", "tree_service": "your business",
+                  "golf_recreation": "your course",
+                  "concrete_paving": "your business"}
 
 
 def _house_draft(trigger_id: str, client_name: str, angle: str) -> dict:
@@ -348,6 +405,10 @@ _PROMPT_CONTEXT = {
     "pest_control": {"noun": "pest control company", "notes_label": "Service notes"},
     "moving": {"noun": "moving company", "notes_label": "Move notes"},
     "tree_service": {"noun": "tree service company", "notes_label": "Service notes"},
+    "golf_recreation": {"noun": "golf course / outdoor recreation venue",
+                        "notes_label": "Course or event notes"},
+    "concrete_paving": {"noun": "concrete & paving contractor",
+                        "notes_label": "Job or service notes"},
 }
 
 
