@@ -1355,7 +1355,21 @@ function applyColorToSelection(hex){
    outside it. On commit the guide rect's on-screen bounds are converted into
    Fabric's native cropX/cropY/width/height, which is non-destructive — the
    full original pixels stay in the underlying image element, so "Reset crop"
-   can always get back to them (the spec's "original stays recoverable"). */
+   can always get back to them (the spec's "original stays recoverable").
+
+   The crop guide rect is drawn with a 2px dashed stroke so it reads as a
+   selection box rather than a shape -- and Fabric's getScaledWidth()/
+   getScaledHeight() fold that stroke into the returned size (the object's
+   own docs call this out: dimensions are the border box, not the fill box).
+   Read that way, every commit and every mid-drag bounds check treated the
+   rect as strokeWidth px wider and taller than the area it actually marks,
+   so a crop always took a couple of pixels more than the dashed line showed
+   -- never enough to look wrong on screen, which is why it went unnoticed.
+   cropRectDims() reads rect.width*scaleX / rect.height*scaleY instead, which
+   is the fill box the crop is actually meant to match. */
+function cropRectDims(rect){
+  return {w: rect.width * rect.scaleX, h: rect.height * rect.scaleY};
+}
 function enterCropMode(o){
   if(cropState) exitCropMode(false);
   if(o.angle % 360 !== 0){
@@ -1384,7 +1398,7 @@ function enterCropMode(o){
   cropState = {target:o, rect, overlays, imgLeft:L, imgTop:T, imgW:W, imgH:H};
 
   const updateOverlays = () => {
-    const rL = rect.left, rT = rect.top, rW = rect.getScaledWidth(), rH = rect.getScaledHeight();
+    const rL = rect.left, rT = rect.top, {w:rW, h:rH} = cropRectDims(rect);
     overlays.top.set({left:L, top:T, width:W, height:Math.max(0, rT-T)});
     overlays.bottom.set({left:L, top:rT+rH, width:W, height:Math.max(0, (T+H)-(rT+rH))});
     overlays.left.set({left:L, top:rT, width:Math.max(0, rL-L), height:rH});
@@ -1394,13 +1408,13 @@ function enterCropMode(o){
   cropState.updateOverlays = updateOverlays;
 
   rect.on('moving', () => {
-    const rW = rect.getScaledWidth(), rH = rect.getScaledHeight();
+    const {w:rW, h:rH} = cropRectDims(rect);
     rect.left = Math.min(Math.max(rect.left, L), L+W-rW);
     rect.top  = Math.min(Math.max(rect.top,  T), T+H-rH);
     updateOverlays();
   });
   rect.on('scaling', () => {
-    const rW = rect.getScaledWidth(), rH = rect.getScaledHeight();
+    const {w:rW, h:rH} = cropRectDims(rect);
     if(rect.left < L) rect.left = L;
     if(rect.top  < T) rect.top  = T;
     if(rect.left + rW > L+W) rect.scaleX = (L+W-rect.left)/rect.width;
@@ -1429,7 +1443,7 @@ function setCropAspect(rw, rh){
 function commitCrop(){
   if(!cropState) return;
   const {target:o, rect, imgLeft:L, imgTop:T} = cropState;
-  const rW = rect.getScaledWidth(), rH = rect.getScaledHeight();
+  const {w:rW, h:rH} = cropRectDims(rect);
   const localCropX = (rect.left - L) / o.scaleX;
   const localCropY = (rect.top  - T) / o.scaleY;
   const localCropW = rW / o.scaleX;
