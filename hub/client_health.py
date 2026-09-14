@@ -706,12 +706,22 @@ def _plan_issues(plans: list[dict]) -> list[dict]:
         title = str(plan.get("title") or "Proposal")
         link = str(plan.get("url") or "")
         review, questions = int(plan.get("to_review") or 0), int(plan.get("open_questions") or 0)
-        if review or questions:
+        # An answer the client gave on their page that nobody has taken
+        # onto the plan is the same job as an open question, one step
+        # further on: somebody has to read it. Counted into the review
+        # issue rather than raised as its own, because the press is the
+        # same screen -- and its arrival changes the detail, so a mark on
+        # this issue reads as superseded rather than standing over a reply
+        # nobody has seen.
+        said = int(plan.get("client_answers_pending") or 0)
+        if review or questions or said:
             parts = []
             if review:
                 parts.append(f"{review} item{'' if review == 1 else 's'} to review")
             if questions:
                 parts.append(f"{questions} question{'' if questions == 1 else 's'} open")
+            if said:
+                parts.append(f"{said} answer{'' if said == 1 else 's'} from the client to confirm")
             out.append(_issue("plan_review", str(plan.get("id") or ""), title,
                               ", ".join(parts) + ".", link=link,
                               at=str(plan.get("updated_at") or "")))
