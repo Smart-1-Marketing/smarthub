@@ -132,7 +132,13 @@ check("proof email declares its Smart 1-only message permission",
       any(s.name == "conversations/message.write" and "hub/ad_proof_email.py" in s.needed_by
           for s in ghl_scopes.SMART1_ONLY), True)
 check("client proof email does not expand client-subaccount grants",
-      any(s.name in names for s in ghl_scopes.SMART1_ONLY), False)
+      any(path in s.needed_by for s in ghl_scopes.REQUESTED
+          for path in ("hub/ad_proof_email.py", "hub/client_email.py")), False)
+check("client message writes are requested only for Email Creator",
+      ghl_scopes.by_name("conversations/message.write").needed_by,
+      ("modules/skills360/suite_email.py",))
+check("excluded permissions do not contradict requested permissions",
+      sorted(set(names) & {name for name, _ in ghl_scopes.NOT_REQUESTED}), [])
 check("Smart 1-only message permissions use documented scope names",
       all(ghl_scopes.known(s.name) for s in ghl_scopes.SMART1_ONLY), True)
 

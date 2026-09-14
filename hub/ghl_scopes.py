@@ -177,7 +177,8 @@ WRITE: tuple[Scope, ...] = (
 REQUESTED: tuple[Scope, ...] = READ + WRITE
 
 # Internal client-service email always uses Smart 1's configured integration
-# credential. It must not broaden the Marketplace grants on client accounts.
+# credential. Its callers must not broaden Marketplace grants on client
+# accounts. Email Creator independently needs message.write on client accounts.
 SMART1_ONLY: tuple[Scope, ...] = (
     Scope("conversations/message.write", "Smart 1 sends reviewed display ad proofs to its clients",
           ("hub/ad_proof_email.py",), False),
@@ -191,9 +192,6 @@ SMART1_ONLY: tuple[Scope, ...] = (
 # — which is exactly why it is written down rather than simply absent.
 # --------------------------------------------------------------------------
 NOT_REQUESTED: tuple[tuple[str, str], ...] = (
-    ("conversations/message.write",
-     "Display ad proof emails use Smart 1's integration credential. Sending "
-     "marketing email from a client's own sub-account is outside this workflow."),
     ("conversations/message.readonly",
      "Client 360 email history reads Smart 1's linked client contact. This "
      "workflow does not read conversations inside the client's own sub-account."),
