@@ -154,6 +154,46 @@ def list_media(client_ref):
                    **index_status},
     })
 
+
+@bp.get("/api/clients/<client_ref>/media/imports")
+@staff_only
+@db_guard
+def media_imports(client_ref):
+    """Connector availability and recent collection runs for one library."""
+    db = session()
+    client, error = _library(db, client_ref)
+    if error:
+        return error
+    from .collectors import connector_catalog, recent_runs
+    return jsonify({"ok": True, "client": client.to_dict(),
+                    "connectors": connector_catalog(),
+                    "runs": recent_runs(db, client.id)})
+
+
+@bp.post("/api/clients/<client_ref>/media/imports/website")
+@staff_only
+@db_guard
+def queue_website_import(client_ref):
+    """Queue a bounded website import; the scheduler performs the crawl."""
+    db = session()
+    client, error = _library(db, client_ref)
+    if error:
+        return error
+    body = request.get_json(silent=True) or {}
+    from . import cloudinary_sink
+    from .collectors import queue_website
+    if not cloudinary_sink.configured():
+        return jsonify({"ok": False,
+                        "error": "Cloudinary storage must be configured before collecting a website."}), 503
+    try:
+        run, created = queue_website(db, client, body.get("url"), actor=hub_user())
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "created": created, "run": {
+        "id": run.id, "connector": run.connector, "state": run.state,
+        "source_url": run.source_url,
+    }}), (202 if created else 200)
+
 @bp.get("/api/clients/<client_ref>/media/recommendations")
 @staff_only
 @db_guard

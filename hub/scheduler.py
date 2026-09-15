@@ -477,6 +477,18 @@ def job_media_intelligence(app) -> dict:
         return {"ok": False, "error": type(exc).__name__}
 
 
+def job_media_collection(app) -> dict:
+    """Process one queued client website collection run within its budget."""
+    try:
+        from modules.image_picker import collectors
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    try:
+        return collectors.process_website_run()
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "error": type(exc).__name__}
+
+
 def job_social_idea_batches(app) -> dict:
     """Offer another week's ideas to the clients who are actually swiping.
 
@@ -1109,6 +1121,8 @@ JOBS = {
                           "Describe another batch of the video background library."),
     "media_intelligence": (60, job_media_intelligence,
                            "Fingerprint, score, de-duplicate, and index client media."),
+    "media_collection": (5, job_media_collection,
+                          "Collect images from one queued client website."),
     "picker_describe":   (60, job_describe_client_uploads,
                           "Describe another batch of the photos clients sent us."),
     "social_ideas":      (60, job_social_idea_batches,

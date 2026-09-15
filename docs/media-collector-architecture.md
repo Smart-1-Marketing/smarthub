@@ -101,6 +101,27 @@ an embedding producer and vector ranker are deliberately connected; the API
 does not pretend a request was semantically ranked merely because a vector is
 present.
 
+## Phase 3 collection
+
+Collection sources share one connector catalogue and always terminate in the
+canonical `SavedImage`/`MediaAssetDetail` records. Manual uploads, Facebook,
+and Instagram reuse the existing signed Cloudinary upload widget: the client
+authenticates with the selected provider, the Hub never receives that password,
+and the returned provider is retained as provenance. Optional source account
+and post URLs are stored as observations only; importing from social media does
+not grant usage rights or advertising approval.
+
+Existing websites use a queued `media_import_runs` workflow processed by the
+single-leader scheduler. The crawler follows at most 12 same-site HTML pages,
+obeys the site's wildcard robots rules, discovers at most 80 unique raster
+image URLs, and records source image/page URLs. Requests are time/size bounded,
+redirects are manually revalidated, credentials and unusual ports are refused,
+and every DNS answer must be a public address. Cloudinary receives the remote
+URL only after that validation. A stable hash of the original image URL makes
+reruns idempotent; files already in the library are skipped rather than copied.
+Import counts, failures, actor, source, and timestamps remain visible in run
+history.
+
 ## API contract
 
 - `GET /api/clients/:clientRef/media`
@@ -113,6 +134,8 @@ present.
 - `POST /api/media/:assetId/links`
 - `POST /api/media/:assetId/usage`
 - `POST /api/media/admin/backfill`
+- `GET /api/clients/:clientRef/media/imports`
+- `POST /api/clients/:clientRef/media/imports/website`
 
 `clientRef` accepts an existing gallery ID, Hub client key/ID, slug, or exact
 registry name. A name not known to the registry is never silently promoted to a
@@ -121,8 +144,9 @@ second identity system.
 
 ## Phase boundary
 
-Phases 1 and 2 are established. Semantic embedding generation/vector ranking,
-website and social collection crawlers, SmartHub consumer integrations, Media
-Health recommendations, and performance attribution remain later phases. The
+Phases 1 through 3 are established. Semantic embedding generation/vector
+ranking, provider-managed background social sync, SmartHub consumer
+integrations, Media Health recommendations, and performance attribution remain
+later phases. The
 durable asset IDs, intelligence versions, search documents, links, and usage
 events let those phases arrive without moving or duplicating files.

@@ -1176,7 +1176,9 @@ def api_record_upload():
         client_id=client.id,
         provider=source,
         provider_image_id=public_id,
-        source_url=url,
+        source_url=(str(body.get("source_url") or "").strip()
+                    if str(body.get("source_url") or "").strip().startswith("https://")
+                    else url),
         filename=str(body.get("original_filename") or "")[:300] or None,
         alt_text=str(body.get("alt") or "")[:500] or None,
         resource_type="raw" if rtype not in ("image", "video") else rtype,
@@ -1191,6 +1193,23 @@ def api_record_upload():
         collection_label="Client upload",
     )
     db.add(img)
+    db.commit()
+
+    # Optional source details are provenance only, never an approval or a
+    # rights assertion. Providers may include these in the signed-widget
+    # success payload; client-supplied values remain visibly unapproved.
+    from .platform import detail_for
+    detail = detail_for(db, img, create=True)
+    detail.source_account = str(body.get("source_account") or "").strip()[:200] or None
+    post_url = str(body.get("source_post_url") or "").strip()
+    detail.source_post_url = post_url if post_url.startswith("https://") else None
+    detail.original_alt = str(body.get("alt") or "").strip()[:500] or None
+    captured = str(body.get("captured_at") or "").strip()
+    if captured:
+        try:
+            detail.captured_at = datetime.fromisoformat(captured.replace("Z", "+00:00"))
+        except ValueError:
+            pass  # optional provider metadata; the upload itself still succeeded
     db.commit()
 
     # Straight on to Suite, same as a picked image. A file the client sent is

@@ -40,6 +40,10 @@
 .media-nav a.active{background:#0a2240;color:#fff;border-color:#0a2240}
 .collection-list{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
 .collection-item{border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:12px;background:#fff}
+.connector-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin:10px 0 14px}
+.connector{border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff}
+.connector strong{display:block;font-size:13px}.connector p{margin:4px 0 0;font-size:11px;color:var(--ink-3)}
+.connector.off{opacity:.55}
 </style>
 <header class="top">
   <div class="wrap">
@@ -75,7 +79,18 @@
   <div id="upload">{% include "_upload_panel.html" %}</div>
 
   <section class="panel" id="import">
-    <div class="panel-head"><h2>Import Creative Information</h2></div>
+    <div class="panel-head"><h2>Import</h2><span class="hint">Every source lands in this same library.</span></div>
+    <div class="connector-list" id="connectorList"><span class="hint">Loading connectors…</span></div>
+    <div class="hint" id="importRunStatus" style="margin:-4px 0 12px"></div>
+    <p class="hint">Collect public images already used on the client's website. The bounded background crawl follows at most 12 same-site pages and keeps the original page and image URLs as provenance.</p>
+    <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;margin-bottom:16px">
+      <label style="flex:1;min-width:260px;font-size:11px;color:var(--ink-3)">Existing website URL
+        <input id="websiteImportUrl" type="url" placeholder="https://client-example.com"
+               style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px;border:1px solid var(--line);border-radius:6px;font:13px inherit">
+      </label>
+      <button class="btn quiet small" id="queueWebsiteImport" type="button">Collect website images</button>
+    </div>
+    <div class="panel-head"><h3 style="margin:0">Import Creative Information</h3></div>
     <p class="hint">Add an existing Google Drive or secure shared-file link. The original file stays in its current folder and keeps its existing permissions.</p>
     <div class="import-grid">
       <label>Google Drive / shared-file URL<input id="importUrl" type="url" placeholder="https://drive.google.com/…"></label>
@@ -210,6 +225,49 @@
     });
   };
   loadCollections();
+
+  function loadImports(){
+    fetch('/api/clients/'+encodeURIComponent(CLIENT_ID)+'/media/imports',
+          {credentials:'same-origin',headers:{'Accept':'application/json'}})
+      .then(function(r){return r.json();}).then(function(d){
+        if(!d.ok)return;
+        var host=document.getElementById('connectorList');
+        host.innerHTML=(d.connectors||[]).map(function(c){
+          return '<div class="connector '+(c.available?'':'off')+'"><strong>'+esc(c.label)
+            +(c.available?'':' · unavailable')+'</strong><p>'+esc(c.description)+'</p></div>';
+        }).join('');
+        var website=(d.connectors||[]).filter(function(c){return c.key==='website';})[0];
+        var websiteButton=document.getElementById('queueWebsiteImport');
+        if(website && !website.available){
+          websiteButton.disabled=true;
+          websiteButton.title='Cloudinary storage is not configured.';
+        }
+        var run=(d.runs||[])[0];
+        document.getElementById('importRunStatus').textContent=run
+          ? 'Latest website import: '+run.state+' · '+run.imported+' imported · '
+            +run.skipped+' already present · '+run.failed+' failed'
+          : 'No website imports have run yet.';
+        if(run && (run.state==='pending'||run.state==='running')){
+          note('good','Website collection queued','The background collector will add discovered images to this library.');
+        }
+      }).catch(function(){document.getElementById('connectorList').innerHTML='<span class="hint">Connector status unavailable.</span>';});
+  }
+  document.getElementById('queueWebsiteImport').onclick=function(){
+    var input=document.getElementById('websiteImportUrl'), url=input.value.trim(), button=this;
+    if(!url){note('bad','Website required','Enter the client’s public website URL.');return;}
+    button.disabled=true;
+    fetch('/api/clients/'+encodeURIComponent(CLIENT_ID)+'/media/imports/website',{
+      method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({url:url})
+    }).then(function(r){return r.json();}).then(function(d){
+      button.disabled=false;
+      if(!d.ok){note('bad','Website not queued',d.error||'Try again.');return;}
+      note('good',d.created?'Website collection queued':'Website already queued',
+        'The background collector will copy new images into this library and preserve their source pages.');
+      loadImports();
+    }).catch(function(){button.disabled=false;note('bad','Website not queued','Try again.');});
+  };
+  loadImports();
 
   var STATUS = {
     sent:    ['on',   'In Suite'],

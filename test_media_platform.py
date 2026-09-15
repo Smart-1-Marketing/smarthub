@@ -18,10 +18,10 @@ os.environ["SECRET_KEY"] = "media-platform-test"
 import flask  # noqa: E402
 from PIL import Image  # noqa: E402
 from modules.image_picker import app as picker  # noqa: E402
-from modules.image_picker import intelligence, vision  # noqa: E402
+from modules.image_picker import collectors, intelligence, vision  # noqa: E402
 from modules.image_picker.models import (  # noqa: E402
-    MediaAssetDetail, MediaSearchDocument, PickerClient, SavedImage, new_token,
-    session, unique_slug,
+    MediaAssetDetail, MediaImportRun, MediaSearchDocument, PickerClient,
+    SavedImage, new_token, session, unique_slug,
 )
 
 passed = failed = 0
@@ -186,6 +186,82 @@ filtered = http.get(
 check("quality and unused filters compose", filtered["matched"], 1)
 check("API exposes semantic-index readiness",
       filtered["search"]["indexed"] >= 1, True)
+
+# Phase 3 connectors: social/manual sources reuse the signed widget; website
+# collection is queued and records into these same canonical rows.
+imports = http.get(f"/api/clients/{client_id}/media/imports").get_json()
+connector_modes = {row["key"]: row["mode"] for row in imports["connectors"]}
+check("Facebook reuses the signed upload connector",
+      connector_modes["facebook"], "upload_widget")
+check("Instagram reuses the signed upload connector",
+      connector_modes["instagram"], "upload_widget")
+check("website collection is a queued connector",
+      connector_modes["website"], "queued")
+
+private_site = http.post(f"/api/clients/{client_id}/media/imports/website",
+                         json={"url": "http://127.0.0.1/private"})
+check("unconfigured website collection fails closed", private_site.status_code, 503)
+
+original_storage_ready = collectors.cloudinary_sink.configured
+collectors.cloudinary_sink.configured = lambda: True
+private_site = http.post(f"/api/clients/{client_id}/media/imports/website",
+                         json={"url": "http://127.0.0.1/private"})
+check("private website targets are rejected", private_site.status_code, 400)
+
+queued = http.post(f"/api/clients/{client_id}/media/imports/website",
+                   json={"url": "https://client.example"})
+check("website collection is accepted asynchronously", queued.status_code, 202)
+run_id = queued.get_json()["run"]["id"]
+queued_again = http.post(f"/api/clients/{client_id}/media/imports/website",
+                         json={"url": "https://client.example/"})
+check("the same active website run is idempotent",
+      queued_again.get_json()["created"], False)
+collectors.cloudinary_sink.configured = original_storage_ready
+
+pages = {
+    "https://client.example/robots.txt": ("User-agent: *\nDisallow:", "text/plain"),
+    "https://client.example/sitemap.xml": ("not xml", "application/xml"),
+    "https://client.example/": (
+        '<html><head><meta property="og:image" content="/hero.jpg"></head>'
+        '<body><img src="/team.jpg" alt="Service team"><a href="/services">Services</a>'
+        '<a href="https://other.example/offsite">Elsewhere</a></body></html>', "text/html"),
+    "https://client.example/services": (
+        '<html><body><img src="/team.jpg"><img src="/repair.webp" alt="AC repair"></body></html>',
+        "text/html"),
+}
+
+
+def fake_fetch(url):
+    body, content_type = pages[url]
+    return body, content_type, url
+
+
+def fake_upload(**kwargs):
+    name = kwargs["public_id"]
+    return {"public_id": "clients/media-test/website/" + name,
+            "secure_url": "https://res.cloudinary.com/demo/image/upload/" + name + ".jpg",
+            "delivery_url": "https://res.cloudinary.com/demo/image/upload/" + name + ".jpg",
+            "width": 1600, "height": 900, "bytes": 120000}
+
+
+collected = collectors.process_website_run(
+    run_id, fetcher=fake_fetch, uploader=fake_upload,
+    url_validator=lambda url: url, max_seconds=10)
+check("website run completes", collected["state"], "completed")
+check("unique images across pages are imported once", collected["imported"], 3)
+with session() as phase3_db:
+    website_assets = phase3_db.query(SavedImage).filter_by(
+        client_id=client_id, provider="website").all()
+    run = phase3_db.get(MediaImportRun, run_id)
+    repair = next(row for row in website_assets if row.source_url.endswith("repair.webp"))
+    repair_detail = phase3_db.query(MediaAssetDetail).filter_by(asset_id=repair.id).one()
+check("website assets use stable source identities",
+      all(row.provider_image_id.startswith("sha256:") for row in website_assets), True)
+check("original image URL is retained", repair.source_url,
+      "https://client.example/repair.webp")
+check("source page provenance is retained", repair_detail.source_post_url,
+      "https://client.example/services")
+check("import history records discovered assets", run.discovered, 3)
 
 print(f"\n{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

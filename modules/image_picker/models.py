@@ -642,6 +642,29 @@ class MediaSearchDocument(Base):
     indexed_at = Column(DateTime, nullable=False, default=utcnow)
 
 
+class MediaImportRun(Base):
+    """One bounded connector execution for a client library."""
+
+    __tablename__ = "media_import_runs"
+
+    id = Column(Integer, primary_key=True)
+    client_id = Column(Integer, ForeignKey("image_picker_clients.id", ondelete="CASCADE"),
+                       nullable=False, index=True)
+    connector = Column(String(40), nullable=False, index=True)
+    source_url = Column(Text, nullable=True)
+    source_account = Column(String(200), nullable=True)
+    state = Column(String(20), nullable=False, default="pending", index=True)
+    discovered = Column(Integer, nullable=False, default=0)
+    imported = Column(Integer, nullable=False, default=0)
+    skipped = Column(Integer, nullable=False, default=0)
+    failed = Column(Integer, nullable=False, default=0)
+    last_error = Column(Text, nullable=True)
+    requested_by = Column(String(200), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+
+
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #

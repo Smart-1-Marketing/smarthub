@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 # rows filed under the old one.
 KIND_LABELS = {
     "upload": "Client upload",
+    "website": "Existing website",
     "io_creative": "IO creative",
     "blog": "Blog images",
     "seo_image": "SEO images",
@@ -98,6 +99,7 @@ SOURCE_LABELS = {
     "dropbox": "From Dropbox",
     "instagram": "From Instagram",
     "facebook": "From Facebook",
+    "website": "From existing website",
     "image_search": "From image search",
     "shutterstock": "Shutterstock", "getty": "Getty", "istock": "iStock",
     "unsplash": "Unsplash", "pexels": "Pexels", "pixabay": "Pixabay",
@@ -172,7 +174,7 @@ SOURCE_LABELS = {
 # not a column. Anything unlisted is stock, which is the safe default: it
 # sorts last and claims nothing.
 THEIRS = ("local", "camera", "google_drive", "dropbox", "instagram",
-          "facebook", "url", "social_request")
+          "facebook", "website", "url", "social_request")
 WE_MADE = ("io_creative", "blog", "seo_image", "seo_images", "display_ad",
            "display_ads", "ad_builder", "ads_pmax", "magic_resize", "logo",
            "logo_brand", "logo_scan", "logo_upload", "client_logos",
@@ -321,7 +323,8 @@ def file_asset(*, client_name: str, public_id: str, url: str,
                push_to_suite: bool = True, tool: str = "",
                completed_on: str = "", project_name: str = "",
                io_number: str = "", product_number: str = "",
-               external: bool = False, folder: str = "") -> dict:
+               external: bool = False, folder: str = "",
+               source_id: str = "", source_url: str = "") -> dict:
     """Record one asset in a client's gallery.
 
     Returns a dict with `ok`, and on success the `image` row and `gallery_url`.
@@ -337,8 +340,11 @@ def file_asset(*, client_name: str, public_id: str, url: str,
     # Provider identity is bounded to 120 characters in Postgres. Preserve the
     # full delivery identity separately; truncation would merge distinct assets
     # whose folder/name prefixes happen to match.
-    provider_id = (public_id if len(public_id) <= 120 else
-                   "sha256:" + hashlib.sha256(public_id.encode("utf-8")).hexdigest())
+    source_id = str(source_id or "").strip()
+    source_url = str(source_url or "").strip()
+    identity = source_id or public_id
+    provider_id = (identity if len(identity) <= 120 else
+                   "sha256:" + hashlib.sha256(identity.encode("utf-8")).hexdigest())
 
     kind = (kind or "upload").strip().lower()[:20]
     provider = (provider or kind).strip().lower()[:40]
@@ -378,7 +384,7 @@ def file_asset(*, client_name: str, public_id: str, url: str,
             client_id=client.id,
             provider=provider,
             provider_image_id=provider_id,
-            source_url=url,
+            source_url=source_url or url,
             filename=str(filename or "")[:300] or None,
             alt_text=str(alt or "")[:500] or None,
             resource_type="raw" if rtype not in ("image", "video") else rtype,
