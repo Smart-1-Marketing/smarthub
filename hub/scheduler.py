@@ -1190,7 +1190,7 @@ JOBS = {
                           "Start one budget-reserved model comparison in its own worker."),
     "reports_normalize": (60, job_reports_normalize,
                           "Normalize the provider's raw ad rows into the reporting fact table."),
-    "reports_native":    (360, job_reports_native_pull,
+    "reports_native":    (1440, job_reports_native_pull,
                           "Pull the Trade Desk, Google Ads, StackAdapt and AudioGo from their "
                           "own APIs at 3 AM Eastern, with retries for incomplete runs (native wins)."),
     "reports_pacing":    (60, job_reports_pacing,
