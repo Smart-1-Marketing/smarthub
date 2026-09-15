@@ -7,7 +7,7 @@
 {% endblock %}
 {% block content %}
 <section class="card noprint">
- <h2>Your Local Services accounts</h2><p id="connection" role="status">Checking the team's Google connection…</p>
+ <h2>Your Local Services accounts {{ help_dot('ads_builder.lsa.workflow') if help_dot is defined else '' }} {{ help_dot('ads_builder.lsa.client_intake') if help_dot is defined else '' }}</h2><p id="connection" role="status">Checking the team's Google connection…</p>
  <div class="lsa-controls"><div><label for="account">Business account</label><select id="account"><option value="">Choose a business</option></select></div><div><label for="days">Reporting period</label><select id="days"><option value="7">Last 7 complete days</option><option value="30" selected>Last 30 complete days</option><option value="90">Last 90 complete days</option></select></div></div>
  <div class="row" style="margin-top:16px"><button id="refresh" class="b-primary">Refresh account</button><button id="reconnect">Check connection</button><label style="margin:0"><input type="checkbox" id="auto" style="width:auto"> Refresh every 5 minutes while this page is visible</label><a class="btn" href="{{ mount }}/local-services">Build a new LSA setup</a></div>
 </section>
