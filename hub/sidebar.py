@@ -8,7 +8,18 @@ Since 2026-09-14 the nav is two tiers: five pinned rows, then twelve
 *departments* (six Departments, six Tools) that stay folded -- see PINNED,
 LEAVES and SECTIONS below. `_ITEMS` is still exported as the flat list the
 rest of the Hub reads, derived from the tree so the two cannot disagree.
+
+A named group inside a department's flyout is still a mega-menu column --
+roll over Sales and Sales Tools still lists every tool under it -- but its
+own heading is a link now, to that same group on the department's index page
+(/views/<slug>#<group-anchor>). Rolling over is the fast path for somebody
+who already knows what they want; clicking the heading is "just show me the
+page" for somebody who does not. `department_view.html` renders the anchor
+from the identical `_group_anchor()` so the two can never point past each
+other.
 """
+
+import re
 
 # The keys are what render_sidebar() matches `active` against, so they are
 # fixed points: reordering or relabelling is free, renaming a key silently
@@ -279,11 +290,11 @@ def _dept(slug, label, ico, groups, level=EVERYONE, blurb=""):
 SECTIONS = [
     ("Departments", [
         _dept("sales", "Sales", "&#128188;", [
-            ("", ["website_audit", "salesb", "proposal_execution", "io_builder"]),
+            ("", ["website_audit", "salesb", "proposal_execution", "io_builder",
+                  "pdf", "short_links"]),
             ("Sales Tools", ["gpt_ads", "social", "smartforecast", *_CALCULATORS, "ads",
                              "weather_setup", "sites_builder", "landing_maker"]),
             ("Leads", ["leads", "sell_to_clients", "msa"]),
-            ("", ["pdf", "short_links"]),
             ("Sales QA", ["myclients", "monthly_promises", "sales_scorecard",
                           "partner_scorecard", "assign_clients", "sell_to_clients",
                           "stale_90", "lost_by_partner", "active_clients"]),
@@ -376,6 +387,15 @@ def department(slug: str) -> dict | None:
         if d["slug"] == slug:
             return d
     return None
+
+
+def _group_anchor(label: str) -> str:
+    """A stable, URL-safe id for a flyout group's own section of the
+    department's index page. Read by both `_department_html()` below and
+    `department_view.html` (via `hub/department_views.py`), so a group
+    heading that links out and the page it lands on cannot disagree about
+    the anchor -- one function rather than two spellings of the same slug."""
+    return re.sub(r"[^a-z0-9]+", "-", (label or "").lower()).strip("-")
 
 
 def department_tiles(dept: dict) -> list[tuple[str, list[tuple]]]:
@@ -594,6 +614,11 @@ body.s1hub-collapsed .s1hub-toggle { right: 4px; }
 .s1hub-sb .s1hub-dept.s1hub-pinned .s1hub-inline { display: block; }
 .s1hub-sb .s1hub-inline .s1hub-g { padding: 8px 18px 2px 46px; font-size: 10px;
   font-weight: 700; letter-spacing: .9px; text-transform: uppercase; color: #7d8db2; }
+/* A group heading is a link now (to that group's own spot on the department
+   page), so it needs to read as one without losing the small-caps label
+   styling every other rule above already gives `.s1hub-g` by class alone. */
+.s1hub-sb a.s1hub-g { display: block; text-decoration: none; cursor: pointer; }
+.s1hub-sb a.s1hub-g:hover { color: #fff; text-decoration: underline; }
 .s1hub-sb .s1hub-inline a.s1hub-leaf { display: flex !important; align-items: center;
   gap: 8px; padding: 5px 18px 5px 46px; font-size: 12.5px; color: #c9d4ea;
   text-decoration: none; }
@@ -750,11 +775,16 @@ def _department_html(d: dict, active: str, lit: str) -> str:
     count = len({href for _g, leaves in tiles for _k, href, *_ in leaves})
     on = " s1hub-on" if d["key"] == lit else ""
     admin = ' data-s1hub-admin="1"' if d["level"] == ADMIN_ONLY else ""
-    # The flyout: one column per group, up to four across.
+    # The flyout: one column per group, up to four across. A named group's
+    # heading is a link to that same group on the department's index page --
+    # the mega-menu still lists every tool under it on hover, and clicking
+    # the heading is "just take me to the page" for whoever would rather not
+    # hover at all.
     cols = []
     for group, leaves in tiles:
-        cols.append('<div class="s1hub-col">'
-                    + (f'<div class="s1hub-g">{group}</div>' if group else "")
+        head = (f'<a class="s1hub-g" href="{d["href"]}#{_group_anchor(group)}">'
+                f'{group} &rarr;</a>') if group else ""
+        cols.append('<div class="s1hub-col">' + head
                     + "".join(_leaf_html(*leaf, active) for leaf in leaves)
                     + "</div>")
     fly = (f'<div class="s1hub-fly" role="group" aria-label="{d["label"]}">'
@@ -766,7 +796,8 @@ def _department_html(d: dict, active: str, lit: str) -> str:
     inline = []
     for group, leaves in tiles:
         if group:
-            inline.append(f'<div class="s1hub-g">{group}</div>')
+            inline.append(f'<a class="s1hub-g" href="{d["href"]}#{_group_anchor(group)}">'
+                          f'{group} &rarr;</a>')
         inline.extend(_leaf_html(*leaf, active) for leaf in leaves)
     # The row is a div holding a link and a button side by side: a button
     # inside an anchor is not HTML a browser has to honour, and a chevron

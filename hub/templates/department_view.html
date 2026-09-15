@@ -56,7 +56,7 @@
     text, which is the one place |safe is used on this page.
   #}
   {% for g in department.groups %}
-    {% if g.label %}<div class="qa-group-label">{{ g.label }}</div>{% endif %}
+    {% if g.label %}<div class="qa-group-label" id="{{ g.anchor }}">{{ g.label }}</div>{% endif %}
     <div class="tool-tiles compact">
       {% for t in g.tiles %}
       <a class="tool-tile" href="{{ t.href }}">
