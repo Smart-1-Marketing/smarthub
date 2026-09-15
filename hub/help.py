@@ -45,6 +45,16 @@ def _h(*a, **kw) -> Help:
 
 
 REGISTRY: list[Help] = [
+    _h("ads_builder.campaigns.lsa_workflow", "Build and review Local Services Ads",
+       "Open LSA Ads under Product Success. Choose the business account and save or resume a setup with its services, coverage, answering hours and planning budget. Saving a setup does not create a campaign. Finish campaign creation, billing and verification in Google. Optimize can apply confirmed pause, enable and budget changes to supported traditional Local Services campaigns. Performance Max settings, coverage and bidding use the Google management link. Monitor and Report show 7, 30 or 90 complete account-local days; optional five-minute refresh runs only while the page is visible.",
+       link="/tools/lsa/", link_text="Open LSA Ads"),
+    _h("ads_builder.campaigns.lsa_client_intake", "Collect and review the client's LSA details",
+       "In Build & saved setups, choose Save setup & create client link, then Copy link. Share it with the client to collect business details, services, service areas, answering hours and proposed budget without a Hub login. Creating a link does not send it. Open the saved setup and Check client response, then review before choosing Use these answers in setup. This imports the setup fields; it does not launch ads. Links expire after 30 days. Disable client link revokes access while retaining the response; a replacement invalidates the old link.",
+       link="/tools/lsa/", link_text="Open LSA Ads"),
+    _h("youtube_ads.workspace.overview", "Build and review YouTube advertising",
+       "Choose the advertiser's Google Ads account, save a video campaign draft, review its settings and validate it with Google. Creation leaves the campaign and ad paused. Review conversion tracking, audience targeting and policy approval in Google Ads before enabling. YouTube Data API access alone does not authorize paid advertising."),
+    _h("youtube_ads.workspace.results", "Read paid results in context",
+       "Monitor reads Video and Demand Gen campaign totals for the last 7 or 30 days in the account timezone. Existing campaigns may include non-YouTube placements. Optimize provides review suggestions rather than automatic changes; Report exports a fresh CSV or prints loaded results. Optional five-minute refresh runs only while the page is open and visible."),
     _h("youtube.studio.workflow", "Connect, review, then publish a client video",
        "Choose the client and confirm the channel before requesting owner access. Adding a public channel does not authorize changes; its owner must connect through Google. Save and review the video draft, then upload it privately. Editing a draft requires a new approval. Check processing and playback in YouTube before publishing. If an upload has an uncertain result, check YouTube before trying again to avoid a duplicate. Larger files can be uploaded directly in YouTube Studio.",
        link="/tools/youtube/", link_text="Open YouTube Studio"),
@@ -420,8 +430,7 @@ REGISTRY: list[Help] = [
 
     # ---------------- Client 360 ----------------
     _h("hub.client360.header", "One record per client",
-       "Everything the Hub knows about this client: products, website, scans, "
-       "images, proposals, schema and FAQ pages.", step=1,
+       "Client 360 brings together the client's products, website, scans, images, proposals, advertising, landing pages, Google listing and YouTube channel. Pipeline & leads reads the client's own Smart 1 Suite sub-account; check the linked account before opening its pipeline. Missing access or unavailable data does not mean the client has no leads.", step=1,
        selector="[data-tour='client-header']"),
     _h("hub.client360.products", "Products on file",
        "Pulled from Knack. This is what the billing audits compare against — "
@@ -475,6 +484,23 @@ REGISTRY: list[Help] = [
        "filed, everything waiting for confirmation, or no spend this period. "
        "Every figure is Reports' own, so this card and the client's page "
        "cannot disagree."),
+    _h("hub.client360.landing", "The landing pages we built for them",
+       "Every page the Landing Page Maker has built for this client, newest "
+       "first, with the link and two things that are only worth knowing "
+       "before you send it. **Ready** is the page's own open questions -- what "
+       "it would otherwise write around -- plus whether it has a real review "
+       "on it and whether the Hub can name its own public address. "
+       "**Conversion** is the share of the people who opened it who became a "
+       "lead, and it says which of five situations it is in rather than "
+       "printing a percentage over anything: nobody has opened it yet, too "
+       "early to call at under 25 opens, more leads than opens (which means "
+       "the opens are undercounted, not that the page converts above a "
+       "hundred per cent), a rate, or not measured. Leads taken before opens "
+       "were ever counted are named apart rather than folded into the "
+       "numerator. The pages list, the visit table and the lead store are "
+       "three separate reads, so each says separately when it could not "
+       "answer -- a nought here would be a reason to pause a campaign that "
+       "may be doing fine."),
     _h("hub.client360.spend", "What they are already spending",
        "The first thing worth knowing about a client, and the one that decides "
        "what the next conversation is about. Every figure is a third-party "
@@ -906,10 +932,7 @@ REGISTRY: list[Help] = [
 
     # ---------------- Reports ----------------
     _h("reports.index.syncs", "Every platform, synced or not",
-       "One row per platform the syncs can write, including the ones that "
-       "have never synced. A platform missing from this table would be the "
-       "finding, so nothing is left off it. The time is when the last sync "
-       "wrote rows; the latest day is the newest date those rows cover."),
+       "One row per platform shows the last sync time and latest date covered, including platforms that have never synced. Automatic reporting refresh starts at 3 AM Eastern. Failed or incomplete providers are retried after 30 minutes without pulling providers already completed for that nightly run again. Read each platform's status: a successful provider does not mean every provider finished. Historical imports are processed in batches."),
     _h("reports.index.upload", "A platform's own export, into the same table",
        "Every platform can export a CSV whatever its API does, so this is the "
        "door for a platform with no feed connected and for a month a feed "
@@ -2012,21 +2035,10 @@ REGISTRY: list[Help] = [
        "could mean two clients proposes neither. A prospect gets a "
        "gallery with no client record behind it, which is the point: "
        "nothing is invented to file them under."),
-    _h("image_picker.gallery.saved", "Reported apart, on purpose",
-       "Each file says where it lives and whether it reached the "
-       "client's Smart 1 Suite media library — separately, because "
-       "“saved here” and “in the Suite” are different "
-       "outcomes and one tick covering both is how somebody learns not "
-       "to trust the tick."),
-    _h("image_picker.gallery.library", "Search what is in the picture",
-       "The search reads the alt text, the filename, the folder and what "
-       "a vision model saw in the picture — the last one is what "
-       "makes it work on the forty files nobody captioned. It runs on "
-       "the server over the whole library, so the answer is about "
-       "everything saved rather than about the rows this page happened "
-       "to load. Deleting removes the stored copy, and for a photograph "
-       "a client sent us that is often the only copy — the "
-       "confirmation says so."),
+    _h("image_picker.gallery.saved", "One client asset home",
+       "Client Uploads holds files supplied by the client. Creative holds brand and campaign assets. Hub Projects brings together saved work from Hub tools. Open a folder to see related files, or Open project to continue working in the original tool. The files keep their original links. Details shows source information and Suite delivery status; a saved Hub file does not mean Suite delivery succeeded. A source warning means some records could not be read. Files with no client assignment need review before they can appear here."),
+    _h("image_picker.gallery.library", "Search files and projects",
+       "Search the client's files, folders, project names, IO and product numbers, alt text, and saved image descriptions. Search covers the complete loaded catalog before the visible page limit. Choose a section or file type to narrow the view. All assets clears every filter, including an IO or product link you arrived through. Select gallery files to download them together. Remove file can delete the stored copy; its confirmation explains the effect."),
 
     # ---------------- Landing Page Ads ----------------
     _h("landing_ads.build.intro", "One brief, every format",
@@ -2241,15 +2253,7 @@ REGISTRY: list[Help] = [
        "here rather than at delivery."),
 
     _h("io_builder.submit.finished", "What submitting does, and what it does not",
-       "Submitting files the order in the activity log, sends it to Smart 1 "
-       "Suite, and registers the business as a client if nobody here has "
-       "heard of them yet \u2014 an overlay of our own, never a write to Knack, "
-       "so the day the real record appears it wins. What it does **not** do "
-       "is set the campaign up: that is somebody trafficking it, and an "
-       "order whose products never arrive looks exactly like one that was "
-       "handled. **QA \u2192 Orders With No Campaign** is the report that "
-       "catches those, so an order signed in March cannot sit unbuilt "
-       "until a client asks why nothing ran."),
+       'Review the pre-submit checklist and follow its links to any missing details or creative checks. Submitting records the order and attempts delivery to Smart 1 Suite; read the actual receipt. A recorded-only result keeps the draft and can be retried. An uncertain Suite delivery needs administrator reconciliation before another attempt. A correction revises the same order rather than creating another. Submission does not set up the campaign: use QA > Orders With No Campaign to find orders that still need trafficking.'),
 
     _h("io_builder.pdf.two", "Two documents from one record",
        "The customer PDF is what the client signs; the internal one carries "
@@ -2281,8 +2285,8 @@ REGISTRY: list[Help] = [
        "and industry are filled from the client's record where the form left "
        "them blank, never invented. It is a billed AI call, which is why it "
        "is a button rather than part of loading the page."),
-    _h("landing_maker.pages.built", "Open the link, not this list",
-       'After building a landing page, use Copy link beside its address or on its saved-page row. Open that direct link to check the page a prospect will receive: public pages omit the staff sidebar, help layer and feedback tab. The page can also be shown in a frame. Test its lead form and read the result; a failed or refused submission shows an error and is not a confirmed lead. Share the public page address rather than the Hub editor address.'),
+    _h("landing_maker.pages.built", "Share a landing page or restore its history",
+       'Use Copy link beside the built page or its saved row to share the public page. Open it and test its lead form before sharing; an error is not a confirmed lead. Review the readiness checklist and conversion status. Opens and leads are measured separately; fewer than 25 opens is too early to judge, and unavailable data is not zero. After a rewrite, use Undo to return to the previous version, or History to restore a saved version. Older versions labeled page only do not restore the copy used for later rewrites. Public pages can be framed and omit the staff sidebar, help and feedback controls.'),
 
     # ---------------- PDF Optimizer ----------------
     _h("pdf_optimizer.tool.intro", "What an error here is about",

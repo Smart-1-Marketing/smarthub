@@ -111,6 +111,7 @@
   }
 
   function added(info) {
+    window.dispatchEvent(new CustomEvent("picker-uploaded"));
     var isImg = (info.resource_type === 'image');
     var fig = document.createElement('figure');
     fig.innerHTML = (isImg
@@ -181,6 +182,7 @@
             card.innerHTML = '<h3>' + esc(name) + '</h3><p>'
               + esc(res.note || 'Done.') + '</p>';
             if (choice !== 'move' && res.created) { added(info); }
+            else { window.dispatchEvent(new CustomEvent('picker-uploaded')); }
           })
           .catch(function () {
             why.textContent = 'That did not work. Try again in a moment.';

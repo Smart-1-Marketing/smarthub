@@ -94,7 +94,7 @@ IMAGES = [
     ("Image Optimizer &amp; Resizer", "/tools/image/"),
     ("Background Remover", "/tools/bg-remover/"),
     ("Page Image Optimizer", "/tools/page-images/"),
-    ("Client Image Uploads", "/tools/image-picker/"),
+    ("Client Assets", "/tools/image-picker/"),
     ("SEO Image Pipeline", "/tools/seo-images/"),
     ("Landing Page Ads", "/tools/landing-ads/"),
 ]

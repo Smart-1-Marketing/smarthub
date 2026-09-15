@@ -1,13 +1,13 @@
 {% extends "picker_base.html" %}
-{% block title %}Client Image Uploads · Smart 1 Hub{% endblock %}
+{% block title %}Client Assets · Smart 1 Hub{% endblock %}
 
 {% block body %}
 <header class="top">
   <div class="wrap">
     <div class="mark">S1</div>
     <div>
-      <h1>Client Image Uploads {{ help_dot('image_picker.admin.intro') if help_dot is defined else '' }}</h1>
-      <div class="sub">Clients pick photos · saves to the client gallery + Smart 1 Suite</div>
+      <h1>Client Assets {{ help_dot('image_picker.admin.intro') if help_dot is defined else '' }}</h1>
+      <div class="sub">Uploads, creative, and Hub projects in one client asset home</div>
     </div>
     <div class="top-actions">
       <a class="ghost" href="/tools">Tools</a>
@@ -43,7 +43,7 @@
 
   <section class="panel">
     <div class="panel-head">
-      <h2>Add a client {{ help_dot('image_picker.admin.add') if help_dot is defined else '' }}</h2>
+      <h2>Find a client {{ help_dot('image_picker.admin.add') if help_dot is defined else '' }}</h2>
       <span class="hint">The share link works without a login — send it straight to the client.</span>
     </div>
     <div class="kindrow">
@@ -58,7 +58,8 @@
       <select id="newIndustry" style="flex:1 1 180px;padding:12px;border:1px solid var(--line);border-radius:10px" aria-label="Industry">
         {% for ind in industries %}<option value="{{ ind.key }}">{{ ind.icon }} {{ ind.label }}</option>{% endfor %}
       </select>
-      <button class="btn accent" id="addBtn" type="button">Create gallery</button>
+      <button class="btn accent" id="openAssets" type="button">Open client assets</button>
+      <button class="btn quiet" id="addBtn" type="button">Set up uploads</button>
     </div>
     <p class="hint" id="attachState" style="margin:8px 2px 0"></p>
     <p class="hint" style="margin:4px 2px 0">
@@ -174,6 +175,11 @@
     });
   }
 
+  $("openAssets").onclick=function(){
+    var name=(attached && attached.name)||$("newName").value.trim();
+    if(!name || (kind()==="client" && !attached)){$("attachState").textContent="Choose a client from the suggestions first.";return;}
+    location.href=BASE+"/gallery/for-client?name="+encodeURIComponent(name);
+  };
   var attached = null;      // {id, name} once a lookup result is chosen
   var sug = $("newSuggest");
   var kindHint = $("kindHint");

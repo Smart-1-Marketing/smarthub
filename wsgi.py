@@ -126,6 +126,7 @@ _MOUNT_ACTIVE = {
     # client's live Google Ads account, and a page that can enable
     # spend should say where it is in the nav.
     "/tools/ads": "ads",
+    "/tools/lsa": "lsa",
 }
 
 
@@ -815,7 +816,13 @@ _SMARTFORECAST_PUBLIC = tuple(getattr(
 _IMGCREATOR_PUBLIC = tuple(getattr(imgcreator, "PUBLIC_PREFIXES", ("/review/",))) \
     if imgcreator else ("/review/",)
 
+try:
+    from modules.lsa_ads.app import app as lsa_ads_app
+except Exception as _lsa_exc:  # Keep other Hub tools available if this module fails.
+    lsa_ads_app = _fallback_app("LSA Ads", str(_lsa_exc))
+
 application = DispatcherMiddleware(hub_app, {
+    "/tools/lsa": _mount(lsa_ads_app, "/tools/lsa", public_prefixes=("/intake/",)),
     "/google": _mount(gf.app, "/google") if gf else gf_fb,
     "/sites": _mount(sites.app, "/sites") if sites else sites_fb,
     "/suite": _mount(suite.app, "/suite") if suite else suite_fb,

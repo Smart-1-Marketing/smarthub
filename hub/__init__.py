@@ -973,6 +973,25 @@ def create_hub_app() -> Flask:
             return jsonify({"ok": False, "error": "A client is required."}), 400
         return jsonify(record_health.client360(name))
 
+    @app.route("/api/client/next-action")
+    def api_client_next_action():
+        """The one-sentence line at the top of Client 360 -- hub/next_action.py.
+
+        Reads the same three sources their own cards already fetch (health,
+        upcoming, pipeline) and orders whatever they already flagged worst
+        first; it adds no new source and makes no network call of its own.
+        Under `/api/client/` for the reason `/api/client/health` gives.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import next_action
+        name = request.args.get("name", "")
+        if not name.strip():
+            return jsonify({"measured": False, "error": "A client is required."}), 400
+        url = request.args.get("url", "")
+        return jsonify(next_action.for_client(name, url))
+
     @app.route("/api/client/work")
     def api_client_work():
         """Everything the Hub has made for this client, newest first."""
@@ -1082,6 +1101,70 @@ def create_hub_app() -> Flask:
                 rows.append(dict(row, member=member))
         rows.sort(key=lambda r: str(r.get("updated_at") or ""), reverse=True)
         return jsonify({"runs": rows, "measured": measured, "error": error})
+
+    @app.route("/api/client/landing-pages")
+    def api_client_landing_pages():
+        """The landing pages built for this client, and whether they work.
+
+        `hub/landing_maker.py` has built these for a year and a client's own
+        record has never mentioned one: the tool's list is searchable by
+        client and is a screen inside the tool, so knowing a page existed
+        meant knowing to go and look for it. The two things that make it
+        worth a card are the ones Tier 2 added -- whether the page is ready
+        to send, and what share of the people who opened it became a lead.
+
+        Three flags come back apart rather than as one. `measured` is the
+        landing store; `views_measured` is the visit table; and
+        `conversion_measured` is both of those and the lead store, because
+        the rate needs all three and a page can perfectly well be listed
+        with no rate behind it. A card that drew any of them as a nought
+        would tell a rep to pause a campaign that may be doing fine.
+
+        Under `/api/client/` for the reason `/api/client/orders` gives: the
+        Suite frame allowlists that prefix and nothing else. A grouped
+        client reads across the group, the way the orders do -- and a page
+        merged in from a sibling record carries the member it came from, so
+        the row says whose it is rather than implying it is this one's.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_groups, landing_maker
+        name = request.args.get("name", "") or request.args.get("client", "")
+        names = client_groups.member_names(name, request.args.get("url", "")) \
+            or [name]
+        rows, measured, error = [], True, ""
+        views_ok = conv_ok = True
+        views_error = ""
+        seen = set()
+        for member in [name] + [n for n in names if n != name]:
+            got = landing_maker.summary_for_client(member)
+            if not got.get("measured"):
+                measured, error = False, got.get("error", "")
+                continue
+            # One member's view table answering and another's not is not a
+            # thing that can happen -- it is one table -- but one member
+            # having no pages means `summary_for()` was never asked, which
+            # comes back measured. So the flags are ANDed only over members
+            # that actually had rows, or a client with one empty sibling
+            # would read as fully measured while the real member's counts
+            # were missing, and the other way round.
+            if not got.get("pages"):
+                continue
+            views_ok = views_ok and bool(got.get("views_measured"))
+            conv_ok = conv_ok and bool(got.get("conversion_measured"))
+            views_error = views_error or got.get("views_error", "")
+            for row in got["pages"]:
+                if row.get("slug") in seen:
+                    continue
+                seen.add(row.get("slug"))
+                rows.append(dict(row, member=member))
+        rows.sort(key=lambda r: str(r.get("updated") or r.get("created") or ""),
+                  reverse=True)
+        return jsonify({"pages": rows, "measured": measured, "error": error,
+                        "views_measured": views_ok,
+                        "conversion_measured": conv_ok,
+                        "views_error": views_error})
 
     @app.route("/api/client/ad-performance")
     def api_client_ad_performance():
@@ -8201,4 +8284,6 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    from .youtube_ads import install as install_youtube_ads
+    install_youtube_ads(app, current_user)
     return app

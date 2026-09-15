@@ -1259,6 +1259,8 @@ showStep(0);
 if (BOOT.client) { choose(BOOT.client, BOOT.url); }
 loadSaved();
 initRecovery();
+var openFromAssets=new URLSearchParams(location.search).get("batch");
+if(openFromAssets && /^[a-z0-9]{6,24}$/.test(openFromAssets)){openBatch(openFromAssets);}
 })();
 </script>
 </body>

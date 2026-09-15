@@ -77,6 +77,7 @@ NODE = subprocess.run(["node", "--version"],
 # unless it is named — which is why Commercial Builder, a ~4,000-line tool
 # whose storyboard builds scene cards from a <template>, went unchecked.
 HUB_PAGES = [
+    "/tools/youtube-ads/",
     "/", "/client360", "/tools", "/creative", "/qa", "/seo", "/activity",
     "/diagnostics", "/clients", "/status", "/sales/leads",
     "/tools/commercial-builder/",
@@ -125,6 +126,7 @@ HUB_PAGES = [
     # checker's whole existence is about — that one needs a gallery id, so
     # test_image_picker.py holds it and this holds the root.
     "/tools/image-picker/",
+    "/tools/image-picker/gallery/for-client?name=Pagecheck%20Client",
     # Another hub blueprint under /tools, and its status card renders a
     # tri-state per allowlisted folder -- exists, missing, not measured -- in
     # Jinja rather than from JavaScript. A `is false` test that the installed

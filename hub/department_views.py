@@ -107,6 +107,46 @@ BLOCK_TYPES = ("tile", "note")
 RESERVED_IDS = {"manage", "mine", "admin", "new", "api"}
 
 
+# ---------------------------------------------------------------------------
+# Built-in departments — the sidebar's own, read from hub/sidebar.py
+# ---------------------------------------------------------------------------
+#
+# Since 2026-09-14 the sidebar is itself organised by department (Sales,
+# Client Success, ... and the Tools: Creative, Studio, ...), each with an
+# index page at /views/<slug>. Those are departments in every sense this
+# module cares about -- they have a name, a list of tools, and people can be
+# put on them -- so they appear here as read-only rows beside the curated
+# ones, rather than as a second kind of thing with a second picker. Their
+# slugs are reserved so a curated "Sales" cannot shadow the built-in one:
+# the curated copy gets "sales-dept", and nothing typed at /views/sales ever
+# shows a different page from the one the sidebar row opens.
+
+def _builtin_departments() -> list[dict]:
+    try:
+        from hub import sidebar
+    except Exception:                                        # noqa: BLE001
+        return []
+    out = []
+    for d in sidebar.departments(True):
+        out.append({
+            "id": d["slug"], "name": d["label"], "description": d.get("blurb") or "",
+            "blocks": [], "builtin": True, "admin_only": d["level"] == sidebar.ADMIN_ONLY,
+            "groups": [{"label": g, "anchor": sidebar._group_anchor(g),
+                        "tiles": [{"key": k, "href": h, "icon": i, "label": l}
+                                  for k, h, i, l in leaves]}
+                       for g, leaves in sidebar.department_tiles(d)],
+        })
+    return out
+
+
+def builtin_ids() -> set[str]:
+    return {d["id"] for d in _builtin_departments()}
+
+
+def is_builtin(dept_id: str) -> bool:
+    return (dept_id or "").strip().lower() in builtin_ids()
+
+
 class DepartmentViewError(Exception):
     """A refusal a caller can show as-is: a bad name, a block that will not
     validate, an id that does not exist. Anything else is a real defect and
@@ -177,7 +217,7 @@ def _slugify(name: str) -> str:
 
 def _unique_id(name: str, existing: set[str]) -> str:
     base = _slugify(name)
-    if base in RESERVED_IDS:
+    if base in RESERVED_IDS or base in builtin_ids():
         base = base + "-dept"
     candidate = base
     n = 2
@@ -192,16 +232,27 @@ def _unique_id(name: str, existing: set[str]) -> str:
 # ---------------------------------------------------------------------------
 
 def list_departments() -> list[dict]:
+    """Built-ins first, in sidebar order; then the curated ones by name."""
     rows = _load_departments()
-    return sorted(rows, key=lambda d: (d.get("name") or "").lower())
+    return _builtin_departments() + sorted(rows, key=lambda d: (d.get("name") or "").lower())
 
 
 def get_department(dept_id: str) -> dict | None:
     dept_id = (dept_id or "").strip().lower()
+    for row in _builtin_departments():
+        if row["id"] == dept_id:
+            return row
     for row in _load_departments():
         if row.get("id") == dept_id:
             return row
     return None
+
+
+def _refuse_builtin(dept_id: str) -> None:
+    if is_builtin(dept_id):
+        raise DepartmentViewError(
+            "That department is built into the sidebar (hub/sidebar.py) and is "
+            "not edited here. Create a curated view with a different name instead.")
 
 
 def create_department(name: str, description: str = "", actor_email: str = "") -> dict:
@@ -236,6 +287,7 @@ def create_department(name: str, description: str = "", actor_email: str = "") -
 def update_department(dept_id: str, name: str | None = None,
                        description: str | None = None,
                        actor_email: str = "") -> dict:
+    _refuse_builtin(dept_id)
     with _LOCK:
         rows = _load_departments()
         for row in rows:
@@ -258,6 +310,7 @@ def delete_department(dept_id: str, actor_email: str = "") -> int:
     """Delete the department and un-assign anyone on it. Returns how many
     people were un-assigned, so the confirmation can say so rather than
     leaving that silent."""
+    _refuse_builtin(dept_id)
     with _LOCK:
         rows = _load_departments()
         keep = [r for r in rows if r.get("id") != dept_id]
@@ -316,6 +369,7 @@ def save_blocks(dept_id: str, blocks: list, actor_email: str = "") -> tuple[list
     were kept and how many of the ones sent in were dropped for not
     validating — reported rather than silently discarded, the
     `hub/domain_purchase.py` rule about a bulk write that quietly loses rows."""
+    _refuse_builtin(dept_id)
     if not isinstance(blocks, list):
         blocks = []
     cleaned: list[dict] = []
@@ -448,12 +502,33 @@ def roster() -> tuple[list[dict], str]:
 # ---------------------------------------------------------------------------
 
 def catalog() -> list[dict]:
-    """Every tool, report and menu page a block can point at, grouped the
-    way `hub/qa_tasks.py` already builds it for its own "which page or tool"
-    picker — reused rather than restated, or the two lists drift the day a
-    tool is renamed and only one of the two pickers is fixed."""
+    """Every tool, report and menu page a block can point at.
+
+    The sidebar's departments come first, each as its own group, so the
+    editor offers the same tree the menu draws; after them the groups
+    `hub/qa_tasks.py` builds for its own "which page or tool" picker, minus
+    anything the departments already named — reused rather than restated, or
+    the two lists drift the day a tool is renamed and only one is fixed."""
+    groups: list[dict] = []
+    seen: set[str] = set()
+    for d in _builtin_departments():
+        items = []
+        for g in d["groups"]:
+            for t in g["tiles"]:
+                if t["href"] in seen:
+                    continue
+                seen.add(t["href"])
+                items.append({"key": "nav:" + t["key"], "label": t["label"],
+                              "href": t["href"]})
+        if items:
+            groups.append({"group": d["name"], "items": items})
     try:
         from hub.qa_tasks import targets
-        return targets()
+        for g in targets():
+            items = [i for i in (g.get("items") or []) if i.get("href") not in seen]
+            if items:
+                seen.update(i.get("href") for i in items)
+                groups.append({"group": g.get("group"), "items": items})
     except Exception:                                        # noqa: BLE001
-        return []
+        pass
+    return groups

@@ -9,9 +9,9 @@ Bump VERSION whenever code is deployed. BUILD_DATE is the date of that bump.
 import os
 import subprocess
 
-VERSION = "1.79.0"
-BUILD_DATE = "2026-09-14"
-CODENAME = "YouTube Client Studio"
+VERSION = "1.79.1"
+BUILD_DATE = "2026-09-15"
+CODENAME = "Help Workflow Refresh"
 
 _sha_cache: str | None = None
 

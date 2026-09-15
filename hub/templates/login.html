@@ -90,7 +90,7 @@
 </main>
 <script>
   (function(){
-    var lines=["INITIALIZING SMARTHUB...","CONNECTING CAMPAIGN INTELLIGENCE...","CHECKING WEATHER TRIGGERS...","LOADING AUDIENCE MATRIX...","LOCATING UNNECESSARILY LARGE DATABASES...","ASKING AI TO PRETEND THIS IS DIFFICULT...","","CONNECTION ESTABLISHED.","","GREETINGS, PROFESSOR SWICKARD.","SHALL WE PLAY A GAME?"];
+    var lines=["INITIALIZING SMARTHUB...","CONNECTING CAMPAIGN INTELLIGENCE...","CHECKING WEATHER TRIGGERS...","LOADING AUDIENCE MATRIX...","LOCATING UNNECESSARILY LARGE DATABASES...","ASKING AI TO PRETEND THIS IS DIFFICULT...","","CONNECTION ESTABLISHED.","","SHALL WE PLAY A GAME?"];
     var messages=["AI HAS DETERMINED THAT MARKETING STILL REQUIRES HUMANS.","SEARCHING 47 DATABASES BECAUSE APPARENTLY ONE WOULD BE TOO EASY.","WEATHER TRIGGERS ARMED. THE HVAC INDUSTRY HAS BEEN WARNED.","CALCULATING THE CPM OF GLOBAL THERMONUCLEAR PPC...","AI CORE ONLINE. COMMON SENSE MODULE STILL LOADING.","CHECKING IF GOOGLE CHANGED SOMETHING AGAIN...","SMARTFORECAST HAS CONSULTED THE CLOUDS.","THE MACHINES HAVE REQUESTED A LARGER MEDIA BUDGET."];
     var boot=document.getElementById("boot"),li=0,ci=0,node;
     function type(){if(li>=lines.length)return;var line=lines[li];if(!node){node=document.createElement("div");node.className="boot-line"+(line?"":" blank");boot.appendChild(node)}if(ci<line.length){node.textContent=line.slice(0,++ci);setTimeout(type,14+Math.random()*22)}else{if(li===lines.length-1){var c=document.createElement("span");c.className="cursor";node.appendChild(c)}li++;ci=0;node=null;setTimeout(type,line?115:55)}}

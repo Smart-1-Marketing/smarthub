@@ -408,16 +408,16 @@ _c360 = open(os.path.join(ROOT, "hub/templates/client360.html"),
 check("the client record's tiles draw the preview",
       "esc(r.thumb||r.url)" in _c360 and "esc(item.thumb||item.url)" in _c360)
 
-_pick = open(os.path.join(ROOT, "modules/image_picker/templates/picker_gallery.html"),
+_pick = open(os.path.join(ROOT, "modules/image_picker/templates/master_gallery.html"),
              encoding="utf-8").read()
-check("so does the client gallery", "esc(im.thumb || im.url)" in _pick)
+check("so does the client gallery", "esc(r.thumb||r.url)" in _pick)
 
 # Falling back rather than branching: a row from a producer nothing has wired
 # yet draws exactly what it drew before. Written so a regression is reported
 # rather than raised -- a check that dies takes every check after it with it,
 # which is how the completeness scan below came to be silently skipped.
 check("a row with no preview falls back to the asset",
-      "esc(im.thumb || im.url)" in _pick)
+      "esc(r.thumb||r.url)" in _pick)
 
 
 # =====================================================================

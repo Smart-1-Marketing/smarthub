@@ -65,7 +65,7 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import (Image as RLImage, KeepTogether, Paragraph,
+from reportlab.platypus import (Image as RLImage, Paragraph,
                                 SimpleDocTemplate, Spacer, Table, TableStyle)
 from xml.sax.saxutils import escape as xml_escape
 
@@ -1518,7 +1518,12 @@ def _sec_header(title: str, number: int, st_h2) -> list:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
     space_before = getattr(st_h2, "spaceBefore", 12) or 12
     space_after = getattr(st_h2, "spaceAfter", 5) or 5
-    return [Spacer(1, space_before), t, Spacer(1, space_after)]
+    # Paragraph keep-with-next does not propagate out of a table cell.
+    # Keep the heading table with the first content flowable, including maps.
+    t.keepWithNext = True
+    t.spaceBefore = space_before
+    t.spaceAfter = space_after
+    return [t]
 
 
 def _trends_flowables(state, st_body, st_small) -> list:
@@ -1753,7 +1758,14 @@ def _map_flowables(png: bytes, meta: dict, small_style, zip_rows=None) -> list:
                         + ", ".join(covered) + ".", small_style))
     # The caption is about the picture directly above it. Orphaned onto the
     # next page it is a sentence about nothing, on a document a client reads.
-    return [Spacer(1, 4), KeepTogether(block), Spacer(1, 4)]
+    # Let the document collect one keep-with-next chain, including a preceding
+    # section heading. A standalone spacer ends that chain, and nesting a
+    # KeepTogether around the map can release the heading when it splits.
+    before = Spacer(1, 4)
+    before.keepWithNext = True
+    for flowable in block[:-1]:
+        flowable.keepWithNext = True
+    return [before, *block, Spacer(1, 4)]
 
 
 def _body_flowables(text, style) -> list:
@@ -2676,11 +2688,17 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
                                     f"Every ZIP above is running.", st_small))
 
 
-    # Footer
-    story += [Spacer(1, 16),
-              _p("Smart 1 Marketing  ·  smart1marketing.com  ·  This proposal is valid for 30 days. "
-                 "Final rates and schedules are confirmed on the insertion order.", st_small)]
-    doc.build(story)
+    # Page furniture must not consume story space or create a footer-only page.
+    footer = _p("Smart 1 Marketing  ·  smart1marketing.com  ·  This proposal is valid for 30 days. "
+                "Final rates and schedules are confirmed on the insertion order.", st_small)
+
+    def draw_footer(canvas, document):
+        canvas.saveState()
+        footer.wrap(document.width, document.bottomMargin)
+        footer.drawOn(canvas, document.leftMargin, 0.18 * inch)
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=draw_footer, onLaterPages=draw_footer)
     return buf.getvalue(), title
 
 
@@ -2971,7 +2989,8 @@ def build_proposal_docx(q, state, sent_at=_UNSET):
                        if rule["applied"] else
                        "This could not be read and has NOT been applied; every ZIP above is running."))
 
-    p = d.add_paragraph("Smart 1 Marketing · smart1marketing.com · This proposal is valid for 30 days.")
+    p = d.sections[0].footer.paragraphs[0]
+    p.text = "Smart 1 Marketing · smart1marketing.com · This proposal is valid for 30 days."
     hcolor(p, 8, MUTED_D, bold=False, center=True)
     buf = BytesIO()
     d.save(buf)

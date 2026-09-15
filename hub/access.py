@@ -93,6 +93,9 @@ UTILITY_PREFIXES = (
     # everyone -- this is only the editor and the roster it writes against.
     "/views/manage",
     "/api/department-views/admin",
+    # The Utilities department's own index page (hub/sidebar.py draws the
+    # row admin-only; this is what makes the URL agree with the row).
+    "/views/utilities",
 )
 
 # Utilities paths that stay open to everyone, because being locked out of them

@@ -1,10 +1,16 @@
 """Inactive GA4 / GTM housekeeping for SmartHub QA.
 
 GA4 can answer the 60-day activity question directly. GTM cannot: Tag Manager
-has no traffic-reporting API. A GTM container is therefore called inactive only
-when it has no published tags, or when every GA4 measurement ID in its live
-version maps to an accessible GA4 property with zero events and zero sessions
-in the same 60-day window. Ambiguous containers are shown as Needs Review.
+has no traffic-reporting API, so a container's own tags are the only thing
+that can positively confirm it is still firing -- and confirmed activity is
+the *one* way in for a container to read "active". Everything else -- no
+published tags, no GA4 tag in what is published, a GA4 tag whose property is
+not visible to this login or could not be read -- reads as inactive by
+default. Whether the linked GA4 property is itself separately flagged
+active or inactive by our own GA4-side scan is not a gating condition here;
+only a confirmed "yes, this fired" overrides the default. Needs Review is
+reserved for a scan that genuinely could not run (a listing call that
+failed, a login that needs reconnecting) rather than for this judgment call.
 """
 from __future__ import annotations
 
@@ -175,6 +181,54 @@ def _skips() -> dict:
 
 def _save_skips(data: dict) -> None:
     jsonstore.write_json(_path("google_inactive_qa_skips.json"), data)
+
+
+# GTM has no traffic-reporting API, and the GA4-linkage check above answers a
+# different question anyway -- "does a resolvable GA4 property show
+# activity", not "is this container's own tag actually on a page". This is
+# the direct answer to the second question: fetch a real page and look for
+# the container's own public ID in its raw HTML, the way the tag actually
+# arrives on a site (a <script> snippet pasted in <head>, or the <noscript>
+# fallback iframe). It runs no JavaScript, so a container injected purely by
+# another script's own runtime behaviour would not show up here -- which is
+# why a "not found" result is worded as that, never as a confirmed removal.
+#
+# This is deliberately a manual, per-container action rather than something
+# the scan runs on every row: there is no reliable, verified mapping here
+# from a GTM account to the one website it belongs to, and guessing one from
+# the account name would risk checking the wrong site and reporting on it
+# with a straight face. A person supplies (or accepts a suggested) URL and
+# reads the result themselves.
+_SITE_CHECK_TIMEOUT = 20
+_SITE_CHECK_MAX_BYTES = 2_000_000
+_SITE_CHECK_UA = "Mozilla/5.0 (compatible; Smart1Hub/1.0; +https://smart1.agency)"
+
+
+def _site_checks() -> dict:
+    data = jsonstore.read_json(_path("google_inactive_qa_site_checks.json"), default={})
+    return data if isinstance(data, dict) else {}
+
+
+def _save_site_checks(data: dict) -> None:
+    jsonstore.write_json(_path("google_inactive_qa_site_checks.json"), data)
+
+
+def _fetch_page_html(url: str) -> dict:
+    try:
+        resp = requests.get(url, timeout=_SITE_CHECK_TIMEOUT, allow_redirects=True,
+                            headers={"User-Agent": _SITE_CHECK_UA,
+                                     "Accept": "text/html,application/xhtml+xml"})
+    except requests.RequestException as exc:
+        return {"ok": False, "url": url, "status": None,
+                "error": f"Could not reach the page: {exc}"}
+    body = resp.content[:_SITE_CHECK_MAX_BYTES]
+    try:
+        html = body.decode(resp.encoding or "utf-8", errors="replace")
+    except (LookupError, TypeError):
+        html = body.decode("utf-8", errors="replace")
+    return {"ok": resp.ok, "url": resp.url, "status": resp.status_code,
+            "html": html if resp.ok else "",
+            "error": "" if resp.ok else f"The page answered HTTP {resp.status_code}."}
 
 
 def _audit(action: str, row: dict, result="ok", detail="") -> None:
@@ -539,22 +593,25 @@ def _scan_login(login: str, refresh: str, on_progress=None, resource_cache: dict
                 "events": None, "sessions": None}
 
     def _classify_gtm(c: dict, has_tags: bool, mids: set[str], why_no_live: str) -> tuple[dict, str]:
+        """Inactive is the default; confirmed GA4 traffic is the only override.
+
+        Whether the property a live tag points at is itself visible to this
+        login, readable, or separately flagged active/inactive by the GA4
+        side of this same scan is not a gating condition -- a container with
+        no positively-confirmed activity in the window reads inactive,
+        whatever the reason we could not confirm it. Needs Review stays for
+        a scan that could not run at all (see the callers of this function),
+        never for an activity judgment call.
+        """
         base = _gtm_base(c)
         if why_no_live or not has_tags:
             return {**base, "reason": why_no_live or "Published container has no tags"}, "inactive"
         if not mids:
-            return ({**base, "reason": "Live tags exist, but no GA4 measurement ID can be resolved"},
-                    "review")
+            return ({**base, "reason": "Live tags exist, but reference no GA4 measurement ID -- "
+                                        f"nothing here to check for traffic in the last "
+                                        f"{WINDOW_DAYS} days"}, "inactive")
         linked = [r for mid in mids for r in by_mid.get(mid, [])]
         linked = list({r["resource"]: r for r in linked}.values())
-        if not linked:
-            return ({**base, "reason": "GA4 ID found, but its property is not visible to this login"},
-                    "review")
-        if all(r["status"] == "inactive" for r in linked):
-            return ({**base, "events": sum(r.get("events") or 0 for r in linked),
-                     "sessions": sum(r.get("sessions") or 0 for r in linked),
-                     "reason": "Linked GA4 property/properties have no activity for 60 days"},
-                    "inactive")
         if any(r["status"] == "active" for r in linked):
             # This is the "GTM firing recently needs no further check" case:
             # its own live tags already resolved to a GA4 property this scan
@@ -562,7 +619,15 @@ def _scan_login(login: str, refresh: str, on_progress=None, resource_cache: dict
             # fresh a moment ago or read back from cache -- no further Tag
             # Manager call happens for a container once it lands here.
             return {**base, "reason": "Linked GA4 activity detected"}, "active"
-        return {**base, "reason": "Linked GA4 activity could not be measured"}, "review"
+        if linked:
+            return ({**base, "events": sum(r.get("events") or 0 for r in linked),
+                     "sessions": sum(r.get("sessions") or 0 for r in linked),
+                     "reason": f"Linked GA4 property/properties have no activity for "
+                               f"{WINDOW_DAYS} days"},
+                    "inactive")
+        return ({**base, "reason": "Live tags reference a GA4 ID, but its activity could not be "
+                                    "confirmed from this login -- no confirmed traffic in the "
+                                    f"last {WINDOW_DAYS} days"}, "inactive")
 
     cached_gtm, fresh_gtm = [], []
     for c in containers_all:
@@ -723,6 +788,22 @@ def _run_scan(full: bool = False) -> dict:
     _save_resource_cache(new_cache)
 
     inactive, review, active = map(_dedupe, (inactive, review, active))
+
+    # A site check is a person's own action on one container, not something
+    # this scan runs -- but a result already on file belongs on the row the
+    # next time it is drawn, or checking a container once would only ever
+    # show on the screen that ran it, and reads as gone on every scan after.
+    site_checks = _site_checks()
+
+    def _with_site_check(row: dict) -> dict:
+        if row.get("kind") != "GTM":
+            return row
+        rec = site_checks.get(_skip_key("GTM", row["login"], row["resource"]))
+        return {**row, "site_check": rec} if rec else row
+
+    inactive = [_with_site_check(r) for r in inactive]
+    review = [_with_site_check(r) for r in review]
+
     skip_data = _skips()
     visible, skipped = [], []
     for row in inactive:
@@ -886,6 +967,87 @@ def api_unskip():
                        str(row.get("resource") or "")), None)
     _save_skips(data); _audit("unskip", row); _clear_cache()
     return jsonify(ok=True)
+
+
+@qa_bp.route("/api/gtm/resolve-url", methods=["POST"])
+@require_login
+def api_gtm_resolve_url():
+    """Suggest a site to check, from the GTM account's own name.
+
+    A suggestion only -- the account name is very often the client's
+    business name, so `client_key.resolve()` (exact domain or exact
+    normalised name, never a substring) can usually offer their website.
+    Nothing here is trusted on its own: the URL lands in an editable field
+    and the person checking still decides, and picks a different one, before
+    anything is fetched.
+    """
+    row = request.get_json(silent=True) or {}
+    account = str(row.get("account") or "").strip()
+    if not account:
+        return jsonify(ok=True, known=False)
+    try:
+        from hub import client_key
+        result = client_key.resolve(name=account)
+    except Exception as exc:                               # noqa: BLE001
+        return jsonify(ok=False, error=str(exc))
+    domain = str(result.get("domain") or "")
+    known = bool(result.get("known")) and bool(domain)
+    return jsonify(ok=True, known=known, domain=domain, client=result.get("client") or "",
+                   confidence=result.get("confidence") or "",
+                   suggested_url=(f"https://{domain}" if known else ""))
+
+
+@qa_bp.route("/api/gtm/site-check", methods=["POST"])
+@require_login
+def api_gtm_site_check():
+    """Is this container's own tag on the page, right now.
+
+    GTM has no traffic API, so this is the direct answer instead: fetch a
+    real page and look for the container's public ID in its raw HTML. What
+    is inside the container -- GA4, another pixel, nothing at all -- is not
+    asked about; only whether the tag itself is on the site.
+    """
+    row = request.get_json(silent=True) or {}
+    login = str(row.get("login") or "").strip()
+    resource = str(row.get("resource") or "").strip()
+    public_id = str(row.get("public_id") or "").strip()
+    url = str(row.get("url") or "").strip()
+    if not login or not resource or not public_id:
+        return jsonify(ok=False, error="login, resource and public_id are required"), 400
+    if not url:
+        return jsonify(ok=False, error="A website address is required to check."), 400
+    if not re.match(r"^https?://", url, re.I):
+        url = "https://" + url
+
+    fetched = _fetch_page_html(url)
+    entry: dict[str, Any] = {
+        "url": fetched.get("url") or url,
+        "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        "by": _actor(),
+    }
+    if not fetched.get("ok"):
+        entry.update(found=None, status=fetched.get("status"),
+                     error=fetched.get("error") or "Could not fetch the page.")
+    else:
+        found = public_id.upper() in (fetched.get("html") or "").upper()
+        entry.update(found=found, status=fetched.get("status"), error="")
+
+    data = _site_checks()
+    data[_skip_key("GTM", login, resource)] = entry
+    _save_site_checks(data)
+    if entry.get("found") is True:
+        detail = f"found on {entry['url']}"
+    elif entry.get("found") is False:
+        detail = f"not found on {entry['url']}"
+    else:
+        detail = entry.get("error") or "could not check"
+    _audit("site_check", {**row, "kind": "GTM"}, result="ok" if fetched.get("ok") else "error", detail=detail)
+    # Deliberately no _clear_cache()/rescan here: the check just ran and its
+    # result is returned inline for the page to apply to the one row in
+    # place. A rescan is minutes of Google API calls to redraw one line;
+    # the persisted record above is what carries the result into the *next*
+    # scan's own payload (see _with_site_check in _run_scan).
+    return jsonify(ok=True, **entry)
 
 
 def _access_token(login: str) -> str:

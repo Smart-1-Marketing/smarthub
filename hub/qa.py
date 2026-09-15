@@ -3101,21 +3101,21 @@ REPORTS = {
         "desc": "Smart 1 Suite sub-accounts with active GHL billing but no live Smart 1 marketing product on file in Knack.",
         "ico": "&#128681;",
         "fn": ghl_billing_no_products,
-        "group": "Suite (GoHighLevel)",
+        "group": "Smart 1 Suite",
     },
     "ghl-billing-this-month": {
         "title": "Suite Billing This Month",
         "desc": "Every Smart 1 Suite sub-account with active GHL billing this month — client, plan and monthly price, simplified.",
         "ico": "&#128179;",
         "fn": ghl_billing_this_month,
-        "group": "Suite (GoHighLevel)",
+        "group": "Smart 1 Suite",
     },
     "uploads-not-in-suite": {
         "title": "Uploads Not In Suite",
         "desc": "Client files uploaded to a gallery that never reached their Smart 1 Suite media library — with the reason for each.",
         "ico": "&#8593;",
         "fn": uploads_not_in_suite,
-        "group": "Suite (GoHighLevel)",
+        "group": "Smart 1 Suite",
     },
     # One group, not two. Splitting them put a single report under "Accounting"
     # and two under "Billing (QuickBooks)", which reads as a distinction the

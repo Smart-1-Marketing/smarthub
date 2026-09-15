@@ -37,6 +37,13 @@
         everything exactly as it was. What it changes is
         <a href="/my-clients">My Clients</a>, which is where the person you
         assign will see the work.</p>
+      <p class="sub">A client already carried by a <b>Partner</b> — Knack's
+        own field on the client record — does not need assigning by hand: the
+        standing rule for that partner below already answers it. <b>Client
+        Success</b> is Brandon or Traci, named on the client record in Knack
+        and read here, never set from this page. A <b>Follower</b> is anyone
+        who wants to see the work without owning it — add as many as you
+        like from step 2, or from the client's own record.</p>
     </div>
     <div class="s1d-actions">
       <a class="s1d-btn sec" href="/my-clients">Open My Clients</a>
@@ -86,13 +93,16 @@
 
       <div class="ch-acts s1d-inline" style="margin-top:14px">
         <button type="button" id="assign">Assign the picked clients</button>
-        <button type="button" class="sec" id="follow">Let the partner rule decide</button>
+        <button type="button" class="sec" id="follow-rule">Let the partner rule decide</button>
+        <button type="button" class="sec" id="follow-add">Follow the picked clients</button>
         <button type="button" class="danger" id="clear">Take them off whoever holds them</button>
       </div>
       <p class="s1d-hint">Taking a client off everybody sticks even where a
         standing rule would claim them &mdash; otherwise the press would undo
         itself on the next read. <b>Let the partner rule decide</b> is how that
-        is undone.</p>
+        is undone. <b>Follow the picked clients</b> adds the person on the
+        right as a follower without changing who is assigned — a client can
+        have any number of followers.</p>
 
       <div id="result" style="margin-top:14px"></div>
     </div>
@@ -160,9 +170,12 @@
     if(DATA.user_error)
       out += '<div class="s1d-note warn">' + esc(DATA.user_error) + '</div>';
     if(DATA.partner_error)
-      out += '<div class="s1d-note warn">The media partners could not be read ('
-        + esc(DATA.partner_error) + '), so only the by-hand list below is '
-        + 'complete.</div>';
+      out += '<div class="s1d-note warn">The client roster’s Partner field '
+        + 'could not be read (' + esc(DATA.partner_error) + '), so only the '
+        + 'by-hand list below is complete.</div>';
+    if(DATA.client_success_error)
+      out += '<div class="s1d-note warn">Client Success could not be read ('
+        + esc(DATA.client_success_error) + ').</div>';
     /* Two rules naming different people. Not picked between: choosing one is
        choosing whose book a client is on. Named so somebody can settle it. */
     if((DATA.counts || {}).contested)
@@ -219,7 +232,7 @@
   function drawPartners(){
     var parts = DATA.partners || [];
     if(!parts.length){ el("partners").innerHTML =
-      '<span class="s1d-muted">No media partners on the products on file.</span>';
+      '<span class="s1d-muted">No client carries a partner in Knack yet.</span>';
       return; }
     el("partners").innerHTML = parts.map(function(p, i){
       var rule = ruleFor(p.partner);
@@ -308,9 +321,19 @@
         : (r.contested && r.contested.length
             ? "two rules disagree: " + r.contested.map(esc).join(" / ")
             : (r.pinned ? "nobody \u2014 held off the rule" : "nobody"));
+      var extras = [];
+      if(r.partner_name) extras.push("Partner: " + esc(r.partner_name));
+      if(r.client_success && r.client_success.name)
+        extras.push("Client Success: " + esc(r.client_success.name)
+          + (r.client_success.known ? "" : " (no account)"));
+      if((r.followers || []).length)
+        extras.push((r.followers.length === 1 ? "1 follower" : r.followers.length
+          + " followers") + ": " + r.followers.map(esc).join(", "));
       return '<label><input type="checkbox" data-client="' + esc(r.client) + '"'
         + (PICKED[r.client] ? " checked" : "") + '>'
-        + '<span>' + esc(r.client) + '</span>'
+        + '<span>' + esc(r.client)
+        + (extras.length ? '<div class="s1d-muted" style="font-size:11px">'
+            + extras.join(" &middot; ") + '</div>' : '') + '</span>'
         + '<span class="co-who">' + who + '</span></label>';
     }).join("") : '<span class="s1d-muted" style="display:block;padding:11px">'
       + 'No client matches that.</span>';
@@ -374,7 +397,8 @@
            count is the rows where there are any and the partner where there
            are not. One renderer either way, saying what actually happened. */
         var saved = d.assigned != null ? d.assigned
-                  : (d.cleared != null ? d.cleared : null);
+                  : (d.cleared != null ? d.cleared
+                  : (d.added != null ? d.added : null));
         var head = saved != null
           ? saved + ' saved' + (bad.length ? ", " + bad.length + " refused" : "")
           : (d.partner
@@ -424,11 +448,21 @@
     send("/api/client-owners/unassign", {clients: clients});
   };
 
-  el("follow").onclick = function(){
+  el("follow-rule").onclick = function(){
     var clients = Object.keys(PICKED);
     if(!clients.length){ el("result").innerHTML =
       '<div class="s1d-note warn">Pick at least one client first.</div>'; return; }
     send("/api/client-owners/follow-rule", {clients: clients});
+  };
+
+  el("follow-add").onclick = function(){
+    var clients = Object.keys(PICKED);
+    if(!clients.length){ el("result").innerHTML =
+      '<div class="s1d-note warn">Pick at least one client first.</div>'; return; }
+    var email = el("email").value;
+    if(!email){ el("result").innerHTML =
+      '<div class="s1d-note warn">Pick somebody to follow them.</div>'; return; }
+    send("/api/client-owners/follow-add", {clients: clients, email: email});
   };
 
   el("all").onclick = function(){

@@ -126,7 +126,12 @@ def _nav() -> list[dict]:
         from .sidebar import _ITEMS
     except Exception:                                     # noqa: BLE001
         return []
-    return [{"kind": "tool", "title": label, "subtitle": "", "url": href}
+    # LEAVES stores each label pre-escaped for the flyout's own raw HTML --
+    # "Usage &amp; Costs", the icon as "&#128176;" -- so a label read here
+    # unescaped is the same "&amp;" in a result that _tiles() already had to
+    # rule out.
+    return [{"kind": "tool", "title": _html.unescape(label), "subtitle": "",
+             "url": href}
             for key, href, _ico, label, *_ in _ITEMS
             if href and not key.startswith("_sec")]
 

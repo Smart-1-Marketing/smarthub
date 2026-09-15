@@ -37,6 +37,22 @@
 .c360-hp .lab{font-weight:700;margin-right:2px}
 .c360-hp .lab::after{content:':'}
 .c360-health .c360-hnote{flex-basis:100%;font-size:12px;color:#7a5b00;margin-top:-2px}
+/* The next-action line: one sentence, worst-first, from what the health
+   strip, Coming up and Pipeline & leads already found. Not a card and not
+   a fourth idea of what "bad" means -- see hub/next_action.py. */
+.c360-nba{display:flex;align-items:center;gap:9px;padding:9px 13px;border-radius:10px;
+  border:1px solid #dbe4f0;background:#f8fafc;color:#1e293b;font:600 13.5px 'Segoe UI',system-ui,sans-serif;
+  margin:0 0 12px;text-decoration:none}
+.c360-nba:hover{filter:brightness(0.98)}
+a.c360-nba{cursor:pointer}
+button.c360-nba{width:100%;text-align:left;cursor:pointer;font-family:inherit}
+.c360-nba .ndot{width:9px;height:9px;border-radius:50%;background:#cbd5e1;flex:none}
+.c360-nba.ok{background:#f0fdf4;border-color:#bbf7d0}
+.c360-nba.ok .ndot{background:#059669}
+.c360-nba.warn{background:#fffbeb;border-color:#fde68a}
+.c360-nba.warn .ndot{background:#b45309}
+.c360-nba.bad{background:#fef2f2;border-color:#fecaca}
+.c360-nba.bad .ndot{background:#dc2626}
 .c360-view{display:none}
 .c360-view.on{display:block;margin-bottom:14px}
 .c360-view .grid-2{min-width:0}
@@ -172,7 +188,19 @@ function loadHealth(name){
 document.addEventListener('click',function(e){
   const go=e.target.closest&&e.target.closest('.c360-hp[data-go]');
   if(go) showC360Section(go.dataset.go);
+  const nba=e.target.closest&&e.target.closest('.c360-nba[data-go]');
+  if(nba) showC360Section(nba.dataset.go);
 });
+/* Fetched apart from the record for the same reason loadHealth() is: a slow
+   or refusing source costs this line and never the page. */
+function loadNextAction(name){
+  const box=$('c360NextAction'); if(!box) return;
+  const gen=c360Generation;
+  box.hidden=true;
+  fetchJson('/api/client/next-action?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(n=>{ if(gen!==c360Generation) return; box.innerHTML=renderNextAction(n); box.hidden=!n||!n.measured||!n.text; })
+    .catch(()=>{ /* silent: the health strip already surfaces a source outage */ });
+}
 function safeExternalUrl(value){
   try{
     const url=new URL(String(value||''));
@@ -219,7 +247,7 @@ const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href=
    twenty-two into the first section. */
 /* ---- c360 sections (lifted and driven in node by test_client360_layout.py) ---- */
 const C360_SECTIONS=[
-  {key:'overview', label:'Overview',          match:['products','orders we have sent','coming up','ad performance','google listing','youtube channel','smart 1 suite','pipeline & leads','proposals','client notes','target audience']},
+  {key:'overview', label:'Overview',          match:['products','orders we have sent','coming up','ad performance','landing pages','google listing','youtube channel','smart 1 suite','pipeline & leads','proposals','client notes','target audience']},
   {key:'billing',  label:'Billing',           match:['invoices']},
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
@@ -270,6 +298,20 @@ function renderC360Health(h){
   return pills.join('')+note;
 }
 /* ---- end c360 health ---- */
+/* ---- c360 next-action (lifted and driven in node by test_next_action.py) ---- */
+/* Draws hub/next_action.pick()'s payload: one sentence, worst-first, from
+   the same three sources the health strip and the Coming up / Pipeline
+   cards already fetch. See hub/next_action.py for the ordering. */
+function renderNextAction(n){
+  if(!n||!n.measured||!n.text) return '';
+  const st=(n.state==='bad'||n.state==='warn')?n.state:'ok';
+  const body='<span class="ndot"></span><span>'+esc(n.text)+'</span>';
+  if(n.href){
+    return '<a class="c360-nba '+st+'" href="'+esc(n.href)+'">'+body+'</a>';
+  }
+  return '<button type="button" class="c360-nba '+st+'" data-go="'+esc(n.go||'overview')+'">'+body+'</button>';
+}
+/* ---- end c360 next-action ---- */
 function showC360Section(key){
   window.__c360sec=key;
   const work=document.querySelector('.c360-work'); if(!work) return;
@@ -410,6 +452,7 @@ function render(g,q){
     +'</div>';
 
   let html=head
+    +'<div id="c360NextAction" hidden></div>'
     +'<div id="c360EmailSummary" role="status" style="margin:12px 0">Loading linked email contact…</div>'
     +'<div class="c360-health" id="c360Health" hidden></div>'
     +'<div class="c360-work" data-s1-workspace="1">'
@@ -508,6 +551,12 @@ function render(g,q){
   // live link. It lived on /reports/client/<key>, reached by knowing the
   // client's key; the record said nothing about any of it.
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Ad performance {{ help_dot('hub.client360.adperf') if help_dot is defined else '' }}</h3><a class="open-link" href="/reports/">Open Reports →</a></div><div class="card-b" id="c-adperf"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  // The landing pages built for this client, and whether they work. The
+  // Landing Page Maker's list is searchable by client and is a screen inside
+  // the tool, so knowing a page existed meant knowing to go and look. What
+  // makes it worth a card here is the pair Tier 2 added: whether it is ready
+  // to send, and what share of the people who opened it became a lead.
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Landing pages {{ help_dot('hub.client360.landing') if help_dot is defined else '' }}</h3><a class="open-link" href="/sales/landing">Open the Landing Page Maker &rarr;</a></div><div class="card-b" id="c-landing"><div class="empty">Loading&hellip; <span class="spin"></span></div></div></div>`;
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Google</span><h3>Google listing {{ help_dot('hub.client360.places') if help_dot is defined else '' }}</h3><span class="right" id="c-places-acts"></span></div><div class="card-b" id="c-places"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fdecec;color:#b3261e">YouTube</span><h3>YouTube channel {{ help_dot('hub.client360.youtube') if help_dot is defined else '' }}</h3><span class="right" id="c-youtube-acts"></span></div><div class="card-b" id="c-youtube"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
@@ -792,6 +841,7 @@ function render(g,q){
     youtubeTarget.innerHTML=channels.length?channels.map(c=>'<div style="padding:8px 0"><b>'+esc(c.title)+'</b><div class="muted">'+esc(c.connection_error?'Reconnect required':c.connected?'Connected for management':'Linked — owner access needed')+'</div></div>').join(''):'<p>No YouTube account linked yet. Add a channel or create an owner access link.</p>';
   }).catch(()=>{if(youtubeTarget.isConnected)youtubeTarget.textContent='YouTube accounts could not be loaded. Open YouTube Studio to retry.';});
   loadHealth(name);
+  loadNextAction(name);
   if(skillsOn.indexOf('ecwid')>-1) loadEcwid(name);
   if(skillsOn.indexOf('email')>-1) loadEmailCreator(name);
 
@@ -1116,7 +1166,7 @@ function render(g,q){
   const actsHost = document.getElementById('c-img-acts');
   if(actsHost) actsHost.innerHTML =
       '<a class="open-link" id="c-img-uplink" style="cursor:pointer">&#128279; Client upload link</a>'
-    + '<a class="open-link" href="'+galleryHref+'">See client image gallery →</a>'
+    + '<a class="open-link" href="'+galleryHref+'">Open client assets →</a>'
     + '<a class="open-link" href="'+optimizeHref+'">Optimize client images →</a>';
 
   /* The link a client uploads their own photographs through.
@@ -2912,7 +2962,7 @@ function clientUploadLink(name, web0){
          client's gallery, which is the one mistake here that cannot be undone
          by editing a row. */
       box.innerHTML = '<div style="color:#b45309">'+esc((d&&d.error)||'The upload link could not be made.')+'</div>'
-        + '<div style="margin-top:7px"><a class="gbtn" href="/tools/image-picker/">Open Client Image Uploads →</a></div>';
+        + '<div style="margin-top:7px"><a class="gbtn" href="/tools/image-picker/">Open Client Assets →</a></div>';
       return;
     }
     if(!d.share_url){
@@ -3603,63 +3653,92 @@ function renderGroupBanner(info){
     +'</div>';
 }
 
-/* Who owns this client, and one press to change it.
-   The record says everything about the client and nothing about whose job
-   they are, so the work on them was six reports somebody had to open one at a
-   time. `/api/client/owner` and not the assignment tool's own path, because
-   `hub/suite_embed.EMBEDDABLE` allowlists `/api/client/` and a card pointed
-   anywhere else renders on every screen except the one this page is framed
-   in -- the half-broken embed that file exists to prevent. */
-function renderOwner(d){
+/* Who is on this client -- Partner, Assigned, Client Success and Followers,
+   in one simple text strip. The record says everything about the client and
+   nothing about whose job they are, so the work on them was six reports
+   somebody had to open one at a time. `/api/client/roles` and not the
+   assignment tool's own path, because `hub/suite_embed.EMBEDDABLE` allowlists
+   `/api/client/` and a card pointed anywhere else renders on every screen
+   except the one this page is framed in -- the half-broken embed that file
+   exists to prevent.
+
+   Partner and Client Success are read-only here: Partner comes from Knack's
+   own client record (object_20 field_872) and Client Success from field_3128
+   -- this page shows what Knack says rather than a second place to set it.
+   Assigned and Followers are Hub overlays and are editable from here. */
+function renderRoles(d){
   var el=document.getElementById('c-owner'); if(!el) return;
   d=d||{};
-  /* Where the owner came from. A standing partner rule is safe only while
-     the record can say it was one -- somebody holding a client with nothing
-     anywhere saying why is the whole objection to having rules. */
-  var who=d.email
-    ? (d.known
-        ? '<b>'+esc(d.owner)+'</b>'
-        : '<b>'+esc(d.email)+'</b> <span class="pill warn">no Hub account</span>')
-      +(d.source==='rule'
-        ? ' <span class="muted">through the '+esc(d.partner)+' rule</span>' : '')
-    : (d.contested&&d.contested.length
+  var a=d.assigned||{};
+  var who=a.email
+    ? (a.known
+        ? '<b>'+esc(a.name)+'</b>'
+        : '<b>'+esc(a.email)+'</b> <span class="pill warn">no Hub account</span>')
+      +(a.source==='rule'
+        ? ' <span class="muted">through the '+esc(a.rule_partner)+' rule</span>' : '')
+    : (a.contested&&a.contested.length
         ? '<span class="pill warn">two partner rules disagree: '
-          +d.contested.map(esc).join(' / ')+'</span>'
-        : (d.pinned
-            ? '<span class="muted">nobody \u2014 held off the '
-              +'partner rule</span>'
+          +a.contested.map(esc).join(' / ')+'</span>'
+        : (a.pinned
+            ? '<span class="muted">nobody — held off the partner rule</span>'
             : '<span class="muted">nobody yet</span>'));
   var opts='<option value="">— nobody —</option>'+(d.users||[]).map(function(u){
-      return '<option value="'+esc(u.email)+'"'+(u.email===d.email?' selected':'')
+      return '<option value="'+esc(u.email)+'"'+(u.email===a.email?' selected':'')
         +'>'+esc(u.name)+'</option>'; }).join('');
-  /* Client 360 may make the first assignment, but it is not an assignment
-     management screen. Once somebody owns the client, show the answer without
-     offering a second place to change it. That keeps the decision on Client
-     Assignments, where partner rules and the rest of the book are visible. */
-  var assignmentControls=d.email
-    ? '<span class="muted" style="margin-left:auto;font-size:12px">Assignment changes are managed from Client Assignments.</span>'
-    : '<select id="c-owner-pick" style="margin-left:auto;padding:5px 8px;'
+  var assignmentControls=a.email
+    ? '<span class="muted" style="font-size:12px">managed from Client Assignments</span>'
+    : '<select id="c-owner-pick" style="padding:4px 7px;'
       +'border:1px solid #cbd5e1;border-radius:7px;font-size:12.5px">'+opts+'</select>'
       +'<a class="gbtn" id="c-owner-save" style="cursor:pointer">Assign</a>'
-      /* Offered only while unassigned and where there is a rule to go back to.
-         An assigned client must not regain a reassignment control by having a
-         partner rule as well. */
-      +(d.rule&&d.source!=='rule'
+      +(a.rule&&a.source!=='rule'
         ? '<a class="gbtn" id="c-owner-follow" style="cursor:pointer">Follow the '
           +'partner rule</a>' : '');
-  el.innerHTML='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;'
-    +'background:#f4f7fc;border:1px solid #dbe4f0;border-radius:12px;padding:9px 14px;'
+
+  var cs=d.client_success||{};
+  var csLine=cs.raw
+    ? (cs.known ? esc(cs.name) : esc(cs.raw)+' <span class="pill warn">no Hub account</span>')
+    : '<span class="muted">not set</span>';
+
+  var followers=d.followers||[];
+  var followChips=followers.map(function(f){
+    return '<span class="pill neutral" style="margin-right:4px">'+esc(f.name)
+      +' <a data-unfollow="'+esc(f.email)+'" style="cursor:pointer;margin-left:4px" '
+      +'title="Remove follower">&times;</a></span>';
+  }).join('');
+  var followOpts='<option value="">— add a follower —</option>'+(d.users||[]).map(function(u){
+      return '<option value="'+esc(u.email)+'">'+esc(u.name)+'</option>'; }).join('');
+
+  el.innerHTML='<div style="display:flex;flex-direction:column;gap:6px;'
+    +'background:#f4f7fc;border:1px solid #dbe4f0;border-radius:12px;padding:10px 14px;'
     +'margin:0 0 12px;font-size:13px">'
-    +'<span>&#128100; Assigned to '+who+'</span>'
-    +(d.at?'<span class="muted">since '+esc(String(d.at).slice(0,10))
-        +(d.by?' · '+esc(d.by):'')+'</span>':'')
+    +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +'<span>&#127760; Partner — '+(d.partner?esc(d.partner):'<span class="muted">none on file</span>')+'</span>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +'<span>&#128100; Assigned — '+who+'</span>'
+    +(a.at?'<span class="muted">since '+esc(String(a.at).slice(0,10))
+        +(a.by?' · '+esc(a.by):'')+'</span>':'')
     +assignmentControls
-    +(d.user_error?'<div style="flex-basis:100%;font-size:12px;color:#7a5b00">'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +'<span>&#127942; Client Success — '+csLine+'</span>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +'<span>&#128065; Followers — </span>'
+    +(followChips||'<span class="muted">none yet</span>')
+    +'<select id="c-follow-pick" style="padding:4px 7px;border:1px solid #cbd5e1;'
+    +'border-radius:7px;font-size:12.5px">'+followOpts+'</select>'
+    +'<a class="gbtn" id="c-follow-add" style="cursor:pointer">Add follower</a>'
+    +'</div>'
+    +(d.partner_error?'<div style="font-size:12px;color:#7a5b00">Partner: '
+        +esc(d.partner_error)+'</div>':'')
+    +(d.user_error?'<div style="font-size:12px;color:#7a5b00">'
         +esc(d.user_error)+'</div>':'')
     +'</div>';
+
   var follow=document.getElementById('c-owner-follow');
   if(follow) follow.onclick=function(){
-    follow.textContent='Saving\u2026';
+    follow.textContent='Saving…';
     fetch('/api/client/owner/set',{method:'POST',credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({client:window.CURRENT_CLIENT||'',follow_rule:true})})
@@ -3695,18 +3774,54 @@ function renderOwner(d){
           +'Smart 1 Suite, changes have to be made in the Hub itself.');
       });
   };
+  var followAdd=document.getElementById('c-follow-add');
+  if(followAdd) followAdd.onclick=function(){
+    var pick=document.getElementById('c-follow-pick');
+    var email=pick?pick.value:'';
+    if(!email) return;
+    followAdd.textContent='Saving…';
+    fetch('/api/client/followers/add',{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({client:window.CURRENT_CLIENT||'',email:email})})
+      .then(function(r){return r.json();})
+      .then(function(j){
+        if(j.ok===false) throw new Error(j.error||'That did not save.');
+        loadOwner(window.CURRENT_CLIENT||'');
+      })
+      .catch(function(err){
+        followAdd.textContent='Add follower';
+        alert((err&&err.message)||'That did not save. If this page is inside '
+          +'Smart 1 Suite, changes have to be made in the Hub itself.');
+      });
+  };
+  el.querySelectorAll('[data-unfollow]').forEach(function(x){
+    x.onclick=function(){
+      var email=x.getAttribute('data-unfollow');
+      fetch('/api/client/followers/remove',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:window.CURRENT_CLIENT||'',email:email})})
+        .then(function(r){return r.json();})
+        .then(function(j){
+          if(j.ok===false) throw new Error(j.error||'That did not save.');
+          loadOwner(window.CURRENT_CLIENT||'');
+        })
+        .catch(function(err){
+          alert((err&&err.message)||'That did not save.');
+        });
+    };
+  });
 }
 
 function loadOwner(name){
   var el=document.getElementById('c-owner');
   if(!el||!name) return;
-  fetch('/api/client/owner?client='+encodeURIComponent(name),{credentials:'same-origin'})
-    .then(function(r){return r.json();}).then(renderOwner)
+  fetch('/api/client/roles?client='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(renderRoles)
     /* "Nobody owns this" and "we could not read who owns it" are different
        answers, and drawing the first over the second is how a client gets
        assigned twice. */
     .catch(function(){ el.innerHTML='<div class="pill warn" style="margin:0 0 12px;'
-      +'display:inline-block">Could not read who owns this client.</div>'; });
+      +'display:inline-block">Could not read who is assigned to this client.</div>'; });
 }
 
 function loadGroup(name){
@@ -4280,6 +4395,7 @@ function loadBrandAndWork(name){
   loadPlaces(name);
   loadYouTube(name);
   loadPlan(name);
+  loadLanding(name);
   fetch('/api/client/utm?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderUtm).catch(function(){});
   loadSocialIdeas(name);
@@ -4490,6 +4606,82 @@ function renderAdPerformance(d,name){
   return h+open;
 }
 /* ---- end c360 ad performance ---- */
+/* ---- c360 landing pages (lifted and driven in node by test_landing_maker.py) ---- */
+/* Draws /api/client/landing-pages. Pure: takes the payload and the client's
+   name and returns markup, so the test can run it without a browser.
+
+   Three reads stand behind one card -- the pages store, the visit table and
+   the lead store -- and each says separately when it could not answer. The
+   card never turns any of those into a nought: "nobody has opened it" and
+   "we could not read the opens" send a rep to opposite conclusions about a
+   campaign somebody is paying for, and only one of them is a reason to
+   pause it. Nothing here is a figure this card computed; the readiness and
+   the conversion line are the server's own, so the card and the Landing
+   Page Maker cannot disagree about a page. */
+function landingReadyPill(r){
+  if(!r||r.measured===false) return '<span class="pill neutral">readiness not measured</span>';
+  if(r.ready) return '<span class="pill ok">ready to send</span>';
+  var n=Number(r.count||0);
+  return '<span class="pill warn">'+n+' to fix before sending</span>';
+}
+function landingRatePill(c){
+  if(!c||c.measured===false) return '<span class="pill neutral">not measured</span>';
+  if(c.state==='measured') return '<span class="pill ok">'+esc(String(c.rate))+'%</span>';
+  if(c.state==='over') return '<span class="pill warn">opens undercounted</span>';
+  if(c.state==='too_early') return '<span class="pill neutral">too early</span>';
+  return '<span class="pill neutral">no opens yet</span>';
+}
+function renderLandingPages(d,name){
+  if(d && d.measured===false){
+    return '<div class="empty">The landing pages could not be read'
+      + (d.error?' &mdash; '+esc(d.error):'') + '. That is not the same as '
+      + 'this client having none.</div>';
+  }
+  var rows=(d&&d.pages)||[];
+  if(!rows.length){
+    return '<div class="empty">No landing page has been built for this client. '
+      + '<a href="/sales/landing?client='+encodeURIComponent(name||'')+'">'
+      + 'Build one</a> and the link, its readiness and its conversion rate '
+      + 'appear here.</div>';
+  }
+  var h='<table><thead><tr><th>Page</th><th>Link</th><th>Ready</th>'
+    + '<th>Opens</th><th>Conversion</th></tr></thead><tbody>';
+  rows.forEach(function(p){
+    var title=p.headline||p.campaign||p.slug||'Landing page';
+    var v=p.views, c=p.conversion||{};
+    var opens = (v && typeof v.views!=='undefined')
+      ? esc(String(v.views))+(v.recent?' <span class="muted" style="font-size:11.5px">('+esc(String(v.recent))+' recent)</span>':'')
+      : '<span class="muted">not measured</span>';
+    h+='<tr><td><b>'+esc(title)+'</b>'
+      + (p.campaign&&p.campaign!==title?'<div class="muted" style="font-size:12px">'+esc(p.campaign)+'</div>':'')
+      + (p.member&&p.member!==name?memberTag(p.member):'')+'</td>'
+      /* No url means the Hub cannot name its own public address -- the row
+         says so rather than drawing a link that would hand over a path. */
+      + '<td>'+(p.url?'<a href="'+esc(p.url)+'" target="_blank" rel="noopener">'+esc(p.slug||'open')+'</a>'
+               :'<span class="muted" title="PUBLIC_BASE_URL is not set">no public address</span>')+'</td>'
+      + '<td>'+landingReadyPill(p.readiness)+'</td>'
+      + '<td>'+opens+'</td>'
+      + '<td>'+landingRatePill(c)
+      + (c&&c.line?'<div class="muted" style="font-size:11.5px">'+esc(c.line)+'</div>':'')
+      + '</td></tr>';
+  });
+  h+='</tbody></table>';
+  /* Said once under the table rather than per row: a caveat on every line is
+     a caveat nobody reads, and these are one table and one store either way. */
+  var notes=[];
+  if(d && d.views_measured===false){
+    notes.push('The visit table could not be read'
+      + (d.views_error?' &mdash; '+esc(d.views_error):'')
+      + ', so the opens and the rates are missing from this rather than nought.');
+  } else if(d && d.conversion_measured===false){
+    notes.push('The lead store could not be read, so there is no rate.');
+  }
+  if(notes.length){
+    h+='<div class="muted" style="font-size:11.5px;margin-top:6px">'+notes.join(' ')+'</div>';
+  }
+  return h;
+}
+/* ---- end c360 landing pages ---- */
 /* ---- c360 google listing (lifted and driven in node by test_places.py) ---- */
 /* Draws /api/client/places' payload. Pure: takes the payload, the client's
    name and any candidates a lookup returned, and returns markup. Five kinds
@@ -4812,6 +5004,22 @@ function loadAdPerformance(name){
       var b=document.getElementById('c-adperf');
       if(b) b.innerHTML='<div class="empty">The ad-performance store could not be read. '
         + 'That is not the same as no campaign running for this client.</div>';
+    });
+}
+function loadLanding(name){
+  var box=document.getElementById('c-landing');
+  if(!box) return;
+  if(!name){box.innerHTML='<div class="empty">No client selected.</div>';return;}
+  fetch('/api/client/landing-pages?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      box=document.getElementById('c-landing');
+      if(box) box.innerHTML=renderLandingPages(d,name);
+    })
+    .catch(function(){
+      var b=document.getElementById('c-landing');
+      if(b) b.innerHTML='<div class="empty">The landing pages could not be read. '
+        + 'That is not the same as this client having none.</div>';
     });
 }
 /* ---- pipeline (lifted and driven in node by test_client360_pipeline.py) ---- */

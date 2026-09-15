@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — Smart 1 Hub{% endblock %}
 {% block content %}
-<div class="page-head"><h2>Dashboard</h2><p id="dashboard-source" role="status">Loading current data…</p></div>
+<div class="page-head"><h2>Dashboard</h2><p id="dash-welcome" role="status"></p></div>
 
 <style>
 /* The three cards below the numbers sit in one column, so a card added there
@@ -280,6 +280,10 @@
            than printing a number people would read as "at their desk". #}
         <div class="presence" id="presence"><span class="muted">Counting who is around… <span class="spin"></span></span></div>
         <table id="mini-status"><tbody><tr><td class="empty">Running checks… <span class="spin"></span></td></tr></tbody></table>
+        {# Where the products figures came from -- moved off the page-head,
+           which is the welcome line now, and onto the one card that already
+           answers "is the Hub working". #}
+        <div id="status-source" class="muted" style="font-size:11.5px;padding:8px 14px;border-top:1px solid #eef2f6"></div>
       </div>
     </div>
   </div>
@@ -312,6 +316,32 @@
 <script>
 const $=id=>document.getElementById(id);
 const user_name={{ (user or '')|tojson }};
+
+/* The welcome line. A first name reads friendlier than a shared-login
+   sentence would, and this is the one card everybody sees whichever
+   account they signed in with -- a quip is picked once per load rather
+   than persisted anywhere, so there is nothing here to keep in step with a
+   second reader of it. */
+(function(){
+  const el=$('dash-welcome');
+  if(!el) return;
+  const first=(user_name||'').trim().split(/\s+/)[0]||'';
+  const dateStr=new Date().toLocaleDateString('en-US',
+    {weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  const quotes=[
+    "Every export is stale the moment it is written; today's is the freshest it will ever be.",
+    "The rate card is ours. Please do not mention it to a client.",
+    "Somewhere a scheduler job is running. Let it.",
+    "Measured beats guessed, and 'not measured' beats both.",
+    "A green tick means somebody looked, not that nothing is wrong.",
+    "The client is not the customer, and the customer is not the client.",
+    "If a number looks too clean, it is probably a zero that should have said 'not measured'.",
+    "Go find something outstanding and make it less outstanding."
+  ];
+  const quote=quotes[Math.floor(Math.random()*quotes.length)];
+  el.textContent=dateStr+(first?(' — Welcome, '+first+'.'):'.')+' '+quote;
+})();
+
 const accountingDialog=$('accounting-dialog');
 $('rq-accounting').onclick=function(event){
   if(typeof accountingDialog.showModal!=='function') return;
@@ -375,10 +405,12 @@ const fmt=n=>Number(n||0).toLocaleString();
    comparison measured the same way at both ends can be added once there are
    two of them to compare. */
 fetch('/api/summary', {cache:'no-store'}).then(r=>r.json()).then(s=>{
-  if(s.error){$('k-clients').textContent='—';$('dashboard-source').textContent='Dashboard data could not be loaded.';return}
+  if(s.error){$('k-clients').textContent='—';
+    if($('status-source')) $('status-source').textContent='Dashboard data could not be loaded.';
+    return;}
   const liveSource=s.products_source==='knack'||s.products_source==='knack (stale)';
   const age=s.products_age_minutes;
-  $('dashboard-source').textContent=(s.period||'')+' · '+(liveSource
+  if($('status-source')) $('status-source').textContent=(s.period||'')+' · '+(liveSource
     ? ('Products from Knack'+(age==null?'':' · updated '+age+' min ago'))
     : 'Products from saved export')+(s.products_note?' · '+s.products_note:'');
   $('k-live-sub').textContent=liveSource?'Current Knack records':('Saved export · '+(s.this_period||'date unknown'));
@@ -397,7 +429,7 @@ fetch('/api/summary', {cache:'no-store'}).then(r=>r.json()).then(s=>{
   // retain their original month flags and labels.
   const vs=s.export_stale
     ? ('in the '+(s.this_period||'export')+' export')
-    : (s.this_period+' vs '+s.last_period+(liveSource?' · IO dates':''));
+    : (s.this_period+' vs '+s.last_period);
   $('k-total').textContent='$'+fmt(s.estimated_total_monthly);
   $('k-new').textContent=fmt(s.new_customers);
   $('k-new-sub').innerHTML=esc(vs)+(s.lost_customers?' · <span class="down" style="color:var(--danger);font-weight:600">'+fmt(s.lost_customers)+' lost</span>':'');
@@ -423,9 +455,10 @@ fetch('/api/summary', {cache:'no-store'}).then(r=>r.json()).then(s=>{
   }
   if(!s.products_available){
     ['k-clients','k-live','k-budget','k-total','k-new','k-up','k-down'].forEach(id=>{$(id).textContent='—'});
-    $('dashboard-source').textContent='Product data unavailable · '+(s.products_note||'No live records or saved export.');
+    if($('status-source')) $('status-source').textContent='Product data unavailable · '+(s.products_note||'No live records or saved export.');
   }
-}).catch(()=>{$('k-clients').textContent='—';$('dashboard-source').textContent='Dashboard data could not be loaded.'});
+}).catch(()=>{$('k-clients').textContent='—';
+  if($('status-source')) $('status-source').textContent='Dashboard data could not be loaded.';});
 
 /* Birthdays and work anniversaries, from the roster the Users panel already
    holds. What is still to come this month, today included — a day that has
@@ -471,18 +504,6 @@ fetch('/api/celebrations').then(r=>r.json()).then(d=>{
     if(nr.any&&gaps)
       gaps.textContent='Not everyone\u2019s dates are on file yet, so this is '
         +'not the whole roster.';
-  }else{
-    const missing=[];
-    if((nr.birthday||[]).length) missing.push((nr.birthday||[]).length+' with no birthday on file');
-    if((nr.hired_at||[]).length) missing.push((nr.hired_at||[]).length+' with no start date on file');
-    // A date that is on file and means nothing is its own sentence: somebody
-    // looking at the Users panel can see a start date sitting right there.
-    if((nr.hired_placeholder||[]).length)
-      missing.push((nr.hired_placeholder||[]).length
-        +' whose start date is still the 01-08-19 placeholder from the census');
-    if(missing.length&&gaps)
-      gaps.innerHTML='Of '+esc(d.people||0)+' people on the roster: '+esc(missing.join(', '))
-        +'. Fill them in under <a href="/diagnostics/users">Users</a> and they appear here.';
   }
   if(d.source==='roster')
     $('cheer-src').textContent='from the census roster';
@@ -572,8 +593,6 @@ fetch('/api/my-clients/scoreboard').then(r=>r.json()).then(d=>{
   else if(!d.issues)
     h+='<div class="muted" style="margin-top:10px;font-size:12px">Nothing is '
       +'outstanding on your clients right now.</div>';
-  if(d.cache && d.cache.line)
-    h+='<div class="muted" style="margin-top:8px;font-size:11px">'+esc(d.cache.line)+'</div>';
   box.innerHTML=h;
 }).catch(()=>{
   const box=document.getElementById('myclients');
@@ -615,7 +634,6 @@ fetch('/api/sales/prospects').then(r=>r.json()).then(d=>{
       + (c.merge_first?stat('Same business twice',c.merge_first,true):'')
       + '</div>';
   }
-  h+='<div class="muted" style="font-size:12px;margin-top:10px">'+esc(d.line||'')+'</div>';
   /* The age of the reading, because a cached figure with no date on it is
      read as today's. */
   if(d.cache&&d.cache.line) h+='<div class="muted" style="font-size:11.5px;margin-top:4px">'
@@ -949,7 +967,7 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
   $('mini-status').innerHTML='<tbody>'+rows+'</tbody>';
 });
 
-fetch('/api/activity?limit=8').then(r=>r.json()).then(d=>{
+fetch('/api/activity?limit=5').then(r=>r.json()).then(d=>{
   const rows=(d.entries||[]).map(e=>{
     const t=(e.time||'').replace('T',' ').slice(5,16);
     return `<tr><td style="width:110px" class="muted">${esc(t)}</td><td><b>${esc(e.actor||'')}</b> <span class="pill info">${esc(e.module||'')}</span> ${esc(e.type||'')}${e.name?' — '+esc(e.name):''}</td></tr>`;
