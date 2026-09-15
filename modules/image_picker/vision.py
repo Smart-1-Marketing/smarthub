@@ -59,6 +59,8 @@ too rather than being restated and drifting.
 """
 from __future__ import annotations
 
+import os
+import re
 import time
 from datetime import datetime, timezone
 
@@ -67,7 +69,9 @@ from sqlalchemy import select
 from hub import ai as _hub_ai
 from hub.config import settings
 
-from .models import ImageDescription, SavedImage, session
+from .models import ImageDescription, MediaAssetDetail, SavedImage, session
+
+ANALYSIS_METHODOLOGY = "media-vision-v2"
 
 # One batch of the scheduler's, and the ceiling on how long it may hold the
 # thread. Both are hub/video_library's numbers: twenty an hour clears a
@@ -115,7 +119,15 @@ _PROMPT = (
     'photograph and what it would be useful for>", '
     '"alt": "<one short sentence of alt text for a screen reader, under 125 '
     'characters, not starting with \\"image of\\">", '
-    '"tags": ["<terms from the list below>"]}\n\n'
+    '"tags": ["<terms from the list below>"], '
+    '"subjects": ["<visible people, objects, products, or places>"], '
+    '"category": "<people|location|service|product|brand|food|event|document|other>", '
+    '"people_count": <integer>, "indoor_outdoor": "<indoor|outdoor|mixed|unknown>", '
+    '"service_product": "<visible service or product, or empty>", '
+    '"seo_filename": "<short lowercase hyphenated filename without extension>", '
+    '"website_score": <0-100>, "social_score": <0-100>, '
+    '"advertising_score": <0-100>, "hero_score": <0-100>, '
+    '"composition_open_space": "<where copy can safely sit, or none>"}\n\n'
     "Rules:\n"
     "1. Use ONLY tags from this list. Do not invent a tag. If none fits, "
     "return an empty list.\n"
@@ -124,6 +136,8 @@ _PROMPT = (
     "reliably, and a wrong one is worse than a missing one.\n"
     "3. If the picture is unusable — blank, corrupt, a screenshot of an "
     "error — say so in the description and tag it low-quality.\n\n"
+    "4. Suitability scores judge composition and usefulness only. They never "
+    "assert usage rights or approval.\n\n"
     "Tags you may use:\n"
 )
 
@@ -138,6 +152,10 @@ def _prompt() -> str:
 def can_describe() -> bool:
     """Is there a key to spend? Reported rather than assumed anywhere."""
     return bool(settings.openai_ready)
+
+
+def analysis_version() -> str:
+    return f"{ANALYSIS_METHODOLOGY}:{settings.openai_vision_model}"
 
 
 def _clean_tags(raw) -> tuple[list[str], int]:
@@ -165,6 +183,23 @@ def _clean_alt(text: str) -> str:
         return alt_text._clean_alt(str(text or ""))       # noqa: SLF001
     except Exception:                                     # noqa: BLE001
         return str(text or "").strip()[:125]
+
+
+def _score(value) -> int | None:
+    try:
+        return max(0, min(100, int(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _seo_filename(value: str, image: SavedImage) -> str:
+    suggested = os.path.splitext(str(value or ""))[0]
+    base = re.sub(r"[^a-z0-9]+", "-", suggested.lower()).strip("-")[:240]
+    if not base:
+        original = os.path.splitext(str(image.filename or "media"))[0]
+        base = re.sub(r"[^a-z0-9]+", "-", original.lower()).strip("-")[:240]
+    ext = os.path.splitext(str(image.filename or ""))[1].lower()
+    return (base or "media") + (ext if ext in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"} else "")
 
 
 def _row_for(db, image_id: int) -> ImageDescription:
@@ -201,12 +236,39 @@ def describe_image(image: SavedImage) -> dict:
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     tags, dropped = _clean_tags(answer.get("tags"))
+    category = str(answer.get("category") or "other").strip().lower()
+    if category not in {"people", "location", "service", "product", "brand",
+                        "food", "event", "document", "other"}:
+        category = "other"
+    indoor_outdoor = str(answer.get("indoor_outdoor") or "unknown").strip().lower()
+    if indoor_outdoor not in {"indoor", "outdoor", "mixed", "unknown"}:
+        indoor_outdoor = "unknown"
+    try:
+        people_count = max(0, min(100, int(answer.get("people_count") or 0)))
+    except (TypeError, ValueError):
+        people_count = 0
+    subjects = []
+    for raw in answer.get("subjects") or []:
+        subject = " ".join(str(raw or "").strip().split())[:80]
+        if subject and subject.lower() not in {s.lower() for s in subjects}:
+            subjects.append(subject)
     return {
         "ok": True, "error": "",
         "description": str(answer.get("description") or "").strip()[:1000],
         "alt": _clean_alt(answer.get("alt")),
         "tags": tags, "dropped_tags": dropped,
         "model": settings.openai_vision_model,
+        "analysis_version": analysis_version(),
+        "subjects": subjects[:12], "category": category,
+        "people_count": people_count, "indoor_outdoor": indoor_outdoor,
+        "service_product": " ".join(str(answer.get("service_product") or "").split())[:200],
+        "seo_filename": _seo_filename(answer.get("seo_filename"), image),
+        "website_score": _score(answer.get("website_score")),
+        "social_score": _score(answer.get("social_score")),
+        "advertising_score": _score(answer.get("advertising_score")),
+        "hero_score": _score(answer.get("hero_score")),
+        "composition_open_space": " ".join(
+            str(answer.get("composition_open_space") or "none").split())[:200],
     }
 
 
@@ -254,18 +316,52 @@ def describe_backlog(limit: int = BATCH, *, max_seconds: int = BUDGET_SECONDS,
     errors: list[str] = []
     try:
         with session() as db:
-            seen = {r[0] for r in db.execute(
-                select(ImageDescription.image_id, ImageDescription.state)
-            ).all() if r[1] in ("described", "given_up")}
-            todo = [im for im in db.execute(
-                select(SavedImage).order_by(SavedImage.created_at.asc())
-            ).scalars().all() if im.id not in seen][:max(1, int(limit))]
+            details = {r.asset_id: r for r in db.execute(
+                select(MediaAssetDetail)).scalars().all()}
+            observations = {r.image_id: r for r in db.execute(
+                select(ImageDescription)).scalars().all()}
+            current = analysis_version()
+            todo = []
+            for image in db.execute(
+                    select(SavedImage).order_by(SavedImage.created_at.asc())
+                    ).scalars().all():
+                observation = observations.get(image.id)
+                if (image.resource_type or "image") != "image":
+                    if observation and observation.state in {"described", "given_up"}:
+                        continue
+                    todo.append(image)
+                    if len(todo) >= max(1, int(limit)):
+                        break
+                    continue
+                if image.external:
+                    continue
+                detail = details.get(image.id)
+                input_hash = ((detail.duplicate_hash if detail else "")
+                              or f"provider:{image.provider}:{image.provider_image_id}")
+                if (detail and detail.analysis_version == current
+                        and detail.analysis_input_hash == input_hash):
+                    continue
+                todo.append(image)
+                if len(todo) >= max(1, int(limit)):
+                    break
 
             for image in todo:
                 if time.time() - started > max_seconds:
                     break
                 out = describe_image(image)
                 row = _row_for(db, image.id)
+                detail = details.get(image.id)
+                if detail is None:
+                    from .platform import detail_for
+                    detail = detail_for(db, image, create=True)
+                    details[image.id] = detail
+                if detail.analysis_version != current:
+                    # A revised methodology gets its own retry allowance. The
+                    # previous give-up remains visible in updated_at/history,
+                    # but does not permanently block a materially new reader.
+                    row.attempts = 0
+                    detail.analysis_version = current
+                    detail.analysis_input_hash = None
                 row.updated_at = datetime.now(timezone.utc)
                 if out.get("ok"):
                     row.state = "described"
@@ -274,6 +370,26 @@ def describe_backlog(limit: int = BATCH, *, max_seconds: int = BUDGET_SECONDS,
                     row.tags = ",".join(out["tags"])
                     row.model = out.get("model") or ""
                     row.last_error = ""
+                    detail.ai_description = out["description"] or None
+                    detail.ai_alt_text = out["alt"] or None
+                    detail.ai_tags = ",".join(out["tags"]) or None
+                    detail.ai_category = out["category"] or None
+                    detail.subjects = ",".join(out["subjects"]) or None
+                    detail.people_count = out["people_count"]
+                    detail.indoor_outdoor = out["indoor_outdoor"] or None
+                    detail.service_product = out["service_product"] or None
+                    detail.seo_filename_suggestion = out["seo_filename"] or None
+                    for field in ("website_score", "social_score", "advertising_score",
+                                  "hero_score"):
+                        if out.get(field) is not None:
+                            setattr(detail, field, out[field])
+                    detail.composition_open_space = out["composition_open_space"] or None
+                    detail.analysis_version = out["analysis_version"]
+                    detail.analysis_input_hash = (detail.duplicate_hash or
+                        f"provider:{image.provider}:{image.provider_image_id}")
+                    detail.updated_at = datetime.now(timezone.utc)
+                    from .intelligence import index_asset
+                    index_asset(db, image, detail, row)
                     dropped_tags += int(out.get("dropped_tags") or 0)
                     described += 1
                     continue
@@ -283,6 +399,10 @@ def describe_backlog(limit: int = BATCH, *, max_seconds: int = BUDGET_SECONDS,
                 # than retried twice more to learn the same thing.
                 if out.get("skip") or row.attempts >= MAX_ATTEMPTS:
                     row.state = "given_up"
+                    # Terminal failures record the current input so they stay
+                    # quiet until either the bytes or methodology changes.
+                    detail.analysis_input_hash = (detail.duplicate_hash or
+                        f"provider:{image.provider}:{image.provider_image_id}")
                     gave_up += 1
                 else:
                     row.state = "pending"

@@ -72,6 +72,35 @@ the gap between client creation and the next scheduled sweep. Both paths reuse
     Cloudinary remains the durable asset backend. No bytes are duplicated by
     collection, link, or usage records.
 
+## Phase 2 intelligence
+
+The hourly `media_intelligence` job performs a bounded local pass before the
+existing vision job. It downloads only canonical HTTPS Cloudinary image URLs,
+with redirects disabled and a 25 MB ceiling. It then stores a SHA-256 exact
+fingerprint, a 64-bit perceptual fingerprint, dimensions, orientation, a local
+quality score, and baseline website/social/advertising/hero scores. Duplicate
+matches are client-scoped and point later assets at the earliest canonical
+asset; no file is deleted, merged, or relabelled automatically.
+
+The existing bounded vision pass now writes one normalized analysis record for
+description, subjects, category, closed-vocabulary tags, people count,
+indoor/outdoor context, represented service/product, suggested ALT text,
+suggested SEO filename, suitability scores, and composition/open-space notes.
+Its version combines the analysis methodology and configured vision model.
+The asset fingerprint is the analysis input version, so unchanged bytes are not
+sent again. A changed methodology or fingerprint receives a fresh allowance of
+three attempts; a terminal failure remains stored and quiet.
+
+`media_search_documents` materializes provider-neutral search text from source
+metadata, AI observations, technical properties, rights, and brand metadata.
+The Media API ranks that index and composes query, orientation,
+indoor/outdoor, people-count, minimum-quality, approval, collection, and unused
+filters. The table also isolates embedding model/vector fields and exposes
+index readiness in API responses. Metadata ranking remains authoritative until
+an embedding producer and vector ranker are deliberately connected; the API
+does not pretend a request was semantically ranked merely because a vector is
+present.
+
 ## API contract
 
 - `GET /api/clients/:clientRef/media`
@@ -92,8 +121,8 @@ second identity system.
 
 ## Phase boundary
 
-This change establishes Phase 1 and the schema/API seams needed by later
-phases. Duplicate calculation, full AI scoring, semantic embeddings, social
-crawlers, Media Health recommendations, and performance attribution are not
-pretended complete. Their durable fields and joins exist, so those phases can
-be added without moving files or changing asset IDs.
+Phases 1 and 2 are established. Semantic embedding generation/vector ranking,
+website and social collection crawlers, SmartHub consumer integrations, Media
+Health recommendations, and performance attribution remain later phases. The
+durable asset IDs, intelligence versions, search documents, links, and usage
+events let those phases arrive without moving or duplicating files.

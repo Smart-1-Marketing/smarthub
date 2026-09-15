@@ -5,6 +5,7 @@ Run directly so it matches the repository's dependency-light regression tests.
 import os
 import sys
 import tempfile
+from io import BytesIO
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -15,9 +16,12 @@ os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(TMP, "media.db")
 os.environ["SECRET_KEY"] = "media-platform-test"
 
 import flask  # noqa: E402
+from PIL import Image  # noqa: E402
 from modules.image_picker import app as picker  # noqa: E402
+from modules.image_picker import intelligence, vision  # noqa: E402
 from modules.image_picker.models import (  # noqa: E402
-    PickerClient, SavedImage, new_token, session, unique_slug,
+    MediaAssetDetail, MediaSearchDocument, PickerClient, SavedImage, new_token,
+    session, unique_slug,
 )
 
 passed = failed = 0
@@ -118,6 +122,70 @@ recommended = http.get(
     f"/api/clients/{client_id}/media/recommendations?use=website").get_json()
 check("stored suitability drives recommendations",
       recommended["recommendations"][0]["recommendation_score"], 92)
+
+# Phase 2 local intelligence is deterministic and requires no AI tokens.
+pixels = BytesIO()
+Image.new("RGB", (1800, 1000), (80, 140, 190)).save(pixels, format="JPEG")
+image_bytes = pixels.getvalue()
+with session() as phase2_db:
+    first = phase2_db.get(SavedImage, asset_id)
+    intelligence.inspect_asset(phase2_db, first, downloader=lambda _: image_bytes)
+    duplicate = SavedImage(
+        client_id=client_id, provider="upload", provider_image_id="upload-2",
+        filename="technician-copy.jpg", resource_type="image",
+        cloudinary_url="https://res.cloudinary.com/demo/image/upload/technician-copy.jpg",
+    )
+    phase2_db.add(duplicate)
+    phase2_db.flush()
+    intelligence.inspect_asset(phase2_db, duplicate, downloader=lambda _: image_bytes)
+    phase2_db.commit()
+    duplicate_id = duplicate.id
+
+with session() as phase2_db:
+    first_detail = phase2_db.query(MediaAssetDetail).filter_by(asset_id=asset_id).one()
+    duplicate_detail = phase2_db.query(MediaAssetDetail).filter_by(
+        asset_id=duplicate_id).one()
+    search_document = phase2_db.query(MediaSearchDocument).filter_by(
+        asset_id=asset_id).one()
+check("exact content gets one stable SHA-256 fingerprint",
+      len(first_detail.duplicate_hash or ""), 64)
+check("duplicate detection preserves a canonical asset",
+      duplicate_detail.duplicate_of, asset_id)
+check("local quality scoring is persisted",
+      isinstance(first_detail.quality_score, int), True)
+check("metadata search document is materialized",
+      "air conditioner" in search_document.search_text, True)
+
+original_chat_json = vision._hub_ai.chat_json
+vision._hub_ai.chat_json = lambda *args, **kwargs: {
+    "description": "A technician repairs an outdoor air conditioner.",
+    "alt": "Image of a technician repairing an air conditioner",
+    "tags": ["technician", "hvac", "invented-tag"],
+    "subjects": ["Technician", "air conditioner", "Technician"],
+    "category": "service", "people_count": 1,
+    "indoor_outdoor": "outdoor", "service_product": "AC repair",
+    "seo_filename": "Technician AC Repair.jpg", "website_score": 88,
+    "social_score": 82, "advertising_score": 79, "hero_score": 91,
+    "composition_open_space": "left side",
+}
+try:
+    analyzed = vision.describe_image(asset)
+finally:
+    vision._hub_ai.chat_json = original_chat_json
+check("AI analysis is methodology-versioned",
+      analyzed["analysis_version"].startswith("media-vision-v2:"), True)
+check("AI subjects are normalized and de-duplicated",
+      analyzed["subjects"], ["Technician", "air conditioner"])
+check("SEO filename retains one source extension",
+      analyzed["seo_filename"], "technician-ac-repair.jpg")
+check("AI suitability scores are bounded and returned",
+      analyzed["hero_score"], 91)
+
+filtered = http.get(
+    f"/api/clients/{client_id}/media?min_quality=1&unused=true").get_json()
+check("quality and unused filters compose", filtered["matched"], 1)
+check("API exposes semantic-index readiness",
+      filtered["search"]["indexed"] >= 1, True)
 
 print(f"\n{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

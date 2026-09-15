@@ -465,6 +465,18 @@ def job_describe_client_uploads(app) -> dict:
         return {"ok": False, "error": type(exc).__name__}
 
 
+def job_media_intelligence(app) -> dict:
+    """Fingerprint, score, de-duplicate, and index a bounded asset batch."""
+    try:
+        from modules.image_picker import intelligence
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    try:
+        return intelligence.sweep(actor="scheduler")
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "error": type(exc).__name__}
+
+
 def job_social_idea_batches(app) -> dict:
     """Offer another week's ideas to the clients who are actually swiping.
 
@@ -1095,6 +1107,8 @@ JOBS = {
                           "Re-pull the purchased-domain registry once a night."),
     "video_backlog":     (60, job_index_video_backlog,
                           "Describe another batch of the video background library."),
+    "media_intelligence": (60, job_media_intelligence,
+                           "Fingerprint, score, de-duplicate, and index client media."),
     "picker_describe":   (60, job_describe_client_uploads,
                           "Describe another batch of the photos clients sent us."),
     "social_ideas":      (60, job_social_idea_batches,

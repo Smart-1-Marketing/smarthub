@@ -9,7 +9,7 @@ from sqlalchemy import select
 from .app import db_guard, hub_user, staff_only
 from .models import (
     ImageDescription, MediaAssetDetail, MediaAssetLink, MediaCollection,
-    MediaCollectionAsset, MediaUsage, SavedImage, session,
+    MediaCollectionAsset, MediaSearchDocument, MediaUsage, SavedImage, session,
 )
 from .platform import (
     ASSET_TYPES, BRAND_ASSET_TYPES, ENTITY_TYPES, RIGHTS_STATUSES, asset_dict,
@@ -42,14 +42,27 @@ def _assets(db, client_id: int):
     return rows, details, observations
 
 
-def _matches(payload: dict, query: str) -> bool:
-    terms = [term for term in query.lower().split() if term]
-    haystack = " ".join(str(payload.get(key) or "") for key in (
-        "original_filename", "caption", "description", "original_alt",
-        "ai_alt_text", "ai_category", "ai_tags", "source", "brand_asset_type",
-        "rights_status", "project_name", "collection_label",
+def _relevance(payload: dict, indexed_text: str, query: str) -> int:
+    """Stable metadata relevance until the embedding column is populated."""
+    phrase = " ".join(query.lower().split())
+    if not phrase:
+        return 1
+    terms = phrase.split()
+    haystack = indexed_text or " ".join(str(payload.get(key) or "") for key in (
+        "original_filename", "original_alt", "ai_alt_text", "ai_description",
+        "ai_category", "ai_tags", "subjects", "service_product", "source",
+        "orientation", "indoor_outdoor", "brand_asset_type", "rights_status",
     )).lower()
-    return all(term in haystack for term in terms)
+    if not all(term in haystack for term in terms):
+        return 0
+    score = sum(min(5, haystack.count(term)) for term in terms) * 10
+    if phrase in haystack:
+        score += 50
+    if phrase in str(payload.get("ai_description") or "").lower():
+        score += 25
+    if phrase in str(payload.get("original_alt") or "").lower():
+        score += 20
+    return score
 
 
 @bp.get("/api/clients/<client_ref>/media/search")
@@ -64,6 +77,10 @@ def list_media(client_ref):
     rows, details, observations = _assets(db, client.id)
     payloads = [asset_dict(row, details.get(row.id), observation=observations.get(row.id))
                 for row in rows]
+    asset_ids = [row.id for row in rows]
+    documents = {doc.asset_id: doc for doc in db.execute(
+        select(MediaSearchDocument).where(MediaSearchDocument.asset_id.in_(asset_ids))
+    ).scalars().all()} if asset_ids else {}
 
     asset_type = str(request.args.get("asset_type") or "").lower()
     rights = str(request.args.get("rights_status") or "")
@@ -75,10 +92,36 @@ def list_media(client_ref):
         payloads = [p for p in payloads if p["rights_status"] == rights]
     if orientation:
         payloads = [p for p in payloads if p["orientation"] == orientation]
+    indoor_outdoor = str(request.args.get("indoor_outdoor") or "").lower()
+    if indoor_outdoor:
+        payloads = [p for p in payloads if p["indoor_outdoor"] == indoor_outdoor]
+    people = request.args.get("people_count")
+    if people is not None:
+        try:
+            people = int(people)
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "people_count must be a number."}), 400
+        payloads = [p for p in payloads if p["people_count"] == people]
+    minimum_quality = request.args.get("min_quality")
+    if minimum_quality is not None:
+        try:
+            minimum_quality = max(0, min(100, int(minimum_quality)))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "min_quality must be a number."}), 400
+        payloads = [p for p in payloads if (p["quality_score"] or 0) >= minimum_quality]
     if request.args.get("approved_for_paid_media") in {"1", "true"}:
         payloads = [p for p in payloads if p["approved_for_paid_media"] is True]
     if query:
-        payloads = [p for p in payloads if _matches(p, query)]
+        ranked = [(_relevance(p, (documents.get(p["id"]).search_text
+                                 if documents.get(p["id"]) else ""), query), p)
+                  for p in payloads]
+        payloads = [{**p, "search_score": score} for score, p in ranked if score]
+        payloads.sort(key=lambda p: (p["search_score"], p.get("created_at") or ""),
+                      reverse=True)
+    if request.args.get("unused") in {"1", "true"}:
+        used_ids = set(db.execute(select(MediaUsage.asset_id).where(
+            MediaUsage.client_id == client.id)).scalars().all())
+        payloads = [p for p in payloads if p["id"] not in used_ids]
 
     collection_id = request.args.get("collection_id", type=int)
     if collection_id:
@@ -96,12 +139,19 @@ def list_media(client_ref):
         offset = max(0, int(request.args.get("offset") or 0))
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "limit and offset must be numbers."}), 400
+    from .intelligence import semantic_status
+    index_status = semantic_status(db, asset_ids)
+    semantic_requested = request.args.get("semantic") in {"1", "true"}
     return jsonify({
         "ok": True, "client": client.to_dict(),
         "summary": library_summary(db, client),
         "collections": collection_rows(db, client.id),
         "assets": payloads[offset:offset + limit],
         "matched": len(payloads), "limit": limit, "offset": offset,
+        # Metadata ranking remains authoritative until a vector ranker is
+        # connected. Expose readiness without claiming embeddings were used.
+        "search": {"mode": "metadata", "semantic_requested": semantic_requested,
+                   **index_status},
     })
 
 @bp.get("/api/clients/<client_ref>/media/recommendations")
@@ -114,7 +164,8 @@ def media_recommendations(client_ref):
         return error
     use = str(request.args.get("use") or "website").lower()
     score_field = {"website": "website_score", "social": "social_score",
-                   "advertising": "advertising_score"}.get(use, "website_score")
+                   "advertising": "advertising_score",
+                   "hero": "hero_score"}.get(use, "website_score")
     rows, details, observations = _assets(db, client.id)
     ranked = []
     for row in rows:
@@ -126,6 +177,7 @@ def media_recommendations(client_ref):
         # approved, which prevents a convenient suggestion becoming an
         # accidental rights assertion.
         approval_field = {"website": "approved_for_web",
+                          "hero": "approved_for_web",
                           "social": "approved_for_social",
                           "advertising": "approved_for_paid_media"}.get(use)
         if approval_field and payload.get(approval_field) is not True:
@@ -282,7 +334,8 @@ def update_asset(asset_id):
             if body[field] is not None and not isinstance(body[field], bool):
                 return jsonify({"ok": False, "error": f"{field} must be true, false, or null."}), 400
             setattr(detail, field, body[field])
-    for field in ("quality_score", "website_score", "social_score", "advertising_score"):
+    for field in ("quality_score", "website_score", "social_score",
+                  "advertising_score", "hero_score"):
         if field in body:
             value = body[field]
             if value is not None and (isinstance(value, bool) or
@@ -296,6 +349,10 @@ def update_asset(asset_id):
         except ValueError:
             return jsonify({"ok": False, "error": "license_expiration must be ISO-8601."}), 400
     detail.updated_at = datetime.now(timezone.utc)
+    observation = db.execute(select(ImageDescription).where(
+        ImageDescription.image_id == asset.id)).scalar_one_or_none()
+    from .intelligence import index_asset
+    index_asset(db, asset, detail, observation)
     db.commit()
     return jsonify({"ok": True, "asset": asset_dict(asset, detail)})
 

@@ -102,6 +102,18 @@ _LATE_COLUMNS = [
     # below, and every gallery read then died on "column
     # image_picker_images.external does not exist". SQLite accepts FALSE too.
     ("image_picker_images", "external", "BOOLEAN DEFAULT FALSE"),
+    # Phase 2 fields live on the additive detail table, but Phase 1 may
+    # already have created that table on a deployment. Keep its evolution in
+    # the same cross-database migration path as every older late column.
+    ("media_asset_details", "subjects", "TEXT"),
+    ("media_asset_details", "service_product", "VARCHAR(200)"),
+    ("media_asset_details", "seo_filename_suggestion", "VARCHAR(300)"),
+    ("media_asset_details", "hero_score", "INTEGER"),
+    ("media_asset_details", "composition_open_space", "VARCHAR(200)"),
+    ("media_asset_details", "analysis_input_hash", "VARCHAR(128)"),
+    ("media_asset_details", "fingerprint_state", "VARCHAR(20) DEFAULT 'pending'"),
+    ("media_asset_details", "fingerprint_attempts", "INTEGER DEFAULT 0"),
+    ("media_asset_details", "fingerprint_error", "TEXT"),
 ]
 
 
@@ -504,6 +516,13 @@ class MediaAssetDetail(Base):
     ai_tags = Column(Text, nullable=True)
     ai_alt_text = Column(Text, nullable=True)
     analysis_version = Column(String(80), nullable=True)
+    analysis_input_hash = Column(String(128), nullable=True)
+    fingerprint_state = Column(String(20), nullable=False, default="pending")
+    fingerprint_attempts = Column(Integer, nullable=False, default=0)
+    fingerprint_error = Column(Text, nullable=True)
+    subjects = Column(Text, nullable=True)
+    service_product = Column(String(200), nullable=True)
+    seo_filename_suggestion = Column(String(300), nullable=True)
     orientation = Column(String(20), nullable=True, index=True)
     people_count = Column(Integer, nullable=True)
     indoor_outdoor = Column(String(20), nullable=True)
@@ -512,6 +531,8 @@ class MediaAssetDetail(Base):
     website_score = Column(Integer, nullable=True)
     social_score = Column(Integer, nullable=True)
     advertising_score = Column(Integer, nullable=True)
+    hero_score = Column(Integer, nullable=True)
+    composition_open_space = Column(String(200), nullable=True)
     brand_asset_type = Column(String(40), nullable=True, index=True)
 
     duplicate_hash = Column(String(128), nullable=True, index=True)
@@ -598,6 +619,27 @@ class MediaUsage(Base):
     creative_id = Column(String(160), nullable=True, index=True)
     placement = Column(String(160), nullable=True)
     used_at = Column(DateTime, nullable=False, default=utcnow, index=True)
+
+
+class MediaSearchDocument(Base):
+    """Provider-neutral search index and future semantic-vector seam.
+
+    Metadata search uses ``search_text`` today. ``embedding_json`` and its
+    model/version are deliberately isolated here so pgvector or a managed
+    vector store can replace the representation without changing assets or
+    any consumer-facing route.
+    """
+
+    __tablename__ = "media_search_documents"
+
+    id = Column(Integer, primary_key=True)
+    asset_id = Column(Integer, ForeignKey("image_picker_images.id", ondelete="CASCADE"),
+                      nullable=False, unique=True, index=True)
+    search_text = Column(Text, nullable=False, default="")
+    search_version = Column(String(80), nullable=False, default="metadata-v1")
+    embedding_model = Column(String(100), nullable=True)
+    embedding_json = Column(Text, nullable=True)
+    indexed_at = Column(DateTime, nullable=False, default=utcnow)
 
 
 # --------------------------------------------------------------------------- #
