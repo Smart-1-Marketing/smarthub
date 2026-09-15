@@ -37,6 +37,22 @@
 .c360-hp .lab{font-weight:700;margin-right:2px}
 .c360-hp .lab::after{content:':'}
 .c360-health .c360-hnote{flex-basis:100%;font-size:12px;color:#7a5b00;margin-top:-2px}
+/* The next-action line: one sentence, worst-first, from what the health
+   strip, Coming up and Pipeline & leads already found. Not a card and not
+   a fourth idea of what "bad" means -- see hub/next_action.py. */
+.c360-nba{display:flex;align-items:center;gap:9px;padding:9px 13px;border-radius:10px;
+  border:1px solid #dbe4f0;background:#f8fafc;color:#1e293b;font:600 13.5px 'Segoe UI',system-ui,sans-serif;
+  margin:0 0 12px;text-decoration:none}
+.c360-nba:hover{filter:brightness(0.98)}
+a.c360-nba{cursor:pointer}
+button.c360-nba{width:100%;text-align:left;cursor:pointer;font-family:inherit}
+.c360-nba .ndot{width:9px;height:9px;border-radius:50%;background:#cbd5e1;flex:none}
+.c360-nba.ok{background:#f0fdf4;border-color:#bbf7d0}
+.c360-nba.ok .ndot{background:#059669}
+.c360-nba.warn{background:#fffbeb;border-color:#fde68a}
+.c360-nba.warn .ndot{background:#b45309}
+.c360-nba.bad{background:#fef2f2;border-color:#fecaca}
+.c360-nba.bad .ndot{background:#dc2626}
 .c360-view{display:none}
 .c360-view.on{display:block;margin-bottom:14px}
 .c360-view .grid-2{min-width:0}
@@ -172,7 +188,19 @@ function loadHealth(name){
 document.addEventListener('click',function(e){
   const go=e.target.closest&&e.target.closest('.c360-hp[data-go]');
   if(go) showC360Section(go.dataset.go);
+  const nba=e.target.closest&&e.target.closest('.c360-nba[data-go]');
+  if(nba) showC360Section(nba.dataset.go);
 });
+/* Fetched apart from the record for the same reason loadHealth() is: a slow
+   or refusing source costs this line and never the page. */
+function loadNextAction(name){
+  const box=$('c360NextAction'); if(!box) return;
+  const gen=c360Generation;
+  box.hidden=true;
+  fetchJson('/api/client/next-action?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(n=>{ if(gen!==c360Generation) return; box.innerHTML=renderNextAction(n); box.hidden=!n||!n.measured||!n.text; })
+    .catch(()=>{ /* silent: the health strip already surfaces a source outage */ });
+}
 function safeExternalUrl(value){
   try{
     const url=new URL(String(value||''));
@@ -270,6 +298,20 @@ function renderC360Health(h){
   return pills.join('')+note;
 }
 /* ---- end c360 health ---- */
+/* ---- c360 next-action (lifted and driven in node by test_next_action.py) ---- */
+/* Draws hub/next_action.pick()'s payload: one sentence, worst-first, from
+   the same three sources the health strip and the Coming up / Pipeline
+   cards already fetch. See hub/next_action.py for the ordering. */
+function renderNextAction(n){
+  if(!n||!n.measured||!n.text) return '';
+  const st=(n.state==='bad'||n.state==='warn')?n.state:'ok';
+  const body='<span class="ndot"></span><span>'+esc(n.text)+'</span>';
+  if(n.href){
+    return '<a class="c360-nba '+st+'" href="'+esc(n.href)+'">'+body+'</a>';
+  }
+  return '<button type="button" class="c360-nba '+st+'" data-go="'+esc(n.go||'overview')+'">'+body+'</button>';
+}
+/* ---- end c360 next-action ---- */
 function showC360Section(key){
   window.__c360sec=key;
   const work=document.querySelector('.c360-work'); if(!work) return;
@@ -410,6 +452,7 @@ function render(g,q){
     +'</div>';
 
   let html=head
+    +'<div id="c360NextAction" hidden></div>'
     +'<div id="c360EmailSummary" role="status" style="margin:12px 0">Loading linked email contact…</div>'
     +'<div class="c360-health" id="c360Health" hidden></div>'
     +'<div class="c360-work" data-s1-workspace="1">'
@@ -798,6 +841,7 @@ function render(g,q){
     youtubeTarget.innerHTML=channels.length?channels.map(c=>'<div style="padding:8px 0"><b>'+esc(c.title)+'</b><div class="muted">'+esc(c.connection_error?'Reconnect required':c.connected?'Connected for management':'Linked — owner access needed')+'</div></div>').join(''):'<p>No YouTube account linked yet. Add a channel or create an owner access link.</p>';
   }).catch(()=>{if(youtubeTarget.isConnected)youtubeTarget.textContent='YouTube accounts could not be loaded. Open YouTube Studio to retry.';});
   loadHealth(name);
+  loadNextAction(name);
   if(skillsOn.indexOf('ecwid')>-1) loadEcwid(name);
   if(skillsOn.indexOf('email')>-1) loadEmailCreator(name);
 
