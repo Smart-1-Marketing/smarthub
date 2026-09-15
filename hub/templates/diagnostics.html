@@ -33,6 +33,17 @@
     <div id="diag-housekeeping" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
   </section>
 
+  <!-- ---------------- Ask SmartHub questions ---------------- -->
+  <section class="diag-card">
+    <h2>Ask SmartHub &mdash; what people need</h2>
+    <p class="diag-help">
+      Recent questions are recorded so repeated asks, unclear wording, and
+      missing destinations can guide simpler menus and better tools. This is
+      visible only in Diagnostics and never includes conversation history.
+    </p>
+    <div id="diag-ask-smarthub" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
+  </section>
+
   <!-- ---------------- the help layer ---------------- -->
   <section class="diag-card">
     <h2>The help layer &mdash; what still explains itself</h2>
@@ -518,6 +529,23 @@ function renderOpenAI(o){
       'spend is invisible here. Migrating them onto hub/ai.py closes the gap.</p>':'')+
     (o.unpriced_models && o.unpriced_models.length?'<p class="diag-caveat"><b>Pricing missing:</b> '+o.unpriced_models.map(esc).join(', ')+'. Known-cost subtotal: '+money(o.known_cost_subtotal)+'.</p>':'')+
     '<p class="diag-caveat">'+esc(o.caveat)+'</p>';
+}
+
+function renderAskSmartHub(d){
+  var el=document.getElementById("diag-ask-smarthub");
+  if(!el) return;
+  var entries=(d.entries||[]).filter(function(e){return e.type==="question";});
+  if(!entries.length){
+    el.innerHTML='<p class="diag-loading">No Ask SmartHub questions recorded yet.</p>';
+    return;
+  }
+  el.innerHTML='<table class="diag-tbl"><tr><th>Asked</th><th>Question</th><th>Outcome</th><th>Used</th></tr>'+entries.map(function(e){
+    var used=(e.tools||[]).join(", ") || "Guide only";
+    if(e.link_count) used += " · "+num(e.link_count)+" link"+(e.link_count===1?"":"s");
+    return '<tr><td>'+esc(e.time||"")+'<br><small>'+esc(e.actor||"")+'</small></td>'+
+      '<td>'+esc(e.question||"")+'</td><td>'+esc(e.outcome||e.match_status||"answered")+'</td>'+
+      '<td>'+esc(used)+'</td></tr>';
+  }).join("")+'</table>';
 }
 
 // ---- environment ----------------------------------------------------------
@@ -1090,6 +1118,10 @@ function loadAll(force){
     .then(function(r){return r.json();}).then(renderHousekeeping)
     .catch(function(){document.getElementById("diag-housekeeping").innerHTML=
       '<p class="diag-loading">Could not read the housekeeping list.</p>';});
+  fetch("/api/activity?module=ask_smarthub&limit=100",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderAskSmartHub)
+    .catch(function(){document.getElementById("diag-ask-smarthub").innerHTML=
+      '<p class="diag-loading">Could not read Ask SmartHub questions.</p>';});
   fetch("/api/throttle",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(renderThrottle)
     .catch(function(){document.getElementById("diag-throttle").innerHTML=
