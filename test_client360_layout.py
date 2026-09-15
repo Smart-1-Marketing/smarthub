@@ -225,30 +225,39 @@ section("3. Assignment and outstanding-work behavior")
 
 # Drive the real rendering functions. Static checks for the select's spelling
 # would pass even if both assigned and unassigned clients still received it.
-oa = REC.find("function renderOwner(d){")
+#
+# The owner-only renderOwner() was replaced by renderRoles(), which draws the
+# whole Partner / Assigned / Client Success / Followers strip from the
+# combined /api/client/roles payload -- one function rather than one per role,
+# the reason `hub-crumbs.js`'s own map is lifted whole rather than restated.
+oa = REC.find("function renderRoles(d){")
 ob = REC.find("function loadOwner(name){")
 OWNER_SRC = REC[oa:ob] if 0 < oa < ob else ""
-check("the owner rendering block can be lifted", bool(OWNER_SRC))
+check("the roles rendering block can be lifted", bool(OWNER_SRC))
 
 owner_driver = """
 const nodes={
-  'c-owner':{innerHTML:''}
+  'c-owner':{innerHTML:'', querySelectorAll:()=>[]}
 };
 const document={getElementById:id=>nodes[id]||null};
 const window={CURRENT_CLIENT:'Acme'};
 const esc=s=>String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
 """ + OWNER_SRC + """
-renderOwner({email:'aimee@smart1marketing.com',owner:'Aimee',known:true,
+renderRoles({partner:'',
+  assigned:{email:'aimee@smart1marketing.com',name:'Aimee',known:true},
+  client_success:{raw:'',known:false}, followers:[],
   users:[{email:'aimee@smart1marketing.com',name:'Aimee'}]});
 const assigned=nodes['c-owner'].innerHTML;
-renderOwner({email:'',owner:'',known:false,
+renderRoles({partner:'',
+  assigned:{email:'',name:'',known:false},
+  client_success:{raw:'',known:false}, followers:[],
   users:[{email:'aimee@smart1marketing.com',name:'Aimee'}]});
 const unassigned=nodes['c-owner'].innerHTML;
 console.log(JSON.stringify({assigned,unassigned}));
 """
 owner_run = subprocess.run(["node", "-"], input=owner_driver,
                            capture_output=True, text=True)
-check("the owner rendering block runs on its own", owner_run.returncode, 0)
+check("the roles rendering block runs on its own", owner_run.returncode, 0)
 owner_out = json.loads(owner_run.stdout or "{}") if owner_run.returncode == 0 else {}
 assigned = owner_out.get("assigned", "")
 unassigned = owner_out.get("unassigned", "")
@@ -265,7 +274,7 @@ check("an unassigned client can still receive its first assignment",
 # off Client 360 entirely. Its underlying report (hub/client_health.py) still
 # feeds the "Outstanding" pill in the health strip -- this only asserts the
 # owner card no longer draws or fetches it.
-check("renderOwner no longer draws an outstanding-issues container",
+check("renderRoles no longer draws an outstanding-issues container",
       'c-owner-issues' in assigned, False)
 check("and the page no longer defines the disclosure renderer",
       "function renderClientIssues" in REC, False)
