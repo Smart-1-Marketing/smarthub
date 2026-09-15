@@ -26,7 +26,6 @@ What this file holds, worst first:
 """
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -158,7 +157,6 @@ with Stub(**{
     "hub.client_upcoming.for_client": lambda name, url, today=None: {"measured": True, "items": []},
     "hub.suite_pipeline.for_client": lambda name, url, **kw: PIPE_CLEAN,
 }):
-    from modules.skills360 import store as _sk_store
     with Stub(**{"modules.skills360.store.get": lambda name: {"skills": {}}}):
         out = na.for_client("Acme Boats")
 check("for_client threads the three sources through to pick()",
