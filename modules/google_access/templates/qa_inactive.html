@@ -88,9 +88,17 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 function show(msg){const el=$('#message');el.textContent=msg;el.classList.toggle('show',!!msg)}
 function typePill(kind){return `<span class="pill ${kind==='GA4'?'ga4':'gtm'}">${esc(kind)}</span>`}
 function n(v){return v==null?'—':Number(v).toLocaleString()}
-function rowInactive(r){return `<tr><td>${typePill(r.kind)}</td><td>${esc(r.login)}</td><td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${r.public_id?`<small>${esc(r.public_id)}</small>`:''}</td><td>${esc(r.resource)}</td><td class="num">${n(r.events)}</td><td class="num">${n(r.sessions)}</td><td class="reason">${esc(r.reason)}</td><td><div class="row-actions"><button class="small" data-skip='${encodeURIComponent(JSON.stringify(r))}'>Skip</button><button class="small danger" data-delete='${encodeURIComponent(JSON.stringify(r))}'>Delete</button></div></td></tr>`}
-function rowReview(r){return `<tr><td>${typePill(r.kind)}</td><td>${esc(r.login)}</td><td>${esc(r.account)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.resource)}</td><td class="reason">${esc(r.reason)}</td></tr>`}
-function rowSkipped(r){const s=r.skip||{};return `<tr class="skipped-row"><td>${typePill(r.kind)}</td><td>${esc(r.login)}</td><td>${esc(r.account)}</td><td><b>${esc(r.name)}</b></td><td>${esc(s.reason||'—')}<small>${esc(s.by||'')} ${s.at?esc(s.at.slice(0,10)):''}</small></td><td><button class="small" data-unskip='${encodeURIComponent(JSON.stringify(r))}'>Un-skip</button></td></tr>`}
+// The full address is still what every action posts and what the audit log
+// records -- only the table cell is shortened, to the part before the "@"
+// that actually tells someone which of our own accounts this is. The whole
+// address is kept as a title attribute rather than dropped, so a login the
+// short form doesn't disambiguate (two accounts sharing a name at different
+// domains) is still one hover away.
+function loginName(v){const s=String(v||'');const i=s.indexOf('@');return i>-1?s.slice(0,i):s}
+function loginCell(v){return `<td title="${esc(v)}">${esc(loginName(v))}</td>`}
+function rowInactive(r){return `<tr><td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${r.public_id?`<small>${esc(r.public_id)}</small>`:''}</td><td>${esc(r.resource)}</td><td class="num">${n(r.events)}</td><td class="num">${n(r.sessions)}</td><td class="reason">${esc(r.reason)}</td><td><div class="row-actions"><button class="small" data-skip='${encodeURIComponent(JSON.stringify(r))}'>Skip</button><button class="small danger" data-delete='${encodeURIComponent(JSON.stringify(r))}'>Delete</button></div></td></tr>`}
+function rowReview(r){return `<tr><td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.resource)}</td><td class="reason">${esc(r.reason)}</td></tr>`}
+function rowSkipped(r){const s=r.skip||{};return `<tr class="skipped-row"><td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b></td><td>${esc(s.reason||'—')}<small>${esc(s.by||'')} ${s.at?esc(s.at.slice(0,10)):''}</small></td><td><button class="small" data-unskip='${encodeURIComponent(JSON.stringify(r))}'>Un-skip</button></td></tr>`}
 function render(data){state=data;$('#inactiveCount').textContent=data.inactive.length;$('#reviewCount').textContent=data.review.length;$('#activeCount').textContent=data.active_count;$('#loginCount').textContent=data.connected_logins;$('#skippedCount').textContent=`(${data.skipped.length})`;$('#scanTime').textContent=data.scanned_at?`Scanned ${new Date(data.scanned_at).toLocaleString()}`:'';
  $('#lastScanLine').textContent=data.scanned_at?`Last scanned ${new Date(data.scanned_at).toLocaleString()} — properties and containers checked in the last 24h are read back from that scan rather than re-checked. Use Full rescan to ignore that and check everything live.`:'';
  $('#inactiveBody').innerHTML=data.inactive.length?data.inactive.map(rowInactive).join(''):'<tr><td colspan="9" class="empty">No inactive GA4 properties or defensible inactive GTM containers found.</td></tr>';
@@ -120,7 +128,7 @@ function renderProgress(p){
   $('#activeCount').textContent=n(p.active_count);
   $('#loginCount').textContent=total?`${done} / ${total}`:'—';
   $('#scanTime').textContent=`Scanning… ${done} of ${total} Google logins`;
-  let stage=p.current_login?esc(p.current_login):'Starting…';
+  let stage=p.current_login?esc(loginName(p.current_login)):'Starting…';
   if(p.current_login&&p.current_stage)stage+=' — '+esc(p.current_stage);
   if(p.resource_total){
     const pct=Math.round(100*(p.resource_index||0)/p.resource_total);
