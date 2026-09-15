@@ -7,6 +7,30 @@ Docker, ~22 modules mounted under one login.
 
 ---
 
+## Client asset home — standing directive, September 15, 2026
+
+Every client has one staff asset home at `/tools/image-picker/gallery/for-client?name=...`.
+It always offers **Client Uploads**, **Creative**, and **Hub Projects**, even when
+a section is empty. Client 360, the Creative index, and project links use this
+home. Source/provider is provenance, not the main folder hierarchy: a Drive
+campaign import is Creative, not a client upload just because it came from Drive.
+
+`modules/image_picker/catalog.py` assembles gallery rows and existing tool
+records on read. It includes images, audio, video, documents, and editable project
+links. This supersedes the older image-only gallery advice below. Rendered work
+keeps its approval status; listing a render does not approve or publish it.
+Add new client asset producers to this catalog or file through `file_asset()`.
+Preserve full delivery URLs and permissions. Do not move old Cloudinary objects
+just to reorganize the user's view, and do not create duplicate storage copies.
+
+A named client with no upload record gets the same read-only home. Upload setup
+is a separate POST; visiting the home cannot enable sharing. Client matching
+must remain exact and refuse ambiguity. Search covers all loaded records,
+including those older than 200 items. Failed source reads remain visible.
+`test_master_gallery.py` verifies isolation, historical files, deduplication,
+empty sections, and source failures. Unassigned Cloudinary objects still need
+an evidenced client assignment; never guess ownership from a partial name.
+
 ## Architecture in one page
 
 `wsgi.py` is the entry point. It builds the hub app and mounts every module

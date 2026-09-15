@@ -174,7 +174,7 @@ LEAVES = {
     "house_urls":        ("/tools/seo-images/house", "&#127968;", "House URLs"),
     "image_creator":     ("/tools/image-creator/", "&#128444;", "Image Creator"),
     "image_opt":         ("/tools/image/", "&#128444;", "Image Optimizer &amp; Resizer"),
-    "image_picker":      ("/tools/image-picker/", "&#128228;", "Client Image Uploads"),
+    "image_picker":      ("/tools/image-picker/", "&#128228;", "Client Assets"),
     "inactive_ga":       ("/tools/google-access/qa-inactive/", "&#128201;", "Inactive GA &amp; GTM"),
     "industry_factory":  ("/sales/industry-factory", "&#127968;", "Industry Factory"),
     "industry_prospects": ("/sales/industry-prospects", "&#128269;", "Industry Prospects"),

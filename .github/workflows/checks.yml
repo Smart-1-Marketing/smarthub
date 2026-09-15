@@ -858,6 +858,7 @@ jobs:
         run: |
           if [ -f test_image_picker.py ]; then
             python test_image_picker.py
+            python test_master_gallery.py
           else
             echo "test_image_picker.py not on this branch — nothing to run."
           fi

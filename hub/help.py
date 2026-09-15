@@ -2035,17 +2035,10 @@ REGISTRY: list[Help] = [
        "could mean two clients proposes neither. A prospect gets a "
        "gallery with no client record behind it, which is the point: "
        "nothing is invented to file them under."),
-    _h("image_picker.gallery.saved", "Reported apart, on purpose",
-       "Each file reports whether it is saved in the Hub and whether it reached the client's Smart 1 Suite media library separately. If an upload is already in the gallery, choose Keep it with this project too to file the same asset here as well, Make a separate copy for an independent copy, or Move it to this project to change its project filing. Select the intended project before keeping or moving it. A saved Hub file is not proof that Suite delivery succeeded."),
-    _h("image_picker.gallery.library", "Search what is in the picture",
-       "The search reads the alt text, the filename, the folder and what "
-       "a vision model saw in the picture — the last one is what "
-       "makes it work on the forty files nobody captioned. It runs on "
-       "the server over the whole library, so the answer is about "
-       "everything saved rather than about the rows this page happened "
-       "to load. Deleting removes the stored copy, and for a photograph "
-       "a client sent us that is often the only copy — the "
-       "confirmation says so."),
+    _h("image_picker.gallery.saved", "One client asset home",
+       "Client Uploads holds files supplied by the client. Creative holds brand and campaign assets. Hub Projects brings together saved work from Hub tools. Open a folder to see related files, or Open project to continue working in the original tool. The files keep their original links. Details shows source information and Suite delivery status; a saved Hub file does not mean Suite delivery succeeded. A source warning means some records could not be read. Files with no client assignment need review before they can appear here."),
+    _h("image_picker.gallery.library", "Search files and projects",
+       "Search the client's files, folders, project names, IO and product numbers, alt text, and saved image descriptions. Search covers the complete loaded catalog before the visible page limit. Choose a section or file type to narrow the view. All assets clears every filter, including an IO or product link you arrived through. Select gallery files to download them together. Remove file can delete the stored copy; its confirmation explains the effect."),
 
     # ---------------- Landing Page Ads ----------------
     _h("landing_ads.build.intro", "One brief, every format",
