@@ -1693,13 +1693,20 @@ def client_owners_page():
 
 @bp.route("/api/client-owners")
 def api_client_owners():
-    """Who owns what, plus the two ways of selecting a group of clients."""
-    from hub import client_owner
-    # One products pull, handed to both readers. `summary()` needs it to
+    """Who owns what, plus the two ways of selecting a group of clients.
+
+    The partner reads from object_20's own Partner field (`hub/knack_clients.py`,
+    `field_872`) rather than the product-derived one `hub/client_owner.py`
+    uses elsewhere — this is the one screen that decides whether a client
+    "needs assigned" at all, and object_20 is the record that answers that
+    before a client has a single product on file.
+    """
+    from hub import client_owner, knack_clients
+    # One roster pull, handed to both readers. `summary()` needs it to
     # resolve the standing rules and the partner picker needs it to draw them,
     # and asking twice is two answers to "who carries this client" taken a
     # moment apart.
-    partners, partner_error = client_owner.clients_by_partner()
+    partners, partner_error = knack_clients.clients_by_partner()
     try:
         data = client_owner.summary(partner_map=partners or None)
     except Exception as exc:                            # noqa: BLE001
@@ -1713,10 +1720,46 @@ def api_client_owners():
     # them, and an alphabetical list buries those under the ones with one.
     data["partners"] = sorted(
         ({"partner": name, "clients": clients, "count": len(clients)}
-         for name, clients in partners.items()),
+         for name, clients in partners.items() if str(name or "").strip()),
         key=lambda p: (-p["count"], p["partner"].lower()))
     data["partner_error"] = partner_error
+
+    # Client Success and Followers, laid over each row so the page can draw
+    # all four roles from one fetch rather than one request per client.
+    success_map, success_error = knack_clients.client_success_map()
+    follow_map = client_owner.followers_map()
+    for row in data.get("rows") or ():
+        key = client_owner._key(row.get("client"))
+        row["partner_name"] = ""
+        for pname, clients in partners.items():
+            if any(client_owner._key(c) == key for c in clients):
+                row["partner_name"] = pname
+                break
+        hit = success_map.get(key) or {}
+        row["client_success"] = {"name": hit.get("name") or hit.get("raw") or "",
+                                 "known": bool(hit.get("known"))}
+        follows = follow_map.get(key) or []
+        index = {u["email"]: u for u in users}
+        row["followers"] = [client_owner.display_name(e, index) for e in follows]
+    data["client_success_error"] = success_error
     return jsonify(data)
+
+
+@bp.route("/api/client-owners/follow-add", methods=["POST"])
+def api_client_owners_follow_add():
+    """Add a selection of clients to one account's follow list."""
+    from hub import client_owner
+    body = request.get_json(silent=True) or {}
+    clients = body.get("clients")
+    if isinstance(clients, str):
+        clients = [clients]
+    email = str(body.get("email") or "")
+    result = client_owner.add_followers_many(clients or [], email, actor=_actor())
+    if not result.get("ok"):
+        return jsonify(result), 400
+    _log("client_follower_added",
+         detail=f"{result['added']} clients -> {result['email']}")
+    return jsonify(result)
 
 
 @bp.route("/api/client-owners/assign", methods=["POST"])
@@ -1856,7 +1899,7 @@ def api_client_owner():
     on Client 360 pointed anywhere else renders on every screen except the one
     it is framed in — the half-broken embed that file exists to prevent.
     """
-    from hub import client_owner
+    from hub import client_owner, knack_clients
     name = (request.args.get("client") or "").strip()
     if not name:
         return _json_error("A client is required.")
@@ -1864,7 +1907,15 @@ def api_client_owner():
     # value is taken rather than the normalised key being re-derived here --
     # a second copy of that derivation is the drift `hub/client_key.py` warns
     # about, in the one place it would be invisible.
-    row = next(iter(client_owner.resolved([name]).values()), {})
+    #
+    # The partner map is object_20's own (`field_872`), the same source the
+    # client-owners page draws its "needs assigned" list from — a client
+    # carried by a partner already, on the record itself, should not read as
+    # unassigned here just because this route asked the product-derived
+    # reading instead.
+    partners, _partner_error = knack_clients.clients_by_partner()
+    row = next(iter(client_owner.resolved([name], partner_map=partners or None)
+                    .values()), {})
     users, user_error = client_owner.assignable_users()
     index = {u["email"]: u for u in users}
     email = client_owner.normalise_email(row.get("email"))
@@ -1912,6 +1963,91 @@ def api_client_owner_set():
         return _json_error(result.get("error") or "Nothing was saved.")
     _log("client_owner_assigned" if email else "client_owner_cleared",
          detail=f"{name} -> {email or '(nobody)'}")
+    return jsonify(result)
+
+
+@bp.route("/api/client/roles")
+def api_client_roles():
+    """Partner, Assigned, Client Success and Followers — the whole strip
+    Client 360's header draws, in one fetch.
+
+    `/api/client/` is what `hub/suite_embed.EMBEDDABLE` allowlists, so this
+    lives under it for the same reason `/api/client/owner` does — a card
+    pointed anywhere else renders on every screen except the one it is
+    framed in.
+    """
+    from hub import client_owner, knack_clients
+    name = (request.args.get("client") or "").strip()
+    if not name:
+        return _json_error("A client is required.")
+
+    partners, partner_error = knack_clients.clients_by_partner()
+    partner_name = knack_clients.partner_for(name) if not partner_error else ""
+
+    row = next(iter(client_owner.resolved([name], partner_map=partners or None)
+                    .values()), {})
+    users, user_error = client_owner.assignable_users()
+    index = {u["email"]: u for u in users}
+    email = client_owner.normalise_email(row.get("email"))
+
+    success = client_owner.client_success_of(name)
+    followers = client_owner.followers_of(name)
+
+    return jsonify({
+        "ok": True, "client": name,
+        "partner": partner_name, "partner_error": partner_error,
+        "assigned": {
+            "email": email,
+            "name": client_owner.display_name(email, index) if email else "",
+            "known": bool(email and email in index),
+            "source": str(row.get("source") or ""),
+            "rule_partner": str(row.get("partner") or ""),
+            "contested": list(row.get("contested") or []),
+            "pinned": bool(row.get("pinned")),
+            "rule": bool((client_owner.rule_for_client(
+                name, partner_map=partners or None) or {})),
+            "at": str(row.get("at") or ""), "by": str(row.get("by") or ""),
+        },
+        "client_success": success,
+        "followers": followers,
+        "users": users, "user_error": user_error,
+    })
+
+
+@bp.route("/api/client/followers/add", methods=["POST"])
+def api_client_followers_add():
+    """Add one follower to one client. Read-only inside the Suite frame,
+    like `/api/client/owner/set` — the companion cookie is GET/HEAD only."""
+    from hub import client_owner
+    body = request.get_json(silent=True) or {}
+    name = str(body.get("client") or "").strip()
+    email = str(body.get("email") or "").strip()
+    if not name:
+        return _json_error("A client is required.")
+    if not email:
+        return _json_error("An account is required.")
+    result = client_owner.add_follower(name, email, actor=_actor())
+    if not result.get("ok"):
+        return _json_error(result.get("error") or "Nothing was saved.")
+    _log("client_follower_added", detail=f"{name} -> {email}")
+    return jsonify(result)
+
+
+@bp.route("/api/client/followers/remove", methods=["POST"])
+def api_client_followers_remove():
+    """Take one follower off one client."""
+    from hub import client_owner
+    body = request.get_json(silent=True) or {}
+    name = str(body.get("client") or "").strip()
+    email = str(body.get("email") or "").strip()
+    if not name:
+        return _json_error("A client is required.")
+    if not email:
+        return _json_error("An account is required.")
+    result = client_owner.remove_follower(name, email, actor=_actor())
+    if not result.get("ok"):
+        return _json_error(result.get("error") or "Nothing was saved.")
+    _log("client_follower_removed", detail=f"{name} -> {email}")
     return jsonify(result)
 
 

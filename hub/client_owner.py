@@ -1035,3 +1035,179 @@ def summary(clients=None, *, partner_map=None) -> dict:
         "by_owner": {e: sorted(v, key=str.lower) for e, v in by_email.items()},
         "unknown_owners": unknown,
     }
+
+
+# ---------------------------------------------------------------------------
+# Client Success — read live from Knack object_20, never stored here
+# ---------------------------------------------------------------------------
+#
+# Unlike an owner, this is not a Hub decision: object_20's field_3128 already
+# names Brandon or Traci per client, and this Hub does not keep a second
+# answer to a question Knack already answers. `hub/knack_clients.py` does the
+# reading and the name resolution; this is the one place the rest of the Hub
+# asks the question, so a caller never has to import that module directly.
+
+def client_success_of(client: str) -> dict:
+    """This client's Client Success assignment. Never raises.
+
+    `{"raw": str, "email": str, "name": str, "known": bool, "error": str}` —
+    `raw` is what Knack holds even where it could not be resolved to an
+    account, the `unknown_owner` rule one field over: naming somebody with no
+    Hub account behind them is more useful than reading as unassigned.
+    """
+    try:
+        from hub import knack_clients
+        mapping, error = knack_clients.client_success_map()
+    except Exception as exc:                                # noqa: BLE001
+        return {"raw": "", "email": "", "name": "", "known": False,
+                "error": f"{type(exc).__name__}: {exc}"[:200]}
+    key = _key(client)
+    hit = mapping.get(key) if key else None
+    out = dict(hit or {"raw": "", "email": "", "name": "", "known": False})
+    out["error"] = error
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Followers — a Hub overlay, many per client, added from either screen
+# ---------------------------------------------------------------------------
+#
+# Not a decision about whose desk a client is on — that is Assigned, and a
+# client has exactly one. A follower is somebody who wants to see the work
+# without owning it, so the store is a plain list of (client, email) pairs
+# rather than the single-row shape `owners()` uses, and adding one is never
+# a reassignment.
+
+_FOLLOWERS_FILE = "followers.json"
+
+
+def _followers_path() -> str:
+    return os.path.join(jsonstore.data_dir("client_owner"), _FOLLOWERS_FILE)
+
+
+def _load_followers() -> list[dict]:
+    rows = jsonstore.read_json(_followers_path(), default=None)
+    if isinstance(rows, dict):
+        rows = rows.get("followers")
+    if not isinstance(rows, list):
+        return []
+    return [r for r in rows
+            if isinstance(r, dict) and str(r.get("client") or "").strip()
+            and normalise_email(r.get("email"))]
+
+
+def _save_followers(rows: list[dict]) -> bool:
+    return jsonstore.write_json(_followers_path(), {"followers": rows}, indent=2)
+
+
+def followers_of(client: str) -> list[dict]:
+    """Who follows one client, alphabetical by name. Never raises."""
+    key = _key(client)
+    if not key:
+        return []
+    try:
+        rows = _load_followers()
+    except Exception:                                       # noqa: BLE001
+        return []
+    index = user_index()
+    seen, out = set(), []
+    for r in rows:
+        if _key(r.get("client")) != key:
+            continue
+        email = normalise_email(r.get("email"))
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        out.append({"email": email, "name": display_name(email, index),
+                    "known": email in index, "by": str(r.get("by") or ""),
+                    "at": str(r.get("at") or "")})
+    return sorted(out, key=lambda f: f["name"].lower())
+
+
+def followers_map(clients=None) -> dict[str, list[str]]:
+    """`{client key: [email, ...]}` for a book, or the whole store."""
+    try:
+        rows = _load_followers()
+    except Exception:                                       # noqa: BLE001
+        return {}
+    wanted = {_key(c) for c in clients} if clients is not None else None
+    out: dict[str, list[str]] = {}
+    for r in rows:
+        key = _key(r.get("client"))
+        email = normalise_email(r.get("email"))
+        if not key or not email:
+            continue
+        if wanted is not None and key not in wanted:
+            continue
+        lst = out.setdefault(key, [])
+        if email not in lst:
+            lst.append(email)
+    return out
+
+
+def add_follower(client: str, email: str, *, actor: str = "") -> dict:
+    """One more follower on one client. Idempotent — following twice is
+    reported as `already` rather than a second row. Never raises."""
+    checked = _check(client, email)
+    if not checked["ok"]:
+        return checked
+    name, addr = checked["client"], checked["email"]
+    key = _key(name)
+    try:
+        with _LOCK:
+            rows = _load_followers()
+            if any(_key(r.get("client")) == key
+                  and normalise_email(r.get("email")) == addr for r in rows):
+                return {"ok": True, "client": name, "email": addr, "already": True}
+            rows.append({"client": name, "email": addr,
+                        "by": str(actor or "")[:120], "at": _now()})
+            if not _save_followers(rows):
+                return {"ok": False, "client": name,
+                        "error": "The follower could not be saved. "
+                                 "Nothing changed."}
+    except Exception as exc:                                # noqa: BLE001
+        return {"ok": False, "client": name,
+                "error": f"The follower could not be saved: {exc}"[:200]}
+    return {"ok": True, "client": name, "email": addr}
+
+
+def remove_follower(client: str, email: str, *, actor: str = "") -> dict:
+    """Take one follower off one client. Never raises."""
+    name = str(client or "").strip()
+    addr = normalise_email(email)
+    if not name:
+        return {"ok": False, "client": name, "error": "No client named."}
+    if not addr:
+        return {"ok": False, "client": name, "error": "No account named."}
+    key = _key(name)
+    try:
+        with _LOCK:
+            rows = _load_followers()
+            keep = [r for r in rows
+                    if not (_key(r.get("client")) == key
+                           and normalise_email(r.get("email")) == addr)]
+            changed = len(keep) != len(rows)
+            if changed and not _save_followers(keep):
+                return {"ok": False, "client": name,
+                        "error": "The change could not be saved. "
+                                 "Nothing changed."}
+    except Exception as exc:                                # noqa: BLE001
+        return {"ok": False, "client": name,
+                "error": f"The change could not be saved: {exc}"[:200]}
+    return {"ok": True, "client": name, "email": addr, "already": not changed}
+
+
+def add_followers_many(clients, email: str, *, actor: str = "") -> dict:
+    """Follow a selection of clients in one press, reporting each row's own
+    outcome — the `assign_many()` rule: one number back hides the two that
+    failed."""
+    names = _selection(clients)
+    if not names:
+        return {"ok": False, "results": [], "added": 0, "failed": 0,
+                "error": "No clients were selected."}
+    results = [add_follower(n, email, actor=actor) for n in names]
+    added = sum(1 for r in results if r.get("ok"))
+    return {"ok": added > 0, "results": results, "added": added,
+            "failed": len(results) - added, "email": normalise_email(email),
+            "error": ("" if added else
+                      "Nothing was added — every row was refused.")}
