@@ -45,10 +45,10 @@ def _h(*a, **kw) -> Help:
 
 
 REGISTRY: list[Help] = [
-    _h("ads_builder.lsa.workflow", "Build and review Local Services Ads",
+    _h("ads_builder.campaigns.lsa_workflow", "Build and review Local Services Ads",
        "Open LSA Ads under Product Success. Choose the business account and save or resume a setup with its services, coverage, answering hours and planning budget. Saving a setup does not create a campaign. Finish campaign creation, billing and verification in Google. Optimize can apply confirmed pause, enable and budget changes to supported traditional Local Services campaigns. Performance Max settings, coverage and bidding use the Google management link. Monitor and Report show 7, 30 or 90 complete account-local days; optional five-minute refresh runs only while the page is visible.",
        link="/tools/lsa/", link_text="Open LSA Ads"),
-    _h("ads_builder.lsa.client_intake", "Collect and review the client's LSA details",
+    _h("ads_builder.campaigns.lsa_client_intake", "Collect and review the client's LSA details",
        "In Build & saved setups, choose Save setup & create client link, then Copy link. Share it with the client to collect business details, services, service areas, answering hours and proposed budget without a Hub login. Creating a link does not send it. Open the saved setup and Check client response, then review before choosing Use these answers in setup. This imports the setup fields; it does not launch ads. Links expire after 30 days. Disable client link revokes access while retaining the response; a replacement invalidates the old link.",
        link="/tools/lsa/", link_text="Open LSA Ads"),
     _h("youtube_ads.workspace.overview", "Build and review YouTube advertising",
