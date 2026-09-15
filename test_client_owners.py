@@ -812,12 +812,15 @@ for path in ("/my-clients", "/qa/client-owners"):
     check(f"{path} redirects a stranger to the login",
           anon.get(path).status_code, 302)
 for path in ("/api/my-clients", "/api/my-clients/scoreboard",
-             "/api/client-owners", "/api/client/owner?client=Acme"):
+             "/api/client-owners", "/api/client/owner?client=Acme",
+             "/api/client/roles?client=Acme"):
     check(f"{path} refuses a stranger", anon.get(path).status_code, 401)
 for path in ("/api/my-clients/mark", "/api/my-clients/note",
              "/api/my-clients/note/delete", "/api/my-clients/refresh",
              "/api/client-owners/assign", "/api/client-owners/unassign",
-             "/api/client/owner/set"):
+             "/api/client-owners/follow-add",
+             "/api/client/owner/set", "/api/client/followers/add",
+             "/api/client/followers/remove"):
     check(f"{path} refuses a stranger's write",
           anon.post(path, json={}).status_code, 401)
 
@@ -900,8 +903,8 @@ check("and names the rail by what needs doing", "Needs doing" in health_page,
       True)
 
 c360 = (ROOT / "hub" / "templates" / "client360.html").read_text(encoding="utf-8")
-check("Client 360 reads the owner from an embeddable path",
-      "/api/client/owner?client=" in c360, True)
+check("Client 360 reads the roles strip from an embeddable path",
+      "/api/client/roles?client=" in c360, True)
 
 from hub.suite_embed import EMBEDDABLE                            # noqa: E402
 check("which /api/client/ is on", "/api/client/" in EMBEDDABLE, True)
@@ -920,6 +923,99 @@ for page in ("client_health.html", "client_owners.html"):
     check(f"{page} names no screen with no tour behind it",
           'data-screen' in src, False)
 
+
+# ---------------------------------------------------------------------------
+section("Object 20's own Partner and Client Success fields")
+# ---------------------------------------------------------------------------
+# The client-owners page and Client 360 both need "a client already carried
+# by a partner does not need assigning by hand" to actually be true — which
+# depends on the partner reading coming from object_20 (field_872) rather
+# than the product-derived one `client_owner.clients_by_partner()` uses
+# elsewhere in this Hub.
+
+from hub import knack_clients                                     # noqa: E402
+
+
+def _fake_rows(limit=3000, refresh=False):
+    return [
+        {"client": "Acme Plumbing", "partner": "Moto Media",
+         "client_success_raw": "Traci"},
+        {"client": "Riverside HVAC", "partner": "",
+         "client_success_raw": "Brandon Lipps"},
+        {"client": "Nobody Inc", "partner": "",
+         "client_success_raw": "Somebody Nobody Knows"},
+    ]
+
+
+knack_clients.rows = _fake_rows
+knack_clients.last_error = lambda: ""
+
+partners, perr = knack_clients.clients_by_partner()
+check("the partner map comes from object_20, not the products table",
+      partners.get("Moto Media"), ["Acme Plumbing"])
+check("a client with no partner recorded is filed under \"\"",
+      sorted(partners.get("", [])), ["Nobody Inc", "Riverside HVAC"])
+check("no read error on a fake source", perr, "")
+
+# A client whose partner has a standing rule reads as assigned without a
+# direct row ever being written — "does not need assigned".
+set_rule = client_owner.set_rule("Moto Media", "erik@smart1marketing.com",
+                                 actor="tester")
+check("the standing rule saves", set_rule["ok"], True)
+resolved = client_owner.resolved(["Acme Plumbing"], partner_map=partners)
+row = next(iter(resolved.values()))
+check("the partner rule alone resolves the client",
+      row["email"], "erik@smart1marketing.com")
+check("...and says it came from the rule, not a direct assignment",
+      row["source"], "rule")
+
+success, serr = knack_clients.client_success_map()
+check("Traci resolves from a bare first name",
+      success.get(client_owner._key("Acme Plumbing"), {}).get("email"),
+      "traci@smart1marketing.com")
+check("Brandon resolves from a full name",
+      success.get(client_owner._key("Riverside HVAC"), {}).get("email"),
+      "brandon@smart1marketing.com")
+check("a name matching nobody is kept raw and marked unknown",
+      client_owner.client_success_of("Nobody Inc"),
+      {"raw": "Somebody Nobody Knows", "email": "", "name": "",
+       "known": False, "error": ""})
+check("client_success_of resolves the same way as the map",
+      client_owner.client_success_of("Acme Plumbing")["email"],
+      "traci@smart1marketing.com")
+
+# ---------------------------------------------------------------------------
+section("Followers — a Hub overlay, many per client")
+# ---------------------------------------------------------------------------
+
+add1 = client_owner.add_follower("Acme Plumbing", "todd@smart1marketing.com",
+                                 actor="tester")
+check("adding a follower saves", add1["ok"], True)
+add2 = client_owner.add_follower("Acme Plumbing", "todd@smart1marketing.com",
+                                 actor="tester")
+check("following twice is reported as already, not a second row",
+      add2.get("already"), True)
+check("followers_of names the one follower",
+      [f["email"] for f in client_owner.followers_of("Acme Plumbing")],
+      ["todd@smart1marketing.com"])
+check("a client with no followers has none",
+      client_owner.followers_of("Riverside HVAC"), [])
+remove = client_owner.remove_follower("Acme Plumbing",
+                                      "todd@smart1marketing.com")
+check("removing a follower saves", remove["ok"], True)
+check("...and they are gone", client_owner.followers_of("Acme Plumbing"), [])
+check("removing an account with no @ is refused",
+      client_owner.add_follower("Acme Plumbing", "not-an-email")["ok"], False)
+
+bulk = client_owner.add_followers_many(["Acme Plumbing", "Riverside HVAC"],
+                                       "erik@smart1marketing.com",
+                                       actor="tester")
+check("a bulk follow reports every row", bulk["added"], 2)
+check("...and both clients now carry the follower",
+      sorted(client_owner.followers_map(
+          ["Acme Plumbing", "Riverside HVAC"]).keys()),
+      sorted([client_owner._key("Acme Plumbing"),
+              client_owner._key("Riverside HVAC")]))
 
 print(f"\n{_passed} passed, {_failed} failed")
 _CTX.pop()

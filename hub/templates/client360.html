@@ -3609,63 +3609,92 @@ function renderGroupBanner(info){
     +'</div>';
 }
 
-/* Who owns this client, and one press to change it.
-   The record says everything about the client and nothing about whose job
-   they are, so the work on them was six reports somebody had to open one at a
-   time. `/api/client/owner` and not the assignment tool's own path, because
-   `hub/suite_embed.EMBEDDABLE` allowlists `/api/client/` and a card pointed
-   anywhere else renders on every screen except the one this page is framed
-   in -- the half-broken embed that file exists to prevent. */
-function renderOwner(d){
+/* Who is on this client -- Partner, Assigned, Client Success and Followers,
+   in one simple text strip. The record says everything about the client and
+   nothing about whose job they are, so the work on them was six reports
+   somebody had to open one at a time. `/api/client/roles` and not the
+   assignment tool's own path, because `hub/suite_embed.EMBEDDABLE` allowlists
+   `/api/client/` and a card pointed anywhere else renders on every screen
+   except the one this page is framed in -- the half-broken embed that file
+   exists to prevent.
+
+   Partner and Client Success are read-only here: Partner comes from Knack's
+   own client record (object_20 field_872) and Client Success from field_3128
+   -- this page shows what Knack says rather than a second place to set it.
+   Assigned and Followers are Hub overlays and are editable from here. */
+function renderRoles(d){
   var el=document.getElementById('c-owner'); if(!el) return;
   d=d||{};
-  /* Where the owner came from. A standing partner rule is safe only while
-     the record can say it was one -- somebody holding a client with nothing
-     anywhere saying why is the whole objection to having rules. */
-  var who=d.email
-    ? (d.known
-        ? '<b>'+esc(d.owner)+'</b>'
-        : '<b>'+esc(d.email)+'</b> <span class="pill warn">no Hub account</span>')
-      +(d.source==='rule'
-        ? ' <span class="muted">through the '+esc(d.partner)+' rule</span>' : '')
-    : (d.contested&&d.contested.length
+  var a=d.assigned||{};
+  var who=a.email
+    ? (a.known
+        ? '<b>'+esc(a.name)+'</b>'
+        : '<b>'+esc(a.email)+'</b> <span class="pill warn">no Hub account</span>')
+      +(a.source==='rule'
+        ? ' <span class="muted">through the '+esc(a.rule_partner)+' rule</span>' : '')
+    : (a.contested&&a.contested.length
         ? '<span class="pill warn">two partner rules disagree: '
-          +d.contested.map(esc).join(' / ')+'</span>'
-        : (d.pinned
-            ? '<span class="muted">nobody \u2014 held off the '
-              +'partner rule</span>'
+          +a.contested.map(esc).join(' / ')+'</span>'
+        : (a.pinned
+            ? '<span class="muted">nobody — held off the partner rule</span>'
             : '<span class="muted">nobody yet</span>'));
   var opts='<option value="">— nobody —</option>'+(d.users||[]).map(function(u){
-      return '<option value="'+esc(u.email)+'"'+(u.email===d.email?' selected':'')
+      return '<option value="'+esc(u.email)+'"'+(u.email===a.email?' selected':'')
         +'>'+esc(u.name)+'</option>'; }).join('');
-  /* Client 360 may make the first assignment, but it is not an assignment
-     management screen. Once somebody owns the client, show the answer without
-     offering a second place to change it. That keeps the decision on Client
-     Assignments, where partner rules and the rest of the book are visible. */
-  var assignmentControls=d.email
-    ? '<span class="muted" style="margin-left:auto;font-size:12px">Assignment changes are managed from Client Assignments.</span>'
-    : '<select id="c-owner-pick" style="margin-left:auto;padding:5px 8px;'
+  var assignmentControls=a.email
+    ? '<span class="muted" style="font-size:12px">managed from Client Assignments</span>'
+    : '<select id="c-owner-pick" style="padding:4px 7px;'
       +'border:1px solid #cbd5e1;border-radius:7px;font-size:12.5px">'+opts+'</select>'
       +'<a class="gbtn" id="c-owner-save" style="cursor:pointer">Assign</a>'
-      /* Offered only while unassigned and where there is a rule to go back to.
-         An assigned client must not regain a reassignment control by having a
-         partner rule as well. */
-      +(d.rule&&d.source!=='rule'
+      +(a.rule&&a.source!=='rule'
         ? '<a class="gbtn" id="c-owner-follow" style="cursor:pointer">Follow the '
           +'partner rule</a>' : '');
-  el.innerHTML='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;'
-    +'background:#f4f7fc;border:1px solid #dbe4f0;border-radius:12px;padding:9px 14px;'
+
+  var cs=d.client_success||{};
+  var csLine=cs.raw
+    ? (cs.known ? esc(cs.name) : esc(cs.raw)+' <span class="pill warn">no Hub account</span>')
+    : '<span class="muted">not set</span>';
+
+  var followers=d.followers||[];
+  var followChips=followers.map(function(f){
+    return '<span class="pill neutral" style="margin-right:4px">'+esc(f.name)
+      +' <a data-unfollow="'+esc(f.email)+'" style="cursor:pointer;margin-left:4px" '
+      +'title="Remove follower">&times;</a></span>';
+  }).join('');
+  var followOpts='<option value="">— add a follower —</option>'+(d.users||[]).map(function(u){
+      return '<option value="'+esc(u.email)+'">'+esc(u.name)+'</option>'; }).join('');
+
+  el.innerHTML='<div style="display:flex;flex-direction:column;gap:6px;'
+    +'background:#f4f7fc;border:1px solid #dbe4f0;border-radius:12px;padding:10px 14px;'
     +'margin:0 0 12px;font-size:13px">'
-    +'<span>&#128100; Assigned to '+who+'</span>'
-    +(d.at?'<span class="muted">since '+esc(String(d.at).slice(0,10))
-        +(d.by?' · '+esc(d.by):'')+'</span>':'')
+    +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +'<span>&#127760; Partner — '+(d.partner?esc(d.partner):'<span class="muted">none on file</span>')+'</span>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +'<span>&#128100; Assigned — '+who+'</span>'
+    +(a.at?'<span class="muted">since '+esc(String(a.at).slice(0,10))
+        +(a.by?' · '+esc(a.by):'')+'</span>':'')
     +assignmentControls
-    +(d.user_error?'<div style="flex-basis:100%;font-size:12px;color:#7a5b00">'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +'<span>&#127942; Client Success — '+csLine+'</span>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +'<span>&#128065; Followers — </span>'
+    +(followChips||'<span class="muted">none yet</span>')
+    +'<select id="c-follow-pick" style="padding:4px 7px;border:1px solid #cbd5e1;'
+    +'border-radius:7px;font-size:12.5px">'+followOpts+'</select>'
+    +'<a class="gbtn" id="c-follow-add" style="cursor:pointer">Add follower</a>'
+    +'</div>'
+    +(d.partner_error?'<div style="font-size:12px;color:#7a5b00">Partner: '
+        +esc(d.partner_error)+'</div>':'')
+    +(d.user_error?'<div style="font-size:12px;color:#7a5b00">'
         +esc(d.user_error)+'</div>':'')
     +'</div>';
+
   var follow=document.getElementById('c-owner-follow');
   if(follow) follow.onclick=function(){
-    follow.textContent='Saving\u2026';
+    follow.textContent='Saving…';
     fetch('/api/client/owner/set',{method:'POST',credentials:'same-origin',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({client:window.CURRENT_CLIENT||'',follow_rule:true})})
@@ -3701,18 +3730,54 @@ function renderOwner(d){
           +'Smart 1 Suite, changes have to be made in the Hub itself.');
       });
   };
+  var followAdd=document.getElementById('c-follow-add');
+  if(followAdd) followAdd.onclick=function(){
+    var pick=document.getElementById('c-follow-pick');
+    var email=pick?pick.value:'';
+    if(!email) return;
+    followAdd.textContent='Saving…';
+    fetch('/api/client/followers/add',{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({client:window.CURRENT_CLIENT||'',email:email})})
+      .then(function(r){return r.json();})
+      .then(function(j){
+        if(j.ok===false) throw new Error(j.error||'That did not save.');
+        loadOwner(window.CURRENT_CLIENT||'');
+      })
+      .catch(function(err){
+        followAdd.textContent='Add follower';
+        alert((err&&err.message)||'That did not save. If this page is inside '
+          +'Smart 1 Suite, changes have to be made in the Hub itself.');
+      });
+  };
+  el.querySelectorAll('[data-unfollow]').forEach(function(x){
+    x.onclick=function(){
+      var email=x.getAttribute('data-unfollow');
+      fetch('/api/client/followers/remove',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:window.CURRENT_CLIENT||'',email:email})})
+        .then(function(r){return r.json();})
+        .then(function(j){
+          if(j.ok===false) throw new Error(j.error||'That did not save.');
+          loadOwner(window.CURRENT_CLIENT||'');
+        })
+        .catch(function(err){
+          alert((err&&err.message)||'That did not save.');
+        });
+    };
+  });
 }
 
 function loadOwner(name){
   var el=document.getElementById('c-owner');
   if(!el||!name) return;
-  fetch('/api/client/owner?client='+encodeURIComponent(name),{credentials:'same-origin'})
-    .then(function(r){return r.json();}).then(renderOwner)
+  fetch('/api/client/roles?client='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(renderRoles)
     /* "Nobody owns this" and "we could not read who owns it" are different
        answers, and drawing the first over the second is how a client gets
        assigned twice. */
     .catch(function(){ el.innerHTML='<div class="pill warn" style="margin:0 0 12px;'
-      +'display:inline-block">Could not read who owns this client.</div>'; });
+      +'display:inline-block">Could not read who is assigned to this client.</div>'; });
 }
 
 function loadGroup(name){
