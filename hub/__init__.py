@@ -973,6 +973,25 @@ def create_hub_app() -> Flask:
             return jsonify({"ok": False, "error": "A client is required."}), 400
         return jsonify(record_health.client360(name))
 
+    @app.route("/api/client/next-action")
+    def api_client_next_action():
+        """The one-sentence line at the top of Client 360 -- hub/next_action.py.
+
+        Reads the same three sources their own cards already fetch (health,
+        upcoming, pipeline) and orders whatever they already flagged worst
+        first; it adds no new source and makes no network call of its own.
+        Under `/api/client/` for the reason `/api/client/health` gives.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import next_action
+        name = request.args.get("name", "")
+        if not name.strip():
+            return jsonify({"measured": False, "error": "A client is required."}), 400
+        url = request.args.get("url", "")
+        return jsonify(next_action.for_client(name, url))
+
     @app.route("/api/client/work")
     def api_client_work():
         """Everything the Hub has made for this client, newest first."""

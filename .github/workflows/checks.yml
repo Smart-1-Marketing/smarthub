@@ -2823,6 +2823,15 @@ jobs:
         # rule shared with the SEO record, and the renderer driven in node.
         run: python3 test_client360_health.py
 
+      - name: Client 360 next-action line
+        if: matrix.group == 7
+        # hub/next_action.py: one sentence, worst-first, from the health
+        # strip, Coming up and Pipeline & leads -- no new source, no new
+        # idea of what "bad" means. A client with nothing outstanding still
+        # gets a real sentence; a wholly unmeasured record answers False
+        # rather than reading as "nothing to do".
+        run: python3 test_next_action.py
+
       - name: Suite billing reports against a stubbed SaaS API
         if: matrix.group == 7
         # The two GHL billing reports had never been run live and had no test.
