@@ -60,6 +60,8 @@
       <div class="asset-toolbar" style="margin-top:12px">
         <input type="url" id="assetLink" aria-label="Shared file URL" placeholder="Paste a Google Drive or shared-file link">
         <input id="assetProject" aria-label="Project name" placeholder="Project name (optional)">
+        <input id="assetIo" aria-label="IO number" placeholder="IO number (optional)">
+        <input id="assetProduct" aria-label="Product number" placeholder="Product number (optional)">
         <button type="button" class="btn quiet" id="assetImport">Add link</button>
       </div>
     {% else %}
@@ -124,7 +126,7 @@
   el('assetMore').onclick=function(){shown+=60;draw();};el('assetRefresh').onclick=load;
   function post(url,data){return fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(function(r){return r.json();}).then(function(d){if(!d.ok)throw Error(d.error||'Could not save.');return d;});}
   if(el('assetSetup'))el('assetSetup').onclick=function(){this.disabled=true;post('/tools/image-picker/api/clients/for-hub-client',{name:boot.client,create:true}).then(function(d){location.href='/tools/image-picker/gallery/'+d.client.id;}).catch(function(e){message(e.message);el('assetSetup').disabled=false;});};
-  if(el('assetImport'))el('assetImport').onclick=function(){var b=this;b.disabled=true;post('/tools/image-picker/api/staff/import-link?client_id='+boot.id,{client:boot.client,url:el('assetLink').value.trim(),project_name:el('assetProject').value.trim()}).then(function(){el('assetLink').value='';load();}).catch(function(e){message(e.message);}).finally(function(){b.disabled=false;});};
+  if(el('assetImport'))el('assetImport').onclick=function(){var b=this;b.disabled=true;post('/tools/image-picker/api/staff/import-link?client_id='+boot.id,{client:boot.client,url:el('assetLink').value.trim(),project_name:el('assetProject').value.trim(),io_number:el('assetIo').value.trim(),product_number:el('assetProduct').value.trim()}).then(function(){el('assetLink').value='';load();}).catch(function(e){message(e.message);}).finally(function(){b.disabled=false;});};
   function selected(){return Array.from(document.querySelectorAll('[data-select]:checked')).map(function(c){return c.dataset.select;});}
   function updateSelection(){if(!el('assetDownload'))return;var n=selected().length;el('assetDownload').disabled=!n;el('assetSelection').textContent=n?n+' selected':'';}
   el('assetGrid').onchange=updateSelection;
