@@ -1427,6 +1427,24 @@ jobs:
             echo "test_google_inactive_qa_cache.py not on this branch — nothing to run."
           fi
 
+      - name: Google Access inactive-accounts GTM default and site-check tests
+        if: matrix.group == 4
+        # GTM has no traffic-reporting API, so inactive is the default for a
+        # container now and confirmed GA4 activity is the only override --
+        # whether the linked property is itself visible, readable, or
+        # separately flagged active/inactive is not a gating condition. The
+        # site check is the direct, GA4-independent answer to a different
+        # question: is the container's own tag actually on a real page.
+        # Offline; nothing reaches Google or a live website. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates it.
+        run: |
+          if [ -f test_google_inactive_qa_sitecheck.py ]; then
+            python test_google_inactive_qa_sitecheck.py
+          else
+            echo "test_google_inactive_qa_sitecheck.py not on this branch — nothing to run."
+          fi
+
       - name: Blog taxonomy, guardrail and CMS publish tests
         if: matrix.group == 4
         # The blog section's approved-topic list, the never-mention check and
