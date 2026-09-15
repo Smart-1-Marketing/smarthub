@@ -55,7 +55,7 @@
     "display-ads": "Display Ad Builder", "image-creator": "Image Creator",
     "magic-resize": "Magic Resize",
     "image": "Image Optimizer & Resizer", "bg-remover": "Background Remover",
-    "page-images": "Page Image Optimizer", "image-picker": "Client Image Uploads",
+    "page-images": "Page Image Optimizer", "image-picker": "Client Assets",
     "seo-images": "SEO Image Pipeline", "landing-ads": "Landing Page Ads",
     "stock-photos": "Stock Photo Search", "commercial-builder": "Commercial Builder",
     // "Video Search", not "Video Backgrounds": the mount kept its name so

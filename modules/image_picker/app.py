@@ -364,12 +364,13 @@ def client_picker(token: str):
 @staff_only
 @db_guard
 def staff_gallery(client_id: int):
+    from .catalog import SECTIONS
     db = session()
     client = get_client(db, client_id)
     if not client:
         abort(404)
     return render_template(
-        "picker_gallery.html",
+        "master_gallery.html",
         client=client.to_dict(include_secrets=True),
         is_staff=True,
         share_token="",
@@ -379,6 +380,7 @@ def staff_gallery(client_id: int):
         # `sources`: _widget_ctx already uses that name for the upload
         # widget's tabs, and the collision is a TypeError at render time.
         gallery_sources=filing.source_tiers(),
+        asset_sections=SECTIONS,
         **_widget_ctx(client, token=""),
     )
 
@@ -397,10 +399,8 @@ def gallery_for_client():
 
     * exactly one gallery -> that gallery, which is every folder and every
       source this Hub has filed for them;
-    * none yet -> the SEO Image Pipeline's archive scoped to the name, which
-      is everything the Hub holds for them outside a gallery (and that page
-      only offers a "full gallery" link when one exists, so the two cannot
-      bounce a reader between them);
+    * none yet -> the same asset home, reading existing client projects
+      without provisioning uploads or changing sharing;
     * more than one -> refused with both named, because picking either sends
       somebody into another client's gallery reading as this one's.
 
@@ -441,13 +441,41 @@ def gallery_for_client():
             "picker_error.html",
             message=("More than one upload gallery could be this client ("
                      + ", ".join(c.name for c in found) + "). Open Client "
-                     "Image Uploads and pick the right one rather than risking "
+                     "Assets and pick the right one rather than risking "
                      "one client's gallery reading as another's.")), 200
-    # No full gallery yet. The SEO pipeline's archive is everything the Hub
-    # holds for this client outside one, so land there scoped to the name
-    # rather than on a page about our own bookkeeping.
-    from urllib.parse import quote
-    return redirect(carry("/tools/seo-images/gallery?company=" + quote(name)))
+    # Every named client has an asset home, even before their first upload.
+    # This is a read-only view of their existing projects. Upload provisioning
+    # remains an explicit POST and does not enable a disabled share link.
+    from .catalog import SECTIONS
+    return render_template("master_gallery.html", client={"id": None, "name": name},
+                           asset_sections=SECTIONS, is_staff=True)
+
+
+@bp.route("/api/master-gallery")
+@staff_only
+@db_guard
+def api_master_gallery():
+    from . import catalog, provisioning
+    db = session()
+    client = None
+    if request.args.get("client_id"):
+        try:
+            client = get_client(db, int(request.args["client_id"]))
+        except (ValueError, TypeError):
+            return jsonify(ok=False, error="Choose a valid client."), 400
+        if client is None:
+            return jsonify(ok=False, error="Client not found."), 404
+        name = client.name
+    else:
+        name = str(request.args.get("name") or "").strip()[:200]
+        if not name:
+            return jsonify(ok=False, error="Choose a client first."), 400
+        found, _ = provisioning.find(db, name)
+        if len(found) > 1:
+            return jsonify(ok=False, error="More than one gallery matches this client. Choose the correct client from All clients."), 409
+        if found:
+            client, name = found[0], found[0].name
+    return jsonify(catalog.catalog(db, client, name))
 
 
 # --------------------------------------------------------------------------- #
@@ -809,7 +837,7 @@ def api_saved():
         value = str(request.args.get(field) or "").strip()
         if value:
             q = q.where(column == value[:80])
-    rows = db.execute(q.order_by(SavedImage.created_at.desc()).limit(limit)).scalars().all()
+    rows = db.execute(q.order_by(SavedImage.created_at.desc(), SavedImage.id.desc())).scalars().all()
 
     # What a vision model saw in each one, where the sweep has reached it.
     # Carried beside the image rather than merged into it: a description is an
@@ -828,6 +856,7 @@ def api_saved():
     # because the readings live in their own table and a join here would tie
     # the gallery to a table that may legitimately be empty — a client whose
     # photographs have not been swept yet must still see their gallery.
+    offset = clamp_int(request.args.get("offset"), 0, 0, 1000000)
     query = str(request.args.get("q") or "").strip().lower()
     if query:
         terms = [t for t in query.split() if t]
@@ -835,7 +864,8 @@ def api_saved():
             d = seen.get(row.id) or {}
             hay = " ".join([
                 (row.alt_text or ""), (row.filename or ""),
-                (row.collection_label or ""), d.get("description", ""),
+                (row.collection_label or ""), (row.project_name or ""),
+                (row.io_number or ""), (row.product_number or ""), d.get("description", ""),
                 " ".join(d.get("tags") or []),
             ]).lower()
             return all(t in hay for t in terms)
@@ -844,7 +874,8 @@ def api_saved():
     return jsonify({
         "ok": True,
         "client": client.to_dict(include_secrets=is_staff),
-        "images": [{**r.to_dict(), "seen": seen.get(r.id)} for r in rows],
+        "images": [{**r.to_dict(), "seen": seen.get(r.id)} for r in rows[offset:offset + limit]],
+        "total": len(rows), "offset": offset, "has_more": offset + limit < len(rows),
         "q": query,
         # The state of the sweep, so a gallery with no descriptions can say
         # which kind of empty it is: nothing swept yet, nothing to sweep, or a

@@ -502,9 +502,8 @@ check("c360 is carried through the redirect",
 # No full gallery yet: everything the Hub holds for them outside one is the
 # SEO pipeline's archive, so land there scoped to the name.
 r = http.get("/tools/image-picker/gallery/for-client?name=Fresh%20Prospect%20LLC")
-check("no gallery falls back to the SEO archive", r.status_code, 302)
-check("scoped to the client", r.headers["Location"]
-      .endswith("/tools/seo-images/gallery?company=Fresh%20Prospect%20LLC"), True)
+check("no upload gallery still has a client asset home", r.status_code, 200)
+check("scoped to the client", "Fresh Prospect LLC" in r.data.decode(), True)
 # A GET that created a gallery would be one a prefetch creates without
 # anybody asking — the rule the upload-link endpoint is a POST for.
 check("and the visit created nothing",

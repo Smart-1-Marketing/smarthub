@@ -1122,7 +1122,7 @@ function render(g,q){
   const actsHost = document.getElementById('c-img-acts');
   if(actsHost) actsHost.innerHTML =
       '<a class="open-link" id="c-img-uplink" style="cursor:pointer">&#128279; Client upload link</a>'
-    + '<a class="open-link" href="'+galleryHref+'">See client image gallery →</a>'
+    + '<a class="open-link" href="'+galleryHref+'">Open client assets →</a>'
     + '<a class="open-link" href="'+optimizeHref+'">Optimize client images →</a>';
 
   /* The link a client uploads their own photographs through.
@@ -2918,7 +2918,7 @@ function clientUploadLink(name, web0){
          client's gallery, which is the one mistake here that cannot be undone
          by editing a row. */
       box.innerHTML = '<div style="color:#b45309">'+esc((d&&d.error)||'The upload link could not be made.')+'</div>'
-        + '<div style="margin-top:7px"><a class="gbtn" href="/tools/image-picker/">Open Client Image Uploads →</a></div>';
+        + '<div style="margin-top:7px"><a class="gbtn" href="/tools/image-picker/">Open Client Assets →</a></div>';
       return;
     }
     if(!d.share_url){

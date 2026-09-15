@@ -1,0 +1,137 @@
+{% extends "picker_base.html" %}
+{% block title %}Client Assets · {{ client.name }}{% endblock %}
+{% block body %}
+<style>
+.asset-home{max-width:1200px;margin:auto;padding:24px}
+.asset-heading,.asset-actions,.asset-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.asset-heading{justify-content:space-between;margin-bottom:20px}
+.asset-heading h1{margin:4px 0;font-size:30px}.asset-heading p{margin:6px 0;color:var(--ink-3)}
+.asset-sections{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0}
+.asset-section{padding:18px;text-align:left;background:white;border:1px solid var(--line);border-radius:12px;cursor:pointer;color:var(--ink);font:inherit}
+.asset-section[aria-pressed=true]{border:2px solid var(--brand,#1769aa);background:#f0f7ff}
+.asset-section strong{display:block;font-size:18px;margin-bottom:6px}.asset-section small{display:block;color:var(--ink-3);line-height:1.5}
+.asset-section:focus-visible,.asset-folder:focus-visible{outline:3px solid #1769aa;outline-offset:3px}
+.asset-toolbar input{flex:1;min-width:200px;padding:12px;border:1px solid var(--line);border-radius:8px;font:inherit}
+.asset-toolbar select{padding:12px;border:1px solid var(--line);border-radius:8px;font:inherit}
+.asset-folders{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.asset-folder{max-width:100%;overflow-wrap:anywhere;border:1px solid var(--line);padding:9px 12px;border-radius:8px;background:white;cursor:pointer;font:inherit;text-align:left}
+.asset-folder[aria-pressed=true]{background:#0a2240;color:white}
+.asset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-top:18px}
+.asset-card{min-width:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:white}
+.asset-preview{height:150px;display:flex;align-items:center;justify-content:center;background:#eef3f7;color:#36536f;font-size:38px}
+.asset-preview img{width:100%;height:100%;object-fit:contain}.asset-preview video,.asset-preview audio{width:100%;max-height:150px}
+.asset-card-body{padding:14px}.asset-card h3{font-size:15px;margin:0 0 8px;overflow-wrap:anywhere}
+.asset-card p{font-size:12px;color:var(--ink-3);overflow-wrap:anywhere;line-height:1.5;margin:5px 0}
+.asset-card details{margin-top:12px;font-size:12px}.asset-card a{font-weight:600}
+.asset-empty{grid-column:1/-1;padding:38px;text-align:center;border:1px dashed var(--line);border-radius:12px;background:#f8fafc}
+.asset-add{margin:18px 0}.asset-add>summary{cursor:pointer;font-weight:600;padding:14px;border:1px solid var(--line);border-radius:8px}
+.asset-status{margin-top:14px;font-size:13px}.asset-warning{background:#fff4dc;padding:12px;border-radius:8px;margin:12px 0}
+.asset-more{margin:20px 0;text-align:center}
+@media(max-width:650px){.asset-home{padding:16px}.asset-sections{grid-template-columns:1fr}.asset-section{padding:12px}.asset-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.asset-preview{height:110px}}
+</style>
+<main class="asset-home">
+  <header class="asset-heading">
+    <div><div class="hint">CLIENT ASSETS</div><h1>{{ client.name }}</h1>
+      <p>One home for uploads, creative, and work made in the Hub.</p></div>
+    <div class="asset-actions"><a class="btn quiet" href="{{ url_for('image_picker.admin') }}">All clients</a>
+      {% if client.id %}<a class="btn quiet" href="{{ url_for('image_picker.staff_picker', client_id=client.id) }}">Find media</a>{% endif %}</div>
+  </header>
+  <div id="assetMessages" role="status" aria-live="polite"></div>
+  <nav class="asset-sections" aria-label="Asset sections" id="assetSections">
+    {% for section in asset_sections %}<button type="button" class="asset-section" data-section="{{ section.key }}" aria-pressed="false">
+      <strong>{{ section.label }}</strong><small>{{ section.description }}</small><small data-count="{{ section.key }}">Loading…</small>
+    </button>{% endfor %}
+  </nav>
+  <div class="asset-toolbar">
+    <input type="search" id="assetSearch" aria-label="Search all client assets" placeholder="Search files, projects, IOs, or products…">
+    <select id="assetType" aria-label="File type"><option value="">All file types</option><option value="image">Images</option><option value="video">Video</option><option value="audio">Audio</option><option value="raw">Documents</option><option value="project">Projects</option></select>
+    <button type="button" class="btn quiet" id="assetReset">All assets</button>
+    <button type="button" class="btn quiet" id="assetRefresh">Refresh</button>
+  </div>
+  <div id="assetStatus" class="asset-status" role="status" aria-live="polite">Loading client assets…</div>
+  <div id="assetWarnings"></div>
+  {% if client.id %}<div class="asset-actions"><button type="button" class="btn quiet" id="assetDownload" disabled>Download selected files</button><span id="assetSelection" class="hint"></span></div>{% endif %}
+  <div class="asset-folders" id="assetFolders" aria-label="Folders"></div>
+  <div class="asset-grid" id="assetGrid"></div>
+  <div class="asset-more"><button type="button" class="btn quiet" id="assetMore" hidden>Show more</button></div>
+  <details class="asset-add"><summary>Add files or a shared link</summary>
+    {% if client.id %}
+      {% include "_upload_panel.html" %}
+      <div class="asset-toolbar" style="margin-top:12px">
+        <input type="url" id="assetLink" aria-label="Shared file URL" placeholder="Paste a Google Drive or shared-file link">
+        <input id="assetProject" aria-label="Project name" placeholder="Project name (optional)">
+        <button type="button" class="btn quiet" id="assetImport">Add link</button>
+      </div>
+    {% else %}
+      <p>This asset home already includes the client's saved Hub work. Set up uploads to add more files here.</p>
+      <button type="button" class="btn quiet" id="assetSetup">Set up uploads</button>
+    {% endif %}
+  </details>
+  <details><summary>Sources included</summary><div id="assetSources"></div>
+    <p class="hint">Includes filed assets and saved records from the tools listed here. Files that have no client assignment need to be assigned before they can appear here.</p>
+    <a href="/qa/unattached-images">Review unassigned files</a>
+  </details>
+</main>
+<script type="application/json" id="assetBoot">{{ {"client": client.name, "id": client.id, "sections": asset_sections}|tojson }}</script>
+<script>
+(function(){
+  'use strict';
+  var boot=JSON.parse(document.getElementById('assetBoot').textContent);
+  var rows=[], section='', folder='', shown=60, loading=false, pendingRefresh=false, complete=false;
+  var context=new URLSearchParams(location.search);
+  var filters=['io','product','tool'];
+  function el(id){return document.getElementById(id);}
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function type(r){if(r.is_project)return 'project';if(r.media_type==='audio'||/\.(mp3|wav|m4a|ogg|aac)(?:\?|$)/i.test(r.url+' '+r.filename))return 'audio';return r.resource_type||'raw';}
+  function scope(r){return filters.every(function(k){var key={io:'io_number',product:'product_number',tool:'tool'}[k];return !context.get(k)||String(r[key]||'')===context.get(k);});}
+  function matches(r){var query=el('assetSearch').value.trim().toLowerCase();var seen=r.seen||{};var hay=[r.filename,r.folder,r.project_name,r.alt_text,r.provider,r.io_number,r.product_number,seen.description,(seen.tags||[]).join(' ')].join(' ').toLowerCase();return (!section||r.section===section)&&scope(r)&&(!el('assetType').value||type(r)===el('assetType').value)&&query.split(/\s+/).every(function(t){return hay.indexOf(t)!==-1;});}
+  function card(r){
+    var t=type(r),preview=t==='project'?'&#128193;':t==='raw'?'&#128196;':'';
+    if(t==='image')preview='<img loading="lazy" src="'+esc(r.thumb||r.url)+'" alt="">';
+    if(t==='video')preview='<video controls preload="none" src="'+esc(r.url)+'"></video>';
+    if(t==='audio')preview='<audio controls preload="none" src="'+esc(r.url)+'"></audio>';
+    var suite=r.editable?'<p>Suite: '+esc({sent:'In Suite',pending:'Pending',error:'Could not send',skipped:'Not sent'}[r.ghl_status]||'Not sent')+'</p>':'';
+    if(r.editable && (r.ghl_status==='pending'||r.ghl_status==='error'))suite+='<button type="button" class="btn quiet small" data-retry="'+r.id+'">Retry Suite copy</button>';
+    return '<article class="asset-card"><div class="asset-preview">'+preview+'</div><div class="asset-card-body">'+(r.editable?'<label class="hint"><input type="checkbox" data-select="'+r.id+'" aria-label="Select '+esc(r.filename||'file')+'"> Select file</label>':'')+'<h3>'+esc(r.filename||'Saved file')+'</h3><p>'+esc(r.folder)+'</p>'+(r.status?'<p>'+esc(r.status)+'</p>':'')+'<a href="'+esc(r.url)+'" target="_blank" rel="noopener">'+(t==='project'?'Open project':'Open file')+'</a><details><summary>Details</summary><p>'+esc(r.collection_label||r.provider)+'</p>'+(r.alt_text?'<p>'+esc(r.alt_text)+'</p>':'')+'<p>'+esc(r.created_at||'')+'</p>'+suite+(r.source_url?'<a href="'+esc(r.source_url)+'" target="_blank" rel="noopener">Original source</a>':'')+(r.editable?'<p><button type="button" class="btn quiet small" data-remove="'+r.id+'">Remove file</button></p>':'')+'</details></div></article>';
+  }
+  function draw(){
+    boot.sections.forEach(function(s){var count=rows.filter(function(r){return r.section===s.key;}).length;document.querySelector('[data-count="'+s.key+'"]').textContent=count+' items';document.querySelector('[data-section="'+s.key+'"]').setAttribute('aria-pressed',String(section===s.key));});
+    var matched=rows.filter(matches),counts={};
+    matched.forEach(function(r){counts[r.folder]=(counts[r.folder]||0)+1;});
+    el('assetFolders').innerHTML=Object.keys(counts).sort().map(function(f){return '<button type="button" class="asset-folder" data-folder="'+esc(f)+'" aria-pressed="'+String(f===folder)+'">&#128193; '+esc(f)+' <small>('+counts[f]+')</small></button>';}).join('');
+    if(folder)matched=matched.filter(function(r){return r.folder===folder;});
+    el('assetStatus').textContent=(complete?'':'Some sources are unavailable. ')+matched.length+' items'+(section||folder||el('assetSearch').value||el('assetType').value||filters.some(function(k){return context.get(k);})?' match this view.':' in this client asset home.');
+    el('assetGrid').innerHTML=matched.length?matched.slice(0,shown).map(card).join(''):'<div class="asset-empty"><strong>'+(section?'No items in this section yet':'No matching assets')+'</strong><p>Choose All assets to clear filters, or add files below.</p></div>';
+    el('assetMore').hidden=matched.length<=shown;
+    updateSelection();
+  }
+  function message(text){el('assetMessages').textContent=text;}
+  function load(){
+    if(loading){pendingRefresh=true;return;}loading=true;el('assetRefresh').disabled=true;el('assetStatus').textContent='Loading files and projects…';
+    var url='/tools/image-picker/api/master-gallery?'+(boot.id?'client_id='+boot.id:'name='+encodeURIComponent(boot.client));
+    fetch(url,{credentials:'same-origin'}).then(function(r){if(!r.ok)throw Error('Client assets could not be loaded. Sign in again or retry.');return r.json();}).then(function(d){
+      if(!d.ok)throw Error(d.error||'Client assets could not be loaded.');
+      rows=(d.images||[]).concat(d.projects||[]);complete=d.complete;
+      el('assetWarnings').innerHTML=(d.sources||[]).filter(function(s){return s.error;}).map(function(s){return '<p class="asset-warning">'+esc(s.label)+': '+esc(s.error)+'</p>';}).join('');
+      el('assetSources').innerHTML=(d.sources||[]).map(function(s){return '<p>'+esc(s.label)+' — '+(s.error?'Unavailable':s.count+' records checked')+'</p>';}).join('');
+      message('');draw();
+    }).catch(function(e){message(e.message);el('assetStatus').textContent='Could not refresh assets. Any items still shown are from the previous load.';}).finally(function(){loading=false;el('assetRefresh').disabled=false;if(pendingRefresh){pendingRefresh=false;load();}});
+  }
+  el('assetSections').onclick=function(e){var b=e.target.closest('[data-section]');if(!b)return;section=section===b.dataset.section?'':b.dataset.section;folder='';shown=60;draw();};
+  el('assetFolders').onclick=function(e){var b=e.target.closest('[data-folder]');if(!b)return;folder=folder===b.dataset.folder?'':b.dataset.folder;shown=60;draw();};
+  el('assetSearch').oninput=el('assetType').onchange=function(){folder='';shown=60;draw();};
+  el('assetReset').onclick=function(){section='';folder='';el('assetSearch').value='';el('assetType').value='';filters.forEach(function(k){context.delete(k);});history.replaceState(null,'',location.pathname+(context.toString()?'?'+context.toString():''));shown=60;draw();};
+  el('assetMore').onclick=function(){shown+=60;draw();};el('assetRefresh').onclick=load;
+  function post(url,data){return fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(function(r){return r.json();}).then(function(d){if(!d.ok)throw Error(d.error||'Could not save.');return d;});}
+  if(el('assetSetup'))el('assetSetup').onclick=function(){this.disabled=true;post('/tools/image-picker/api/clients/for-hub-client',{name:boot.client,create:true}).then(function(d){location.href='/tools/image-picker/gallery/'+d.client.id;}).catch(function(e){message(e.message);el('assetSetup').disabled=false;});};
+  if(el('assetImport'))el('assetImport').onclick=function(){var b=this;b.disabled=true;post('/tools/image-picker/api/staff/import-link?client_id='+boot.id,{client:boot.client,url:el('assetLink').value.trim(),project_name:el('assetProject').value.trim()}).then(function(){el('assetLink').value='';load();}).catch(function(e){message(e.message);}).finally(function(){b.disabled=false;});};
+  function selected(){return Array.from(document.querySelectorAll('[data-select]:checked')).map(function(c){return c.dataset.select;});}
+  function updateSelection(){if(!el('assetDownload'))return;var n=selected().length;el('assetDownload').disabled=!n;el('assetSelection').textContent=n?n+' selected':'';}
+  el('assetGrid').onchange=updateSelection;
+  if(el('assetDownload'))el('assetDownload').onclick=function(){var ids=selected();if(ids.length)location.href='/tools/image-picker/api/saved/download.zip?client_id='+boot.id+'&ids='+encodeURIComponent(ids.join(','));};
+  el('assetGrid').onclick=function(e){var retry=e.target.closest('[data-retry]');if(retry){retry.disabled=true;post('/tools/image-picker/api/saved/'+retry.dataset.retry+'/retry-suite?client_id='+boot.id,{}).then(load).catch(function(err){message(err.message);retry.disabled=false;});return;}var b=e.target.closest('[data-remove]');if(!b)return;if(!confirm('Remove this file from the client gallery? The stored Cloudinary file may be deleted and cannot be recovered. Any copy in Smart 1 Suite stays there.'))return;b.disabled=true;post('/tools/image-picker/api/saved/'+b.dataset.remove+'/delete?client_id='+boot.id,{}).then(load).catch(function(err){message(err.message);b.disabled=false;});};
+  window.addEventListener('picker-uploaded',load);
+  load();
+})();
+</script>
+{% endblock %}
