@@ -31,7 +31,7 @@
 </style>
 <main class="asset-home">
   <header class="asset-heading">
-    <div><div class="hint">CLIENT ASSETS</div><h1>{{ client.name }}</h1>
+    <div><div class="hint">CLIENT ASSETS</div><h1>{{ client.name }} {{ help_dot('image_picker.gallery.saved') if help_dot is defined else '' }}</h1>
       <p>One home for uploads, creative, and work made in the Hub.</p></div>
     <div class="asset-actions"><a class="btn quiet" href="{{ url_for('image_picker.admin') }}">All clients</a>
       {% if client.id %}<a class="btn quiet" href="{{ url_for('image_picker.staff_picker', client_id=client.id) }}">Find media</a>{% endif %}</div>
@@ -44,6 +44,7 @@
   </nav>
   <div class="asset-toolbar">
     <input type="search" id="assetSearch" aria-label="Search all client assets" placeholder="Search files, projects, IOs, or products…">
+    {{ help_dot('image_picker.gallery.library') if help_dot is defined else '' }}
     <select id="assetType" aria-label="File type"><option value="">All file types</option><option value="image">Images</option><option value="video">Video</option><option value="audio">Audio</option><option value="raw">Documents</option><option value="project">Projects</option></select>
     <button type="button" class="btn quiet" id="assetReset">All assets</button>
     <button type="button" class="btn quiet" id="assetRefresh">Refresh</button>
