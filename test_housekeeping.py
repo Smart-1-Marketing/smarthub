@@ -299,12 +299,15 @@ check("an admin still gets the counts",
       len(_adm["not_recorded"]["hired_placeholder"]), 7)
 
 # The dashboard is one template for everybody — the API is what withholds —
-# so what the page has to prove is that it asks who is reading before it
-# builds the sentence, rather than rendering counts that were never sent.
+# so the birthday card still asks whether the gaps were withheld before it
+# says anything about them at all. The placeholder count itself moved off
+# this card and onto Housekeeping (asserted above), which is where an admin
+# can actually act on it, so the to-do sentence this card used to build no
+# longer exists here in either version.
 _dash = general.get("/").get_data(as_text=True)
 ok("the block checks whether the gaps were withheld", "nr.withheld" in _dash)
-ok("before it builds the to-do sentence",
-   _dash.index("nr.withheld") < _dash.index("Fill them in under"))
+ok("and no longer builds a to-do sentence of its own",
+   "Fill them in under" not in _dash)
 
 print()
 if _failed:

@@ -131,8 +131,9 @@ def _builtin_departments() -> list[dict]:
         out.append({
             "id": d["slug"], "name": d["label"], "description": d.get("blurb") or "",
             "blocks": [], "builtin": True, "admin_only": d["level"] == sidebar.ADMIN_ONLY,
-            "groups": [{"label": g, "tiles": [{"key": k, "href": h, "icon": i, "label": l}
-                                               for k, h, i, l in leaves]}
+            "groups": [{"label": g, "anchor": sidebar._group_anchor(g),
+                        "tiles": [{"key": k, "href": h, "icon": i, "label": l}
+                                  for k, h, i, l in leaves]}
                        for g, leaves in sidebar.department_tiles(d)],
         })
     return out
