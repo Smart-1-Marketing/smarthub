@@ -84,7 +84,7 @@ http = WClient(application)
 http.post("/login", data={"password": os.environ["PANEL_PASSWORD"]})
 
 GALLERY = (ROOT / "modules" / "image_picker" / "templates"
-           / "picker_gallery.html").read_text()
+           / "master_gallery.html").read_text(encoding="utf-8")
 
 
 # =====================================================================
@@ -284,8 +284,8 @@ section("A gallery you can read: one label table, and a search")
 labels = filing.source_tiers()["labels"]
 # The template used to keep its own copy, so a kind added since showed up in a
 # client's gallery as a bare key under no heading at all.
-check("the labels come from the module that files",
-      "var SOURCES = " in GALLERY, True)
+check("the gallery displays each file's recorded source label",
+      "r.collection_label||r.provider" in GALLERY, True)
 check("and the template keeps no second copy",
       "Uploaded from their device" in GALLERY, False)
 for kind in filing.KIND_LABELS:
@@ -301,24 +301,26 @@ check("every producer declares what it writes",
 check("and every value it writes has a heading",
       [v for v in written if v not in labels], [])
 
-# The search is the SERVER's: it is the only half that can see the vision
-# descriptions, and the only one that searches the whole library rather than
-# the rows this page happened to load. The chips filter what comes back.
-check("the gallery has a search box", 'id="gSearch"' in GALLERY, True)
-check("and it asks the server", '"&q=" + encodeURIComponent(QUERY)' in GALLERY, True)
-check("with group chips over the result", 'id="chips"' in GALLERY, True)
-check("counted off what the search returned, not the whole library",
-      "redraw();" in GALLERY and "ALL = d.images" in GALLERY, True)
+# The staff catalog now returns all scoped files, project references and
+# saved vision descriptions. Search runs over that complete set before the
+# visible page limit; test_master_gallery covers the old 200-row cutoff.
+check("the gallery has a search box", 'id="assetSearch"' in GALLERY, True)
+check("and reads the complete staff catalog", '/api/master-gallery?' in GALLERY, True)
+check("with folders over the result", 'id="assetFolders"' in GALLERY, True)
+check("files and projects are searched together",
+      "(d.images||[]).concat(d.projects||[])" in GALLERY, True)
+check("saved vision descriptions remain searchable", "seen.description" in GALLERY, True)
 # A chip from the previous result set would show an empty gallery with no
 # sign of why.
-check("a new search clears the chip", 'GROUP = "";' in GALLERY, True)
+check("a new search clears the folder", "function(){folder='';shown=60;draw();}" in GALLERY, True)
 # A filtered list that reports an unfiltered total is a wrong answer with two
 # right ones either side of it.
-check("a filtered view says it is filtered", '" of " + ALL.length' in GALLERY, True)
-check("their own files sort first", "SOURCES.theirs" in GALLERY, True)
+check("a filtered view says it is filtered", 'match this view.' in GALLERY, True)
+from modules.image_picker.catalog import SECTIONS
+check("their own files have the first permanent section", SECTIONS[0]["key"], "uploads")
 
 check("nothing matching reads differently from nothing saved",
-      "Nothing matches" in GALLERY and "Nothing saved yet" in GALLERY, True)
+      "No matching assets" in GALLERY and "No items in this section yet" in GALLERY, True)
 
 
 # =====================================================================
