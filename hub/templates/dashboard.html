@@ -407,7 +407,7 @@ const fmt=n=>Number(n||0).toLocaleString();
 fetch('/api/summary', {cache:'no-store'}).then(r=>r.json()).then(s=>{
   if(s.error){$('k-clients').textContent='—';
     if($('status-source')) $('status-source').textContent='Dashboard data could not be loaded.';
-    return}
+    return;}
   const liveSource=s.products_source==='knack'||s.products_source==='knack (stale)';
   const age=s.products_age_minutes;
   if($('status-source')) $('status-source').textContent=(s.period||'')+' · '+(liveSource
