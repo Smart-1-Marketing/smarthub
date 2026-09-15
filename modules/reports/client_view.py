@@ -363,6 +363,17 @@ def build(link, period: str, today: date | None = None) -> dict:
                  "Video & audio ads completed")
         tiles.append({"key": "completes", "label": label, "value": completes,
                       "display": compact(completes)})
+    # Store visits: the figure a geofencing buy is bought for, carried in
+    # extras under its own name by the GroundTruth pull and the CSV door.
+    # Gated on a row that actually carries one -- a geofencing row from a
+    # provider table that reports no visits must not draw "Store visits 0",
+    # the measured nought the completes tile's own gate refuses.
+    visited = [f for f in facts if f["platform"] == "groundtruth"
+               and isinstance(f.get("extras"), dict) and f["extras"].get("visits") is not None]
+    if visited:
+        visits = sum(int(f["extras"].get("visits") or 0) for f in visited)
+        tiles.append({"key": "visits", "label": "Store visits", "value": visits,
+                      "display": compact(visits)})
     if "suite" in period_platforms:
         tiles.append({"key": "leads", "label": "Leads & bookings", "value": suite_leads,
                       "display": compact(suite_leads)})

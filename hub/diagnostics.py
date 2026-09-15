@@ -209,6 +209,43 @@ def check_microsoft_ads() -> Check:
                  "The pull's last outcome is on /reports/.", 0)
 
 
+def check_groundtruth() -> Check:
+    """Off, the origin owed, configured and never pulled, the last pull's
+    own error, or ok -- read off the settings and the watermark, and never
+    probed: the field map is a placeholder until a person confirms it on
+    /reports/groundtruth-check, and probing a host nobody has confirmed
+    with the key in the header is the one thing this must not do on a
+    page load."""
+    try:
+        from modules.reports import groundtruth
+        st = groundtruth.status()
+    except Exception as exc:                            # noqa: BLE001
+        return Check("groundtruth", "GroundTruth", "error",
+                     f"The reports module could not be read ({type(exc).__name__}).", 0)
+    if st["missing"] == [groundtruth.BASE_ENV]:
+        return Check("groundtruth", "GroundTruth", "warn",
+                     "GROUND_TRUTH_API is set and GROUND_TRUTH_API_BASE is not; the key is sent "
+                     "nowhere until the API origin is named.", 0,
+                     fix="Set GROUND_TRUTH_API_BASE in the Render dashboard, then confirm the "
+                         "field map on /reports/groundtruth-check.")
+    if st["missing"]:
+        names = " / ".join(st["missing"])
+        return Check("groundtruth", "GroundTruth", "off",
+                     f"Not configured — {names} unset; the reports module cannot pull GroundTruth.", 0,
+                     False, f"Set {names} in the Render dashboard.")
+    if st.get("last_error"):
+        return Check("groundtruth", "GroundTruth", "warn",
+                     f"Configured; the last pull said: {st['last_error'][:200]}", 0,
+                     fix="Open /reports/groundtruth-check and correct groundtruth_map.py.")
+    if not st.get("last_pull"):
+        return Check("groundtruth", "GroundTruth", "warn",
+                     "Configured; nothing has been pulled yet. The field map is a placeholder until "
+                     "it is confirmed.", 0, fix="Open /reports/groundtruth-check.")
+    return Check("groundtruth", "GroundTruth", "ok",
+                 f"Configured; the last pull at {st['last_pull']} wrote {st.get('last_rows') or 0} rows. "
+                 "The pull's last outcome is on /reports/.", 0)
+
+
 def check_youtube() -> Check:
     key = settings.youtube_key or settings.google_places_key
     if not key:
@@ -726,7 +763,8 @@ def check_google_accounts() -> list[Check]:
 CHECKS = [
     check_database, check_json_backup, check_public_base_url,
     check_openai, check_cloudinary,
-    check_brandfetch, check_places, check_youtube, check_microsoft_ads, check_insites, check_removebg, check_pexels,
+    check_brandfetch, check_places, check_youtube, check_microsoft_ads, check_groundtruth, check_insites,
+    check_removebg, check_pexels,
     check_pixabay, check_unsplash, check_google_fonts, check_ghl,
     check_ghl_app, check_knack, check_quickbooks, check_google_oauth,
     check_google_accounts,

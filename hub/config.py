@@ -292,6 +292,11 @@ class Settings:
     bing_developer_token: str = field(default_factory=lambda: _s("BING_AD_DEVELOPER_TOKEN"))
     bing_manager_account_id: str = field(default_factory=lambda: _s("BING_MANAGER_ACCOUNT_ID"))
     bing_manager_account_number: str = field(default_factory=lambda: _s("BING_MANAGER_ACCOUNT_NUMBER"))
+    # GroundTruth, for the reports module's native pull (modules/reports/
+    # groundtruth.py reads it at call time through _s()). Exactly the
+    # spelling set on Render -- GROUND_TRUTH_API, underscore and all -- and
+    # no GROUNDTRUTH_API_KEY twin: ALIASES is only spellings in use.
+    groundtruth_key: str = field(default_factory=lambda: _s("GROUND_TRUTH_API"))
     google_fonts_key: str = field(default_factory=lambda: _alias("google_fonts_key"))
     insites_key: str = field(default_factory=lambda: _alias("insites_key"))
     heygen_key: str = field(default_factory=lambda: _alias("heygen_key"))
@@ -663,6 +668,10 @@ class Settings:
                     ("BING_MANAGER_ACCOUNT_ID", self.bing_manager_account_id)) if not v) + "."
                    if not (self.bing_client_id and self.bing_client_secret and self.bing_developer_token
                            and self.bing_manager_account_id) else "")),
+            row("GroundTruth", bool(self.groundtruth_key), False,
+                "GROUND_TRUTH_API — the reports module's native pull of geofencing campaigns. The API "
+                "origin (GROUND_TRUTH_API_BASE) and the field map are confirmed from /reports/groundtruth-check; "
+                "the key is sent nowhere until the origin is set."),
             row("YouTube Data API", bool(self.youtube_key or self.google_places_key), False,
                 "YOUTUBE_API_KEY — a client's channel subscribers, views and video count, read nightly; "
                 + ("reading GOOGLE_PLACES_API_KEY, the same Cloud project" if self.google_places_key and not self.youtube_key
