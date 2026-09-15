@@ -11,7 +11,7 @@ The gateway imports SmartHub's existing data adapters and audit logger, but runs
 - `GET /health` — unauthenticated Render health check; never returns secrets
 - `POST /mcp` — MCP Streamable HTTP; requires `Authorization: Bearer <MCP_API_TOKEN>`
 
-The server uses the current stable `mcp` Python SDK v2 line and supports the SDK's current/legacy protocol compatibility behavior.
+The server requires `mcp>=2.2,<3` and supports current/legacy protocol negotiation. The 2.2 floor retains the SDK's default 30-minute idle expiry and 10,000-session ceiling for legacy Streamable HTTP sessions, limiting abandoned-session resource growth.
 
 ## V1 tools
 
