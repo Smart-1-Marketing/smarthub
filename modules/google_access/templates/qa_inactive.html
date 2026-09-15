@@ -22,7 +22,7 @@
   <div class="head">
     <div>
       <h1>Inactive Google Accounts QA {{ help_dot('google_access.cleanup.progress') if help_dot is defined else '' }} {{ help_dot('google_access.cleanup.delete') if help_dot is defined else '' }} </h1>
-      <p>Find GA4 properties with no events or sessions in the last {{ window_days }} days, plus GTM containers with no confirmed traffic in the same window. GTM has no traffic-reporting API of its own, so a container's tag is checked against whatever GA4 activity it points at — but that linked property being inactive, unreachable, or not visible to this login is never a reason to hold a container back as inactive here; it only takes confirmed activity to call a container active. Needs Review is for a scan that could not run, not for this call.</p>
+      <p>Find GA4 properties with no events or sessions in the last {{ window_days }} days, plus GTM containers with no confirmed traffic in the same window. GTM has no traffic-reporting API of its own, so a container's tag is checked against whatever GA4 activity it points at — but that linked property being inactive, unreachable, or not visible to this login is never a reason to hold a container back as inactive here; it only takes confirmed activity to call a container active. Needs Review is for a scan that could not run, not for this call. Any GTM row also carries a <b>Check site</b> button — a direct check of a real page for the container's own tag, regardless of what (if anything) is configured inside it.</p>
     </div>
     <div class="actions">
       <a class="btn" href="/qa">Back to QA</a>
@@ -51,8 +51,8 @@
   <section class="section">
     <div class="section-head"><div><h2>Needs review</h2><p>Not enough evidence to call these inactive. No Delete button is shown.</p></div></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Type</th><th>Google login</th><th>Account</th><th>Property / container</th><th>ID</th><th>Reason</th></tr></thead>
-      <tbody id="reviewBody"><tr><td colspan="6" class="empty">Waiting for scan…</td></tr></tbody>
+      <thead><tr><th>Type</th><th>Google login</th><th>Account</th><th>Property / container</th><th>ID</th><th>Reason</th><th></th></tr></thead>
+      <tbody id="reviewBody"><tr><td colspan="7" class="empty">Waiting for scan…</td></tr></tbody>
     </table></div>
   </section>
 
@@ -82,6 +82,16 @@
   <div class="modal-actions"><button value="cancel">Cancel</button><button id="confirmDelete" class="danger" value="default">Delete</button></div>
 </form></dialog>
 
+<dialog id="checkDialog"><form method="dialog" class="modal" id="checkForm">
+  <h3>Is this container's tag on a live page?</h3>
+  <p id="checkName" class="muted"></p>
+  <label>Website to check</label>
+  <input id="checkUrl" autocomplete="off" placeholder="https://example.com">
+  <p id="checkSuggestion" class="muted" style="margin:-4px 0 10px;font-size:12px"></p>
+  <p id="checkResult" class="muted" style="margin:4px 0 0"></p>
+  <div class="modal-actions"><button value="cancel">Close</button><button id="confirmCheck" class="primary" value="default">Check</button></div>
+</form></dialog>
+
 <script>
 const $=s=>document.querySelector(s); let state=null, selected=null;
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -96,16 +106,30 @@ function n(v){return v==null?'—':Number(v).toLocaleString()}
 // domains) is still one hover away.
 function loginName(v){const s=String(v||'');const i=s.indexOf('@');return i>-1?s.slice(0,i):s}
 function loginCell(v){return `<td title="${esc(v)}">${esc(loginName(v))}</td>`}
-function rowInactive(r){return `<tr><td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${r.public_id?`<small>${esc(r.public_id)}</small>`:''}</td><td>${esc(r.resource)}</td><td class="num">${n(r.events)}</td><td class="num">${n(r.sessions)}</td><td class="reason">${esc(r.reason)}</td><td><div class="row-actions"><button class="small" data-skip='${encodeURIComponent(JSON.stringify(r))}'>Skip</button><button class="small danger" data-delete='${encodeURIComponent(JSON.stringify(r))}'>Delete</button></div></td></tr>`}
-function rowReview(r){return `<tr><td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.resource)}</td><td class="reason">${esc(r.reason)}</td></tr>`}
-function rowSkipped(r){const s=r.skip||{};return `<tr class="skipped-row"><td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b></td><td>${esc(s.reason||'—')}<small>${esc(s.by||'')} ${s.at?esc(s.at.slice(0,10)):''}</small></td><td><button class="small" data-unskip='${encodeURIComponent(JSON.stringify(r))}'>Un-skip</button></td></tr>`}
+// GTM has no traffic API of its own, so this is the direct signal instead:
+// did a real page still carry the container's own tag when somebody last
+// checked. It is a person's own action per container (Check site, below),
+// not something the scan itself runs, so most rows show nothing here until
+// somebody has looked.
+function siteCheckLine(c){
+  if(!c)return '';
+  const when=c.checked_at?new Date(c.checked_at).toLocaleDateString():'';
+  const link=`<a href="${esc(c.url||'')}" target="_blank" rel="noopener">${esc(c.url||'')}</a>`;
+  if(c.found===true)return `<small class="muted">✓ Tag found on ${link}${when?' · '+esc(when):''}</small>`;
+  if(c.found===false)return `<small class="muted">✗ Not found on ${link}${when?' · '+esc(when):''}</small>`;
+  return `<small class="muted">Could not check ${link}${c.error?' — '+esc(c.error):''}</small>`;
+}
+function checkButton(r){return r.kind==='GTM'?`<button class="small ghost" data-check='${encodeURIComponent(JSON.stringify(r))}'>Check site</button>`:''}
+function rowInactive(r){return `<tr><td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${r.public_id?`<small>${esc(r.public_id)}</small>`:''}${siteCheckLine(r.site_check)}</td><td>${esc(r.resource)}</td><td class="num">${n(r.events)}</td><td class="num">${n(r.sessions)}</td><td class="reason">${esc(r.reason)}</td><td><div class="row-actions">${checkButton(r)}<button class="small" data-skip='${encodeURIComponent(JSON.stringify(r))}'>Skip</button><button class="small danger" data-delete='${encodeURIComponent(JSON.stringify(r))}'>Delete</button></div></td></tr>`}
+function rowReview(r){return `<tr><td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${siteCheckLine(r.site_check)}</td><td>${esc(r.resource)}</td><td class="reason">${esc(r.reason)}</td><td>${checkButton(r)}</td></tr>`}
+function rowSkipped(r){const s=r.skip||{};return `<tr class="skipped-row"><td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${siteCheckLine(r.site_check)}</td><td>${esc(s.reason||'—')}<small>${esc(s.by||'')} ${s.at?esc(s.at.slice(0,10)):''}</small></td><td><div class="row-actions">${checkButton(r)}<button class="small" data-unskip='${encodeURIComponent(JSON.stringify(r))}'>Un-skip</button></div></td></tr>`}
 function render(data){state=data;$('#inactiveCount').textContent=data.inactive.length;$('#reviewCount').textContent=data.review.length;$('#activeCount').textContent=data.active_count;$('#loginCount').textContent=data.connected_logins;$('#skippedCount').textContent=`(${data.skipped.length})`;$('#scanTime').textContent=data.scanned_at?`Scanned ${new Date(data.scanned_at).toLocaleString()}`:'';
  $('#lastScanLine').textContent=data.scanned_at?`Last scanned ${new Date(data.scanned_at).toLocaleString()} — properties and containers checked in the last 24h are read back from that scan rather than re-checked. Use Full rescan to ignore that and check everything live.`:'';
  $('#inactiveBody').innerHTML=data.inactive.length?data.inactive.map(rowInactive).join(''):'<tr><td colspan="9" class="empty">No inactive GA4 properties or defensible inactive GTM containers found.</td></tr>';
- $('#reviewBody').innerHTML=data.review.length?data.review.map(rowReview).join(''):'<tr><td colspan="6" class="empty">Nothing needs manual review.</td></tr>';
+ $('#reviewBody').innerHTML=data.review.length?data.review.map(rowReview).join(''):'<tr><td colspan="7" class="empty">Nothing needs manual review.</td></tr>';
  $('#skippedBody').innerHTML=data.skipped.length?data.skipped.map(rowSkipped).join(''):'<tr><td colspan="6" class="empty">Nothing skipped.</td></tr>';
  const bits=[];if(data.source_error)bits.push(data.source_error);if(data.errors?.length)bits.push(data.errors.join(' | '));show(bits.join(' — ')); bind();}
-function bind(){document.querySelectorAll('[data-skip]').forEach(b=>b.onclick=()=>openSkip(JSON.parse(decodeURIComponent(b.dataset.skip))));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>openDelete(JSON.parse(decodeURIComponent(b.dataset.delete))));document.querySelectorAll('[data-unskip]').forEach(b=>b.onclick=()=>unskip(JSON.parse(decodeURIComponent(b.dataset.unskip))))}
+function bind(){document.querySelectorAll('[data-skip]').forEach(b=>b.onclick=()=>openSkip(JSON.parse(decodeURIComponent(b.dataset.skip))));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>openDelete(JSON.parse(decodeURIComponent(b.dataset.delete))));document.querySelectorAll('[data-unskip]').forEach(b=>b.onclick=()=>unskip(JSON.parse(decodeURIComponent(b.dataset.unskip))));document.querySelectorAll('[data-check]').forEach(b=>b.onclick=()=>openCheck(JSON.parse(decodeURIComponent(b.dataset.check))))}
 let pollTimer=null;
 function stopPolling(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
 function setScanningUI(on){$('#refresh').disabled=on;$('#fullRescan').disabled=on;$('#refresh').innerHTML=on?'<span class="spinner"></span>Scanning':'Update scan'}
@@ -136,7 +160,7 @@ function renderProgress(p){
   }
   $('#lastScanLine').textContent='';
   $('#inactiveBody').innerHTML=`<tr><td colspan="9" class="empty"><span class="spinner"></span>${stage}<br><small class="muted">${n(p.inactive_count)} inactive · ${n(p.review_count)} needs review · ${n(p.active_count)} active found so far</small></td></tr>`;
-  $('#reviewBody').innerHTML='<tr><td colspan="6" class="empty">Waiting for scan…</td></tr>';
+  $('#reviewBody').innerHTML='<tr><td colspan="7" class="empty">Waiting for scan…</td></tr>';
   const g=p.gtm_pace;
   if(g&&g.interval&&g.floor&&g.interval>g.floor+0.05){
     show(`Tag Manager is currently rate-limiting this account — backing off to ${g.interval.toFixed(1)}s between calls. That can make this take a while; it is still working.`);
@@ -150,7 +174,7 @@ async function loadCached(){
     const d=await r.json();
     if(d.pending){
       $('#inactiveBody').innerHTML='<tr><td colspan="9" class="empty">No scan has completed yet. Press Update scan.</td></tr>';
-      $('#reviewBody').innerHTML='<tr><td colspan="6" class="empty">Waiting for scan…</td></tr>';
+      $('#reviewBody').innerHTML='<tr><td colspan="7" class="empty">Waiting for scan…</td></tr>';
       return;
     }
     render(d);
@@ -190,6 +214,51 @@ $('#skipForm').addEventListener('submit',async e=>{e.preventDefault();if(!select
 function openDelete(r){selected=r;$('#deleteName').textContent=r.name;$('#deleteConfirm').value='';$('#deleteTitle').textContent=r.kind==='GA4'?'Move GA4 property to trash?':'Delete GTM container?';$('#deleteWarning').textContent=r.kind==='GA4'?'Google Analytics deletion moves the property to the Analytics trash can. The connected login must have Analytics Edit permission.':'This permanently deletes the GTM container through Google Tag Manager. Verify the account and container name before continuing.';$('#deleteDialog').showModal()}
 $('#deleteForm').addEventListener('submit',async e=>{e.preventDefault();if(!selected)return;const b=$('#confirmDelete');b.disabled=true;try{const r=await fetch('api/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selected,confirm:$('#deleteConfirm').value})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Delete failed');$('#deleteDialog').close();show(d.message||'Deleted');await startScan(false)}catch(e){show(e.message)}finally{b.disabled=false}});
 async function unskip(r){try{const res=await fetch('api/unskip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(r)});const d=await res.json();if(!res.ok)throw new Error(d.error||'Could not un-skip');await startScan(false)}catch(e){show(e.message)}}
+function siteCheckSummary(c){
+  if(c.found===true)return `Tag found on ${c.url}`;
+  if(c.found===false)return `Not found on ${c.url}`;
+  return `Could not check ${c.url||''}${c.error?' — '+c.error:''}`;
+}
+async function openCheck(r){
+  selected=r;
+  $('#checkName').textContent=`${r.kind}: ${r.name}${r.public_id?' ('+r.public_id+')':''}`;
+  $('#checkUrl').value=(r.site_check&&r.site_check.url)||'';
+  $('#checkResult').textContent=r.site_check?siteCheckSummary(r.site_check):'';
+  $('#checkSuggestion').textContent='';
+  $('#checkDialog').showModal();
+  if(!$('#checkUrl').value){
+    try{
+      const res=await fetch('api/gtm/resolve-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({account:r.account})});
+      const d=await res.json();
+      if(d.ok&&d.known&&d.suggested_url&&!$('#checkUrl').value){
+        $('#checkUrl').value=d.suggested_url;
+        $('#checkSuggestion').textContent=`Suggested from a client match on the account name: ${d.client} (${d.confidence}). Edit this if it is not the right site.`;
+      }
+    }catch(e){/* no suggestion available -- the field just stays blank */}
+  }
+}
+function applySiteCheck(r,check){
+  if(!state)return;
+  for(const list of [state.inactive,state.review,state.skipped]){
+    const row=list.find(x=>x.kind===r.kind&&x.login===r.login&&x.resource===r.resource);
+    if(row)row.site_check=check;
+  }
+  render(state);
+}
+$('#checkForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(!selected)return;
+  const url=$('#checkUrl').value.trim();
+  if(!url){$('#checkResult').textContent='Type a website address first.';return}
+  const b=$('#confirmCheck');b.disabled=true;$('#checkResult').textContent='Checking…';
+  try{
+    const res=await fetch('api/gtm/site-check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...selected,url})});
+    const d=await res.json();
+    if(!res.ok)throw new Error(d.error||'Could not check that page');
+    $('#checkResult').textContent=siteCheckSummary(d);
+    applySiteCheck(selected,{url:d.url,checked_at:d.checked_at,found:d.found,status:d.status,error:d.error,by:d.by});
+  }catch(e){$('#checkResult').textContent=e.message}finally{b.disabled=false}
+});
 $('#refresh').onclick=()=>startScan(false);
 $('#fullRescan').onclick=()=>{if(confirm('Re-check every GA4 property and GTM container live, ignoring anything checked in the last 24h? This is slower and spends more of the day\'s Google API quota.'))startScan(true)};
 init();
