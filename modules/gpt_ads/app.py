@@ -275,7 +275,7 @@ def _client_context(client: str, url: str = "") -> dict:
     phone number.
     """
     from hub.client_context import tool_context
-    return tool_context(client, url)
+    return tool_context(client, url, media_consumer="creative_builder")
 
 
 # ------------------------------------------------------------------ images

@@ -419,7 +419,8 @@ def offer_into(fields: list[dict], values: dict, client: str,
 # The shape a creative tool asks for
 # ---------------------------------------------------------------------------
 
-def gallery_images(client: str, limit: int = 60) -> tuple[list[dict], str]:
+def gallery_images(client: str, limit: int = 60, *,
+                   consumer: str = "") -> tuple[list[dict], str]:
     """The client's existing images, newest first, and why there are none.
 
     Read directly rather than over HTTP -- it is the same process, and a
@@ -432,6 +433,23 @@ def gallery_images(client: str, limit: int = 60) -> tuple[list[dict], str]:
     "the gallery is unreachable" are different answers and only the first
     means go and add some.
     """
+    if consumer:
+        try:
+            from modules.image_picker.integrations import assets_for
+            result = assets_for(client, consumer, limit=limit)
+            if not result.get("ok"):
+                return [], result.get("error") or "Media Library unavailable."
+            images = [{"id": row["id"], "media_asset_id": row["id"],
+                       "url": row["storage_url"], "public_id": row.get("public_id") or "",
+                       "alt": (row.get("original_alt") or row.get("ai_alt_text") or "")[:300],
+                       "label": (row.get("collection_label") or row.get("original_filename") or "")[:120],
+                       "provider": row.get("source") or "",
+                       "width": row.get("width"), "height": row.get("height")}
+                      for row in result.get("assets", [])
+                      if row.get("resource_type") == "image"]
+            return images, result.get("note") or ""
+        except Exception as exc:                         # noqa: BLE001
+            return [], f"Media Library read failed ({type(exc).__name__})."
     try:
         from sqlalchemy import select
 
@@ -478,7 +496,8 @@ def gallery_images(client: str, limit: int = 60) -> tuple[list[dict], str]:
             pass
 
 
-def gallery_videos(client: str, limit: int = 60) -> tuple[list[dict], str]:
+def gallery_videos(client: str, limit: int = 60, *,
+                   consumer: str = "") -> tuple[list[dict], str]:
     """The client's existing videos, newest first, and why there are none.
 
     A sibling of `gallery_images()` rather than that function widened to take
@@ -495,6 +514,23 @@ def gallery_videos(client: str, limit: int = 60) -> tuple[list[dict], str]:
     every one of those producers files through the same `file_asset()`, so
     reading the same table is reading the whole of what any of them made.
     """
+    if consumer:
+        try:
+            from modules.image_picker.integrations import assets_for
+            result = assets_for(client, consumer, limit=limit)
+            if not result.get("ok"):
+                return [], result.get("error") or "Media Library unavailable."
+            videos = [{"id": row["id"], "media_asset_id": row["id"],
+                       "url": row["storage_url"], "public_id": row.get("public_id") or "",
+                       "alt": (row.get("original_alt") or row.get("ai_alt_text") or "")[:300],
+                       "label": (row.get("collection_label") or row.get("original_filename") or "")[:120],
+                       "provider": row.get("source") or "",
+                       "width": row.get("width"), "height": row.get("height")}
+                      for row in result.get("assets", [])
+                      if row.get("resource_type") == "video"]
+            return videos, result.get("note") or ""
+        except Exception as exc:                         # noqa: BLE001
+            return [], f"Media Library read failed ({type(exc).__name__})."
     try:
         from sqlalchemy import select
 
@@ -541,7 +577,8 @@ def gallery_videos(client: str, limit: int = 60) -> tuple[list[dict], str]:
             pass
 
 
-def tool_context(client: str, url: str = "", *, gallery: bool = True) -> dict:
+def tool_context(client: str, url: str = "", *, gallery: bool = True,
+                 media_consumer: str = "") -> dict:
     """What a creative tool needs to know about a client, assembled once.
 
     The Social Content Planner and the GPT Ads Builder each carried this
@@ -641,7 +678,7 @@ def tool_context(client: str, url: str = "", *, gallery: bool = True) -> dict:
         out["scan_note"] = "Site scan unavailable in this environment."
 
     if gallery:
-        images, note = gallery_images(client)
+        images, note = gallery_images(client, consumer=media_consumer)
         out["gallery"] = images
         out["gallery_note"] = note
     return out

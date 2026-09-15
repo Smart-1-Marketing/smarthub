@@ -39,7 +39,7 @@ def gallery(client: str, limit: int = 30) -> dict:
         from hub.client_context import gallery_images
     except Exception as exc:                              # noqa: BLE001
         return {"results": [], "error": f"The gallery is unavailable: {exc}"}
-    images, note = gallery_images(client, limit=limit)
+    images, note = gallery_images(client, limit=limit, consumer="sites")
     results = [{"id": f"gallery:{im.get('public_id', '')}", "provider": "gallery",
                "thumbnail": im.get("url", ""), "preview_url": im.get("url", ""),
                "full_url": im.get("url", ""), "width": im.get("width"),

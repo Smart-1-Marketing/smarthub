@@ -122,6 +122,26 @@ reruns idempotent; files already in the library are skipped rather than copied.
 Import counts, failures, actor, source, and timestamps remain visible in run
 history.
 
+## Phase 4 SmartHub integrations
+
+Every consuming tool now reads through `modules.image_picker.integrations`
+instead of implementing its own interpretation of the gallery. The adapter
+resolves the canonical client, excludes duplicate and unavailable assets,
+enforces the approval required for the destination, rejects expired licenses,
+and returns stable Media Library IDs. Web approval gates Sites, Landing Pages,
+Proposal Builder, and Email; social approval gates Social; paid-media approval
+gates Creative Builder and Video/CTV.
+
+Smart 1 Sites includes approved media in its preview plan, Landing Page Maker
+prefers it before page-scraped or stock imagery, Social Planner uses it for
+automatic assignments, and the GPT Ads and Commercial Builders receive it in
+their shared client context. Creative Studio displays canonical assets beside
+its legacy local records without offering destructive local controls for them.
+Proposal Builder, Client Email, Landing Ads, and Video Backgrounds expose
+consumer-specific endpoints for their interfaces. The shared use endpoint
+idempotently creates the appropriate project link and an attribution event;
+Social Planner also writes those records when it assigns media automatically.
+
 ## API contract
 
 - `GET /api/clients/:clientRef/media`
@@ -133,6 +153,8 @@ history.
 - `POST /api/media/:assetId/collections`
 - `POST /api/media/:assetId/links`
 - `POST /api/media/:assetId/usage`
+- `GET /api/clients/:clientRef/media/for/:consumer`
+- `POST /api/media/:assetId/use`
 - `POST /api/media/admin/backfill`
 - `GET /api/clients/:clientRef/media/imports`
 - `POST /api/clients/:clientRef/media/imports/website`
@@ -144,9 +166,8 @@ second identity system.
 
 ## Phase boundary
 
-Phases 1 through 3 are established. Semantic embedding generation/vector
-ranking, provider-managed background social sync, SmartHub consumer
-integrations, Media Health recommendations, and performance attribution remain
-later phases. The
+Phases 1 through 4 are established. Semantic embedding generation/vector
+ranking, provider-managed background social sync, Media Health
+recommendations, and performance attribution remain later phases. The
 durable asset IDs, intelligence versions, search documents, links, and usage
 events let those phases arrive without moving or duplicating files.

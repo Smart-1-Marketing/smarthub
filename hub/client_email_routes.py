@@ -30,6 +30,18 @@ def search():
     except email.EmailError as exc:
         return jsonify(error=str(exc)), 400
 
+@bp.get('/api/client-email/media')
+def media_library():
+    """Return email-safe assets for the selected client."""
+    from modules.image_picker.integrations import assets_for
+
+    client = (request.args.get('client') or '').strip()
+    if not client:
+        return jsonify(ok=False, error='Choose a client first.'), 400
+    return jsonify(assets_for(
+        client, 'email', query=request.args.get('q', ''),
+        limit=request.args.get('limit', 60, type=int)))
+
 @bp.post('/api/client-email/link')
 def link():
     origin = request.headers.get('Origin')

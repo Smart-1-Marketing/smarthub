@@ -144,6 +144,31 @@ def from_site(brief: dict) -> dict:
     return {"images": out, "rejected": rejected}
 
 
+def from_media_library(brief: dict) -> list[dict]:
+    """Approved client imagery from the canonical Media Library."""
+    client = str(brief.get("client") or brief.get("business_name") or "").strip()
+    if not client:
+        return []
+    try:
+        from modules.image_picker.integrations import assets_for
+        result = assets_for(client, "landing_pages", limit=20)
+    except Exception:                                      # noqa: BLE001
+        return []
+    out = []
+    for row in result.get("assets", []):
+        url = row.get("storage_url") or ""
+        if not url:
+            continue
+        out.append({"url": url,
+                    "media_asset_id": row.get("id"),
+                    "public_id": row.get("public_id") or "",
+                    "width": row.get("width"), "height": row.get("height"),
+                    "wide": _wide_enough(row, _MIN_HERO_WIDE),
+                    "alt": row.get("original_alt") or row.get("ai_alt_text") or "",
+                    "credit": "", "source": "client media library"})
+    return out
+
+
 def stock(brief: dict, want: int = 6) -> list[dict]:
     """Stock photography, through the Image Picker's own provider layer."""
     try:
@@ -185,8 +210,10 @@ def pick(brief: dict, benefits: int = 0) -> dict:
     broken image icons is worse than one with none.
     """
     found = from_site(brief)
-    site = found["images"]
-    pool = site + stock(brief, want=max(4, benefits + 2))
+    library = from_media_library(brief)
+    seen = {row["url"] for row in library}
+    site = [row for row in found["images"] if row["url"] not in seen]
+    pool = library + site + stock(brief, want=max(4, benefits + 2))
 
     empty = {"hero": None, "cards": [], "band": None, "credits": [],
              "source": "", "available": False,
@@ -231,7 +258,9 @@ def pick(brief: dict, benefits: int = 0) -> dict:
     # the client's own work is the one thing the docstring at the top of this
     # file rules out.
     kinds = {i.get("source") for i in picked}
-    source = ("their site" if kinds == {"their site"} else
+    source = ("client media library" if kinds == {"client media library"} else
+              "client media library and other sources" if "client media library" in kinds else
+              "their site" if kinds == {"their site"} else
               "their site and stock" if "their site" in kinds else "stock")
     return {"hero": hero, "cards": cards, "band": band,
             "credits": credits,

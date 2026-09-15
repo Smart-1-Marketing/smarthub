@@ -44,7 +44,11 @@
         {% endif %}
         <div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ a.filename }}">{{ a.filename }}</div>
         <div style="font-size:10px;color:var(--muted,#64748B)">{{ a.source }}</div>
+        {% if a.canonical %}
+        <div style="font-size:10px;color:var(--muted,#64748B);margin-top:4px">Canonical asset #{{ a.media_asset_id }}</div>
+        {% else %}
         <button class="btn small danger" data-del="{{ a.id }}" style="margin-top:4px">Delete</button>
+        {% endif %}
       </div>
       {% endfor %}
     </div>

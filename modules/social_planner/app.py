@@ -291,7 +291,7 @@ def _client_context(client: str, url: str = "") -> dict:
     phone number.
     """
     from hub.client_context import tool_context
-    return tool_context(client, url)
+    return tool_context(client, url, media_consumer="social")
 
 
 # =====================================================================
@@ -977,12 +977,13 @@ def api_assign_images(batch_id: str):
     if "revision" in data and data["revision"] != batch["revision"]:
         raise PlanConflict()
     from hub.client_context import gallery_images
-    images, note = gallery_images(batch.get("client", ""))
+    images, note = gallery_images(batch.get("client", ""), consumer="social")
     if not images:
         return jsonify({"ok": True, "assigned": 0, "remaining": sum(
             1 for s in batch["slots"] if not s.get("image_url")), "note": note})
 
     assigned = 0
+    recorded_uses = []
     for slot in batch["slots"]:
         if slot.get("image_url"):
             continue
@@ -992,8 +993,24 @@ def api_assign_images(batch_id: str):
         slot["image_url"] = pick["url"]
         slot["image_public_id"] = pick["public_id"]
         slot["image_source"] = "gallery"
+        if pick.get("media_asset_id"):
+            recorded_uses.append((pick["media_asset_id"], str(
+                slot.get("id") or slot.get("date") or assigned)))
         assigned += 1
     save_batch(batch)
+    if recorded_uses:
+        from modules.image_picker.integrations import record_use
+        for asset_id, slot_id in recorded_uses:
+            try:
+                record_use(
+                    asset_id, "social", f"{batch_id}:{slot_id}",
+                    usage_type="post_image", campaign_id=batch_id,
+                    creative_id=slot_id, placement="social post image",
+                )
+            except (LookupError, PermissionError, ValueError):
+                # The assignment is already saved. A concurrently changed
+                # approval must not make the whole content plan look lost.
+                continue
     remaining = sum(1 for s in batch["slots"] if not s.get("image_url"))
     _log("images_assigned", client=batch.get("client", ""), count=assigned)
     return jsonify({"ok": True, "assigned": assigned, "remaining": remaining,

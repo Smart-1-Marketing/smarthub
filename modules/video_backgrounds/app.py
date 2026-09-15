@@ -260,6 +260,21 @@ def api_clients():
                                 for r in rows]})
 
 
+@bp.get("/api/client-media")
+def api_client_media():
+    """Return paid-media-safe clips and images for video/CTV production."""
+    from modules.image_picker.integrations import assets_for
+
+    client_name = (request.args.get("client") or "").strip()
+    if not client_name:
+        return jsonify({"ok": False, "error": "Choose a client first."}), 400
+    return jsonify(assets_for(
+        client_name, "video_ctv",
+        query=request.args.get("q", ""),
+        limit=request.args.get("limit", 60, type=int),
+    ))
+
+
 @bp.get("/api/gallery/folders")
 def api_gallery_folders():
     """Folder names already used under "Video Searches" for one client.

@@ -263,5 +263,54 @@ check("source page provenance is retained", repair_detail.source_post_url,
       "https://client.example/services")
 check("import history records discovered assets", run.discovered, 3)
 
+# Phase 4 consumers all read through one rights-aware contract. Pending assets,
+# expired rights, and duplicate rows never leak into production pickers.
+sites_media = http.get(
+    f"/api/clients/{client_id}/media/for/sites").get_json()
+check("Sites receives the approved canonical asset", sites_media["matched"], 1)
+check("consumer response carries a stable asset identity",
+      sites_media["assets"][0]["media_asset_id"], asset_id)
+check("duplicate and pending assets are withheld", sites_media["withheld"], 4)
+
+social_media = http.get(
+    f"/api/clients/{client_id}/media/for/social").get_json()
+check("web approval does not imply social approval", social_media["matched"], 0)
+http.patch(f"/api/media/{asset_id}", json={"approved_for_social": True})
+social_media = http.get(
+    f"/api/clients/{client_id}/media/for/social?q=air+conditioner").get_json()
+check("social receives an explicitly approved asset", social_media["matched"], 1)
+for consumer in ("sites", "landing_pages", "creative_builder",
+                 "proposal_builder", "social", "email", "video_ctv"):
+    response = http.get(
+        f"/api/clients/{client_id}/media/for/{consumer}").get_json()
+    check(f"{consumer} shares the canonical media contract",
+          response["assets"][0]["media_asset_id"], asset_id)
+
+use_body = {
+    "consumer": "social", "entity_id": "post-123",
+    "usage_type": "post_image", "campaign_id": "fall-2026",
+    "creative_id": "post-123", "placement": "feed image",
+}
+consumer_use = http.post(f"/api/media/{asset_id}/use", json=use_body).get_json()
+check("consumer use creates a project link", consumer_use["link_created"], True)
+check("consumer use creates an attribution event", consumer_use["usage_created"], True)
+consumer_use_again = http.post(
+    f"/api/media/{asset_id}/use", json=use_body).get_json()
+check("consumer project links are idempotent",
+      consumer_use_again["link_created"], False)
+check("consumer attribution events are idempotent",
+      consumer_use_again["usage_created"], False)
+
+phase4_detail = http.get(f"/api/media/{asset_id}").get_json()["asset"]
+check("consumer link uses the tool entity type",
+      any(row["entity_type"] == "social_post" and
+          row["entity_id"] == "post-123" for row in phase4_detail["links"]), True)
+check("consumer use records the normalized tool key",
+      any(row["tool"] == "social" and
+          row["creative_id"] == "post-123" for row in phase4_detail["usage"]), True)
+unknown_consumer = http.get(
+    f"/api/clients/{client_id}/media/for/not-a-tool")
+check("unknown consumers fail closed", unknown_consumer.status_code, 400)
+
 print(f"\n{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

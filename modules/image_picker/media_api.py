@@ -194,6 +194,39 @@ def queue_website_import(client_ref):
         "source_url": run.source_url,
     }}), (202 if created else 200)
 
+
+@bp.get("/api/clients/<client_ref>/media/for/<consumer>")
+@staff_only
+@db_guard
+def consumer_media(client_ref, consumer):
+    """Rights-aware Media Library adapter used by SmartHub tools."""
+    from .integrations import assets_for
+    result = assets_for(
+        client_ref, consumer, query=request.args.get("q", ""),
+        limit=request.args.get("limit", 60, type=int) or 60,
+        include_pending=request.args.get("include_pending") in {"1", "true"},
+    )
+    return jsonify(result), (200 if result.get("ok") else 400)
+
+
+@bp.post("/api/media/<int:asset_id>/use")
+@staff_only
+@db_guard
+def use_media_asset(asset_id):
+    """Link an asset to a tool entity and record its use idempotently."""
+    body = request.get_json(silent=True) or {}
+    from .integrations import record_use
+    result = record_use(
+        asset_id, body.get("consumer"), body.get("entity_id"),
+        usage_type=body.get("usage_type", ""),
+        campaign_id=body.get("campaign_id", ""),
+        creative_id=body.get("creative_id", ""),
+        placement=body.get("placement", ""),
+    )
+    status = 200 if result.get("ok") else (
+        404 if result.get("error") == "Media asset not found." else 400)
+    return jsonify(result), status
+
 @bp.get("/api/clients/<client_ref>/media/recommendations")
 @staff_only
 @db_guard

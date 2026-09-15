@@ -174,7 +174,15 @@ def build_preview(intake: dict) -> dict:
     recommended = ranked[0]["id"] if ranked else None
     for item in ranked:
         item.pop("_score", None)
-    return {"plan": plan, "themes": ranked,
+    media = []
+    client = str(intake.get("business_name") or "").strip()
+    if client:
+        try:
+            from modules.image_picker.integrations import assets_for
+            media = assets_for(client, "sites", limit=12).get("assets", [])
+        except Exception:                                # noqa: BLE001
+            media = []
+    return {"plan": plan, "themes": ranked, "media": media,
             "recommended_theme_id": recommended,
             "catalog_available": bool(catalog),
             "catalog_error": catalog_error}

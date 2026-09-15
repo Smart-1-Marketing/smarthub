@@ -296,9 +296,11 @@ def client_assets(client_id):
 
     from hub import client_context
     if category in cloudinary_service.GALLERY_CATEGORIES:
-        shared, _note = client_context.gallery_images(client.name)
+        shared, _note = client_context.gallery_images(
+            client.name, consumer="video_ctv")
     else:
-        shared, _note = client_context.gallery_videos(client.name)
+        shared, _note = client_context.gallery_videos(
+            client.name, consumer="video_ctv")
     for row in shared:
         pid = row.get("public_id") or ""
         if pid and pid in seen:

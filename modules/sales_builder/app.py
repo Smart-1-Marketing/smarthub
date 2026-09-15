@@ -734,6 +734,21 @@ def index():
     return render_template("index.html")
 
 
+@app.get("/api/media")
+def api_media_library():
+    """Return proposal-safe assets from the attached client's Media Library."""
+    from modules.image_picker.integrations import assets_for
+
+    client = (request.args.get("client") or "").strip()
+    if not client:
+        return jsonify({"ok": False, "error": "Choose a client first."}), 400
+    return jsonify(assets_for(
+        client, "proposal_builder",
+        query=request.args.get("q", ""),
+        limit=request.args.get("limit", 60, type=int),
+    ))
+
+
 @app.get("/api/config")
 def api_config():
     return jsonify({

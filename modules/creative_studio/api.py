@@ -1457,10 +1457,45 @@ def media_library():                                        # noqa: ANN202
     q = CsMediaAsset.query.filter_by(deleted=False, asset_type=tab)
     if client:
         q = q.filter_by(client_name=client)
-    rows = q.order_by(CsMediaAsset.created_at.desc()).limit(200).all()
+    rows = [r.as_dict() for r in q.order_by(CsMediaAsset.created_at.desc()).limit(200).all()]
+    if client and tab in {"image", "video", "generated", "logo"}:
+        try:
+            from modules.image_picker.integrations import assets_for
+            shared = assets_for(client, "creative_builder", limit=200).get("assets", [])
+            local_urls = {row.get("cloudinary_url") for row in rows}
+            for item in shared:
+                if item.get("storage_url") in local_urls:
+                    continue
+                resource = item.get("resource_type") or "image"
+                mapped = "video" if resource == "video" else (
+                    "logo" if item.get("asset_type") == "logo" or
+                    item.get("brand_asset_type") else "image")
+                if mapped != tab and not (tab == "generated" and
+                                          item.get("rights_status") == "AI Generated"):
+                    continue
+                rows.append({
+                    "id": f"media-{item['id']}", "media_asset_id": item["id"],
+                    "client_name": client, "asset_type": mapped,
+                    "filename": item.get("original_filename") or "Media Library asset",
+                    "thumbnail_url": item.get("thumbnail_url") or item.get("storage_url"),
+                    "cloudinary_url": item.get("storage_url"),
+                    "source": "Client Media Library", "canonical": True,
+                })
+        except Exception:                                  # noqa: BLE001
+            pass
     return render_template("cs_media.html", title="Media Library",
-                           client=client, tab=tab, assets=[r.as_dict() for r in rows],
+                           client=client, tab=tab, assets=rows,
                            asset_types=config.ASSET_TYPES)
+
+
+@bp.get("/api/client-media")
+def api_client_media():                                    # noqa: ANN202
+    from modules.image_picker.integrations import assets_for
+    result = assets_for((request.args.get("client") or "").strip(),
+                        "creative_builder",
+                        query=request.args.get("q", ""),
+                        limit=request.args.get("limit", 100, type=int) or 100)
+    return jsonify(result), (200 if result.get("ok") else 400)
 
 
 @bp.post("/api/media/index")

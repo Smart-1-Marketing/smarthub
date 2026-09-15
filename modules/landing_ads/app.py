@@ -205,6 +205,21 @@ def api_library():
     return jsonify({"ok": True, "sets": slim, "count": len(slim)})
 
 
+@app.route("/api/media")
+def api_media_library():
+    """Return paid-media-safe assets for an attached ad set or client."""
+    from modules.image_picker.integrations import assets_for
+
+    client = (request.args.get("client") or "").strip()
+    if not client:
+        return fail("Choose a client first.")
+    return jsonify(assets_for(
+        client, "creative_builder",
+        query=request.args.get("q", ""),
+        limit=request.args.get("limit", 60, type=int),
+    ))
+
+
 # ------------------------------------------------------------------- brief
 @app.route("/api/sets/<sid>/brief", methods=["POST"])
 def api_brief(sid):
