@@ -39,6 +39,7 @@ jobs:
         run: >-
           python -m py_compile
           mcp_gateway/server.py
+          mcp_gateway/metadata.py
           mcp_gateway/server_v2.py
           mcp_gateway/v2_tools.py
           mcp_gateway/test_server.py

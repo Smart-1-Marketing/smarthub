@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import os
 import unittest
+from importlib.metadata import version as package_version
 from unittest.mock import patch
 
 from mcp_gateway import server
@@ -57,6 +58,14 @@ class AuthBoundaryTests(unittest.TestCase):
         self.assertIn("read-only", text.lower())
         self.assertIn("cannot", text.lower())
         self.assertIn("post accounting transactions", text.lower())
+
+
+class DependencyBoundaryTests(unittest.TestCase):
+    def test_mcp_sdk_includes_v2_2_session_hardening(self):
+        major, minor = (
+            int(part) for part in package_version("mcp").split(".")[:2]
+        )
+        self.assertGreaterEqual((major, minor), (2, 2))
 
 
 class ToolMetadataTests(unittest.TestCase):
