@@ -1,10 +1,16 @@
 """Inactive GA4 / GTM housekeeping for SmartHub QA.
 
 GA4 can answer the 60-day activity question directly. GTM cannot: Tag Manager
-has no traffic-reporting API. A GTM container is therefore called inactive only
-when it has no published tags, or when every GA4 measurement ID in its live
-version maps to an accessible GA4 property with zero events and zero sessions
-in the same 60-day window. Ambiguous containers are shown as Needs Review.
+has no traffic-reporting API, so a container's own tags are the only thing
+that can positively confirm it is still firing -- and confirmed activity is
+the *one* way in for a container to read "active". Everything else -- no
+published tags, no GA4 tag in what is published, a GA4 tag whose property is
+not visible to this login or could not be read -- reads as inactive by
+default. Whether the linked GA4 property is itself separately flagged
+active or inactive by our own GA4-side scan is not a gating condition here;
+only a confirmed "yes, this fired" overrides the default. Needs Review is
+reserved for a scan that genuinely could not run (a listing call that
+failed, a login that needs reconnecting) rather than for this judgment call.
 """
 from __future__ import annotations
 
@@ -539,22 +545,25 @@ def _scan_login(login: str, refresh: str, on_progress=None, resource_cache: dict
                 "events": None, "sessions": None}
 
     def _classify_gtm(c: dict, has_tags: bool, mids: set[str], why_no_live: str) -> tuple[dict, str]:
+        """Inactive is the default; confirmed GA4 traffic is the only override.
+
+        Whether the property a live tag points at is itself visible to this
+        login, readable, or separately flagged active/inactive by the GA4
+        side of this same scan is not a gating condition -- a container with
+        no positively-confirmed activity in the window reads inactive,
+        whatever the reason we could not confirm it. Needs Review stays for
+        a scan that could not run at all (see the callers of this function),
+        never for an activity judgment call.
+        """
         base = _gtm_base(c)
         if why_no_live or not has_tags:
             return {**base, "reason": why_no_live or "Published container has no tags"}, "inactive"
         if not mids:
-            return ({**base, "reason": "Live tags exist, but no GA4 measurement ID can be resolved"},
-                    "review")
+            return ({**base, "reason": "Live tags exist, but reference no GA4 measurement ID -- "
+                                        f"nothing here to check for traffic in the last "
+                                        f"{WINDOW_DAYS} days"}, "inactive")
         linked = [r for mid in mids for r in by_mid.get(mid, [])]
         linked = list({r["resource"]: r for r in linked}.values())
-        if not linked:
-            return ({**base, "reason": "GA4 ID found, but its property is not visible to this login"},
-                    "review")
-        if all(r["status"] == "inactive" for r in linked):
-            return ({**base, "events": sum(r.get("events") or 0 for r in linked),
-                     "sessions": sum(r.get("sessions") or 0 for r in linked),
-                     "reason": "Linked GA4 property/properties have no activity for 60 days"},
-                    "inactive")
         if any(r["status"] == "active" for r in linked):
             # This is the "GTM firing recently needs no further check" case:
             # its own live tags already resolved to a GA4 property this scan
@@ -562,7 +571,15 @@ def _scan_login(login: str, refresh: str, on_progress=None, resource_cache: dict
             # fresh a moment ago or read back from cache -- no further Tag
             # Manager call happens for a container once it lands here.
             return {**base, "reason": "Linked GA4 activity detected"}, "active"
-        return {**base, "reason": "Linked GA4 activity could not be measured"}, "review"
+        if linked:
+            return ({**base, "events": sum(r.get("events") or 0 for r in linked),
+                     "sessions": sum(r.get("sessions") or 0 for r in linked),
+                     "reason": f"Linked GA4 property/properties have no activity for "
+                               f"{WINDOW_DAYS} days"},
+                    "inactive")
+        return ({**base, "reason": "Live tags reference a GA4 ID, but its activity could not be "
+                                    "confirmed from this login -- no confirmed traffic in the "
+                                    f"last {WINDOW_DAYS} days"}, "inactive")
 
     cached_gtm, fresh_gtm = [], []
     for c in containers_all:
