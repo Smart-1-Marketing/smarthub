@@ -282,19 +282,21 @@ the Google `Explorer` lesson. The pull says which answer it got rather
 than reading a refusal as a bad key. About two days, most of it the
 consent screen and the async report.
 
-**GroundTruth.** The reporting API is documented at
-https://reporting.groundtruth.com/api and we have no API access yet;
-that page could not be read from the development environment either
-(its outbound proxy refuses the host), so the shape below is what is
-known from the platform rather than from the document. Until credentials
-arrive the CSV door is the route, and `visits` -- GroundTruth's own
-store-visit figure -- is already a column the fact table carries and the
-client page draws for a geofencing buy. When the key comes: one
-`groundtruth.py` on the `audiogo.py` pattern (a field map a person
-confirms on a check page before the normalize reads it, because the
-first sync is where a column named `spend` turns out to hold something
-else), the host in `_PROVIDER_MARKERS`, and the visits metric filed
-under its own name rather than folded into conversions.
+**GroundTruth.** Built the day `GROUND_TRUTH_API` was set -- and every host
+that documents the API it unlocks (api-docs.groundtruth.com,
+reporting.groundtruth.com, docs.groundtruth.com, the help center) is
+refused by the Hub's own outbound proxy, so it is built the way AudioGo
+was: `modules/reports/groundtruth.py` reads a placeholder map in
+`groundtruth_map.py` that a person confirms from
+`/reports/groundtruth-check`, and `visits` -- GroundTruth's own store-visit
+figure -- lands in `extras` under its own name, never folded into
+conversions, and draws a *Store visits* tile on the client's page. What
+the plan below did not anticipate is the origin: with the document
+unreadable, `GROUND_TRUTH_API_BASE` has to be set by a person before
+anything is called, because the nightly pull would otherwise hand the key
+to whoever answers at a guessed host. The host is in `_PROVIDER_MARKERS`
+as a domain. What is still to do is the first live pull: set the origin,
+open the check page, paste the real names into the map.
 
 ## Suggested order
 
@@ -338,6 +340,6 @@ under its own name rather than folded into conversions.
    live pull: press Connect with the account that can see the manager,
    watch `/reports/` after the next six-hourly tick, and correct anything
    the transcription got wrong (`list_accounts()` names its assumptions).
-10. GroundTruth native pull -- blocked on API access; the CSV door and
-    the Windsor table are the routes until then. Sized once the
-    document can be read.
+10. GroundTruth native pull -- built (`modules/reports/groundtruth.py`,
+    `test_reports_groundtruth.py`); the origin and the field map are
+    confirmed from `/reports/groundtruth-check` on the first live pull.

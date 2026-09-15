@@ -46,6 +46,9 @@ ALIASES = {
                           "audio completions", "listens completed"),
     "ltr": ("ltr", "listen through rate", "listen thru rate", "completion rate"),
     "conversions": ("conversions", "total conversions", "convs"),
+    # GroundTruth's store-visit figure: kept under its own name in extras,
+    # never folded into conversions (see groundtruth_map.py).
+    "visits": ("visits", "store visits", "total visits", "visit count"),
 }
 
 REQUIRED = ("date", "account_id", "campaign_id")
@@ -148,6 +151,8 @@ def parse(text: str | bytes, platform: str = PLATFORM) -> dict:
                 fact["extras"][k] = int(fact["extras"].get(k, 0) + _num(get(row, k)))
         if "ltr" in cols:
             fact["extras"]["ltr"] = _num(get(row, "ltr"))
+        if "visits" in cols:
+            fact["extras"]["visits"] = int(fact["extras"].get("visits", 0) + _num(get(row, "visits")))
         if not fact["campaign_name"] and get(row, "campaign_name"):
             fact["campaign_name"] = str(get(row, "campaign_name")).strip()
     rows = list(keyed.values())

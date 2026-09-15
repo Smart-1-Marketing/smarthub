@@ -185,6 +185,16 @@ QUOTAS: dict[str, Quota] = {
         "the nightly reconcile. Microsoft charges nothing per call and "
         "publishes no ceiling this Hub can read; no limit until "
         "MICROSOFT_ADS_MONTHLY_LIMIT is set."),
+    # GroundTruth publishes no per-call price and no ceiling this Hub can
+    # read, so the native pull's calls are counted and the row reads *not
+    # measured* against a limit until GROUND_TRUTH_MONTHLY_LIMIT is set --
+    # spelled the way the key is, GROUND_TRUTH_API.
+    "groundtruth": Quota(
+        "groundtruth", "GroundTruth", "calls", 0, 0,
+        "GROUND_TRUTH_WARN_AT", "GROUND_TRUTH_MONTHLY_LIMIT",
+        "Reporting calls made by the native pull and the check page. "
+        "GroundTruth publishes no per-call price and no ceiling this Hub can "
+        "read; no limit until GROUND_TRUTH_MONTHLY_LIMIT is set."),
     # Google costs nothing and is limited by requests per day, so a monthly
     # allowance would be the wrong shape entirely -- google_estimate() does
     # the per-day, per-API comparison. This row is the monthly total, for
@@ -386,6 +396,17 @@ def record_microsoft_ads(url: str, *, module: str, api: str = "",
     can say which half of a pull spent it."""
     try:
         record("microsoft_ads", module=module, units=1, api=api or "",
+               detail=str(url or "")[:120], ok=ok)
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
+def record_groundtruth(url: str, *, module: str, api: str = "",
+                       ok: bool = True) -> None:
+    """One call to GroundTruth's reporting API, by the native pull or the
+    check page. Never raises."""
+    try:
+        record("groundtruth", module=module, units=1, api=api or "",
                detail=str(url or "")[:120], ok=ok)
     except Exception:                                   # noqa: BLE001
         pass
@@ -1544,6 +1565,22 @@ _PROVIDER_MARKERS = {
                   "so the pull's calls never reach the usage page.",
         "fix": "Call through bing_ads.call(), which records every request, or "
                "add quotas.record_microsoft_ads(url, module=..., api=...) after "
+               "the response.",
+    },
+    "groundtruth": {
+        # The API origin is a setting (GROUND_TRUTH_API_BASE) rather than a
+        # literal, so the marker is the domain any spelling of it carries: a
+        # module naming groundtruth.com and reaching the network records, or
+        # the pull's calls never reach the usage page.
+        "calls": lambda src: "groundtruth.com" in src and "requests." in src,
+        "recorded": ("record_groundtruth", 'record("groundtruth"',
+                     "from modules.reports import groundtruth",
+                     "modules.reports.groundtruth"),
+        "detail": "Calls GroundTruth's reporting API outside "
+                  "modules/reports/groundtruth.py and without recording it, "
+                  "so the pull's calls never reach the usage page.",
+        "fix": "Call through groundtruth.call(), which records every request, "
+               "or add quotas.record_groundtruth(url, module=..., api=...) after "
                "the response.",
     },
     "pickaxe": {

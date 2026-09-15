@@ -198,7 +198,7 @@ def _health_by_platform() -> dict:
 
 NATIVE_PULLS = (("ttd", "ttd"), ("google", "google_ads_perf"),
                 ("stackadapt", "stackadapt"), ("audiogo", "audiogo"),
-                ("bing", "bing"))
+                ("bing", "bing"), ("groundtruth", "groundtruth"))
 
 
 def _native_status() -> list[dict]:
@@ -442,6 +442,17 @@ def audiogo_check():
     never reaches a body) so the real names can be pasted into the map."""
     from . import audiogo
     return render_template("reports_audiogo_check.html", chk=audiogo.check())
+
+
+@app.route("/groundtruth-check")
+def groundtruth_check():
+    """What GroundTruth's configured endpoint actually answers, against what
+    groundtruth_map.py expects -- the audiogo-check pattern, for the
+    platform whose documentation the Hub's own environment cannot reach.
+    Calls nothing while GROUND_TRUTH_API_BASE is unset: the key is never
+    sent to a host nobody has confirmed."""
+    from . import groundtruth
+    return render_template("reports_groundtruth_check.html", chk=groundtruth.check())
 
 
 # ---------------------------------------------------------------- mapping

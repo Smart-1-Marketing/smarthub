@@ -146,6 +146,13 @@ services:
         sync: false
       - key: AUDIOGO_API_BASE
         sync: false
+      # The native GroundTruth pull: the key, under exactly this spelling, and
+      # the API origin a person has to name before anything is called; the
+      # field map is a placeholder corrected from /reports/groundtruth-check.
+      - key: GROUND_TRUTH_API
+        sync: false
+      - key: GROUND_TRUTH_API_BASE
+        sync: false
       - key: MOCK_MODE
         value: "false"
       - key: ENABLE_WRITE_ACTIONS

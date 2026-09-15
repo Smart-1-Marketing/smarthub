@@ -3306,6 +3306,15 @@ jobs:
       - name: The config-driven AudioGo pull and its check page
         if: matrix.group == 8
         run: python3 test_reports_audiogo.py
+      # GroundTruth: the key arrived before the document, so the call is
+      # shaped by groundtruth_map.py's placeholders, nothing is sent to a
+      # host nobody confirmed, the check page prints the raw keys, a map
+      # that does not resolve is refused by name, visits land under their
+      # own name and reach the client's page as a tile, and every call is
+      # recorded.
+      - name: The config-driven GroundTruth pull and its check page
+        if: matrix.group == 8
+        run: python3 test_reports_groundtruth.py
       # The organic-search section: gated on an SEO product AND a linked
       # analytics property, the client-facing labels naming no product by
       # default, Search Console missing said neutrally to the client and by
@@ -3417,7 +3426,7 @@ jobs:
                    test_reports_seo.py test_reports_ttd.py test_reports_stackadapt.py \
                    test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
                    test_reports_confirmations.py test_reports_quarantine.py \
-                   test_reports_reconcile.py test_reports_bing.py; do
+                   test_reports_reconcile.py test_reports_bing.py test_reports_groundtruth.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1
           done
 

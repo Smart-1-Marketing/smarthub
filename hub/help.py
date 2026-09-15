@@ -1028,6 +1028,17 @@ REGISTRY: list[Help] = [
        "it answered with, the key itself never among them, so the real "
        "names can be pasted into the map. Until it resolves the pull lands "
        "nothing and the Reports page says which field is missing."),
+    _h("reports.groundtruth.check", "The key arrived before the document",
+       "GROUND_TRUTH_API is set, and every host that documents the API it "
+       "unlocks is one the Hub's own environment cannot reach, so the origin, "
+       "the path, the auth header and the field names in groundtruth_map.py "
+       "are placeholders. This page calls the endpoint as configured for "
+       "yesterday and prints the keys it answered with, the key itself never "
+       "among them. It calls nothing until GROUND_TRUTH_API_BASE is set: a "
+       "guessed field name costs a refusal by name, a guessed host would hand "
+       "the key to whoever answers there. Visits land under their own name "
+       "and draw the client's Store visits tile; they are never counted as "
+       "conversions."),
     _h("reports.reconcile.states", "Our month against the platform's own",
        "Everything a client reads is campaign-days summed, and nothing else "
        "could say whether that sum is the month the platform would invoice. "
