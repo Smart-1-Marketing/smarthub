@@ -16,7 +16,7 @@ import secrets
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, ForeignKey, Integer, String, Text,
+    Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text,
     UniqueConstraint, select,
 )
 from sqlalchemy.orm import declarative_base, relationship
@@ -475,6 +475,129 @@ class SavedImage(Base):
             "saved_by": self.saved_by,
             "created_at": iso(self.created_at),
         }
+
+
+class MediaAssetDetail(Base):
+    """Platform metadata layered onto the existing canonical asset row.
+
+    ``SavedImage`` remains the storage/provenance record used by every current
+    producer.  This one-to-one extension lets Media Collector grow without a
+    second asset table or a flag-day migration for those producers.
+    """
+
+    __tablename__ = "media_asset_details"
+
+    id = Column(Integer, primary_key=True)
+    asset_id = Column(Integer, ForeignKey("image_picker_images.id", ondelete="CASCADE"),
+                      nullable=False, unique=True, index=True)
+    asset_type = Column(String(30), nullable=False, default="photo", index=True)
+    source_account = Column(String(200), nullable=True)
+    source_post_url = Column(Text, nullable=True)
+    original_filename = Column(String(300), nullable=True)
+    mime_type = Column(String(120), nullable=True)
+    duration = Column(Float, nullable=True)
+    caption = Column(Text, nullable=True)
+    original_alt = Column(Text, nullable=True)
+
+    ai_description = Column(Text, nullable=True)
+    ai_category = Column(String(80), nullable=True)
+    ai_tags = Column(Text, nullable=True)
+    ai_alt_text = Column(Text, nullable=True)
+    analysis_version = Column(String(80), nullable=True)
+    orientation = Column(String(20), nullable=True, index=True)
+    people_count = Column(Integer, nullable=True)
+    indoor_outdoor = Column(String(20), nullable=True)
+
+    quality_score = Column(Integer, nullable=True)
+    website_score = Column(Integer, nullable=True)
+    social_score = Column(Integer, nullable=True)
+    advertising_score = Column(Integer, nullable=True)
+    brand_asset_type = Column(String(40), nullable=True, index=True)
+
+    duplicate_hash = Column(String(128), nullable=True, index=True)
+    perceptual_hash = Column(String(128), nullable=True, index=True)
+    duplicate_of = Column(Integer, ForeignKey("image_picker_images.id", ondelete="SET NULL"),
+                          nullable=True, index=True)
+
+    rights_status = Column(String(30), nullable=False, default="Unknown", index=True)
+    rights_notes = Column(Text, nullable=True)
+    license_expiration = Column(DateTime, nullable=True)
+    approved_for_web = Column(Boolean, nullable=True)
+    approved_for_social = Column(Boolean, nullable=True)
+    approved_for_paid_media = Column(Boolean, nullable=True)
+
+    captured_at = Column(DateTime, nullable=True)
+    imported_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class MediaCollection(Base):
+    __tablename__ = "media_collections"
+    __table_args__ = (
+        UniqueConstraint("client_id", "name", name="uq_media_collection_client_name"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    client_id = Column(Integer, ForeignKey("image_picker_clients.id", ondelete="CASCADE"),
+                       nullable=False, index=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    collection_type = Column(String(30), nullable=False, default="user")
+    created_by = Column(String(200), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class MediaCollectionAsset(Base):
+    __tablename__ = "media_collection_assets"
+    __table_args__ = (
+        UniqueConstraint("collection_id", "asset_id", name="uq_media_collection_asset"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    collection_id = Column(Integer, ForeignKey("media_collections.id", ondelete="CASCADE"),
+                           nullable=False, index=True)
+    asset_id = Column(Integer, ForeignKey("image_picker_images.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    added_by = Column(String(200), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class MediaAssetLink(Base):
+    """A reusable asset's relationship to a project, campaign, or creative."""
+
+    __tablename__ = "media_asset_links"
+    __table_args__ = (
+        UniqueConstraint("asset_id", "entity_type", "entity_id", "usage_type",
+                         name="uq_media_asset_entity_usage"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    asset_id = Column(Integer, ForeignKey("image_picker_images.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    client_id = Column(Integer, ForeignKey("image_picker_clients.id", ondelete="CASCADE"),
+                       nullable=False, index=True)
+    entity_type = Column(String(40), nullable=False, index=True)
+    entity_id = Column(String(160), nullable=False, index=True)
+    usage_type = Column(String(80), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class MediaUsage(Base):
+    """Append-only use history and the future performance-data join."""
+
+    __tablename__ = "media_asset_usage"
+
+    id = Column(Integer, primary_key=True)
+    asset_id = Column(Integer, ForeignKey("image_picker_images.id", ondelete="CASCADE"),
+                      nullable=False, index=True)
+    client_id = Column(Integer, ForeignKey("image_picker_clients.id", ondelete="CASCADE"),
+                       nullable=False, index=True)
+    tool = Column(String(80), nullable=False, index=True)
+    campaign_id = Column(String(160), nullable=True, index=True)
+    creative_id = Column(String(160), nullable=True, index=True)
+    placement = Column(String(160), nullable=True)
+    used_at = Column(DateTime, nullable=False, default=utcnow, index=True)
 
 
 # --------------------------------------------------------------------------- #

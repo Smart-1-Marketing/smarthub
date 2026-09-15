@@ -234,7 +234,7 @@ def staff_only(fn):
     @wraps(fn)
     def inner(*a, **kw):
         if not hub_login_ok():
-            if request.path.startswith(f"{bp.url_prefix}/api/"):
+            if request.path.startswith("/api/") or request.path.startswith(f"{bp.url_prefix}/api/"):
                 return jsonify({"ok": False, "error": "Sign in to continue."}), 401
             return redirect("/login?next=" + request.path)
         return fn(*a, **kw)
@@ -248,7 +248,7 @@ def db_guard(fn):
         if DB_BOOT_ERROR:
             log.error("image_picker db unavailable: %s", DB_BOOT_ERROR)
             msg = "The image library is temporarily unavailable. Try again in a moment."
-            if request.path.startswith(f"{bp.url_prefix}/api/"):
+            if request.path.startswith("/api/") or request.path.startswith(f"{bp.url_prefix}/api/"):
                 return jsonify({"ok": False, "error": msg}), 503
             return render_template("picker_error.html", message=msg), 503
         return fn(*a, **kw)
@@ -1553,5 +1553,10 @@ def register_image_picker(app) -> None:
     """Mount the module. Call from the Hub's app factory."""
     init_db(app)
     app.register_blueprint(bp)
+    # Public service contract for every SmartHub module.  Kept beside the
+    # existing blueprint so all current producers continue writing the same
+    # canonical asset rows while consumers gain stable client-media routes.
+    from .media_api import bp as media_api_bp
+    app.register_blueprint(media_api_bp)
     if DB_BOOT_ERROR:
         app.logger.error("image_picker started with a database error: %s", DB_BOOT_ERROR)

@@ -1,5 +1,5 @@
 {% extends "picker_base.html" %}
-{% block title %}Gallery · {{ client.name }}{% endblock %}
+{% block title %}Media · {{ client.name }}{% endblock %}
 
 {% block body %}
 <style>
@@ -35,13 +35,18 @@
 .import-grid{display:grid;grid-template-columns:2fr repeat(3,minmax(120px,1fr)) auto;gap:8px;align-items:end}
 .import-grid label{font-size:11px;color:var(--ink-3)}
 .import-grid input{display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:7px;border:1px solid var(--line);border-radius:6px;font:13px inherit}
+.media-nav{display:flex;gap:4px;overflow-x:auto;margin:14px 0 18px;padding-bottom:3px}
+.media-nav a{white-space:nowrap;text-decoration:none;color:var(--ink-3);font-size:12px;font-weight:650;padding:7px 11px;border-radius:999px;border:1px solid var(--line);background:#fff}
+.media-nav a.active{background:#0a2240;color:#fff;border-color:#0a2240}
+.collection-list{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+.collection-item{border:1px solid var(--line);border-radius:999px;padding:5px 10px;font-size:12px;background:#fff}
 </style>
 <header class="top">
   <div class="wrap">
     <div class="mark">S1</div>
     <div>
       <h1>{{ client.name }}</h1>
-      <div class="sub">Saved images</div>
+      <div class="sub">Client Media Center</div>
     </div>
     <div class="top-actions">
       <a class="ghost" href="{{ url_for('image_picker.staff_picker', client_id=client.id) }}">Pick more</a>
@@ -51,16 +56,25 @@
 </header>
 
 <main class="wrap">
+  <nav class="media-nav" aria-label="Media sections">
+    <a class="active" href="#library">Library</a>
+    <a href="#collections">Collections</a>
+    <a href="#import">Import</a>
+    <a href="#upload">Upload Requests</a>
+    <a href="{{ url_for('image_picker.staff_picker', client_id=client.id) }}">AI Recommendations</a>
+    <a href="#library" data-filter="logo">Brand Assets</a>
+    <a href="#usage">Usage</a>
+  </nav>
   <section class="intro">
-    <h2>Saved images {{ help_dot('image_picker.gallery.saved') if help_dot is defined else '' }}</h2>
-    <p>Everything this client has saved, where it lives, and whether it reached their Smart 1 Suite media library.</p>
+    <h2>Media Library {{ help_dot('image_picker.gallery.saved') if help_dot is defined else '' }}</h2>
+    <p>One canonical library for every photo, video, logo, graphic and document used across SmartHub.</p>
   </section>
 
   <div id="messages" aria-live="polite"></div>
 
-  {% include "_upload_panel.html" %}
+  <div id="upload">{% include "_upload_panel.html" %}</div>
 
-  <section class="panel">
+  <section class="panel" id="import">
     <div class="panel-head"><h2>Import Creative Information</h2></div>
     <p class="hint">Add an existing Google Drive or secure shared-file link. The original file stays in its current folder and keeps its existing permissions.</p>
     <div class="import-grid">
@@ -72,7 +86,17 @@
     </div>
   </section>
 
-  <section class="panel">
+  <section class="panel" id="collections">
+    <div class="panel-head"><h2>Collections</h2><span class="hint">An asset can belong to more than one.</span></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input id="collectionName" maxlength="200" placeholder="New collection name"
+             style="flex:1;min-width:220px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;font:inherit">
+      <button class="btn quiet small" id="createCollection" type="button">Create collection</button>
+    </div>
+    <div class="collection-list" id="collectionList"><span class="hint">Loading…</span></div>
+  </section>
+
+  <section class="panel" id="library">
     <div class="panel-head"><h2>Library {{ help_dot('image_picker.gallery.library') if help_dot is defined else '' }}</h2><span class="hint" id="count"></span></div>
     {#- A search box, because until now this gallery had none: a client who
         sends forty photographs leaves forty thumbnails, and finding the one
@@ -117,6 +141,11 @@
     </div>
   </section>
 
+  <section class="panel" id="usage">
+    <div class="panel-head"><h2>Usage</h2></div>
+    <p class="hint">SmartHub tools record campaign, creative, placement and use dates against the canonical asset through the Media API. Open an asset from an integrated tool to see its history.</p>
+  </section>
+
   <div class="foot">Attribution is stored with every asset in client gallery context.</div>
 </main>
 
@@ -158,6 +187,29 @@
           + "Try again in a moment; if it keeps happening this is a bug to report."};
     }); });
   }
+
+  function loadCollections(){
+    fetch('/api/clients/'+encodeURIComponent(CLIENT_ID)+'/media/collections',
+          {credentials:'same-origin',headers:{'Accept':'application/json'}})
+      .then(function(r){return r.json();}).then(function(d){
+        var host=document.getElementById('collectionList'), rows=d.collections||[];
+        host.innerHTML=rows.length?rows.map(function(c){return '<span class="collection-item">'
+          +esc(c.name)+' <span class="hint">'+c.count+'</span></span>';}).join('')
+          :'<span class="hint">No collections yet.</span>';
+      }).catch(function(){document.getElementById('collectionList').innerHTML='<span class="hint">Collections unavailable.</span>';});
+  }
+  document.getElementById('createCollection').onclick=function(){
+    var input=document.getElementById('collectionName'), name=input.value.trim();
+    if(!name)return;
+    fetch('/api/clients/'+encodeURIComponent(CLIENT_ID)+'/media/collections',{
+      method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:name})
+    }).then(function(r){return r.json();}).then(function(d){
+      if(!d.ok){note('bad','Collection not created',d.error||'Try again.');return;}
+      input.value='';loadCollections();
+    });
+  };
+  loadCollections();
 
   var STATUS = {
     sent:    ['on',   'In Suite'],

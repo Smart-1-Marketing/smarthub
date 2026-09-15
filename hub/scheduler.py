@@ -279,6 +279,21 @@ def job_refresh_knack_products(app) -> dict:
     return knack_products.refresh()
 
 
+def job_media_library_backfill(app) -> dict:
+    """Provision the one canonical Media Library for every registry client.
+
+    The operation is additive and idempotent.  It runs after the Knack refresh
+    in the job list, so a newly created company receives its library on the
+    same scheduler cycle without a second client-identity feed.
+    """
+    try:
+        from modules.image_picker.platform import backfill_registered_clients
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"media platform unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        return backfill_registered_clients()
+
+
 def job_backup_json(app) -> dict:
     """Mirror the durable JSON on the disk into the database.
 
@@ -1070,6 +1085,8 @@ JOBS = {
                           "Record providers past their monthly warning mark."),
     "knack_products":    (180, job_refresh_knack_products,
                           "Re-pull IO products and campaigns from Knack."),
+    "media_libraries":   (180, job_media_library_backfill,
+                          "Provision one canonical Media Library per client."),
     "invoice_links":     (480, job_refresh_invoice_links,
                           "Refresh public QuickBooks invoice links (3x daily)."),
     "google_index":      (180, job_refresh_google_index,

@@ -596,11 +596,12 @@ function render(g,q){
     </div></div>
     <div class="card-b"><div id="c-qb-attachbox" style="display:none;margin-bottom:10px"></div><div id="c-qb"><div class="empty">Searching… <span class="spin"></span></div></div></div></div>`;
 
-  // ---------- Client images (from the SEO Image Pipeline) ----------
+  // ---------- Client Media Library ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
-    <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Images</span><h3>Client Images {{ help_dot('hub.client360.images') if help_dot is defined else '' }}</h3>
+    <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Media</span><h3>Media Library {{ help_dot('hub.client360.images') if help_dot is defined else '' }}</h3>
     <div class="right" style="display:flex;gap:10px;align-items:center" id="c-img-acts"></div></div>
-    <div class="card-b" id="c-images"><div class="empty">Looking for saved images… <span class="spin"></span></div></div></div>`;
+    <div class="card-b"><div id="c-media-summary" style="margin-bottom:12px"><div class="empty">Loading media health... <span class="spin"></span></div></div>
+    <div id="c-images"><div class="empty">Looking for saved images... <span class="spin"></span></div></div></div></div>`;
 
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fef3c7;color:#92400e">Notes</span><h3>Client Notes</h3></div><div class="card-b" id="c-notes"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
@@ -1091,8 +1092,32 @@ function render(g,q){
   const actsHost = document.getElementById('c-img-acts');
   if(actsHost) actsHost.innerHTML =
       '<a class="open-link" id="c-img-uplink" style="cursor:pointer">&#128279; Client upload link</a>'
-    + '<a class="open-link" href="'+galleryHref+'">See client image gallery →</a>'
+    + '<a class="open-link" href="'+galleryHref+'">Open Media →</a>'
     + '<a class="open-link" href="'+optimizeHref+'">Optimize client images →</a>';
+
+
+  /* This read also lazily provisions the library when a newly-created client
+     reaches Client 360. The scheduler performs the complete backfill; the
+     dashboard path closes the gap between creation and the next sweep. */
+  fetch('/api/clients/'+encodeURIComponent(name)+'/media?limit=1',
+        {headers:{'Accept':'application/json'},credentials:'same-origin'})
+    .then(function(r){return r.ok?r.json():Promise.reject();})
+    .then(function(d){
+      var host=$('c-media-summary'), s=d.summary||{}, t=s.types||{}, w=s.warnings||{};
+      if(!host)return;
+      var kinds=[['Photos',t.photo||0],['Videos',t.video||0],['Logos',t.logo||0],
+                 ['Graphics',t.graphic||0],['Social',t.social||0],['Other',(t.document||0)+(t.other||0)]];
+      var warns=[['low-resolution',w.low_resolution||0],['potential duplicates',w.potential_duplicates||0],
+                 ['missing ALT descriptions',w.missing_alt||0],['rights not confirmed',w.rights_unknown||0]]
+                .filter(function(x){return x[1]>0;});
+      host.innerHTML='<div style="display:flex;gap:18px;align-items:baseline;flex-wrap:wrap">'
+        +'<div style="font-size:28px;font-weight:700;color:var(--navy)">'+esc(s.total||0)
+        +' <span class="muted" style="font-size:13px;font-weight:500">Assets</span></div>'
+        +kinds.map(function(x){return '<span class="muted" style="font-size:12px"><b style="color:var(--navy)">'
+          +x[1]+'</b> '+x[0]+'</span>';}).join('')+'</div>'
+        +(warns.length?'<div style="margin-top:8px;color:#92400e;font-size:12px">Needs attention: '
+          +warns.map(function(x){return x[1]+' '+x[0];}).join(' &middot; ')+'</div>':'');
+    }).catch(function(){var host=$('c-media-summary');if(host)host.innerHTML='<div class="empty">Media summary unavailable.</div>';});
 
   /* The link a client uploads their own photographs through.
      Client Image Uploads has always been able to hand one out, and getting it
