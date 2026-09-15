@@ -3618,12 +3618,20 @@ def create_hub_app() -> Flask:
         role = _ask_role(user, account)
         actor = (getattr(account, "email", "") or getattr(user, "email", "")
                  or current_user() or "Shared login")
+        views = []
+        if account is not None and actor:
+            try:
+                from . import department_views
+                views = department_views.assignments_for(actor)
+            except Exception:  # Ask still works without the optional view store
+                views = []
         body = request.get_json(silent=True) or {}
         try:
             from . import ask_smarthub
             result = ask_smarthub.ask(
                 body.get("question", ""), role=role, actor=actor,
-                context=body.get("context"), history=body.get("history"))
+                context=body.get("context"), history=body.get("history"),
+                views=views)
             return jsonify(result)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
@@ -7186,7 +7194,7 @@ def create_hub_app() -> Flask:
                          # tell somebody who wandered into another
                          # (Commercial Builder) that it finished.
                          b'<script defer src="/hub-job-notify.js"></script>'
-                         b'<script defer src="/assets/ask-smarthub-widget.js?v=ask-v1"></script>')
+                         b'<script defer src="/assets/ask-smarthub-widget.js?v=ask-assistant-v2"></script>')
             # The third code path. hub/templates/base.html links these for the
             # Hub's own pages and wsgi.py's HubBar injects them into the twenty
             # dispatcher-mounted modules -- and a blueprint registered on the
