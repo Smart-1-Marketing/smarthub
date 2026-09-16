@@ -177,21 +177,19 @@ check("it asks existing or new", 'name="client_type"' in html
 check("existing gets the Client 360 lookup", "/api/clients/search" in html)
 check("Google Ads is not offered as a tickbox", 'value="ads"' not in html)
 
-# /qa-inactive/ is a live screen, not a stale link. This asserted a redirect,
-# which was true when the catch-all for retired Google Access paths went in and
-# stopped being true in the same window: `modules/google_access/qa_inactive.py`
-# registers a blueprint at exactly this prefix, so the path now serves the
-# cleanup log. Two changes that merged cleanly and disagreed about one route --
-# no conflict, no error, and main red at a step neither of them touched.
-#
-# The screen is what is wanted, so the assertion moves rather than the route.
-# The catch-all is still asserted, one line down, against a path that really is
-# retired -- which is the half of this check that was ever about the catch-all.
+# The catch-all added for stale links is registered on the SAME prefix a live
+# tool is mounted under, so the thing worth asserting is that it does not
+# swallow one. `/tools/google-access/qa-inactive/` is the Inactive GA & GTM
+# report -- its own blueprint (modules/google_access/qa_inactive.py), an entry
+# in hub/sidebar.py and a registered walkthrough in hub/demos.py -- and a
+# redirect there is the tool disappearing from the Hub with every screen still
+# looking healthy.
 qa_inactive = composed.get("/tools/google-access/qa-inactive/")
-check("the qa-inactive screen serves rather than redirecting",
+check("a live tool under this prefix is not swallowed by the catch-all",
       qa_inactive.status_code == 200, qa_inactive.status_code)
 stale_path = composed.get("/tools/google-access/retired-link/")
-check("other stale Google Access paths resolve", stale_path.status_code in (301, 302), stale_path.status_code)
+check("a genuinely stale Google Access path goes to the tool home",
+      stale_path.status_code in (301, 302), stale_path.status_code)
 
 def create(**payload):
     return composed.post("/tools/google-access/api/requests", data=payload)
