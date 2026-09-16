@@ -178,7 +178,9 @@ check("existing gets the Client 360 lookup", "/api/clients/search" in html)
 check("Google Ads is not offered as a tickbox", 'value="ads"' not in html)
 
 qa_inactive = composed.get("/tools/google-access/qa-inactive/")
-check("legacy qa-inactive path resolves", qa_inactive.status_code in (301, 302), qa_inactive.status_code)
+check("the inactive QA screen remains reachable", qa_inactive.status_code == 200, qa_inactive.status_code)
+check("the inactive QA route serves its own screen",
+      "Inactive GA" in qa_inactive.get_data(as_text=True))
 stale_path = composed.get("/tools/google-access/retired-link/")
 check("other stale Google Access paths resolve", stale_path.status_code in (301, 302), stale_path.status_code)
 
