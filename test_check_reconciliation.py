@@ -33,7 +33,10 @@ os.environ.pop("CHECK_RECONCILIATION_DATA_DIR", None)
 # and INHERITS its DATABASE_URL is the shape test_jsonstore.py names -- the
 # mirror is keyed relative to the data root, so two runs against one shared
 # database meet each other's rows and the second one reads what the first
-# wrote. Owning both takes it out of that shape entirely.
+# wrote. Owning it names the database this file uses instead of taking
+# whatever the machine had. It does NOT isolate the phases below from each
+# other: they share this URL by design, and because the key is relative a
+# second temporary directory is the same key. See the concurrency section.
 os.environ["DATABASE_URL"] = (os.environ.get("CHECKREC_TEST_DATABASE_URL")
                               or "sqlite:///" + os.path.join(_TMP, "hub.sqlite3"))
 os.environ.setdefault("SECRET_KEY", "fixture-only")
@@ -320,6 +323,26 @@ _env["HUB_DATA_DIR"] = _CONC
 _env.pop("CHECK_RECONCILIATION_DATA_DIR", None)
 _env["DATABASE_URL"] = (os.environ.get("CHECKREC_TEST_DATABASE_URL")
                         or "sqlite:///" + os.path.join(_CONC, "hub.sqlite3"))
+# A fresh HUB_DATA_DIR is not a fresh store, and on Postgres that difference
+# is the whole thing. `jsonstore.key_for()` keys the mirror on the path
+# RELATIVE TO the data root precisely so a blob survives the root moving --
+# so this directory and the one the checks above used produce the same key,
+# `check-reconciliation/state.json`, and against a shared database the first
+# read here restores the record the upload check created. The run is green on
+# SQLite, where each phase gets its own file, and red only on the backend
+# production actually uses.
+#
+# So the key is cleared rather than the directory swapped. `delete_json()`
+# takes the file and the mirrored blob together, which is the point -- dropping
+# only the file would leave the blob to be restored by the next read.
+subprocess.run(
+    [sys.executable, "-c",
+     "import os, sys\n"
+     "sys.path.insert(0, os.environ['CR_REPO'])\n"
+     "from hub import jsonstore\n"
+     "from modules.check_reconciliation import app as cr\n"
+     "jsonstore.delete_json(str(cr._data_file()))\n"],
+    env=_env, capture_output=True)
 # Warm the store first, so the two children race the data rather than the
 # schema the first one to arrive would create.
 subprocess.run([sys.executable, str(WORKER), "warm"], env=_env, capture_output=True)
