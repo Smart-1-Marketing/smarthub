@@ -2,14 +2,14 @@
 #
 # Every one of these existed as a command a person was expected to remember.
 # tools/linkcheck.py in particular was written because a module page calling
-# fetch("/api/lead") works standalone and 404s under a mount â€” that bug took
+# fetch("/api/lead") works standalone and 404s under a mount — that bug took
 # down lead capture on seven landing pages for two days. It exits non-zero
 # precisely so it can gate a release; until now nothing ran it.
 #
 # The `checks` job takes no secrets. It runs on pull requests from a clean
 # checkout, so it must pass without Knack, GoHighLevel, Cloudinary or OpenAI
 # credentials. Anything that needs a live third party belongs in /status and
-# /api/integrity on the deployment, not here â€” a gate that fails because
+# /api/integrity on the deployment, not here — a gate that fails because
 # someone else's API is down teaches people to ignore it.
 name: checks
 
@@ -190,7 +190,7 @@ jobs:
           if [ -f test_ads_optimization.py ]; then
             python test_ads_optimization.py
           else
-            echo "test_ads_optimization.py not on this branch â€” nothing to run."
+            echo "test_ads_optimization.py not on this branch — nothing to run."
           fi
 
       - name: Scheduled Google Ads optimization sweep
@@ -205,7 +205,7 @@ jobs:
         if: matrix.group == 1
         # The sweep ran twice a day and told nobody. This is the alerting half:
         # five signals kept apart, every kind of nothing saying which kind it
-        # is, and every count opening the rows it counted â€” including that the
+        # is, and every count opening the rows it counted — including that the
         # page it opens reads the account parameter and the filter the card
         # builds, which is where a link that resolves and shows the wrong
         # client's scan comes from.
@@ -218,7 +218,7 @@ jobs:
         # the rows it counted. Asserts that both filters filter, that the list
         # is served rather than typed, that a module named in the URL but not
         # in the list is kept rather than dropped to All, and that all three
-        # routes stay refused to a stranger â€” this log names every member of
+        # routes stay refused to a stranger — this log names every member of
         # staff and what they did.
         run: python test_activity_filter.py
 
@@ -262,7 +262,7 @@ jobs:
       # The Display Ad Builder is the one module that is not Python: ~14,000
       # lines of TypeScript with its own test suite, and until now this
       # workflow ran none of it. The stated reason was that its tests need an
-      # npm install "this workflow deliberately does not do" â€” which was worth
+      # npm install "this workflow deliberately does not do" — which was worth
       # re-measuring rather than inheriting. A clean `npm ci` for this module
       # is a couple of seconds and 63 MB, the suite is about ten, and what it
       # buys is the layout engine, the delivery zip, the QA checks and the
@@ -270,7 +270,7 @@ jobs:
       #
       # So the renderer is compiled and tested here, and the file-content
       # checks below keep the job they are uniquely good at.
-      - name: Display ad renderer â€” install
+      - name: Display ad renderer — install
         if: matrix.group == 1
         working-directory: modules/ad_builder
         run: npm ci
@@ -278,12 +278,12 @@ jobs:
       # Typecheck first, and separately: a type error and a failing assertion
       # are different problems, and a combined step reports whichever came
       # first as though it were the only one.
-      - name: Display ad renderer â€” typecheck
+      - name: Display ad renderer — typecheck
         if: matrix.group == 1
         working-directory: modules/ad_builder
         run: npx tsc --noEmit
 
-      - name: Display ad renderer â€” tests
+      - name: Display ad renderer — tests
         if: matrix.group == 1
         working-directory: modules/ad_builder
         run: npm test
@@ -292,23 +292,23 @@ jobs:
       # directly. Ubuntu's chromium package installs Snap and can spend many
       # minutes downloading another browser that these tests never launch.
       # ffmpeg and fonts are still required for the real render/encode tests.
-      - name: HyperFrames render service â€” install
+      - name: HyperFrames render service — install
         if: matrix.group == 1
         working-directory: modules/hf_render_service
         run: npm ci
 
-      - name: HyperFrames render service â€” typecheck
+      - name: HyperFrames render service — typecheck
         if: matrix.group == 1
         working-directory: modules/hf_render_service
         run: npx tsc -p tsconfig.json --noEmit
 
       # Includes a real end-to-end render of every paint style and every Vox
-      # beat treatment â€” a real headless Chromium capture and a real ffmpeg
+      # beat treatment — a real headless Chromium capture and a real ffmpeg
       # encode, verified with ffprobe. Deliberately not mocked: a mocked
       # version of this test would have missed every one of the bugs it was
       # written to catch, two of them a local variable named `text`/`pop`
       # silently shadowing p5.js's own drawing functions.
-      - name: HyperFrames render service â€” tests
+      - name: HyperFrames render service — tests
         if: matrix.group == 1
         working-directory: modules/hf_render_service
         run: npm test
@@ -317,7 +317,7 @@ jobs:
         if: matrix.group == 1
         # This is NOT made redundant by the suite above, and the two do not
         # overlap at all. Every node test imports a module from src/; this
-        # reads the things nothing imports â€” the hand-authored template JSON,
+        # reads the things nothing imports — the hand-authored template JSON,
         # and build.html, which is a browser file no test can require. So it
         # still asserts that the Proof point field has a box to draw into on
         # every layout with room for one, that those boxes sit inside the safe
@@ -325,12 +325,12 @@ jobs:
         # render server agree about the shapes they exchange across a wire
         # nothing typechecks. Guarded like the steps below so this workflow
         # stays mergeable on a branch that predates the file. Reads files
-        # only â€” no database, no network.
+        # only — no database, no network.
         run: |
           if [ -f test_display_ads.py ]; then
             python test_display_ads.py
           else
-            echo "test_display_ads.py not on this branch â€” nothing to run."
+            echo "test_display_ads.py not on this branch — nothing to run."
           fi
 
       - name: Marketing Efficiency Audit tests
@@ -345,12 +345,12 @@ jobs:
         # and that lead delivery goes through hub/leads.py's one route and
         # nowhere else. Guarded like the steps around it so this workflow
         # stays mergeable on a branch that predates the file. Reads files
-        # only â€” no database, no network.
+        # only — no database, no network.
         run: |
           if [ -f test_marketing_audit.py ]; then
             python test_marketing_audit.py
           else
-            echo "test_marketing_audit.py not on this branch â€” nothing to run."
+            echo "test_marketing_audit.py not on this branch — nothing to run."
           fi
 
       - name: Ads estimate and client review tests
@@ -364,7 +364,7 @@ jobs:
           if [ -f test_ads_estimate.py ]; then
             python test_ads_estimate.py
           else
-            echo "test_ads_estimate.py not on this branch â€” nothing to run."
+            echo "test_ads_estimate.py not on this branch — nothing to run."
           fi
 
       - name: Measured CPC, access tier and deploy preflight tests
@@ -381,7 +381,7 @@ jobs:
           if [ -f test_ads_keyword_plan.py ]; then
             python test_ads_keyword_plan.py
           else
-            echo "test_ads_keyword_plan.py not on this branch â€” nothing to run."
+            echo "test_ads_keyword_plan.py not on this branch — nothing to run."
           fi
 
       - name: Smart 1 Ads explainer tests
@@ -399,7 +399,7 @@ jobs:
           if [ -f test_ads_explainer.py ]; then
             python test_ads_explainer.py
           else
-            echo "test_ads_explainer.py not on this branch â€” nothing to run."
+            echo "test_ads_explainer.py not on this branch — nothing to run."
           fi
 
       - name: JSON store tests
@@ -428,7 +428,7 @@ jobs:
           if [ -f test_jsonstore_locking.py ]; then
             python test_jsonstore_locking.py
           else
-            echo "test_jsonstore_locking.py not on this branch â€” nothing to run."
+            echo "test_jsonstore_locking.py not on this branch — nothing to run."
           fi
 
       - name: Activity log store tests
@@ -447,7 +447,7 @@ jobs:
           if [ -f test_audit_store.py ]; then
             python test_audit_store.py
           else
-            echo "test_audit_store.py not on this branch â€” nothing to run."
+            echo "test_audit_store.py not on this branch — nothing to run."
           fi
 
       - name: Activity log store against Postgres
@@ -464,7 +464,7 @@ jobs:
           if [ -f test_audit_store.py ]; then
             python test_audit_store.py
           else
-            echo "test_audit_store.py not on this branch â€” nothing to run."
+            echo "test_audit_store.py not on this branch — nothing to run."
           fi
 
       - name: Lead store tests
@@ -479,7 +479,7 @@ jobs:
           if [ -f test_lead_store.py ]; then
             python test_lead_store.py
           else
-            echo "test_lead_store.py not on this branch â€” nothing to run."
+            echo "test_lead_store.py not on this branch — nothing to run."
           fi
 
       - name: Lead store against Postgres
@@ -494,7 +494,7 @@ jobs:
             python test_lead_store.py
             python test_lead_delivery.py
           else
-            echo "test_lead_store.py not on this branch â€” nothing to run."
+            echo "test_lead_store.py not on this branch — nothing to run."
           fi
 
       - name: SmartForecast store tests
@@ -512,7 +512,7 @@ jobs:
           if [ -f test_smartforecast_store.py ]; then
             python test_smartforecast_store.py
           else
-            echo "test_smartforecast_store.py not on this branch â€” nothing to run."
+            echo "test_smartforecast_store.py not on this branch — nothing to run."
           fi
 
       - name: SmartForecast against Postgres
@@ -528,7 +528,7 @@ jobs:
             python test_smartforecast_store.py
             python test_smartforecast.py
           else
-            echo "test_smartforecast_store.py not on this branch â€” nothing to run."
+            echo "test_smartforecast_store.py not on this branch — nothing to run."
           fi
 
       - name: Database boot tests
@@ -546,7 +546,7 @@ jobs:
           if [ -f test_db_boot.py ]; then
             python test_db_boot.py
           else
-            echo "test_db_boot.py not on this branch â€” nothing to run."
+            echo "test_db_boot.py not on this branch — nothing to run."
           fi
 
       - name: Report day-cache tests
@@ -562,7 +562,7 @@ jobs:
           if [ -f test_report_cache.py ]; then
             python test_report_cache.py
           else
-            echo "test_report_cache.py not on this branch â€” nothing to run."
+            echo "test_report_cache.py not on this branch — nothing to run."
           fi
 
       - name: QA report tests
@@ -581,7 +581,7 @@ jobs:
           if [ -f test_qa_reports.py ]; then
             python test_qa_reports.py
           else
-            echo "test_qa_reports.py not on this branch â€” nothing to run."
+            echo "test_qa_reports.py not on this branch — nothing to run."
           fi
 
       - name: Landing page maker tests
@@ -622,7 +622,7 @@ jobs:
           if [ -f test_commercial_providers.py ]; then
             python test_commercial_providers.py
           else
-            echo "test_commercial_providers.py not on this branch â€” nothing to run."
+            echo "test_commercial_providers.py not on this branch — nothing to run."
           fi
 
       - name: HyperFrames render service tests
@@ -640,19 +640,19 @@ jobs:
           if [ -f test_hyperframes.py ]; then
             python test_hyperframes.py
           else
-            echo "test_hyperframes.py not on this branch â€” nothing to run."
+            echo "test_hyperframes.py not on this branch — nothing to run."
           fi
 
       - name: Cross-Hub job-finished notification tests
         if: matrix.group == 2
-        # hub/job_notify.py â€” the pointer registry hub-job-notify.js polls
+        # hub/job_notify.py — the pointer registry hub-job-notify.js polls
         # from wherever somebody is, not only from the tool that started the
         # render. Same skip-rather-than-fail shape as the tests around it.
         run: |
           if [ -f test_job_notify.py ]; then
             python test_job_notify.py
           else
-            echo "test_job_notify.py not on this branch â€” nothing to run."
+            echo "test_job_notify.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder wizard tests
@@ -663,7 +663,7 @@ jobs:
           if [ -f test_commercial_wizard.py ]; then
             python test_commercial_wizard.py
           else
-            echo "test_commercial_wizard.py not on this branch â€” nothing to run."
+            echo "test_commercial_wizard.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder scene-asset routes (Runway, upload, client assets)
@@ -675,7 +675,7 @@ jobs:
           if [ -f test_commercial_assets.py ]; then
             python test_commercial_assets.py
           else
-            echo "test_commercial_assets.py not on this branch â€” nothing to run."
+            echo "test_commercial_assets.py not on this branch — nothing to run."
           fi
 
       - name: Client 360 social & links tests
@@ -688,7 +688,7 @@ jobs:
           if [ -f test_client360_social.py ]; then
             python test_client360_social.py
           else
-            echo "test_client360_social.py not on this branch â€” nothing to run."
+            echo "test_client360_social.py not on this branch — nothing to run."
           fi
 
       - name: SEO client page social & links tests
@@ -700,7 +700,7 @@ jobs:
           if [ -f test_seo_client_social.py ]; then
             python test_seo_client_social.py
           else
-            echo "test_seo_client_social.py not on this branch â€” nothing to run."
+            echo "test_seo_client_social.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder dashboard layout tests
@@ -711,7 +711,7 @@ jobs:
           if [ -f test_commercial_dashboard_layout.py ]; then
             python test_commercial_dashboard_layout.py
           else
-            echo "test_commercial_dashboard_layout.py not on this branch â€” nothing to run."
+            echo "test_commercial_dashboard_layout.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder client review tests
@@ -722,7 +722,7 @@ jobs:
           if [ -f test_commercial_review.py ]; then
             python test_commercial_review.py
           else
-            echo "test_commercial_review.py not on this branch â€” nothing to run."
+            echo "test_commercial_review.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder mock-mode tests
@@ -737,7 +737,7 @@ jobs:
           if [ -f test_commercial_mock.py ]; then
             python test_commercial_mock.py
           else
-            echo "test_commercial_mock.py not on this branch â€” nothing to run."
+            echo "test_commercial_mock.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder advertising-rule tests
@@ -753,7 +753,7 @@ jobs:
           if [ -f test_commercial_compliance.py ]; then
             python test_commercial_compliance.py
           else
-            echo "test_commercial_compliance.py not on this branch â€” nothing to run."
+            echo "test_commercial_compliance.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder archetype and category tests
@@ -769,7 +769,7 @@ jobs:
           if [ -f test_commercial_library.py ]; then
             python test_commercial_library.py
           else
-            echo "test_commercial_library.py not on this branch â€” nothing to run."
+            echo "test_commercial_library.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder metering and spot library tests
@@ -784,7 +784,7 @@ jobs:
           if [ -f test_commercial_meter.py ]; then
             python test_commercial_meter.py
           else
-            echo "test_commercial_meter.py not on this branch â€” nothing to run."
+            echo "test_commercial_meter.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder generated audio tests
@@ -800,14 +800,14 @@ jobs:
           if [ -f test_commercial_audio.py ]; then
             python test_commercial_audio.py
           else
-            echo "test_commercial_audio.py not on this branch â€” nothing to run."
+            echo "test_commercial_audio.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder dashboard rail
         if: matrix.group == 2
         # The dashboard is the one screen in the module that asks the Hub for
         # its icon rail and opts the generic accordion out, and its section
-        # rail is read by assistive technology â€” so both are asserted against
+        # rail is read by assistive technology — so both are asserted against
         # the template rather than remembered. It arrived with no step naming
         # it, which is the gap test_ci_gate.py exists to find: a check gated
         # by nobody is a check that stops being run. Guarded like the steps
@@ -817,7 +817,7 @@ jobs:
           if [ -f test_commercial_dashboard_layout.py ]; then
             python test_commercial_dashboard_layout.py
           else
-            echo "test_commercial_dashboard_layout.py not on this branch â€” nothing to run."
+            echo "test_commercial_dashboard_layout.py not on this branch — nothing to run."
           fi
 
       - name: Website block tests
@@ -828,7 +828,7 @@ jobs:
           if [ -f test_site_blocks.py ]; then
             python test_site_blocks.py
           else
-            echo "test_site_blocks.py not on this branch â€” nothing to run."
+            echo "test_site_blocks.py not on this branch — nothing to run."
           fi
 
       - name: MSA signing page and embed tests
@@ -839,7 +839,7 @@ jobs:
           if [ -f test_msa_embed.py ]; then
             python test_msa_embed.py
           else
-            echo "test_msa_embed.py not on this branch â€” nothing to run."
+            echo "test_msa_embed.py not on this branch — nothing to run."
           fi
 
       - name: Landing-page embeds for smart1marketing.com
@@ -854,7 +854,7 @@ jobs:
           if [ -f test_landing_embeds.py ]; then
             python test_landing_embeds.py
           else
-            echo "test_landing_embeds.py not on this branch â€” nothing to run."
+            echo "test_landing_embeds.py not on this branch — nothing to run."
           fi
 
       - name: Calculator embed tests
@@ -862,7 +862,7 @@ jobs:
         # The same rules as the step above, on the path they did not cover.
         # The calculators are a blueprint on the hub app and every gameplan
         # tool is dispatcher-mounted, so nothing written for /land/<tool>/embed
-        # was in force on /tools/calculators â€” and both halves failed at once:
+        # was in force on /tools/calculators — and both halves failed at once:
         # the hub's embed policy answered the marketing site's iframe with the
         # Smart 1 Suite refusal (403, plain text, in front of a prospect), and
         # the staff sidebar was injected into the calculator pages themselves.
@@ -870,7 +870,7 @@ jobs:
           if [ -f test_calculator_embeds.py ]; then
             python test_calculator_embeds.py
           else
-            echo "test_calculator_embeds.py not on this branch â€” nothing to run."
+            echo "test_calculator_embeds.py not on this branch — nothing to run."
           fi
 
       - name: IO Builder start-screen tests
@@ -880,7 +880,7 @@ jobs:
           if [ -f test_io_start.py ]; then
             python test_io_start.py
           else
-            echo "test_io_start.py not on this branch â€” nothing to run."
+            echo "test_io_start.py not on this branch — nothing to run."
           fi
 
       - name: Landing page goal and offer tests
@@ -890,7 +890,7 @@ jobs:
           if [ -f test_landing_spec.py ]; then
             python test_landing_spec.py
           else
-            echo "test_landing_spec.py not on this branch â€” nothing to run."
+            echo "test_landing_spec.py not on this branch — nothing to run."
           fi
 
       - name: Scan widget tests
@@ -903,7 +903,7 @@ jobs:
           if [ -f test_scan_widgets.py ]; then
             python test_scan_widgets.py
           else
-            echo "test_scan_widgets.py not on this branch â€” nothing to run."
+            echo "test_scan_widgets.py not on this branch — nothing to run."
           fi
 
       - name: Prospect queue tests
@@ -915,7 +915,7 @@ jobs:
           if [ -f test_prospect_queue.py ]; then
             python test_prospect_queue.py
           else
-            echo "test_prospect_queue.py not on this branch â€” nothing to run."
+            echo "test_prospect_queue.py not on this branch — nothing to run."
           fi
 
       - name: Upsell report tests
@@ -929,7 +929,7 @@ jobs:
           if [ -f test_upsell_report.py ]; then
             python test_upsell_report.py
           else
-            echo "test_upsell_report.py not on this branch â€” nothing to run."
+            echo "test_upsell_report.py not on this branch — nothing to run."
           fi
 
       - name: Prospect record tests
@@ -943,7 +943,7 @@ jobs:
           if [ -f test_prospect_record.py ]; then
             python test_prospect_record.py
           else
-            echo "test_prospect_record.py not on this branch â€” nothing to run."
+            echo "test_prospect_record.py not on this branch — nothing to run."
           fi
 
       - name: Website audit tests
@@ -957,12 +957,12 @@ jobs:
           if [ -f test_website_audit.py ]; then
             python test_website_audit.py
           else
-            echo "test_website_audit.py not on this branch â€” nothing to run."
+            echo "test_website_audit.py not on this branch — nothing to run."
           fi
 
       - name: Stock photo search tests
         if: matrix.group == 3
-        # Four sources in one search â€” the three free libraries and our own
+        # Four sources in one search — the three free libraries and our own
         # Cloudinary folders. Asserts that a folder nobody has created reads as
         # missing rather than as a search that found nothing, that a provider
         # which refused is named, and that the client-facing picker did not
@@ -972,7 +972,7 @@ jobs:
           if [ -f test_stock_search.py ]; then
             python test_stock_search.py
           else
-            echo "test_stock_search.py not on this branch â€” nothing to run."
+            echo "test_stock_search.py not on this branch — nothing to run."
           fi
 
       - name: Image picker tests
@@ -985,7 +985,7 @@ jobs:
             python test_image_picker.py
             python test_master_gallery.py
           else
-            echo "test_image_picker.py not on this branch â€” nothing to run."
+            echo "test_image_picker.py not on this branch — nothing to run."
           fi
 
       - name: Image Creator gallery tests
@@ -997,7 +997,7 @@ jobs:
           if [ -f test_image_creator.py ]; then
             python test_image_creator.py
           else
-            echo "test_image_creator.py not on this branch â€” nothing to run."
+            echo "test_image_creator.py not on this branch — nothing to run."
           fi
 
       - name: Display ad QC tests
@@ -1012,7 +1012,7 @@ jobs:
           if [ -f test_display_ad_qc.py ]; then
             python test_display_ad_qc.py
           else
-            echo "test_display_ad_qc.py not on this branch â€” nothing to run."
+            echo "test_display_ad_qc.py not on this branch — nothing to run."
           fi
 
       - name: Animated GIF export tests
@@ -1027,7 +1027,7 @@ jobs:
           if [ -f test_animated_export.py ]; then
             python test_animated_export.py
           else
-            echo "test_animated_export.py not on this branch â€” nothing to run."
+            echo "test_animated_export.py not on this branch — nothing to run."
           fi
 
       - name: Image Creator review link tests
@@ -1042,7 +1042,7 @@ jobs:
           if [ -f test_ic_shares.py ]; then
             python test_ic_shares.py
           else
-            echo "test_ic_shares.py not on this branch â€” nothing to run."
+            echo "test_ic_shares.py not on this branch — nothing to run."
           fi
 
       - name: Lead delivery tests
@@ -1053,7 +1053,7 @@ jobs:
           if [ -f test_lead_delivery.py ]; then
             python test_lead_delivery.py
           else
-            echo "test_lead_delivery.py not on this branch â€” nothing to run."
+            echo "test_lead_delivery.py not on this branch — nothing to run."
           fi
 
       - name: Target area and delivery tests
@@ -1087,7 +1087,7 @@ jobs:
           if [ -f test_target_areas.py ]; then
             python test_target_areas.py
           else
-            echo "test_target_areas.py not on this branch â€” nothing to run."
+            echo "test_target_areas.py not on this branch — nothing to run."
           fi
 
       - name: API usage estimate tests
@@ -1098,7 +1098,7 @@ jobs:
           if [ -f test_api_usage.py ]; then
             python test_api_usage.py
           else
-            echo "test_api_usage.py not on this branch â€” nothing to run."
+            echo "test_api_usage.py not on this branch — nothing to run."
           fi
 
       - name: Google account index tests
@@ -1108,10 +1108,10 @@ jobs:
           if [ -f test_google_index.py ]; then
             python test_google_index.py
           else
-            echo "test_google_index.py not on this branch â€” nothing to run."
+            echo "test_google_index.py not on this branch — nothing to run."
           fi
 
-      - name: Diagnostics â€” the QuickBooks check
+      - name: Diagnostics — the QuickBooks check
         if: matrix.group == 3
         # link_status() and health() each had no reader; both now answer
         # through one row on the panel every other provider reports on.
@@ -1119,7 +1119,7 @@ jobs:
           if [ -f test_diagnostics.py ]; then
             python test_diagnostics.py
           else
-            echo "test_diagnostics.py not on this branch â€” nothing to run."
+            echo "test_diagnostics.py not on this branch — nothing to run."
           fi
 
       - name: Proposal specification and creative gate tests
@@ -1128,7 +1128,7 @@ jobs:
           if [ -f test_proposal_spec.py ]; then
             python test_proposal_spec.py
           else
-            echo "test_proposal_spec.py not on this branch â€” nothing to run."
+            echo "test_proposal_spec.py not on this branch — nothing to run."
           fi
 
       - name: Proposal and IO integrity regressions
@@ -1144,15 +1144,15 @@ jobs:
           if [ -f test_proposal_consulting.py ]; then
             python test_proposal_consulting.py
           else
-            echo "test_proposal_consulting.py not on this branch â€” nothing to run."
+            echo "test_proposal_consulting.py not on this branch — nothing to run."
           fi
 
-      - name: Rate card coverage â€” every product, on a proposal that renders
+      - name: Rate card coverage — every product, on a proposal that renders
         if: matrix.group == 3
         # The tests around the card check its rules against the rows somebody
         # thought to write down, which is the set that was already right. This
         # builds eight proposals from the card's own categories, buys every
-        # product on one of them, and renders each as a PDF and a Word file â€”
+        # product on one of them, and renders each as a PDF and a Word file —
         # so a product added tomorrow is exercised without anybody editing a
         # list, and a whole new category fails by name rather than being
         # silently skipped. Guarded like the steps around it; it reaches no
@@ -1161,10 +1161,10 @@ jobs:
           if [ -f test_rate_card_coverage.py ]; then
             python test_rate_card_coverage.py
           else
-            echo "test_rate_card_coverage.py not on this branch â€” nothing to run."
+            echo "test_rate_card_coverage.py not on this branch — nothing to run."
           fi
 
-      - name: Knack field map tests â€” what is mapped, and what is assumed
+      - name: Knack field map tests — what is mapped, and what is assumed
         if: matrix.group == 3
         # The map is read from the modules that own the ids rather than
         # restated, a confirmation is retired when its field is repinned, and
@@ -1173,10 +1173,10 @@ jobs:
           if [ -f test_knack_map.py ]; then
             python test_knack_map.py
           else
-            echo "test_knack_map.py not on this branch â€” nothing to run."
+            echo "test_knack_map.py not on this branch — nothing to run."
           fi
 
-      - name: IO record tests â€” the order as a record, not just a PDF
+      - name: IO record tests — the order as a record, not just a PDF
         if: matrix.group == 3
         # One row per order, a resubmission that updates rather than doubling,
         # and bookkeeping that cannot fail the submit it is bookkeeping for.
@@ -1186,10 +1186,10 @@ jobs:
           if [ -f test_io_records.py ]; then
             python test_io_records.py
           else
-            echo "test_io_records.py not on this branch â€” nothing to run."
+            echo "test_io_records.py not on this branch — nothing to run."
           fi
 
-      - name: IO reconciliation tests â€” orders with no campaign in Knack
+      - name: IO reconciliation tests — orders with no campaign in Knack
         if: matrix.group == 3
         # Whether the campaign an insertion order was written for was ever set
         # up. A stale source read as proof that nothing was trafficked is the
@@ -1200,10 +1200,10 @@ jobs:
           if [ -f test_io_reconcile.py ]; then
             python test_io_reconcile.py
           else
-            echo "test_io_reconcile.py not on this branch â€” nothing to run."
+            echo "test_io_reconcile.py not on this branch — nothing to run."
           fi
 
-      - name: Sales scoreboard tests â€” the pipeline on the dashboard
+      - name: Sales scoreboard tests — the pipeline on the dashboard
         if: matrix.group == 3
         # The five signals, one reading behind both screens, and each count
         # landing on the rows it counted. Guarded like the steps around it;
@@ -1212,10 +1212,10 @@ jobs:
           if [ -f test_sales_status.py ]; then
             python test_sales_status.py
           else
-            echo "test_sales_status.py not on this branch â€” nothing to run."
+            echo "test_sales_status.py not on this branch — nothing to run."
           fi
 
-      - name: Campaign cost tests â€” one number for what it costs
+      - name: Campaign cost tests — one number for what it costs
         if: matrix.group == 3
         # The plan is the number: the cover, the media plan, the investment
         # summary, the insertion order and the dashboard all read it. Guarded
@@ -1224,10 +1224,10 @@ jobs:
           if [ -f test_campaign_cost.py ]; then
             python test_campaign_cost.py
           else
-            echo "test_campaign_cost.py not on this branch â€” nothing to run."
+            echo "test_campaign_cost.py not on this branch — nothing to run."
           fi
 
-      - name: Quote validity tests â€” the clock, and what Suite decides
+      - name: Quote validity tests — the clock, and what Suite decides
         if: matrix.group == 3
         # How long a sent proposal's pricing stands, the Expired status that
         # nothing used to set, the Suite stage change that reaches the quote
@@ -1237,10 +1237,10 @@ jobs:
           if [ -f test_quote_validity.py ]; then
             python test_quote_validity.py
           else
-            echo "test_quote_validity.py not on this branch â€” nothing to run."
+            echo "test_quote_validity.py not on this branch — nothing to run."
           fi
 
-      - name: Draft tests â€” unfinished IOs and proposals
+      - name: Draft tests — unfinished IOs and proposals
         if: matrix.group == 3
         # Both halves of coming back to interrupted work: the server-side
         # draft store, the IO builder's list, and the proposal wizard
@@ -1250,7 +1250,7 @@ jobs:
           if [ -f test_drafts.py ]; then
             python test_drafts.py
           else
-            echo "test_drafts.py not on this branch â€” nothing to run."
+            echo "test_drafts.py not on this branch — nothing to run."
           fi
 
       - name: Proposal share tests
@@ -1262,10 +1262,10 @@ jobs:
           if [ -f test_proposal_share.py ]; then
             python test_proposal_share.py
           else
-            echo "test_proposal_share.py not on this branch â€” nothing to run."
+            echo "test_proposal_share.py not on this branch — nothing to run."
           fi
 
-      - name: Short.io link masking â€” the slug, reuse, conflicts, opens
+      - name: Short.io link masking — the slug, reuse, conflicts, opens
         if: matrix.group == 3
         # hub/short_links.py masks a client-facing link under s1report.co and
         # counts opens through Short.io. Nothing in it reaches the network:
@@ -1277,10 +1277,10 @@ jobs:
           if [ -f test_short_links.py ]; then
             python test_short_links.py
           else
-            echo "test_short_links.py not on this branch â€” nothing to run."
+            echo "test_short_links.py not on this branch — nothing to run."
           fi
 
-      - name: Proposal targeting tests â€” the map, the pastes, the research
+      - name: Proposal targeting tests — the map, the pastes, the research
         if: matrix.group == 3
         # Guarded like the steps around it so this workflow stays mergeable on
         # a branch that predates the file. Nothing in it reaches a third party:
@@ -1290,7 +1290,7 @@ jobs:
           if [ -f test_proposal_targeting.py ]; then
             python test_proposal_targeting.py
           else
-            echo "test_proposal_targeting.py not on this branch â€” nothing to run."
+            echo "test_proposal_targeting.py not on this branch — nothing to run."
           fi
 
       # hub/zip_geo.py is what the ZIP-radius lookup measures against instead
@@ -1299,13 +1299,13 @@ jobs:
       # CT at 10 miles is 23 ZIP Codes -- against the bundled data file
       # itself, so a bad future edit to that file is caught here rather than
       # in a proposal. Reaches no network and no database.
-      - name: ZIP-radius lookup â€” the real case, pinned against the real data
+      - name: ZIP-radius lookup — the real case, pinned against the real data
         if: matrix.group == 3
         run: |
           if [ -f test_zip_geo.py ]; then
             python test_zip_geo.py
           else
-            echo "test_zip_geo.py not on this branch â€” nothing to run."
+            echo "test_zip_geo.py not on this branch — nothing to run."
           fi
 
       # hub/openai_responses.py is the one OpenAI Responses reader for the IO
@@ -1313,26 +1313,26 @@ jobs:
       # this drives its own branching (the hosted-tool refusal, a truncated
       # answer, and the "completed but empty" gap this pass closed) directly,
       # rather than only through whichever caller happens to stub it.
-      - name: The shared OpenAI Responses reader â€” every way it fails, named
+      - name: The shared OpenAI Responses reader — every way it fails, named
         if: matrix.group == 3
         run: |
           if [ -f test_openai_responses.py ]; then
             python test_openai_responses.py
           else
-            echo "test_openai_responses.py not on this branch â€” nothing to run."
+            echo "test_openai_responses.py not on this branch — nothing to run."
           fi
 
       # test_io_builder.py drives IO Builder's four AI buttons through a
       # stubbed model; nothing had done the same for the Proposal Builder's
       # three, and reading /api/ai/rewrite closely for this pass is what
       # found the empty-answer-reads-as-success gap above.
-      - name: Proposal Builder AI buttons â€” refusal, cut-short, and an empty answer
+      - name: Proposal Builder AI buttons — refusal, cut-short, and an empty answer
         if: matrix.group == 3
         run: |
           if [ -f test_proposal_ai.py ]; then
             python test_proposal_ai.py
           else
-            echo "test_proposal_ai.py not on this branch â€” nothing to run."
+            echo "test_proposal_ai.py not on this branch — nothing to run."
           fi
 
       - name: Social content planner tests
@@ -1346,7 +1346,7 @@ jobs:
           if [ -f test_social_plan.py ]; then
             python test_social_plan.py
           else
-            echo "test_social_plan.py not on this branch â€” nothing to run."
+            echo "test_social_plan.py not on this branch — nothing to run."
           fi
 
       - name: GPT ad pack tests
@@ -1361,7 +1361,7 @@ jobs:
           if [ -f test_gpt_ads.py ]; then
             python test_gpt_ads.py
           else
-            echo "test_gpt_ads.py not on this branch â€” nothing to run."
+            echo "test_gpt_ads.py not on this branch — nothing to run."
           fi
 
       - name: Sites match and client URL discovery tests
@@ -1375,7 +1375,7 @@ jobs:
           if [ -f test_sites_match.py ]; then
             python test_sites_match.py
           else
-            echo "test_sites_match.py not on this branch â€” nothing to run."
+            echo "test_sites_match.py not on this branch — nothing to run."
           fi
 
       - name: Sites billing tests
@@ -1393,7 +1393,7 @@ jobs:
           if [ -f test_sites_billing.py ]; then
             python test_sites_billing.py
           else
-            echo "test_sites_billing.py not on this branch â€” nothing to run."
+            echo "test_sites_billing.py not on this branch — nothing to run."
           fi
 
       - name: Smart 1 Sites Builder tests
@@ -1408,7 +1408,7 @@ jobs:
           if [ -f test_sites_builder.py ]; then
             python test_sites_builder.py
           else
-            echo "test_sites_builder.py not on this branch â€” nothing to run."
+            echo "test_sites_builder.py not on this branch — nothing to run."
           fi
 
       - name: Domain attach, orphan URL and domain purchase tests
@@ -1423,12 +1423,12 @@ jobs:
           if [ -f test_domain_links.py ]; then
             python test_domain_links.py
           else
-            echo "test_domain_links.py not on this branch â€” nothing to run."
+            echo "test_domain_links.py not on this branch — nothing to run."
           fi
 
       - name: Nightly-window helper tests
         if: matrix.group == 4
-        # hub/nightly.py â€” "run once after 2am Eastern," shared by every job
+        # hub/nightly.py — "run once after 2am Eastern," shared by every job
         # that wants a once-a-day window rather than restating it. The thing
         # worth proving is the DST awareness a fixed-UTC-hour scheme cannot
         # have: the same wall-clock hour in January and in July has to land
@@ -1448,7 +1448,7 @@ jobs:
           if [ -f test_suite_embed.py ]; then
             python test_suite_embed.py
           else
-            echo "test_suite_embed.py not on this branch â€” nothing to run."
+            echo "test_suite_embed.py not on this branch — nothing to run."
           fi
 
       - name: Calculator embed tests
@@ -1463,7 +1463,7 @@ jobs:
           if [ -f test_calculator_embed.py ]; then
             python test_calculator_embed.py
           else
-            echo "test_calculator_embed.py not on this branch â€” nothing to run."
+            echo "test_calculator_embed.py not on this branch — nothing to run."
           fi
 
       - name: Marketplace app scope tests
@@ -1479,7 +1479,7 @@ jobs:
           if [ -f test_ghl_scopes.py ]; then
             python test_ghl_scopes.py
           else
-            echo "test_ghl_scopes.py not on this branch â€” nothing to run."
+            echo "test_ghl_scopes.py not on this branch — nothing to run."
           fi
 
       - name: Orphaned Google account tests
@@ -1493,7 +1493,7 @@ jobs:
           if [ -f test_google_links.py ]; then
             python test_google_links.py
           else
-            echo "test_google_links.py not on this branch â€” nothing to run."
+            echo "test_google_links.py not on this branch — nothing to run."
           fi
 
       - name: Google Access OAuth flow tests
@@ -1514,7 +1514,7 @@ jobs:
           if [ -f test_google_access.py ]; then
             python test_google_access.py
           else
-            echo "test_google_access.py not on this branch â€” nothing to run."
+            echo "test_google_access.py not on this branch — nothing to run."
           fi
 
       - name: Google Access inactive-accounts scan progress tests
@@ -1531,7 +1531,7 @@ jobs:
           if [ -f test_google_inactive_qa_progress.py ]; then
             python test_google_inactive_qa_progress.py
           else
-            echo "test_google_inactive_qa_progress.py not on this branch â€” nothing to run."
+            echo "test_google_inactive_qa_progress.py not on this branch — nothing to run."
           fi
 
       - name: Google Access inactive-accounts scan resource-cache tests
@@ -1550,7 +1550,7 @@ jobs:
           if [ -f test_google_inactive_qa_cache.py ]; then
             python test_google_inactive_qa_cache.py
           else
-            echo "test_google_inactive_qa_cache.py not on this branch â€” nothing to run."
+            echo "test_google_inactive_qa_cache.py not on this branch — nothing to run."
           fi
 
       - name: Google Access inactive-accounts GTM default and site-check tests
@@ -1568,7 +1568,7 @@ jobs:
           if [ -f test_google_inactive_qa_sitecheck.py ]; then
             python test_google_inactive_qa_sitecheck.py
           else
-            echo "test_google_inactive_qa_sitecheck.py not on this branch â€” nothing to run."
+            echo "test_google_inactive_qa_sitecheck.py not on this branch — nothing to run."
           fi
 
       - name: Google Access inactive-accounts bulk action tests
@@ -1585,12 +1585,12 @@ jobs:
           if [ -f test_google_inactive_qa_bulk.py ]; then
             python test_google_inactive_qa_bulk.py
           else
-            echo "test_google_inactive_qa_bulk.py not on this branch â€” nothing to run."
+            echo "test_google_inactive_qa_bulk.py not on this branch — nothing to run."
           fi
           if [ -f test_google_inactive_qa_bulk_ui.js ]; then
             node test_google_inactive_qa_bulk_ui.js
           else
-            echo "test_google_inactive_qa_bulk_ui.js not on this branch â€” nothing to run."
+            echo "test_google_inactive_qa_bulk_ui.js not on this branch — nothing to run."
           fi
 
       - name: Blog taxonomy, guardrail and CMS publish tests
@@ -1604,7 +1604,7 @@ jobs:
           if [ -f test_blog_publish.py ]; then
             python test_blog_publish.py
           else
-            echo "test_blog_publish.py not on this branch â€” nothing to run."
+            echo "test_blog_publish.py not on this branch — nothing to run."
           fi
 
       - name: WordPress publishing and the credential store
@@ -1621,7 +1621,7 @@ jobs:
           if [ -f test_wordpress_publish.py ]; then
             python test_wordpress_publish.py
           else
-            echo "test_wordpress_publish.py not on this branch â€” nothing to run."
+            echo "test_wordpress_publish.py not on this branch — nothing to run."
           fi
 
       - name: The hub's own tours and walkthrough buttons
@@ -1634,7 +1634,7 @@ jobs:
           if [ -f test_hub_help_layer.py ]; then
             python test_hub_help_layer.py
           else
-            echo "test_hub_help_layer.py not on this branch â€” nothing to run."
+            echo "test_hub_help_layer.py not on this branch — nothing to run."
           fi
 
       - name: linkcheck helper and sendBeacon coverage tests
@@ -1647,7 +1647,7 @@ jobs:
           if [ -f test_linkcheck_helpers.py ]; then
             python test_linkcheck_helpers.py
           else
-            echo "test_linkcheck_helpers.py not on this branch â€” nothing to run."
+            echo "test_linkcheck_helpers.py not on this branch — nothing to run."
           fi
 
       - name: SEO client list and record tests
@@ -1661,7 +1661,7 @@ jobs:
           if [ -f test_seo_page.py ]; then
             python test_seo_page.py
           else
-            echo "test_seo_page.py not on this branch â€” nothing to run."
+            echo "test_seo_page.py not on this branch — nothing to run."
           fi
 
       - name: SEO Intelligence recommendations
@@ -1676,13 +1676,13 @@ jobs:
           if [ -f test_seo_intelligence.py ]; then
             python test_seo_intelligence.py
           else
-            echo "test_seo_intelligence.py not on this branch â€” nothing to run."
+            echo "test_seo_intelligence.py not on this branch — nothing to run."
           fi
 
       - name: Client 360 workspace layout
         if: matrix.group == 4
         # The record's cards are moved into rail sections by title, and the
-        # matching is driven in node against the template's own card titles â€”
+        # matching is driven in node against the template's own card titles —
         # if it stops matching, every card piles into Overview with the page
         # still looking complete. Also holds the actions the accordion's
         # toolbar used to carry. Guarded like the steps above so this
@@ -1691,7 +1691,7 @@ jobs:
           if [ -f test_client360_layout.py ]; then
             python test_client360_layout.py
           else
-            echo "test_client360_layout.py not on this branch â€” nothing to run."
+            echo "test_client360_layout.py not on this branch — nothing to run."
           fi
 
       - name: Client 360 Tracked links reads Knack too
@@ -1707,7 +1707,7 @@ jobs:
           if [ -f test_client360_utm_knack.py ]; then
             python test_client360_utm_knack.py
           else
-            echo "test_client360_utm_knack.py not on this branch â€” nothing to run."
+            echo "test_client360_utm_knack.py not on this branch — nothing to run."
           fi
 
       - name: Commercial Builder dashboard layout tests
@@ -1719,7 +1719,7 @@ jobs:
           if [ -f test_commercial_dashboard_layout.py ]; then
             python test_commercial_dashboard_layout.py
           else
-            echo "test_commercial_dashboard_layout.py not on this branch â€” nothing to run."
+            echo "test_commercial_dashboard_layout.py not on this branch — nothing to run."
           fi
 
       - name: Image download and shared zip builder tests
@@ -1733,7 +1733,7 @@ jobs:
           if [ -f test_image_download.py ]; then
             python test_image_download.py
           else
-            echo "test_image_download.py not on this branch â€” nothing to run."
+            echo "test_image_download.py not on this branch — nothing to run."
           fi
 
       - name: Client 360 images, the brand card and the way back
@@ -1749,7 +1749,7 @@ jobs:
           if [ -f test_client_images.py ]; then
             python test_client_images.py
           else
-            echo "test_client_images.py not on this branch â€” nothing to run."
+            echo "test_client_images.py not on this branch — nothing to run."
           fi
 
       - name: The client upload link, and the client an IO brings into being
@@ -1765,10 +1765,10 @@ jobs:
           if [ -f test_client_uploads.py ]; then
             python test_client_uploads.py
           else
-            echo "test_client_uploads.py not on this branch â€” nothing to run."
+            echo "test_client_uploads.py not on this branch — nothing to run."
           fi
 
-      - name: Ad Assets â€” Drive creative into the client library
+      - name: Ad Assets — Drive creative into the client library
         if: matrix.group == 4
         # The folder shape, the dedupe key, and the two writes a copy must not
         # make: nothing to Drive at all, and nothing to Knack until somebody
@@ -1780,7 +1780,7 @@ jobs:
           if [ -f test_ad_assets.py ]; then
             python test_ad_assets.py
           else
-            echo "test_ad_assets.py not on this branch â€” nothing to run."
+            echo "test_ad_assets.py not on this branch — nothing to run."
           fi
 
       - name: Image attribution audit, and the gallery that reads it
@@ -1794,7 +1794,7 @@ jobs:
           if [ -f test_image_audit.py ]; then
             python test_image_audit.py
           else
-            echo "test_image_audit.py not on this branch â€” nothing to run."
+            echo "test_image_audit.py not on this branch — nothing to run."
           fi
 
       - name: Alt text and Claude-in-Chrome publish prompts
@@ -1808,7 +1808,7 @@ jobs:
           if [ -f test_alt_text.py ]; then
             python test_alt_text.py
           else
-            echo "test_alt_text.py not on this branch â€” nothing to run."
+            echo "test_alt_text.py not on this branch — nothing to run."
           fi
 
       - name: Video library tests
@@ -1821,7 +1821,7 @@ jobs:
           if [ -f test_video_library.py ]; then
             python test_video_library.py
           else
-            echo "test_video_library.py not on this branch â€” nothing to run."
+            echo "test_video_library.py not on this branch — nothing to run."
           fi
 
       - name: Video Search gallery tests
@@ -1832,7 +1832,7 @@ jobs:
           if [ -f test_video_search_gallery.py ]; then
             python test_video_search_gallery.py
           else
-            echo "test_video_search_gallery.py not on this branch â€” nothing to run."
+            echo "test_video_search_gallery.py not on this branch — nothing to run."
           fi
 
       - name: Video Tools tests
@@ -1848,7 +1848,7 @@ jobs:
           if [ -f test_video_tools.py ]; then
             python test_video_tools.py
           else
-            echo "test_video_tools.py not on this branch â€” nothing to run."
+            echo "test_video_tools.py not on this branch — nothing to run."
           fi
 
       - name: Radio Scripts tests
@@ -1863,7 +1863,7 @@ jobs:
           if [ -f test_radio_scripts.py ]; then
             python test_radio_scripts.py
           else
-            echo "test_radio_scripts.py not on this branch â€” nothing to run."
+            echo "test_radio_scripts.py not on this branch — nothing to run."
           fi
 
       - name: Creative Studio tests
@@ -1879,7 +1879,7 @@ jobs:
           if [ -f test_creative_studio.py ]; then
             python test_creative_studio.py
           else
-            echo "test_creative_studio.py not on this branch â€” nothing to run."
+            echo "test_creative_studio.py not on this branch — nothing to run."
           fi
 
       - name: Creative jobs tests
@@ -1896,7 +1896,7 @@ jobs:
           if [ -f test_creative_jobs.py ]; then
             python test_creative_jobs.py
           else
-            echo "test_creative_jobs.py not on this branch â€” nothing to run."
+            echo "test_creative_jobs.py not on this branch — nothing to run."
           fi
 
       - name: Radio Scripts review link tests
@@ -1912,7 +1912,7 @@ jobs:
           if [ -f test_radio_review.py ]; then
             python test_radio_review.py
           else
-            echo "test_radio_review.py not on this branch â€” nothing to run."
+            echo "test_radio_review.py not on this branch — nothing to run."
           fi
 
       - name: Web ticket field tests
@@ -1920,12 +1920,12 @@ jobs:
         # The pinned object_107 ids, the form built from them, and what a
         # write may and may not contain. Guarded like the steps above so this
         # workflow stays mergeable on a branch that predates the file. Needs
-        # no Knack credentials â€” the requests seam is stubbed.
+        # no Knack credentials — the requests seam is stubbed.
         run: |
           if [ -f test_web_tickets.py ]; then
             python test_web_tickets.py
           else
-            echo "test_web_tickets.py not on this branch â€” nothing to run."
+            echo "test_web_tickets.py not on this branch — nothing to run."
           fi
 
       - name: Ad copy request tests
@@ -1934,26 +1934,26 @@ jobs:
         # object discovered from them rather than guessed at, and a prefill
         # that fills in exactly one candidate or none. Guarded like the steps
         # above so this workflow stays mergeable on a branch that predates the
-        # file. Needs no Knack credentials â€” the requests seam is stubbed.
+        # file. Needs no Knack credentials — the requests seam is stubbed.
         run: |
           if [ -f test_ad_copy.py ]; then
             python test_ad_copy.py
           else
-            echo "test_ad_copy.py not on this branch â€” nothing to run."
+            echo "test_ad_copy.py not on this branch — nothing to run."
           fi
 
       - name: Campaign support request tests
         if: matrix.group == 5
-        # The pinned object_121 ids, the form built from them â€” every option
-        # off the live object, never a guessed choice â€” and what a write may
+        # The pinned object_121 ids, the form built from them — every option
+        # off the live object, never a guessed choice — and what a write may
         # and may not contain. Guarded like the steps above so this workflow
         # stays mergeable on a branch that predates the file. Needs no Knack
-        # credentials â€” the requests seam is stubbed.
+        # credentials — the requests seam is stubbed.
         run: |
           if [ -f test_campaign_support.py ]; then
             python test_campaign_support.py
           else
-            echo "test_campaign_support.py not on this branch â€” nothing to run."
+            echo "test_campaign_support.py not on this branch — nothing to run."
           fi
 
       - name: Campaign asset queue tests
@@ -1963,12 +1963,12 @@ jobs:
         # a product cache predating the fields reads as "not measured" rather
         # than as every campaign being clear. Guarded like the steps above so
         # this workflow stays mergeable on a branch that predates the file.
-        # Needs no Knack credentials â€” the reader is replaced with fixtures.
+        # Needs no Knack credentials — the reader is replaced with fixtures.
         run: |
           if [ -f test_campaign_assets.py ]; then
             python test_campaign_assets.py
           else
-            echo "test_campaign_assets.py not on this branch â€” nothing to run."
+            echo "test_campaign_assets.py not on this branch — nothing to run."
           fi
 
       - name: Stale Creative row-action tests
@@ -1977,14 +1977,14 @@ jobs:
         # behind the first of them: applied on every read of the cached audit
         # rather than inside it, so a mark taken in one gunicorn worker is not
         # ignored by the other. Also asserts the report and its write route are
-        # behind a login â€” the blueprint had no guard at all. Guarded like the
+        # behind a login — the blueprint had no guard at all. Guarded like the
         # steps above so this workflow stays mergeable on a branch that
         # predates the file. Sets its own HUB_DATA_DIR.
         run: |
           if [ -f test_stale_creative.py ]; then
             python test_stale_creative.py
           else
-            echo "test_stale_creative.py not on this branch â€” nothing to run."
+            echo "test_stale_creative.py not on this branch — nothing to run."
           fi
 
       - name: Dashboard trend tests
@@ -1997,7 +1997,7 @@ jobs:
           if [ -f test_dashboard_trends.py ]; then
             python test_dashboard_trends.py
           else
-            echo "test_dashboard_trends.py not on this branch â€” nothing to run."
+            echo "test_dashboard_trends.py not on this branch — nothing to run."
           fi
 
       - name: Client group tests
@@ -2013,7 +2013,7 @@ jobs:
           if [ -f test_client_groups.py ]; then
             python test_client_groups.py
           else
-            echo "test_client_groups.py not on this branch â€” nothing to run."
+            echo "test_client_groups.py not on this branch — nothing to run."
           fi
 
       - name: User account, access level and crawler tests
@@ -2021,7 +2021,7 @@ jobs:
         # The census roster and the two levels it creates: that a re-run never
         # resets a password or takes back a promotion, that the starting
         # password is valid for exactly one sign-in (mounted modules included
-        # â€” the hub app's own before_request covered its routes and nothing
+        # — the hub app's own before_request covered its routes and nothing
         # else), that General is refused every Utilities path rather than just
         # not shown the link, that no password or hash reaches /api/users, that
         # the login throttle catches one guess against fourteen addresses as
@@ -2029,7 +2029,7 @@ jobs:
         # X-Robots-Tag both keep search and AI crawlers out. It also holds the
         # presence headcount to what hub/presence.py promises: identify() says
         # when it could not look, rather than answering the same two bits it
-        # answers for "two accounts share this name" â€” that keyed a second row
+        # answers for "two accounts share this name" — that keyed a second row
         # on the NAME for somebody who already had one on their EMAIL, so a
         # database blip counted them twice and drew two chips with one name;
         # active() reports a sentence rather than a SQLAlchemy exception,
@@ -2045,7 +2045,7 @@ jobs:
           if [ -f test_user_accounts.py ]; then
             python test_user_accounts.py
           else
-            echo "test_user_accounts.py not on this branch â€” nothing to run."
+            echo "test_user_accounts.py not on this branch — nothing to run."
           fi
 
       - name: Nothing answers a stranger
@@ -2066,7 +2066,7 @@ jobs:
           if [ -f test_blueprint_guards.py ]; then
             python test_blueprint_guards.py
           else
-            echo "test_blueprint_guards.py not on this branch â€” nothing to run."
+            echo "test_blueprint_guards.py not on this branch — nothing to run."
           fi
 
       - name: Environment resolution and per-module attribution tests
@@ -2074,7 +2074,7 @@ jobs:
         # One setting, several variable names. This deployment's environment is
         # assembled from linked Render env groups that each named things their
         # own way, so a key set as PEXELS_API has to resolve in code written
-        # against PEXELS_API_KEY â€” and every failure is silent: the module
+        # against PEXELS_API_KEY — and every failure is silent: the module
         # reports the key missing, degrades to mock data, and the screen still
         # looks healthy. Asserts every spelling resolves, that the alias table
         # is the only list (the drift check used to regex it out of config's
@@ -2089,7 +2089,7 @@ jobs:
           if [ -f test_env_config.py ]; then
             python test_env_config.py
           else
-            echo "test_env_config.py not on this branch â€” nothing to run."
+            echo "test_env_config.py not on this branch — nothing to run."
           fi
 
       - name: OAuth redirect URI tests
@@ -2109,7 +2109,7 @@ jobs:
           if [ -f test_oauth_redirects.py ]; then
             python test_oauth_redirects.py
           else
-            echo "test_oauth_redirects.py not on this branch â€” nothing to run."
+            echo "test_oauth_redirects.py not on this branch — nothing to run."
           fi
 
       - name: Birthday and work-anniversary tests
@@ -2126,7 +2126,7 @@ jobs:
           if [ -f test_celebrations.py ]; then
             python test_celebrations.py
           else
-            echo "test_celebrations.py not on this branch â€” nothing to run."
+            echo "test_celebrations.py not on this branch — nothing to run."
           fi
 
       - name: Housekeeping tests
@@ -2144,7 +2144,7 @@ jobs:
           if [ -f test_housekeeping.py ]; then
             python test_housekeeping.py
           else
-            echo "test_housekeeping.py not on this branch â€” nothing to run."
+            echo "test_housekeeping.py not on this branch — nothing to run."
           fi
 
       - name: Client ownership and the My Clients report
@@ -2172,7 +2172,7 @@ jobs:
           if [ -f test_client_owners.py ]; then
             python test_client_owners.py
           else
-            echo "test_client_owners.py not on this branch â€” nothing to run."
+            echo "test_client_owners.py not on this branch — nothing to run."
           fi
 
       - name: Boot the composed app
@@ -2391,7 +2391,7 @@ jobs:
       # model: every refusal here is a way to show one client another client's
       # record, and every one of them is silent. Carries its own encryptor so
       # the CryptoJS envelope is round-tripped rather than assumed.
-      - name: Suite SSO â€” who is looking, inside a client's own sub-account
+      - name: Suite SSO — who is looking, inside a client's own sub-account
         if: matrix.group == 5
         run: python3 test_suite_sso.py
 
@@ -2483,7 +2483,7 @@ jobs:
       # that the trademark guard refuses a render before a provider is called,
       # and that both stores write under the shared data root rather than
       # their own copy of it.
-      - name: Radio builders â€” the client's page, the marks, and the clock
+      - name: Radio builders — the client's page, the marks, and the clock
         if: matrix.group == 6
         run: python3 test_radio_builders.py
 
@@ -2508,7 +2508,7 @@ jobs:
       # Suite through the Hub's one contact write path, revising the
       # opportunity it already opened rather than adding a second to the same
       # client's pipeline.
-      - name: Commercial Builder parity â€” the copy it carries, and the Suite
+      - name: Commercial Builder parity — the copy it carries, and the Suite
         if: matrix.group == 6
         run: python3 test_commercial_parity.py
 
@@ -2530,7 +2530,7 @@ jobs:
       # needs a reason and a name, that the audio the browser reads back is
       # only what the project's own row recorded, and that a variation carries
       # the scripts without the audio.
-      - name: Radio Ad Creator â€” beds composed, the mix measured off the file
+      - name: Radio Ad Creator — beds composed, the mix measured off the file
         if: matrix.group == 6
         run: python3 test_radio_ads.py
 
@@ -2546,7 +2546,7 @@ jobs:
       # the line between what may refuse a billed record and what may only
       # report is certainty rather than severity, so a missing disclaimer
       # blocks and a read length -- words divided by a pace -- does not.
-      - name: Radio Promo parity â€” the lengths, their costs, the beats, the panel
+      - name: Radio Promo parity — the lengths, their costs, the beats, the panel
         if: matrix.group == 6
         run: python3 test_radio_parity.py
 
@@ -2562,7 +2562,7 @@ jobs:
       # real client's spot on the next run. Production holds three Radio Promo
       # projects, two of them client-attached, so it is asserted rather than
       # reasoned about.
-      - name: Radio samples â€” in budget, and never deleting adopted work
+      - name: Radio samples — in budget, and never deleting adopted work
         if: matrix.group == 6
         run: python3 test_radio_samples.py
 
@@ -2635,7 +2635,7 @@ jobs:
       # 500, and that superseding carries an approved/completed task with an
       # unchanged payload -- and the shared inputs already answered --
       # forward onto the run that replaces it.
-      - name: Proposal Execution â€” supersede, don't duplicate
+      - name: Proposal Execution — supersede, don't duplicate
         if: matrix.group == 6
         run: python3 test_proposal_execution.py
 
@@ -2650,13 +2650,13 @@ jobs:
       # what the proposal does not say rather than guessing. Asserts all of
       # it, including that the page's result renderer, lifted out of the
       # template and run in node, writes directions and never braces.
-      - name: Proposal Execution â€” the plan a person reads, not JSON
+      - name: Proposal Execution — the plan a person reads, not JSON
         if: matrix.group == 6
         run: |
           if [ -f test_proposal_plan.py ]; then
             python3 test_proposal_plan.py
           else
-            echo "test_proposal_plan.py not on this branch â€” nothing to run."
+            echo "test_proposal_plan.py not on this branch — nothing to run."
           fi
 
       # Every monthly promise on a plan was kept once and nothing asked about
@@ -2669,13 +2669,13 @@ jobs:
       # is never raised, that a month before the log's horizon is not a miss,
       # the QA report's shape, the health issue per missed month, and that a
       # mark on the plan page clears the issue on read.
-      - name: Proposal Execution â€” monthly promises against the work log
+      - name: Proposal Execution — monthly promises against the work log
         if: matrix.group == 6
         run: |
           if [ -f test_proposal_promises.py ]; then
             python3 test_proposal_promises.py
           else
-            echo "test_proposal_promises.py not on this branch â€” nothing to run."
+            echo "test_proposal_promises.py not on this branch — nothing to run."
           fi
 
       # The plan said what had to happen and when, and nothing said whose
@@ -2689,22 +2689,22 @@ jobs:
       # plan -- the fields only, no dropped item, no item Smart 1 produces,
       # no staff email, outside both the login and the chrome, and revoked,
       # unknown and malformed answering one 404.
-      - name: Proposal Execution â€” owners, the kickoff document, the client's page
+      - name: Proposal Execution — owners, the kickoff document, the client's page
         if: matrix.group == 6
         run: |
           if [ -f test_proposal_kickoff.py ]; then
             python3 test_proposal_kickoff.py
           else
-            echo "test_proposal_kickoff.py not on this branch â€” nothing to run."
+            echo "test_proposal_kickoff.py not on this branch — nothing to run."
           fi
 
-      - name: Proposal Execution â€” done, landed and overdue on the launch tasks and the creative
+      - name: Proposal Execution — done, landed and overdue on the launch tasks and the creative
         if: matrix.group == 6
         run: |
           if [ -f test_proposal_progress.py ]; then
             python3 test_proposal_progress.py
           else
-            echo "test_proposal_progress.py not on this branch â€” nothing to run."
+            echo "test_proposal_progress.py not on this branch — nothing to run."
           fi
 
       # The client answers their questions on their own page. Recorded
@@ -2713,13 +2713,13 @@ jobs:
       # keys and only the offered choices, a hand-back that is the same
       # supply key answered smart1, the same 404 on the POST as on the
       # page, and a pending reply counted everywhere an open question is.
-      - name: Proposal Execution â€” the client answers on their page
+      - name: Proposal Execution — the client answers on their page
         if: matrix.group == 6
         run: |
           if [ -f test_proposal_client_answers.py ]; then
             python3 test_proposal_client_answers.py
           else
-            echo "test_proposal_client_answers.py not on this branch â€” nothing to run."
+            echo "test_proposal_client_answers.py not on this branch — nothing to run."
           fi
 
       # A won quote starts its own plan: Approved and Converted and nothing
@@ -2727,13 +2727,13 @@ jobs:
       # than superseded, won too long ago skipped and counted, the run
       # saying it was automatic on the plan, the event and the quote's own
       # strip, and a table that would not answer never a clean sweep.
-      - name: Proposal Execution â€” a won proposal starts its own plan
+      - name: Proposal Execution — a won proposal starts its own plan
         if: matrix.group == 6
         run: |
           if [ -f test_proposal_autostart.py ]; then
             python3 test_proposal_autostart.py
           else
-            echo "test_proposal_autostart.py not on this branch â€” nothing to run."
+            echo "test_proposal_autostart.py not on this branch — nothing to run."
           fi
 
       # WO-2: real-tool adapters. Every task on the graph used to run as
@@ -2749,13 +2749,13 @@ jobs:
       # rather than silently, that a proposal with none of the five
       # UTM-source channels completes cleanly rather than reading as a
       # failure, and that a second run never duplicates a saved link.
-      - name: Proposal Execution â€” real-tool adapters (UTM tracking links)
+      - name: Proposal Execution — real-tool adapters (UTM tracking links)
         if: matrix.group == 6
         run: |
           if [ -f test_proposal_adapters.py ]; then
             python3 test_proposal_adapters.py
           else
-            echo "test_proposal_adapters.py not on this branch â€” nothing to run."
+            echo "test_proposal_adapters.py not on this branch — nothing to run."
           fi
 
       # WO-2, Adapter A: hub/ad_copy.py, the work order's own pointer, is the
@@ -2769,13 +2769,13 @@ jobs:
       # something that publishes itself. OpenAI and the landing-page fetch
       # are stubbed, the way test_ads_module.py and test_gpt_ads.py already
       # stub them; nothing here makes a real network call.
-      - name: Proposal Execution â€” real-tool adapters (Paid Search ad copy)
+      - name: Proposal Execution — real-tool adapters (Paid Search ad copy)
         if: matrix.group == 6
         run: |
           if [ -f test_proposal_adapters_search_ads.py ]; then
             python3 test_proposal_adapters_search_ads.py
           else
-            echo "test_proposal_adapters_search_ads.py not on this branch â€” nothing to run."
+            echo "test_proposal_adapters_search_ads.py not on this branch — nothing to run."
           fi
 
       # WO-2, Adapter C: social_calendar and social_posts both ran as `brief`
@@ -2790,13 +2790,13 @@ jobs:
       # AI calls. approval mode: this is AI-drafted copy that reaches a
       # client's real social accounts. OpenAI is stubbed; nothing here makes
       # a real network call.
-      - name: Proposal Execution â€” real-tool adapters (Social content calendar)
+      - name: Proposal Execution — real-tool adapters (Social content calendar)
         if: matrix.group == 6
         run: |
           if [ -f test_proposal_adapters_social.py ]; then
             python3 test_proposal_adapters_social.py
           else
-            echo "test_proposal_adapters_social.py not on this branch â€” nothing to run."
+            echo "test_proposal_adapters_social.py not on this branch — nothing to run."
           fi
 
       # WO-2, Adapter D: seo_audit and seo_workplan both ran as `brief` -- an
@@ -2812,13 +2812,13 @@ jobs:
       # No network call and no OpenAI call in the test -- a real completed
       # scan row is seeded through modules.scans.app.Scan, the way
       # test_website_audit.py already does.
-      - name: Proposal Execution â€” real-tool adapters (SEO discovery audit)
+      - name: Proposal Execution — real-tool adapters (SEO discovery audit)
         if: matrix.group == 6
         run: |
           if [ -f test_proposal_adapters_seo.py ]; then
             python3 test_proposal_adapters_seo.py
           else
-            echo "test_proposal_adapters_seo.py not on this branch â€” nothing to run."
+            echo "test_proposal_adapters_seo.py not on this branch — nothing to run."
           fi
 
       # WO-2, Adapter E: retargeting_creative ran as `brief` -- an AI
@@ -2843,13 +2843,13 @@ jobs:
       # display_ads -- so a reviewer reads "companion banner" rather than
       # "retargeting creative" on the task that is not retargeting. Same
       # test file, same stub, one more section.
-      - name: Proposal Execution â€” real-tool adapters (Display Ad Builder, Stadium companion banners)
+      - name: Proposal Execution — real-tool adapters (Display Ad Builder, Stadium companion banners)
         if: matrix.group == 6
         run: |
           if [ -f test_proposal_adapters_display_ads.py ]; then
             python3 test_proposal_adapters_display_ads.py
           else
-            echo "test_proposal_adapters_display_ads.py not on this branch â€” nothing to run."
+            echo "test_proposal_adapters_display_ads.py not on this branch — nothing to run."
           fi
 
       # WO-2, Adapter F: meta_carousel ran as `brief` -- an AI paragraph
@@ -2863,13 +2863,13 @@ jobs:
       # every other adapter here follows. hub.ai.image() is stubbed in the
       # test the way hub.ai.chat_json already is elsewhere -- no real
       # OpenAI call in CI.
-      - name: Proposal Execution â€” real-tool adapters (Meta carousel creative)
+      - name: Proposal Execution — real-tool adapters (Meta carousel creative)
         if: matrix.group == 6
         run: |
           if [ -f test_proposal_adapters_image_creator.py ]; then
             python3 test_proposal_adapters_image_creator.py
           else
-            echo "test_proposal_adapters_image_creator.py not on this branch â€” nothing to run."
+            echo "test_proposal_adapters_image_creator.py not on this branch — nothing to run."
           fi
 
       # WO-2, Adapter G: youtube_video_concept ran as `brief` -- an AI video
@@ -2885,13 +2885,13 @@ jobs:
       # live key -- so the test exercises both a stubbed live call and no
       # key at all. hub.ai.chat_json is stubbed the way it already is
       # elsewhere -- no real OpenAI call in CI.
-      - name: Proposal Execution â€” real-tool adapters (Monthly sales video concept)
+      - name: Proposal Execution — real-tool adapters (Monthly sales video concept)
         if: matrix.group == 6
         run: |
           if [ -f test_proposal_adapters_commercial.py ]; then
             python3 test_proposal_adapters_commercial.py
           else
-            echo "test_proposal_adapters_commercial.py not on this branch â€” nothing to run."
+            echo "test_proposal_adapters_commercial.py not on this branch — nothing to run."
           fi
 
       # Backlog item #7: reporting_plan ran as `brief` -- a paragraph
@@ -2905,13 +2905,13 @@ jobs:
       # dollar figure for -- reusing a client's existing link and skipping a
       # budget line already on file rather than doubling it on a retry, the
       # same "already existed and were left as-is" shape utm.py uses.
-      - name: Proposal Execution â€” real-tool adapters (Cross-channel reporting dashboard)
+      - name: Proposal Execution — real-tool adapters (Cross-channel reporting dashboard)
         if: matrix.group == 7
         run: |
           if [ -f test_proposal_adapters_reports.py ]; then
             python3 test_proposal_adapters_reports.py
           else
-            echo "test_proposal_adapters_reports.py not on this branch â€” nothing to run."
+            echo "test_proposal_adapters_reports.py not on this branch — nothing to run."
           fi
 
       # A curated shortlist per department, laid over the sidebar rather than
@@ -2921,7 +2921,7 @@ jobs:
       # and the wiring: the editor behind Utilities, reading your own view
       # not, and the blueprint actually guarded rather than open to a
       # stranger.
-      - name: Department Views â€” curated per department, gated at the editor
+      - name: Department Views — curated per department, gated at the editor
         if: matrix.group == 7
         run: python3 test_department_views.py
 
@@ -2930,7 +2930,7 @@ jobs:
       # open inline. _ITEMS is still a flat 5-tuple list derived from the
       # tree, the index pages at /views/<slug> render, General is refused
       # Utilities, and the QA page's GoHighLevel wording is gone.
-      - name: Sidebar â€” departments, flyouts, index pages
+      - name: Sidebar — departments, flyouts, index pages
         run: python3 test_sidebar_departments.py
 
       # One design into the whole size set. The failure it exists to catch is
@@ -3038,7 +3038,7 @@ jobs:
       # The IO Builder had no test of its own, and booting it and pressing its
       # buttons found every AI button in the tool dead: this module carried a
       # second copy of the OpenAI Responses call, and the copy attached the
-      # hosted web_search tool to every request â€” the failure CLAUDE.md
+      # hosted web_search tool to every request — the failure CLAUDE.md
       # records against the Proposal Builder, whose copy was fixed while this
       # one was never touched. There is one reader now and both read it. It
       # also holds the two answers that were reported as successes -- a
@@ -3046,7 +3046,7 @@ jobs:
       # review, and a media mix with every field blank -- the landing review
       # that now reads the page rather than asking a model to visit it, and
       # where the line falls between an order and an attempt on submit.
-      - name: IO Builder â€” the model calls, and the landing page it now reads
+      - name: IO Builder — the model calls, and the landing page it now reads
         if: matrix.group == 7
         run: python3 test_io_builder.py
 
@@ -3062,19 +3062,19 @@ jobs:
       # download, the Cloudinary-backed generate-client/internal-pdf routes
       # (upload, gallery filing, the SECURE_INTERNAL_PDF signed-URL branch)
       # and the not-configured 503 path.
-      - name: IO Builder â€” every product's PDF checklist, and the three download routes
+      - name: IO Builder — every product's PDF checklist, and the three download routes
         if: matrix.group == 7
         run: python3 test_io_downloads.py
 
       # The panel that creates and deletes clients' Smart 1 Suite sub-accounts
       # had no test of its own. Its double-submit guard was a dict in memory
       # against two gunicorn workers, and it was written *after* the account
-      # existed â€” so a resubmit that landed on the other worker, and any
+      # existed — so a resubmit that landed on the other worker, and any
       # genuine double-click, created a second sub-account for one client and
       # answered 201 both times. Its duplicate check could fail and return a
       # clean success, and the activity entry for a deletion carried the name
       # the browser claimed rather than the one GHL held. This holds all three.
-      - name: Suite Panel â€” the guard on creating, the record of deleting
+      - name: Suite Panel — the guard on creating, the record of deleting
         if: matrix.group == 7
         run: python3 test_suite_panel.py
 
@@ -3106,7 +3106,7 @@ jobs:
       # failure no screen could report: UTM Builder printed the length of its
       # own page as the match count ("300 of 900" for a search matching 450),
       # and the CSV button beside it searched five of the eleven fields the
-      # table searched â€” so a search on a label or a colleague's name handed
+      # table searched — so a search on a label or a colleague's name handed
       # back a header row and nothing else, contradicting the table above it.
       # Background Remover filed every cut-out into a client's gallery with no
       # dimensions, having measured them two functions earlier; kept its
@@ -3136,7 +3136,7 @@ jobs:
       # holds the G- measurement id and a GA4 property summary returns only the
       # numeric property id, so the comparison forced a verdict between two
       # names for one property. On this deployment's own registry that is all
-      # 166 recorded GA ids, and `match` was unreachable â€” a red pill on the
+      # 166 recorded GA ids, and `match` was unreachable — a red pill on the
       # client record and a report of "reporting may be pointed at the wrong
       # property" about properties we administer, correctly recorded.
       - name: Two names for one property is not a disagreement
@@ -3147,7 +3147,7 @@ jobs:
       # except the scope table's. Reading it turned up a divergence one layer
       # out: /diagnostics trims PUBLIC_BASE_URL to its origin before printing
       # which callback URI to register, and the two flows that BUILD one
-      # appended to the raw value â€” so with the path this deployment's linked
+      # appended to the raw value — so with the path this deployment's linked
       # env group actually carries, the panel named a URI the code never sends.
       # Register what the panel says and consent fails on redirect_uri_mismatch;
       # google_access is the one the panel itself marks client-facing.
@@ -3210,18 +3210,18 @@ jobs:
         run: python3 test_commercial_dashboard_layout.py
       # hub/audit_summary.py grounds every dollar figure in the two paragraphs
       # a prospect reads at the top of their own website audit, which is right
-      # â€” the alternative is a model inventing what somebody spends. It
+      # — the alternative is a model inventing what somebody spends. It
       # compared the formatted string, so the measured figure re-typed without
       # its comma came back as invented. The whole summary is then discarded,
       # the report renders nothing, the `why` is read by no template, and
       # for_scan() stores the refusal because it "will not change on the next
-      # view" â€” true of a real refusal, false of this one. One dropped comma
+      # view" — true of a real refusal, false of this one. One dropped comma
       # cost that audit its opening paragraphs permanently.
       - name: A measured figure, re-typed, is not an invented one
         if: matrix.group == 7
         run: python3 test_audit_summary.py
       # hub/blog_images.py names a post's Cloudinary object after its TITLE,
-      # with overwrite=True â€” and hub/seo.py tops a short plan up from six
+      # with overwrite=True — and hub/seo.py tops a short plan up from six
       # fallback titles and cycles them, so twelve posts a month holds each
       # twice, verbatim. Post 3's featured image became post 9's picture, at
       # one URL, in the store, the gallery and on the client's live site.
@@ -3310,20 +3310,20 @@ jobs:
           if [ -f test_check_reconciliation.py ]; then
             python3 test_check_reconciliation.py
           else
-            echo "test_check_reconciliation.py not on this branch â€” nothing to run."
+            echo "test_check_reconciliation.py not on this branch — nothing to run."
           fi
       # One confirmed audience per client (hub/audience_spec.py) and its four
       # readers: the Client 360 card, the Proposal Builder's audience step,
       # the IO Builder's audiences question and AD_COPY's {audience} prefill.
       # The model proposes and a person ticks; confirm is the only write; a
       # failed lookup is an error and never an empty audience.
-      - name: Audience Finder â€” one audience, four readers
+      - name: Audience Finder — one audience, four readers
         if: matrix.group == 8
         run: |
           if [ -f test_audience_finder.py ]; then
             python3 test_audience_finder.py
           else
-            echo "test_audience_finder.py not on this branch â€” nothing to run."
+            echo "test_audience_finder.py not on this branch — nothing to run."
           fi
       # hub/landing_images.py picks the pictures on a page a prospect reads,
       # and its docstring ends "a page may be short, it may not lie".
@@ -3366,7 +3366,7 @@ jobs:
       # client-facing thing in it, and only its placement admin was tested.
       # Booting the visitor's own path found four. The callback token went
       # into a query string unencoded, so a `+` came back as a space and every
-      # callback was refused 403 while the row stayed `running` â€” and the
+      # callback was refused 403 while the row stayed `running` — and the
       # widget carried its own copy of that URL builder, so the fix would have
       # landed in two of three. Both poll loops read `ready` and never
       # `status`, so a run already at `error` or `unconfigured` was polled to

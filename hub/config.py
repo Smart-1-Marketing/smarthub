@@ -5,7 +5,7 @@ bug we actually shipped:
 
   * the same setting under different names (CLOUDINARY_FOLDER vs
     SEO_IMAGES_FOLDER vs IMAGE_CREATOR_FOLDER vs BG_REMOVER_FOLDER),
-  * the same setting with *different defaults* per module â€” OPENAI_MODEL
+  * the same setting with *different defaults* per module — OPENAI_MODEL
     defaulted to gpt-4o-mini in five places, gpt-4o in one and gpt-5-mini in
     another, so identical prompts hit different models depending on which
     screen you were on,
@@ -103,7 +103,7 @@ def _b(name: str, default: bool = False) -> bool:
 # shape of failure this table exists to end.
 #
 # First name that is set wins, so the order is the order to prefer. Adding a
-# spelling here is the whole fix â€” no call site changes.
+# spelling here is the whole fix — no call site changes.
 # ---------------------------------------------------------------------------
 ALIASES: dict[str, tuple[str, ...]] = {
     "ttd_api_token": ("TTD_API_TOKEN", "TRADE_DESK_API", "TRADE_DESK_API_KEY", "TRADE_DESK_API_TOKEN", "TTD_API"),
@@ -111,7 +111,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
     # This file read SECRET_KEY / FLASK_SECRET_KEY; hub/auth.py and
     # hub/identity.py read SECRET_KEY / SESSION_SECRET. A deployment setting
     # only FLASK_SECRET_KEY therefore reported a healthy "Secret key" row while
-    # auth.py fell through to an ephemeral secret â€” so every session died on
+    # auth.py fell through to an ephemeral secret — so every session died on
     # every restart, with nothing on any page saying why. One list, read by all
     # three.
     "secret_key": ("SECRET_KEY", "FLASK_SECRET_KEY", "SESSION_SECRET"),
@@ -126,7 +126,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "insites_key": ("INSITES_API", "INSITES_API_KEY"),
     # Commercial Builder's spokesperson scenes, AI video, voiceover and final
     # render. Each read os.environ at *import* under one spelling, which froze
-    # the value at boot and missed the other two â€” the same drift that made
+    # the value at boot and missed the other two — the same drift that made
     # Pexels report "no key set" with the key plainly present.
     "heygen_key": ("HEYGEN_API", "HEYGEN_API_KEY", "HEYGEN_KEY"),
     "runway_key": ("RUNWAY_API", "RUNWAY_API_KEY", "RUNWAY_KEY"),
@@ -158,7 +158,7 @@ LEAD_PDF_FIELD_ENV = "GHL_LEAD_PDF_URL_FIELD_ID"
 # for every other segmentation tag -- optional, degrading to "not written"
 # rather than failing the tag update. hub/leads.py reads this name.
 SCAN_SCORE_NOTE_FIELD_ENV = "GHL_SCAN_SCORE_NOTE_FIELD_ID"
-# Only names that are actually in use â€” in this repo, or set on the Render
+# Only names that are actually in use — in this repo, or set on the Render
 # account this Hub runs in. A speculative spelling costs nothing to resolve and
 # a great deal to police: every module reading the one real name is then a
 # finding in /api/integrity, and twenty findings about a variable nobody has
@@ -238,8 +238,8 @@ class Settings:
 
     # ---- Pickaxe ----
     # The agency's Pickaxe workspace ("Smart 1 Test") holds two assistants with
-    # knowledge bases the Hub cannot restate â€” SEM Quote Help and Audience
-    # Finder â€” and hub/pickaxe.py calls those live. One spelling only, per the
+    # knowledge bases the Hub cannot restate — SEM Quote Help and Audience
+    # Finder — and hub/pickaxe.py calls those live. One spelling only, per the
     # ALIASES note above: nothing is set anywhere yet, so there is no drift for
     # an alias to fix. PICKAXE_WORKSPACE_ID is only needed with a Personal API
     # key; a workspace-scoped key already knows its workspace.
@@ -255,7 +255,7 @@ class Settings:
     # CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET. Eight modules read the three
     # parts directly and every shared path reads the URL, so a deployment given
     # only the three-part group had a working Image Creator and a
-    # `cloudinary_ready` of False â€” hub.storage silently on local disk, with
+    # `cloudinary_ready` of False — hub.storage silently on local disk, with
     # every screen looking healthy. Compose the URL when it is absent rather
     # than asking somebody to set a fourth variable that repeats the other
     # three.
@@ -276,7 +276,7 @@ class Settings:
     # a single API key and say nothing about a second "app" identifier being
     # sent on a request, so there is nothing here for an alias to fix. It is
     # captured anyway because this deployment's Coverr account issues one
-    # alongside the key â€” see coverr_service.py for where (and how tentatively)
+    # alongside the key — see coverr_service.py for where (and how tentatively)
     # it is used.
     coverr_app_id: str = field(default_factory=lambda: _s("COVERR_APP_ID"))
     unsplash_key: str = field(default_factory=lambda: _alias("unsplash_key"))
@@ -340,7 +340,7 @@ class Settings:
     map_tile_url: str = field(default_factory=lambda: _s(
         "MAP_TILE_URL", "https://tile.openstreetmap.org/{z}/{x}/{y}.png"))
     map_tile_attribution: str = field(default_factory=lambda: _s(
-        "MAP_TILE_ATTRIBUTION", "Â© OpenStreetMap contributors"))
+        "MAP_TILE_ATTRIBUTION", "© OpenStreetMap contributors"))
     # A tile server identifies callers by User-Agent and OSM's policy requires
     # a real one; an unset PUBLIC_BASE_URL must not make this blank.
     map_user_agent: str = field(default_factory=lambda: _s(
@@ -470,7 +470,7 @@ class Settings:
             # another's record.
             "prospects": "smart1-prospects",
             # Campaign creative copied out of Google Drive and filed under the
-            # IO it ran on â€” hub/ad_assets.py. The tree below it is
+            # IO it ran on — hub/ad_assets.py. The tree below it is
             # image_picker.filing.ad_asset_folder()'s, not this one's.
             "ad_assets": "smart1-ad-assets",
             # modules/creative_studio -- everything the Media Library indexes
@@ -505,7 +505,7 @@ class Settings:
                                       f"value includes the quote characters. "
                                       f"Remove them."})
         # PUBLIC_BASE_URL is the origin, not a route on it. One env group here
-        # carries the Google Ads OAuth callback in it â€” the same string as
+        # carries the Google Ads OAuth callback in it — the same string as
         # GOOGLE_ADS_REDIRECT_URI, a path and all. A service-level value
         # overrides a group's, so this deployment is fine and the next one to
         # link that group would not be: every share link, every landing URL and
@@ -518,7 +518,7 @@ class Settings:
                 out.append({"name": "PUBLIC_BASE_URL",
                             "detail": "PUBLIC_BASE_URL has a path in it "
                                       f"({base}). It is the site's origin and "
-                                      "nothing else â€” every URL the Hub builds "
+                                      "nothing else — every URL the Hub builds "
                                       "is appended to it, so a path here is "
                                       "carried into share links, landing pages "
                                       "and the Insites scan callback. Set it to "
@@ -565,7 +565,7 @@ class Settings:
         and that matters twice on a second deployment: a variable set under a
         name this Hub does not read looks exactly like a variable that took
         effect, and two names set to different values silently resolve to
-        whichever comes first in ALIASES â€” the person who set the other one
+        whichever comes first in ALIASES — the person who set the other one
         sees no sign of it anywhere.
 
         So: one row per setting, naming every spelling accepted, the one that
@@ -610,7 +610,7 @@ class Settings:
                             "detail": f"{r['label']}: {r['resolved']} and "
                                       f"{', '.join(r['ignored'])} are both set to "
                                       f"different values. {r['resolved']} wins and "
-                                      f"the rest do nothing â€” if the value you "
+                                      f"the rest do nothing — if the value you "
                                       f"just changed is in one of the others, it "
                                       f"has not taken effect."})
             if r["placeholder"]:
@@ -623,7 +623,7 @@ class Settings:
     def status(self) -> list[dict]:
         """Provider readiness, for /health and the status page.
 
-        Every provider appears whether or not it is configured â€” a tool that
+        Every provider appears whether or not it is configured — a tool that
         is quietly degraded should be visible, not invisible.
         """
         def row(name, ok, required, note):
@@ -636,9 +636,9 @@ class Settings:
                 rep = _signing.report()
             except Exception:                           # noqa: BLE001
                 return row("Secret key", bool(self.secret_key), True,
-                           f"{spellings} â€” signing state could not be read.")
+                           f"{spellings} — signing state could not be read.")
             return {"name": "Secret key", "state": rep["state"], "required": True,
-                    "note": f"{spellings} â€” {rep['detail']}"}
+                    "note": f"{spellings} — {rep['detail']}"}
         return [
             # Read from hub/signing.py rather than described here. This row
             # said "sessions are not signed without it, so everyone is logged
@@ -650,28 +650,28 @@ class Settings:
             # not the question either, since a placeholder is set and is not a
             # secret.
             _signing_row(self.spellings('secret_key')),
-            row("Hub password", bool(self.panel_password), True, "PANEL_PASSWORD â€” login is open without it."),
-            row("Database", bool(self.database_url), False, "DATABASE_URL â€” falls back to local SQLite."),
+            row("Hub password", bool(self.panel_password), True, "PANEL_PASSWORD — login is open without it."),
+            row("Database", bool(self.database_url), False, "DATABASE_URL — falls back to local SQLite."),
             row("Public base URL", bool(self.public_base_url), False,
-                "PUBLIC_BASE_URL â€” blank means Insites never posts scan completions back, so scans hang on 'running'."),
+                "PUBLIC_BASE_URL — blank means Insites never posts scan completions back, so scans hang on 'running'."),
             row("Cloudinary", self.cloudinary_ready, False,
                 "CLOUDINARY_URL, or CLOUDINARY_CLOUD_NAME + CLOUDINARY_API_KEY + "
-                "CLOUDINARY_API_SECRET â€” assets persist to local disk only."),
+                "CLOUDINARY_API_SECRET — assets persist to local disk only."),
             row("OpenAI", self.openai_ready, False,
-                "OPENAI_API_KEY â€” AI naming, FAQ, schema and copy fall back to templates."),
+                "OPENAI_API_KEY — AI naming, FAQ, schema and copy fall back to templates."),
             row("Pickaxe", self.pickaxe_ready, False,
-                "PICKAXE_API_KEY â€” Pickaxe-backed helpers (SEM quote help) fall "
+                "PICKAXE_API_KEY — Pickaxe-backed helpers (SEM quote help) fall "
                 "back to the Hub's own AI."),
-            row("Pexels", bool(self.pexels_key), False, f"{self.spellings('pexels_key')} â€” stock search provider."),
-            row("Pixabay", bool(self.pixabay_key), False, f"{self.spellings('pixabay_key')} â€” stock search provider."),
-            row("Coverr", bool(self.coverr_key), False, f"{self.spellings('coverr_key')} â€” Commercial Builder stock video provider."),
-            row("Unsplash", bool(self.unsplash_key), False, f"{self.spellings('unsplash_key')} â€” stock search provider."),
-            row("remove.bg", bool(self.remove_bg_key), False, f"{self.spellings('remove_bg_key')} â€” Background Remover is disabled without it."),
-            row("Brandfetch", bool(self.brandfetch_key), False, f"{self.spellings('brandfetch_key')} â€” logo and brand-color lookup."),
-            row("Google Places", bool(self.google_places_key), False, "GOOGLE_PLACES_API_KEY â€” a client's Google Business Profile rating and review count, read nightly."),
+            row("Pexels", bool(self.pexels_key), False, f"{self.spellings('pexels_key')} — stock search provider."),
+            row("Pixabay", bool(self.pixabay_key), False, f"{self.spellings('pixabay_key')} — stock search provider."),
+            row("Coverr", bool(self.coverr_key), False, f"{self.spellings('coverr_key')} — Commercial Builder stock video provider."),
+            row("Unsplash", bool(self.unsplash_key), False, f"{self.spellings('unsplash_key')} — stock search provider."),
+            row("remove.bg", bool(self.remove_bg_key), False, f"{self.spellings('remove_bg_key')} — Background Remover is disabled without it."),
+            row("Brandfetch", bool(self.brandfetch_key), False, f"{self.spellings('brandfetch_key')} — logo and brand-color lookup."),
+            row("Google Places", bool(self.google_places_key), False, "GOOGLE_PLACES_API_KEY — a client's Google Business Profile rating and review count, read nightly."),
             row("Microsoft Ads", bool(self.bing_client_id and self.bing_client_secret
                                       and self.bing_developer_token and self.bing_manager_account_id), False,
-                "BING_AD_CLIENT_ID / BING_AD_CLIENT_SECRET / BING_AD_DEVELOPER_TOKEN / BING_MANAGER_ACCOUNT_ID â€” "
+                "BING_AD_CLIENT_ID / BING_AD_CLIENT_SECRET / BING_AD_DEVELOPER_TOKEN / BING_MANAGER_ACCOUNT_ID — "
                 "Smart 1 Ads connects a Microsoft account with them and the reports module pulls campaign "
                 "figures; the connection itself is a press on /tools/ads/settings."
                 + (" Missing: " + ", ".join(n for n, v in (
@@ -681,36 +681,36 @@ class Settings:
                    if not (self.bing_client_id and self.bing_client_secret and self.bing_developer_token
                            and self.bing_manager_account_id) else "")),
             row("GroundTruth", bool(self.groundtruth_key), False,
-                "GROUND_TRUTH_API â€” the reports module's native pull of geofencing campaigns. The API "
+                "GROUND_TRUTH_API — the reports module's native pull of geofencing campaigns. The API "
                 "origin (GROUND_TRUTH_API_BASE) and the field map are confirmed from /reports/groundtruth-check; "
                 "the key is sent nowhere until the origin is set."),
             row("YouTube Data API", bool(self.youtube_key or self.google_places_key), False,
-                "YOUTUBE_API_KEY â€” a client's channel subscribers, views and video count, read nightly; "
+                "YOUTUBE_API_KEY — a client's channel subscribers, views and video count, read nightly; "
                 + ("reading GOOGLE_PLACES_API_KEY, the same Cloud project" if self.google_places_key and not self.youtube_key
                    else "falls back to GOOGLE_PLACES_API_KEY when unset") + "."),
-            row("Google Fonts", bool(self.google_fonts_key), False, f"{self.spellings('google_fonts_key')} â€” optional; curated list used without it."),
-            row("Insites", bool(self.insites_key), False, f"{self.spellings('insites_key')} â€” Site Scans disabled without it."),
+            row("Google Fonts", bool(self.google_fonts_key), False, f"{self.spellings('google_fonts_key')} — optional; curated list used without it."),
+            row("Insites", bool(self.insites_key), False, f"{self.spellings('insites_key')} — Site Scans disabled without it."),
             row("HeyGen", bool(self.heygen_key), False,
-                f"{self.spellings('heygen_key')} â€” spokesperson scenes run in mock mode without it."),
+                f"{self.spellings('heygen_key')} — spokesperson scenes run in mock mode without it."),
             row("Runway", bool(self.runway_key), False,
-                f"{self.spellings('runway_key')} â€” AI video scenes run in mock mode without it."),
+                f"{self.spellings('runway_key')} — AI video scenes run in mock mode without it."),
             row("ElevenLabs", bool(self.elevenlabs_key), False,
-                f"{self.spellings('elevenlabs_key')} â€” commercial voiceover runs in mock mode without it."),
+                f"{self.spellings('elevenlabs_key')} — commercial voiceover runs in mock mode without it."),
             row("Creatomate", bool(self.creatomate_key), False,
-                f"{self.spellings('creatomate_key')} â€” commercials cannot be rendered without it."),
+                f"{self.spellings('creatomate_key')} — commercials cannot be rendered without it."),
             row("HyperFrames render service", bool(self.hf_render_service_url), False,
-                "HF_RENDER_SERVICE_URL â€” paint animations and Vox explainers "
+                "HF_RENDER_SERVICE_URL — paint animations and Vox explainers "
                 "hide themselves without it. Self-hosted, so there is no key to "
                 "set; HF_RENDER_ENABLED=0 switches both off with one answered."),
             row("Knack", bool(self.knack_app_id and self.knack_api_key), False,
-                "KNACK_APP_ID / KNACK_API_KEY â€” client registry."),
+                "KNACK_APP_ID / KNACK_API_KEY — client registry."),
             row("GoHighLevel", bool(self.ghl_token and self.ghl_company_id), False,
                 f"{self.spellings('ghl_token')} + {self.spellings('ghl_company_id')}."),
             row("Lead delivery to Suite",
                 bool(self.ghl_token and self.ghl_lead_location_id
                      and self.ghl_lead_location_id != self.ghl_company_id),
                 False,
-                "GHL_LEAD_LOCATION_ID â€” the Smart 1 Marketing sub-account id, "
+                "GHL_LEAD_LOCATION_ID — the Smart 1 Marketing sub-account id, "
                 "which must not be the agency company id. This is now the only "
                 "delivery route: the HUB_LEAD_WEBHOOK_URL webhook is retired, so "
                 "without this leads are stored and queued, not delivered."),
@@ -720,13 +720,13 @@ class Settings:
             row("Lead report links in Suite",
                 bool(self.ghl_lead_report_field_id and self.ghl_lead_pdf_field_id),
                 False,
-                f"{LEAD_REPORT_FIELD_ENV} / {LEAD_PDF_FIELD_ENV} â€” the contact custom "
+                f"{LEAD_REPORT_FIELD_ENV} / {LEAD_PDF_FIELD_ENV} — the contact custom "
                 "fields a lead's report and PDF links are written into. Unset, a "
                 "Suite workflow emailing the report has no link to put in it; the "
                 "ids are read off /api/leads/ghl/preflight, never guessed."),
-            row("Simvoly", bool(self.simvoly_key), False, f"{self.spellings('simvoly_key')} â€” Sites admin."),
+            row("Simvoly", bool(self.simvoly_key), False, f"{self.spellings('simvoly_key')} — Sites admin."),
             row("Short.io link masking", bool(self.short_io_key), False,
-                "SHORT_IO_API_KEY â€” a client-facing link (a proposal share, a "
+                "SHORT_IO_API_KEY — a client-facing link (a proposal share, a "
                 "preview) is sent as the plain Hub URL without it, rather than "
                 f"masked under {self.short_io_domain or 'a short.io domain'}."),
         ]
@@ -739,12 +739,12 @@ def export_cloudinary_url(cfg: "Settings") -> None:
     """Put a composed Cloudinary credential where the SDK will find it.
 
     A composed Cloudinary credential has to reach the Cloudinary SDK, and the SDK
-    reads CLOUDINARY_URL out of the environment itself â€” `cloudinary.config()`
+    reads CLOUDINARY_URL out of the environment itself — `cloudinary.config()`
     with no arguments is how hub/storage.py and nine modules configure it. So a
     deployment given only CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY /
     CLOUDINARY_API_SECRET would have a `settings.cloudinary_url` that nothing
     else could see, and every upload would still go to the local disk that is
-    wiped on each redeploy â€” silently, because a module that cannot reach
+    wiped on each redeploy — silently, because a module that cannot reach
     Cloudinary falls back rather than erroring.
 
     This is the one place that reaches all of them. It never overwrites a
