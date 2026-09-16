@@ -89,6 +89,53 @@ SCENARIOS: list[Scenario] = [
             Step("Decide before confirming", "Confirm the specific resource only when its evidence justifies cleanup.", "GA4 goes to the Analytics trash; GTM container deletion is permanent. This walkthrough does not delete anything.")]),
 
 
+    Scenario(
+        key="ask_smarthub.client_performance", module="ask_smarthub",
+        title="Ask how a client's campaigns are doing, and read the answer safely",
+        goal="One client's month read out of the reports fact table, with the "
+             "window it covers, what is not in the totals, and which numbers "
+             "were measured rather than assumed.",
+        minutes=4, path="/ask-smarthub", spends=["openai.text"], steps=[
+            Step("Start from a chip, not a blank box",
+                 "Open Ask SmartHub and choose Campaign performance summary, or press "
+                 "the same chip on the reporting hub, the pacing board or a client's "
+                 "360 record.",
+                 "A chip fills in the client the page already knows about and asks a "
+                 "question shaped for the data. Typing your own question works too; "
+                 "the chip just spends the four-read budget better."),
+            Step("Name a period, never dates",
+                 "Say this month, last month, last 30 days, last quarter. The Hub turns "
+                 "the name into days.",
+                 "Every window is complete days, so today is never in it -- today's "
+                 "figures are still arriving. The answer states the window it read; "
+                 "check it matches what you meant before you quote anything."),
+            Step("Read what is NOT in the total",
+                 "Look for pending campaigns and quarantined days in the answer.",
+                 "A campaign the auto-mapper filed from its name is a proposal until "
+                 "somebody confirms it, and its spend is in no figure here. A "
+                 "quarantined day is one the screen held back as impossible. Both are "
+                 "named so you can say the total is partial."),
+            Step("Treat a flag as a reading, not an opinion",
+                 "Flags like a CTR drop or a campaign paying twice the account's cost "
+                 "per conversion are computed from the figures, with a threshold "
+                 "printed beside them.",
+                 "Ask SmartHub reports flags; it does not decide them and cannot add "
+                 "one. If it explains why a flag fired, that explanation is its own "
+                 "reasoning -- check it against the table."),
+            Step("Take 'not measured' literally",
+                 "Where a figure reads not measured or not priced, it is missing, not "
+                 "zero.",
+                 "A cost per conversion with no conversions has no value; a platform "
+                 "with no pricing rule has no billed figure. Neither is nought, and "
+                 "neither belongs in something you send a client without checking "
+                 "why it is absent."),
+            Step("Publish a client summary only after reading it",
+                 "On a client's report page in Reports, use Draft with Ask SmartHub, "
+                 "read what comes back, edit it, then Save.",
+                 "Drafting publishes nothing. Saving puts those exact words on the "
+                 "client's page under your name, and the client's page never asks for "
+                 "a new one. Nothing reaches a client that a person has not read.")]),
+
     # ------------------------------------------------------------------
     Scenario(
         key="seo_images.first_batch", module="seo_images",

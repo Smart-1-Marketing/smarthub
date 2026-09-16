@@ -146,8 +146,37 @@ class AskClientChoiceUiTests(unittest.TestCase):
     def test_template_renders_clickable_clarification_choices(self):
         template = Path("hub/templates/ask_smarthub.html").read_text()
         self.assertIn("clarification.choices", template)
-        self.assertIn("ask(choice.question)", template)
         self.assertIn("ask-choice", template)
+        # Picking a client re-asks THAT choice's question, and carries the
+        # recipe with it: the person answered "which client", not "never
+        # mind the table I asked for".
+        self.assertIn("ask(choice.question,recipeKey)", template)
+
+
+class AskRecipeUiTests(unittest.TestCase):
+    def test_chips_come_from_the_recipe_library_not_the_template(self):
+        template = Path("hub/templates/ask_smarthub.html").read_text()
+        self.assertIn("recipe_groups", template)
+        self.assertIn("data-recipe=", template)
+        # The chip asks its own filled-in question rather than its label.
+        self.assertIn("data-question", template)
+
+    def test_the_recipe_key_is_sent_with_the_question(self):
+        template = Path("hub/templates/ask_smarthub.html").read_text()
+        self.assertIn("recipe:recipeKey", template)
+
+    def test_a_recipe_never_widens_the_tool_catalog(self):
+        from hub import ask_recipes
+        for recipe in ask_recipes.RECIPES:
+            for role in recipe.roles:
+                reachable = ask_smarthub.allowed_tools(role)
+                for tool in recipe.tools:
+                    self.assertIn(tool, reachable, f"{recipe.key} / {role}")
+
+    def test_a_role_outside_a_recipe_gets_neither_hint_nor_guidance(self):
+        from hub import ask_recipes
+        self.assertEqual(ask_recipes.tool_hint("performance_summary", "client"), ())
+        self.assertEqual(ask_recipes.render_for("performance_summary", "client"), "")
 
 
 if __name__ == "__main__":
