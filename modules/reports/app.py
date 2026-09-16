@@ -1081,10 +1081,22 @@ def client_summary_draft(client):
     if not store._month_key(month):
         return jsonify({"ok": False, "error": "Choose the month the summary is about."}), 400
     try:
-        from hub import ask_recipes, ask_smarthub
+        from hub import ask_recipes, ask_smarthub, demo as hub_demo
+        from hub import identity as hub_identity
     except Exception as exc:                        # noqa: BLE001
         return jsonify({"ok": False,
                         "error": f"Ask SmartHub is unavailable ({type(exc).__name__})."}), 503
+    # This route reaches ask_smarthub.ask() directly rather than through
+    # /api/ask-smarthub, so it carries that route's demo gate itself: a demo
+    # session spending real AI credits is the thing hub/demo.py exists to
+    # stop, and a second door into the same call is how a gate gets bypassed
+    # while every screen reports success. The role comes off the cookie the
+    # mounted request already carries, because the environ holds the user's
+    # name and not their role.
+    try:
+        hub_demo.guard("openai.text", hub_identity.user_from_environ(request.environ))
+    except hub_demo.DemoBlocked as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 403
     recipe = ask_recipes.BY_KEY.get("monthly_exec")
     name = _client_name_for(client)
     question = ask_recipes.fill(recipe, name,

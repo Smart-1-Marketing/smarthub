@@ -139,6 +139,22 @@ code, body = public()
 check("...and nothing they could not reach was published",
       "published by nobody" not in body)
 
+section("A demo session cannot spend AI credits on a draft")
+# /api/ask-smarthub blocks demo sessions; this route reaches ask() directly,
+# so it has to carry the same gate. A second door into a paid call is how a
+# gate gets bypassed while every screen reports success.
+os.environ["HUB_DEMO_MODE"] = "1"
+try:
+    r = draft()
+    check("the draft route refuses a demo session", r.status_code, 403)
+    check("...saying why, in the demo's own words",
+          "demo session" in (r.get_json() or {}).get("error", ""))
+    check("...and Ask SmartHub was never asked", len(fake_ask.calls), 0)
+finally:
+    os.environ.pop("HUB_DEMO_MODE", None)
+r = draft()
+check("...while a real session is not refused", r.status_code, 200)
+
 section("Drafting writes nothing at all")
 r = draft()
 check("the draft route answers", r.status_code, 200)
