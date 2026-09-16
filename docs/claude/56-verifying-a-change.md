@@ -618,6 +618,30 @@ python3 test_ask_recipes.py        # the recipe library and every placement its 
 python3 test_ci_gate.py            # the gate runs every check a person runs
 ```
 
+### The MCP gateway's tests are not in the sweep above
+
+`mcp_gateway/` has its own tests and its own workflow
+(`.github/workflows/mcp-gateway.yml`, the **smoke** check). They are
+`unittest` modules rather than root-level `test_*.py` scripts, so nothing in
+the list above runs them, `test_ci_gate.py` does not govern them, and they
+need the separately deployed MCP SDK the Hub's own runtime does not install:
+
+```bash
+pip install -r mcp_gateway/requirements.txt     # the SDK, once
+export MCP_API_TOKEN=ci-test-token-not-for-production HUB_DATA_DIR=/tmp/smarthub-mcp-ci
+python3 -m unittest mcp_gateway.test_server     # V1 identity and security boundary
+python3 -m unittest mcp_gateway.test_v2         # V2 identity and connector boundary
+python3 -m unittest test_ask_smarthub           # the role and tool boundary
+```
+
+**Run them after editing `mcp_gateway/v2_tools.py`, `hub/ask_smarthub.py`, or
+the Ask SmartHub page or widget** — the workflow's own path filter names
+exactly those files. `test_v2.ToolMetadataTests` asserts the V2 tool set as a
+**closed set**: adding a tool without adding its name there fails the smoke
+check, which is the point. A tool the gateway exposes and nobody wrote down
+is the surface growing without anybody agreeing to it, so the fix is to add
+the name, never to loosen the assertion.
+
 The test files need no pytest and no new dependencies; each runs against a
 temporary data directory and a throwaway SQLite database, so none of them
 touches `/var/data` or the real one.
