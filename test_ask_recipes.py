@@ -62,6 +62,10 @@ def section(title):
 
 
 from hub import ask_recipes, ask_smarthub                           # noqa: E402
+from mcp_gateway import v2_tools                                    # noqa: E402
+
+IDENTITY = {"known": True, "client": "Acme", "client_key": "n:acme", "domain": "",
+            "matched_on": "exact", "confidence": "exact", "candidates": [], "why": ""}
 
 section("Every recipe is reachable, and the check runs at import")
 check("the six recipes are declared", [r.key for r in ask_recipes.RECIPES],
@@ -164,6 +168,63 @@ check("the pacing board shows only its own group",
       [g["group"] for g in ask_recipes.grouped("reports_pacing", "member")],
       ["Optimization"])
 
+section("No placement is declared and never wired")
+# The trap docs/claude/47 is named after. Every placement is either rendered
+# by a page, or listed as pending WITH a reason -- and a pending one offers no
+# chips at all, so the entry is what makes the button not exist rather than a
+# note beside a live one.
+SOURCES = [ROOT / "hub" / "templates" / "ask_smarthub.html",
+           ROOT / "hub" / "templates" / "dashboard.html",
+           ROOT / "hub" / "templates" / "client360.html",
+           ROOT / "hub" / "__init__.py",
+           ROOT / "modules" / "reports" / "app.py",
+           ROOT / "modules" / "reports" / "templates" / "reports_index.html",
+           ROOT / "modules" / "reports" / "templates" / "reports_pacing.html",
+           ROOT / "modules" / "ads_builder" / "app.py"]
+WIRING = "\n".join(f.read_text(encoding="utf-8") for f in SOURCES)
+for placement in ask_recipes.PLACEMENTS:
+    wired = f'"{placement}"' in WIRING or f"'{placement}'" in WIRING
+    pending = placement in ask_recipes.PENDING_PLACEMENTS
+    check(f"{placement} is wired to a page, or declared pending",
+          wired or pending)
+    if pending:
+        check(f"...{placement} offers no chips while it is pending",
+              ask_recipes.chips(placement, "member"), [])
+        check(f"...and says why in a sentence",
+              len(ask_recipes.PENDING_PLACEMENTS[placement]) > 40)
+    else:
+        check(f"...{placement} offers at least one chip",
+              len(ask_recipes.chips(placement, "member")) > 0)
+
+section("A chip is never offered for a sweep that does not exist")
+check("Microsoft Ads has no sweep, so its placement offers nothing",
+      ask_recipes.chips("ads_optimization_bing", "member"), [])
+check("...and Google's does", len(ask_recipes.chips("ads_optimization_google", "member")), 1)
+check("the judgment is the tool's own, not a second list",
+      ask_recipes.SWEPT_PLATFORMS is v2_tools.SWEPT_PLATFORMS)
+check("sweep_exists says yes for a placement naming no platform",
+      ask_recipes.sweep_exists("client360"))
+check("...and for an unknown placement", ask_recipes.sweep_exists("nowhere"))
+# The two halves cannot drift: the tool refuses exactly what the library hides.
+for code in ("bing", "microsoft"):
+    with patch.object(v2_tools, "resolve_identity", return_value=IDENTITY):
+        out = v2_tools.client_ads_findings("Acme", platform=code)
+    check(f"the tool answers 'not built' for {code}", out["reason"], "sweep_not_built")
+    check(f"...and {code} is outside SWEPT_PLATFORMS",
+          code not in v2_tools.SWEPT_PLATFORMS)
+for code in v2_tools.SWEPT_PLATFORMS:
+    check(f"{code} is a platform the findings tool knows",
+          code in v2_tools.FINDINGS_PLATFORMS)
+
+section("The client dashboard's draft button reads its recipe from the placement")
+app_src = (ROOT / "modules" / "reports" / "app.py").read_text(encoding="utf-8")
+check("the route asks the placement which recipe to draft",
+      'for_placement("client_dashboard"' in app_src)
+check("...rather than naming one directly", '"monthly_exec"' not in app_src)
+check("...and the placement answers with exactly one",
+      [r.key for r in ask_recipes.for_placement("client_dashboard", "member")],
+      ["monthly_exec"])
+
 section("A recipe is a hint, never a second allowlist")
 check("tool_hint gives a staff member the recipe's tools",
       ask_recipes.tool_hint("performance_summary", "member"),
@@ -188,10 +249,6 @@ def fake_chat_json(messages, **kw):
 def fake_chat(messages, **kw):
     seen["answer_system"] = messages[0]["content"]
     return "Acme spent $2,625.00 this month."
-
-
-IDENTITY = {"known": True, "client": "Acme", "client_key": "n:acme", "domain": "",
-            "matched_on": "exact", "confidence": "exact", "candidates": [], "why": ""}
 
 
 def ask(question, **kw):

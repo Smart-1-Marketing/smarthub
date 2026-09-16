@@ -134,6 +134,36 @@ later. The 90-day view is about no single month and shows none: a summary of
 September above figures for July through September does not describe them. No
 summary means no section, not a sentence about why.
 
+## The three things that keep this from drifting
+
+Each of these was a real gap, not a hypothetical: the first two were found
+by CI on this change's own branch.
+
+**A tool has to appear in two catalogs**, `v2_tools.register()` for the MCP
+server and `ask_smarthub.TOOLS` for the planner, and adding it to one passes
+every test that only reads the other. `mcp_gateway/test_v2.py` pins the MCP
+set as a CLOSED set; `test_ask_smarthub.py` now asserts the two agree, and
+that every argument a planner may send is one its function actually takes --
+`execute()` silently drops the rest, so a filter nobody applied would report
+success.
+
+**A placement is a claim that some page renders it.** Every entry in
+`PLACEMENTS` is either referenced by a page or listed in
+`PENDING_PLACEMENTS` with a reason, and a pending placement offers *no*
+chips, so the entry is what makes the button not exist rather than a note
+beside a live one. `ads_optimization_bing` is the only pending one today.
+
+**One fact decides whether a sweep exists.** `v2_tools.SWEPT_PLATFORMS` is
+read by the findings tool's not-built branch AND by the recipe library. A
+chip offered for a platform the tool then refuses reads, to whoever pressed
+it, as the tool being broken -- so the chip and the refusal cannot disagree.
+When the Microsoft Ads sweep is written, adding it to that tuple turns the
+chip on and the boot check then *requires* removing the pending entry.
+
+Which recipe the client dashboard's draft button runs is the
+`client_dashboard` placement's answer rather than a key typed in the route,
+so that placement is load-bearing too.
+
 ## What is deliberately not built
 
 Search terms, Quality Score, device/geo/hour breakdowns and the

@@ -66,4 +66,4 @@ say "above" or "below" mean earlier or later files in this list.
 | [`58-the-check-that-reported-no-json-on-the-disk.md`](58-the-check-that-reported-no-json-on-the-disk.md) | The check that reported no JSON on the disk | 147 |
 | [`59-leads-in-a-table-not-a-file-on-one-instance.md`](59-leads-in-a-table-not-a-file-on-one-instance.md) | Leads in a table, not a file on one instance | 136 |
 | [`60-a-clients-email-campaigns-read-from-their-own-sub-account.md`](60-a-clients-email-campaigns-read-from-their-own-sub-account.md) | A client's email campaigns, read from their own sub-account | 65 |
-| [`61-ask-smarthub-reads-the-fact-table.md`](61-ask-smarthub-reads-the-fact-table.md) | Ask SmartHub reads the fact table: named periods, decided flags, recipes | 144 |
+| [`61-ask-smarthub-reads-the-fact-table.md`](61-ask-smarthub-reads-the-fact-table.md) | Ask SmartHub reads the fact table: named periods, decided flags, recipes | 174 |

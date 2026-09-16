@@ -1178,6 +1178,16 @@ FINDING_KINDS = {
 FINDINGS_PLATFORMS = {"google_ads": "Google Ads", "google": "Google Ads",
                       "bing": "Microsoft Ads", "microsoft": "Microsoft Ads"}
 
+# Of those, the ones a sweep actually analyses today. modules/ads_builder
+# sweeps Google Ads twice daily; modules/reports/bing.py pulls Microsoft Ads
+# SPEND and has no analysis step at all.
+#
+# One fact, two readers: this tool's not-built branch and hub/ask_recipes.py,
+# which will not offer a chip for a platform whose sweep does not exist. Two
+# copies of that judgment is a chip promising an answer the tool then
+# refuses -- which reads to whoever pressed it as the tool being broken.
+SWEPT_PLATFORMS = ("google_ads", "google")
+
 
 def _finding(item: dict, url: str) -> dict:
     """One sweep finding as a row an answer can quote."""
@@ -1227,16 +1237,17 @@ def client_ads_findings(client_name: str, platform: str = "google_ads",
         return {"found": True, "available": False, "identity": identity,
                 "error": "unknown platform", "reason": "unknown_platform",
                 "platforms": sorted(set(FINDINGS_PLATFORMS))}
-    if FINDINGS_PLATFORMS[wanted] == "Microsoft Ads":
+    if wanted not in SWEPT_PLATFORMS:
+        label = FINDINGS_PLATFORMS[wanted]
         _audit("get_client_ads_findings", identity, status="not_built",
                platform=wanted)
         return {"found": True, "available": False, "identity": identity,
-                "platform": wanted, "platform_label": "Microsoft Ads",
-                "error": "Microsoft Ads sweep not built",
+                "platform": wanted, "platform_label": label,
+                "error": f"{label} sweep not built",
                 "reason": "sweep_not_built", "accounts": [],
-                "message": ("Microsoft Ads spend is pulled into the reports "
-                            "fact table, but no optimization sweep analyses it "
-                            "yet, so there are no findings to read.")}
+                "message": (f"{label} spend is pulled into the reports fact "
+                            "table, but no optimization sweep analyses it yet, "
+                            "so there are no findings to read.")}
 
     wanted_severity = _clean(severity, 20).lower() or "high"
     if wanted_severity not in SEVERITIES + ("all", ""):

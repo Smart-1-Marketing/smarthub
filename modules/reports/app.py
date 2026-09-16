@@ -1098,7 +1098,17 @@ def client_summary_draft(client):
         hub_demo.guard("openai.text", hub_identity.user_from_environ(request.environ))
     except hub_demo.DemoBlocked as exc:
         return jsonify({"ok": False, "error": str(exc)}), 403
-    recipe = ask_recipes.BY_KEY.get("monthly_exec")
+    # Which recipe this button drafts is the `client_dashboard` PLACEMENT's
+    # answer, not a key typed here. The placement is then load-bearing rather
+    # than a claim in hub/ask_recipes.py that nothing reads -- and changing
+    # which recipe belongs on a client's dashboard changes this button.
+    offered = ask_recipes.for_placement("client_dashboard",
+                                        ask_recipes.BASELINE_STAFF)
+    if not offered:
+        return jsonify({"ok": False,
+                        "error": "No summary recipe is available for the "
+                                 "client dashboard."}), 503
+    recipe = offered[0]
     name = _client_name_for(client)
     question = ask_recipes.fill(recipe, name,
                                 period_text=_period_for_month(month))
@@ -1107,7 +1117,7 @@ def client_summary_draft(client):
             question, role="member", actor=actor_name(),
             context={"client": name, "path": request.path,
                      "page_title": "Client report"},
-            recipe="monthly_exec")
+            recipe=recipe.key)
     except PermissionError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 403
     except RuntimeError as exc:

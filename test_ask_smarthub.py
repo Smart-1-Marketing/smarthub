@@ -1,9 +1,11 @@
 """Boundaries for the read-only Ask SmartHub planner and executor."""
+import inspect
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 from hub import ask_smarthub
+from mcp_gateway import v2_tools
 
 
 class AskPermissionsTests(unittest.TestCase):
@@ -151,6 +153,65 @@ class AskClientChoiceUiTests(unittest.TestCase):
         # recipe with it: the person answered "which client", not "never
         # mind the table I asked for".
         self.assertIn("ask(choice.question,recipeKey)", template)
+
+
+class CatalogAgreementTests(unittest.TestCase):
+    """The two catalogs a V2 read tool has to appear in, kept in step.
+
+    A tool lives in `mcp_gateway/v2_tools.py` and is declared twice: in
+    `register()` for the MCP server, and in `ask_smarthub.TOOLS` for the
+    planner. Adding it to one and not the other passes every test that only
+    looks at one of them -- which is exactly how this branch shipped two
+    tools that `mcp_gateway/test_v2.py`'s closed set then failed on.
+    """
+
+    def _registered(self):
+        class FakeMCP:
+            def __init__(self):
+                self.tools = {}
+
+            def tool(self, **kw):
+                def wrap(fn):
+                    self.tools[fn.__name__] = fn
+                    return fn
+                return wrap
+
+        fake = FakeMCP()
+        v2_tools.register(fake)
+        return fake.tools
+
+    def test_every_v2_backed_planner_tool_is_registered_with_mcp(self):
+        registered = self._registered()
+        for name, tool in ask_smarthub.TOOLS.items():
+            if "v2_tools" not in str(getattr(tool.fn, "__module__", "")):
+                continue
+            with self.subTest(tool=name):
+                self.assertIn(
+                    name, registered,
+                    f"{name} is in the planner's catalog but not in "
+                    f"v2_tools.register(); an MCP client cannot reach it.")
+
+    def test_every_declared_argument_is_one_the_function_accepts(self):
+        """A planner argument the function has no parameter for is silently
+        dropped by `execute()`, so the read runs with a filter nobody
+        applied -- and reports success."""
+        for name, tool in ask_smarthub.TOOLS.items():
+            try:
+                params = set(inspect.signature(tool.fn).parameters)
+            except (TypeError, ValueError):       # a lambda adapter
+                continue
+            with self.subTest(tool=name):
+                self.assertEqual(
+                    set(tool.arguments) - params, set(),
+                    f"{name} declares arguments its function cannot take")
+                self.assertEqual(
+                    params - set(tool.arguments), set(),
+                    f"{name} has parameters the planner can never send")
+
+    def test_no_tool_is_reachable_by_a_role_outside_the_catalog(self):
+        for role in ("client", "", "anonymous", "viewer"):
+            with self.subTest(role=role):
+                self.assertEqual(ask_smarthub.allowed_tools(role), {})
 
 
 class AskRecipeUiTests(unittest.TestCase):

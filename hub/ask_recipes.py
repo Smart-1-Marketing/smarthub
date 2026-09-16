@@ -33,6 +33,7 @@ from dataclasses import dataclass
 
 from hub.ask_smarthub import STAFF, TOOLS, allowed_tools
 from hub.periods import DEFAULT_PERIOD, PERIODS
+from mcp_gateway.v2_tools import SWEPT_PLATFORMS
 
 # Every page a chip can appear on. A placement the templates do not know is a
 # recipe nobody can reach, so the list is closed and asserted at import --
@@ -50,6 +51,35 @@ PLATFORM_FOR_PLACEMENT = {
     "ads_optimization_google": ("google_ads", "Google Ads"),
     "ads_optimization_bing": ("bing", "Microsoft Ads"),
 }
+
+# Placements in the vocabulary that no page renders yet, and why. A placement
+# that is neither rendered nor listed here is the declared-and-never-wired
+# trap docs/claude/47 is about, and test_ask_recipes.py fails on one.
+#
+# A pending placement offers NO chips (`for_placement` returns nothing for
+# it), so the entry is not a to-do note beside a live button: it is what makes
+# the button not exist.
+PENDING_PLACEMENTS = {
+    "ads_optimization_bing": (
+        "Microsoft Ads has no optimization sweep, so there is no page to put a "
+        "chip on and nothing for the chip to read: get_client_ads_findings "
+        "answers 'not built' for it. Both halves read "
+        "mcp_gateway.v2_tools.SWEPT_PLATFORMS, so this placement starts "
+        "offering its chip on the day that sweep is written and not before."),
+}
+
+
+def sweep_exists(placement: str) -> bool:
+    """Whether the sweep a placement's chip would read actually exists.
+
+    True for every placement that names no platform. The judgment itself is
+    ``v2_tools.SWEPT_PLATFORMS`` rather than a second list here: a chip
+    promising an answer the tool then refuses reads, to whoever pressed it,
+    as the tool being broken.
+    """
+    code, _label = PLATFORM_FOR_PLACEMENT.get(
+        " ".join(str(placement or "").split())[:60], ("", ""))
+    return not code or code in SWEPT_PLATFORMS
 
 
 @dataclass(frozen=True)
@@ -194,6 +224,13 @@ def _check() -> None:
                         f"{recipe.key}: {role} cannot reach {tool!r}")
     if len({r.key for r in RECIPES}) != len(RECIPES):
         raise ValueError("two recipes share a key")
+    for placement in PENDING_PLACEMENTS:
+        if placement not in PLACEMENTS:
+            raise ValueError(f"pending placement {placement!r} is not a placement")
+        if sweep_exists(placement):
+            raise ValueError(
+                f"{placement!r} is listed as pending but its sweep now exists; "
+                "remove it from PENDING_PLACEMENTS so its chip is offered")
 
 
 _check()
@@ -216,8 +253,14 @@ def allowed(recipe: Recipe, role: str) -> bool:
 
 
 def for_placement(placement: str, role: str) -> list[Recipe]:
-    """The recipes whose chips belong on one page, in group order."""
+    """The recipes whose chips belong on one page, in group order.
+
+    Nothing for a placement whose sweep does not exist yet: the chip would ask
+    a question the tool answers "not built" to.
+    """
     place = " ".join(str(placement or "").split())[:60]
+    if not sweep_exists(place):
+        return []
     rows = [r for r in RECIPES if place in r.placements and allowed(r, role)]
     rows.sort(key=lambda r: (GROUPS.index(r.group), RECIPES.index(r)))
     return rows
