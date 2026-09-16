@@ -747,7 +747,13 @@
         +   '<span class="ver">' + ((s.versions||[]).length) + ' version(s)'
         +   (s.notes ? ' · ' + esc(s.notes) : '') + '</span>'
         +   '<span class="msg" data-m="1"></span>'
-        + '</div>' + audio + '</div>';
+        + '</div>'
+        + '<div class="sfoot"><label class="link" style="cursor:pointer">'
+        +   'Use a read you recorded yourself instead'
+        +   '<input type="file" accept="audio/*" data-a="voup5" data-s="' + esc(s.id)
+        +   '" style="display:none"></label>'
+        +   '<span class="msg" data-m="vo5-' + esc(s.id) + '"></span></div>'
+        + audio + '</div>';
     }).join("");
 
     $("spots").querySelectorAll(".spot").forEach(function(card){
@@ -802,6 +808,18 @@
              msg.className = "msg err"; msg.textContent = e.message; });
         };
       });
+      var voInput = card.querySelector('input[type=file][data-a="voup5"]');
+      if(voInput) voInput.onchange = function(){
+        var file = voInput.files && voInput.files[0];
+        if(!file) return;
+        var fd = new FormData(); fd.append("file", file);
+        say("[data-m='vo5-" + id + "']", "Uploading…", "wait");
+        postForm("/api/projects/"+P.id+"/spots/"+id+"/voice-upload", fd)
+          .then(function(j){ done(j); })
+          .catch(function(e){
+            say("[data-m='vo5-" + id + "']", e.message, "err"); });
+        voInput.value = "";
+      };
     });
   }
 
