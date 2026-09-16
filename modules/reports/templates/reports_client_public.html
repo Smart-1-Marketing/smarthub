@@ -283,6 +283,41 @@
   </section>
   {% endif %}
 
+  {% if a.email %}{% set e = a.email %}{% set E = e.labels %}{% set t = (e.totals or {}).get('30') or {} %}
+  <section class="email" style="margin-top:16px" aria-labelledby="email-h">
+    <h2 id="email-h" style="font-size:18px;margin:0 0 10px">{{ E.section }}</h2>
+    <p class="hint">{{ E.period }}</p>
+    <div class="tiles">
+      <div class="tile"><div class="k">{{ E.campaigns }}</div><div class="v">{{ '{:,}'.format(t.campaigns or 0) }}</div></div>
+      <div class="tile"><div class="k">{{ E.delivered }}</div><div class="v">{% if t.measured %}{{ '{:,}'.format(t.delivered or t.sent or 0) }}{% else %}&mdash;{% endif %}</div></div>
+      <div class="tile"><div class="k">{{ E.opened }}</div><div class="v">{% if t.open_rate is not none %}{{ '{:.1f}%'.format(t.open_rate) }}{% else %}&mdash;{% endif %}</div></div>
+      <div class="tile"><div class="k">{{ E.clicked }}</div><div class="v">{% if t.click_rate is not none %}{{ '{:.1f}%'.format(t.click_rate) }}{% else %}&mdash;{% endif %}</div></div>
+    </div>
+    {% if e.campaigns %}
+    <table style="width:100%;border-collapse:collapse;margin-top:12px;font-size:13px">
+      <thead><tr><th style="text-align:left;padding:6px 4px">{{ E.table_campaign }}</th><th style="text-align:left;padding:6px 4px">{{ E.table_sent }}</th><th style="text-align:right;padding:6px 4px">{{ E.table_delivered }}</th><th style="text-align:right;padding:6px 4px">{{ E.table_opened }}</th><th style="text-align:right;padding:6px 4px">{{ E.table_clicked }}</th></tr></thead>
+      <tbody>
+      {% for c in e.campaigns %}
+      <tr style="border-top:1px solid #eef1f5">
+        <td style="padding:6px 4px"><b>{{ c.name }}</b>{% if c.subject %}<div class="hint" style="margin:0">{{ c.subject }}</div>{% endif %}</td>
+        <td style="padding:6px 4px">{{ (c.sent_at or '')[:10] }}</td>
+        {% if c.has_stats %}
+        <td style="padding:6px 4px;text-align:right">{{ '{:,}'.format(c.delivered if c.delivered is not none else (c.sent or 0)) }}</td>
+        <td style="padding:6px 4px;text-align:right">{% if c.opened is not none %}{{ '{:,}'.format(c.opened) }}{% if c.open_rate is not none %} <span class="hint" style="display:inline;margin:0">({{ '{:.1f}%'.format(c.open_rate) }})</span>{% endif %}{% else %}&mdash;{% endif %}</td>
+        <td style="padding:6px 4px;text-align:right">{% if c.clicked is not none %}{{ '{:,}'.format(c.clicked) }}{% if c.click_rate is not none %} <span class="hint" style="display:inline;margin:0">({{ '{:.1f}%'.format(c.click_rate) }})</span>{% endif %}{% else %}&mdash;{% endif %}</td>
+        {% else %}
+        <td colspan="3" style="padding:6px 4px;text-align:right" class="hint">{{ E.no_counts }}</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if e.more %}<p class="hint">{{ e.more }} older campaign{{ '' if e.more == 1 else 's' }} not shown.</p>{% endif %}
+    {% endif %}
+    <p class="hint">Read {{ e.as_of }}</p>
+  </section>
+  {% endif %}
+
   <div class="cta">
     <div><b>Want more from this campaign?</b>
       <span class="sub">{% if a.rep_name %}Your Smart 1 rep, {{ a.rep_name }}, can walk you through what's working and what's next.{% else %}Your Smart 1 rep can walk you through what's working and what's next.{% endif %}</span></div>

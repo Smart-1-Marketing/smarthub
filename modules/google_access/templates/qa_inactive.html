@@ -13,7 +13,8 @@
     .banner{display:none;padding:11px 13px;border-radius:8px;margin:10px 0;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412}.banner.show{display:block}.section{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-top:14px;overflow:hidden}.section-head{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:15px}.section-head h2{font-size:16px;margin:0}.section-head p{margin:2px 0 0;color:var(--muted);font-size:12px}.pill{border-radius:999px;padding:3px 8px;font-size:11px;font-weight:700}.pill.ga4{background:#eff8ff;color:#175cd3}.pill.gtm{background:#f4f3ff;color:#5925dc}.pill.review{background:#fffaeb;color:#b54708}
     .table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:1050px}th,td{text-align:left;padding:11px 12px;border-bottom:1px solid #eef2f6;vertical-align:top}th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#667085;background:#fbfcfd;position:sticky;top:0}td small{display:block;color:var(--muted);margin-top:2px}.num{text-align:right;font-variant-numeric:tabular-nums}.row-actions{display:flex;gap:6px;justify-content:flex-end;white-space:nowrap}.empty{padding:28px;text-align:center;color:var(--muted)}.reason{max-width:360px}.muted{color:var(--muted)}
     details{border-top:1px solid var(--line)}summary{cursor:pointer;padding:12px 16px;font-weight:600}.skipped-row{opacity:.7}
-    .bulkbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--line);background:#fbfcfd;color:var(--muted);font-size:12px}.bulkbar .count{color:var(--ink);font-size:13px}.bulkbar .spacer{flex:1}
+    .bulkbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--line);background:#fbfcfd;color:var(--muted);font-size:12px}.bulkbar .count{color:var(--ink);font-size:13px}.bulkbar .spacer{flex:1}.bulkbar .filter{border:1px solid #cbd5e1;border-radius:8px;padding:6px 9px;font:inherit;min-width:260px}
+    .act{border-radius:999px;padding:2px 7px;font-size:11px;font-weight:700;background:#f1f5f9;color:#334155}.act.delete{background:#fff1f0;color:var(--red)}.act.skip{background:#fffaeb;color:var(--amber)}.act.unskip{background:#ecfdf3;color:var(--green)}.act.site_check{background:#eff8ff;color:var(--blue)}.hist-bad td{color:var(--red)}
     th.pick,td.pick{width:36px;padding-right:0}input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:#1a2e58}
     .bulk-list{max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0 12px;font-size:12px;background:#fbfcfd}.bulk-list div{padding:2px 0}
     .bulk-results{max-height:200px;overflow:auto;margin:8px 0 0;font-size:12px}.bulk-results div{padding:3px 0;border-bottom:1px solid #eef2f6}.line-ok{color:var(--green)}.line-bad{color:var(--red)}
@@ -87,6 +88,22 @@
       <div class="table-wrap"><table>
         <thead><tr><th class="pick"><input type="checkbox" id="allSkipped" aria-label="Select every skipped resource"></th><th>Type</th><th>Google login</th><th>Account</th><th>Property / container</th><th>Reason skipped</th><th></th></tr></thead>
         <tbody id="skippedBody"><tr><td colspan="7" class="empty">Nothing skipped.</td></tr></tbody>
+      </table></div>
+    </details>
+  </section>
+
+  <section class="section">
+    <details id="historyPanel">
+      <summary>Cleanup history {{ help_dot('google_access.cleanup.history') if help_dot is defined else '' }} <span id="historyCount" class="muted"></span></summary>
+      <div class="bulkbar">
+        <input id="historyFilter" class="filter" placeholder="Filter by name, ID, login or who did it" aria-label="Filter the cleanup history">
+        <span class="spacer"></span>
+        <span id="historyRange" class="muted"></span>
+        <button class="small ghost" id="historyRefresh">Refresh</button>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Type</th><th>Resource</th><th>Google login</th><th>What happened</th></tr></thead>
+        <tbody id="historyBody"><tr><td colspan="7" class="empty">Open this panel to load the history.</td></tr></tbody>
       </table></div>
     </details>
   </section>
@@ -271,7 +288,7 @@ async function pollProgress(){
 }
 function startPolling(){stopPolling();pollProgress();pollTimer=setInterval(pollProgress,1500)}
 async function startScan(full){
-  setScanningUI(true);show('');
+  setScanningUI(true);show('');invalidateHistory();
   try{await fetch(`api/scan/start?force=1${full?'&full=1':''}`,{method:'POST'})}catch(e){/* the poll below reports the real state either way */}
   startPolling();
 }
@@ -331,6 +348,7 @@ $('#checkForm').addEventListener('submit',async e=>{
     if(!res.ok)throw new Error(d.error||'Could not check that page');
     $('#checkResult').textContent=siteCheckSummary(d);
     applySiteCheck(selected,{url:d.url,checked_at:d.checked_at,found:d.found,status:d.status,error:d.error,by:d.by});
+    invalidateHistory();
   }catch(e){$('#checkResult').textContent=e.message}finally{b.disabled=false}
 });
 
@@ -539,6 +557,7 @@ $('#bulkCheckForm').addEventListener('submit',async e=>{
     return `<div class="line-bad">? ${label} — ${esc(r.error||'could not be checked')}</div>`;
   }).join('');
   applySiteChecks(results);
+  invalidateHistory();
   b.disabled=false;
 });
 
@@ -556,6 +575,72 @@ $('#bulkInactiveCheck').onclick=()=>openBulkCheck('inactive');
 $('#bulkReviewCheck').onclick=()=>openBulkCheck('review');
 $('#bulkSkippedCheck').onclick=()=>openBulkCheck('skipped');
 refreshBulkBars();
+
+
+// ---------------------------------------------------------------------------
+// Cleanup history
+// ---------------------------------------------------------------------------
+// Every skip, un-skip, site check and deletion this tool has made, from the
+// log it has always written and nothing has ever drawn. That was tolerable
+// while a deletion was one press at a time; a press can now delete twenty
+// GA4 properties, so "what did we clean up, and who did it" needs an answer
+// somebody can reach without calling the endpoint by hand.
+//
+// Loaded when the panel is opened, not on page load: the scan is what this
+// screen is for, and a fetch nobody asked for competes with it. Marked stale
+// rather than silently left behind when an action writes to it -- an open
+// panel reloads, a closed one loads fresh next time it is opened.
+const ACTION_LABELS={skip:'Skip',unskip:'Un-skip',delete:'Delete',site_check:'Site check'};
+let historyRows=null, historyTotal=0, historyPageSize=0, historyError='', historyLoading=false;
+function actionPill(a){const k=String(a||'').toLowerCase();return `<span class="act ${esc(k)}">${esc(ACTION_LABELS[k]||a||'—')}</span>`;}
+function historyWhen(at){if(!at)return '—';const d=new Date(at);return isNaN(d.getTime())?esc(at):esc(d.toLocaleString());}
+function rowHistory(r){
+  const failed=r.result&&r.result!=='ok';
+  const name=r.name||r.resource||'—';
+  const idLine=(r.resource&&r.resource!==name)?`<small>${esc(r.resource)}</small>`:'';
+  return `<tr class="${failed?'hist-bad':''}"><td>${historyWhen(r.at)}</td><td>${esc(r.actor||'—')}</td><td>${actionPill(r.action)}</td><td>${r.kind?typePill(r.kind):'—'}</td><td><b>${esc(name)}</b>${idLine}</td><td title="${esc(r.google_login||'')}">${esc(loginName(r.google_login))}</td><td class="reason">${failed?'✗ ':''}${esc(r.detail||(failed?'Failed':'Done'))}</td></tr>`;
+}
+function historyMatches(r,q){
+  if(!q)return true;
+  const hay=[r.actor,r.action,ACTION_LABELS[String(r.action||'').toLowerCase()],r.kind,r.name,
+             r.resource,r.google_login,r.detail].join(' ').toLowerCase();
+  return hay.includes(q);
+}
+function drawHistory(){
+  const body=$('#historyBody');
+  if(historyLoading){body.innerHTML='<tr><td colspan="7" class="empty"><span class="spinner"></span>Loading the history…</td></tr>';return;}
+  if(historyError){body.innerHTML=`<tr><td colspan="7" class="empty">${esc(historyError)}</td></tr>`;$('#historyCount').textContent='';$('#historyRange').textContent='';return;}
+  if(!historyRows){body.innerHTML='<tr><td colspan="7" class="empty">Open this panel to load the history.</td></tr>';return;}
+  const q=$('#historyFilter').value.trim().toLowerCase();
+  const shown=historyRows.filter(r=>historyMatches(r,q));
+  $('#historyCount').textContent=`(${historyTotal})`;
+  // The panel holds a window on the log, not the log -- say which, rather
+  // than letting the last 200 read as everything that has ever happened.
+  const range=historyPageSize&&historyTotal>historyPageSize
+    ?`Showing the last ${historyPageSize} of ${historyTotal} entries`
+    :(historyTotal?`${historyTotal} entr${historyTotal===1?'y':'ies'}`:'');
+  $('#historyRange').textContent=q?`${shown.length} of ${historyRows.length} shown${range?' · '+range:''}`:range;
+  if(!historyRows.length){body.innerHTML='<tr><td colspan="7" class="empty">Nothing has been skipped, checked or deleted here yet.</td></tr>';return;}
+  body.innerHTML=shown.length?shown.map(rowHistory).join(''):'<tr><td colspan="7" class="empty">Nothing in the history matches that.</td></tr>';
+}
+async function loadHistory(){
+  historyLoading=true;historyError='';drawHistory();
+  try{
+    const r=await fetch('api/audit',{headers:{Accept:'application/json'}});
+    const d=await r.json();
+    if(!r.ok||d.ok===false)throw new Error(d.error||`The cleanup log could not be read (HTTP ${r.status}).`);
+    historyRows=d.rows||[];historyTotal=d.total??historyRows.length;historyPageSize=d.page_size||0;
+  }catch(e){historyRows=null;historyError=e.message;}
+  finally{historyLoading=false;drawHistory();}
+}
+// An action just wrote to the log the panel is showing.
+function invalidateHistory(){
+  historyRows=null;
+  if($('#historyPanel').open)loadHistory();
+}
+$('#historyPanel').addEventListener('toggle',()=>{if($('#historyPanel').open&&!historyRows&&!historyLoading)loadHistory();});
+$('#historyRefresh').onclick=()=>loadHistory();
+$('#historyFilter').oninput=()=>{if(historyRows)drawHistory();};
 
 $('#refresh').onclick=()=>startScan(false);
 $('#fullRescan').onclick=()=>{if(confirm('Re-check every GA4 property and GTM container live, ignoring anything checked in the last 24h? This is slower and spends more of the day\'s Google API quota.'))startScan(true)};

@@ -43,7 +43,7 @@ from flask import (Flask, Response, jsonify, redirect, render_template,
 
 from hub.webargs import clamp_int
 
-from . import client_pdf, client_view, organic, pacing, products, quarantine, reconcile, store, youtube
+from . import client_pdf, client_view, organic, pacing, products, quarantine, reconcile, store, suite_email, youtube
 
 try:                                   # the shared last-hop rule for a caller's address
     from hub import leads as hub_leads
@@ -941,6 +941,7 @@ def client_page(client):
         push_ready=_push_ready(),
         seo=_seo_gate(client, _client_name_for(client)),
         youtube=youtube.staff_gate(client, _client_name_for(client)),
+        email=suite_email.staff_gate(client, _client_name_for(client)),
         summary_month=_summary_month_for(rng),
         summary_saved=(store.exec_summary_for(link, _summary_month_for(rng))
                        if link else None),

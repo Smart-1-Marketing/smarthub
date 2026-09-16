@@ -257,7 +257,7 @@ const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href=
    twenty-two into the first section. */
 /* ---- c360 sections (lifted and driven in node by test_client360_layout.py) ---- */
 const C360_SECTIONS=[
-  {key:'overview', label:'Overview',          match:['products','orders we have sent','coming up','ad performance','landing pages','google listing','youtube channel','smart 1 suite','pipeline & leads','proposals','client notes','target audience']},
+  {key:'overview', label:'Overview',          match:['products','orders we have sent','coming up','ad performance','landing pages','google listing','youtube channel','email campaigns','smart 1 suite','pipeline & leads','proposals','client notes','target audience']},
   {key:'billing',  label:'Billing',           match:['invoices']},
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
@@ -593,6 +593,7 @@ function render(g,q){
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Landing pages {{ help_dot('hub.client360.landing') if help_dot is defined else '' }}</h3><a class="open-link" href="/sales/landing">Open the Landing Page Maker &rarr;</a></div><div class="card-b" id="c-landing"><div class="empty">Loading&hellip; <span class="spin"></span></div></div></div>`;
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Google</span><h3>Google listing {{ help_dot('hub.client360.places') if help_dot is defined else '' }}</h3><span class="right" id="c-places-acts"></span></div><div class="card-b" id="c-places"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#fdecec;color:#b3261e">YouTube</span><h3>YouTube channel {{ help_dot('hub.client360.youtube') if help_dot is defined else '' }}</h3><span class="right" id="c-youtube-acts"></span></div><div class="card-b" id="c-youtube"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#eef2ff;color:#3730a3">Suite</span><h3>Email campaigns {{ help_dot('hub.client360.suite_email') if help_dot is defined else '' }}</h3><span class="right" id="c-suite-email-acts"></span></div><div class="card-b" id="c-suite-email"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   // ---------- Execution plan ----------
   // What the proposal committed us to -- creative, launch and monthly lists
@@ -4537,6 +4538,7 @@ function loadBrandAndWork(name){
   loadPipeline(name);
   loadPlaces(name);
   loadYouTube(name);
+  loadSuiteEmail(name);
   loadPlan(name);
   loadLanding(name);
   fetch('/api/client/utm?name='+encodeURIComponent(name),{credentials:'same-origin'})
@@ -5032,6 +5034,99 @@ function renderYouTube(d,name,cands){
   return h;
 }
 /* ---- end c360 youtube channel ---- */
+/* ---- c360 email campaigns (lifted and driven in node by test_suite_email_stats.py) ---- */
+/* Draws /api/client/suite-email's payload. Pure: takes the payload and the
+   client's name and returns markup. Not linked, not consented, could not
+   read, no campaigns and read are drawn apart; every figure is the
+   server's reading and nothing here computes one. */
+function seInt(v){
+  var n=Number(v);
+  return (v===null||v===undefined||!isFinite(n))?'&mdash;':n.toLocaleString();
+}
+function seRate(v){
+  return (v===null||v===undefined||!isFinite(Number(v)))?'&mdash;':Number(v).toFixed(1)+'%';
+}
+function renderSuiteEmail(d,name){
+  d=d||{}; var st=d.state||'unread'; var h='';
+  var sc=d.scopes||{};
+  if(st==='not_linked'){
+    return '<div class="empty">No Smart 1 Suite sub-account is linked to this client, so their email campaigns cannot be read. Attach one on the Smart 1 Suite card above.</div>';
+  }
+  if(st==='no_scope'&&!d.measured){
+    return '<div class="empty">'+esc(sc.detail||d.staff_note||'The Hub app has not been consented with the email scopes.')+'</div>';
+  }
+  if(st==='unread'){
+    return '<div class="empty">'+esc(d.error||d.staff_note||'The campaign store could not be read.')+' That is not the same as this client having sent nothing.</div>'
+      + '<div class="row" style="margin-top:8px;gap:6px"><button class="btn small" data-act="refresh">Refresh reading</button></div>';
+  }
+  if(st==='no_snapshot'){
+    return '<div class="empty">Linked and not read yet. The nightly read will take it, or press Refresh reading.</div>'
+      + '<div class="row" style="margin-top:8px;gap:6px"><button class="btn small" data-act="refresh">Refresh reading</button></div>';
+  }
+  if(st==='empty'){
+    h+='<div class="empty">The sub-account has no sent email campaign as of '+esc(d.as_of||'')+'.</div>';
+  }else{
+    var t=(d.totals||{})['30']||{};
+    h+='<div class="row" style="gap:18px;flex-wrap:wrap">'
+      + '<div><div style="font-size:24px;font-weight:600;line-height:1.1">'+seInt(t.campaigns)+'</div><div class="muted" style="font-size:12px">campaigns, last 30 days</div></div>'
+      + '<div><div style="font-size:24px;font-weight:600;line-height:1.1">'+seInt(t.delivered||t.sent)+'</div><div class="muted" style="font-size:12px">delivered</div></div>'
+      + '<div><div style="font-size:24px;font-weight:600;line-height:1.1">'+seRate(t.open_rate)+'</div><div class="muted" style="font-size:12px">opened</div></div>'
+      + '<div><div style="font-size:24px;font-weight:600;line-height:1.1">'+seRate(t.click_rate)+'</div><div class="muted" style="font-size:12px">clicked</div></div>'
+      + '</div>';
+    if(t.campaigns&&t.measured<t.campaigns){
+      h+='<div class="muted" style="font-size:12px;margin-top:4px">'+esc(t.campaigns-t.measured)+' of those campaign'+((t.campaigns-t.measured)===1?'':'s')+' came back without counts; the totals are over the rest.</div>';
+    }
+    var rows=(d.campaigns||[]).slice(0,10);
+    h+='<table style="margin-top:8px;font-size:12.5px"><thead><tr><th>Campaign</th><th>Sent</th><th style="text-align:right">Delivered</th><th style="text-align:right">Opened</th><th style="text-align:right">Clicked</th><th style="text-align:right">Bounced</th><th style="text-align:right">Unsub.</th></tr></thead><tbody>';
+    rows.forEach(function(c){
+      h+='<tr><td><b>'+esc(c.name||'')+'</b>'+(c.subject?'<div class="muted" style="font-size:11.5px">'+esc(c.subject)+'</div>':'')+'</td>'
+        + '<td>'+esc(String(c.sent_at||'').slice(0,10))+'</td>'
+        + (c.has_stats
+          ? '<td style="text-align:right">'+seInt(c.delivered!==null&&c.delivered!==undefined?c.delivered:c.sent)+'</td><td style="text-align:right">'+seInt(c.opened)+(c.open_rate!==null&&c.open_rate!==undefined?' <span class="muted">('+seRate(c.open_rate)+')</span>':'')+'</td><td style="text-align:right">'+seInt(c.clicked)+(c.click_rate!==null&&c.click_rate!==undefined?' <span class="muted">('+seRate(c.click_rate)+')</span>':'')+'</td><td style="text-align:right">'+seInt(c.bounced)+'</td><td style="text-align:right">'+seInt(c.unsubscribed)+'</td>'
+          : '<td class="muted" colspan="5">no counts came back for this campaign</td>')
+        + '</tr>';
+    });
+    h+='</tbody></table>';
+    if((d.campaigns||[]).length>rows.length) h+='<div class="muted" style="font-size:12px;margin-top:4px">'+esc((d.campaigns||[]).length-rows.length)+' older campaign(s) not shown.</div>';
+  }
+  h+='<div class="muted" style="font-size:12px;margin-top:4px">Read '+esc(d.as_of||'')+' from the client&rsquo;s Smart 1 Suite sub-account.'+(d.note?' '+esc(d.note):'')+'</div>';
+  (d.notes||[]).forEach(function(n){h+='<div class="muted" style="font-size:12px">'+esc(n)+'</div>';});
+  if(st==='no_scope') h+='<div class="muted" style="font-size:12px;color:#a15c00">'+esc(sc.detail||'')+'</div>';
+  else if(d.staff_note&&st!=='empty') h+='<div class="muted" style="font-size:12px;color:#a15c00">'+esc(d.staff_note)+'</div>';
+  h+='<div class="row" style="margin-top:8px;gap:6px"><button class="btn small" data-act="refresh">Refresh reading</button></div>';
+  return h;
+}
+/* ---- end c360 email campaigns ---- */
+function loadSuiteEmail(name){
+  var box=document.getElementById('c-suite-email');
+  if(!box) return;
+  if(!name){box.innerHTML='<div class="empty">No client selected.</div>';return;}
+  fetch('/api/client/suite-email?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      box=document.getElementById('c-suite-email');
+      if(!box) return;
+      box.innerHTML=renderSuiteEmail(d,name);
+      box.onclick=function(e){seAct(e,name);};
+    })
+    .catch(function(){
+      var b=document.getElementById('c-suite-email');
+      if(b) b.innerHTML='<div class="empty">The campaign store could not be read. That is not the same as this client having sent nothing.</div>';
+    });
+}
+function seAct(e,name){
+  var t=e.target.closest('[data-act]'); if(!t) return;
+  e.preventDefault();
+  var box=document.getElementById('c-suite-email'); if(!box) return;
+  var wait=(window.S1Think&&S1Think.attach)?S1Think.attach(t,{kind:'scan'}):{done:function(){}};
+  if(t.getAttribute('data-act')==='refresh'){
+    plPost('/api/client/suite-email/refresh',{name:name}).then(function(r){
+      wait.done();
+      if(r&&r.ok===false&&r.error){ loadSuiteEmail(name); var b=document.getElementById('c-suite-email'); if(b) b.insertAdjacentHTML('afterbegin','<div class="muted" style="font-size:12px;color:#a15c00">'+esc(r.error)+'</div>'); return; }
+      loadSuiteEmail(name);
+    }).catch(function(){wait.done();loadSuiteEmail(name);});
+  }
+}
 function loadYouTube(name){
   var box=document.getElementById('c-youtube');
   if(!box) return;

@@ -29,6 +29,14 @@ not match is refused before a single Google call is made. The per-request
 caps are enforced server-side too: a page that sent a hundred deletions in
 one request would outlive gunicorn's --timeout and be killed mid-flight.
 
+**The history panel reads a log that can say it could not be read.** The
+audit endpoint the panel draws answers `ok: false` for a store it cannot
+parse rather than an empty list -- "nothing has been cleaned up" and "the
+log could not be read" are opposite answers, and a panel that draws them
+identically is how a lost audit trail goes unnoticed. It also reports the
+whole log's length alongside the page it returns, so the panel can say it
+is showing a window rather than everything.
+
 **Only GTM containers can be site-checked, and only against a site somebody
 can point at.** A GA4 property is refused rather than quietly counted, and a
 container whose account resolves to no client website records exactly that
@@ -416,6 +424,49 @@ check("one it did not find stays an inactive candidate",
 check("...with its own result on the row, rather than nothing",
       (inactive.get("notfound1") or {}).get("site_check", {}).get("found") is False,
       inactive.get("notfound1"))
+
+
+# ---------------------------------------------------------------------------
+section("GET /api/audit: what the Cleanup history panel reads")
+# ---------------------------------------------------------------------------
+with app.app_context():
+    with app.test_request_context("/api/audit"):
+        audit_payload = qa.api_audit.__wrapped__().get_json()
+
+stored_rows = audit_rows()
+check("it answers ok with the log's own total", audit_payload.get("ok") is True
+      and audit_payload.get("total") == len(stored_rows), audit_payload.get("total"))
+check("the page is capped at AUDIT_PAGE_SIZE",
+      len(audit_payload.get("rows") or []) == min(len(stored_rows), qa.AUDIT_PAGE_SIZE),
+      len(audit_payload.get("rows") or []))
+check("...and says which cap, so the panel can name the window",
+      audit_payload.get("page_size") == qa.AUDIT_PAGE_SIZE, audit_payload.get("page_size"))
+check("newest first, so the panel does not have to re-sort",
+      (audit_payload["rows"] or [{}])[0] == stored_rows[-1], audit_payload["rows"][:1])
+check("a bulk action's own entries are in it by name",
+      any(r.get("action") == "delete" and r.get("name") for r in audit_payload["rows"]),
+      audit_payload["rows"][:3])
+check("a failed row carries its result and reason, rather than being left out",
+      any(r.get("result") == "error" and r.get("detail") for r in audit_payload["rows"]),
+      [r for r in audit_payload["rows"] if r.get("result") == "error"][:1])
+
+# A store this cannot parse is not an empty store.
+from hub import jsonstore as _jsonstore  # noqa: E402
+_jsonstore.write_json(qa._path("google_inactive_qa_audit.json"), {"not": "a list"})
+with app.app_context():
+    with app.test_request_context("/api/audit"):
+        broken = qa.api_audit.__wrapped__().get_json()
+check("an unreadable log says so rather than reading as an empty one",
+      broken.get("ok") is False and broken.get("error"), broken)
+check("...and offers no rows to draw as if they were the whole history",
+      broken.get("rows") == [] and broken.get("total") == 0, broken)
+
+_jsonstore.write_json(qa._path("google_inactive_qa_audit.json"), [])
+with app.app_context():
+    with app.test_request_context("/api/audit"):
+        empty = qa.api_audit.__wrapped__().get_json()
+check("a genuinely empty log is ok with nothing in it",
+      empty.get("ok") is True and empty.get("rows") == [] and empty.get("total") == 0, empty)
 
 
 print()

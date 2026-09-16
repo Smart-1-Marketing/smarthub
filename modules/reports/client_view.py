@@ -42,7 +42,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from . import organic, pricing, store, youtube
+from . import organic, pricing, store, suite_email, youtube
 
 log = logging.getLogger(__name__)
 
@@ -432,6 +432,11 @@ def build(link, period: str, today: date | None = None) -> dict:
         # page) otherwise, and None while the channel has no reading yet.
         "youtube": _safe("youtube", lambda: youtube.public_view(
             youtube.section(link, today)), None),
+        # The email campaigns section, for a client with a live email
+        # product and a linked Suite sub-account; None (and left off the
+        # page) otherwise, and None while nothing sent has been read.
+        "email": _safe("email", lambda: suite_email.public_view(
+            suite_email.section(link, today)), None),
         # The executive summary a staff member generated, READ and saved for
         # this month. The client's page renders the saved words and never
         # asks for new ones: a public route that could reach an AI call is a

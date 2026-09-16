@@ -1624,6 +1624,23 @@ jobs:
             echo "test_wordpress_publish.py not on this branch — nothing to run."
           fi
 
+      - name: Page schema, and the plugin that makes it writable
+        if: matrix.group == 4
+        # The other half of the WordPress story: the meta key and the REST
+        # namespace are written once in Python and once in PHP, and a key
+        # spelled one way here and another there is a write that answers 200
+        # and stores nothing — so the two halves are held against each other,
+        # and every write is read back. It also runs the plugin's own functions
+        # through test_wordpress_plugin.php where php is installed, and says so
+        # out loud where it is not. Guarded like the steps around it so this
+        # workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_wordpress_schema.py ]; then
+            python test_wordpress_schema.py
+          else
+            echo "test_wordpress_schema.py not on this branch — nothing to run."
+          fi
+
       - name: The hub's own tours and walkthrough buttons
         if: matrix.group == 4
         # That every registered hub tour can actually be offered, and that a
@@ -3312,6 +3329,21 @@ jobs:
           else
             echo "test_check_reconciliation.py not on this branch — nothing to run."
           fi
+
+      - name: Check reconciliation state against Postgres
+        if: matrix.group == 8
+        # The run above is SQLite; this is what production is. The state --
+        # the QuickBooks OAuth tokens, every payer alias the tool has learned,
+        # the reconciliation records and the audit trail -- goes through
+        # jsonstore now, so the mirror is what this exercises.
+        env:
+          CHECKREC_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          if [ -f test_check_reconciliation.py ]; then
+            python3 test_check_reconciliation.py
+          else
+            echo "test_check_reconciliation.py not on this branch — nothing to run."
+          fi
       # One confirmed audience per client (hub/audience_spec.py) and its four
       # readers: the Client 360 card, the Proposal Builder's audience step,
       # the IO Builder's audiences question and AD_COPY's {audience} prefill.
@@ -3558,6 +3590,15 @@ jobs:
       - name: The YouTube channel reading
         if: matrix.group == 8
         run: python3 test_youtube.py
+      # A client's email campaigns read from their own Suite sub-account: the
+      # two email read scopes requested, the campaign list as the source with
+      # the per-campaign statistics endpoint filling gaps under a cap, five
+      # kinds of nothing drawn apart, the nightly sweep held back while a
+      # scope is missing, and the client's report gated on a live email
+      # product AND a linked, read sub-account.
+      - name: The client's email campaign reading
+        if: matrix.group == 8
+        run: python3 test_suite_email_stats.py
       # The provider normalize: raw provider tables read through
       # provider_map's placeholder column names, spend divided on the way in,
       # one platform's failure isolated on its own watermark, the provider

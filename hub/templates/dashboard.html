@@ -163,7 +163,14 @@
       <span class="ask-card-title">Ask SmartHub</span>
       <span class="ask-card-ctx"><a href="/ask-smarthub">Open full page &rarr;</a></span>
     </div>
-    <div class="ask-card-sub">Clients, analytics, Google access, proposals, insertion orders, and&mdash;with permission&mdash;QuickBooks.</div>
+    {# The card is the doorway, so this names the sources and stops: at 95
+       characters the full sentence wrapped to two lines on any screen
+       narrower than 1280, which is most of them. /ask-smarthub's own heading
+       still carries it whole, QuickBooks and the permission it needs
+       included -- named here it would have to travel without that clause,
+       and a gated source named as though it were open is the worse half to
+       keep. "IOs" is what the scorecard above and Client 360 already say. #}
+    <div class="ask-card-sub">Clients, analytics, Google access, proposals and IOs.</div>
     <form class="ask-card-row" id="dashAskForm">
       <input id="dashAskInput" type="text" maxlength="1200" placeholder="Ask a SmartHub question&hellip;" autocomplete="off">
       <button type="submit">Ask</button>

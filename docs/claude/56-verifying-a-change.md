@@ -66,6 +66,12 @@ python3 test_lead_store.py         # where a lead actually is: the table, the
                                    #   answer, and the one-time import that does
                                    #   not mark itself done unless every lead in
                                    #   the file is in the table
+python3 test_check_reconciliation.py # matching and the QBO payment payload, and
+                                   #   where the state lives: the QuickBooks
+                                   #   tokens, payer aliases, records and audit
+                                   #   trail through jsonstore, under the lock a
+                                   #   threading.RLock never gave it across the
+                                   #   second gunicorn worker
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
 python3 test_scan_run.py           # what a prospect on somebody else's
                                    #   website is told: a callback token
@@ -218,6 +224,14 @@ python3 test_wordpress_publish.py  # the other publishing path: a credential
                                    #   category matched exactly or created, and
                                    #   two pages wanting two alts on one image
                                    #   named rather than last-one-wins
+python3 test_wordpress_schema.py   # the other half of that: one meta key
+                                   #   spelled the same in Python and in PHP,
+                                   #   a write read back because a 200 is not
+                                   #   evidence it landed, a URL resolved by
+                                   #   WordPress rather than guessed from a
+                                   #   slug, nothing unapproved reaching a
+                                   #   client's live site, and the plugin's
+                                   #   own functions run rather than grepped
 python3 test_webargs.py            # a caller's number: never a 500, never a
                                    #   negative slice, and the three call
                                    #   sites the shared helper never reached
@@ -323,14 +337,19 @@ python3 test_google_inactive_qa_bulk.py
                                    #   on its own row, a delete guarded on the
                                    #   count somebody typed, and a site check
                                    #   that refuses a GA4 row and a site nobody
-                                   #   can point at
+                                   #   can point at, and an audit endpoint
+                                   #   that answers "could not read" rather
+                                   #   than an empty log
 node test_google_inactive_qa_bulk_ui.js
                                    # the same page's own script, run for real:
                                    #   selection per section surviving the
                                    #   re-render, a long selection sent in
                                    #   several requests at the caps the
-                                   #   endpoints enforce, and a delete that
-                                   #   sends nothing until its count is typed
+                                   #   endpoints enforce, a delete that sends
+                                   #   nothing until its count is typed, and
+                                   #   the Cleanup history panel: loaded on
+                                   #   open, reloaded after an action, and a
+                                   #   window on the log saying it is one
 python3 test_analytics_ids.py      # two names for one property are not a
                                    #   disagreement: the measurement id Knack
                                    #   holds against the property id Google
@@ -558,6 +577,14 @@ python3 test_youtube.py            # a client's YouTube channel: a link read
                                    #   saying which variable answered, and the
                                    #   client's page gated on a video or social
                                    #   product AND a confirmed, read channel
+python3 test_suite_email_stats.py   # a client's email campaigns read from their
+                                   #   own Suite sub-account: two scopes, the
+                                   #   campaign list with the statistics
+                                   #   endpoint filling gaps under a cap, five
+                                   #   kinds of nothing drawn apart, the nightly
+                                   #   sweep held back while a scope is missing,
+                                   #   and the client's report gated on a live
+                                   #   email product AND a linked, read account
 python3 test_reports_normalize.py  # the provider normalize, provider check and auto-mapper
 python3 test_reports_public.py     # the client's live report page, its link and the spend rule
 python3 test_reports_crossover.py  # the product-level crossover and the forbidden-word sweep
