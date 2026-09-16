@@ -682,6 +682,49 @@ def check_activity_log() -> Check:
                      "and shared between instances.")
 
 
+def check_lead_store() -> Check:
+    """Which backend the leads are on, and what the fallback is still holding.
+
+    A lead is the one thing on this panel where a fallback is not a shrug: the
+    whole module exists because a landing page's webhook could fail silently
+    and the visitor would still see a success message. A store that quietly
+    degrades to a file on one instance is the same failure one layer in, so it
+    is a warning with a count rather than a green row with a footnote.
+    """
+    def go():
+        from hub import lead_store
+        st = lead_store.status()
+        pending = st.get("pending_leads")
+        if not st.get("ready"):
+            return ("warn",
+                    "Leads are going to a file rather than the database, so "
+                    "they are local to this instance and outside the backup. "
+                    + (st.get("error") or "No database.")
+                    + (f" {pending} lead(s) are waiting to go in."
+                       if pending and pending > 0 else ""))
+        imp = st.get("import") or {}
+        detail = "In the database."
+        if imp.get("ran"):
+            detail += f" Carried {imp.get('imported', 0)} lead(s) across from the file."
+        elif imp.get("reason") == "verification failed":
+            return ("warn", detail + " The one-time import did not verify, so "
+                                     "it is unmarked and will run again: "
+                                     f"{imp.get('missing', '?')} lead(s) from "
+                                     "the file are not in the table.")
+        if pending and pending > 0:
+            return ("warn", detail + f" {pending} lead(s) captured during an "
+                                     "outage are still in the fallback file; "
+                                     "the next capture puts them in.")
+        if pending is not None and pending < 0:
+            return ("warn", detail + " The fallback file could not be read, so "
+                                     "whether anything is owed is not measured.")
+        return ("ok", detail)
+    (state, detail), ms = _timed(go)
+    return Check("lead_store", "Lead store", state, detail, ms,
+                 fix="Set DATABASE_URL so captured leads are in the backup and "
+                     "shared between instances.")
+
+
 def check_public_base_url() -> Check:
     if not settings.public_base_url:
         return Check("public_base_url", "Public base URL", "error",
@@ -849,7 +892,7 @@ def check_google_accounts() -> list[Check]:
 
 
 CHECKS = [
-    check_database, check_json_backup, check_activity_log,
+    check_database, check_json_backup, check_activity_log, check_lead_store,
     check_public_base_url,
     check_openai, check_cloudinary,
     check_brandfetch, check_places, check_youtube, check_microsoft_ads, check_groundtruth, check_insites,

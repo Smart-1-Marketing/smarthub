@@ -1104,15 +1104,15 @@ _cslug = _cb.get("slug", "")
 # nothing about a split whose real cases are days apart -- and the first
 # version of this check did exactly that and passed on the wrong answer.
 _leads.capture("landing", _cslug, {"name": "Early", "email": "e@x.test"})
-_lpath = pathlib.Path(_leads._path())
-_lines = _lpath.read_text().splitlines()
+# Back-dated through the store rather than by rewriting leads.jsonl. The leads
+# are in hub_leads now, so editing that file changes something nothing reads
+# and this check would go on passing while measuring nothing at all -- which
+# is the failure mode its own comment above is about.
 _back = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat(timespec="seconds")
-for _i, _ln in enumerate(_lines):
-    _r = json.loads(_ln)
+for _r in _leads._read_all():
     if _r.get("page") == _cslug:
         _r["created"] = _back
-        _lines[_i] = json.dumps(_r)
-_lpath.write_text("\n".join(_lines) + "\n")
+        _leads._update(_r)
 
 anon.post(f"/sales/landing/p/{_cslug}/opened",
           headers={**BROWSER, "X-Forwarded-For": "203.0.113.20"})

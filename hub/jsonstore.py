@@ -1192,6 +1192,11 @@ UNMIRRORED_EXEMPT: dict[str, str] = {
     "modules/commercial_builder/services/elevenlabs_audio_service.py":
         "an audio cache sidecar keyed by content digest; a lost entry is "
         "re-synthesised, which costs credits rather than data",
+    "hub/leads.py":
+        "the leads are in hub_leads; the file write left here is the fallback "
+        "for a database that will not answer, and /diagnostics' lead-store row "
+        "says when it is being used rather than letting it degrade quietly -- "
+        "which is the silence this finding is about",
 }
 
 
