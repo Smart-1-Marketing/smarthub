@@ -32,8 +32,9 @@ campaign import is Creative, not a client upload just because it came from Drive
 
 `modules/image_picker/catalog.py` assembles gallery rows and existing tool
 records on read. It includes images, audio, video, documents, and editable project
-links. This supersedes the older image-only gallery advice below. Rendered work
-keeps its approval status; listing a render does not approve or publish it.
+links. This supersedes the older image-only gallery advice in `docs/claude/`.
+Rendered work keeps its approval status; listing a render does not approve or
+publish it.
 Add new client asset producers to this catalog or file through `file_asset()`.
 Preserve full delivery URLs and permissions. Do not move old Cloudinary objects
 just to reorganize the user's view, and do not create duplicate storage copies.
@@ -148,8 +149,8 @@ Todd has asked that this not require asking each time: once CI is green on a
 pull request against this repo, **merge it without waiting for a fresh
 confirmation** — this is a durable authorization, not a one-off. Render
 auto-deploys `main` on every merge (`autoDeployTrigger: commit`, per the note
-in the data-sources section above), so a merge here is also a deploy; that is
-expected and does not need a separate go-ahead.
+at the end of `docs/claude/05-data-sources-and-which-are-stale.md`), so a merge
+here is also a deploy; that is expected and does not need a separate go-ahead.
 
 This covers the merge action alone. It does not cover, and none of these are
 authorized in advance: force-pushing, rewriting history on a branch you did
