@@ -4055,6 +4055,11 @@ def create_hub_app() -> Flask:
             role=_ask_role(user, account),
             initial_client=(request.args.get("client") or "").strip()[:180],
             context_path=(request.args.get("context_path") or "").strip()[:240],
+            # The dashboard's own Ask SmartHub box sends the typed question
+            # here rather than re-implementing the chat itself — a second
+            # fetch-based Ask loop on the dashboard is the drift this file
+            # already names a dozen times. `q` is asked once, on arrival.
+            initial_question=(request.args.get("q") or "").strip()[:1200],
         )
 
     @app.route("/api/ask-smarthub", methods=["POST"])
