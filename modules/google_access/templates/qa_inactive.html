@@ -22,7 +22,7 @@
   <div class="head">
     <div>
       <h1>Inactive Google Accounts QA {{ help_dot('google_access.cleanup.progress') if help_dot is defined else '' }} {{ help_dot('google_access.cleanup.delete') if help_dot is defined else '' }} </h1>
-      <p>Find GA4 properties with no events or sessions in the last {{ window_days }} days, plus GTM containers with no confirmed traffic in the same window. GTM has no traffic-reporting API of its own, so a container's tag is checked against whatever GA4 activity it points at — but that linked property being inactive, unreachable, or not visible to this login is never a reason to hold a container back as inactive here; it only takes confirmed activity to call a container active. Needs Review is for a scan that could not run, not for this call. Any GTM row also carries a <b>Check site</b> button — a direct check of a real page for the container's own tag, regardless of what (if anything) is configured inside it.</p>
+      <p>Find GA4 properties with no events or sessions in the last {{ window_days }} days, plus GTM containers with no confirmed traffic in the same window. GTM has no traffic-reporting API of its own, so a container GA4 confirms alive is skipped and read active — nothing else about the linked property (inactive, unreachable, not visible to this login) holds a container back as inactive here. Every remaining GTM container is checked automatically instead: this scan fetches its resolved website and looks for the container's own tag in the raw HTML. A confirmed find moves it out of the deletable candidates and into <b>Needs Review</b>, because the tag is genuinely on the page and that is a person's call, not this scan's. A <b>Check site</b> button on every GTM row runs the same check on demand, for a site the automatic pass could not resolve or to double-check one by hand.</p>
     </div>
     <div class="actions">
       <a class="btn" href="/qa">Back to QA</a>
@@ -49,7 +49,7 @@
   </section>
 
   <section class="section">
-    <div class="section-head"><div><h2>Needs review</h2><p>Not enough evidence to call these inactive. No Delete button is shown.</p></div></div>
+    <div class="section-head"><div><h2>Needs review</h2><p>A scan that could not run, or a container whose tag the automatic site check found live on the page. No Delete button is shown.</p></div></div>
     <div class="table-wrap"><table>
       <thead><tr><th>Type</th><th>Google login</th><th>Account</th><th>Property / container</th><th>ID</th><th>Reason</th><th></th></tr></thead>
       <tbody id="reviewBody"><tr><td colspan="7" class="empty">Waiting for scan…</td></tr></tbody>
