@@ -123,12 +123,28 @@ ladder with the rung it stopped at.
    register; the Amazon Ads row there reads *connected* without probing.
 3. `preflight()` reaches rung 5 and lists the advertisers —
    `/reports/amazon-check` draws it.
-4. Watch `/reports/` after the next six-hourly tick: *pending* is expected on
-   the first tick and rows on the second.
+4. Watch `/reports/` after the next nightly tick (3 AM Eastern): *pending* is
+   expected on the first tick and rows on the one after it.
 5. On `/reports/amazon-check`, compare a raw row to `FIELD_MAP`, then flip
    `CONFIRMED` (and each `ENDPOINTS[...]["confirmed"]` that has answered)
    only after a person has seen the shape. Until then the index line says it
    is reading a claim, and `/diagnostics` says so as a warning.
+
+## 7a. A report that never lands
+
+A report still preparing when the wait budget runs out is recorded as pending
+**with the moment it was first seen**, and the next nightly tick asks for that
+same reportId rather than paying for a second report. Past
+`STUCK_AFTER_HOURS` (26, one full nightly cycle and a margin) that report is
+given up on: the run asks Amazon for a fresh one, and says so in its result,
+on the `/reports/` line, on `/diagnostics` and on the check page. The failure
+this exists to stop is the quiet one — a pull that reads healthy every night,
+a line that says *still preparing* every night, and nothing ever landing.
+
+The stamp is carried, never refreshed: a report re-stamped each tick is a
+report that is always "pending since a moment ago" and never stuck. A note
+written before the stamp existed is still collected and is not called stuck on
+the strength of a stamp nobody took.
 
 ## 8. Wired, and what is deliberately not
 
@@ -137,7 +153,7 @@ already carried `amazon_dsp`), `hub/oauth_redirects.py` (the ninth flow),
 `/tools/ads/connect/amazon` and `/tools/ads/oauth/amazon/callback`,
 `hub/quotas.py` (`amazon_ads`, one row per call by endpoint family, and the
 unrecorded-call marker), the Connect card on `/tools/ads/settings`, the row
-on `/diagnostics`, the six-hourly job in `hub/scheduler.py` (pending
+on `/diagnostics`, the nightly job in `hub/scheduler.py` (pending
 reportIds carried between ticks in the module's own note),
 `/reports/amazon-check`, `reconcile.py`, and `test_reports_amazon_dsp.py` in
 `checks.yml` (Postgres run too).

@@ -40,6 +40,11 @@ What it holds:
     entity still lands; every call is recorded under amazon_ads by endpoint
     family, and no credential reaches a row, a result, a status line, a
     watermark or a recorded call;
+  * a report left pending is carried with the moment it was first seen and
+    given up on past a ceiling -- a fresh one is asked for and both the run
+    and the index say so, rather than re-polling a dead id every night;
+  * the check page answers with an error on it rather than raising, whatever
+    fails under it;
   * the reconcile reads the month back as the same report over the whole
     window, labeled a re-read; the scheduler pulls it in the same loop;
   * Smart 1 Ads: the settings card offers Connect only when configured and
@@ -500,7 +505,8 @@ ANSWERS.extend([
 res = amazon_dsp.pull(today=date(2026, 9, 16), budget=0)
 check("the tick is ok and nothing landed", (res["ok"], res["rows"], res["failures"]),
       (True, 0, []))
-check("...the reportId is carried for the next tick", res["pending"], {"A1": "rep-2"})
+check("...the reportId is carried for the next tick, with when it was first seen",
+      (res["pending"]["A1"]["report_id"], bool(res["pending"]["A1"]["since"])), ("rep-2", True))
 check("...the watermark is untouched: nothing landed and nothing failed",
       store.sync_status()["amazon_dsp"], before_wm)
 check("...so the provider normalize still defers to the last good pull",
@@ -521,6 +527,100 @@ check("the next tick asks for the same report rather than paying for a second on
       [c["url"].rsplit("/", 1)[-1] for c in CALLS if "dsp/reports" in c["url"]], ["rep-2"])
 check("...and files it", (res["ok"], res["rows"]), (True, 2))
 check("...clearing what it was waiting on", amazon_dsp.pending_reports(), {})
+
+
+# ------------------------------------------------ a report that never lands
+section("A report that never lands is named, not carried for ever")
+
+from datetime import datetime, timedelta, timezone                   # noqa: E402
+
+# Put the carried report's first-seen stamp past the ceiling, the way a
+# report that has sat at Amazon through a whole nightly cycle would be.
+ANSWERS.extend([
+    _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
+    _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme Plumbing", "currency": "USD"}]}),
+    _Resp(200, {"reportId": "rep-stuck"}),
+    _Resp(200, {"status": "IN_PROGRESS"}),
+])
+res = amazon_dsp.pull(today=date(2026, 9, 16), budget=0)
+check("a first pending tick records when the report was first seen",
+      (list(res["pending"]), bool(amazon_dsp.pending_since().get("A1"))), (["A1"], True))
+check("...and nothing is stuck yet", (amazon_dsp.stuck_reports(), res["gave_up"]), ({}, {}))
+first_seen = amazon_dsp.pending_since()["A1"]
+
+ANSWERS.extend([
+    _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
+    _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme Plumbing", "currency": "USD"}]}),
+    _Resp(200, {"status": "IN_PROGRESS"}),
+])
+res = amazon_dsp.pull(today=date(2026, 9, 16), budget=0)
+check("a second tick carries the SAME stamp, not a fresh one -- or it is never stuck",
+      amazon_dsp.pending_since()["A1"], first_seen)
+
+# Age the stamp past the ceiling and run again.
+old_stamp = (datetime.now(timezone.utc)
+             - timedelta(hours=amazon_dsp.STUCK_AFTER_HOURS + 2)).isoformat()
+state = amazon_dsp._remembered()
+state["pending"] = {"A1": {"report_id": "rep-stuck", "since": old_stamp}}
+amazon_dsp._remember(state)
+check("a report past the ceiling reads as stuck", list(amazon_dsp.stuck_reports()), ["A1"])
+st = amazon_dsp.status()
+check("...the index line says how long, rather than 'still preparing' for ever",
+      ("have been preparing at Amazon for" in st["line"], "fresh one" in st["line"]), (True, True))
+check("...and /diagnostics says so as a warning, with what happens next",
+      (diagnostics.check_amazon_dsp().state,
+       "fresh report" in (diagnostics.check_amazon_dsp().fix or "")), ("warn", True))
+
+CALLS.clear()
+ANSWERS.extend([
+    _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
+    _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme Plumbing", "currency": "USD"}]}),
+    _Resp(200, {"reportId": "rep-fresh"}),
+    _Resp(200, {"status": "SUCCESS", "location": SIGNED_URL}),
+])
+res = amazon_dsp.pull(today=date(2026, 9, 16))
+check("the next run stops carrying that id and asks Amazon for a new report",
+      [c["url"].rsplit("/", 1)[-1] for c in CALLS if "dsp/reports" in c["url"]][:1], ["reports"])
+check("...saying so rather than starting over quietly",
+      (list(res["gave_up"]), any("fresh report" in n for n in res["notes"])), (["A1"], True))
+check("...and the fresh report lands", (res["ok"], res["rows"]), (True, 2))
+check("...leaving nothing pending or stuck",
+      (amazon_dsp.pending_reports(), amazon_dsp.stuck_reports()), ({}, {}))
+
+# The older note shape, from a deploy before the stamp existed.
+amazon_dsp._remember({**amazon_dsp._remembered(), "pending": {"A9": "rep-old"}})
+check("a note written before the stamp existed is still collected, not paid for twice",
+      amazon_dsp.pending_reports(), {"A9": "rep-old"})
+check("...and is not called stuck on the strength of a stamp nobody took",
+      amazon_dsp.stuck_reports(), {})
+amazon_dsp._remember({**amazon_dsp._remembered(), "pending": {}})
+
+
+# ------------------------------------------------- the check page never 500s
+section("The check page answers even when something under it raises")
+
+_boom = amz.connection_status
+amz.connection_status = lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("amazon fell over"))
+try:
+    chk = amazon_dsp.check(today=date(2026, 9, 16))
+    check("a raise under the page is a page with an error on it, not a 500",
+          ("could not be built" in chk["error"], "amazon fell over" in chk["error"]), (True, True))
+    check("...and the template still has every key it reads",
+          sorted(chk) >= sorted(["confirmed", "endpoints", "error", "map", "preflight",
+                                 "request", "resolves", "sample", "status", "window"]))
+    check("...carrying no credential", _secrets_in(chk), [])
+finally:
+    amz.connection_status = _boom
+
+_ladder = amz.preflight
+amz.preflight = lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("the ladder fell over"))
+try:
+    chk = amazon_dsp.check(today=date(2026, 9, 16))
+    check("a raise inside the ladder is named where it happened, not as the page failing",
+          ("the ladder fell over" in chk["error"], "could not be built" in chk["error"]),
+          (True, False))
+finally:
+    amz.preflight = _ladder
 
 
 # --------------------------------------------- one advertiser, not the entity
@@ -630,7 +730,7 @@ section("Wired: the scheduler, the index, the usage page")
 import inspect                                                       # noqa: E402
 from hub import scheduler                                            # noqa: E402
 src = inspect.getsource(scheduler.job_reports_native_pull)
-check("the six-hourly native pull runs it in the same loop as the others",
+check("the nightly native pull runs it in the same loop as the others",
       '("amazon_dsp", amazon_dsp.pull)' in src)
 from modules.reports import app as reports_app                       # noqa: E402
 check("the Reports index prints its status line",

@@ -67,6 +67,15 @@ log = logging.getLogger(__name__)
 PLATFORM = "amazon_dsp"
 LABEL = "Amazon DSP"
 LOOKBACK_DAYS = 14
+# How long a report may sit PENDING before this stops asking for that one and
+# asks for a new one. The job runs nightly, so a report still preparing when
+# the next tick comes round has missed a whole cycle: either it failed at
+# Amazon without saying so, or the id is no longer one Amazon will finish.
+# Re-polling it for ever is the failure this exists to stop -- the pull looks
+# healthy every night, /reports/ says "still preparing" every night, and
+# nothing ever lands. A fresh submission costs one report per advertiser per
+# night, which is bounded and cheap; silence is not.
+STUCK_AFTER_HOURS = 26
 CHECK_PAGE = "/reports/amazon-check"
 NOT_CONNECTED = ("not connected: nobody has consented as the entity admin yet -- "
                  "open /tools/ads/settings and press Connect Amazon Ads")
@@ -245,9 +254,49 @@ def _remembered() -> dict:
 
 
 def pending_reports() -> dict:
-    """``{advertiser_id: report_id}`` the last tick was still waiting on."""
-    got = _remembered().get("pending")
-    return {str(k): str(v) for k, v in got.items()} if isinstance(got, dict) else {}
+    """``{advertiser_id: report_id}`` the last tick was still waiting on.
+
+    Reads the note's older flat shape too, so the tick after a deploy that
+    carried ``{adv: report_id}`` collects what it was waiting on rather than
+    paying for a second report.
+    """
+    out = {}
+    for adv, held in (_remembered().get("pending") or {}).items():
+        rid = held.get("report_id") if isinstance(held, dict) else held
+        if rid:
+            out[str(adv)] = str(rid)
+    return out
+
+
+def pending_since() -> dict:
+    """``{advertiser_id: ISO stamp}`` -- when each pending report was first
+    seen. Absent for a note written before this was recorded, which reads as
+    "first seen now" rather than as "stuck": a report is not called stuck on
+    the strength of a stamp nobody took."""
+    out = {}
+    for adv, held in (_remembered().get("pending") or {}).items():
+        if isinstance(held, dict) and held.get("since"):
+            out[str(adv)] = str(held["since"])
+    return out
+
+
+def _hours_since(stamp: str) -> float:
+    """Hours between an ISO stamp and now, or 0.0 for anything unreadable --
+    an unparsable stamp must not make a live report look stuck."""
+    from datetime import datetime, timezone
+    try:
+        when = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return 0.0
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0.0, (datetime.now(timezone.utc) - when).total_seconds() / 3600.0)
+
+
+def stuck_reports() -> dict:
+    """``{advertiser_id: hours}`` for every pending report past the ceiling."""
+    return {adv: round(_hours_since(since), 1) for adv, since in pending_since().items()
+            if _hours_since(since) >= STUCK_AFTER_HOURS}
 
 
 # ---------------------------------------------------------------------------
@@ -264,14 +313,17 @@ def pull(today: date | None = None, pending: dict | None = None, days: int = LOO
     the way it wires every other pull and the carrying still happens.
 
     A report still preparing when the budget runs out is **not a failure**:
-    it is recorded as pending, no watermark is stamped over it, and the next
-    tick asks for the same reportId rather than paying for a second report.
+    it is recorded as pending with the moment it was first seen, no watermark
+    is stamped over it, and the next tick asks for the same reportId rather
+    than paying for a second report -- until ``STUCK_AFTER_HOURS``, past which
+    that report is given up on, a fresh one is asked for, and both the result
+    and the index line say so.
     One advertiser refused (``not_permitted``, most often the API
     application not being approved for it) is that advertiser's problem and
     is named; the rest of the entity still lands.
     """
     out = {"ok": False, "rows": 0, "advertisers": 0, "skipped": 0, "pending": {},
-           "failures": [], "error": "", "notes": []}
+           "gave_up": {}, "failures": [], "error": "", "notes": []}
     st = amazon_status()
     if not st["configured"]:
         out["error"] = not_configured_line()
@@ -286,7 +338,23 @@ def pull(today: date | None = None, pending: dict | None = None, days: int = LOO
                             f"reading it as a claim; confirm on {CHECK_PAGE}")
 
     today = today or date.today()
-    pending = dict(pending if pending is not None else pending_reports())
+    carried = pending_reports() if pending is None else dict(pending)
+    since = pending_since()
+    stale = {adv: h for adv, h in stuck_reports().items() if adv in carried}
+    for adv in stale:
+        # Past the ceiling: stop asking for that report and ask for a new one.
+        # Named in the result and on the index, because a pull that quietly
+        # starts over is a pull nobody can tell from one that never started.
+        carried.pop(adv, None)
+        since.pop(adv, None)
+    out["gave_up"] = stale
+    if stale:
+        out["notes"].append(
+            "asked for a fresh report for " + ", ".join(sorted(stale))
+            + ": the one being carried had been preparing for "
+            + ", ".join(f"{h:g}h" for h in sorted(stale.values()))
+            + f" (past {STUCK_AFTER_HOURS}h) and nothing had landed for it")
+    pending = carried
     start = today - timedelta(days=max(1, int(days)))
     end = today - timedelta(days=1)          # complete days only
 
@@ -316,7 +384,11 @@ def pull(today: date | None = None, pending: dict | None = None, days: int = LOO
             state = amz.poll_report(aid, report_id, profile_id=profile, budget=budget,
                                     sleep=sleep, clock=clock)
             if state["status"] == "PENDING":
-                out["pending"][aid] = state["report_id"]
+                # The stamp is the one this report has carried since it was
+                # first seen, not now: refreshing it every tick is how a
+                # report stays "pending since a moment ago" for ever.
+                out["pending"][aid] = {"report_id": state["report_id"],
+                                       "since": since.get(aid) or store.iso(store.now())}
                 continue
             if state["status"] == "FAILURE":
                 out["failures"].append(f"{name}: {amz._redact(state.get('error'))}")
@@ -343,7 +415,7 @@ def pull(today: date | None = None, pending: dict | None = None, days: int = LOO
     if out["pending"] and not rows and not out["failures"]:
         # Nothing landed and nothing is wrong: Amazon is still preparing. No
         # watermark, so /status reads this as a feed whose age is growing
-        # rather than as a fault stamped every six hours -- stackadapt's rule.
+        # rather than as a fault stamped every night -- stackadapt's rule.
         out["ok"] = True
     else:
         store.record_sync(PLATFORM, rows=out["rows"], error=out["error"], source="native")
@@ -368,6 +440,7 @@ def status() -> dict:
     """The index line. Nothing here carries a credential."""
     st = amazon_status()
     remembered = _remembered()
+    stuck = stuck_reports()
     sync = store.sync_status().get(PLATFORM) or {}
     native = sync if sync.get("source") == "native" else {}
     # A run that stopped at "not configured" reached nothing, so its stamp is
@@ -387,6 +460,11 @@ def status() -> dict:
         line += ", last pull " + str(last)
         if native.get("error"):
             line += " -- " + str(native["error"])
+        elif stuck:
+            line += (f" -- {len(stuck)} report(s) have been preparing at Amazon for "
+                     + ", ".join(f"{h:g}h" for h in sorted(stuck.values()))
+                     + f"; past {STUCK_AFTER_HOURS}h the next run asks for a fresh one "
+                       "rather than carrying that id again")
         elif remembered.get("pending"):
             line += (f" -- {len(remembered['pending'])} report(s) still preparing at Amazon; "
                      "the next tick collects them")
@@ -397,7 +475,8 @@ def status() -> dict:
         "missing": st["missing"], "region": st["region"],
         "entity_id": st["entity_id"], "confirmed": CONFIRMED,
         "advertisers": remembered.get("advertisers"),
-        "pending": remembered.get("pending") or {},
+        "pending": pending_reports(),
+        "stuck": stuck,
         "last_pull": native.get("last_run_at") or "",
         "last_error": native.get("error") or "",
         "line": line,
@@ -409,6 +488,26 @@ def status() -> dict:
 # ---------------------------------------------------------------------------
 
 def check(today: date | None = None) -> dict:
+    """``_check()``, and never a raise. The house rule a diagnostics panel
+    works to: a page that 500s costs every other panel on it, and this one is
+    where somebody goes precisely when the connection is behaving oddly. Any
+    escape is reported in the page's own ``error``."""
+    try:
+        return _check(today=today)
+    except Exception as exc:                # noqa: BLE001 - a page, not a pull
+        log.exception("reports: the Amazon DSP check page could not be built")
+        return {"status": {"configured": False, "connected": False, "missing": [],
+                           "region": "", "entity_id": "", "confirmed": CONFIRMED,
+                           "line": f"{LABEL}: the check page could not be built"},
+                "confirmed": CONFIRMED, "map": dict(FIELD_MAP), "endpoints": {},
+                "request": {"host": "", "path": "", "body": {}},
+                "window": {"start": "", "end": ""},
+                "preflight": None, "sample": None, "resolves": None,
+                "error": amz._redact(f"the check page could not be built: "
+                                     f"{type(exc).__name__}: {exc}")}
+
+
+def _check(today: date | None = None) -> dict:
     """What the check page shows: the ladder, the call as it would be made,
     and -- where the entity answers -- one raw row against FIELD_MAP.
 
