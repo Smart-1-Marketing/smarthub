@@ -304,6 +304,49 @@ class WhichDatabaseThisModuleIsOn(unittest.TestCase):
         self.assertIs(db.engine(), first)
 
 
+class TheModulesOwnInterface(unittest.TestCase):
+    """`modules/smartforecast/db` re-exports the shared driver's names.
+
+    The translation layer is `hub/dbshim.py` now, and this module binds its
+    own table list to it. Everything a caller reached for through `db.` still
+    has to be there, or the move was not the no-op it claims to be.
+    """
+
+    def test_every_name_it_declares_exists(self):
+        missing = [n for n in db.__all__ if not hasattr(db, n)]
+        self.assertEqual(missing, [], missing)
+
+    def test_every_name_a_caller_uses_is_declared(self):
+        """A sweep of what the module and its tests actually reach for, so the
+        declared interface cannot drift below what is in use."""
+        import ast
+        import pathlib
+        base = pathlib.Path(REPO)
+        used = set()
+        for path in (base / "modules" / "smartforecast" / "store.py",
+                     base / "test_smartforecast_store.py",
+                     base / "test_smartforecast.py"):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError):
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Attribute) and \
+                        isinstance(node.value, ast.Name) and \
+                        node.value.id in ("db", "sfdb") and \
+                        not node.attr.startswith("_"):
+                    used.add(node.attr)
+        undeclared = sorted(used - set(db.__all__))
+        self.assertEqual(undeclared, [], undeclared)
+
+    def test_it_declares_nothing_no_caller_wants(self):
+        """The other direction. `Cursor` and `engine_error` were re-exported
+        with no caller anywhere -- a re-export nothing imports is dead weight
+        wearing the word "API"."""
+        for gone in ("Cursor", "engine_error"):
+            self.assertNotIn(gone, db.__all__)
+
+
 class OneDatabaseForEveryModule(unittest.TestCase):
     """The names are shared now, and two of them are the obvious ones.
 
