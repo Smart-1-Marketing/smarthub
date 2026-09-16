@@ -467,6 +467,36 @@ jobs:
             echo "test_audit_store.py not on this branch — nothing to run."
           fi
 
+      - name: Lead store tests
+        if: matrix.group == 2
+        # Leads moved off the append-only JSONL on the disk. Two things this
+        # guards, and both are silent when they break: a lead lost because the
+        # database would not answer -- capture() has promised since it was
+        # written that it never raises, so the visitor sees a success message
+        # either way -- and the backend being quietly the wrong one, which
+        # passes every check while production stays on the file.
+        run: |
+          if [ -f test_lead_store.py ]; then
+            python test_lead_store.py
+          else
+            echo "test_lead_store.py not on this branch — nothing to run."
+          fi
+
+      - name: Lead store against Postgres
+        if: matrix.group == 2
+        # The run above is SQLite; this is what production is. The delivery
+        # suite runs both ways too, because it drives the store through
+        # capture() and the retry sweep.
+        env:
+          HUB_LEADS_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          if [ -f test_lead_store.py ]; then
+            python test_lead_store.py
+            python test_lead_delivery.py
+          else
+            echo "test_lead_store.py not on this branch — nothing to run."
+          fi
+
       - name: SmartForecast store tests
         if: matrix.group == 2
         # SmartForecast moved off its own SQLite file onto the shared engine.

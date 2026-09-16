@@ -33,13 +33,26 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # Point the store somewhere disposable BEFORE importing hub.leads. Without
 # this the test writes real-looking leads into the live panel.
-os.environ["HUB_LEADS_FILE"] = "/tmp/hub_lead_delivery_test/leads.jsonl"
-if os.path.exists(os.environ["HUB_LEADS_FILE"]):
-    os.remove(os.environ["HUB_LEADS_FILE"])
+#
+# Both halves of it, now that the leads are in a table: HUB_LEADS_FILE names
+# the legacy file and DATABASE_URL decides where the rows actually go. Pinning
+# only the file would have left every invented lead in whatever database the
+# environment happened to point at -- and, on a shared one, left each run
+# reading the run before it, which is an order-dependent suite that passes on
+# broken code depending on what ran first.
+import tempfile                                                # noqa: E402
+
+TMP = tempfile.mkdtemp(prefix="s1-lead-delivery-")
+os.environ["HUB_LEADS_FILE"] = os.path.join(TMP, "leads.jsonl")
+os.environ["HUB_DATA_DIR"] = TMP
+os.environ["DATABASE_URL"] = (os.environ.get("HUB_LEADS_TEST_DATABASE_URL")
+                              or "sqlite:///" + os.path.join(TMP, "hub.sqlite3"))
 
 import requests
 
-from hub import ghl_contacts, leads, lead_tags
+from hub import ghl_contacts, lead_store, leads, lead_tags
+
+lead_store.drop_for_tests()
 
 FAILURES = []
 CALLS = {"n": 0}
@@ -528,6 +541,21 @@ def retry_sweep_checks():
               if not r.get("delivered") and r.get("retryable", True)), 0)
 
 
+def _other_worker(row: dict) -> None:
+    """Capture a lead the way the other gunicorn worker would.
+
+    Into the table where one is answering and into the shared file where one
+    is not, which is what the other worker does either way. Writing to the
+    file unconditionally is what made this check start passing vacuously the
+    moment the store moved.
+    """
+    from hub import lead_store
+    if lead_store._db_insert([row]):
+        return
+    with open(os.environ["HUB_LEADS_FILE"], "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row) + "\n")
+
+
 def store_rewrite_checks():
     print()
     print("a lead captured mid-sweep survives the rewrite")
@@ -541,8 +569,10 @@ def store_rewrite_checks():
                "source": "landing_ads", "page": "/boat",
                "email": "late@example.com", "delivered": False,
                "retryable": True}
-    with open(os.environ["HUB_LEADS_FILE"], "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(arrived) + "\n")      # the other worker
+    # The other worker, capturing into whichever store is answering. It used
+    # to be an append to HUB_LEADS_FILE; on the table that writes to a file
+    # nothing reads, so the check would pass by testing nothing.
+    _other_worker(arrived)
 
     rows[0]["last_error"] = "a change the sweep made"
     leads._rewrite(rows)                          # the sweep writes back
@@ -555,12 +585,31 @@ def store_rewrite_checks():
     check("and the sweep's own change stuck",
           after[rows[0]["id"]]["last_error"], "a change the sweep made")
 
-    print("it holds the cross-worker lock, not just a thread lock")
-    # A threading.Lock serialises the threads inside one worker and says
-    # nothing whatever about the other one, which is the half that was
-    # missing. Asserted by driving the real helper rather than by reading
-    # the source: prose naming a lock is not a lock being taken.
+    print("one row changes without rewriting the rest")
+    # What the file could not do, and the reason the mid-sweep loss above was
+    # possible at all. Driven rather than read: change one lead, then check a
+    # lead captured after the caller last read is still there.
+    target = dict(after[rows[0]["id"]])
+    target["last_error"] = "changed in place"
+    later = {"id": "AFTER_THE_READ", "created": leads._now(),
+             "source": "landing_ads", "page": "/late",
+             "email": "later@example.com", "delivered": False,
+             "retryable": True}
+    _other_worker(later)
+    leads._update(target)
+    now = {r.get("id"): r for r in leads._read_all()}
+    check("the change landed", now[rows[0]["id"]]["last_error"],
+          "changed in place")
+    check("and the lead captured after the read survived it",
+          "AFTER_THE_READ" in now, True)
+
+    print("the cross-worker lock is still there for the file fallback")
+    # Not the mechanism any more -- a transaction is -- but a Hub with no
+    # database reachable still rewrites a file two workers share, and that
+    # path may not quietly lose the lock it was given. Prose naming a lock is
+    # not a lock being taken, so this drives the real helper.
     from hub import jsonstore
+    from hub import lead_store
     taken = {"n": 0}
     real = jsonstore.exclusive
 
@@ -573,13 +622,14 @@ def store_rewrite_checks():
             yield
 
     jsonstore.exclusive = counting
+    real_replace = lead_store.replace_all
+    lead_store.replace_all = lambda rows: False       # no database answering
     try:
         leads._rewrite(leads._read_all())
-        check("rewrite took it", taken["n"], 1)
-        leads.capture("landing_ads", "/locked", {"email": "l@example.com"})
-        check("and so does the append", taken["n"], 2)
+        check("the fallback rewrite took it", taken["n"], 1)
     finally:
         jsonstore.exclusive = real
+        lead_store.replace_all = real_replace
 
 
 def retry_job_checks():

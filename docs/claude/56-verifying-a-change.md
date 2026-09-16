@@ -61,6 +61,11 @@ python3 test_lead_delivery.py      # one write path per lead, the hourly sweep
                                    #   that finally drains the queue, and a
                                    #   store that survives being rewritten
                                    #   while the other worker takes traffic
+python3 test_lead_store.py         # where a lead actually is: the table, the
+                                   #   pending file when the database will not
+                                   #   answer, and the one-time import that does
+                                   #   not mark itself done unless every lead in
+                                   #   the file is in the table
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
 python3 test_scan_run.py           # what a prospect on somebody else's
                                    #   website is told: a callback token

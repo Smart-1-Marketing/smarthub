@@ -315,16 +315,24 @@ def capture(source: str, page: str, fields: dict, pdf_url: str = "",
         "contact_id": "",
         "retryable": True,
     }
+    # The table, or the pending file when it will not answer. `store()` never
+    # raises for the reason this function has always documented: a storage
+    # fault must not lose the lead. No lock is taken -- an INSERT does not
+    # need one, and the lock existed to serialise an append against a
+    # whole-file rewrite that no longer happens.
     try:
-        # The same lock the rewrite holds, not a second one: an append
-        # serialised against other appends and not against the rewrite is
-        # the half of this that was missing.
-        with _exclusive():
-            with open(_path(), "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(row) + "\n")
-    except OSError as exc:
-        # Still try to deliver — a lost row beats a lost lead.
-        row["last_error"] = f"not stored: {type(exc).__name__}"
+        from . import lead_store
+        where = lead_store.store(row)
+    except Exception as exc:  # noqa: BLE001 — importing must not cost a lead
+        where = "pending"
+        row["last_error"] = f"not stored: {type(exc).__name__}: {exc}"[:200]
+    if where != "database" and not row.get("last_error"):
+        # Not setdefault: the row literal above already sets last_error to "",
+        # so setdefault would never fire and the one case this line exists for
+        # would say nothing at all. The lead IS stored -- in the pending file
+        # -- and the wording says which, because "not stored" on a row that is
+        # on disk is the kind of message somebody acts on.
+        row["last_error"] = "stored pending a database"
     try:
         from hub import audit
         audit.log("leads", "captured", client=client or None,
@@ -335,24 +343,57 @@ def capture(source: str, page: str, fields: dict, pdf_url: str = "",
 
 
 def _read_all(*, strict: bool = False) -> list[dict]:
-    out = []
+    """Every lead, in append order.
+
+    Three places a lead can be, and they are not simply concatenated.
+
+    The **table** is the store, and where it answers it is the whole history:
+    once the import has run it holds what the legacy file holds, so adding the
+    two would show every lead captured before the move twice.
+
+    The **legacy file** is read only where the table will not answer. On a Hub
+    with no database it is still the only history there is.
+
+    The **pending file** is added in both cases, minus anything already
+    counted. It holds the leads an outage could not put in the table, which
+    the next successful capture flushes -- and a lead sitting in it is exactly
+    the one a panel most needs to show, because it is the one at risk. Leaving
+    it out during the outage is the interval when it is invisible.
+    """
+    counted: list[dict] = []
+    from_table = False
     try:
-        with open(_path(), encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    out.append(json.loads(line))
-                except ValueError:
-                    continue        # one bad line must not hide the rest
-    except FileNotFoundError:
-        return []
-    except OSError:
-        if strict:
-            raise
-        return []
-    return out
+        from . import lead_store
+        rows = lead_store.all_rows()
+        if rows is not None:
+            counted, from_table = rows, True
+    except Exception:  # noqa: BLE001 — fall through to the file
+        pass
+    if not from_table:
+        try:
+            with open(_path(), encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        counted.append(json.loads(line))
+                    except ValueError:
+                        continue    # one bad line must not hide the rest
+        except FileNotFoundError:
+            counted = []
+        except OSError:
+            if strict:
+                raise
+            counted = []
+    try:
+        from . import lead_store
+        known = {r.get("id") for r in counted}
+        spilled = [p for p in lead_store._file_rows(lead_store.pending_path())
+                   if p.get("id") and p.get("id") not in known]
+    except Exception:  # noqa: BLE001 — a spill we cannot read is not a reason
+        spilled = []                # to return nothing at all
+    return counted + spilled
 
 
 def get(lead_id: str) -> dict | None:
@@ -407,7 +448,11 @@ def _exclusive():
 
 
 def _rewrite(rows: list[dict]) -> None:
-    """Replace the file with `rows`, keeping anything that arrived meanwhile.
+    """Replace the store with `rows`, keeping anything that arrived meanwhile.
+
+    On the table this is one transaction, so the two writes a merge makes
+    land together or not at all. Everything below is the file fallback, and
+    the reasoning it records is why the table is worth having.
 
     Every caller of this reads the whole file, changes something in it and
     writes the lot back, which is the read-modify-write `hub/jsonstore.py`
@@ -429,6 +474,12 @@ def _rewrite(rows: list[dict]) -> None:
     arrived while they were working, and the only correct thing to do with it
     is let it survive.
     """
+    try:
+        from . import lead_store
+        if lead_store.replace_all(rows):
+            return
+    except Exception:  # noqa: BLE001 — fall through to the file
+        pass
     with _exclusive():
         known = {r.get("id") for r in rows if r.get("id")}
         arrived = [r for r in _read_all()
@@ -547,6 +598,19 @@ def capture_and_deliver(source: str, page: str, fields: dict,
 
 
 def _update(row: dict) -> None:
+    """Change one lead.
+
+    One statement against one row where the table answers. That is the whole
+    reason this move is worth making beyond the disk: the read-modify-write
+    below is the shape `_rewrite()` documents an incident about, and it exists
+    only because a file has no way to change a row in place.
+    """
+    try:
+        from . import lead_store
+        if lead_store.update_one(row):
+            return
+    except Exception:  # noqa: BLE001 — fall through to the rewrite
+        pass
     rows = _read_all()
     for i, r in enumerate(rows):
         if r.get("id") == row["id"]:

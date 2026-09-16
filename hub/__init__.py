@@ -8532,6 +8532,23 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # And the leads, for the same reason and with more riding on it. The
+    # panel that answers "how many leads did we get last week, and from which
+    # pages" reads the store on the first page load, and a history that
+    # appears on the second one reads as a history that was lost. Recorded
+    # rather than swallowed: a boot step that fails quietly is how /signup
+    # 404'd for a day with no clue why.
+    try:
+        from . import lead_store as _lead_boot
+        app.config["HUB_LEADS_IMPORT"] = _lead_boot.import_legacy()
+    except Exception as _ld_exc:  # noqa: BLE001
+        app.config["HUB_LEADS_IMPORT"] = {
+            "ran": False, "reason": f"{type(_ld_exc).__name__}: {_ld_exc}"}
+        try:
+            errors.log_exception("leads", _ld_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ---------------- v7: help bubbles, tool walkthroughs, demo mode -------
     # Registered last, because it needs _hub_user (defined with the login
     # routes above). The fallbacks below are not decoration: an earlier build

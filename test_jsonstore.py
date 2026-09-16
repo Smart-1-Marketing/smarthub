@@ -347,13 +347,22 @@ section("What the unmirrored-JSON check could not see")
 
 found = {h["file"] for h in js_scan.unmirrored_json_writers(REPO)}
 
-check("the lead store is reported", "hub/leads.py" in found, True)
-check("...although it imports jsonstore",
-      "jsonstore" in (REPO / "hub" / "leads.py").read_text(encoding="utf-8"),
-      True)
+# The lead store is in hub_leads now, and what is left in the file is the
+# fallback -- so it is off the list by a named exemption rather than by the
+# check being unable to see it. Both blind spots are still asserted against
+# that same file, because being invisible and being excused with a reason are
+# the two states this check has to keep apart.
+leads_src = (REPO / "hub" / "leads.py").read_text(encoding="utf-8")
+check("the check can see the lead store's file write",
+      bool(js_scan._writes_json_to_disk(leads_src)), True)
+check("...although it writes json.dumps rather than json.dump",
+      "json.dump(" in leads_src, False)
+check("...and although it imports jsonstore",
+      "jsonstore" in leads_src, True)
 check("...and calls no jsonstore writer",
-      js_scan._calls_the_mirror((REPO / "hub" / "leads.py").read_text(encoding="utf-8")),
-      False)
+      js_scan._calls_the_mirror(leads_src), False)
+check("so only the named exemption keeps it off the list",
+      "hub/leads.py" in js_scan.UNMIRRORED_EXEMPT, True)
 
 # The other half: a serialised string that never reaches a file. json.dumps
 # builds request bodies and database column values all over this repo, and a
@@ -418,10 +427,20 @@ for rel in ("modules/io_builder/app.py", "modules/suite_panel/app.py",
           len(js_scan.UNMIRRORED_EXEMPT[rel]) > 60, True)
 
 # What is left is the work, and naming it is the point of the check.
-check("three stores are left on the disk, and these are they",
+check("two stores are left on the disk, and these are they",
       sorted(found),
-      ["hub/leads.py", "modules/check_reconciliation/app.py",
+      ["modules/check_reconciliation/app.py",
        "modules/seo_intelligence/file_store.py"])
+
+# hub/leads.py came off that list by moving into hub_leads, not by being
+# excused: what is exempt is the fallback it keeps for a database that will
+# not answer. An exemption for a path nothing writes would be dead weight, and
+# one for a path that is the store would be the hole this check just had, so
+# the reason is asserted against the code rather than taken on trust.
+check("and the leads themselves go through the table",
+      "lead_store" in leads_src, True)
+check("with the exemption naming where the fallback is reported",
+      "diagnostics" in js_scan.UNMIRRORED_EXEMPT["hub/leads.py"], True)
 
 
 # ------------------------------- 15. a resolved risk is not an amber finding
@@ -447,7 +466,7 @@ check("and the header pill ignores resolved rows",
 outstanding = sorted((r["level"], r["title"]) for r in report["risks"]
                      if r["level"] != "low")
 check("the outstanding risk is the JSON still on the disk",
-      outstanding, [("medium", "3 files write JSON outside hub/jsonstore.py")])
+      outstanding, [("medium", "2 files write JSON outside hub/jsonstore.py")])
 check("and nothing is high", [r for r in report["risks"]
                               if r["level"] == "high"], [])
 
