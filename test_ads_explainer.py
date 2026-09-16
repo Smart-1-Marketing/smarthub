@@ -165,8 +165,31 @@ for name, src in TEMPLATES.items():
 truthy("the module places bubbles at all", len(used) >= 15)
 check("every key a template asks for exists in the registry",
       sorted(k for k in used if not help_registry.get(k)), [])
-check("...and every key is one of this module's",
-      sorted(k for k in used if not k.startswith("ads_builder.")), [])
+# Two of the templates in this folder are not this module's screens. LSA Ads
+# is its own mount -- `modules/lsa_ads/app.py` points its Flask app's
+# template_folder here so `lsa_workspace.html` can extend `ads_base.html`.
+# The chrome is shared; the screen is not. Its bubbles are filed under
+# `lsa_ads.*` because that is the prefix `hub/help_coverage.py` reads to
+# decide whether the LSA tile is explained: filed under `ads_builder.*` the
+# tool read as carrying no help at all while Smart 1 Ads counted as covered
+# on keys describing a neighbour.
+#
+# Named with the prefix each may carry, and held in BOTH directions below, so
+# a template that stops borrowing this folder -- or one that stops carrying a
+# foreign key -- fails rather than going on covering whatever is written at
+# that path next.
+BORROWED = {"lsa_workspace.html": "lsa_ads."}
+
+check("...and every key is one of this module's, or of a screen declared as another's",
+      sorted(k for k, names in used.items()
+             if not k.startswith("ads_builder.")
+             and not all(k.startswith(BORROWED.get(n, "\0")) for n in names)), [])
+check("...and every borrowed screen named is still in this folder",
+      sorted(n for n in BORROWED if n not in TEMPLATES), [])
+check("...and still carries the keys it was named for",
+      sorted(n for n, pfx in BORROWED.items()
+             if n in TEMPLATES
+             and not any(k.startswith(pfx) for k in HELP_CALL.findall(TEMPLATES[n]))), [])
 
 # The guarded form, everywhere. Unguarded, a module whose Jinja environment
 # never got the helper raises UndefinedError and the page 500s.
