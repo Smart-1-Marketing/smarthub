@@ -43,3 +43,10 @@ venv/
 # Generated landing-page reports — runtime output, not source. One of these
 # reached the repo from a local test run; the directory is recreated on demand.
 modules/*/static/reports/
+
+# Preview dumps from test runs — runtime output, not source.
+# test_youtube_ads.py writes tmp/youtube-ads-preview.html so the rendered page
+# can be eyeballed; it mkdirs the directory on demand, so running the suite
+# dirtied the tree and invited exactly the stray-file commit the entry above
+# records happening once already.
+tmp/
