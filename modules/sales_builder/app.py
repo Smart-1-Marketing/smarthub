@@ -3992,6 +3992,32 @@ def api_spend_demo():
     }})
 
 
+@app.get("/api/quotes/<int:qid>/scan-insights")
+def api_scan_insights(qid):
+    """The scan's own competitive numbers and fix counts, for this quote's
+    client — the "Where you stand" block and the SEO & AEO scope. WO-3e.
+
+    Each line/tier is present only where its own facts were measured; a
+    client with no scan on file gets `{"measured": False}` on both halves
+    rather than an invented placeholder.
+    """
+    db = SessionLocal()
+    try:
+        q = db.get(Quote, qid)
+        if not q:
+            return jsonify({"ok": False, "error": "Quote not found"}), 404
+        client = q.client or ""
+        domain = q.website or ""
+    finally:
+        db.close()
+    from hub import proposal_scan_insights as psi
+    return jsonify({
+        "ok": True,
+        "where_you_stand": psi.where_you_stand(client, domain),
+        "seo_aeo_scope": psi.scope_for(client, domain),
+    })
+
+
 @app.get("/api/proposal-spec")
 def api_proposal_spec():
     """The Smart 1 proposal specification the wizard builds against."""
