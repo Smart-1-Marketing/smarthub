@@ -329,14 +329,19 @@ python3 test_google_inactive_qa_bulk.py
                                    #   on its own row, a delete guarded on the
                                    #   count somebody typed, and a site check
                                    #   that refuses a GA4 row and a site nobody
-                                   #   can point at
+                                   #   can point at, and an audit endpoint
+                                   #   that answers "could not read" rather
+                                   #   than an empty log
 node test_google_inactive_qa_bulk_ui.js
                                    # the same page's own script, run for real:
                                    #   selection per section surviving the
                                    #   re-render, a long selection sent in
                                    #   several requests at the caps the
-                                   #   endpoints enforce, and a delete that
-                                   #   sends nothing until its count is typed
+                                   #   endpoints enforce, a delete that sends
+                                   #   nothing until its count is typed, and
+                                   #   the Cleanup history panel: loaded on
+                                   #   open, reloaded after an action, and a
+                                   #   window on the log saying it is one
 python3 test_analytics_ids.py      # two names for one property are not a
                                    #   disagreement: the measurement id Knack
                                    #   holds against the property id Google
