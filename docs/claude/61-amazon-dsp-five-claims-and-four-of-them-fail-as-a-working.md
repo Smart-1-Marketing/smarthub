@@ -96,10 +96,17 @@ the field is wrong, not the divisor, and the check page says so -- dividing
 until a number looks right is how the wrong figure gets filed under the right
 name.
 
-**The pre-signed download gets no Authorization header.** The report body
-sits at an S3 URL Amazon hands back; a bearer token sent to a third-party
-host is a leak, and it is the one rule in `amazon_ads.py` that is not about
-reading a refusal correctly.
+**The pre-signed download gets no Authorization header — and its signature is
+not written down either.** The report body sits at an S3 URL Amazon hands
+back; a bearer token sent to a third-party host is a leak. The other half of
+that took a second pass to see: the URL's own query string carries
+`X-Amz-Credential` and `X-Amz-Signature`, so the URL *is* the credential —
+whoever holds it can fetch the report until it expires — and the first
+version recorded it whole into the usage ledger, which is rendered onto a
+page and pasted into chats. The module's test asserted that no credential
+reached a recorded call and passed, because the fixture URL had no signature
+on it. `_bare()` drops the query from anything written down, and the fixture
+now carries a real signed shape so the assertion means something.
 
 **One advertiser refused is that advertiser's problem.** `not_permitted` on
 one is named and the rest of the entity still lands; the whole entity refused

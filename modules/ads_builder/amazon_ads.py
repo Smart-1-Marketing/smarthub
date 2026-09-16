@@ -66,7 +66,9 @@ strips every one of them from any provider message before it reaches a
 result, an error, a status line or a log line, and
 ``test_reports_amazon_dsp.py`` reads every string a pull produces to prove
 it. The pre-signed download URL is fetched with **no** Authorization header
--- it is S3, and a bearer token sent to a third-party host is a leak.
+-- it is S3, and a bearer token sent to a third-party host is a leak -- and
+its query string, which carries the signature that makes it fetchable, is
+dropped from anything this module writes down (``_bare()``).
 """
 from __future__ import annotations
 
@@ -430,10 +432,24 @@ def _http(method: str, url: str, *, headers: dict, json=None, timeout=TIMEOUT):
     return requests.request(method, url, headers=headers, json=json, timeout=timeout)
 
 
+def _bare(url: str) -> str:
+    """A URL with its query string dropped, for anything that is written down.
+
+    The report body sits at a **pre-signed** S3 URL: its query carries
+    ``X-Amz-Credential`` and ``X-Amz-Signature``, and whoever holds that
+    string can fetch the report until it expires. It is a credential in a
+    query string. The usage ledger is rendered onto a page and pasted into
+    chats, so what is recorded is the host and path and nothing after the
+    ``?`` -- which is all the usage page ever wanted: which endpoint family
+    spent the call.
+    """
+    return str(url or "").split("?", 1)[0][:120]
+
+
 def _record(url: str, ok: bool, api: str, module: str = "reports") -> None:
     try:
         from hub import quotas
-        quotas.record_amazon_ads(url, module=module, api=api, ok=ok)
+        quotas.record_amazon_ads(_bare(url), module=module, api=api, ok=ok)
     except Exception:                                   # noqa: BLE001
         pass
 
@@ -698,9 +714,17 @@ def download_report(location: str, module: str = "reports") -> list:
                              status=int(getattr(resp, "status_code", 0) or 0))
     raw = resp.content or b""
     if raw[:2] == b"\x1f\x8b":
-        raw = gzip.GzipFile(fileobj=io.BytesIO(raw)).read()
+        # A truncated or half-written body answers 200 and then fails to
+        # inflate. BadGzipFile is an OSError, not one of this module's, so
+        # unwrapped it escapes every caller that handles Amazon's refusals --
+        # and takes /reports/amazon-check down with it.
+        try:
+            raw = gzip.GzipFile(fileobj=io.BytesIO(raw)).read()
+        except (OSError, EOFError) as exc:
+            raise AmazonApiError(f"the report body said it was gzip and would not "
+                                 f"inflate ({type(exc).__name__})", kind="shape")
     try:
-        data = json.loads(raw.decode("utf-8") or "[]")
+        data = json.loads(raw.decode("utf-8", errors="replace") or "[]")
     except ValueError:
         raise AmazonApiError("the report body is not JSON", kind="shape")
     if isinstance(data, list):

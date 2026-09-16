@@ -109,7 +109,11 @@ ladder with the rung it stopped at.
   `independent: False`, and *not measured* tonight rather than holding the
   nightly thread for a report Amazon has not finished.
 * The pre-signed download is fetched with **no Authorization header**: that
-  host is not Amazon's API, and a bearer token sent there is a leak.
+  host is not Amazon's API, and a bearer token sent there is a leak. Its
+  **query string is dropped from anything written down** — the signature in
+  it is what makes the URL fetchable by whoever holds it, and the usage
+  ledger is rendered onto a page and pasted into chats. The ledger records
+  the host and path.
 
 ## 7. First live pull — the checklist
 

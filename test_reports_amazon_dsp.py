@@ -346,6 +346,12 @@ os.environ.pop("AMAZON_DSP_ENTITY_PROFILE_ID")
 # ----------------------------------------------------- one report, one tick
 section("One report per advertiser: submit, poll, download, parse")
 
+# A pre-signed S3 URL is a bearer capability: whoever holds the query string
+# can fetch the report until it expires. It must reach the network and
+# nothing that is written down.
+SIGNED_URL = ("https://amazon-dsp-reports.s3.amazonaws.com/report.json.gz"
+              "?X-Amz-Credential=AKIAEXAMPLE%2F20260916&X-Amz-Signature=" + "d4c3b2a1" * 8)
+
 RAW = [
     # The request asks for ORDER *and* LINE_ITEM, so one order-day comes back
     # as one row per line item. These two are the same order on the same day.
@@ -381,7 +387,7 @@ ANSWERS.extend([
     _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme Plumbing", "currency": "USD"}]}),
     _Resp(200, {"reportId": "rep-1"}),
     _Resp(200, {"status": "IN_PROGRESS"}),
-    _Resp(200, {"status": "SUCCESS", "location": "https://s3.example/report.json.gz?sig=abc"}),
+    _Resp(200, {"status": "SUCCESS", "location": SIGNED_URL}),
 ])
 slept = []
 res = amazon_dsp.pull(today=date(2026, 9, 16), sleep=slept.append)
@@ -405,8 +411,8 @@ check("...asking for the metrics the field map reads",
                                             "purchases", "detail_page_views"))
       <= set(submit["body"]["metrics"]))
 check("the body carried no credential", _secrets_in([c["body"] for c in CALLS]), [])
-check("the report body is fetched from the pre-signed URL",
-      [d["url"] for d in DOWNLOADS], ["https://s3.example/report.json.gz?sig=abc"])
+check("the report body is fetched from the pre-signed URL, signature and all",
+      [d["url"] for d in DOWNLOADS], [SIGNED_URL])
 check("...with NO Authorization header on it: that host is not Amazon's API",
       [d["headers"] for d in DOWNLOADS], [{}])
 
@@ -465,6 +471,12 @@ check("...the report's own three among them",
       (by_api.get("reporting"), by_api.get("download")), (3, 1))
 check("...filed under the reports module", {r["module"] for r in RECORDED}, {"reports"})
 check("...with no credential in the detail", _secrets_in(RECORDED), [])
+check("...and no pre-signed signature either: the ledger is rendered onto a page",
+      [r for r in RECORDED if "X-Amz-Signature" in str(r.get("detail", ""))
+       or "X-Amz-Credential" in str(r.get("detail", ""))], [])
+check("...the download recorded by host and path alone",
+      [r["detail"] for r in RECORDED if r.get("api") == "download"],
+      ["https://amazon-dsp-reports.s3.amazonaws.com/report.json.gz"])
 
 check("the unmapped queue opens on the order, not the line item",
       {u["campaign_id"] for u in store.unmapped_campaigns(days=365)
@@ -502,7 +514,7 @@ CALLS.clear()
 ANSWERS.extend([
     _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
     _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme Plumbing", "currency": "USD"}]}),
-    _Resp(200, {"status": "SUCCESS", "location": "https://s3.example/report.json.gz?sig=abc"}),
+    _Resp(200, {"status": "SUCCESS", "location": SIGNED_URL}),
 ])
 res = amazon_dsp.pull(today=date(2026, 9, 16))
 check("the next tick asks for the same report rather than paying for a second one",
@@ -520,7 +532,7 @@ ANSWERS.extend([
                              {"advertiserId": "A2", "name": "Riverside HVAC", "currency": "USD"}]}),
     _Resp(403, {"code": "UNAUTHORIZED", "details": "not authorized for advertiser A1"}),
     _Resp(200, {"reportId": "rep-3"}),
-    _Resp(200, {"status": "SUCCESS", "location": "https://s3.example/report.json.gz?sig=abc"}),
+    _Resp(200, {"status": "SUCCESS", "location": SIGNED_URL}),
 ])
 res = amazon_dsp.pull(today=date(2026, 9, 16))
 check("the refused advertiser is named, with the kind of refusal",
@@ -545,7 +557,7 @@ ANSWERS.extend([
     _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
     _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme Plumbing", "currency": "USD"}]}),
     _Resp(200, {"reportId": "rep-4"}),
-    _Resp(200, {"status": "SUCCESS", "location": "https://s3.example/report.json.gz?sig=abc"}),
+    _Resp(200, {"status": "SUCCESS", "location": SIGNED_URL}),
 ])
 chk = amazon_dsp.check(today=date(2026, 9, 16))
 check("the ladder is climbed to the top", chk["preflight"]["rung"], 5)
@@ -563,6 +575,20 @@ check("a map that does not resolve names the fields the report did not carry",
       ["clickThroughs", "date", "impressions", "orderName", "totalCost"])
 
 
+_saved_get = requests.get
+requests.get = lambda url, timeout=None, **kw: _Resp(200, content=b"\x1f\x8btruncated")
+try:
+    amz.download_report(SIGNED_URL)
+    check("a body that says gzip and will not inflate is a refusal in words", False)
+except amz.AmazonApiError as exc:
+    check("a body that says gzip and will not inflate is a refusal in words",
+          ("inflate" in str(exc), exc.kind), (True, "shape"))
+except Exception as exc:                                             # noqa: BLE001
+    check("a body that says gzip and will not inflate is a refusal in words",
+          f"raised {type(exc).__name__}")
+requests.get = _saved_get
+
+
 # --------------------------------------------------------------- reconcile
 section("The reconcile figure is the same feed asked again, and says so")
 
@@ -571,7 +597,7 @@ ANSWERS.extend([
     _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
     _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme Plumbing", "currency": "USD"}]}),
     _Resp(200, {"reportId": "rep-5"}),
-    _Resp(200, {"status": "SUCCESS", "location": "https://s3.example/report.json.gz?sig=abc"}),
+    _Resp(200, {"status": "SUCCESS", "location": SIGNED_URL}),
 ])
 theirs = reconcile.theirs("amazon_dsp", date(2026, 9, 1), date(2026, 9, 15))
 check("the month is measured", theirs["measured"], True, note=theirs)
