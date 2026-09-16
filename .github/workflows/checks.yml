@@ -3648,6 +3648,9 @@ jobs:
       - name: Ask SmartHub traffic and sweep reads
         if: matrix.group == 8
         run: python3 test_v2_insights.py
+      - name: The Ask SmartHub recipe library and its placements
+        if: matrix.group == 8
+        run: python3 test_ask_recipes.py
       - name: The reports tests against Postgres
         if: matrix.group == 8
         env:

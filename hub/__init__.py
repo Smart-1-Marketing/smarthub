@@ -4017,18 +4017,30 @@ def create_hub_app() -> Flask:
         gate = _require_page()
         if gate:
             return gate
+        from . import ask_recipes
         from . import partner as partner_pages
         return render_template("dashboard.html", user=current_user(),
                                modules=MODULES, active="dashboard",
-                               partner_tiles=partner_pages.tiles())
+                               partner_tiles=partner_pages.tiles(),
+                               ask_chips=ask_recipes.chips(
+                                   "dashboard", _ask_role(_hub_user(), current_account()),
+                                   limit=1))
 
     @app.route("/client360")
     def client360():
         gate = _require_page()
         if gate:
             return gate
+        from . import ask_recipes
         return render_template("client360.html", user=current_user(), modules=MODULES,
-                               active="c360", q=request.args.get("q", ""))
+                               active="c360", q=request.args.get("q", ""),
+                               # The client is chosen in the browser, so the
+                               # chips are rendered there too: the recipes are
+                               # handed over as data and askChips() fills in
+                               # whichever client the record is showing.
+                               ask_chips=ask_recipes.chips(
+                                   "client360",
+                                   _ask_role(_hub_user(), current_account())))
 
     def _ask_role(user=None, account=None):
         """Role for Ask SmartHub, preserving the shared-password admin rule."""
@@ -4048,18 +4060,37 @@ def create_hub_app() -> Flask:
         gate = _require_page()
         if gate:
             return gate
+        from . import ask_recipes
         user = _hub_user()
         account = current_account()
+        role = _ask_role(user, account)
+        client = (request.args.get("client") or "").strip()[:180]
+        period = (request.args.get("period") or "").strip()[:40]
+        # A chip elsewhere in the Hub arrives as ?recipe=, and is asked once
+        # on load exactly as ?q= is. The recipe fills the question from the
+        # page's own context; a recipe this role may not run simply is not
+        # one, and the page opens empty rather than refusing.
+        recipe = ask_recipes.get((request.args.get("recipe") or "").strip()[:60])
+        if recipe is not None and not ask_recipes.allowed(recipe, role):
+            recipe = None
+        question = (request.args.get("q") or "").strip()[:1200]
+        if recipe is not None and not question:
+            question = ask_recipes.fill(
+                recipe, client, period,
+                (request.args.get("placement") or "").strip()[:60])
         return render_template(
             "ask_smarthub.html", user=current_user(), active="ask_smarthub",
-            role=_ask_role(user, account),
-            initial_client=(request.args.get("client") or "").strip()[:180],
+            role=role,
+            initial_client=client,
             context_path=(request.args.get("context_path") or "").strip()[:240],
             # The dashboard's own Ask SmartHub box sends the typed question
             # here rather than re-implementing the chat itself — a second
             # fetch-based Ask loop on the dashboard is the drift this file
             # already names a dozen times. `q` is asked once, on arrival.
-            initial_question=(request.args.get("q") or "").strip()[:1200],
+            initial_question=question,
+            initial_recipe=(recipe.key if recipe is not None else ""),
+            recipe_groups=ask_recipes.grouped("ask", role),
+            chip_for=ask_recipes.chip,
         )
 
     @app.route("/api/ask-smarthub", methods=["POST"])
@@ -4079,7 +4110,8 @@ def create_hub_app() -> Flask:
             from . import ask_smarthub
             result = ask_smarthub.ask(
                 body.get("question", ""), role=role, actor=actor,
-                context=body.get("context"), history=body.get("history"))
+                context=body.get("context"), history=body.get("history"),
+                recipe=str(body.get("recipe") or "")[:60])
             return jsonify(result)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400

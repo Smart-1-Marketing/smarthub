@@ -105,6 +105,14 @@ button.c360-nba{width:100%;text-align:left;cursor:pointer;font-family:inherit}
   .c360-proposals-table td{padding:4px 0;border:0}
   .c360-proposals-table td:empty{display:none}
 }
+/* The Ask SmartHub recipe chips on the ad-performance card. */
+.c360-askchips{display:flex;flex-wrap:wrap;align-items:center;gap:7px;
+  padding:10px 14px;border-top:1px solid #e8eef6;background:#fbfdff}
+.c360-askchips-h{font-size:10px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;color:#94a3b8}
+.c360-askchip{border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:999px;
+  padding:6px 11px;font-size:12px;cursor:pointer;text-decoration:none}
+.c360-askchip:hover{border-color:#1769aa;color:#1769aa}
 </style>
 <div class="page-head"><h2>Client 360 {{ help_dot('hub.client360.header') if help_dot is defined else '' }} {{ help_dot('hub.client360.links') if help_dot is defined else '' }} </h2><p>One client, every system — Smart 1 Team, Creative, Google, Websites &amp; Suite in a single view</p></div>
 
@@ -138,11 +146,13 @@ button.c360-nba{width:100%;text-align:left;cursor:pointer;font-family:inherit}
 <script src="/ad-copy.js"></script>
 <script src="/campaign-request.js"></script>
 <script src="/web-ticket.js"></script>
+<script defer src="/assets/ask-recipes.js?v=recipes-1"></script>
 <script>
 const $=id=>document.getElementById(id);
 const user_name={{ (user or '')|tojson }};
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const money=v=>{const n=Number(String(v??'').replace(/[$,]/g,''));return isFinite(n)&&n?'$'+n.toLocaleString():esc(v??'—')};
+const ASK_CHIPS={{ ask_chips|tojson }};
 let groups=[];
 
 /* A record starts many requests at once. Do not let responses from a prior
@@ -551,7 +561,30 @@ function render(g,q){
   // whether the sold lines are pacing, days held in quarantine, and the
   // live link. It lived on /reports/client/<key>, reached by knowing the
   // client's key; the record said nothing about any of it.
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Ad performance {{ help_dot('hub.client360.adperf') if help_dot is defined else '' }}</h3><a class="open-link" href="/reports/">Open Reports →</a></div><div class="card-b" id="c-adperf"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  /* ---------- Ask SmartHub recipe chips ----------
+     The questions are hub/ask_recipes.py's, handed over as data; this fills
+     in whichever client the record is showing and lets
+     /assets/ask-recipes.js build the URL. Every chip is a front door to
+     /ask-smarthub, not a second copy of the chat. */
+  function wireAskChips(){
+    if(window.askRecipes) window.askRecipes.wire(document);
+  }
+  function askChips(){
+    if(!ASK_CHIPS.length) return '';
+    const client=window.CURRENT_CLIENT||'';
+    const chips=ASK_CHIPS.map(function(c){
+      const q=c.question.replace('this client', client||'this client');
+      return `<a class="c360-askchip" data-recipe="${esc(c.key)}" data-client="${esc(client)}"`
+        +` data-period="${esc(c.period)}" data-placement="client360"`
+        +` title="${esc(q)}">${esc(c.title)}</a>`;
+    }).join('');
+    return `<div class="c360-askchips"><span class="c360-askchips-h">Ask SmartHub</span>${chips}</div>`;
+  }
+
+  // The recipe chips ride on this card because this is where the client is
+  // already chosen: each one opens /ask-smarthub with that client filled in.
+  // hub/ask_recipes.py owns the questions; nothing is typed here.
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Ad performance {{ help_dot('hub.client360.adperf') if help_dot is defined else '' }}</h3><a class="open-link" href="/reports/">Open Reports →</a></div><div class="card-b" id="c-adperf"><div class="empty">Loading… <span class="spin"></span></div></div>${askChips()}</div>`;
   // The landing pages built for this client, and whether they work. The
   // Landing Page Maker's list is searchable by client and is a screen inside
   // the tool, so knowing a page existed meant knowing to go and look. What
@@ -4500,6 +4533,7 @@ function loadBrandAndWork(name){
   loadIndustry(name);
   loadOrders(name);
   loadAdPerformance(name);
+  wireAskChips();
   loadPipeline(name);
   loadPlaces(name);
   loadYouTube(name);

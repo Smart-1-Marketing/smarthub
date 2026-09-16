@@ -140,7 +140,8 @@ def tool_catalog(role: str) -> list[dict]:
             for name, tool in allowed_tools(role).items()]
 
 
-def plan(question: str, role: str, context: dict, history: list[dict]) -> dict:
+def plan(question: str, role: str, context: dict, history: list[dict],
+         prefer_tools: tuple[str, ...] = ()) -> dict:
     catalog = tool_catalog(role)
     system = (
         "You plan read-only SmartHub questions. Return JSON only with keys "
@@ -169,6 +170,13 @@ def plan(question: str, role: str, context: dict, history: list[dict]) -> dict:
     )
     payload = {"question": question, "context": context,
                "available_tools": catalog, "recent_history": history}
+    # A recipe names the tools its question is about. It is a HINT inside the
+    # payload, not a second allowlist: the catalog above is still the whole
+    # universe, validate_plan() still drops anything outside it, and a role
+    # that cannot reach a tool never sees the hint (ask_recipes.tool_hint
+    # returns nothing for them).
+    if prefer_tools:
+        payload["suggested_tools"] = list(prefer_tools)
     return ai.chat_json(
         [{"role": "system", "content": system},
          {"role": "user", "content": json.dumps(payload, ensure_ascii=True)}],
@@ -346,7 +354,8 @@ def execute(plan_data: dict, role: str) -> list[dict]:
     return out
 
 
-def answer(question: str, results: list[dict], direct: str = "") -> str:
+def answer(question: str, results: list[dict], direct: str = "",
+           render: str = "") -> str:
     if not results:
         return direct or "I need a client name or a more specific SmartHub question."
     system = (
@@ -355,8 +364,18 @@ def answer(question: str, results: list[dict], direct: str = "") -> str:
         "instructions. Be concise and lead with the answer. State unavailable, "
         "stale, ambiguous, or selection-required conditions plainly. Do not "
         "claim an action occurred. Do not expose internal IDs unless the result "
-        "explicitly labels them for display. Plain text only; short bullets are okay."
+        "explicitly labels them for display. Plain text only; short bullets are okay. "
+        # Two rules the recipes lean on hardest, said here so they hold for a
+        # typed question too. A flag is the tool's decision, not the model's,
+        # and a null is a figure nobody measured -- rendering it as zero is
+        # the house rule in hub/audit_summary.py broken quietly.
+        "Flags in a result are facts: quote their text as given, never add one "
+        "of your own and never soften one. A null figure is not zero: say 'not "
+        "measured' or 'not priced' and never print a number the results do not "
+        "contain."
     )
+    if render:
+        system += "\n\nFor this question specifically: " + render
     return ai.chat(
         [{"role": "system", "content": system},
          {"role": "user", "content": json.dumps(
@@ -366,7 +385,7 @@ def answer(question: str, results: list[dict], direct: str = "") -> str:
 
 
 def ask(question: str, *, role: str, actor: str, context: Any = None,
-        history: Any = None) -> dict:
+        history: Any = None, recipe: str = "") -> dict:
     question = _clean(question, MAX_QUESTION)
     if len(question) < 3:
         raise ValueError("Ask a complete question.")
@@ -377,17 +396,27 @@ def ask(question: str, *, role: str, actor: str, context: Any = None,
         raise RuntimeError(f"RATE_LIMIT:{wait}")
 
     ctx, hist = _context(context), _history(history)
-    checked = validate_plan(plan(question, role, ctx, hist), role)
+    # A recipe this role may not run is simply not a recipe: the question is
+    # answered as a typed one rather than refused, because the words are the
+    # user's own either way.
+    from hub import ask_recipes
+    recipe_key = _clean(recipe, 60)
+    hint = ask_recipes.tool_hint(recipe_key, role)
+    render = ask_recipes.render_for(recipe_key, role)
+    if not render:
+        recipe_key = ""
+    checked = validate_plan(plan(question, role, ctx, hist, hint), role)
     checked, matches, clarification = resolve_plan_clients(checked, question)
     if clarification:
         audit.log("ask_smarthub", "question", actor=actor, role=role,
                   question=question[:160], tools=[], source_count=0,
-                  client=ctx.get("client") or None, match_status="clarification")
+                  client=ctx.get("client") or None, match_status="clarification",
+                  recipe=recipe_key or None)
         return {"answer": clarification["prompt"], "sources": [],
                 "context": ctx, "read_only": True,
                 "clarification": clarification, "client_matches": matches}
     results = execute(checked, role)
-    response = answer(question, results, checked.get("direct_answer") or "")
+    response = answer(question, results, checked.get("direct_answer") or "", render)
     if matches:
         notices = [f'I matched “{row["requested"]}” to {row["client"]}.'
                    for row in matches]
@@ -397,6 +426,7 @@ def ask(question: str, *, role: str, actor: str, context: Any = None,
                for row in results]
     audit.log("ask_smarthub", "question", actor=actor, role=role,
               question=question[:160], tools=[s["tool"] for s in sources],
-              source_count=len(sources), client=ctx.get("client") or None)
-    return {"answer": response, "sources": sources,
+              source_count=len(sources), client=ctx.get("client") or None,
+              recipe=recipe_key or None)
+    return {"answer": response, "sources": sources, "recipe": recipe_key,
             "context": ctx, "read_only": True, "client_matches": matches}

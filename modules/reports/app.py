@@ -167,8 +167,24 @@ def index():
         rate_card=products.rate_card_products(),
         health=_health_by_platform(),
         provider=_provider_gate(),
+        ask_chips=_ask_chips("reports_trends"),
         error=request.args.get("error", ""), saved=request.args.get("saved", ""),
     )
+
+
+def _ask_chips(placement: str, client: str = "") -> list:
+    """Ask SmartHub recipe chips for one of this module's pages.
+
+    Through hub.ask_recipes rather than a question typed into the template:
+    this module has its own Jinja environment and cannot see the hub globals,
+    so the list is built here and passed in as plain data. A Hub that could
+    not be imported costs the page its chips and nothing else.
+    """
+    try:
+        from hub import ask_recipes
+        return ask_recipes.staff_chips(placement, client)
+    except Exception:                                   # noqa: BLE001
+        return []
 
 
 def _provider_gate() -> dict:
@@ -757,7 +773,9 @@ def pacing_board():
                         owner=(a.get("owner") or "")[:160], client=(a.get("client") or "")[:200],
                         sort=(a.get("sort") or "band")[:20])
     return render_template("reports_pacing.html", b=data, bands=pacing.BANDS,
-                           labels=pacing.BAND_LABELS, platform_label=store.platform_label)
+                           labels=pacing.BAND_LABELS, platform_label=store.platform_label,
+                           ask_chips=_ask_chips("reports_pacing",
+                                                (a.get("client") or "")[:200]))
 
 
 @app.route("/pacing.csv")

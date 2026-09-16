@@ -173,12 +173,17 @@
        beside the hint costs the question nothing. The label is still what a
        reader matches against, and the title says the rest. #}
     <div class="ask-card-chips" id="dashAskChips">
+      {# The performance recipe comes from hub/ask_recipes.py; the other two
+         are the plain questions they always were. Three, because a fourth
+         wraps the row onto a second line and pushes the hint off the end. #}
+      {% for c in ask_chips %}
+      <button type="button" class="ask-chip" data-recipe="{{ c.key }}"
+        data-q="{{ c.question }}" title="{{ c.question }}">{{ c.title }}</button>
+      {% endfor %}
       <button type="button" class="ask-chip" data-q="Show proposals sent for a client"
         title="Show proposals sent for a client">Proposals sent</button>
       <button type="button" class="ask-chip" data-q="Which GA4 properties are mapped to a client?"
         title="Which GA4 properties are mapped to a client?">GA4 properties</button>
-      <button type="button" class="ask-chip" data-q="Show recent insertion orders for a client"
-        title="Show recent insertion orders for a client">Insertion orders</button>
       <span class="ask-card-hint">Enter to send &middot; opens in Ask SmartHub</span>
     </div>
   </div>
@@ -424,14 +429,18 @@ const user_name={{ (user or '')|tojson }};
 (function(){
   const form=$('dashAskForm'), input=$('dashAskInput'), chips=$('dashAskChips');
   if(!form||!input) return;
-  function go(q){
+  function go(q,recipe){
     q=(q||'').trim();
     if(q.length<3) return;
-    location.href='/ask-smarthub?q='+encodeURIComponent(q);
+    var url='/ask-smarthub?q='+encodeURIComponent(q);
+    // A recipe chip carries its key through, so the answer is rendered the
+    // way that recipe asks for and the audit row records which chip was used.
+    if(recipe) url+='&recipe='+encodeURIComponent(recipe);
+    location.href=url;
   }
   form.addEventListener('submit',function(e){e.preventDefault();go(input.value);});
   if(chips) chips.querySelectorAll('.ask-chip').forEach(function(b){
-    b.addEventListener('click',function(){go(b.dataset.q||b.textContent);});
+    b.addEventListener('click',function(){go(b.dataset.q||b.textContent,b.dataset.recipe||'');});
   });
 })();
 
