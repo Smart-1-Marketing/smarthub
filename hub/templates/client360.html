@@ -1400,8 +1400,17 @@ function render(g,q){
                     ? '<a href="'+esc(r.link)+'" target="_blank" rel="noopener">'+esc(r.value)+' ↗</a>'
                     : esc(r.value))
                 + '</dd>').join('')
-            + '</dl></details>').join('')
+            + '</dl>'
+            /* The blocker list and the button read a different source
+               (hub.client_brief -> hub.launch_blockers) than the rows
+               above (the raw scan), so they are fetched separately rather
+               than derived from what is already on screen -- matched to
+               this one group by a stable key, never by the title text. */
+            + (gp.key==='campaign_readiness'
+                ? '<div id="lb-box" style="margin-top:8px"></div>' : '')
+            + '</details>').join('')
           + '</div>';
+        if(d.groups.some(gp=>gp.key==='campaign_readiness')) loadLaunchBlockers(dom);
       }).catch(()=>{
         /* Both cards, or the spend one spins for ever on a failure the other
            has already reported. */
@@ -1409,6 +1418,61 @@ function render(g,q){
         host.innerHTML='<div class="empty">These details could not be loaded — '
           +'<b>not measured</b> rather than nothing found.</div>';
       });
+
+    function loadLaunchBlockers(domain){
+      const box=document.getElementById('lb-box');
+      if(!box) return;
+      const client=window.CURRENT_CLIENT||'';
+      fetch('/api/client/launch-blockers?client='+encodeURIComponent(client)
+            +'&domain='+encodeURIComponent(domain), {credentials:'same-origin'})
+        .then(r=>r.json()).then(d=>{
+          const blockers=d.blockers||[];
+          if(d.error){
+            box.innerHTML='<div class="muted" style="font-size:11.5px">Launch readiness '
+              +'is <b>not measured</b>: '+esc(d.error)+'</div>';
+            return;
+          }
+          if(!blockers.length){
+            box.innerHTML='<div class="muted" style="font-size:11.5px">Nothing found that '
+              +'would keep a paid campaign from being measured.</div>';
+            return;
+          }
+          box.innerHTML='<div style="border-top:1px solid var(--line);padding-top:8px;margin-top:2px">'
+            +'<div style="font-weight:600;font-size:12px;color:var(--navy)">Before a campaign '
+            +'here can be measured</div>'
+            +'<ul style="margin:6px 0 8px;padding-left:18px;font-size:12px">'
+            + blockers.map(b=>'<li title="'+esc(b.why)+'">'+esc(b.label)+'</li>').join('')
+            +'</ul>'
+            +'<button class="btn-ghost" id="lb-create" style="padding:4px 10px;font-size:12px">'
+            +'Create a launch-readiness ticket</button>'
+            +'<span class="muted" id="lb-msg" style="font-size:11.5px;margin-left:8px"></span>'
+            +'</div>';
+          const btn=document.getElementById('lb-create'), msg=document.getElementById('lb-msg');
+          btn.onclick=function(){
+            if(!confirm('Create one web ticket listing all '+blockers.length
+                        +' launch blocker(s) for '+client+'?')) return;
+            btn.disabled=true; btn.textContent='Creating…';
+            fetch('/api/client/launch-blockers/ticket', {method:'POST',
+                  headers:{'Content-Type':'application/json'}, credentials:'same-origin',
+                  body:JSON.stringify({client:client, domain:domain, website:domain})})
+              .then(r=>r.json()).then(res=>{
+                if(res.error){
+                  btn.disabled=false; btn.textContent='Create a launch-readiness ticket';
+                  msg.textContent=res.error;
+                  return;
+                }
+                btn.disabled=true; btn.textContent='Ticket created';
+                msg.textContent='Raised as a web ticket.';
+              }).catch(()=>{
+                btn.disabled=false; btn.textContent='Create a launch-readiness ticket';
+                msg.textContent='That did not reach the server — try again.';
+              });
+          };
+        }).catch(()=>{
+          box.innerHTML='<div class="muted" style="font-size:11.5px">Launch readiness could '
+            +'not be checked.</div>';
+        });
+    }
   })();
 
   // ---------- Site health: broken links / images + speed, from the last scan ----------

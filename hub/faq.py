@@ -43,7 +43,11 @@ Rules:
   specific number is unknown, answer in general terms instead of guessing.
 - Work the business name and city in naturally where it fits — do not stuff them.
 - Do not repeat a question already listed in "questions_to_avoid", and do not
-  rephrase one of them into a near-duplicate."""
+  rephrase one of them into a near-duplicate.
+- If "requested_focus" is non-empty, make ONE question address it directly --
+  but only when the supplied page content actually supports a real answer to
+  it. If it does not fit this page, ignore "requested_focus" entirely rather
+  than writing a question you cannot answer from what you were given."""
 
 
 # ------------------------------------------------------------------ storage
@@ -259,14 +263,24 @@ def _fallback_faqs(ctx: dict, count: int, avoid: list[str]) -> list[dict]:
     return out
 
 
-def generate(client: str, url: str, count: int = 6, avoid: list[str] | None = None) -> dict:
+def generate(client: str, url: str, count: int = 6, avoid: list[str] | None = None,
+             focus_topic: str = "") -> dict:
     """Draft `count` questions for one page. Called for the first batch and,
-    with count=1, for 'generate another question'."""
+    with count=1, for 'generate another question'.
+
+    `focus_topic` is a suggestion, usually clicked in from the SEO client
+    page's Topic ideas card (a keyword opportunity read off the site's own
+    scan) -- never a fact. The prompt is told to use it only where the
+    page's own supplied content actually supports an answer, so a topic
+    that does not belong on this page is dropped rather than answered from
+    nothing, the rule every prompt in this file already follows.
+    """
     url = _norm_url(url)
     if not url:
         raise ValueError("Enter the page URL you want FAQs for.")
     count = max(1, min(int(count or MIN_Q), MAX_Q))
     avoid = [str(a).strip() for a in (avoid or []) if str(a).strip()]
+    focus_topic = str(focus_topic or "").strip()[:200]
 
     store = seo.load_store(client)
     ctx = _site_context(client, url, store)
@@ -275,6 +289,7 @@ def generate(client: str, url: str, count: int = 6, avoid: list[str] | None = No
     payload = dict(ctx)
     payload["question_count"] = count
     payload["questions_to_avoid"] = avoid
+    payload["requested_focus"] = focus_topic
 
     faqs, ai_error = [], ""
     try:

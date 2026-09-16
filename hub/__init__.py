@@ -6118,8 +6118,10 @@ def create_hub_app() -> Flask:
             return jsonify({"error": "client and url are required."}), 400
         count = clamp_int(body.get("count"), 6, 1, 50)
         avoid = body.get("avoid") if isinstance(body.get("avoid"), list) else []
+        focus_topic = (body.get("focus_topic") or "").strip()
         try:
-            return jsonify(faq.generate(client, url, count=count, avoid=avoid))
+            return jsonify(faq.generate(client, url, count=count, avoid=avoid,
+                                        focus_topic=focus_topic))
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception as exc:  # noqa: BLE001

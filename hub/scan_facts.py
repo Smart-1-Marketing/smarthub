@@ -358,10 +358,17 @@ def facts(domain: str) -> dict:
     g = lambda p, d=None: _get(report, p, d)                    # noqa: E731
     groups = []
 
-    def group(title, why, rows):
+    def group(title, why, rows, *, key=""):
+        # `key` is a stable, opt-in identifier a caller can match on instead
+        # of the title string -- a screen that needs to find one particular
+        # group (Client 360's launch-blocker button) should not be matching
+        # English prose that is free to be reworded later.
         rows = [r for r in rows if r]
         if rows:
-            groups.append({"title": title, "why": why, "rows": rows})
+            entry = {"title": title, "why": why, "rows": rows}
+            if key:
+                entry["key"] = key
+            groups.append(entry)
 
     gbp_url = _s(g("google_business_profile.listing_url"))
     rating = _n(g("google_business_profile.review_rating"))
@@ -446,7 +453,8 @@ def facts(domain: str) -> dict:
            _row("Booking widget", _s(g("booking_widget.booking_widget_apps"))
                 or _b(g("booking_widget.has_booking_widget"))),
            _row("Live chat", _s(g("live_chat.live_chat_apps"))
-                or _b(g("live_chat.has_live_chat")))])
+                or _b(g("live_chat.has_live_chat")))],
+          key="campaign_readiness")
 
     group("Organic search",
           "What the site earns without paying for it.",
