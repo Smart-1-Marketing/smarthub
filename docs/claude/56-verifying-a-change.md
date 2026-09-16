@@ -66,6 +66,12 @@ python3 test_lead_store.py         # where a lead actually is: the table, the
                                    #   answer, and the one-time import that does
                                    #   not mark itself done unless every lead in
                                    #   the file is in the table
+python3 test_check_reconciliation.py # matching and the QBO payment payload, and
+                                   #   where the state lives: the QuickBooks
+                                   #   tokens, payer aliases, records and audit
+                                   #   trail through jsonstore, under the lock a
+                                   #   threading.RLock never gave it across the
+                                   #   second gunicorn worker
 python3 test_scan_widgets.py       # widget placements: leads counted, pause/edit/delete
 python3 test_scan_run.py           # what a prospect on somebody else's
                                    #   website is told: a callback token

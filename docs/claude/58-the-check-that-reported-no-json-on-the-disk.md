@@ -68,7 +68,7 @@ Three are real, and are the remaining work:
   ones.
 - **`modules/check_reconciliation/app.py`** — reconciliation state under its
   own `/var/data/check-reconciliation` root, with its own environment
-  variable rather than `hub/config.py`.
+  variable rather than `hub/config.py`. **Moved.** See below.
 - **`modules/seo_intelligence/file_store.py`** — per-client JSON written raw
   under `data_root()`. **Resolved, and not by moving it.** See below.
 
@@ -98,6 +98,38 @@ hand-rolled this got it right and it is preserved here so none of them lose it
 by moving over — so the shared writer takes an `fsync` argument rather than
 quietly trading one away. Off by default, because it costs a real disk round
 trip and most callers here write something a moment's work rebuilds.
+
+## The last one, and the lock it never had
+
+`modules/check_reconciliation/app.py` held four things in one JSON file under
+a hard-coded `/var/data/check-reconciliation`: the **QuickBooks OAuth tokens**,
+every payer alias the tool has learned, the reconciliation records, and the
+audit trail. Losing the file means re-authorising QuickBooks and losing every
+alias.
+
+It is `jsonstore` now — `read_json` for the reads and `update_json` for the
+read-modify-write — and the root comes from `data_dir()`, resolved on each
+call rather than captured at import. The constant it replaces named
+`/var/data` outright, so on a deployment with `HUB_DATA_DIR` set it was
+writing somewhere nothing else reads.
+
+**The lock is the part that was not just about backups.** `_LOCK` is a
+`threading.RLock`: it serialises the threads inside one gunicorn worker and
+says nothing whatever about the other one, and this deployment runs two. Two
+reps pressing approve at the same moment on different workers each read the
+state, each changed their copy and each wrote the lot back — and the second
+write silently dropped the first allocation. That is a QuickBooks payment that
+was made and is no longer recorded as made. `update_json()` holds the thread
+lock, an flock across the workers and a Postgres advisory lock across
+instances, and does the read and the write inside all three.
+
+`_write_state()` went with it. It had exactly one caller, and leaving it would
+have left a second door onto the file that takes none of those locks.
+
+**Not moved:** `uploads/`, which holds the scanned check images. Those are
+binary, and the repo's answer for binary is Cloudinary through
+`hub/storage.py` — a different change from moving the JSON writers, and one
+that deserves its own decision rather than being folded in here.
 
 ## The assertion that had to change with it
 
