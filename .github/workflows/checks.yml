@@ -1634,6 +1634,22 @@ jobs:
             echo "test_wordpress_publish.py not on this branch — nothing to run."
           fi
 
+      - name: What this Hub may fetch, and how
+        if: matrix.group == 4
+        # One reading of the SSRF guard. The rule existed twice before this --
+        # in the ad builder's TypeScript and in modules/restaurant -- and in
+        # neither place hub/ could reach it, so hub/wordpress.py shipped six
+        # outbound fetches with none. What is asserted is the half a hostname
+        # denylist misses: the check is on the RESOLVED address, and every
+        # redirect hop is re-checked. Guarded like the steps around it so this
+        # workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_outbound.py ]; then
+            python test_outbound.py
+          else
+            echo "test_outbound.py not on this branch — nothing to run."
+          fi
+
       - name: Page schema, and the plugin that makes it writable
         if: matrix.group == 4
         # The other half of the WordPress story: the meta key and the REST
