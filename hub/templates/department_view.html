@@ -25,7 +25,7 @@
     </div>
     {% if department and department.builtin %}
       {# The same icon the sidebar row carries, so the page and the menu read
-         as one thing; coloured with the department's own colour. #}
+         as one thing; colored with the department's own color. #}
       <h1 class="s1d-dept-title" style="--dept:{{ department.color }}">
         <span class="s1d-dept-ico">{{ department.icon|safe }}</span>{{ department.name }}</h1>
       {% if department.description %}<p>{{ department.description }}</p>{% endif %}
@@ -62,12 +62,12 @@
     text, which is the one place |safe is used on this page.
   #}
   {#
-    Each section carries its own colour (a tint from hub/sidebar.py's
-    GROUP_TINTS, cycled so neighbours differ) on a larger heading, a bar
+    Each section carries its own color (a tint from hub/sidebar.py's
+    GROUP_TINTS, cycled so neighbors differ) on a larger heading, a bar
     beside it and a rule across the top of its tiles -- so somebody who
     knows "the orange one" finds it without reading every heading. An
     unlabelled group (the department's own first row of tools) takes the
-    department colour and no heading.
+    department color and no heading.
   #}
   {% for g in department.groups %}
     <section class="s1d-sec" style="--tint:{{ g.tint if g.label else department.color }}">
@@ -137,8 +137,8 @@
 .qa-group-label{margin:22px 2px 8px;font-size:11px;font-weight:700;text-transform:uppercase;
   letter-spacing:1px;color:#64748b}
 .qa-group-label:first-of-type{margin-top:4px}
-/* The department page: title in the department's colour with the menu's
-   icon; each section a colour of its own on a bigger heading. */
+/* The department page: title in the department's color with the menu's
+   icon; each section a color of its own on a bigger heading. */
 .s1d-dept-title{display:flex;align-items:center;gap:12px;color:var(--dept)}
 .s1d-dept-ico{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;
   border-radius:12px;background:color-mix(in srgb,var(--dept) 12%,#fff);font-size:24px;line-height:1}

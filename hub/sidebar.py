@@ -289,7 +289,7 @@ BLURBS = {
     "creative":          "The index of every image, video and audio tool. Approved work lands on the client's 360 record.",
     "cs_ai_tools":       "The AI generators the Studio can call — video, voice, image and music — and which are live.",
     "cs_approvals":      "Client review links awaiting a decision, with rounds, comments and who is holding the ball.",
-    "cs_brand_kits":     "A client's logos, colours, fonts and voice, loaded into every Studio tool automatically.",
+    "cs_brand_kits":     "A client's logos, colors, fonts and voice, loaded into every Studio tool automatically.",
     "cs_campaigns":      "Group a client's creative projects into a campaign and track them together.",
     "cs_dashboard":      "Start a new creative project: pick the client, the type of piece and a template.",
     "cs_library":        "Every finished spot the Studio has produced, by client and format.",
@@ -313,7 +313,7 @@ BLURBS = {
     "google_accounts":   "Every GA4 property, GTM container, Search Console property and Business Profile we can reach, and which client each maps to.",
     "google_finder":     "Search every connected Google account for a client's property, container or listing.",
     "google_history":    "What the Google tools did and when — sweeps, changes and errors.",
-    "gpt_ads":           "Write ad copy for search, social and display from what the client actually authorised; anything unsupplied is a blocking flag.",
+    "gpt_ads":           "Write ad copy for search, social and display from what the client actually authorized; anything unsupplied is a blocking flag.",
     "gtm":               "A client's Tag Manager container — tags, triggers and the site check that says whether it fires.",
     "house_urls":        "In-house websites added as clients with no products, so our own sites get audited too.",
     "image_creator":     "Design social images and graphics on a canvas with stock photos, brand kits and AI generation, saved to the client's gallery.",
@@ -356,7 +356,7 @@ BLURBS = {
     "no_analytics":      "Active clients with no Google Analytics on file — search connected accounts and attach the right property.",
     "no_dashboards":     "Active clients with no Smart 1 Dashboard link on any live product.",
     "no_gtm":            "Active clients with no GTM container, split into tag-dependent products and suggested candidates.",
-    "page_images":       "Pull every image off a client's page, optimise it and hand back the replacements.",
+    "page_images":       "Pull every image off a client's page, optimize it and hand back the replacements.",
     "paint_animation":   "A hand-painted reveal animation of a client's image or logo.",
     "partner_scorecard": "Active clients, live products and billing rolled up by media partner — who is growing and who is shrinking.",
     "pdf":               "Shrink and clean a PDF for email or the web.",
@@ -375,7 +375,7 @@ BLURBS = {
     "scans":             "Site audits: SEO, AEO, speed and fixes for any domain, with a shareable report.",
     "sell_to_clients":   "Findings read off each active client's own website, out of audits already paid for — what we could sell each one.",
     "seo":               "Each SEO client's record — schema, FAQs, blogs, alt text and llms.txt, per site.",
-    "seo_images":        "Pull, optimise and re-upload a site's images with proper alt text, in bulk.",
+    "seo_images":        "Pull, optimize and re-upload a site's images with proper alt text, in bulk.",
     "seo_intelligence":  "The internal SEO overview across the book — rankings, coverage and what changed.",
     "short_links":       "Masked, trackable client links on our own domain.",
     "site_blocks":       "Reusable website sections to drop into Smart 1 Sites.",
@@ -384,7 +384,7 @@ BLURBS = {
     "sites_builder":     "Generate a Smart 1 Sites website from a business name, type and goal.",
     "skills360":         "Switch a client's skills on — Ecwid Ecommerce, Email Creator — which decides which cards Client 360 draws for them.",
     "smartforecast":     "A weather-driven website block that changes its offer with the forecast.",
-    "social":            "A posting plan and captions built from what the client authorised, with a push to Smart 1 Suite's social planner.",
+    "social":            "A posting plan and captions built from what the client authorized, with a push to Smart 1 Suite's social planner.",
     "stale_90":          "Clients gone quiet — last order ended 90+ days ago and nothing live now. Win-back candidates.",
     "stale_creative":    "How long since we last produced creative for each active client, and who has never had any.",
     "status":            "Is the Hub up, and is every integration answering.",
@@ -422,7 +422,7 @@ _LANDING = ["land_boat", "land_hvac", "land_legal", "land_recruit", "land_restau
             "land_rv", "land_ski", "land_stadium", "land_tourism"]
 
 
-# One colour per department, used on its index page (heading, section bars,
+# One color per department, used on its index page (heading, section bars,
 # tile rule) so a person learns "green is Sales" and finds it faster next
 # time. Departments and Tools take different halves of the wheel. Chosen to
 # read on white at AA contrast for the heading text.
@@ -442,7 +442,7 @@ DEPT_COLORS = {
 }
 
 # Section headings on an index page cycle through these tints, in order,
-# so neighbouring groups never share a colour.
+# so neighboring groups never share a color.
 GROUP_TINTS = ["#1a5fb4", "#1d7a46", "#c2410c", "#7a3db8", "#0e7490", "#be185d", "#8a6d00"]
 
 
