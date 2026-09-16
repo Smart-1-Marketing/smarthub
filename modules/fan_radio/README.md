@@ -133,6 +133,15 @@ Turn the link off, or issue a new one — the old link dies immediately.
 * **The beats, where a rep can see them.** The shape a length is planned around
   is drawn beside the copy as well as stated in the prompt. Until it was, a
   script that had wandered from the plan read exactly like one written to it.
+* **Reusable reads, shared with the Radio Ad Creator.** A picker on every spot
+  offers the saved library, and *save as a reusable read* adds to it. The
+  library is `hub/radio_presets.py` and both builders read the one store, so a
+  read saved here is offered there. It is saved with this client's name put
+  **back** to a `{business}` placeholder and filled in again for whoever the
+  next project is for, because a library that bakes in the first client's name
+  stops being reusable on its first save. This existed here with four reads, a
+  store, a route and a test, and no screen in either tool — a route nobody can
+  press is not a feature.
 * **How the name is said.** Pronunciations apply to every spot on the project,
   and *show me what the voice reads* prints the copy ElevenLabs is actually
   handed. Without that line a pronunciation that is not taking looks identical
@@ -246,6 +255,7 @@ Suite's PDF links 403.
 | `voices.py` | ~270 | ElevenLabs transport and render; casting is hub/voice_casting |
 | `speech.py` | ~120 | Written copy → spoken copy |
 | `store.py` | ~380 | Projects, versions, share tokens, feedback, audio assets |
+| `script_presets.py` | 1 | Re-export of `hub/radio_presets.py`, the shared reusable-read library |
 | `templates/index.html` | ~1240 | The builder |
 | `templates/share.html` | ~340 | What the client sees |
 | `templates/library.html` | ~90 | Every project, who approved what |
@@ -255,7 +265,8 @@ budgets, the bed vocabulary, the mix levels, the length arithmetic, the read
 pace and the mix checks are `hub/radio_spec.py`; the named script panel is
 `hub/radio_script_qc.py` and the content rules inside it are
 `hub/script_contents.py` and `hub/social_plan.py`; the casting question and its
-scoring are `hub/voice_casting.py`; the client link is `hub/radio_share.py`.
+scoring are `hub/voice_casting.py`; the client link is `hub/radio_share.py`;
+the reusable-read library is `hub/radio_presets.py`.
 Each was a local copy here once, or existed only in the Radio Ad Creator, and
 the next fix to any of them now lands once.
 

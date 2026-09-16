@@ -810,15 +810,28 @@ def api_set_voice(pid):
 
 @app.route("/api/script-presets", methods=["GET", "POST"])
 def api_script_presets():
+    """The shared reusable-read library, filled in for a project if named.
+
+    `?project=` is optional and only decides whose name the placeholder is
+    filled with. The library itself is `hub/radio_presets.py` and is the same
+    rows the Radio Ad Creator offers -- a read saved in one tool is offered in
+    the other, because both write the same lengths against the same budgets.
+    """
+    project = store.load((request.args.get("project") or "").strip()) or {}
+    company = project.get("company") or ""
     if request.method == "GET":
-        return jsonify({"ok": True, **script_presets.library()})
+        return jsonify({"ok": True, **script_presets.library(company)})
     body = request.get_json(silent=True) or {}
+    # Saved with this client's name put back to the placeholder, or the
+    # library's first reuse reads out somebody else's business.
+    text = script_presets.generalize(body.get("script"), company)
     try:
-        row = script_presets.save(body.get("name"), body.get("script"), actor_name())
+        row = script_presets.save(body.get("name"), text, actor_name())
     except ValueError as exc:
         return fail(str(exc))
     _log("script_preset_saved", preset=row["id"])
-    return jsonify({"ok": True, "preset": row})
+    return jsonify({"ok": True, "preset": row,
+                    **script_presets.library(company)})
 
 
 @app.route("/api/projects/<pid>/voice/preview", methods=["POST"])

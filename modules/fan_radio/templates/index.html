@@ -606,7 +606,7 @@
       .then(function(){ return loadQc(); })
       .then(drawMusic)
       .catch(function(){ drawMusic(); });
-    loadScriptQc().then(function(){ drawSpots(); });
+    loadPresets().then(loadScriptQc).then(function(){ drawSpots(); });
   }
 
   function fillBrief(){
@@ -720,6 +720,32 @@
   function tagControls(s){
     return '<label class="f" for="tag-'+esc(s.id)+'">Expression tag</label><select id="tag-'+esc(s.id)+'" data-tag><option value="">Choose a delivery…</option>'+['excited','curious','whispers','laughs','sighs','sarcastic','mischievously','short pause','long pause'].map(function(t){return '<option value="'+t+'">['+t+']</option>';}).join('')+'</select><button class="btn sec sm" data-a="insert-tag">Insert at cursor</button><p class="hint">Tags use Expressive mode and work with instant custom voices. Place them before the words they should affect.</p>';
   }
+  /* A saved read, inserted at the cursor. Same shape as the expression-tag
+     control above it, deliberately: two pickers on one card that behave
+     differently is two things to learn. Insert rather than replace, because
+     losing a written spot to a mis-click is the one outcome worth designing
+     against -- select the copy first to overwrite it. */
+  function presetControls(s){
+    var rows = (PRESETS.defaults || []).concat(PRESETS.custom || []);
+    if(!rows.length)
+      return '<p class="hint">No saved reads yet — write one and press '
+           + '<b>Save as a reusable read</b> to start the library.</p>'
+           + '<div class="row"><button class="btn sec sm" data-a="save-preset">'
+           + 'Save as a reusable read</button></div>';
+    return '<label class="f" for="pre-' + esc(s.id) + '">Reusable read</label>'
+      + '<select id="pre-' + esc(s.id) + '" data-preset>'
+      + '<option value="">Choose a saved read…</option>'
+      + rows.map(function(r){
+          return '<option value="' + esc(r.id) + '">' + esc(r.name)
+               + '</option>'; }).join("")
+      + '</select>'
+      + '<button class="btn sec sm" data-a="insert-preset">Insert at cursor</button>'
+      + '<button class="btn sec sm" data-a="save-preset">Save as a reusable read</button>'
+      + '<p class="hint">The library is shared with the Radio Ad Creator. A read '
+      + 'saved here has this client\'s name put back to a placeholder, so the '
+      + 'next project fills in its own.</p>';
+  }
+
   function drawSpots(){
     var spots = (P && P.spots) || [];
     if(!spots.length){
@@ -771,6 +797,7 @@
         + beatRail(s.seconds)
         + '<textarea class="sc">' + esc(s.script) + '</textarea>'
         + tagControls(s)
+        + presetControls(s)
         + '<div class="sfoot">'
         +   '<button class="btn sec sm" data-a="save">Save edit</button>'
         +   '<button class="btn sec sm" data-a="rewrite">Rewrite</button>'
@@ -804,6 +831,42 @@
       card.querySelectorAll("button").forEach(function(b){
         b.onclick = function(){
           var a = b.getAttribute("data-a");
+          if(a === 'insert-preset'){
+            var sel = card.querySelector('[data-preset]');
+            var pid = sel ? sel.value : "";
+            if(!pid){msg.textContent='Choose a saved read first.';return;}
+            var rows = (PRESETS.defaults||[]).concat(PRESETS.custom||[]);
+            var row = rows.filter(function(r){return r.id===pid;})[0];
+            if(!row){msg.textContent='That read is no longer in the library.';return;}
+            var at = ta.selectionStart ?? ta.value.length;
+            ta.setRangeText(row.script, at, at, 'end'); ta.focus();
+            msg.className = "msg";
+            msg.textContent = 'Inserted. Save the edit to keep it, then the '
+              + 'script checks re-run.';
+            return;
+          }
+          if(a === 'save-preset'){
+            var text = ta.value.trim();
+            if(!text){msg.textContent='Write the spot first.';return;}
+            var name = prompt('Name this reusable read — how it appears in the '
+              + 'picker, here and in the Radio Ad Creator:');
+            if(name === null) return;
+            b.disabled = true; msg.className = "msg"; msg.textContent = "Saving…";
+            api("/api/script-presets?project=" + encodeURIComponent(P.id),
+                {method:"POST", body:{name:name, script:text}})
+              .then(function(j){
+                PRESETS = {defaults: j.defaults || PRESETS.defaults,
+                           custom: j.custom || PRESETS.custom};
+                b.disabled = false;
+                // Redrawn so every card's picker offers it, not just this one.
+                drawSpots();
+                say("wizardMsg", 'Saved as a reusable read. It is in the picker '
+                  + 'on every spot, and in the Radio Ad Creator.', "ok");
+              })
+              .catch(function(e){ b.disabled = false;
+                msg.className = "msg err"; msg.textContent = e.message; });
+            return;
+          }
           if(a === 'insert-tag'){
             var tag=card.querySelector('[data-tag]').value;
             if(!tag){msg.textContent='Choose an expression tag first.';return;}
@@ -1045,6 +1108,10 @@
   // is skipped silently by the loop below, so the map comes from the
   // server that ran the checks.
   var SQC = {}, SQC_LABELS = {}, SQC_BLOCKS = [];
+  // The shared reusable-read library, the same rows the Radio Ad Creator
+  // offers. Loaded once a project exists, because the `{business}` placeholder
+  // is filled in server-side from that project's company name.
+  var PRESETS = {defaults: [], custom: []};
 
   function loadMixConfig(){
     return api("/api/mix/config").then(function(j){ MIXCFG = j; return j; });
@@ -1120,6 +1187,15 @@
      confidently reports the previous wording, which is worse than none. */
   function refreshScriptQc(){
     return loadScriptQc().then(function(){ drawSpots(); });
+  }
+
+  function loadPresets(){
+    if(!P || !P.id) return Promise.resolve();
+    return api("/api/script-presets?project=" + encodeURIComponent(P.id))
+      .then(function(j){ PRESETS = {defaults: j.defaults || [],
+                                    custom: j.custom || []}; })
+      .catch(function(){ /* the picker is left empty and says so; a library
+                            that cannot be read must not take the step down */ });
   }
 
   function loadScriptQc(){
