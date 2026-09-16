@@ -27,6 +27,18 @@ ran the check.
 domain from an exact client-registry match on the GTM account's own name
 -- never a substring, never auto-applied to anything -- and the person
 checking still picks the URL that is actually fetched.
+
+**`_run_scan()` now runs this automatically for the containers that need
+it.** A container GA4 already confirms alive is skipped -- it is already
+active and needs no fetch. Every other GTM container the scan calls
+inactive gets a real fetch of its resolved website (same exact-match
+resolver as the suggestion above) looking for its own tag, bounded per
+pass by SITE_CHECK_BUDGET and re-run only once SITE_CHECK_STALE_HOURS has
+passed. A confirmed find promotes the row out of the deletable inactive
+bucket into Needs Review -- the tag is genuinely on the page, so it must
+not sit next to a Delete button on the strength of GA4 alone missing it,
+and Review rather than Active because nothing here has measured traffic,
+only that the tag is installed.
 """
 import os
 import sys
@@ -295,6 +307,133 @@ check("an exact registry match suggests that client's domain",
       d1.get("known") and d1.get("suggested_url") == "https://acmeplumbing.com", d1)
 check("an unmatched account name suggests nothing",
       not d2.get("known") and not d2.get("suggested_url"), d2)
+
+
+# ---------------------------------------------------------------------------
+section("_run_scan(): the remaining GTM containers are checked automatically")
+# ---------------------------------------------------------------------------
+class _ResolvableClientKey:
+    """Acme resolves to a real domain; Ghost Co resolves to nothing."""
+
+    @staticmethod
+    def resolve(name="", url="", **kw):
+        if name == "Acme Plumbing":
+            return {"known": True, "domain": "acmeplumbing.com", "client": "Acme Plumbing, LLC",
+                     "confidence": "exact"}
+        return {"known": False, "domain": "", "client": name, "confidence": "unmatched"}
+
+
+def _fake_scan_login_three_gtm(login, refresh, on_progress=None, **_ignored):
+    base = {"kind": "GTM", "login": login, "account_id": "9001", "events": None, "sessions": None,
+            "status": "inactive", "reason": "Published container has no tags"}
+    rows = [
+        {**base, "account": "Acme Plumbing", "name": "Found", "resource": "found1",
+         "public_id": "GTM-FOUND1"},
+        {**base, "account": "Acme Plumbing", "name": "Not Found", "resource": "notfound1",
+         "public_id": "GTM-NOPE01"},
+        {**base, "account": "Ghost Co", "name": "No Website", "resource": "ghost1",
+         "public_id": "GTM-GHOST1"},
+    ]
+    return rows, [], []
+
+
+def _fake_get_by_public_id(url, timeout=None, allow_redirects=None, headers=None):
+    # The "found" container's own tag is on the page; the others' is not.
+    return _Resp(content=b"<html><head><script "
+                          b"src='https://www.googletagmanager.com/gtm.js?id=GTM-FOUND1'>"
+                          b"</script></head></html>", url=url)
+
+
+_real_finder3, _real_scan_login3 = qa._finder, qa._scan_login
+qa._finder, qa._scan_login = _OneLoginFinder, _fake_scan_login_three_gtm
+qa.requests.get = _fake_get_by_public_id
+_real_client_key.resolve = _ResolvableClientKey.resolve
+try:
+    with app.app_context():
+        payload7 = qa._run_scan(full=False)
+finally:
+    qa._finder, qa._scan_login = _real_finder3, _real_scan_login3
+    _real_client_key.resolve = _real_resolve
+
+inactive7, review7 = payload7.get("inactive") or [], payload7.get("review") or []
+found_row = _find(review7, "found1")
+notfound_row = _find(inactive7, "notfound1")
+ghost_row = _find(inactive7, "ghost1")
+
+check("a confirmed find is promoted out of inactive into Needs Review",
+      found_row is not None and not any(r["resource"] == "found1" for r in inactive7), inactive7)
+check("...never landing in the deletable inactive bucket",
+      not any(r["resource"] == "found1" for r in inactive7), inactive7)
+check("...with the reason naming the automatic check",
+      found_row and "automatic site" in found_row.get("reason", ""), found_row)
+check("a resolvable site with no matching tag stays inactive, found False",
+      notfound_row is not None and notfound_row.get("site_check", {}).get("found") is False, notfound_row)
+check("an account with no client-registry match stays inactive, found None with a reason",
+      ghost_row is not None and ghost_row.get("site_check", {}).get("found") is None
+      and ghost_row.get("site_check", {}).get("error"), ghost_row)
+
+stored7 = qa._site_checks()
+check("all three automatic checks are persisted, stamped 'automatic scan'",
+      all(stored7.get(qa._skip_key("GTM", LOGIN, r))["by"] == "automatic scan"
+          for r in ("found1", "notfound1", "ghost1")), stored7)
+
+
+# ---------------------------------------------------------------------------
+section("_run_scan(): a fresh site check is not repeated on the next pass")
+# ---------------------------------------------------------------------------
+_calls = {"n": 0}
+
+
+def _counting_get(url, timeout=None, allow_redirects=None, headers=None):
+    _calls["n"] += 1
+    return _fake_get_by_public_id(url, timeout, allow_redirects, headers)
+
+
+qa._finder, qa._scan_login = _OneLoginFinder, _fake_scan_login_three_gtm
+qa.requests.get = _counting_get
+_real_client_key.resolve = _ResolvableClientKey.resolve
+try:
+    with app.app_context():
+        qa._run_scan(full=False)
+finally:
+    qa._finder, qa._scan_login = _real_finder3, _real_scan_login3
+    _real_client_key.resolve = _real_resolve
+check("no site was fetched again inside the staleness window", _calls["n"] == 0, _calls)
+
+
+# ---------------------------------------------------------------------------
+section("_run_scan(): the automatic pass is bounded per run")
+# ---------------------------------------------------------------------------
+def _fake_scan_login_two_new(login, refresh, on_progress=None, **_ignored):
+    base = {"kind": "GTM", "login": login, "account_id": "9002", "events": None, "sessions": None,
+            "status": "inactive", "reason": "Published container has no tags"}
+    rows = [
+        {**base, "account": "Acme Plumbing", "name": "Budget A", "resource": "budgetA",
+         "public_id": "GTM-BUDGA1"},
+        {**base, "account": "Acme Plumbing", "name": "Budget B", "resource": "budgetB",
+         "public_id": "GTM-BUDGB1"},
+    ]
+    return rows, [], []
+
+
+_real_budget = qa.SITE_CHECK_BUDGET
+qa.SITE_CHECK_BUDGET = 1
+qa._finder, qa._scan_login = _OneLoginFinder, _fake_scan_login_two_new
+qa.requests.get = _fake_get_by_public_id
+_real_client_key.resolve = _ResolvableClientKey.resolve
+try:
+    with app.app_context():
+        payload8 = qa._run_scan(full=False)
+finally:
+    qa._finder, qa._scan_login = _real_finder3, _real_scan_login3
+    _real_client_key.resolve = _real_resolve
+    qa.SITE_CHECK_BUDGET = _real_budget
+
+stored8 = qa._site_checks()
+checked = sum(1 for r in ("budgetA", "budgetB") if qa._skip_key("GTM", LOGIN, r) in stored8)
+check("only SITE_CHECK_BUDGET containers are checked in one pass", checked == 1, stored8)
+check("the one left over is still in inactive, simply unchecked this run",
+      len(payload8.get("inactive") or []) >= 1, payload8.get("inactive"))
 
 
 print(f"\n{PASS} passed, {FAIL} failed")

@@ -2,15 +2,23 @@
 
 GA4 can answer the 60-day activity question directly. GTM cannot: Tag Manager
 has no traffic-reporting API, so a container's own tags are the only thing
-that can positively confirm it is still firing -- and confirmed activity is
-the *one* way in for a container to read "active". Everything else -- no
+that can positively confirm it is still firing -- and confirmed GA4 activity
+is one way in for a container to read "active". Everything else -- no
 published tags, no GA4 tag in what is published, a GA4 tag whose property is
 not visible to this login or could not be read -- reads as inactive by
 default. Whether the linked GA4 property is itself separately flagged
 active or inactive by our own GA4-side scan is not a gating condition here;
-only a confirmed "yes, this fired" overrides the default. Needs Review is
-reserved for a scan that genuinely could not run (a listing call that
-failed, a login that needs reconnecting) rather than for this judgment call.
+only a confirmed "yes, this fired" overrides the default.
+
+A container GA4 confirms alive needs no more of this and is skipped; every
+other GTM container the scan calls inactive is checked a second, direct way
+instead -- a real fetch of its resolved website, looking for the container's
+own tag in the raw HTML, because that is the only positive signal available
+short of GA4. A confirmed find there promotes the row out of the deletable
+inactive bucket into Needs Review, since the tag is genuinely on the page and
+whether to act on that is a person's call. Needs Review otherwise stays what
+it always was: a scan that genuinely could not run (a listing call that
+failed, a login that needs reconnecting), not an activity judgment call.
 """
 from __future__ import annotations
 
@@ -193,15 +201,24 @@ def _save_skips(data: dict) -> None:
 # another script's own runtime behaviour would not show up here -- which is
 # why a "not found" result is worded as that, never as a confirmed removal.
 #
-# This is deliberately a manual, per-container action rather than something
-# the scan runs on every row: there is no reliable, verified mapping here
-# from a GTM account to the one website it belongs to, and guessing one from
-# the account name would risk checking the wrong site and reporting on it
-# with a straight face. A person supplies (or accepts a suggested) URL and
-# reads the result themselves.
+# A container GA4 already confirms alive needs none of this and is skipped
+# (it is already "active"). Every *other* GTM container the scan calls
+# inactive gets one of these automatically now -- the manual "Check site"
+# button remains for a container the automatic pass could not resolve a
+# website for, or for re-checking one on demand.
 _SITE_CHECK_TIMEOUT = 20
 _SITE_CHECK_MAX_BYTES = 2_000_000
 _SITE_CHECK_UA = "Mozilla/5.0 (compatible; Smart1Hub/1.0; +https://smart1.agency)"
+# A site check checked within this window is not repeated on the next scan,
+# the same shape RESOURCE_STALE_HOURS already gives GA4/GTM resources --
+# there is no cheaper way to learn whether a tag is on a page than to fetch
+# it once. Bounded on count too, per scan pass: fetching client websites is
+# not a Google API call with a shared pacer behind it, and what is left over
+# is simply not a candidate this run rather than something the scan waits
+# on indefinitely -- it is picked up on the next one.
+SITE_CHECK_STALE_HOURS = 24
+SITE_CHECK_WORKERS = 4
+SITE_CHECK_BUDGET = 60
 
 
 def _site_checks() -> dict:
@@ -229,6 +246,52 @@ def _fetch_page_html(url: str) -> dict:
     return {"ok": resp.ok, "url": resp.url, "status": resp.status_code,
             "html": html if resp.ok else "",
             "error": "" if resp.ok else f"The page answered HTTP {resp.status_code}."}
+
+
+def _run_site_check(public_id: str, url: str) -> dict:
+    """Fetch `url` and look for `public_id` in its raw HTML.
+
+    Returns the entry shape stored in google_inactive_qa_site_checks.json
+    and drawn on the row: {url, checked_at, found, status, error}. `by` is
+    stamped by the caller -- a person's own check and the automatic scan
+    pass record it differently.
+    """
+    if not re.match(r"^https?://", url, re.I):
+        url = "https://" + url
+    fetched = _fetch_page_html(url)
+    entry: dict[str, Any] = {
+        "url": fetched.get("url") or url,
+        "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+    }
+    if not fetched.get("ok"):
+        entry.update(found=None, status=fetched.get("status"),
+                     error=fetched.get("error") or "Could not fetch the page.")
+    else:
+        entry.update(found=public_id.upper() in (fetched.get("html") or "").upper(),
+                     status=fetched.get("status"), error="")
+    return entry
+
+
+def _resolve_client_url(account: str) -> tuple[str, dict]:
+    """An exact client-registry match on a GTM account's own name, or nothing.
+
+    Never a substring or a fuzzy guess: checking, and reporting on, the
+    wrong client's website is worse than not checking at all. Shared by the
+    "suggest a URL" endpoint and the automatic site-check pass in
+    `_run_scan()`.
+    """
+    account = str(account or "").strip()
+    if not account:
+        return "", {"known": False}
+    try:
+        from hub import client_key
+        result = client_key.resolve(name=account)
+    except Exception as exc:                               # noqa: BLE001
+        return "", {"known": False, "error": str(exc)}
+    domain = str(result.get("domain") or "")
+    if result.get("known") and domain:
+        return f"https://{domain}", result
+    return "", result
 
 
 def _audit(action: str, row: dict, result="ok", detail="") -> None:
@@ -789,14 +852,88 @@ def _run_scan(full: bool = False) -> dict:
 
     inactive, review, active = map(_dedupe, (inactive, review, active))
 
-    # A site check is a person's own action on one container, not something
-    # this scan runs -- but a result already on file belongs on the row the
-    # next time it is drawn, or checking a container once would only ever
-    # show on the screen that ran it, and reads as gone on every scan after.
+    # A GTM container GA4 already confirms alive is skipped here -- it is
+    # already "active", above, and needs no fetch of its own. Every *other*
+    # GTM container the scan just called inactive gets a direct check of its
+    # own now: fetch its resolved website and look for its own tag, because
+    # GTM has no traffic API and this is the only positive signal available
+    # short of that. Bounded on count (SITE_CHECK_BUDGET) rather than a
+    # phase deadline -- a ThreadPoolExecutor used as a `with` block waits for
+    # every submitted future at exit however long that takes, so the only
+    # bound actually enforced here is how many fetches are ever submitted,
+    # each itself capped at _SITE_CHECK_TIMEOUT seconds by requests.get()
+    # (worst case: ceil(SITE_CHECK_BUDGET / SITE_CHECK_WORKERS) *
+    # _SITE_CHECK_TIMEOUT). Nothing left over is lost -- it is simply not a
+    # candidate this run and is picked up on the next scan.
+    site_cutoff_iso = (now - dt.timedelta(hours=SITE_CHECK_STALE_HOURS)).isoformat(timespec="seconds")
     site_checks = _site_checks()
-
-    def _with_site_check(row: dict) -> dict:
+    candidates = []
+    for row in inactive:
         if row.get("kind") != "GTM":
+            continue
+        key = _skip_key("GTM", row["login"], row["resource"])
+        if not full and _cache_fresh(site_checks.get(key), site_cutoff_iso):
+            continue
+        candidates.append((key, row))
+
+    if candidates:
+        to_run = candidates[:SITE_CHECK_BUDGET]
+        _progress_update(current_login="", current_stage=f"Checking {len(to_run)} sites for a live GTM tag")
+
+        def _auto_check(item):
+            key, row = item
+            url, _resolved = _resolve_client_url(row.get("account") or "")
+            if not url:
+                return key, {
+                    "url": "", "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+                    "found": None, "status": None, "by": "automatic scan",
+                    "error": "No website could be resolved from the account name automatically "
+                             "-- use Check site to supply one.",
+                }
+            entry = _run_site_check(row.get("public_id") or "", url)
+            entry["by"] = "automatic scan"
+            return key, entry
+
+        new_site_checks: dict = {}
+        with ThreadPoolExecutor(max_workers=min(SITE_CHECK_WORKERS, len(to_run))) as pool:
+            for fut in as_completed({pool.submit(_auto_check, item): item for item in to_run}):
+                key, entry = fut.result()
+                new_site_checks[key] = entry
+
+        site_checks.update(new_site_checks)
+        _save_site_checks(site_checks)
+
+        left = len(candidates) - len(to_run)
+        if left:
+            _progress_update(current_stage=f"Checked {len(to_run)} sites for a live GTM tag -- "
+                                            f"{left} left for the next scan")
+
+    # A confirmed find promotes the row out of the deletable inactive bucket
+    # -- the tag is genuinely on the page, so a container GA4 happened not to
+    # confirm must not sit next to a Delete button on the strength of that
+    # alone. It lands in Needs Review, not Active: nothing here has measured
+    # traffic through it, only that the tag is installed, and that is a
+    # person's call to make rather than this scan's.
+    still_inactive, promoted = [], []
+    for row in inactive:
+        entry = None
+        if row.get("kind") == "GTM":
+            entry = site_checks.get(_skip_key("GTM", row["login"], row["resource"]))
+        if entry and entry.get("found") is True:
+            promoted.append({**row, "status": "review", "site_check": entry,
+                              "reason": f"Tag found live on {entry['url']} during an automatic site "
+                                        "check -- GA4 activity is not confirmed, so this needs a look "
+                                        "before it is deleted."})
+        else:
+            still_inactive.append(row)
+    inactive, review = still_inactive, review + promoted
+
+    # A site check result already on file belongs on the row the next time
+    # it is drawn, whether it came from this run's automatic pass or from a
+    # person's own press of Check site earlier -- otherwise a check would
+    # only ever show on the screen that ran it and reads as gone after.
+    def _with_site_check(row: dict) -> dict:
+        if row.get("kind") != "GTM" or row.get("site_check"):
             return row
         rec = site_checks.get(_skip_key("GTM", row["login"], row["resource"]))
         return {**row, "site_check": rec} if rec else row
@@ -985,16 +1122,12 @@ def api_gtm_resolve_url():
     account = str(row.get("account") or "").strip()
     if not account:
         return jsonify(ok=True, known=False)
-    try:
-        from hub import client_key
-        result = client_key.resolve(name=account)
-    except Exception as exc:                               # noqa: BLE001
-        return jsonify(ok=False, error=str(exc))
-    domain = str(result.get("domain") or "")
-    known = bool(result.get("known")) and bool(domain)
-    return jsonify(ok=True, known=known, domain=domain, client=result.get("client") or "",
-                   confidence=result.get("confidence") or "",
-                   suggested_url=(f"https://{domain}" if known else ""))
+    url, result = _resolve_client_url(account)
+    if result.get("error"):
+        return jsonify(ok=False, error=result["error"])
+    return jsonify(ok=True, known=bool(url), domain=result.get("domain") or "",
+                   client=result.get("client") or "", confidence=result.get("confidence") or "",
+                   suggested_url=url)
 
 
 @qa_bp.route("/api/gtm/site-check", methods=["POST"])
@@ -1016,21 +1149,9 @@ def api_gtm_site_check():
         return jsonify(ok=False, error="login, resource and public_id are required"), 400
     if not url:
         return jsonify(ok=False, error="A website address is required to check."), 400
-    if not re.match(r"^https?://", url, re.I):
-        url = "https://" + url
 
-    fetched = _fetch_page_html(url)
-    entry: dict[str, Any] = {
-        "url": fetched.get("url") or url,
-        "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-        "by": _actor(),
-    }
-    if not fetched.get("ok"):
-        entry.update(found=None, status=fetched.get("status"),
-                     error=fetched.get("error") or "Could not fetch the page.")
-    else:
-        found = public_id.upper() in (fetched.get("html") or "").upper()
-        entry.update(found=found, status=fetched.get("status"), error="")
+    entry = _run_site_check(public_id, url)
+    entry["by"] = _actor()
 
     data = _site_checks()
     data[_skip_key("GTM", login, resource)] = entry
@@ -1041,7 +1162,7 @@ def api_gtm_site_check():
         detail = f"not found on {entry['url']}"
     else:
         detail = entry.get("error") or "could not check"
-    _audit("site_check", {**row, "kind": "GTM"}, result="ok" if fetched.get("ok") else "error", detail=detail)
+    _audit("site_check", {**row, "kind": "GTM"}, result="error" if entry.get("error") else "ok", detail=detail)
     # Deliberately no _clear_cache()/rescan here: the check just ran and its
     # result is returned inline for the page to apply to the one row in
     # place. A rescan is minutes of Google API calls to redraw one line;
