@@ -33,6 +33,12 @@ python3 test_scheduler_health.py   # the jobs working, not just the loop alive:
                                    #   that cannot see the timings
 python3 test_smartforecast.py      # weather lifecycle rules, immutable history,
                                    #   public embeds and Render disk recovery
+python3 test_smartforecast_store.py # the move off its own SQLite file: a forward
+                                   #   foreign key SQLite resolves lazily and
+                                   #   Postgres refuses, a generated-id sequence
+                                   #   that does not advance on the seed's explicit
+                                   #   ids, and a SELECT alias in HAVING -- all
+                                   #   three invisible on SQLite by construction
 python3 test_report_cache.py       # one run per report per day; a failed run is never
                                    #   the answer, and a write drops what it changed
 python3 test_qa_reports.py         # every report on /qa answers and is drawable,
