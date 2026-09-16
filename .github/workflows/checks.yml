@@ -3784,11 +3784,8 @@ jobs:
                    test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
                    test_reports_confirmations.py test_reports_quarantine.py \
                    test_reports_reconcile.py test_reports_bing.py test_reports_groundtruth.py \
-<<<<<<< HEAD
+                   test_reports_amazon_dsp.py \
                    test_v2_performance.py test_reports_exec_summary.py; do
-=======
-                   test_reports_amazon_dsp.py; do
->>>>>>> origin/main
             echo "== $f (postgres)"; python3 "$f" || exit 1
           done
 
