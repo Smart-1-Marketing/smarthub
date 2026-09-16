@@ -837,6 +837,12 @@ def structure_report() -> dict:
     # audit of the same question that had found nothing.
     from . import jsonstore
     json_stores = jsonstore.unmirrored_json_writers(root)
+    # And the stores that are not JSON, which that check cannot see by
+    # construction. A SQLite file on the data disk is the same risk wearing a
+    # different file format, and for as long as this panel asked only the JSON
+    # question it answered "one store left to move" while two whole databases
+    # sat beside it -- Google's OAuth refresh tokens in one of them.
+    sqlite_stores = jsonstore.disk_sqlite_stores(root)
 
     # Vendored code is not ours to fix, and counting it buries the findings
     # that are. hub/integrity.py learned this when the scan reported the openai
@@ -963,12 +969,32 @@ def structure_report() -> dict:
                       "what that mirror actually holds.",
             "where": mods[:12],
         })
+    if sqlite_stores:
+        mods = sorted({j["module"] for j in sqlite_stores})
+        risks.append({
+            "level": "medium",
+            "title": (f"{len(sqlite_stores)} module opens its own SQLite file"
+                      if len(sqlite_stores) == 1 else
+                      f"{len(sqlite_stores)} modules open their own SQLite "
+                      f"files") + " on the data disk",
+            "detail": "A database file on the Render disk is outside the "
+                      "database backup and does not survive the disk being "
+                      "recreated, exactly like the JSON above — and the JSON "
+                      "check cannot see it, because a SQLite file is not JSON. "
+                      "The fix is the shared engine in hub/extensions.py, "
+                      "which is the same Postgres everything else is backed up "
+                      "with. The pre-merge files listed above are a different "
+                      "row: those are leftovers nothing reads, and these are "
+                      "live stores something writes today.",
+            "where": mods[:12],
+        })
 
     return {
         "engines": engines,
         "own_engines": len(own_engines),
         "shared_engine_users": len([e for e in engines if e["shared"]]),
         "json_stores": len(json_stores),
+        "sqlite_stores": len(sqlite_stores),
         "legacy_databases": leftovers,
         "client_keys": keys_used,
         "risks": risks,
