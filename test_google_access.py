@@ -177,10 +177,21 @@ check("it asks existing or new", 'name="client_type"' in html
 check("existing gets the Client 360 lookup", "/api/clients/search" in html)
 check("Google Ads is not offered as a tickbox", 'value="ads"' not in html)
 
+# The catch-all that sends stale Google Access links to the tool home sits at
+# `/tools/google-access/<path:legacy_path>`, one converter rule under the same
+# prefix as a live tool -- the shadowing trap CLAUDE.md names. Werkzeug ranks a
+# static rule above a converter one, so Inactive GA & GTM QA and its API still
+# answer for themselves; that is worth asserting rather than assuming, because
+# a rule added later at the wrong specificity would turn the whole tool into a
+# redirect to somewhere else and every screen would still report success.
 qa_inactive = composed.get("/tools/google-access/qa-inactive/")
-check("legacy qa-inactive path resolves", qa_inactive.status_code in (301, 302), qa_inactive.status_code)
+check("the live QA tool answers for itself, not the stale-link catch-all",
+      qa_inactive.status_code == 200, qa_inactive.status_code)
+qa_api = composed.get("/tools/google-access/qa-inactive/api/audit")
+check("...and so does its own API", qa_api.status_code == 200, qa_api.status_code)
 stale_path = composed.get("/tools/google-access/retired-link/")
-check("other stale Google Access paths resolve", stale_path.status_code in (301, 302), stale_path.status_code)
+check("a genuinely stale Google Access path resolves to the tool home",
+      stale_path.status_code in (301, 302), stale_path.status_code)
 
 def create(**payload):
     return composed.post("/tools/google-access/api/requests", data=payload)
