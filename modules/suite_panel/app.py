@@ -17,7 +17,8 @@ import time
 from pathlib import Path
 
 import requests
-from flask import Flask, jsonify, redirect, request, send_file
+from flask import Flask, Response, jsonify, redirect, request
+from markupsafe import escape
 
 from hub import audit
 from hub import auth as hub_auth
@@ -289,9 +290,34 @@ def upload_logo_to_media(location_id, image_url, name):
 
 
 # ================= Frontend + health =================
+# The one placeholder the page is served through. It is a plain token rather
+# than Jinja because this file is static HTML under public/, outside any
+# template environment -- tools/checktemplates.py would have a Jinja tag here
+# to explain, and a module's own Jinja environment is a trap of its own.
+_USER_TOKEN = "__HUB_USER__"
+
+
 @app.route("/")
 def index():
-    return send_file(PUBLIC_DIR / "index.html")
+    """Serve the panel with the signed-in user already in it.
+
+    This route used to hand back the file untouched, and the page asked
+    ``/api/session`` who was signed in after it had painted. What it painted
+    first was the standalone panel's password screen, so every visit to a tool
+    the Hub had already authenticated opened on a second sign-in prompt, and a
+    slow or failed answer left it there. Rendering the name here is what lets
+    the markup drop the gate: there is nothing left for the page to wait to
+    find out.
+    """
+    html = (PUBLIC_DIR / "index.html").read_text(encoding="utf-8")
+    if _USER_TOKEN not in html:
+        # Loud, because the alternative is a page that quietly says "—" for
+        # who is signed in and looks like it is still loading.
+        raise RuntimeError(
+            f"suite_panel/public/index.html no longer contains {_USER_TOKEN}; "
+            "the signed-in user cannot be rendered into it")
+    html = html.replace(_USER_TOKEN, str(escape(actor_name())))
+    return Response(html, mimetype="text/html")
 
 
 @app.route("/healthz")
@@ -299,21 +325,13 @@ def healthz():
     return jsonify({"ok": True})
 
 
-# ================= Auth compatibility routes =================
-# The Hub owns login — these keep the existing frontend working unchanged.
-@app.route("/api/session")
-def api_session():
-    return jsonify({"authenticated": True, "name": actor_name()})
-
-
-@app.route("/api/login", methods=["POST"])
-def api_login():
-    return jsonify({"ok": True, "name": actor_name()})
-
-
-@app.route("/api/logout", methods=["POST"])
-def api_logout():
-    return jsonify({"ok": True})
+# The Hub owns login, so this module has no session, login or logout route of
+# its own. It carried three — /api/session, /api/login and /api/logout — as
+# port compatibility for the password screen the frontend no longer has.
+# /api/login was the worst of them: it answered {"ok": true} to anything that
+# reached it, without looking at the password it was sent, which is a login
+# endpoint only in name. Log out is /logout, the Hub's, as it is everywhere
+# else in the suite.
 
 
 # ================= GHL proxy routes =================

@@ -13,6 +13,11 @@
     .banner{display:none;padding:11px 13px;border-radius:8px;margin:10px 0;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412}.banner.show{display:block}.section{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-top:14px;overflow:hidden}.section-head{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:15px}.section-head h2{font-size:16px;margin:0}.section-head p{margin:2px 0 0;color:var(--muted);font-size:12px}.pill{border-radius:999px;padding:3px 8px;font-size:11px;font-weight:700}.pill.ga4{background:#eff8ff;color:#175cd3}.pill.gtm{background:#f4f3ff;color:#5925dc}.pill.review{background:#fffaeb;color:#b54708}
     .table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:1050px}th,td{text-align:left;padding:11px 12px;border-bottom:1px solid #eef2f6;vertical-align:top}th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#667085;background:#fbfcfd;position:sticky;top:0}td small{display:block;color:var(--muted);margin-top:2px}.num{text-align:right;font-variant-numeric:tabular-nums}.row-actions{display:flex;gap:6px;justify-content:flex-end;white-space:nowrap}.empty{padding:28px;text-align:center;color:var(--muted)}.reason{max-width:360px}.muted{color:var(--muted)}
     details{border-top:1px solid var(--line)}summary{cursor:pointer;padding:12px 16px;font-weight:600}.skipped-row{opacity:.7}
+    .bulkbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--line);background:#fbfcfd;color:var(--muted);font-size:12px}.bulkbar .count{color:var(--ink);font-size:13px}.bulkbar .spacer{flex:1}.bulkbar .filter{border:1px solid #cbd5e1;border-radius:8px;padding:6px 9px;font:inherit;min-width:260px}
+    .act{border-radius:999px;padding:2px 7px;font-size:11px;font-weight:700;background:#f1f5f9;color:#334155}.act.delete{background:#fff1f0;color:var(--red)}.act.skip{background:#fffaeb;color:var(--amber)}.act.unskip{background:#ecfdf3;color:var(--green)}.act.site_check{background:#eff8ff;color:var(--blue)}.hist-bad td{color:var(--red)}
+    th.pick,td.pick{width:36px;padding-right:0}input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:#1a2e58}
+    .bulk-list{max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0 12px;font-size:12px;background:#fbfcfd}.bulk-list div{padding:2px 0}
+    .bulk-results{max-height:200px;overflow:auto;margin:8px 0 0;font-size:12px}.bulk-results div{padding:3px 0;border-bottom:1px solid #eef2f6}.line-ok{color:var(--green)}.line-bad{color:var(--red)}
     dialog{border:0;border-radius:12px;padding:0;box-shadow:0 24px 70px #0f172a33;max-width:520px;width:calc(100% - 32px)}dialog::backdrop{background:#0f172a80}.modal{padding:22px}.modal h3{margin:0 0 8px;font-size:18px}.modal p{color:var(--muted)}.modal input,.modal textarea{width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font:inherit;margin:5px 0 12px}.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}.danger-note{background:#fff1f0;border:1px solid #fecdca;color:#b42318;border-radius:8px;padding:10px;margin:10px 0}.spinner{display:inline-block;width:14px;height:14px;border:2px solid #cbd5e1;border-top-color:#1a2e58;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:7px}@keyframes spin{to{transform:rotate(360deg)}}
     @media(max-width:800px){main{padding:20px 12px 50px}.head{display:block}.actions{margin-top:14px}.stats{grid-template-columns:1fr 1fr}.section{border-radius:9px}.section-head{align-items:flex-start}.hide-mobile{display:none}}
   </style>
@@ -22,7 +27,7 @@
   <div class="head">
     <div>
       <h1>Inactive Google Accounts QA {{ help_dot('google_access.cleanup.progress') if help_dot is defined else '' }} {{ help_dot('google_access.cleanup.delete') if help_dot is defined else '' }} </h1>
-      <p>Find GA4 properties with no events or sessions in the last {{ window_days }} days, plus GTM containers with no confirmed traffic in the same window. GTM has no traffic-reporting API of its own, so a container GA4 confirms alive is skipped and read active — nothing else about the linked property (inactive, unreachable, not visible to this login) holds a container back as inactive here. Every remaining GTM container is checked automatically instead: this scan fetches its resolved website and looks for the container's own tag in the raw HTML. A confirmed find moves it out of the deletable candidates and into <b>Needs Review</b>, because the tag is genuinely on the page and that is a person's call, not this scan's. A <b>Check site</b> button on every GTM row runs the same check on demand, for a site the automatic pass could not resolve or to double-check one by hand.</p>
+      <p>Find GA4 properties with no events or sessions in the last {{ window_days }} days, plus GTM containers with no confirmed traffic in the same window. GTM has no traffic-reporting API of its own, so a container GA4 confirms alive is skipped and read active — nothing else about the linked property (inactive, unreachable, not visible to this login) holds a container back as inactive here. Every remaining GTM container is checked automatically instead: this scan fetches its resolved website and looks for the container's own tag in the raw HTML. A confirmed find moves it out of the deletable candidates and into <b>Needs Review</b>, because the tag is genuinely on the page and that is a person's call, not this scan's. A <b>Check site</b> button on every GTM row runs the same check on demand, for a site the automatic pass could not resolve or to double-check one by hand. Every section also works in bulk {{ help_dot('google_access.cleanup.bulk') if help_dot is defined else '' }} — tick the rows you mean and use the buttons above each table.</p>
     </div>
     <div class="actions">
       <a class="btn" href="/qa">Back to QA</a>
@@ -42,26 +47,63 @@
 
   <section class="section">
     <div class="section-head"><div><h2>Inactive candidates</h2><p>These are the resources eligible for Skip or Delete.</p></div><span id="scanTime" class="muted"></span></div>
+    <div class="bulkbar">
+      <span class="count"><b id="cntInactive">0</b> selected</span>
+      <button class="small" id="bulkInactiveCheck" disabled>Check sites</button>
+      <button class="small" id="bulkInactiveSkip" disabled>Skip selected</button>
+      <button class="small danger" id="bulkInactiveDelete" disabled>Delete selected</button>
+      <span class="spacer"></span>
+      <button class="small ghost" id="bulkInactiveClear" disabled>Clear selection</button>
+    </div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Type</th><th>Google login</th><th>Account</th><th>Property / container</th><th>ID</th><th class="num">Events</th><th class="num">Sessions</th><th>Why flagged</th><th></th></tr></thead>
-      <tbody id="inactiveBody"><tr><td colspan="9" class="empty"><span class="spinner"></span>Scanning Google accounts…</td></tr></tbody>
+      <thead><tr><th class="pick"><input type="checkbox" id="allInactive" aria-label="Select every inactive candidate"></th><th>Type</th><th>Google login</th><th>Account</th><th>Property / container</th><th>ID</th><th class="num">Events</th><th class="num">Sessions</th><th>Why flagged</th><th></th></tr></thead>
+      <tbody id="inactiveBody"><tr><td colspan="10" class="empty"><span class="spinner"></span>Scanning Google accounts…</td></tr></tbody>
     </table></div>
   </section>
 
   <section class="section">
-    <div class="section-head"><div><h2>Needs review</h2><p>A scan that could not run, or a container whose tag the automatic site check found live on the page. No Delete button is shown.</p></div></div>
+    <div class="section-head"><div><h2>Needs review</h2><p>A scan that could not run, or a container whose tag the automatic site check found live on the page. No Delete button is shown, in bulk or on a row.</p></div></div>
+    <div class="bulkbar">
+      <span class="count"><b id="cntReview">0</b> selected</span>
+      <button class="small" id="bulkReviewCheck" disabled>Check sites</button>
+      <span class="spacer"></span>
+      <button class="small ghost" id="bulkReviewClear" disabled>Clear selection</button>
+    </div>
     <div class="table-wrap"><table>
-      <thead><tr><th>Type</th><th>Google login</th><th>Account</th><th>Property / container</th><th>ID</th><th>Reason</th><th></th></tr></thead>
-      <tbody id="reviewBody"><tr><td colspan="7" class="empty">Waiting for scan…</td></tr></tbody>
+      <thead><tr><th class="pick"><input type="checkbox" id="allReview" aria-label="Select every row needing review"></th><th>Type</th><th>Google login</th><th>Account</th><th>Property / container</th><th>ID</th><th>Reason</th><th></th></tr></thead>
+      <tbody id="reviewBody"><tr><td colspan="8" class="empty">Waiting for scan…</td></tr></tbody>
     </table></div>
   </section>
 
   <section class="section">
     <details>
       <summary>Skipped resources <span id="skippedCount" class="muted"></span></summary>
+      <div class="bulkbar">
+        <span class="count"><b id="cntSkipped">0</b> selected</span>
+        <button class="small" id="bulkSkippedCheck" disabled>Check sites</button>
+        <button class="small" id="bulkSkippedUnskip" disabled>Un-skip selected</button>
+        <span class="spacer"></span>
+        <button class="small ghost" id="bulkSkippedClear" disabled>Clear selection</button>
+      </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>Type</th><th>Google login</th><th>Account</th><th>Property / container</th><th>Reason skipped</th><th></th></tr></thead>
-        <tbody id="skippedBody"><tr><td colspan="6" class="empty">Nothing skipped.</td></tr></tbody>
+        <thead><tr><th class="pick"><input type="checkbox" id="allSkipped" aria-label="Select every skipped resource"></th><th>Type</th><th>Google login</th><th>Account</th><th>Property / container</th><th>Reason skipped</th><th></th></tr></thead>
+        <tbody id="skippedBody"><tr><td colspan="7" class="empty">Nothing skipped.</td></tr></tbody>
+      </table></div>
+    </details>
+  </section>
+
+  <section class="section">
+    <details id="historyPanel">
+      <summary>Cleanup history {{ help_dot('google_access.cleanup.history') if help_dot is defined else '' }} <span id="historyCount" class="muted"></span></summary>
+      <div class="bulkbar">
+        <input id="historyFilter" class="filter" placeholder="Filter by name, ID, login or who did it" aria-label="Filter the cleanup history">
+        <span class="spacer"></span>
+        <span id="historyRange" class="muted"></span>
+        <button class="small ghost" id="historyRefresh">Refresh</button>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Type</th><th>Resource</th><th>Google login</th><th>What happened</th></tr></thead>
+        <tbody id="historyBody"><tr><td colspan="7" class="empty">Open this panel to load the history.</td></tr></tbody>
       </table></div>
     </details>
   </section>
@@ -92,6 +134,37 @@
   <div class="modal-actions"><button value="cancel">Close</button><button id="confirmCheck" class="primary" value="default">Check</button></div>
 </form></dialog>
 
+<dialog id="bulkSkipDialog"><form method="dialog" class="modal" id="bulkSkipForm">
+  <h3>Skip these resources?</h3>
+  <p id="bulkSkipCount"></p>
+  <div class="bulk-list" id="bulkSkipList"></div>
+  <label>Reason (optional, recorded against every one of them)</label>
+  <textarea id="bulkSkipReason" rows="3" placeholder="Example: old client accounts retained for historical reporting"></textarea>
+  <p id="bulkSkipResult" class="muted" style="margin:0"></p>
+  <div class="modal-actions"><button value="cancel">Cancel</button><button id="confirmBulkSkip" class="primary" value="default">Skip them</button></div>
+</form></dialog>
+
+<dialog id="bulkDeleteDialog"><form method="dialog" class="modal" id="bulkDeleteForm">
+  <h3>Delete these resources?</h3>
+  <div class="danger-note" id="bulkDeleteWarning"></div>
+  <div class="bulk-list" id="bulkDeleteList"></div>
+  <p>Type <strong id="bulkDeletePhrase"></strong> exactly to confirm.</p>
+  <input id="bulkDeleteConfirm" autocomplete="off">
+  <p id="bulkDeleteResult" class="muted" style="margin:0"></p>
+  <div class="bulk-results" id="bulkDeleteRows"></div>
+  <div class="modal-actions"><button value="cancel">Close</button><button id="confirmBulkDelete" class="danger" value="default">Delete them</button></div>
+</form></dialog>
+
+<dialog id="bulkCheckDialog"><form method="dialog" class="modal" id="bulkCheckForm">
+  <h3>Check these containers' tags on their sites?</h3>
+  <p id="bulkCheckCount"></p>
+  <p class="muted" style="margin:0 0 6px">Each container is checked against the site it was last checked against, or the website of an exact client match on its GTM account name. A container neither of those resolves says so on its row — use <b>Check site</b> on it to supply an address by hand.</p>
+  <div class="bulk-list" id="bulkCheckList"></div>
+  <p id="bulkCheckResult" class="muted" style="margin:0"></p>
+  <div class="bulk-results" id="bulkCheckRows"></div>
+  <div class="modal-actions"><button value="cancel">Close</button><button id="confirmBulkCheck" class="primary" value="default">Check them</button></div>
+</form></dialog>
+
 <script>
 const $=s=>document.querySelector(s); let state=null, selected=null;
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -120,16 +193,34 @@ function siteCheckLine(c){
   return `<small class="muted">Could not check ${link}${c.error?' — '+esc(c.error):''}</small>`;
 }
 function checkButton(r){return r.kind==='GTM'?`<button class="small ghost" data-check='${encodeURIComponent(JSON.stringify(r))}'>Check site</button>`:''}
-function rowInactive(r){return `<tr><td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${r.public_id?`<small>${esc(r.public_id)}</small>`:''}${siteCheckLine(r.site_check)}</td><td>${esc(r.resource)}</td><td class="num">${n(r.events)}</td><td class="num">${n(r.sessions)}</td><td class="reason">${esc(r.reason)}</td><td><div class="row-actions">${checkButton(r)}<button class="small" data-skip='${encodeURIComponent(JSON.stringify(r))}'>Skip</button><button class="small danger" data-delete='${encodeURIComponent(JSON.stringify(r))}'>Delete</button></div></td></tr>`}
-function rowReview(r){return `<tr><td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${siteCheckLine(r.site_check)}</td><td>${esc(r.resource)}</td><td class="reason">${esc(r.reason)}</td><td>${checkButton(r)}</td></tr>`}
-function rowSkipped(r){const s=r.skip||{};return `<tr class="skipped-row"><td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${siteCheckLine(r.site_check)}</td><td>${esc(s.reason||'—')}<small>${esc(s.by||'')} ${s.at?esc(s.at.slice(0,10)):''}</small></td><td><div class="row-actions">${checkButton(r)}<button class="small" data-unskip='${encodeURIComponent(JSON.stringify(r))}'>Un-skip</button></div></td></tr>`}
-function render(data){state=data;$('#inactiveCount').textContent=data.inactive.length;$('#reviewCount').textContent=data.review.length;$('#activeCount').textContent=data.active_count;$('#loginCount').textContent=data.connected_logins;$('#skippedCount').textContent=`(${data.skipped.length})`;$('#scanTime').textContent=data.scanned_at?`Scanned ${new Date(data.scanned_at).toLocaleString()}`:'';
+
+// Selection, one set of row keys per section. Held here rather than read off
+// the checkboxes when a bulk action fires, because every action ends in a
+// re-render (and Skip/Delete in a rescan) that throws the old checkboxes
+// away -- and because what a bulk action posts has to be the row objects
+// themselves, matched back out of `state`, not what a row's markup happened
+// to carry.
+const SECTIONS=['inactive','review','skipped'];
+const SEL={inactive:new Set(),review:new Set(),skipped:new Set()};
+const keyOf=r=>`${r.kind}:${String(r.login||'').toLowerCase()}:${r.resource}`;
+function rowsOf(sec){return (state&&state[sec])||[]}
+function selectedRows(sec){return rowsOf(sec).filter(r=>SEL[sec].has(keyOf(r)))}
+// A row that is no longer in the section it was picked in -- deleted,
+// skipped into another table, promoted by a site check -- drops out of the
+// selection rather than staying picked invisibly.
+function pruneSelection(){for(const sec of SECTIONS){const live=new Set(rowsOf(sec).map(keyOf));for(const k of Array.from(SEL[sec]))if(!live.has(k))SEL[sec].delete(k);}}
+function pickCell(sec,r){const k=keyOf(r);return `<td class="pick"><input type="checkbox" data-sec="${sec}" data-key="${esc(k)}"${SEL[sec].has(k)?' checked':''} aria-label="Select ${esc(r.name)}"></td>`}
+
+function rowInactive(r){return `<tr>${pickCell('inactive',r)}<td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${r.public_id?`<small>${esc(r.public_id)}</small>`:''}${siteCheckLine(r.site_check)}</td><td>${esc(r.resource)}</td><td class="num">${n(r.events)}</td><td class="num">${n(r.sessions)}</td><td class="reason">${esc(r.reason)}</td><td><div class="row-actions">${checkButton(r)}<button class="small" data-skip='${encodeURIComponent(JSON.stringify(r))}'>Skip</button><button class="small danger" data-delete='${encodeURIComponent(JSON.stringify(r))}'>Delete</button></div></td></tr>`}
+function rowReview(r){return `<tr>${pickCell('review',r)}<td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${siteCheckLine(r.site_check)}</td><td>${esc(r.resource)}</td><td class="reason">${esc(r.reason)}</td><td>${checkButton(r)}</td></tr>`}
+function rowSkipped(r){const s=r.skip||{};return `<tr class="skipped-row">${pickCell('skipped',r)}<td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${siteCheckLine(r.site_check)}</td><td>${esc(s.reason||'—')}<small>${esc(s.by||'')} ${s.at?esc(s.at.slice(0,10)):''}</small></td><td><div class="row-actions">${checkButton(r)}<button class="small" data-unskip='${encodeURIComponent(JSON.stringify(r))}'>Un-skip</button></div></td></tr>`}
+function render(data){state=data;pruneSelection();$('#inactiveCount').textContent=data.inactive.length;$('#reviewCount').textContent=data.review.length;$('#activeCount').textContent=data.active_count;$('#loginCount').textContent=data.connected_logins;$('#skippedCount').textContent=`(${data.skipped.length})`;$('#scanTime').textContent=data.scanned_at?`Scanned ${new Date(data.scanned_at).toLocaleString()}`:'';
  $('#lastScanLine').textContent=data.scanned_at?`Last scanned ${new Date(data.scanned_at).toLocaleString()} — properties and containers checked in the last 24h are read back from that scan rather than re-checked. Use Full rescan to ignore that and check everything live.`:'';
- $('#inactiveBody').innerHTML=data.inactive.length?data.inactive.map(rowInactive).join(''):'<tr><td colspan="9" class="empty">No inactive GA4 properties or defensible inactive GTM containers found.</td></tr>';
- $('#reviewBody').innerHTML=data.review.length?data.review.map(rowReview).join(''):'<tr><td colspan="7" class="empty">Nothing needs manual review.</td></tr>';
- $('#skippedBody').innerHTML=data.skipped.length?data.skipped.map(rowSkipped).join(''):'<tr><td colspan="6" class="empty">Nothing skipped.</td></tr>';
- const bits=[];if(data.source_error)bits.push(data.source_error);if(data.errors?.length)bits.push(data.errors.join(' | '));show(bits.join(' — ')); bind();}
-function bind(){document.querySelectorAll('[data-skip]').forEach(b=>b.onclick=()=>openSkip(JSON.parse(decodeURIComponent(b.dataset.skip))));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>openDelete(JSON.parse(decodeURIComponent(b.dataset.delete))));document.querySelectorAll('[data-unskip]').forEach(b=>b.onclick=()=>unskip(JSON.parse(decodeURIComponent(b.dataset.unskip))));document.querySelectorAll('[data-check]').forEach(b=>b.onclick=()=>openCheck(JSON.parse(decodeURIComponent(b.dataset.check))))}
+ $('#inactiveBody').innerHTML=data.inactive.length?data.inactive.map(rowInactive).join(''):'<tr><td colspan="10" class="empty">No inactive GA4 properties or defensible inactive GTM containers found.</td></tr>';
+ $('#reviewBody').innerHTML=data.review.length?data.review.map(rowReview).join(''):'<tr><td colspan="8" class="empty">Nothing needs manual review.</td></tr>';
+ $('#skippedBody').innerHTML=data.skipped.length?data.skipped.map(rowSkipped).join(''):'<tr><td colspan="7" class="empty">Nothing skipped.</td></tr>';
+ const bits=[];if(data.source_error)bits.push(data.source_error);if(data.errors?.length)bits.push(data.errors.join(' | '));show(bits.join(' — ')); bind(); refreshBulkBars();}
+function bind(){document.querySelectorAll('[data-skip]').forEach(b=>b.onclick=()=>openSkip(JSON.parse(decodeURIComponent(b.dataset.skip))));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>openDelete(JSON.parse(decodeURIComponent(b.dataset.delete))));document.querySelectorAll('[data-unskip]').forEach(b=>b.onclick=()=>unskip(JSON.parse(decodeURIComponent(b.dataset.unskip))));document.querySelectorAll('[data-check]').forEach(b=>b.onclick=()=>openCheck(JSON.parse(decodeURIComponent(b.dataset.check))));document.querySelectorAll('input[data-sec]').forEach(c=>c.onchange=()=>{const s=SEL[c.dataset.sec];if(!s)return;if(c.checked)s.add(c.dataset.key);else s.delete(c.dataset.key);refreshBulkBars();});}
 let pollTimer=null;
 function stopPolling(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
 function setScanningUI(on){$('#refresh').disabled=on;$('#fullRescan').disabled=on;$('#refresh').innerHTML=on?'<span class="spinner"></span>Scanning':'Update scan'}
@@ -159,8 +250,8 @@ function renderProgress(p){
     stage+=` <small class="muted">(${p.resource_index||0} of ${p.resource_total}${p.resource_kind?' '+esc(p.resource_kind):''} — ${pct}%)</small>`;
   }
   $('#lastScanLine').textContent='';
-  $('#inactiveBody').innerHTML=`<tr><td colspan="9" class="empty"><span class="spinner"></span>${stage}<br><small class="muted">${n(p.inactive_count)} inactive · ${n(p.review_count)} needs review · ${n(p.active_count)} active found so far</small></td></tr>`;
-  $('#reviewBody').innerHTML='<tr><td colspan="7" class="empty">Waiting for scan…</td></tr>';
+  $('#inactiveBody').innerHTML=`<tr><td colspan="10" class="empty"><span class="spinner"></span>${stage}<br><small class="muted">${n(p.inactive_count)} inactive · ${n(p.review_count)} needs review · ${n(p.active_count)} active found so far</small></td></tr>`;
+  $('#reviewBody').innerHTML='<tr><td colspan="8" class="empty">Waiting for scan…</td></tr>';
   const g=p.gtm_pace;
   if(g&&g.interval&&g.floor&&g.interval>g.floor+0.05){
     show(`Tag Manager is currently rate-limiting this account — backing off to ${g.interval.toFixed(1)}s between calls. That can make this take a while; it is still working.`);
@@ -173,8 +264,8 @@ async function loadCached(){
     const r=await fetch('api/scan',{headers:{Accept:'application/json'}});
     const d=await r.json();
     if(d.pending){
-      $('#inactiveBody').innerHTML='<tr><td colspan="9" class="empty">No scan has completed yet. Press Update scan.</td></tr>';
-      $('#reviewBody').innerHTML='<tr><td colspan="7" class="empty">Waiting for scan…</td></tr>';
+      $('#inactiveBody').innerHTML='<tr><td colspan="10" class="empty">No scan has completed yet. Press Update scan.</td></tr>';
+      $('#reviewBody').innerHTML='<tr><td colspan="8" class="empty">Waiting for scan…</td></tr>';
       return;
     }
     render(d);
@@ -189,7 +280,7 @@ async function pollProgress(){
     if(p.result){render(p.result);return}
     if(p.error){
       show('Scan failed: '+p.error);
-      $('#inactiveBody').innerHTML='<tr><td colspan="9" class="empty">Scan failed. Use Update scan to retry.</td></tr>';
+      $('#inactiveBody').innerHTML='<tr><td colspan="10" class="empty">Scan failed. Use Update scan to retry.</td></tr>';
       return;
     }
     await loadCached();
@@ -197,7 +288,7 @@ async function pollProgress(){
 }
 function startPolling(){stopPolling();pollProgress();pollTimer=setInterval(pollProgress,1500)}
 async function startScan(full){
-  setScanningUI(true);show('');
+  setScanningUI(true);show('');invalidateHistory();
   try{await fetch(`api/scan/start?force=1${full?'&full=1':''}`,{method:'POST'})}catch(e){/* the poll below reports the real state either way */}
   startPolling();
 }
@@ -257,8 +348,300 @@ $('#checkForm').addEventListener('submit',async e=>{
     if(!res.ok)throw new Error(d.error||'Could not check that page');
     $('#checkResult').textContent=siteCheckSummary(d);
     applySiteCheck(selected,{url:d.url,checked_at:d.checked_at,found:d.found,status:d.status,error:d.error,by:d.by});
+    invalidateHistory();
   }catch(e){$('#checkResult').textContent=e.message}finally{b.disabled=false}
 });
+
+// ---------------------------------------------------------------------------
+// Bulk actions
+// ---------------------------------------------------------------------------
+// Each section acts on the rows ticked in it, and only on the actions that
+// section already offers a row: Needs Review has no Delete in bulk for the
+// same reason it has none on a row.
+//
+// The caps below mirror the per-request caps the endpoints enforce
+// (BULK_DELETE_MAX, BULK_SITE_CHECK_MAX, BULK_MAX_ROWS in qa_inactive.py).
+// A longer selection is sent as several requests rather than one that would
+// outlive gunicorn's --timeout: a delete is a Google API call per row and a
+// site check is a fetch of somebody else's website, so a hundred of either
+// in one request is a worker killed mid-flight, not a faster cleanup.
+const CHUNK={skip:500,unskip:500,del:20,check:12};
+const BULK={
+  inactive:{count:'#cntInactive',all:'#allInactive',buttons:['#bulkInactiveCheck','#bulkInactiveSkip','#bulkInactiveDelete','#bulkInactiveClear'],gtmOnly:['#bulkInactiveCheck']},
+  review:{count:'#cntReview',all:'#allReview',buttons:['#bulkReviewCheck','#bulkReviewClear'],gtmOnly:['#bulkReviewCheck']},
+  skipped:{count:'#cntSkipped',all:'#allSkipped',buttons:['#bulkSkippedCheck','#bulkSkippedUnskip','#bulkSkippedClear'],gtmOnly:['#bulkSkippedCheck']},
+};
+function gtmRows(rows){return rows.filter(r=>r.kind==='GTM')}
+function refreshBulkBars(){
+  for(const sec of SECTIONS){
+    const cfg=BULK[sec], picked=selectedRows(sec), rows=rowsOf(sec);
+    $(cfg.count).textContent=picked.length;
+    const gtm=gtmRows(picked).length;
+    for(const id of cfg.buttons){
+      const el=$(id);
+      if(!el)continue;
+      el.disabled=cfg.gtmOnly.includes(id)?gtm===0:picked.length===0;
+    }
+    const box=$(cfg.all);
+    if(box){box.checked=rows.length>0&&picked.length===rows.length;box.indeterminate=picked.length>0&&picked.length<rows.length;}
+    const checkBtn=cfg.gtmOnly[0]&&$(cfg.gtmOnly[0]);
+    if(checkBtn)checkBtn.textContent=gtm?`Check ${gtm} site${gtm===1?'':'s'}`:'Check sites';
+  }
+}
+function toggleAll(sec,on){
+  const s=SEL[sec];s.clear();
+  if(on)rowsOf(sec).forEach(r=>s.add(keyOf(r)));
+  document.querySelectorAll(`input[data-sec="${sec}"]`).forEach(c=>{c.checked=on});
+  refreshBulkBars();
+}
+function clearSelection(sec){toggleAll(sec,false)}
+function chunk(list,size){const out=[];for(let i=0;i<list.length;i+=size)out.push(list.slice(i,i+size));return out}
+async function postJSON(url,body){
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  let d={};try{d=await r.json();}catch(e){/* an empty or non-JSON body is reported by status below */}
+  if(!r.ok)throw new Error(d.error||`Request failed (HTTP ${r.status})`);
+  return d;
+}
+function nameList(rows){return rows.map(r=>`<div>${typePill(r.kind)} ${esc(r.name)}<span class="muted"> — ${esc(r.account)} · ${esc(loginName(r.login))}</span></div>`).join('')}
+function resultLines(rows){return rows.map(r=>`<div class="${r.ok?'line-ok':'line-bad'}">${r.ok?'✓':'✗'} ${esc(r.name)}${r.ok?'':' — '+esc(r.error||'failed')}</div>`).join('')}
+
+// --- Skip in bulk ----------------------------------------------------------
+let bulkSkipRows=[];
+function openBulkSkip(){
+  bulkSkipRows=selectedRows('inactive');
+  if(!bulkSkipRows.length)return;
+  $('#bulkSkipCount').textContent=`${bulkSkipRows.length} resource${bulkSkipRows.length===1?'':'s'} will be moved to Skipped. Nothing is deleted, and any of them can be un-skipped later.`;
+  $('#bulkSkipList').innerHTML=nameList(bulkSkipRows);
+  $('#bulkSkipReason').value='';$('#bulkSkipResult').textContent='';
+  $('#bulkSkipDialog').showModal();
+}
+$('#bulkSkipForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(!bulkSkipRows.length)return;
+  const b=$('#confirmBulkSkip');b.disabled=true;
+  const reason=$('#bulkSkipReason').value;
+  try{
+    let done=0,failed=[];
+    for(const part of chunk(bulkSkipRows,CHUNK.skip)){
+      const d=await postJSON('api/skip/bulk',{rows:part,reason});
+      done+=d.done||0;failed=failed.concat(d.failed||[]);
+      $('#bulkSkipResult').textContent=`Skipped ${done} of ${bulkSkipRows.length}…`;
+    }
+    $('#bulkSkipDialog').close();
+    clearSelection('inactive');
+    show(failed.length?`Skipped ${done}. ${failed.length} could not be skipped: ${failed.map(f=>f.name+' — '+f.error).join('; ')}`:`Skipped ${done} resource${done===1?'':'s'}.`);
+    await startScan(false);
+  }catch(err){$('#bulkSkipResult').textContent=err.message}finally{b.disabled=false}
+});
+
+// --- Un-skip in bulk -------------------------------------------------------
+async function bulkUnskip(){
+  const rows=selectedRows('skipped');
+  if(!rows.length)return;
+  const b=$('#bulkSkippedUnskip');b.disabled=true;
+  try{
+    let done=0,failed=[];
+    for(const part of chunk(rows,CHUNK.unskip)){
+      const d=await postJSON('api/unskip/bulk',{rows:part});
+      done+=d.done||0;failed=failed.concat(d.failed||[]);
+    }
+    clearSelection('skipped');
+    show(failed.length?`Un-skipped ${done}. ${failed.length} could not be un-skipped.`:`Un-skipped ${done} resource${done===1?'':'s'}.`);
+    await startScan(false);
+  }catch(err){show(err.message)}finally{b.disabled=false}
+}
+
+// --- Delete in bulk --------------------------------------------------------
+// Typing one resource's name is the right guard for one deletion and no
+// guard at all for twenty, so the count is what gets typed here -- against
+// the list of names shown right above it.
+let bulkDeleteRows=[];
+function openBulkDelete(){
+  bulkDeleteRows=selectedRows('inactive');
+  if(!bulkDeleteRows.length)return;
+  const ga4=bulkDeleteRows.filter(r=>r.kind==='GA4').length, gtm=bulkDeleteRows.length-ga4;
+  const parts=[];
+  if(ga4)parts.push(`${ga4} GA4 propert${ga4===1?'y is':'ies are'} moved to the Analytics trash can`);
+  if(gtm)parts.push(`${gtm} GTM container${gtm===1?' is':'s are'} deleted permanently`);
+  $('#bulkDeleteWarning').textContent=`${parts.join(', and ')}. Each connected Google login needs delete permission for its own resources; anything it is refused for is reported back by name and the rest still go.`;
+  $('#bulkDeleteList').innerHTML=nameList(bulkDeleteRows);
+  $('#bulkDeletePhrase').textContent=`DELETE ${bulkDeleteRows.length}`;
+  $('#bulkDeleteConfirm').value='';$('#bulkDeleteResult').textContent='';$('#bulkDeleteRows').innerHTML='';
+  $('#confirmBulkDelete').disabled=false;
+  $('#bulkDeleteDialog').showModal();
+}
+$('#bulkDeleteForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(!bulkDeleteRows.length)return;
+  const total=bulkDeleteRows.length, phrase=$('#bulkDeleteConfirm').value.trim();
+  if(phrase.toUpperCase()!==`DELETE ${total}`){$('#bulkDeleteResult').textContent=`Type DELETE ${total} exactly to confirm.`;return;}
+  const b=$('#confirmBulkDelete');b.disabled=true;
+  let deleted=0,results=[];
+  try{
+    for(const part of chunk(bulkDeleteRows,CHUNK.del)){
+      const d=await postJSON('api/delete/bulk',{rows:part,confirm:phrase,total});
+      deleted+=d.deleted||0;results=results.concat(d.results||[]);
+      $('#bulkDeleteResult').textContent=`Deleted ${deleted} of ${total}…`;
+    }
+  }catch(err){
+    $('#bulkDeleteResult').textContent=err.message;
+    $('#bulkDeleteRows').innerHTML=resultLines(results);
+    b.disabled=false;
+    if(deleted)await startScan(false);
+    return;
+  }
+  const failed=results.filter(r=>!r.ok);
+  clearSelection('inactive');
+  if(failed.length){
+    $('#bulkDeleteResult').textContent=`Deleted ${deleted} of ${total}. ${failed.length} could not be deleted:`;
+    $('#bulkDeleteRows').innerHTML=resultLines(results);
+  }else{
+    $('#bulkDeleteDialog').close();
+    show(`Deleted ${deleted} resource${deleted===1?'':'s'}.`);
+  }
+  await startScan(false);
+});
+
+// --- Site check in bulk ----------------------------------------------------
+let bulkCheckRows=[], bulkCheckSection='inactive';
+function openBulkCheck(sec){
+  bulkCheckSection=sec;
+  bulkCheckRows=gtmRows(selectedRows(sec));
+  if(!bulkCheckRows.length)return;
+  const skipped=selectedRows(sec).length-bulkCheckRows.length;
+  $('#bulkCheckCount').textContent=`${bulkCheckRows.length} GTM container${bulkCheckRows.length===1?'':'s'} will be fetched and searched for their own tag.`+(skipped?` ${skipped} selected GA4 propert${skipped===1?'y has':'ies have'} no tag to look for and ${skipped===1?'is':'are'} left alone.`:'');
+  $('#bulkCheckList').innerHTML=nameList(bulkCheckRows);
+  $('#bulkCheckResult').textContent='';$('#bulkCheckRows').innerHTML='';
+  $('#confirmBulkCheck').disabled=false;
+  $('#bulkCheckDialog').showModal();
+}
+function applySiteChecks(results){
+  if(!state)return;
+  for(const res of results){
+    if(!res.ok)continue;
+    for(const list of [state.inactive,state.review,state.skipped]){
+      const row=list.find(x=>x.kind===res.kind&&x.login===res.login&&x.resource===res.resource);
+      if(row)row.site_check={url:res.url,checked_at:res.checked_at,found:res.found,status:res.status,error:res.error,by:res.by};
+    }
+  }
+  render(state);
+}
+$('#bulkCheckForm').addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(!bulkCheckRows.length)return;
+  const b=$('#confirmBulkCheck');b.disabled=true;
+  const total=bulkCheckRows.length;
+  let results=[],checked=0;
+  try{
+    for(const part of chunk(bulkCheckRows,CHUNK.check)){
+      $('#bulkCheckResult').innerHTML=`<span class="spinner"></span>Checked ${checked} of ${total}…`;
+      const d=await postJSON('api/gtm/site-check/bulk',{rows:part});
+      checked+=d.checked||0;results=results.concat(d.results||[]);
+    }
+  }catch(err){
+    $('#bulkCheckResult').textContent=err.message;
+    if(results.length)applySiteChecks(results);
+    b.disabled=false;
+    return;
+  }
+  const found=results.filter(r=>r.ok&&r.found===true).length;
+  const missing=results.filter(r=>r.ok&&r.found===false).length;
+  const unknown=results.length-found-missing;
+  $('#bulkCheckResult').textContent=`${found} tag${found===1?'':'s'} found, ${missing} not found, ${unknown} could not be checked.`
+    +(found?' A container whose tag is live moves into Needs Review on the next scan.':'');
+  $('#bulkCheckRows').innerHTML=results.map(r=>{
+    const label=esc(r.name);
+    if(!r.ok)return `<div class="line-bad">✗ ${label} — ${esc(r.error||'could not be checked')}</div>`;
+    if(r.found===true)return `<div class="line-ok">✓ ${label} — tag found on ${esc(r.url)}</div>`;
+    if(r.found===false)return `<div>✗ ${label} — not found on ${esc(r.url)}</div>`;
+    return `<div class="line-bad">? ${label} — ${esc(r.error||'could not be checked')}</div>`;
+  }).join('');
+  applySiteChecks(results);
+  invalidateHistory();
+  b.disabled=false;
+});
+
+for(const sec of SECTIONS){
+  const box=$(BULK[sec].all);
+  if(box)box.onchange=()=>toggleAll(sec,box.checked);
+}
+$('#bulkInactiveClear').onclick=()=>clearSelection('inactive');
+$('#bulkReviewClear').onclick=()=>clearSelection('review');
+$('#bulkSkippedClear').onclick=()=>clearSelection('skipped');
+$('#bulkInactiveSkip').onclick=openBulkSkip;
+$('#bulkInactiveDelete').onclick=openBulkDelete;
+$('#bulkSkippedUnskip').onclick=bulkUnskip;
+$('#bulkInactiveCheck').onclick=()=>openBulkCheck('inactive');
+$('#bulkReviewCheck').onclick=()=>openBulkCheck('review');
+$('#bulkSkippedCheck').onclick=()=>openBulkCheck('skipped');
+refreshBulkBars();
+
+
+// ---------------------------------------------------------------------------
+// Cleanup history
+// ---------------------------------------------------------------------------
+// Every skip, un-skip, site check and deletion this tool has made, from the
+// log it has always written and nothing has ever drawn. That was tolerable
+// while a deletion was one press at a time; a press can now delete twenty
+// GA4 properties, so "what did we clean up, and who did it" needs an answer
+// somebody can reach without calling the endpoint by hand.
+//
+// Loaded when the panel is opened, not on page load: the scan is what this
+// screen is for, and a fetch nobody asked for competes with it. Marked stale
+// rather than silently left behind when an action writes to it -- an open
+// panel reloads, a closed one loads fresh next time it is opened.
+const ACTION_LABELS={skip:'Skip',unskip:'Un-skip',delete:'Delete',site_check:'Site check'};
+let historyRows=null, historyTotal=0, historyPageSize=0, historyError='', historyLoading=false;
+function actionPill(a){const k=String(a||'').toLowerCase();return `<span class="act ${esc(k)}">${esc(ACTION_LABELS[k]||a||'—')}</span>`;}
+function historyWhen(at){if(!at)return '—';const d=new Date(at);return isNaN(d.getTime())?esc(at):esc(d.toLocaleString());}
+function rowHistory(r){
+  const failed=r.result&&r.result!=='ok';
+  const name=r.name||r.resource||'—';
+  const idLine=(r.resource&&r.resource!==name)?`<small>${esc(r.resource)}</small>`:'';
+  return `<tr class="${failed?'hist-bad':''}"><td>${historyWhen(r.at)}</td><td>${esc(r.actor||'—')}</td><td>${actionPill(r.action)}</td><td>${r.kind?typePill(r.kind):'—'}</td><td><b>${esc(name)}</b>${idLine}</td><td title="${esc(r.google_login||'')}">${esc(loginName(r.google_login))}</td><td class="reason">${failed?'✗ ':''}${esc(r.detail||(failed?'Failed':'Done'))}</td></tr>`;
+}
+function historyMatches(r,q){
+  if(!q)return true;
+  const hay=[r.actor,r.action,ACTION_LABELS[String(r.action||'').toLowerCase()],r.kind,r.name,
+             r.resource,r.google_login,r.detail].join(' ').toLowerCase();
+  return hay.includes(q);
+}
+function drawHistory(){
+  const body=$('#historyBody');
+  if(historyLoading){body.innerHTML='<tr><td colspan="7" class="empty"><span class="spinner"></span>Loading the history…</td></tr>';return;}
+  if(historyError){body.innerHTML=`<tr><td colspan="7" class="empty">${esc(historyError)}</td></tr>`;$('#historyCount').textContent='';$('#historyRange').textContent='';return;}
+  if(!historyRows){body.innerHTML='<tr><td colspan="7" class="empty">Open this panel to load the history.</td></tr>';return;}
+  const q=$('#historyFilter').value.trim().toLowerCase();
+  const shown=historyRows.filter(r=>historyMatches(r,q));
+  $('#historyCount').textContent=`(${historyTotal})`;
+  // The panel holds a window on the log, not the log -- say which, rather
+  // than letting the last 200 read as everything that has ever happened.
+  const range=historyPageSize&&historyTotal>historyPageSize
+    ?`Showing the last ${historyPageSize} of ${historyTotal} entries`
+    :(historyTotal?`${historyTotal} entr${historyTotal===1?'y':'ies'}`:'');
+  $('#historyRange').textContent=q?`${shown.length} of ${historyRows.length} shown${range?' · '+range:''}`:range;
+  if(!historyRows.length){body.innerHTML='<tr><td colspan="7" class="empty">Nothing has been skipped, checked or deleted here yet.</td></tr>';return;}
+  body.innerHTML=shown.length?shown.map(rowHistory).join(''):'<tr><td colspan="7" class="empty">Nothing in the history matches that.</td></tr>';
+}
+async function loadHistory(){
+  historyLoading=true;historyError='';drawHistory();
+  try{
+    const r=await fetch('api/audit',{headers:{Accept:'application/json'}});
+    const d=await r.json();
+    if(!r.ok||d.ok===false)throw new Error(d.error||`The cleanup log could not be read (HTTP ${r.status}).`);
+    historyRows=d.rows||[];historyTotal=d.total??historyRows.length;historyPageSize=d.page_size||0;
+  }catch(e){historyRows=null;historyError=e.message;}
+  finally{historyLoading=false;drawHistory();}
+}
+// An action just wrote to the log the panel is showing.
+function invalidateHistory(){
+  historyRows=null;
+  if($('#historyPanel').open)loadHistory();
+}
+$('#historyPanel').addEventListener('toggle',()=>{if($('#historyPanel').open&&!historyRows&&!historyLoading)loadHistory();});
+$('#historyRefresh').onclick=()=>loadHistory();
+$('#historyFilter').oninput=()=>{if(historyRows)drawHistory();};
+
 $('#refresh').onclick=()=>startScan(false);
 $('#fullRescan').onclick=()=>{if(confirm('Re-check every GA4 property and GTM container live, ignoring anything checked in the last 24h? This is slower and spends more of the day\'s Google API quota.'))startScan(true)};
 init();

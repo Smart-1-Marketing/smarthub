@@ -1,15 +1,29 @@
-"""Durable per-client SEO intelligence files for prompt-time reuse.
+"""Per-client SEO intelligence files for prompt-time reuse.
 
 The database is the queryable source of truth; this JSON file is the compact,
 human-inspectable handoff requested for AI tools. It is regenerated weekly and
 contains no OAuth credentials.
+
+## Why this one is NOT moved into the database
+
+`jsonstore.unmirrored_json_writers()` named this file once it could see past
+`json.dump(`, and the obvious reading -- another store on a disk nobody backs
+up -- is the wrong one here. `context._memory()` reads this file **only where
+the SEOMemory query raised**. It is the offline copy of a database row, for
+the one case where the database cannot answer. Mirroring it into that same
+database would leave the fallback needing the thing it is a fallback for.
+
+So it goes through `jsonstore.write_json(durable=False)`: the same atomic
+write it already had, declared as a cache rather than left for a scanner to
+guess about, and listed on `status()` beside everything else deliberately not
+backed up. Losing it costs one weekly regeneration from the row it was
+built from.
 """
 from __future__ import annotations
 
 import json
 import os
 import re
-import tempfile
 
 from .models import SEOMemory
 
@@ -48,19 +62,13 @@ def mirror_client(client_id):
         "source_week": str(row.source_week) if row.source_week else None,
     }
     target = path_for(client_id)
-    fd, temp = tempfile.mkstemp(prefix=".seo-", suffix=".json", dir=os.path.dirname(target))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, ensure_ascii=False, indent=2)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(temp, target)
-    finally:
-        try:
-            if os.path.exists(temp):
-                os.remove(temp)
-        except OSError:
-            pass
+    # fsync=True because the hand-rolled write this replaces did it, and the
+    # point of this file is being readable when the database is not -- which
+    # includes after the kind of unclean stop that takes the database with it.
+    from hub import jsonstore
+    if not jsonstore.write_json(target, payload, durable=False, indent=2,
+                                fsync=True):
+        return None
     return target
 
 

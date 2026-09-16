@@ -177,6 +177,10 @@ check("it asks existing or new", 'name="client_type"' in html
 check("existing gets the Client 360 lookup", "/api/clients/search" in html)
 check("Google Ads is not offered as a tickbox", 'value="ads"' not in html)
 
+qa_inactive = composed.get("/tools/google-access/qa-inactive/")
+check("legacy qa-inactive path resolves", qa_inactive.status_code in (301, 302), qa_inactive.status_code)
+stale_path = composed.get("/tools/google-access/retired-link/")
+check("other stale Google Access paths resolve", stale_path.status_code in (301, 302), stale_path.status_code)
 
 def create(**payload):
     return composed.post("/tools/google-access/api/requests", data=payload)

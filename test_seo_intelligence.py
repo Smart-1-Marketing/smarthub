@@ -289,6 +289,49 @@ try:
         check("a first-time backfill that failed every refresh counts too", "sc-domain:gamma.example" in str(exc), exc)
     else:
         check("a first-time backfill that failed every refresh counts too", False, "returned a dict")
+    # ---- the intelligence file, and why it stays on the disk -------------
+    # `jsonstore.unmirrored_json_writers()` named it once the check could see
+    # past `json.dump(`, and the obvious reading is the wrong one: the file is
+    # read ONLY where the SEOMemory query raised, so mirroring it into that
+    # same database would leave the fallback needing the thing it is a
+    # fallback for. It is a declared cache instead -- said out loud rather
+    # than left for the next scanner to guess about.
+    from hub import jsonstore as _js
+    from modules.seo_intelligence import context as _ctx_mod
+    from modules.seo_intelligence import file_store as _fs
+
+    _mem = M.SEOMemory(client_id="cache-client", memory_json='{"a": 1}',
+                     source_week=date(2026, 9, 7))
+    db.session.add(_mem)
+    db.session.commit()
+
+    _target = _fs.mirror_client("cache-client")
+    check("the intelligence file is written", bool(_target) and
+          os.path.exists(_target), _target)
+    check("and it is declared a cache rather than mirrored",
+          _js.key_for(_target) in _js._declared_caches,
+          sorted(_js._declared_caches))
+    check("nothing mirrored it into the database",
+          _js.key_for(_target) not in _js._mirrored, _js._mirrored)
+
+    # The whole reason it is on the disk: it answers when the database cannot.
+    _real_query = M.SEOMemory.query
+
+    class _Raising:
+        def filter_by(self, **kw):
+            raise RuntimeError("the intelligence database could not be read")
+
+    M.SEOMemory.query = _Raising()
+    try:
+        _payload, _week, _source, _unreachable = _ctx_mod._memory("cache-client")
+    finally:
+        M.SEOMemory.query = _real_query
+    check("and it is what answers when the database will not",
+          _payload == {"a": 1} and _unreachable is True,
+          (_payload, _unreachable))
+    check("with the answer saying which source spoke",
+          "mirrored" in _source, _source)
+
 finally:
     _ctx.pop()
     shutil.rmtree(_TMP, ignore_errors=True)

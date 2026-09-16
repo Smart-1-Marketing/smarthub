@@ -31,6 +31,26 @@ const upload = multer({
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+/* WHICH INTERFACE THIS BINDS IS A PRODUCTION-OUTAGE-SIZED DECISION.
+
+   Inside the Hub's container this is one of three Node processes; the Hub is
+   the only thing that may answer the public port, and this is reached solely
+   over loopback through hub/marketing_audit_proxy.py. `app.listen(PORT)` with
+   no host binds 0.0.0.0, and on 2026-09-16 that took the whole Hub down:
+   Render scans the container for open ports, found 8793 as well as the Hub's
+   own 10000, and routed smart1.agency to this process. Every URL on the Hub
+   -- /views/creative, /my-clients, /ask-smarthub -- came back as this tool's
+   index.html, because `app.get('*')` below answers everything, with its
+   relative assets 404ing against whatever directory the URL happened to have.
+
+   docker-start.sh has always passed HOST=127.0.0.1; nothing here read it.
+   modules/hf_render_service does `server.listen(PORT, HOST)` with this exact
+   default, which is why that one never opened a public port.
+
+   A standalone deploy of this folder on its own host sets HOST=0.0.0.0. The
+   default is loopback because the failure that way round is "the tool is
+   unreachable", and the failure the other way round is the Hub is gone. */
+const HOST = process.env.HOST || '127.0.0.1';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 /* Where the "Schedule a review" button sends people. Set BOOKING_URL in Render
@@ -698,4 +718,5 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => console.log(`Marketing Efficiency Audit running on :${PORT}`));
+app.listen(PORT, HOST, () =>
+  console.log(`Marketing Efficiency Audit running on ${HOST}:${PORT}`));

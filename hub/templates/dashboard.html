@@ -13,37 +13,58 @@
    the typed question there rather than re-implementing the chat here, the
    drift this file names a dozen times), and the narrow one is every partner
    page and every request form in one compact list instead of two rows of
-   big buttons. 260px matches the width a mega-menu flyout column already
-   uses elsewhere in this Hub, so the two vocabularies of "a narrow column of
-   links" agree. */
-.top-row{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:12px;
+   big buttons. The list runs in two columns, which halves its height: at one
+   column it ran a third of the page down past the bottom of the ask box and
+   left that much white space beside it. 372px is what two columns need for
+   the longest label in the list to stay on one line -- at 344 "Campaign
+   Support" wrapped, and a wrapped label makes its whole row taller. */
+.top-row{display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:12px;
   align-items:start;margin:0 0 14px}
 @media(max-width:860px){.top-row{grid-template-columns:1fr}}
 
-.ask-card{padding:14px 16px}
-.ask-card-head{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+/* Kept deliberately short: this card is a doorway to /ask-smarthub, not the
+   chat itself, so it earns the height of one question and no more. Every
+   figure here is tighter than the card default for that reason. */
+.ask-card{padding:11px 14px}
+.ask-card-head{display:flex;align-items:center;gap:8px;margin-bottom:2px}
 .ask-card-ico{flex:none;width:22px;height:22px;border-radius:6px;
   background:linear-gradient(140deg,#3b5bdb,#5b3bd6);color:#fff;font-size:12px;
   display:flex;align-items:center;justify-content:center}
 .ask-card-title{font-size:15px;font-weight:700;color:var(--navy)}
 .ask-card-ctx{margin-left:auto;font-size:11px}
 .ask-card-ctx a{color:#94a3b8}
-.ask-card-sub{font-size:12px;color:var(--muted);margin-bottom:10px}
+.ask-card-sub{font-size:12px;color:var(--muted);margin-bottom:8px}
 .ask-card-row{display:flex;gap:8px}
 .ask-card-row input{flex:1;min-width:0;font:13px ui-monospace,Menlo,monospace;
-  padding:9px 12px;border:1px solid #9db8e6;border-radius:8px;outline:none;color:var(--ink)}
+  padding:8px 12px;border:1px solid #9db8e6;border-radius:8px;outline:none;color:var(--ink)}
 .ask-card-row button{background:var(--navy);color:#fff;border:0;border-radius:8px;
-  padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer}
-.ask-card-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  padding:8px 20px;font-size:13px;font-weight:700;cursor:pointer}
+/* The example questions and the "Enter to send" note share one line rather
+   than stacking two -- the note is a caption on the row it follows, and on
+   its own line it cost the card more height than it was worth. It drops
+   below the chips only when there is no room beside them. */
+.ask-card-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
 .ask-chip{font-size:12px;color:#334155;background:#f8fafc;border:1px solid var(--line);
-  border-radius:999px;padding:5px 11px;cursor:pointer;text-align:left}
+  border-radius:999px;padding:4px 10px;cursor:pointer;text-align:left}
 .ask-chip:hover{background:#eef2fb;border-color:#9db8e6}
-.ask-card-hint{font-size:11px;color:#94a3b8;margin-top:8px}
+.ask-card-hint{font-size:11px;color:#94a3b8;margin-left:auto;padding-left:8px}
 
 .tools-req-card{padding:8px}
 .tools-req-h{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
   color:#94a3b8;padding:4px 6px 6px}
-.tools-req-list{display:grid;gap:2px}
+/* Two columns: the partner pages on the left, the request forms on the
+   right -- the same split the dot colors already make. Each side is its own
+   element rather than one list flowed into two tracks, because both of the
+   ways of splitting one list need to know where the halfway point is, and
+   the partner half is built from partner_tiles: CSS columns balance by
+   height, so one label that wrapped moved the split to six and four, and a
+   row count worked out in the template is a number somebody has to remember
+   to change when they add a link. Two elements have nothing to keep in step
+   -- a link added to either side lengthens that side. Below 400px the card
+   is too narrow for two readable labels, so they stack. */
+.tools-req-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 10px}
+.tools-req-col{display:grid;grid-auto-rows:min-content;gap:2px;min-width:0}
+@media(max-width:400px){.tools-req-list{grid-template-columns:1fr}}
 .tr-item{display:flex;align-items:center;gap:9px;padding:6px 7px;border-radius:6px;
   font-size:12.5px;font-weight:600;color:#1e2f4d;text-decoration:none;cursor:pointer;
   border:0;background:none;width:100%;text-align:left;font-family:inherit}
@@ -142,17 +163,31 @@
       <span class="ask-card-title">Ask SmartHub</span>
       <span class="ask-card-ctx"><a href="/ask-smarthub">Open full page &rarr;</a></span>
     </div>
-    <div class="ask-card-sub">Clients, analytics, Google access, proposals, insertion orders, and&mdash;with permission&mdash;QuickBooks.</div>
+    {# The card is the doorway, so this names the sources and stops: at 95
+       characters the full sentence wrapped to two lines on any screen
+       narrower than 1280, which is most of them. /ask-smarthub's own heading
+       still carries it whole, QuickBooks and the permission it needs
+       included -- named here it would have to travel without that clause,
+       and a gated source named as though it were open is the worse half to
+       keep. "IOs" is what the scorecard above and Client 360 already say. #}
+    <div class="ask-card-sub">Clients, analytics, Google access, proposals and IOs.</div>
     <form class="ask-card-row" id="dashAskForm">
       <input id="dashAskInput" type="text" maxlength="1200" placeholder="Ask a SmartHub question&hellip;" autocomplete="off">
       <button type="submit">Ask</button>
     </form>
+    {# The chip reads as a subject and asks the whole question: data-q is what
+       gets sent to /ask-smarthub, so shortening these labels to fit one line
+       beside the hint costs the question nothing. The label is still what a
+       reader matches against, and the title says the rest. #}
     <div class="ask-card-chips" id="dashAskChips">
-      <button type="button" class="ask-chip">Show proposals sent for a client</button>
-      <button type="button" class="ask-chip">Which GA4 properties are mapped to a client?</button>
-      <button type="button" class="ask-chip">Show recent insertion orders for a client</button>
+      <button type="button" class="ask-chip" data-q="Show proposals sent for a client"
+        title="Show proposals sent for a client">Proposals sent</button>
+      <button type="button" class="ask-chip" data-q="Which GA4 properties are mapped to a client?"
+        title="Which GA4 properties are mapped to a client?">GA4 properties</button>
+      <button type="button" class="ask-chip" data-q="Show recent insertion orders for a client"
+        title="Show recent insertion orders for a client">Insertion orders</button>
+      <span class="ask-card-hint">Enter to send &middot; opens in Ask SmartHub</span>
     </div>
-    <div class="ask-card-hint">Enter to send &middot; opens in Ask SmartHub</div>
   </div>
 
   {# Every partner page (hub/partner.py) and every request form, in one
@@ -161,18 +196,24 @@
   <div class="card tools-req-card">
     <div class="tools-req-h">Tools &amp; requests</div>
     <div class="tools-req-list">
+      {# Left: the pages. Right: the forms. Same links, same order, same
+         handlers as when this was one column -- only the wrapper is new. #}
+      <div class="tools-req-col">
       {% for t in (partner_tiles or []) %}
         {% if t.available %}
-      <a class="tr-item {{ t.css }}" href="{{ t.href }}"><span class="tr-dot" aria-hidden="true"></span>{{ t.title }}</a>
+        <a class="tr-item {{ t.css }}" href="{{ t.href }}"><span class="tr-dot" aria-hidden="true"></span>{{ t.title }}</a>
         {% else %}
-      <span class="tr-item {{ t.css }} tr-soon" title="This page is not in the Hub yet"><span class="tr-dot" aria-hidden="true"></span>{{ t.title }}</span>
+        <span class="tr-item {{ t.css }} tr-soon" title="This page is not in the Hub yet"><span class="tr-dot" aria-hidden="true"></span>{{ t.title }}</span>
         {% endif %}
       {% endfor %}
-      <a class="tr-item rb-web" id="rq-web" href="/tools/tickets/"><span class="tr-dot" aria-hidden="true"></span>Web Ticket</a>
-      <button type="button" class="tr-item rb-copy" id="rq-adcopy"><span class="tr-dot" aria-hidden="true"></span>Ad Copy Request</button>
-      <button type="button" class="tr-item rb-change" id="rq-change"><span class="tr-dot" aria-hidden="true"></span>Campaign Change</button>
-      <button type="button" class="tr-item rb-support" id="rq-support"><span class="tr-dot" aria-hidden="true"></span>Campaign Support</button>
-      <a class="tr-item rb-accounting" id="rq-accounting" href="https://api.leadconnectorhq.com/widget/form/oNilGBDoJrYdHl44KeLa" aria-haspopup="dialog"><span class="tr-dot" aria-hidden="true"></span>Accounting Issues</a>
+      </div>
+      <div class="tools-req-col">
+        <a class="tr-item rb-web" id="rq-web" href="/tools/tickets/"><span class="tr-dot" aria-hidden="true"></span>Web Ticket</a>
+        <button type="button" class="tr-item rb-copy" id="rq-adcopy"><span class="tr-dot" aria-hidden="true"></span>Ad Copy Request</button>
+        <button type="button" class="tr-item rb-change" id="rq-change"><span class="tr-dot" aria-hidden="true"></span>Campaign Change</button>
+        <button type="button" class="tr-item rb-support" id="rq-support"><span class="tr-dot" aria-hidden="true"></span>Campaign Support</button>
+        <a class="tr-item rb-accounting" id="rq-accounting" href="https://api.leadconnectorhq.com/widget/form/oNilGBDoJrYdHl44KeLa" aria-haspopup="dialog"><span class="tr-dot" aria-hidden="true"></span>Accounting Issues</a>
+      </div>
     </div>
   </div>
 </div>
@@ -397,7 +438,7 @@ const user_name={{ (user or '')|tojson }};
   }
   form.addEventListener('submit',function(e){e.preventDefault();go(input.value);});
   if(chips) chips.querySelectorAll('.ask-chip').forEach(function(b){
-    b.addEventListener('click',function(){go(b.textContent);});
+    b.addEventListener('click',function(){go(b.dataset.q||b.textContent);});
   });
 })();
 

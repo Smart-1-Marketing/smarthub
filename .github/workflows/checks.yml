@@ -467,6 +467,70 @@ jobs:
             echo "test_audit_store.py not on this branch — nothing to run."
           fi
 
+      - name: Lead store tests
+        if: matrix.group == 2
+        # Leads moved off the append-only JSONL on the disk. Two things this
+        # guards, and both are silent when they break: a lead lost because the
+        # database would not answer -- capture() has promised since it was
+        # written that it never raises, so the visitor sees a success message
+        # either way -- and the backend being quietly the wrong one, which
+        # passes every check while production stays on the file.
+        run: |
+          if [ -f test_lead_store.py ]; then
+            python test_lead_store.py
+          else
+            echo "test_lead_store.py not on this branch — nothing to run."
+          fi
+
+      - name: Lead store against Postgres
+        if: matrix.group == 2
+        # The run above is SQLite; this is what production is. The delivery
+        # suite runs both ways too, because it drives the store through
+        # capture() and the retry sweep.
+        env:
+          HUB_LEADS_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          if [ -f test_lead_store.py ]; then
+            python test_lead_store.py
+            python test_lead_delivery.py
+          else
+            echo "test_lead_store.py not on this branch — nothing to run."
+          fi
+
+      - name: SmartForecast store tests
+        if: matrix.group == 2
+        # SmartForecast moved off its own SQLite file onto the shared engine.
+        # Three things that are invisible on SQLite by construction, and each
+        # was found by RUNNING the module against Postgres: a forward
+        # foreign-key reference (SQLite resolves them lazily), a generated-id
+        # sequence that does not advance on an explicit id -- so the demo seed
+        # left a fresh deployment raising a duplicate key on the first client
+        # anybody added -- and a SELECT alias in HAVING. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_smartforecast_store.py ]; then
+            python test_smartforecast_store.py
+          else
+            echo "test_smartforecast_store.py not on this branch — nothing to run."
+          fi
+
+      - name: SmartForecast against Postgres
+        if: matrix.group == 2
+        # The run above is SQLite; this is what production is. All three
+        # findings above are Postgres-only, so a suite that only ever sees
+        # SQLite is a suite that cannot see them -- the module's own tests run
+        # both ways too.
+        env:
+          SMARTFORECAST_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          if [ -f test_smartforecast_store.py ]; then
+            python test_smartforecast_store.py
+            python test_smartforecast.py
+          else
+            echo "test_smartforecast_store.py not on this branch — nothing to run."
+          fi
+
       - name: Database boot tests
         if: matrix.group == 2
         # A database briefly unreachable during a deploy, and the four ways
@@ -1505,6 +1569,28 @@ jobs:
             python test_google_inactive_qa_sitecheck.py
           else
             echo "test_google_inactive_qa_sitecheck.py not on this branch — nothing to run."
+          fi
+
+      - name: Google Access inactive-accounts bulk action tests
+        if: matrix.group == 4
+        # Each section of the QA page acts on several rows at once. A bulk
+        # action has to be the per-row action repeated -- same keys, same
+        # audit entry per resource -- with a failure that lands on one row
+        # rather than cancelling the batch, and a delete guarded on the count
+        # somebody typed rather than a name nobody would type twenty times.
+        # Offline; nothing reaches Google or a live website. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates it.
+        run: |
+          if [ -f test_google_inactive_qa_bulk.py ]; then
+            python test_google_inactive_qa_bulk.py
+          else
+            echo "test_google_inactive_qa_bulk.py not on this branch — nothing to run."
+          fi
+          if [ -f test_google_inactive_qa_bulk_ui.js ]; then
+            node test_google_inactive_qa_bulk_ui.js
+          else
+            echo "test_google_inactive_qa_bulk_ui.js not on this branch — nothing to run."
           fi
 
       - name: Blog taxonomy, guardrail and CMS publish tests
@@ -3226,6 +3312,21 @@ jobs:
           else
             echo "test_check_reconciliation.py not on this branch — nothing to run."
           fi
+
+      - name: Check reconciliation state against Postgres
+        if: matrix.group == 8
+        # The run above is SQLite; this is what production is. The state --
+        # the QuickBooks OAuth tokens, every payer alias the tool has learned,
+        # the reconciliation records and the audit trail -- goes through
+        # jsonstore now, so the mirror is what this exercises.
+        env:
+          CHECKREC_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          if [ -f test_check_reconciliation.py ]; then
+            python3 test_check_reconciliation.py
+          else
+            echo "test_check_reconciliation.py not on this branch — nothing to run."
+          fi
       # One confirmed audience per client (hub/audience_spec.py) and its four
       # readers: the Client 360 card, the Proposal Builder's audience step,
       # the IO Builder's audiences question and AD_COPY's {audience} prefill.
@@ -3472,6 +3573,15 @@ jobs:
       - name: The YouTube channel reading
         if: matrix.group == 8
         run: python3 test_youtube.py
+      # A client's email campaigns read from their own Suite sub-account: the
+      # two email read scopes requested, the campaign list as the source with
+      # the per-campaign statistics endpoint filling gaps under a cap, five
+      # kinds of nothing drawn apart, the nightly sweep held back while a
+      # scope is missing, and the client's report gated on a live email
+      # product AND a linked, read sub-account.
+      - name: The client's email campaign reading
+        if: matrix.group == 8
+        run: python3 test_suite_email_stats.py
       # The provider normalize: raw provider tables read through
       # provider_map's placeholder column names, spend divided on the way in,
       # one platform's failure isolated on its own watermark, the provider

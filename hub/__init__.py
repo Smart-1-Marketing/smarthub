@@ -1408,6 +1408,49 @@ def create_hub_app() -> Flask:
         out = youtube.clear(name, actor=current_user() or "")
         return jsonify(out), (200 if out.get("ok") else 404)
 
+    # ---- the client's email campaigns, read through hub/suite_email_stats.py
+    # The YouTube shape one channel over: the GET reads the stored reading
+    # for nothing, the POST is a press because a read is a call against
+    # the client's own sub-account. No lookup or confirm here -- which
+    # sub-account is the client's is the Suite Account card's decision,
+    # read through hub/suite_accounts and never restated.
+
+    @app.route("/api/client/suite-email")
+    def api_client_suite_email():
+        """The client's sent email campaigns as their Suite sub-account
+        answered last night -- names, dates, delivered/opened/clicked --
+        with which kind of nothing it is when there is none. Never a
+        Suite call."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_email_stats
+        name = (request.args.get("name", "") or request.args.get("client", "")).strip()
+        if not name:
+            return jsonify({"error": "No client was named.", "state": "unread"}), 400
+        try:
+            out = suite_email_stats.reading(name)
+        except Exception as exc:  # noqa: BLE001
+            out = {"measured": False, "state": "unread", "campaigns": [],
+                   "error": f"The campaign store could not be read ({type(exc).__name__})."}
+        out["sweep"] = suite_email_stats.sweep_state()
+        return jsonify(out)
+
+    @app.route("/api/client/suite-email/refresh", methods=["POST"])
+    def api_client_suite_email_refresh():
+        """Read the client's sub-account now: behind a button."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_email_stats
+        body = request.get_json(silent=True) or {}
+        name = str(body.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "No client was named."}), 400
+        out = suite_email_stats.snapshot(name, actor=current_user() or "")
+        return jsonify(out), (200 if out.get("ok") else 502 if out.get("kind") in
+                              ("refused", "rate_limited", "unreachable", "http", "unreadable", "missing") else 400)
+
     @app.route("/api/client/brand/push-to-suite", methods=["POST"])
     def api_brand_push():
         """Send the brand guide into the client's Smart 1 Suite sub-account."""
@@ -8529,6 +8572,23 @@ def create_hub_app() -> Flask:
             "ran": False, "reason": f"{type(_au_exc).__name__}: {_au_exc}"}
         try:
             errors.log_exception("audit", _au_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # And the leads, for the same reason and with more riding on it. The
+    # panel that answers "how many leads did we get last week, and from which
+    # pages" reads the store on the first page load, and a history that
+    # appears on the second one reads as a history that was lost. Recorded
+    # rather than swallowed: a boot step that fails quietly is how /signup
+    # 404'd for a day with no clue why.
+    try:
+        from . import lead_store as _lead_boot
+        app.config["HUB_LEADS_IMPORT"] = _lead_boot.import_legacy()
+    except Exception as _ld_exc:  # noqa: BLE001
+        app.config["HUB_LEADS_IMPORT"] = {
+            "ran": False, "reason": f"{type(_ld_exc).__name__}: {_ld_exc}"}
+        try:
+            errors.log_exception("leads", _ld_exc)
         except Exception:  # noqa: BLE001
             pass
 

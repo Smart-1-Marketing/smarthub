@@ -178,6 +178,49 @@ def test_docker_start_does_not_leak_public_base_url():
           re.search(r"PUBLIC_BASE_URL=.*node server\.js", src, re.S) is not None)
 
 
+def test_listens_on_loopback_only():
+    """The one bind that took the whole Hub down: this must never open a public port"""
+    src = (MODULE / "server.js").read_text()
+    # Render scans the container for open ports. `app.listen(PORT)` with no
+    # host binds 0.0.0.0, Render found 8793 alongside the Hub's own 10000 and
+    # routed smart1.agency here -- and `app.get('*')` answered every URL on
+    # the Hub with this tool's index.html. The Hub was gone until the bind
+    # was fixed, with nothing in either half reporting a fault.
+    check("server.js passes a host to listen(), not the port alone",
+          re.search(r"\.listen\(\s*PORT\s*,\s*HOST\b", src) is not None)
+    check("HOST is read from the environment",
+          re.search(r"const\s+HOST\s*=\s*process\.env\.HOST\b", src) is not None)
+    check("and defaults to loopback, never 0.0.0.0",
+          re.search(r"process\.env\.HOST\s*\|\|\s*['\"]127\.0\.0\.1['\"]", src) is not None)
+    start = (ROOT / "docker-start.sh").read_text()
+    check("docker-start.sh hands the child HOST=127.0.0.1",
+          re.search(r"HOST=127\.0\.0\.1[\s\\]*[\s\S]{0,400}?node server\.js", start) is not None)
+
+
+def test_every_helper_process_binds_loopback():
+    """Same check across all three Node processes in the container -- one public port, the Hub's"""
+    # Each of these is reached over loopback and must not be visible to
+    # Render's port scan. Two things have to hold for that, and the audit
+    # tool had neither: the process must pass a host to listen() at all, and
+    # docker-start.sh must name that host when it starts it. The in-file
+    # default is the backstop for whichever of those is forgotten next --
+    # the ad builder ships its own render.yaml for a standalone host, so it
+    # keeps 0.0.0.0 there and relies on the line below.
+    helpers = (("marketing audit", "modules/marketing_audit/server.js", "$MARKETING_AUDIT_PORT"),
+               ("display ad builder", "modules/ad_builder/src/server.ts", "$ADBUILDER_PORT"),
+               ("hf render service", "modules/hf_render_service/src/server.ts", "$HF_RENDER_PORT"))
+    start = (ROOT / "docker-start.sh").read_text()
+    for label, rel, marker in helpers:
+        src = (ROOT / rel).read_text()
+        check(f"{label} passes a host to listen(), not the port alone",
+              re.search(r"\.listen\(\s*PORT\s*,\s*HOST\b", src) is not None)
+        check(f"{label} reads that host from the environment",
+              re.search(r"(const|let)\s+HOST\s*=\s*process\.env\.HOST\b", src) is not None)
+        line = next((l for l in start.splitlines() if marker in l), "")
+        check(f"docker-start.sh starts {label} with HOST=127.0.0.1",
+              "HOST=127.0.0.1" in line, f"line was {line.strip()!r}")
+
+
 def test_dockerfile_installs_it():
     """The image actually contains this module's node_modules, or the proxy has nothing to talk to"""
     dockerfile = (ROOT / "Dockerfile").read_text()
