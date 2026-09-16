@@ -529,6 +529,7 @@ class Settings:
     # What each setting is for, in the words somebody standing in front of a
     # fresh deployment would use. env_report() prints these; nothing else does.
     LABELS = {
+        "ttd_api_token": "Trade Desk API token",
         "secret_key": "Signed sessions",
         "pexels_key": "Pexels stock",
         "pixabay_key": "Pixabay stock",
@@ -640,6 +641,10 @@ class Settings:
             return {"name": "Secret key", "state": rep["state"], "required": True,
                     "note": f"{spellings} — {rep['detail']}"}
         return [
+            row("Trade Desk canonical import", bool(self.ttd_api_token and self.ttd_partner_id and self.ttd_report_url), False,
+                f"{self.spellings('ttd_api_token')}, TTD_PARTNER_ID, TTD_REPORT_URL — "
+                "the Diagnostics reporting import needs a partner and completed daily CSV export; "
+                "without them it cannot import metrics. Check linked Render environment groups first."),
             # Read from hub/signing.py rather than described here. This row
             # said "sessions are not signed without it, so everyone is logged
             # out by every restart" -- a true account of the two call sites
