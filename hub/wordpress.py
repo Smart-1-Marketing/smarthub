@@ -117,7 +117,7 @@ SEO_NAMESPACES = {
 # in `test_wordpress_schema.py`, because a key spelled one way here and another
 # way there is a write that answers 200 and stores nothing.
 PLUGIN_SLUG = "smart-1-hub"
-PLUGIN_VERSION = "1.0.0"
+PLUGIN_VERSION = "1.1.0"
 PLUGIN_NAMESPACE = "s1hub/v1"
 SCHEMA_META = "_s1hub_schema"
 PLUGIN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -126,6 +126,13 @@ PLUGIN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 # A schema run is one resolve and one write per page against a host we do not
 # control, so it is bounded like the other two.
 MAX_SCHEMA_PAGES_PER_RUN = 20
+
+# Google truncates a search snippet around 155-160 characters. It is a
+# DISPLAY limit and not a rejection -- nothing refuses a longer description --
+# so a description over it is written and named rather than cut. Shortening
+# the client's own approved copy to fit somebody else's snippet is the
+# clamp `config.music_length_ms()` refuses one provider over.
+META_DESCRIPTION_SNIPPET = 160
 
 
 def _now() -> str:
@@ -372,15 +379,9 @@ def probe(client: str) -> dict:
         out["warnings"].append(
             "This user cannot upload files, so featured images will be skipped "
             "and the post still written.")
-    if not plugin:
-        out["warnings"].append(
-            "No Yoast or Rank Math REST namespace was found, so meta "
-            "descriptions are written into the post's Excerpt field instead.")
-    else:
-        out["warnings"].append(
-            f"{plugin} is installed, but it does not expose its meta "
-            "description over the API, so the description is written into the "
-            "Excerpt field and should be copied across by hand.")
+    # The meta description sentence is decided AFTER the plugin has been asked,
+    # below, because what is true about it depends on whether the Smart 1 Hub
+    # plugin is there to make that field writable.
     # Schema does not ride on `unfiltered_html` any more -- it goes in the head
     # through our own plugin and never into post content -- so the capability
     # is still reported, because it is the difference between a post body we
@@ -406,6 +407,32 @@ def probe(client: str) -> dict:
             "We could not tell whether the Smart 1 Hub plugin is installed.")
     else:
         out["warnings"] += list(out["plugin"].get("warnings") or [])
+
+    # Four true sentences about where a blog post's meta description ends up,
+    # and which one holds depends on two facts rather than one. Collapsing them
+    # would put "copy it across by hand" in front of somebody on a site where
+    # it now goes across by itself.
+    described_by = str(out["plugin"].get("description_by") or "")
+    out["description_field"] = described_by
+    if described_by:
+        out["warnings"].append(
+            f"A blog post's meta description goes into {described_by}'s own "
+            "field, and into the Excerpt. Nothing has to be copied across.")
+    elif plugin and out["plugin"].get("installed"):
+        out["warnings"].append(
+            f"{plugin} is installed, and it keeps its meta description "
+            "somewhere this cannot write to — the description goes into the "
+            "Excerpt field and should be copied across in WordPress.")
+    elif plugin:
+        out["warnings"].append(
+            f"{plugin} is installed. Its meta description field becomes "
+            "writable once the Smart 1 Hub plugin is on the site; until then "
+            "the description goes into the Excerpt and is copied across by "
+            "hand.")
+    else:
+        out["warnings"].append(
+            "No SEO plugin was found on this site, so a blog post's meta "
+            "description goes into the post's Excerpt field.")
     return out
 
 
@@ -468,6 +495,11 @@ def plugin_status(cred: dict) -> dict:
         "meta_key": str(body.get("meta_key") or ""),
         "post_types": [str(t) for t in (body.get("post_types") or [])],
         "seo_plugins": [str(x) for x in (body.get("seo_plugins") or [])],
+        # Which SEO plugin's description field this site accepts a write to,
+        # and whose it is. Empty is a real answer and not a failure: the
+        # Excerpt fallback is what the module did before any of this.
+        "description_key": str(body.get("description_key") or ""),
+        "description_by": str(body.get("description_by") or ""),
         "must_use": bool(body.get("must_use")),
         "warnings": [],
     }
@@ -821,7 +853,7 @@ def _upload_featured(cred: dict, post: dict) -> tuple[int | None, str]:
 
 # -------------------------------------------------------------------- posts
 def _post_payload(post: dict, *, category_ids, tag_ids, author_id,
-                  media_id) -> dict:
+                  media_id, description_key: str = "") -> dict:
     body = {
         "title": str(post.get("title") or ""),
         "content": str(post.get("content") or ""),
@@ -831,7 +863,14 @@ def _post_payload(post: dict, *, category_ids, tag_ids, author_id,
         "status": "draft",
     }
     if post.get("meta_description"):
+        # The Excerpt is written either way, and that is deliberate. It was
+        # only ever a CARRIER for the meta description, but it is also a real
+        # field a theme prints under the title on a blog index -- so dropping
+        # it now that the description has somewhere better to go would change
+        # how the client's own blog index renders, which nobody asked for.
         body["excerpt"] = str(post["meta_description"])
+        if description_key:
+            body["meta"] = {description_key: str(post["meta_description"])}
     if category_ids:
         body["categories"] = category_ids
     if tag_ids:
@@ -883,6 +922,21 @@ def publish_posts(client: str, ids: list, *, actor: str = "") -> dict:
     wanted = [i for i in ids if i in posts]
     todo, deferred = wanted[:MAX_POSTS_PER_RUN], wanted[MAX_POSTS_PER_RUN:]
 
+    # Asked ONCE for the run rather than per post: it is one round trip, and
+    # the answer cannot change between two posts in the same press.
+    #
+    # And nothing about it may cost somebody a blog post. Writing the
+    # description into the SEO plugin's own field is an improvement on this
+    # path rather than a precondition for it -- a site with no plugin, or one
+    # that answered this oddly, publishes exactly as it did before and falls
+    # back to the Excerpt.
+    try:
+        plugin = plugin_status(cred)
+    except Exception:                                       # noqa: BLE001
+        plugin = {}
+    description_key = str(plugin.get("description_key") or "")
+    description_by = str(plugin.get("description_by") or "")
+
     author_name = (settings.get("author") or {}).get("name") or ""
     author_id, author_note = (None, "")
     if author_name:
@@ -924,7 +978,8 @@ def publish_posts(client: str, ids: list, *, actor: str = "") -> dict:
             if author_note:
                 row["notes"].append(author_note)
             body = _post_payload(post, category_ids=cats, tag_ids=tags,
-                                 author_id=author_id, media_id=media_id)
+                                 author_id=author_id, media_id=media_id,
+                                 description_key=description_key)
             existing = (post.get("wordpress") or {}).get("post_id")
             path = f"wp/v2/posts/{int(existing)}" if existing else "wp/v2/posts"
             made = _call(cred, "POST", path, json_body=body)["body"]
@@ -941,14 +996,47 @@ def publish_posts(client: str, ids: list, *, actor: str = "") -> dict:
                              "updated": bool(existing)}
         row.update({"ok": True, "post_id": wp_id, "link": link,
                     "edit_url": edit, "updated": bool(existing)})
-        if not post.get("meta_description"):
+        description = str(post.get("meta_description") or "")
+        if not description:
             row["notes"].append("No meta description has been written for this "
                                 "post, so the Excerpt is empty.")
-        elif probe_row.get("seo_plugin"):
+        elif description_key:
+            # A 200 is not evidence a meta key landed: core drops one nothing
+            # registered without complaining, which on this path would be an
+            # older plugin on the site. Read it back off the same response.
+            landed = ""
+            if isinstance(made.get("meta"), dict):
+                landed = str(made["meta"].get(description_key) or "")
+            if landed == description:
+                row["meta_description_field"] = description_by
+                row["notes"].append(
+                    f"The meta description went into {description_by}'s own "
+                    "field, and into the Excerpt. Nothing to copy across.")
+            else:
+                row["notes"].append(
+                    f"The Excerpt has the meta description, but {description_by}'s "
+                    "own field would not take it — that is a plugin on the site "
+                    "older than this Hub. Install the current plugin file, or "
+                    "copy the description across in WordPress.")
+        elif plugin.get("seo_plugins") or probe_row.get("seo_plugin"):
+            # The plugin's answer is read live, this press; the probe row is
+            # what was stored whenever somebody last pressed Check. Where they
+            # disagree the live one is the newer fact.
+            named = (", ".join(plugin.get("seo_plugins") or [])
+                     or probe_row.get("seo_plugin"))
             row["notes"].append(
-                f"The meta description went into the Excerpt field — "
-                f"{probe_row['seo_plugin']} does not accept one over the API, "
-                "so copy it across in WordPress.")
+                f"The meta description went into the Excerpt field. {named} "
+                "keeps its own description somewhere this cannot write to, so "
+                "copy it across in WordPress.")
+        if len(description) > META_DESCRIPTION_SNIPPET:
+            # Reported, never cut. Google truncates the snippet; it does not
+            # refuse the page, and shortening the client's approved copy to fit
+            # is not this module's call.
+            row["notes"].append(
+                f"That description is {len(description)} characters. Google "
+                f"truncates a snippet around {META_DESCRIPTION_SNIPPET}, so the "
+                "end of it will not show. It was written as approved rather "
+                "than cut.")
         published += 1
         results.append(row)
 

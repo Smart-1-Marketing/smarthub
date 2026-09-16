@@ -3091,6 +3091,14 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         +'Written as <b>drafts</b>. Nothing is published and nothing is scheduled.</div></div>'
         +'<div class="seoc-pubfield"><b>Image alt text</b><div class="note" style="grid-column:2/4">'
         +'Written onto the media library item, so it applies everywhere that image is used.</div></div>'
+        +'<div class="seoc-pubfield"><b>Meta descriptions</b><div class="note" style="grid-column:2/4">'
+        +(plug.description_by
+          ? 'Written into <b>'+esc(plug.description_by)+'</b>&rsquo;s own field, and into the Excerpt. '
+            +'Nothing has to be copied across.'
+          : 'Written into the post&rsquo;s Excerpt field and copied across by hand. An SEO plugin&rsquo;s '
+            +'own field becomes writable once the Smart 1 Hub plugin is installed &mdash; except All in '
+            +'One SEO, which keeps its metadata in its own table rather than in post meta.')
+        +'</div></div>'
         +'<div class="seoc-pubfield"><b>Page schema</b><div class="note" style="grid-column:2/4">'
         +(plug.installed
           ? 'Written into the page <b>head</b> through the Smart 1 Hub plugin (version '
