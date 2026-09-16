@@ -2550,6 +2550,22 @@ jobs:
         if: matrix.group == 6
         run: python3 test_radio_parity.py
 
+      # And Fan Radio's half of the same list, which is the other direction.
+      # Every item above landed in the Radio Ad Creator and none of them here,
+      # in the tool writing the same reads for the same clients against the
+      # same clock: Fan Radio had two of the nine checks, so a :30 that never
+      # said the client's web address was a named finding one tool over and
+      # silence in this one, and a required disclaimer was nothing at all
+      # because there was nowhere to type one. The checks are
+      # hub/radio_script_qc.py now and both builders read them, so what this
+      # asserts is that the one table is read twice rather than two that agree
+      # today -- plus the two rows that are genuinely this tool's own, the
+      # trademark verdict and the post-game result rule, on the same panel
+      # rather than beside it.
+      - name: Fan Radio parity — the script panel, its own two rows, the rail
+        if: matrix.group == 6
+        run: python3 test_radio_feature_parity.py
+
       # The sample campaigns both radio builders open empty without. Two
       # things about the seeder are worth holding to an assertion. It must not
       # write a script the tool would flag -- four of the first eight were

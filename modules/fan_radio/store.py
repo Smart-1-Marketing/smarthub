@@ -107,6 +107,15 @@ def create(fields: dict, actor: str = "") -> dict:
         "home_url": fields.get("home_url") or "",
         "promotion": fields.get("promotion") or "",
         "notes": fields.get("notes") or "",
+        # The response number and the required disclaimer the script panel
+        # checks for. Named here because this dict is a fixed field list: a
+        # key the route collects and this function does not copy is dropped
+        # silently, which is the "declared and never wired" failure one level
+        # in -- the route would have accepted a disclaimer and the panel would
+        # have gone on reporting that none was required.
+        "phone": fields.get("phone") or "",
+        "include_phone": bool(fields.get("include_phone")),
+        "disclaimer": fields.get("disclaimer") or "",
         "team_context": fields.get("team_context") or "",
         "tone": fields.get("tone") or "warm",
         "banned": fields.get("banned") or [],

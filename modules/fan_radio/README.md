@@ -7,9 +7,10 @@ asks for changes.
 
 Mounted at `/tools/fan-radio`. It carries the same tools as the Radio Ad
 Creator because it **reads the same modules**, rather than being built to
-resemble them: `hub/radio_spec.py` for the lengths, the budgets, the bed
-vocabulary, the mix levels and the checks; `hub/voice_casting.py` for the
-casting question and the scoring; `hub/radio_share.py` for the client link.
+resemble them: `hub/radio_spec.py` for the lengths, the budgets, the read pace,
+the bed vocabulary, the mix levels and the checks; `hub/radio_script_qc.py` for
+the named script panel; `hub/voice_casting.py` for the casting question and the
+scoring; `hub/radio_share.py` for the client link.
 
 That is a fix rather than a tidy-up. Every one of those used to be a local
 copy here, and three of them had drifted — the versions of this file above
@@ -17,6 +18,45 @@ said "same word budgets" and "same casting" while a :15 was 30–38 words here
 against 35–42 there, and the casting question was missing two of the five
 answers the shared picker offers. Each screen was internally consistent, so
 the only way to notice was to open both.
+
+---
+
+## The script is checked before a voice is paid for
+
+`hub/radio_script_qc.py` is a panel of named checks that runs on the copy, and
+it is **the Radio Ad Creator's panel** rather than one written to match it.
+This tool had two of its nine: a word count against the budget and the
+trademark scan below. So a :30 that never said the client's web address was a
+named finding one tool over and silence here, a required disclaimer that
+quietly did not make the cut was nothing at all — there was nowhere to type
+one — and the way to find out a :30 read short was to spend the ElevenLabs
+characters and listen to the dead air.
+
+Eleven rows now: the brand, the address and the number (`hub/script_contents.py`,
+the same reader the Commercial Builder's CTA check uses); the read estimate and
+the word budget; a disclaimer reproduced word for word; a price, deadline or
+number that traces back to nothing anybody typed (`hub/social_plan.validate_copy`,
+the reader the Social Planner and GPT Ads already share); the brand said often
+enough for the length; stage directions nobody meant to be read aloud; the
+beats; and the two rows that are this tool's own — the **trademark** verdict
+and the **post-game result** rule, which are rows on this panel as well as the
+prose they have always printed above the copy. The prose is the summary and the
+panel is the detail behind a click; what changed is that the nine checks a rep
+could not see are now beside the two they could, rather than the two looking
+like the whole list.
+
+**What may refuse a record is decided by certainty, not severity.** A
+registered mark, a missing disclaimer, an invented price and an address the
+read never says are facts about the text and they refuse a render with a 422.
+A read estimate is words divided by a read pace, so it reports loudly and the
+render still goes — refusing a correct read is how a panel comes to be switched
+off, and switching this one off would cost the trademark check with it.
+
+**And a :10 is neither asked for a response nor judged for leaving one out.**
+The shared length table has said since it was written that ten seconds "cannot
+carry a response somebody acts on"; nothing read it, so the content check would
+have demanded the whole web address in a sponsorship tag. `carries_response` on
+the length row is what the panel and the writing prompt both read now.
 
 ---
 
@@ -85,6 +125,14 @@ Turn the link off, or issue a new one — the old link dies immediately.
   score. Cloning itself lives in the Radio Ad Creator: it makes a voice out of
   somebody's recordings, which is a consent question, and one place to answer
   it is the right number.
+* **A response number and a disclaimer, where the job has them.** Both are on
+  the intake because the panel checks for them: tick *the read has to say it*
+  beside the phone number and a script that leaves it out is a finding before
+  the record, and a disclaimer is matched **word for word**. Neither field
+  existed here, which is why neither check could.
+* **The beats, where a rep can see them.** The shape a length is planned around
+  is drawn beside the copy as well as stated in the prompt. Until it was, a
+  script that had wandered from the plan read exactly like one written to it.
 * **How the name is said.** Pronunciations apply to every spot on the project,
   and *show me what the voice reads* prints the copy ElevenLabs is actually
   handed. Without that line a pronunciation that is not taking looks identical
@@ -190,7 +238,8 @@ Suite's PDF links 403.
 
 | File | Lines | What |
 |---|---|---|
-| `app.py` | ~1410 | Routes: builder API, beds, the mix, the checks, the public approval page |
+| `app.py` | ~1640 | Routes: builder API, beds, the mix, the checks, the public approval page |
+| `qc.py` | ~190 | This tool's reading of its own row over the shared script panel, plus the trademark and post-game rows |
 | `phrases.py` | ~240 | The trademark guard and the safe phrase bank |
 | `catalog.py` | ~180 | Dayparts, tones, outcomes; the lengths read from hub/radio_spec |
 | `ai.py` | ~340 | Brief reading, spot writing, tighten, casting profile |
@@ -202,7 +251,33 @@ Suite's PDF links 403.
 | `templates/library.html` | ~90 | Every project, who approved what |
 
 What is **not** here is as much of the point: the lengths and their
-budgets, the bed vocabulary, the mix levels, the length arithmetic and the
-checks are `hub/radio_spec.py`; the casting question and its scoring are
-`hub/voice_casting.py`; the client link is `hub/radio_share.py`. Each was a
-local copy here once, and the next fix to any of them now lands once.
+budgets, the bed vocabulary, the mix levels, the length arithmetic, the read
+pace and the mix checks are `hub/radio_spec.py`; the named script panel is
+`hub/radio_script_qc.py` and the content rules inside it are
+`hub/script_contents.py` and `hub/social_plan.py`; the casting question and its
+scoring are `hub/voice_casting.py`; the client link is `hub/radio_share.py`.
+Each was a local copy here once, or existed only in the Radio Ad Creator, and
+the next fix to any of them now lands once.
+
+## What is still only in the Radio Ad Creator
+
+Written down rather than left to be discovered as gaps. The first three are
+decisions; the last is an open one.
+
+* **Voice cloning** makes a voice out of somebody's recordings, which is a
+  consent question, and one place to answer it is the right number.
+* **The companion display banner** is a picture, and this is a radio tool.
+* **Variations** clone one spot and patch the offer, which is how a
+  single-slot tool writes a second version. A Fan Radio project already holds
+  every daypart and length as its own spot, so the capability is the data
+  model here rather than a button.
+* **The GoHighLevel opportunity push**, and the staff *approve spot* that
+  gates it. This one is **not** a decision anybody has recorded — it is a
+  difference nobody has closed. Fan Radio's finished work reaches the client
+  through the share link and an optional `FAN_RADIO_NOTIFY_URL` ping, and it
+  appears on the client's 360 record and in their asset home either way, but
+  no Fan Radio spot has ever become an opportunity in the Suite the way a
+  Radio Ad Creator spot does. Closing it means porting three things together
+  — the staff approval, `_file_client_audio`, and the webhook that refuses a
+  spec spot — and deciding whether a football spot should open a pipeline
+  record at all. Worth an answer rather than an assumption.
