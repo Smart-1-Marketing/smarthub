@@ -215,7 +215,7 @@
         stage=document.querySelector(".sys-stage"),countEl=document.getElementById("sys-count"),
         si=0,live=0;
     document.getElementById("sys-core-n").textContent=SYSTEMS.length+" SYSTEMS";
-    function tally(){countEl.textContent=(live<10?"0":"")+live+" / "+SYSTEMS.length}
+    function tally(){countEl.textContent=(live<10?"0":"")+live+" / "+SYSTEMS.length;}
     function sysRow(name,state,status){
       var row=document.createElement("div");
       row.className="system"+(state?" "+state:"");
@@ -226,9 +226,9 @@
        later, because a row that is already lit is a list being printed and a
        row that changes is a system being connected. */
     function mount(){
-      if(si>=SYSTEMS.length){setTimeout(converge,1200);return}
+      if(si>=SYSTEMS.length){setTimeout(converge,1200);return;}
       var row=sysRow(SYSTEMS[si++],"linking","LINKING");
-      setTimeout(function(){row.className="system";row.lastChild.innerHTML="<i></i>ONLINE";live++;tally()},240);
+      setTimeout(function(){row.className="system";row.lastChild.innerHTML="<i></i>ONLINE";live++;tally();},240);
       setTimeout(mount,300);
     }
     /* The point of the panel: all of it, into one. Offsets are measured at
@@ -245,15 +245,15 @@
       feed.classList.add("converge");core.classList.add("on");
       setTimeout(function(){
         core.classList.remove("on");
-        setTimeout(function(){feed.classList.remove("converge");feed.innerHTML="";si=0;live=0;tally();mount()},700);
+        setTimeout(function(){feed.classList.remove("converge");feed.innerHTML="";si=0;live=0;tally();mount();},700);
       },2300);
     }
     if(still){
       /* Nothing moves: the same statement, held still. */
       countEl.textContent=SYSTEMS.length+" SYSTEMS";
-      SYSTEMS.slice(0,6).forEach(function(n){sysRow(n,"","ONLINE")});
+      SYSTEMS.slice(0,6).forEach(function(n){sysRow(n,"","ONLINE");});
       sysRow("+"+(SYSTEMS.length-6)+" MORE","","ONE LOGIN");
-    }else{tally();setTimeout(mount,700)}
+    }else{tally();setTimeout(mount,700);}
 
     var qi=0;setInterval(function(){qi=(qi+1)%messages.length;document.getElementById("quip").textContent=messages[qi]},6200);
     function clock(){document.getElementById("clock").textContent=new Date().toLocaleTimeString("en-US",{hour12:false})}clock();setInterval(clock,1000);
