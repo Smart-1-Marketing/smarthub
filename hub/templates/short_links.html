@@ -3,7 +3,7 @@
 {% block content %}
 <div class="sl">
   <p class="sl-crumb"><a href="/tools">Tools</a> / Client Link Masking</p>
-  <h1>Client Link Masking</h1>
+  <h1>Client Link Masking {{ help_dot('short_links.masking.cloaking') if help_dot is defined else '' }}</h1>
   <p class="sl-sub">
     A link a client opens — a proposal, a preview, a review page — masked
     under our own domain instead of the raw Hub address, with every open
@@ -22,13 +22,13 @@
   <div class="sl-card">
     <h3>Mask a link</h3>
     <div class="sl-form">
-      <div class="sl-fld"><label>Client</label>
+      <div class="sl-fld"><label>Client {{ help_dot('short_links.masking.slug') if help_dot is defined else '' }}</label>
         <input id="slClient" placeholder="Riverside HVAC"></div>
       <div class="sl-fld"><label>Project</label>
         <input id="slProject" placeholder="September proposal"></div>
-      <div class="sl-fld sl-wide"><label>Destination URL</label>
+      <div class="sl-fld sl-wide"><label>Destination URL {{ help_dot('short_links.masking.collision') if help_dot is defined else '' }}</label>
         <input id="slUrl" placeholder="https://smart1.agency/sales/builder/p/…"></div>
-      <div class="sl-fld"><label>Domain</label>
+      <div class="sl-fld"><label>Domain {{ help_dot('short_links.masking.domain') if help_dot is defined else '' }}</label>
         <select id="slDomain">
           {% for d in domains %}
           <option value="{{ d }}" {{ 'selected' if d == default_domain else '' }}>{{ d }}</option>
@@ -44,7 +44,7 @@
   </div>
 
   <div class="sl-card">
-    <h3>Masked links <button class="sl-btn small" id="slRefresh" onclick="refreshClicks()">Refresh opens</button></h3>
+    <h3>Masked links {{ help_dot('short_links.masking.opens') if help_dot is defined else '' }} <button class="sl-btn small" id="slRefresh" onclick="refreshClicks()">Refresh opens</button></h3>
     <div class="sl-bar">
       <input id="slFilter" class="sl-search" placeholder="Filter by client" oninput="renderRows()">
     </div>
