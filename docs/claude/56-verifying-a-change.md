@@ -558,6 +558,14 @@ python3 test_youtube.py            # a client's YouTube channel: a link read
                                    #   saying which variable answered, and the
                                    #   client's page gated on a video or social
                                    #   product AND a confirmed, read channel
+python3 test_suite_email_stats.py   # a client's email campaigns read from their
+                                   #   own Suite sub-account: two scopes, the
+                                   #   campaign list with the statistics
+                                   #   endpoint filling gaps under a cap, five
+                                   #   kinds of nothing drawn apart, the nightly
+                                   #   sweep held back while a scope is missing,
+                                   #   and the client's report gated on a live
+                                   #   email product AND a linked, read account
 python3 test_reports_normalize.py  # the provider normalize, provider check and auto-mapper
 python3 test_reports_public.py     # the client's live report page, its link and the spend rule
 python3 test_reports_crossover.py  # the product-level crossover and the forbidden-word sweep

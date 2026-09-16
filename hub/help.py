@@ -492,6 +492,17 @@ REGISTRY: list[Help] = [
        "person confirms; a wrong channel here is somebody else's "
        "subscriber count under their name. A channel that hides its "
        "subscriber count reads as hidden, never as zero."),
+    _h("hub.client360.suite_email", "Their email campaigns, read last night",
+       "The sent email campaigns on the client's own Smart 1 Suite "
+       "sub-account, with how many were delivered, opened and clicked, "
+       "and the 30- and 90-day totals over them. Read once a night and on "
+       "the Refresh press, never on a page load. Which sub-account is the "
+       "client's is the Suite Account card's decision; this card reads it "
+       "and never guesses. Not linked, not consented, could not read and "
+       "no campaigns are four different sentences here, because a nought "
+       "printed over a refusal would say the client never emailed anyone. "
+       "It needs the two email read scopes on the Hub app, granted by the "
+       "agency owner re-consenting once."),
     _h("hub.client360.adperf", "What their advertising is doing",
        "What the Reports module holds for this client: the campaigns filed "
        "under them, this month's spend by platform beside what they are "

@@ -83,6 +83,7 @@ WANT = {
     "Landing pages": "overview",
     "Google listing": "overview",
     "YouTube channel": "overview",
+    "Email campaigns": "overview",
     "Smart 1 Suite Account": "overview",
     "Pipeline & leads": "overview",
     "Proposals": "overview",
