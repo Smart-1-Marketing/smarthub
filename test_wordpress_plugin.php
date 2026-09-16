@@ -19,7 +19,7 @@
 define('ABSPATH', __DIR__ . '/');
 $GLOBALS['s1_actions'] = array();
 function add_action($hook, $fn, $prio = 10, $args = 1) { $GLOBALS['s1_actions'][$hook][] = $fn; }
-function register_post_meta($t, $k, $a) { $GLOBALS['s1_meta'][$t] = $k; }
+function register_post_meta($t, $k, $a) { $GLOBALS['s1_meta'][$t][] = $k; }
 function get_post_types($a, $b) { return array('post' => 'post', 'page' => 'page', 'attachment' => 'attachment'); }
 function is_singular() { return $GLOBALS['s1_singular']; }
 function get_queried_object_id() { return $GLOBALS['s1_qid']; }
@@ -111,6 +111,29 @@ $out['attachments_are_left_out'] = !in_array('attachment', s1hub_post_types(), t
 $out['the_meta_key_is_the_one_the_hub_writes'] = (S1HUB_META === '_s1hub_schema');
 $out['the_meta_is_registered_for_posts_and_pages'] =
     (array_keys($GLOBALS['s1_meta']) === array('post', 'page'));
+// With no SEO plugin defined in this harness, the schema key is the ONLY one
+// registered -- a description key registered where the plugin that reads it is
+// absent is a row in the client's postmeta nothing will ever read, and the
+// Hub's read-back would report it as written.
+$out['no_description_key_without_an_seo_plugin'] =
+    ($GLOBALS['s1_meta']['post'] === array(S1HUB_META));
+$out['and_none_is_offered_to_the_hub'] = (s1hub_description_keys() === array());
+
+// Now with Yoast present. The key registered is Yoast's OWN, so the value
+// lands in the field Yoast already reads rather than one of ours.
+define('WPSEO_VERSION', '22.0');
+$GLOBALS['s1_meta'] = array();
+foreach ($GLOBALS['s1_actions']['init'] as $fn) { $fn(); }
+$out['yoasts_own_key_is_registered_when_yoast_is_there'] =
+    ($GLOBALS['s1_meta']['post'] === array(S1HUB_META, '_yoast_wpseo_metadesc'));
+$keys = s1hub_description_keys();
+$out['and_the_hub_is_told_which_key_and_whose'] =
+    ($keys === array('Yoast SEO' => '_yoast_wpseo_metadesc'));
+$status = s1hub_rest_status();
+$out['the_status_route_names_it'] =
+    ($status['description_key'] === '_yoast_wpseo_metadesc'
+     && $status['description_by'] === 'Yoast SEO');
+$out['the_version_moved_with_the_contract'] = ($status['version'] === '1.1.0');
 $out['both_routes_are_registered'] = (count($GLOBALS['s1_routes']) === 2);
 
 echo json_encode($out);

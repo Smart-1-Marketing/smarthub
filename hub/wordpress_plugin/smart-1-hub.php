@@ -2,8 +2,8 @@
 /**
  * Plugin Name:       Smart 1 Hub — structured data
  * Plugin URI:        https://smart1.agency
- * Description:       Lets Smart 1 Marketing write approved schema.org JSON-LD onto this site's pages from the Hub, and prints it in the page head. It registers one post meta field and two read-only REST routes. It publishes nothing, changes no page content, and collects nothing.
- * Version:           1.0.0
+ * Description:       Lets Smart 1 Marketing write approved schema.org JSON-LD onto this site's pages from the Hub, and prints it in the page head. It also makes the meta description field of an installed SEO plugin writable over the REST API. It publishes nothing, changes no page content, and collects nothing.
+ * Version:           1.1.0
  * Requires at least: 5.6
  * Requires PHP:      7.2
  * Author:            Smart 1 Marketing
@@ -43,7 +43,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('S1HUB_VERSION', '1.0.0');
+define('S1HUB_VERSION', '1.1.0');
 define('S1HUB_META', '_s1hub_schema');
 define('S1HUB_NS', 's1hub/v1');
 
@@ -55,6 +55,45 @@ define('S1HUB_NS', 's1hub/v1');
  * out: an attachment page is not a page anybody builds schema for, and the Hub
  * already writes `alt_text` on media through core.
  */
+/**
+ * The meta description field of whichever SEO plugin is installed.
+ *
+ * Core can already write a post, its categories and its featured image. The
+ * one field on a published blog post it cannot reach is the meta description,
+ * because every SEO plugin keeps that in its OWN postmeta and none of them
+ * registers it for REST. So the Hub wrote it into the post's Excerpt instead
+ * and told the rep to copy it across by hand -- the last step of publishing a
+ * blog post that a person still had to do twice.
+ *
+ * `register_post_meta()` is additive: registering a key another plugin owns
+ * exposes THAT key to core's REST API, and the value lands in the field the
+ * plugin already reads. Nothing here renders a meta description, and nothing
+ * here reads one back out -- the SEO plugin on the site goes on owning it.
+ *
+ * Only the key of a plugin that is ACTUALLY INSTALLED is registered. Writing
+ * `_yoast_wpseo_metadesc` on a site with no Yoast puts a row in the client's
+ * postmeta that nothing will ever read, and the Hub would report it as
+ * written because the read-back would agree.
+ *
+ * All in One SEO is deliberately absent rather than missing: it stores its
+ * metadata in its own `wp_aioseo_posts` TABLE and not in postmeta, so there is
+ * no key to register and this route cannot reach it at all. Named here so the
+ * next person to wonder does not have to find that out by trying.
+ */
+function s1hub_description_keys() {
+    $keys = array();
+    if (defined('WPSEO_VERSION') || class_exists('WPSEO_Options')) {
+        $keys['Yoast SEO'] = '_yoast_wpseo_metadesc';
+    }
+    if (class_exists('RankMath') || defined('RANK_MATH_VERSION')) {
+        $keys['Rank Math'] = 'rank_math_description';
+    }
+    if (defined('SEOPRESS_VERSION')) {
+        $keys['SEOPress'] = '_seopress_titles_desc';
+    }
+    return $keys;
+}
+
 function s1hub_post_types() {
     $types = get_post_types(array('public' => true, 'show_in_rest' => true), 'names');
     unset($types['attachment']);
@@ -95,6 +134,10 @@ function s1hub_sanitize($value) {
  * default priority already exist by the time this runs.
  */
 function s1hub_register_meta() {
+    $can_edit = function ($allowed, $meta_key, $post_id) {
+        return current_user_can('edit_post', $post_id);
+    };
+    $description_keys = array_values(s1hub_description_keys());
     foreach (s1hub_post_types() as $type) {
         register_post_meta($type, S1HUB_META, array(
             'single'            => true,
@@ -102,10 +145,21 @@ function s1hub_register_meta() {
             'default'           => '',
             'show_in_rest'      => true,
             'sanitize_callback' => 's1hub_sanitize',
-            'auth_callback'     => function ($allowed, $meta_key, $post_id) {
-                return current_user_can('edit_post', $post_id);
-            },
+            'auth_callback'     => $can_edit,
         ));
+        foreach ($description_keys as $key) {
+            // No sanitize_callback of our own: this is the SEO plugin's field
+            // and its own filters still run on the way in. What we must not do
+            // is impose a length or strip characters it would have kept --
+            // that would silently edit copy the client approved.
+            register_post_meta($type, $key, array(
+                'single'        => true,
+                'type'          => 'string',
+                'default'       => '',
+                'show_in_rest'  => true,
+                'auth_callback' => $can_edit,
+            ));
+        }
     }
 }
 add_action('init', 's1hub_register_meta', 20);
@@ -172,14 +226,20 @@ function s1hub_seo_plugins() {
 }
 
 function s1hub_rest_status() {
+    $keys = s1hub_description_keys();
     return array(
-        'plugin'      => 'smart-1-hub',
-        'version'     => S1HUB_VERSION,
-        'meta_key'    => S1HUB_META,
-        'post_types'  => s1hub_post_types(),
-        'seo_plugins' => s1hub_seo_plugins(),
-        'must_use'    => defined('WPMU_PLUGIN_DIR')
-                         && strpos(__FILE__, WPMU_PLUGIN_DIR) === 0,
+        'plugin'           => 'smart-1-hub',
+        'version'          => S1HUB_VERSION,
+        'meta_key'         => S1HUB_META,
+        'post_types'       => s1hub_post_types(),
+        'seo_plugins'      => s1hub_seo_plugins(),
+        // Which SEO plugin's description field this site will accept a write
+        // to, and under what key. Empty is a real answer -- the Hub falls back
+        // to the Excerpt and says so, rather than writing a key nothing reads.
+        'description_key'  => $keys ? reset($keys) : '',
+        'description_by'   => $keys ? key($keys) : '',
+        'must_use'         => defined('WPMU_PLUGIN_DIR')
+                              && strpos(__FILE__, WPMU_PLUGIN_DIR) === 0,
     );
 }
 

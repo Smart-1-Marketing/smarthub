@@ -115,8 +115,11 @@ check("and a static front page, which url_to_postid() answers 0 for, is "
       "page_on_front" in PHP)
 check("invalid JSON is stored as nothing rather than kept",
       "json_last_error()" in PHP)
-check("exactly one meta key is registered, so there is none nothing writes",
-      PHP.count("register_post_meta(") == 1, PHP.count("register_post_meta("))
+# Which keys are registered is asserted at RUNTIME below, against the plugin
+# actually installed -- counting call sites here would pass a registration for
+# a key nothing writes, which is the whole thing that rule is about.
+check("All in One SEO is named as out of reach rather than quietly skipped",
+      "wp_aioseo_posts" in PHP and "All in One SEO" in PHP)
 
 # ------------------------------------------------ the plugin, actually run
 # Everything above is a grep, and a grep over PHP proves the source says
@@ -441,6 +444,10 @@ check("the panel offers both installs, because only one of them is always "
       "format=zip" in html and "format=php" in html)
 check("the FAQ row says the real reason rather than 'REST cannot reach it'",
       "carries its own" in html and "FAQPage" in html)
+check("the panel says where a meta description ends up",
+      "description_by" in html and "Excerpt" in html)
+check("and names All in One SEO as the one this cannot reach",
+      "All in\n            &rsquo;t" not in html and "own table" in html)
 
 
 print(f"\n{PASS} passed, {FAIL} failed")

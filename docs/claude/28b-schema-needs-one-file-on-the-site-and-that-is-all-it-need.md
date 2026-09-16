@@ -161,3 +161,58 @@ and not a refusal — the read-back is the real gate. What *is* named separately
 is a plugin storing under a different key, because that one takes the write,
 stores nothing under the name we read back, and would otherwise report every
 page as rejected with no reason a rep could act on.
+
+### And the same registration closes the last hand-copy step in the blog flow
+
+The plugin was written for schema and the mechanism turned out to be wider
+than that. `register_post_meta()` is **additive**: registering a key another
+plugin owns exposes *that* key to core's REST API, and the value lands in the
+field the plugin already reads. So the one field on a blog post core could not
+reach -- the meta description -- is reachable after all.
+
+It mattered because it was the last step of publishing a post that a person
+still had to do twice. Every post went in with its description in the
+**Excerpt**, and the panel said *"Yoast SEO does not accept one over the API,
+so copy it across in WordPress."*
+
+**Only the key of a plugin that is actually installed is registered.** Writing
+`_yoast_wpseo_metadesc` on a site with no Yoast puts a row in the client's
+postmeta that nothing will ever read -- and the Hub would report it as written,
+because the read-back would agree with itself. `s1hub_description_keys()`
+answers per site, and empty is a real answer.
+
+**All in One SEO is named as out of reach rather than quietly skipped.** It
+keeps its metadata in its own `wp_aioseo_posts` **table**, not in postmeta, so
+there is no key to register and this route cannot reach it at all. Said in the
+plugin, on the panel and in the row, so the next person to wonder does not find
+out by trying.
+
+**The Excerpt is still written, and that is deliberate.** It was only ever a
+*carrier* for the description, and it is also a real field a theme prints under
+the title on a blog index -- so dropping it now that the description has
+somewhere better to go would change how the client's own blog index renders,
+which nobody asked for.
+
+**A long description is reported, never cut.** Google truncates a snippet
+around 160 characters. That is a display limit and not a rejection: nothing
+refuses a longer one, and shortening the client's approved copy to fit
+somebody else's snippet is the clamp `config.music_length_ms()` refuses one
+provider over. The row says how long it is and that it went in as approved.
+
+**No `sanitize_callback` of ours on that key.** It is the SEO plugin's field
+and its own filters still run on the way in. What this must not do is impose a
+length or strip a character the plugin would have kept, because that is
+silently editing copy the client approved.
+
+**And none of it may cost somebody a blog post.** `publish_posts()` asks the
+plugin once per run, inside a `try` -- the description is an improvement on
+that path, not a precondition for it, so a site with no plugin, or one that
+answered oddly, publishes exactly as it did before and falls back to the
+Excerpt. `plugin_status()` catches a `Refused`; the guard is there for
+everything else, and `test_wordpress_publish.py` drives a status route that
+raises something else to prove the post still goes in.
+
+The read-back rule is the same one, for the same reason: core drops an
+unregistered meta key without complaining, which on this path is an older
+plugin on the site. The row says whose field took it, or that the field would
+not take it and what to do about it.
