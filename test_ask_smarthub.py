@@ -215,6 +215,128 @@ class AskHelpTests(unittest.TestCase):
         self.assertIn("What I can read:", out["answer"])
 
 
+class AskOwnWorkTests(unittest.TestCase):
+    """"My clients" is whoever signed in, and no question can change that."""
+
+    def test_no_tool_lets_the_plan_name_whose_work_to_read(self):
+        for name, tool in ask_smarthub.TOOLS.items():
+            for forbidden in ("actor", "email", "owner", "user"):
+                self.assertNotIn(forbidden, tool.arguments,
+                                 f"{name} would let a question choose whose work is read")
+
+    def test_the_actor_comes_from_the_session_not_the_question(self):
+        seen = {}
+        tool = ask_smarthub.Tool("test", ("member",),
+                                 lambda **kw: seen.update(kw) or {"ok": True},
+                                 (), needs_actor=True)
+        with patch.dict(ask_smarthub.TOOLS, {"mine": tool}, clear=True):
+            out = ask_smarthub.execute(
+                {"calls": [{"tool": "mine", "arguments": {
+                    "actor": "someone.else@example.test",
+                    "owner": "someone.else@example.test"}}]},
+                "member", actor="me@example.test")
+        self.assertEqual(seen, {"actor": "me@example.test"})
+        self.assertTrue(out[0]["ok"])
+
+    def test_a_session_with_no_account_is_told_so_rather_than_shown_everybody(self):
+        out = ask_smarthub.my_clients("Shared login")
+        self.assertFalse(out["measured"])
+        self.assertIn("no account behind it", out["message"])
+        self.assertEqual(out["opens"]["href"], "/my-clients")
+
+    def test_my_clients_reads_the_same_run_the_page_draws(self):
+        board = {"measured": True, "clients": 12, "with_issues": 3, "issues": 7,
+                 "billing_monthly": 41000.0,
+                 "top": [{"client": "Quality Air Columbus", "issues": 4,
+                          "url": "/my-clients?client=Quality+Air+Columbus"}]}
+        with patch.dict("sys.modules"), \
+             patch("hub.client_health.scoreboard", return_value=board) as board_fn, \
+             patch("hub.client_owner.clients_for", return_value=["Quality Air Columbus"]):
+            out = ask_smarthub.my_clients("rep@example.test")
+        board_fn.assert_called_once_with(owner="rep@example.test")
+        self.assertTrue(out["measured"])
+        self.assertEqual(out["outstanding_items"], 7)
+        self.assertEqual(out["most_outstanding_first"][0]["client"],
+                         "Quality Air Columbus")
+        self.assertNotIn("message", out)
+
+    def test_nobody_assigned_reads_differently_from_nothing_outstanding(self):
+        board = {"measured": True, "clients": 0, "with_issues": 0, "issues": 0,
+                 "top": []}
+        with patch("hub.client_health.scoreboard", return_value=board), \
+             patch("hub.client_owner.clients_for", return_value=[]):
+            out = ask_smarthub.my_clients("rep@example.test")
+        self.assertIn("No client is assigned to you", out["message"])
+        self.assertEqual(out["opens"]["href"], "/qa/client-owners")
+
+    def test_an_unreadable_book_is_not_a_quiet_zero(self):
+        with patch("hub.client_health.scoreboard",
+                   side_effect=RuntimeError("no table")):
+            out = ask_smarthub.my_clients("rep@example.test")
+        self.assertFalse(out["measured"])
+        self.assertIn("RuntimeError", out["message"])
+
+    def test_qa_tasks_are_summarized_without_internal_ids(self):
+        data = {"measured": True, "error": "", "line": "Two waiting on you.",
+                "counts": {"to_do": 2, "overdue": 1},
+                "to_do": [{"id": 41, "target_label": "Client 360",
+                           "instructions": "Check the spend card",
+                           "status_label": "Open", "due_on_pretty": "Sep 18",
+                           "overdue": True, "created_by_name": "Todd",
+                           "assigned_to_email": "rep@example.test"}],
+                "waiting_on_you": []}
+        with patch("hub.qa_tasks.for_person", return_value=data):
+            out = ask_smarthub.my_qa_tasks("rep@example.test")
+        row = out["waiting_on_you_to_do"][0]
+        self.assertEqual(row["task"], "Client 360")
+        self.assertTrue(row["overdue"])
+        self.assertNotIn("id", row)
+        self.assertEqual(out["opens"]["href"], "/qa-tasks")
+
+    def test_an_unmeasured_next_action_says_so_rather_than_all_clear(self):
+        with patch("hub.next_action.for_client",
+                   return_value={"measured": False, "text": "", "state": "ok",
+                                 "go": "", "href": ""}):
+            out = ask_smarthub.client_next_action("Acme")
+        self.assertFalse(out["measured"])
+        self.assertIn("not the same as nothing being outstanding", out["message"])
+        self.assertNotIn("opens", out)
+
+    def test_a_next_action_offers_the_record_it_points_at(self):
+        with patch("hub.next_action.for_client",
+                   return_value={"measured": True, "text": "Quote expires Friday.",
+                                 "state": "bad", "go": "Open the proposal",
+                                 "href": "/client360?q=Acme"}):
+            out = ask_smarthub.client_next_action("Acme")
+        self.assertEqual(out["opens"], {"label": "Open the proposal",
+                                        "href": "/client360?q=Acme"})
+        self.assertEqual(ask_smarthub.next_steps(
+            [{"tool": "get_client_next_action", "ok": True, "result": out}]),
+            [{"label": "Open the proposal", "href": "/client360?q=Acme"}])
+
+    def test_work_keeps_the_group_member_its_work_was_done_for(self):
+        log = {"count": 2, "last_activity": "2026-09-16T10:00:00+00:00",
+               "by_source": {"Creative Studio": 2},
+               "items": [{"when": "2026-09-16T10:00:00+00:00", "kind": "Banner set",
+                          "source": "Creative Studio", "module": "creative_studio",
+                          "member": "Fast Fingerprints"}],
+               "note": "Assembled from the activity log."}
+        with patch("hub.client_groups.member_names", return_value=["Fast Fingerprints"]), \
+             patch("hub.client_brand.work_log", return_value=log) as work:
+            out = ask_smarthub.client_work("National Background Check", limit=5)
+        work.assert_called_once_with("National Background Check", 5,
+                                     also=["Fast Fingerprints"])
+        self.assertEqual(out["items"][0]["for_group_member"], "Fast Fingerprints")
+        self.assertNotIn("module", out["items"][0])
+
+    def test_no_launch_blockers_says_which_kind_of_empty_it_is(self):
+        with patch("hub.client_brief.build", return_value={}), \
+             patch("hub.launch_blockers.find", return_value=[]):
+            out = ask_smarthub.client_launch_blockers("Acme")
+        self.assertEqual(out["count"], 0)
+        self.assertIn("nobody has scanned also reports nothing", out["note"])
+
+
 class AskGapReportTests(unittest.TestCase):
     """The questions it could read nothing for are already in the log."""
 
