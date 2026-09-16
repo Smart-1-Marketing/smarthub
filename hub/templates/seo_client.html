@@ -57,6 +57,12 @@
     <div id="needsBody" class="seoc-muted">Loading&hellip;</div>
   </div>
 
+  <div class="card seoc-card" id="cardTopics" hidden>
+    <div class="seoc-cardhead"><h3>Topic ideas</h3>
+      <div class="seoc-muted">AI-assisted, from their own keyword opportunities &mdash; never published on their own</div></div>
+    <div id="topicsBody" class="seoc-muted">Loading&hellip;</div>
+  </div>
+
   <div class="card seoc-card" id="cardChecks">
   <div class="seoc-cardhead"><h3>Manual checks</h3>
     <div class="seoc-muted">Ticked by a person &mdash; the strip above is derived from the stores</div></div>
@@ -271,9 +277,11 @@
   <div id="faqStart">
     <p style="margin:2px 0 10px;font-size:13.5px">Enter a page URL. The AI reads that page and the rest of the
       site, then drafts the questions real customers ask &mdash; with answers written to earn FAQ rich results.</p>
+    <p id="faqFocusNote" class="seoc-muted" style="font-size:12px;margin:0 0 8px" hidden></p>
     <div class="seoc-faqbar">
       <input id="faqUrl" data-demo="faq-url"
              placeholder="https://clientsite.com/services/ac-repair">
+      <input id="faqFocus" placeholder="Optional: focus one question on&hellip;">
       <select id="faqCount">
         <option value="5">5 questions</option>
         <option value="6" selected>6 questions</option>
@@ -1264,6 +1272,44 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     railMark('faqs', f.measured?(f.waiting?'warn':'ok'):'', f.waiting||0);
     railMark('llms', l.state==='stale'?'warn':(l.state==='live'?'ok':''), 0);
   }
+  // Its own fetch rather than a key on the detail payload: the queue rows
+  // (h.queue above) already fold into record_health(), and topics are a
+  // second, unrelated question -- "what should we write about" rather than
+  // "what is broken" -- with its own measured flag, so folding it in would
+  // make one card's "not measured" mean two different things.
+  function loadTopicIdeas(){
+    var card=$('cardTopics'), box=$('topicsBody');
+    if(!card||!box) return;
+    fetch('/api/seo/queue?client='+encodeURIComponent(CLIENT)+'&domain='+encodeURIComponent(siteUrl))
+      .then(function(r){return r.json();}).then(function(d){
+        var t=(d&&d.topics)||{}, topics=t.topics||[];
+        if(!t.measured || !topics.length){ card.hidden=true; return; }
+        card.hidden=false;
+        box.innerHTML='<div class="seoc-muted" style="font-size:12px;margin-bottom:6px">'
+          +'From their own top keyword opportunities. Pick one to draft it as an FAQ &mdash; '
+          +'you still choose the page and approve every answer.</div>'
+          +'<div style="display:flex;flex-wrap:wrap;gap:6px">'
+          + topics.map(function(topic){
+              return '<button type="button" class="seoc-btn seoc-sec seoc-small topic-idea" '
+                +'data-topic="'+esc(topic)+'">'+esc(topic)+'</button>';
+            }).join('')
+          +'</div>';
+        box.classList.remove('seoc-muted');
+        box.querySelectorAll('.topic-idea').forEach(function(b){
+          b.addEventListener('click', function(){
+            var topic=b.dataset.topic||'';
+            showSection('faqs');
+            var focus=$('faqFocus'), note=$('faqFocusNote'), urlInp=$('faqUrl');
+            if(focus) focus.value=topic;
+            if(note){
+              note.hidden=false;
+              note.textContent='Suggested from "'+topic+'" — pick the page this belongs on above.';
+            }
+            if(urlInp) urlInp.focus();
+          });
+        });
+      }).catch(function(){ card.hidden=true; });
+  }
   // The audit half of the strip and the queue. `a` is the by-domain payload
   // initAudits fetched; every path through initAudits calls this, because a
   // pill left reading "—" cannot be told from one that failed to load.
@@ -1381,6 +1427,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     safe('biz',     function(){ renderBiz(d); });
     safe('checks',  function(){ renderChecks(d.status); });
     safe('health',  function(){ renderHealth(d.health); });
+    safe('topics',  function(){ loadTopicIdeas(); });
     safe('social',  function(){ loadSocial(); });
     /* Traffic is NOT loaded here any more: it is the expensive read (the
        Google index search plus the GA4 report), and it fires when the
@@ -3324,8 +3371,10 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     var url=$('faqUrl').value.trim();
     if(!url){ $('faqMsg').textContent='Enter the page URL you want FAQs for.'; return; }
     var btn=this; btn.disabled=true;
+    var focus=$('faqFocus').value.trim();
     $('faqMsg').textContent='Reading that page and the rest of the site… (this takes a moment)';
-    post('/api/seo/faq/generate',{client:CLIENT,url:url,count:Number($('faqCount').value||6)})
+    post('/api/seo/faq/generate',{client:CLIENT,url:url,count:Number($('faqCount').value||6),
+                                  focus_topic:focus})
       .then(function(d){
         btn.disabled=false;
         if(d.error){ $('faqMsg').textContent=d.error; return; }

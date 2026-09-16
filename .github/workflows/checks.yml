@@ -3300,6 +3300,13 @@ jobs:
       - name: Proposal proof lines and scan-based scope
         if: matrix.group == 8
         run: python3 test_proposal_scan_insights.py
+      # WO-3 follow-ups: the launch-blocker button on Client 360 matches its
+      # group by a stable key rather than the title's English prose, and
+      # the SEO client page's Topic Ideas card feeds the FAQ Builder a
+      # focus the prompt is told to drop rather than answer from nothing.
+      - name: WO-3 follow-ups -- launch-blocker button, Topic Ideas card
+        if: matrix.group == 8
+        run: python3 test_wo3_followups.py
 
       # The Reports module's store: the fact table is in its own database
       # (REPORTS_DATABASE_URL first, then DATABASE_URL, then a SQLite file),
