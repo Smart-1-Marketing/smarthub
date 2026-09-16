@@ -180,6 +180,16 @@ jobs:
         if: matrix.group == 1
         run: python tools/linkcheck.py
 
+      # The links a person actually clicks. linkcheck above reads URL literals
+      # and pagecheck walks a fixed page list; the sidebar builds its hrefs
+      # from a table in hub/sidebar.py, so a row whose route moved is data
+      # neither of them reads. This asks the nav for its links and follows
+      # them, and checks that every /views/<slug>#<anchor> a group heading
+      # points at is an id that exists on the page it lands on.
+      - name: Menu links and group anchors
+        if: matrix.group == 1
+        run: python tools/menucheck.py --quiet
+
       - name: Ad builder module tests
         if: matrix.group == 1
         run: python test_ads_module.py

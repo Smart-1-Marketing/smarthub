@@ -10,6 +10,7 @@ python tools/jscheck.py            # every .js file and inline block, via node
 python tools/checktemplates.py     # the Jinja-carrying blocks jscheck skips
 python tools/linkcheck.py          # every internal URL resolves, every url_for has a route
 python tools/pagecheck.py          # the page the browser actually receives
+python tools/menucheck.py          # every link the menu emits, and the anchors it aims at
 python tools/integritycheck.py     # known defect patterns
 python tools/spellcheck.py         # American English in everything a person reads
 python3 test_jsonstore.py          # the mirror restores, one answer on who is outside
@@ -739,6 +740,28 @@ the page's script early, and the entire tool rendered blank. It checks that
 the chrome arrives as an *element* (`html.parser` goes raw-text inside
 `<script>` exactly as a browser does, so chrome hidden in a literal is not
 seen) and that every browser-delimited script block still parses.
+
+`tools/menucheck.py` covers the gap between those two. linkcheck reads URL
+literals out of files; pagecheck walks a hand-maintained list of pages. Neither
+asks the navigation what it is actually putting in front of a person, and the
+sidebar builds its hrefs from `LEAVES` in `hub/sidebar.py` rather than from URL
+literals in a template — so a row whose route moved is data nothing reads, and
+`department_tiles()` drops a key missing from `LEAVES` on purpose rather than
+raising, because the nav must never break a page. This asks the nav for its own
+links and follows every one: each department index, each leaf, each tile.
+
+It also checks the half nothing else can see — every flyout group heading links
+to `/views/<slug>#<anchor>`, and a fragment matching no element on the page is
+invisible to every other check here: the link resolves, the page returns 200,
+and the browser silently stays where it is. Both halves were confirmed red
+first, against a leaf pointed at a route that does not exist and against the
+heading rendering without its `id`.
+
+Three non-2xx answers are gates working rather than defects, and `EXPECTED` in
+that file names each with its reason so a fourth is a finding rather than noise
+somebody learns to scroll past: Check Reconciliation's allowlist, the Users
+panel needing a named Admin account, and a proxied mount whose Node process is
+not running outside the container.
 
 `tools/jscheck.py` and `tools/checktemplates.py` split the JavaScript between
 them. jscheck hands every file and every inline block to `node --check`, the
