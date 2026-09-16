@@ -20,6 +20,16 @@ whether to act on that is a person's call. Needs Review otherwise stays what
 it always was: a scan that genuinely could not run (a listing call that
 failed, a login that needs reconnecting), not an activity judgment call.
 
+A container is only checkable against a site somebody can name. The scan
+works one out where it can -- the site last checked, then an exact
+client-registry match on the GTM account's own name -- and records "no
+website could be resolved" for the rest. Those were the rows most in need of
+a check and the most expensive to get one, because each needed its own
+dialog; the bulk check asks `/api/gtm/resolve-url/bulk` first and offers
+every selected container's site in an editable field, so the blanks are
+filled in one pass. A site supplied that way is persisted like any other
+check, so it answers for that container from then on.
+
 A Needs Review row can be skipped, and the scan honors it. A container whose
 tag a site check found genuinely live is never going to be deleted, so
 without this it came back every scan forever with no way to say "seen it,
@@ -1308,6 +1318,60 @@ def api_gtm_resolve_url():
     return jsonify(ok=True, known=bool(url), domain=result.get("domain") or "",
                    client=result.get("client") or "", confidence=result.get("confidence") or "",
                    suggested_url=url)
+
+
+@qa_bp.route("/api/gtm/resolve-url/bulk", methods=["POST"])
+@require_login
+def api_gtm_resolve_url_bulk():
+    """What each of these containers would be checked against, before anything is fetched.
+
+    The bulk site check works out a site per row the same way the automatic
+    scan pass does -- the site it was last checked against, then an exact
+    client-registry match on the GTM account's own name -- and a container
+    neither of those answers for is recorded as "no website could be
+    resolved". Fixing those one dialog at a time is the gap this closes: the
+    page asks here first, shows the answer per row in an editable field, and
+    a person fills in the blanks in one pass.
+
+    Nothing is fetched by this route. It reads the site-check store and the
+    client registry and reports, per row, the URL and where it came from --
+    `checked` (the site it was last checked against), `client` (an exact
+    registry match, with the client it matched so a wrong guess is visible
+    rather than silently used), or `none`.
+    """
+    body = request.get_json(silent=True) or {}
+    rows, error = _bulk_rows(body, BULK_MAX_ROWS)
+    if error:
+        return jsonify(ok=False, error=error), 400
+
+    stored = _site_checks()
+    # One registry lookup per distinct account name rather than per row: a
+    # scan across every login routinely turns up several containers under one
+    # GTM account, and client_key.resolve() is the expensive half of this.
+    resolved: dict[str, tuple[str, dict]] = {}
+    out = []
+    for row in rows:
+        kind, login, resource = _row_identity(row)
+        if kind != "GTM" or not login or not resource:
+            continue
+        account = str(row.get("account") or "").strip()
+        entry = {"kind": "GTM", "login": login, "resource": resource,
+                 "name": str(row.get("name") or ""), "account": account,
+                 "public_id": str(row.get("public_id") or "")}
+        was = str((stored.get(_skip_key("GTM", login, resource)) or {}).get("url") or "").strip()
+        if was:
+            out.append({**entry, "url": was, "source": "checked", "client": ""})
+            continue
+        if account not in resolved:
+            resolved[account] = _resolve_client_url(account)
+        url, result = resolved[account]
+        if url:
+            out.append({**entry, "url": url, "source": "client",
+                        "client": result.get("client") or ""})
+        else:
+            out.append({**entry, "url": "", "source": "none", "client": ""})
+    return jsonify(ok=True, rows=out,
+                   unresolved=sum(1 for r in out if r["source"] == "none"))
 
 
 @qa_bp.route("/api/gtm/site-check", methods=["POST"])

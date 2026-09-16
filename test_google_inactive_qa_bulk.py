@@ -43,6 +43,15 @@ read, so skipping the row would hide however many properties are behind it
 and report a clean sweep of accounts nothing looked at. Both skip routes say
 so in words instead of failing on a field check.
 
+**The bulk check says what it would fetch before it fetches anything.**
+A container is only checkable against a site somebody can name, and the ones
+nothing could name were the rows most in need of checking -- they came back
+"no website could be resolved" and had to be fixed one dialog at a time. The
+resolver route answers, per row and without fetching, which site the check
+would use and where it came from: the site last checked, an exact
+client-registry match (named, so a wrong guess is visible rather than
+silently used), or nothing at all.
+
 **The history panel reads a log that can say it could not be read.** The
 audit endpoint the panel draws answers `ok: false` for a store it cannot
 parse rather than an empty list -- "nothing has been cleaned up" and "the
@@ -438,6 +447,56 @@ check("one it did not find stays an inactive candidate",
 check("...with its own result on the row, rather than nothing",
       (inactive.get("notfound1") or {}).get("site_check", {}).get("found") is False,
       inactive.get("notfound1"))
+
+
+# ---------------------------------------------------------------------------
+section("POST /api/gtm/resolve-url/bulk: what would be fetched, before fetching")
+# ---------------------------------------------------------------------------
+fetched.clear()
+_client_key.resolve = _resolve
+try:
+    status, payload = call(qa.api_gtm_resolve_url_bulk, {"rows": [
+        gtm("found1", "Already checked", "GTM-FOUND1"),
+        gtm("fresh1", "Never checked", "GTM-FRESH1"),
+        gtm("ghost2", "No client match", "GTM-GHOST2", account="Ghost Co"),
+        ga4("p-ga4b", "A property"),
+    ]})
+finally:
+    _client_key.resolve = _real_resolve
+
+by_resource = {r["resource"]: r for r in payload.get("rows") or []}
+check("the request succeeds", status == 200 and payload.get("ok"), payload)
+check("nothing is fetched to answer it", not fetched, fetched)
+check("a container already checked offers the site it was checked against",
+      by_resource["found1"]["source"] == "checked"
+      and by_resource["found1"]["url"] == "https://chosen.example.com", by_resource.get("found1"))
+check("one never checked offers its exact client match",
+      by_resource["fresh1"]["source"] == "client"
+      and by_resource["fresh1"]["url"] == "https://acmeplumbing.com", by_resource.get("fresh1"))
+check("...naming the client it matched, so a wrong guess is visible",
+      by_resource["fresh1"]["client"] == "Acme Plumbing, LLC", by_resource.get("fresh1"))
+check("an account matching no client offers nothing, and says so",
+      by_resource["ghost2"]["source"] == "none" and by_resource["ghost2"]["url"] == "",
+      by_resource.get("ghost2"))
+check("...and is counted, so the dialog can say how many need an address",
+      payload.get("unresolved") == 1, payload.get("unresolved"))
+check("a GA4 row is left out rather than offered a site it has no use for",
+      "p-ga4b" not in by_resource, list(by_resource))
+
+status, payload = call(qa.api_gtm_resolve_url_bulk, {"rows": []})
+check("an empty selection is refused", status == 400, payload)
+
+# A site typed by hand is remembered, so the next resolve finds it without
+# asking -- the whole point of filling one in.
+call(qa.api_gtm_site_check_bulk,
+     {"rows": [{**gtm("ghost2", "No client match", "GTM-GHOST2", account="Ghost Co"),
+                "url": "https://typed-by-hand.example.com"}]})
+status, payload = call(qa.api_gtm_resolve_url_bulk,
+                       {"rows": [gtm("ghost2", "No client match", "GTM-GHOST2", account="Ghost Co")]})
+again = (payload.get("rows") or [{}])[0]
+check("a site supplied by hand is what the next resolve offers",
+      again.get("source") == "checked"
+      and again.get("url") == "https://typed-by-hand.example.com", again)
 
 
 # ---------------------------------------------------------------------------
