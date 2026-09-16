@@ -33,6 +33,7 @@ say "above" or "below" mean earlier or later files in this list.
 | [`26-a-comparison-keyed-on-a-string-google-does-not-send.md`](26-a-comparison-keyed-on-a-string-google-does-not-send.md) | A comparison keyed on a string Google does not send | 46 |
 | [`27-a-clients-document-published-to-the-agencys-own-blog.md`](27-a-clients-document-published-to-the-agencys-own-blog.md) | A client's document, published to the agency's own blog | 50 |
 | [`28-publishing-is-a-prompt-not-a-panel-and-not-a-button.md`](28-publishing-is-a-prompt-not-a-panel-and-not-a-button.md) | Publishing is a prompt, not a panel and not a button | 61 |
+| [`28a-except-that-one-of-the-two-cmses-has-had-a-write-api-all-a.md`](28a-except-that-one-of-the-two-cmses-has-had-a-write-api-all-a.md) | Except that one of the two CMSes has had a write API all along | 158 |
 | [`29-alt-text-is-read-from-the-site-not-invented-for-it.md`](29-alt-text-is-read-from-the-site-not-invented-for-it.md) | Alt text is read from the site, not invented for it | 34 |
 | [`30-getting-a-file-back-out-is-storages-job-not-each-modules.md`](30-getting-a-file-back-out-is-storages-job-not-each-modules.md) | Getting a file back out is storage's job, not each module's | 133 |
 | [`31-a-cache-that-is-careful-with-credits-on-one-worker-in-two.md`](31-a-cache-that-is-careful-with-credits-on-one-worker-in-two.md) | A cache that is careful with credits, on one worker in two | 56 |

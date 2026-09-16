@@ -1521,6 +1521,23 @@ jobs:
             echo "test_blog_publish.py not on this branch — nothing to run."
           fi
 
+      - name: WordPress publishing and the credential store
+        if: matrix.group == 4
+        # The other publishing path: blog drafts and image alt text written
+        # straight into a client's WordPress over the REST API. Asserts the
+        # credential is sealed and never handed back, that a rotated
+        # TOKEN_ENCRYPTION_KEY reads as a state with a fix rather than as no
+        # credential at all, that every post lands as a draft, and that a post
+        # tripping the client's never-mention list is refused by name. Guarded
+        # like the steps around it so this workflow stays mergeable on a
+        # branch that predates the file.
+        run: |
+          if [ -f test_wordpress_publish.py ]; then
+            python test_wordpress_publish.py
+          else
+            echo "test_wordpress_publish.py not on this branch — nothing to run."
+          fi
+
       - name: The hub's own tours and walkthrough buttons
         if: matrix.group == 4
         # That every registered hub tour can actually be offered, and that a

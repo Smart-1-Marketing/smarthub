@@ -5854,6 +5854,118 @@ def create_hub_app() -> Flask:
                   client=client, detail=f"{kind} → {cms}: {len(out.get('items', []))}")
         return jsonify(out)
 
+    # ---------------- WordPress, over the API ----------------
+    # The other half of the publishing story. `hub/cms_publish.py` opens by
+    # saying neither CMS has a write API we can use -- true of Smart 1 Sites
+    # and not true of WordPress, which has had one since 4.7 and application
+    # passwords since 5.6. See hub/wordpress.py for what these will and will
+    # not write, and why schema is not on the list.
+    @app.route("/api/seo/wordpress")
+    def api_seo_wordpress_state():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import cms_credentials
+        client = (request.args.get("name") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        return jsonify(cms_credentials.state(client))
+
+    @app.route("/api/seo/wordpress/connect", methods=["POST"])
+    def api_seo_wordpress_connect():
+        """Discover the REST root, store the credential sealed, then probe.
+
+        The site URL is taken from the client's own record where the form did
+        not carry one, so the ordinary case is a username and an application
+        password and nothing else typed.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo, wordpress
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        site = (body.get("site_url") or "").strip()
+        if not site:
+            site = seo.client_site_url(client)
+        out = wordpress.connect(
+            client, site_url=site,
+            username=(body.get("username") or "").strip(),
+            app_password=(body.get("app_password") or ""),
+            actor=current_user())
+        return jsonify(out), (400 if out.get("error") and not out.get("state") else 200)
+
+    @app.route("/api/seo/wordpress/check", methods=["POST"])
+    def api_seo_wordpress_check():
+        """Re-ask what this credential may do. A button, never a page load."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import cms_credentials, wordpress
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        result = wordpress.probe(client)
+        cms_credentials.record_probe(client, cms_credentials.WORDPRESS, result)
+        return jsonify({"probe": result, "state": cms_credentials.state(client)})
+
+    @app.route("/api/seo/wordpress/disconnect", methods=["POST"])
+    def api_seo_wordpress_disconnect():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import cms_credentials
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        out = cms_credentials.forget(client, cms_credentials.WORDPRESS)
+        if out.get("removed"):
+            audit.log("seo", "wordpress_disconnected", actor=current_user(),
+                      client=client)
+        return jsonify({**out, "state": cms_credentials.state(client)})
+
+    @app.route("/api/seo/wordpress/publish", methods=["POST"])
+    def api_seo_wordpress_publish():
+        """Write the selection into WordPress. Blogs and alt text only.
+
+        Schema and FAQ blocks are refused **by name** rather than quietly
+        absent from the kinds this accepts: a rep who has just used this for
+        blogs will try it for schema, and "unknown kind" is not an answer they
+        can act on.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import wordpress
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        kind = (body.get("kind") or "blogs").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        if kind in ("schema", "faqs"):
+            return jsonify({"error":
+                            "Schema and FAQ blocks cannot be written over the "
+                            "WordPress API: the SEO plugins keep those fields "
+                            "out of REST, and JSON-LD in post content is "
+                            "stripped unless the user has unfiltered_html. Use "
+                            "the Claude → WordPress button for those."}), 400
+        if kind == "alt":
+            out = wordpress.publish_alt(
+                client, [str(u) for u in (body.get("urls") or [])],
+                actor=current_user())
+        elif kind == "blogs":
+            ids = [int(i) for i in (body.get("ids") or []) if str(i).isdigit()]
+            if not ids:
+                return jsonify({"error": "Tick the posts you want to publish."}), 400
+            out = wordpress.publish_posts(client, ids, actor=current_user())
+        else:
+            return jsonify({"error": f"Unknown content kind '{kind}'."}), 400
+        return jsonify(out), (400 if out.get("error") else 200)
+
     # ---------------- SEO alt text ----------------
     @app.route("/api/seo/alt")
     def api_seo_alt():

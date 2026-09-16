@@ -374,6 +374,7 @@
         <a class="seoc-btn seoc-sec seoc-small" id="btnAltCode">&#60;/&#62; See the code</a>
         <button class="seoc-btn seoc-small" data-pub="smart1" data-kind="alt">&#10024; Claude &rarr; Smart 1 Sites</button>
         <button class="seoc-btn seoc-small" data-pub="wordpress" data-kind="alt">&#10024; Claude &rarr; WordPress</button>
+        <button class="seoc-btn seoc-small" data-wppub="alt" id="wpPubAlt" style="display:none">&#8599; Send to WordPress</button>
         <button class="seoc-btn seoc-sec seoc-small" id="btnAltRescan">Re-scan</button>
       </div>
     </div>
@@ -575,7 +576,9 @@
       <b style="font-size:12.5px">Publish selected:</b>
       <button class="seoc-btn seoc-small" data-pub="smart1" data-kind="blogs">&#10024; Claude &rarr; Smart 1 Sites</button>
       <button class="seoc-btn seoc-small" data-pub="wordpress" data-kind="blogs">&#10024; Claude &rarr; WordPress</button>
-      <span class="seoc-muted">Opens the CMS in a new window and writes the prompt for Claude in Chrome.</span>
+      <button class="seoc-btn seoc-small" data-wppub="blogs" id="wpPubBlogs" style="display:none">&#8599; Send to WordPress</button>
+      <button class="seoc-btn seoc-sec seoc-small" id="wpConnectBlogs">WordPress connection</button>
+      <span class="seoc-muted">Claude drives the CMS in Chrome. &ldquo;Send to WordPress&rdquo; writes drafts straight in over the API.</span>
     </div>
     <div style="overflow-x:auto">
       <table class="seoc-blogt"><thead><tr>
@@ -622,6 +625,39 @@
       <span id="pubMsg" class="seoc-muted"></span>
       <a class="seoc-btn seoc-sec seoc-small" id="pubOpen" target="_blank" rel="noopener">Open the CMS again</a>
       <button class="seoc-btn seoc-small" id="pubDone">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- WordPress connection modal ----------
+     The credential is an APPLICATION password, never the site login: it is
+     minted per integration, it cannot sign in to wp-admin interactively, and
+     the client revokes it from their own Users screen without changing
+     anybody's password. Nothing on this screen ever shows the secret back —
+     hub/cms_credentials.state() is built as a subset for exactly that reason,
+     so there is nothing here for a template to forget to omit. -->
+<div class="seoc-modal" id="wpModal">
+  <div class="seoc-modal-box" style="width:760px">
+    <div class="seoc-modal-head"><b>WordPress connection</b><button class="seoc-x" id="wpClose">&times;</button></div>
+    <div class="seoc-modal-body" id="wpBody"></div>
+    <div class="seoc-modal-foot">
+      <span id="wpMsg" class="seoc-muted"></span>
+      <button class="seoc-btn seoc-sec seoc-small" id="wpDone">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ---------- WordPress publish results ----------
+     Its own modal rather than the Claude one: that panel's deliverable is a
+     block of text to paste, and this one's is a list of what happened, row by
+     row. One number back would hide the two that failed. -->
+<div class="seoc-modal" id="wpPubModal">
+  <div class="seoc-modal-box" style="width:820px">
+    <div class="seoc-modal-head"><b id="wpPubTitle">Published to WordPress</b><button class="seoc-x" id="wpPubClose">&times;</button></div>
+    <div class="seoc-modal-body" id="wpPubBody"></div>
+    <div class="seoc-modal-foot">
+      <span id="wpPubMsg" class="seoc-muted"></span>
+      <button class="seoc-btn seoc-small" id="wpPubDone">Close</button>
     </div>
   </div>
 </div>
@@ -2983,6 +3019,195 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
   $('pubClose').onclick=function(){$('pubModal').classList.remove('open');};
   $('pubDone').onclick=function(){$('pubModal').classList.remove('open');};
   $('pubModal').onclick=function(e){if(e.target===this)this.classList.remove('open');};
+
+  // ---------------- WordPress, over the API ------------------------------
+  // The other publishing path. Claude in Chrome drives the admin; this writes
+  // drafts straight in. The two buttons sit side by side because only one of
+  // them exists for a given site: the API one is hidden until the connection
+  // check has actually succeeded, since a button that fails at the moment
+  // somebody is waiting is worse than one that is not there.
+  var wpState=null;
+  function wpRefreshButtons(){
+    var live = !!(wpState && wpState.connected && wpState.readable
+                  && (wpState.probe||{}).ok);
+    ['wpPubBlogs','wpPubAlt'].forEach(function(id){
+      if($(id)) $(id).style.display = live ? 'inline-block' : 'none';
+    });
+    var b=$('wpConnectBlogs');
+    if(b) b.textContent = live ? 'WordPress connection ✓' : 'WordPress connection';
+  }
+  function wpLoadState(){
+    return fetch('/api/seo/wordpress?name='+encodeURIComponent(CLIENT))
+      .then(function(r){return r.json();})
+      .then(function(d){ wpState=d||null; wpRefreshButtons(); return wpState; },
+            function(){ /* a state we could not read is not a connection we
+                           do not have — leave the buttons hidden and say
+                           nothing, rather than drawing a broken one. */
+                        return null; });
+  }
+  function wpRenderConnect(){
+    var d=wpState||{};
+    var enc=d.encryption||{};
+    var pr=d.probe||{};
+    var h='';
+    if(!enc.configured){
+      h+='<div class="seoc-pubwarn"><b>Nothing here can be encrypted yet.</b> '
+        +esc(enc.note||'')+'</div>';
+    }
+    if(d.connected && d.error){
+      h+='<div class="seoc-pubwarn">'+esc(d.error)+'</div>';
+    }
+    if(d.connected && d.readable){
+      h+='<div class="seoc-pubstep"><b>Connected</b><p>'
+        +'REST API: <code>'+esc(d.rest_root)+'</code><br>'
+        +'WordPress user: <b>'+esc(d.username)+'</b>'
+        +(pr.user_name?' — '+esc(pr.user_name):'')
+        +((pr.roles&&pr.roles.length)?' ('+esc(pr.roles.join(', '))+')':'')+'<br>'
+        +'Saved by '+esc(d.saved_by||'somebody')+' on '+esc((d.saved_at||'').slice(0,10))
+        +' — '+(d.sealed?'sealed with TOKEN_ENCRYPTION_KEY':'<b>stored in the clear</b>')
+        +'</p></div>';
+      if(pr.ok===false && pr.error){
+        h+='<div class="seoc-pubwarn">'+esc(pr.error)+'</div>';
+      }
+      (pr.warnings||[]).forEach(function(w){
+        h+='<div class="seoc-pubfield"><b>&#9888;</b><div class="note" style="grid-column:2/4">'+esc(w)+'</div></div>';
+      });
+      h+='<div class="seoc-pubdetail"><b>What this connection will and will not write</b></div>'
+        +'<div class="seoc-pubfield"><b>Blog posts</b><div class="note" style="grid-column:2/4">'
+        +'Written as <b>drafts</b>. Nothing is published and nothing is scheduled.</div></div>'
+        +'<div class="seoc-pubfield"><b>Image alt text</b><div class="note" style="grid-column:2/4">'
+        +'Written onto the media library item, so it applies everywhere that image is used.</div></div>'
+        +'<div class="seoc-pubfield"><b>Schema and FAQs</b><div class="note" style="grid-column:2/4">'
+        +'Not over the API. Yoast and Rank Math keep those fields out of REST, and JSON-LD in '
+        +'post content is stripped unless the user has unfiltered_html. Use the Claude → '
+        +'WordPress button for those.</div></div>';
+    }
+    h+='<div class="seoc-pubdetail"><b>'+(d.connected?'Replace the application password':'Connect this site')+'</b>'
+      +'<span class="seoc-muted"> — an application password, not the site login.</span></div>'
+      +'<p class="seoc-muted" style="margin:0 0 10px">In WordPress: <b>Users → Profile → '
+      +'Application Passwords</b>. Name it &ldquo;Smart 1 Hub&rdquo;, and paste what it shows you '
+      +'— spaces and all. It cannot be used to sign in to wp-admin, and the client can revoke '
+      +'it there without changing anybody’s password.</p>'
+      +'<div class="seoc-pubfield"><b>WordPress username</b>'
+      +'<input id="wpUser" style="grid-column:2/4" value="'+esc(d.username||'')+'"></div>'
+      +'<div class="seoc-pubfield"><b>Application password</b>'
+      +'<input id="wpPass" style="grid-column:2/4" type="text" spellcheck="false" '
+      +'autocomplete="off" placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"></div>'
+      +'<div class="seoc-pubfield"><b>Site URL</b>'
+      +'<input id="wpSite" style="grid-column:2/4" placeholder="(the website on this client’s record)"></div>'
+      +'<div class="seoc-tableacts" style="margin-top:12px">'
+      +'<button class="seoc-btn seoc-small" id="wpSave">'+(d.connected?'Save and re-check':'Connect and check')+'</button>'
+      +(d.connected?'<button class="seoc-btn seoc-sec seoc-small" id="wpCheck">Check the connection again</button>':'')
+      +(d.connected?'<button class="seoc-btn seoc-sec seoc-small" id="wpForget">Disconnect</button>':'')
+      +'</div>';
+    $('wpBody').innerHTML=h;
+    if($('wpSave')) $('wpSave').onclick=wpSave;
+    if($('wpCheck')) $('wpCheck').onclick=wpCheck;
+    if($('wpForget')) $('wpForget').onclick=wpForget;
+  }
+  function wpOpen(){
+    $('wpMsg').textContent='';
+    $('wpModal').classList.add('open');
+    var w=seoBusy('wpMsg','Reading the connection','wait');
+    wpLoadState().then(function(){ w.done(); wpRenderConnect(); });
+  }
+  function wpSave(){
+    var pass=$('wpPass').value;
+    if(!pass.trim()){ seoSay('wpMsg','Paste the application password first.'); return; }
+    var w=seoBusy('wpMsg','Finding the REST API and checking the credentials','scan');
+    post('/api/seo/wordpress/connect',{client:CLIENT,
+        username:$('wpUser').value.trim(), app_password:pass,
+        site_url:$('wpSite').value.trim()}).then(function(d){
+      w.done();
+      if(d.state){ wpState=d.state; wpRefreshButtons(); wpRenderConnect(); }
+      seoSay('wpMsg', d.error ? d.error
+             : 'Connected. '+((d.probe&&d.probe.user_name)||'')+' — drafts only.');
+      if(!d.error) wpLoadState();
+    },function(){ w.done(); seoSay('wpMsg','That did not go through.'); });
+  }
+  function wpCheck(){
+    var w=seoBusy('wpMsg','Asking WordPress what this credential may do','scan');
+    post('/api/seo/wordpress/check',{client:CLIENT}).then(function(d){
+      w.done();
+      if(d.state){ wpState=d.state; wpRefreshButtons(); wpRenderConnect(); }
+      seoSay('wpMsg', (d.probe&&d.probe.ok) ? 'Checked — the connection is live.'
+             : ((d.probe&&d.probe.error)||d.error||'The check did not come back.'));
+    },function(){ w.done(); seoSay('wpMsg','The check did not go through.'); });
+  }
+  function wpForget(){
+    if(!confirm('Disconnect '+CLIENT+' from WordPress?\n\nThe application password stays live in '
+                +'WordPress until somebody revokes it under Users → Profile.')) return;
+    post('/api/seo/wordpress/disconnect',{client:CLIENT}).then(function(d){
+      if(d.state){ wpState=d.state; wpRefreshButtons(); wpRenderConnect(); }
+      seoSay('wpMsg', d.note||'Disconnected.');
+    });
+  }
+  function wpPublish(kind){
+    var body={client:CLIENT,kind:kind};
+    if(kind==='alt'){
+      var urls=selectedUrls('altRows');
+      if(!urls.length){ alert('Tick the pages you want to publish first.'); return; }
+      body.urls=urls;
+    } else {
+      var ids=selectedBlogIds();
+      if(!ids.length){ seoSay('blogWriteMsg','Tick the posts you want to publish first.'); return; }
+      body.ids=ids;
+    }
+    var msgId = (kind==='alt') ? 'altMsg' : 'blogWriteMsg';
+    var w=seoBusy(msgId,'Writing to WordPress','scan');
+    post('/api/seo/wordpress/publish',body).then(function(d){
+      w.done();
+      if(d.error){ seoSay(msgId,d.error); return; }
+      seoSay(msgId,'');
+      wpRenderResults(kind,d);
+      /* The blog table carries where each post ended up, so re-read it rather
+         than patching a row: a panel saying one thing while the table says
+         another is the worst version of this. */
+      if(kind==='blogs' && typeof loadBlogs==='function') loadBlogs();
+      if(kind==='alt' && typeof loadAlt==='function') loadAlt();
+    },function(){ w.done(); seoSay(msgId,'That did not go through.'); });
+  }
+  function wpRenderResults(kind,d){
+    var rows=d.results||[];
+    var good=rows.filter(function(r){return r.ok;}).length;
+    $('wpPubTitle').textContent = (kind==='alt')
+      ? 'Alt text sent to WordPress' : 'Blog posts sent to WordPress';
+    var h='<div class="seoc-pubstep"><b>'+good+' of '+rows.length+' went in.</b><p>'
+      +esc(d.reminder||'')+'</p></div>';
+    if(d.note) h+='<div class="seoc-pubwarn">'+esc(d.note)+'</div>';
+    rows.forEach(function(r){
+      var head = esc(r.title || r.src || '');
+      h+='<div class="seoc-pubitem"><div class="seoc-pubitem-head">'
+        +'<span>'+(r.ok?'&#10003; ':'&#9888; ')+head+'</span>'
+        +'<span class="seoc-muted">'+esc(r.ok?(r.updated?'updated':'draft created'):'not sent')+'</span></div>';
+      if(r.error) h+='<div class="seoc-pubfield"><b>Why</b><div class="note" style="grid-column:2/4">'+esc(r.error)+'</div></div>';
+      if(r.alt) h+='<div class="seoc-pubfield"><b>New alt</b><div class="val" style="grid-column:2/4">'+esc(r.alt)+'</div></div>';
+      (r.pages||[]).forEach(function(u){
+        h+='<div class="seoc-pubfield"><b>On</b><div class="note" style="grid-column:2/4">'+esc(u)+'</div></div>';
+      });
+      (r.notes||[]).forEach(function(n){
+        h+='<div class="seoc-pubfield"><b>&#9888;</b><div class="note" style="grid-column:2/4">'+esc(n)+'</div></div>';
+      });
+      if(r.note) h+='<div class="seoc-pubfield"><b>Note</b><div class="note" style="grid-column:2/4">'+esc(r.note)+'</div></div>';
+      if(r.edit_url) h+='<div class="seoc-pubfield"><b>Draft</b><div class="note" style="grid-column:2/4">'
+        +'<a href="'+esc(r.edit_url)+'" target="_blank" rel="noopener">Open it in WordPress</a></div></div>';
+      h+='</div>';
+    });
+    $('wpPubBody').innerHTML=h;
+    $('wpPubMsg').textContent='';
+    $('wpPubModal').classList.add('open');
+  }
+  document.querySelectorAll('[data-wppub]').forEach(function(b){
+    b.onclick=function(){ wpPublish(b.dataset.wppub); };
+  });
+  if($('wpConnectBlogs')) $('wpConnectBlogs').onclick=wpOpen;
+  $('wpClose').onclick=function(){$('wpModal').classList.remove('open');};
+  $('wpDone').onclick=function(){$('wpModal').classList.remove('open');};
+  $('wpModal').onclick=function(e){if(e.target===this)this.classList.remove('open');};
+  $('wpPubClose').onclick=function(){$('wpPubModal').classList.remove('open');};
+  $('wpPubDone').onclick=function(){$('wpPubModal').classList.remove('open');};
+  $('wpPubModal').onclick=function(e){if(e.target===this)this.classList.remove('open');};
+  wpLoadState();
 
   // blog modal
   var blogModalId=null;

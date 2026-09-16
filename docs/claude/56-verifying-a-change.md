@@ -198,6 +198,15 @@ python3 test_dashboard_trends.py   # the monthly readings accumulate; no card cl
 python3 test_celebrations.py       # birthdays and anniversaries: what is still to come, and who is interrupted
 python3 test_housekeeping.py       # warnings moved off pages nobody can act on, with the page named
 python3 test_blog_publish.py       # blog taxonomy, approved topics, the CMS panels
+python3 test_wordpress_publish.py  # the other publishing path: a credential
+                                   #   sealed and never handed back, a rotated
+                                   #   key that is a state with a fix rather
+                                   #   than an absent connection, every post a
+                                   #   draft, a post tripping the client's own
+                                   #   never-mention list refused by name, a
+                                   #   category matched exactly or created, and
+                                   #   two pages wanting two alts on one image
+                                   #   named rather than last-one-wins
 python3 test_webargs.py            # a caller's number: never a 500, never a
                                    #   negative slice, and the three call
                                    #   sites the shared helper never reached
