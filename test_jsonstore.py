@@ -335,6 +335,30 @@ check("no exemption names a file that is gone",
 check("and the audit says so too", integrity.check_stale_json_exemptions(), [])
 
 
+# ------------------------------- 14a. an fsync a caller arrives holding
+section("Moving to the shared writer may not cost what the caller had")
+# _atomic_write's own docstring says every module that hand-rolled this got it
+# right and it is preserved here so none of them lose it by moving over.
+# modules/seo_intelligence/file_store.py flushed to the platter before its
+# rename, and moving it here without that would have quietly traded it away --
+# which is the exact thing that paragraph exists to prevent.
+_synced = []
+_real_fsync = os.fsync
+os.fsync = lambda fd: (_synced.append(fd), _real_fsync(fd))[1]
+try:
+    js.write_json(os.path.join(TMP, "plain.json"), {"a": 1})
+    check("an ordinary write does not pay for a disk round trip", _synced, [])
+    js.write_json(os.path.join(TMP, "flushed.json"), {"a": 1}, fsync=True)
+    check("and a caller that asks for one gets it", len(_synced), 1)
+finally:
+    os.fsync = _real_fsync
+check("what was written is still what comes back",
+      js.read_json(os.path.join(TMP, "flushed.json")), {"a": 1})
+check("the caller that asks is the one that was doing it itself",
+      "fsync=True" in (REPO / "modules" / "seo_intelligence"
+                       / "file_store.py").read_text(encoding="utf-8"), True)
+
+
 # ------------------------------- 14b. the check that reported nothing
 section("What the unmirrored-JSON check could not see")
 # It answered 0 while hub/leads.py held every lead the business had captured
@@ -427,10 +451,24 @@ for rel in ("modules/io_builder/app.py", "modules/suite_panel/app.py",
           len(js_scan.UNMIRRORED_EXEMPT[rel]) > 60, True)
 
 # What is left is the work, and naming it is the point of the check.
-check("two stores are left on the disk, and these are they",
-      sorted(found),
-      ["modules/check_reconciliation/app.py",
-       "modules/seo_intelligence/file_store.py"])
+check("one store is left on the disk, and this is it",
+      sorted(found), ["modules/check_reconciliation/app.py"])
+
+# seo_intelligence came off that list without moving anywhere, and the reason
+# is the interesting one: context._memory() reads that file ONLY where the
+# SEOMemory query raised, so putting it in the same database would leave the
+# fallback needing the thing it is a fallback for. It is a declared cache
+# instead -- write_json(durable=False) -- which is what the check's own fix
+# text says to do with something rebuildable, and it is a decision written
+# down rather than an exemption nobody re-reads.
+seo_src = (REPO / "modules" / "seo_intelligence"
+           / "file_store.py").read_text(encoding="utf-8")
+check("the SEO handoff goes through the shared writer",
+      js_scan._calls_the_mirror(seo_src), True)
+check("as a declared cache", "durable=False" in seo_src, True)
+check("and it is not exempted as well",
+      "modules/seo_intelligence/file_store.py" in js_scan.UNMIRRORED_EXEMPT,
+      False)
 
 # hub/leads.py came off that list by moving into hub_leads, not by being
 # excused: what is exempt is the fallback it keeps for a database that will
@@ -466,7 +504,7 @@ check("and the header pill ignores resolved rows",
 outstanding = sorted((r["level"], r["title"]) for r in report["risks"]
                      if r["level"] != "low")
 check("the outstanding risk is the JSON still on the disk",
-      outstanding, [("medium", "2 files write JSON outside hub/jsonstore.py")])
+      outstanding, [("medium", "1 file writes JSON outside hub/jsonstore.py")])
 check("and nothing is high", [r for r in report["risks"]
                               if r["level"] == "high"], [])
 

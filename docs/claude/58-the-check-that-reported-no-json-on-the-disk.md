@@ -70,7 +70,34 @@ Three are real, and are the remaining work:
   own `/var/data/check-reconciliation` root, with its own environment
   variable rather than `hub/config.py`.
 - **`modules/seo_intelligence/file_store.py`** — per-client JSON written raw
-  under `data_root()`.
+  under `data_root()`. **Resolved, and not by moving it.** See below.
+
+## One of the three was not a store to move
+
+`modules/seo_intelligence/file_store.py` looked like another store on a disk
+nobody backs up. It is not. `context._memory()` reads that file **only where
+the `SEOMemory` query raised** — it is the offline copy of a database row, for
+the one case where the database cannot answer. Putting it in that same
+database would leave the fallback needing the thing it is a fallback for.
+
+So it goes through `jsonstore.write_json(..., durable=False)` — which is what
+this check's own fix text says to do with something rebuildable: *"If the file
+is genuinely rebuildable, pass `durable=False` and say why."* It is now a
+**declared** cache listed on `status()` beside everything else deliberately
+not backed up, rather than a raw write a scanner has to guess about. Losing it
+costs one weekly regeneration from the row it was built from.
+
+Deliberately not an entry in `UNMIRRORED_EXEMPT`. An exemption says "this
+check does not apply here"; `durable=False` says "this is a cache, and here it
+is on the status page". The second is the true statement, and it is the one
+that survives somebody re-reading the list.
+
+**It kept its `fsync`.** The hand-rolled write flushed to the platter before
+the rename, and `_atomic_write`'s own docstring says every module that
+hand-rolled this got it right and it is preserved here so none of them lose it
+by moving over — so the shared writer takes an `fsync` argument rather than
+quietly trading one away. Off by default, because it costs a real disk round
+trip and most callers here write something a moment's work rebuilds.
 
 ## The assertion that had to change with it
 
