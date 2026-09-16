@@ -97,18 +97,8 @@ REGISTRY: list[Help] = [
        "issue as it stood: if what it says changes, the mark is reported as "
        "superseded and the row is open again, because \u201cnobody has looked\u201d "
        "and \u201csomebody looked at a different ask\u201d are different situations."),
-    _h("client_owner.assign", "Who owns which client",
-       "An assignment is a Hub overlay and is never written to the client "
-       "record \u2014 taking one off leaves everything exactly as it was. What it "
-       "changes is My Clients, which is where the person you assign sees the "
-       "work. A media partner can be a **standing rule**: whatever that "
-       "partner carries belongs to the person named, including clients they "
-       "gain later. Nothing is written per client, so the rule follows the "
-       "book as it changes and clearing it needs no undoing row by row. A "
-       "client assigned by hand keeps that owner, one taken off everybody "
-       "stays off, and a client two partners\u2019 rules disagree about is left "
-       "unassigned and named rather than given to one of them \u2014 every row "
-       "says which of those decided it."),
+    _h("client_owner.assign", "Client owners, Partner, Client Success and Followers",
+       'Use Assign Clients to manage Hub ownership and followers. Partner comes from the client record in Knack; a standing partner rule assigns the current and future clients that partner carries. A manual owner takes precedence, an explicit unassignment stays unassigned, and conflicting partner rules are shown for review. Client Success is read from Knack and cannot be changed here. Add one or more Followers from Assign Clients or Client 360 to let them see the work in My Clients without replacing its owner. Hub assignments and followers do not write back to Knack.'),
     _h("social.planner", "A month of posts in one pass",
        "Builds a client's organic month from what the Hub already knows about "
        "them, so the calendar starts full rather than empty. It stops at a "
@@ -429,8 +419,8 @@ REGISTRY: list[Help] = [
        "didn't take."),
 
     # ---------------- Client 360 ----------------
-    _h("hub.client360.header", "One record per client",
-       "Client 360 brings together the client's products, website, scans, images, proposals, advertising, landing pages, Google listing and YouTube channel. Pipeline & leads reads the client's own Smart 1 Suite sub-account; check the linked account before opening its pipeline. Missing access or unavailable data does not mean the client has no leads.", step=1,
+    _h("hub.client360.header", "Client 360 and its next action",
+       "Client 360 brings together the client's products, website, scans, assets, proposals, advertising and connected accounts. The next-action line highlights the highest-priority finding from existing cards: urgent dated deadlines first, then cold leads and other flagged issues. Open its destination to review the evidence before acting. Nothing urgent on file means no urgent finding in the available readings; unmeasured data is labeled separately. Pipeline & leads reads the client's own Smart 1 Suite sub-account. Client Assets opens the shared home for Client Uploads, Creative and Hub Projects.", step=1,
        selector="[data-tour='client-header']"),
     _h("hub.client360.products", "Products on file",
        "Pulled from Knack. This is what the billing audits compare against — "
@@ -2546,8 +2536,8 @@ REGISTRY: list[Help] = [
     _h('google_access.cleanup.progress', 'Read an incomplete Google cleanup scan',
        'Open Inactive Google Accounts QA and choose Update scan to reuse recently checked resources and refresh the rest. Full rescan ignores those recent checks and reads every resource live. Watch the progress and last-scan information: partial results do not mean the scan has finished. Resource results are saved so a deployment does not erase the work already done. Tag Manager calls are paced to respect Google limits. Read errors before retrying; a resource that could not be read is not evidence of inactivity.',
        link='/tools/google-access/qa-inactive/', link_text="Open tool"),
-    _h('google_access.cleanup.delete', 'Review inactivity before deleting a Google resource',
-       'GA4 inactivity is based on measured events and sessions during the displayed window. GTM has no traffic-reporting API: containers without enough evidence stay in Needs Review. Verify the connected account and resource before confirming deletion. GA4 deletion moves a property to the Analytics trash; GTM container deletion is permanent. Use the scan evidence rather than assuming every old resource is unused.',
+    _h('google_access.cleanup.delete', 'Check a GTM tag on a site before cleanup',
+       "GA4 inactivity uses events and sessions in the displayed window. GTM has no traffic-reporting API: a completed scan lists a container as an inactive candidate unless linked GA4 activity is positively confirmed, even when the linked property is inaccessible. Needs Review covers scans that could not run. Inactive candidate is not proof that a tag is unused. For a GTM row, choose Check site, verify or correct the suggested website, then Check. This searches that page's raw HTML for the container ID; it does not measure traffic or execute the page. Not found on one page does not prove the container is unused elsewhere. Review the account, resource and evidence before deleting. GA4 goes to Analytics trash; GTM deletion is permanent.",
        link='/tools/google-access/qa-inactive/', link_text="Open tool"),
     _h('seo_intelligence.overview.evidence', 'Use Search Console evidence in SEO Intelligence',
        'Open SEO Intelligence for client snapshots and the agency Action Queue. Recommendations use weekly Search Console evidence and 28-day comparisons. A connected Google account needs access to the property and may need reconnection to grant Search Console access. Review the evidence behind a recommendation before creating another page, especially when existing pages compete for the same queries. Record completed actions so later snapshots can measure outcomes.',
@@ -2583,7 +2573,7 @@ REGISTRY: list[Help] = [
        'Client 360 can retain multiple links for a platform and multiple Smart 1 Suite sub-accounts for one client. Check the specific destination before opening or disconnecting a link. Uploaded proposal PDFs keep their original filenames, making the intended file easier to identify when several proposals are on the client record.',
        link='/client360', link_text="Open tool"),
     _h('hub.account.notifications', 'Account menu and QA notifications',
-       'Use the initials circle in the upper-right corner to open the account dropdown and Log out. The notification bell includes radio, video and display processing plus personal QA assignments and updates on tasks you raised. Task links open the QA record; due dates and overdue status help prioritize it. New activity can become unread even if the task status is unchanged. Help is available beside the bell rather than in the main sidebar.',
+       'Use the initials circle in the upper-right corner to open the account dropdown and Log out. The bell includes radio, video and display processing plus personal QA assignments and updates on tasks you raised. Task links open the QA record; due dates and overdue status help prioritize it. New activity can become unread even when the task status is unchanged. Help stays beside the bell. In the sidebar, hover over a department to find its tools, or click a named group heading to open that section of the department page.',
        link='/help', link_text="Open tool"),
     _h('landing_ads.prospects.import', 'Preview a prospect import before activating outreach',
        'In Industry Prospect Builder, upload the list and choose Preview & clean list. Review usable contacts before choosing the GHL sub-account and tags. Leave Activate outreach after import off while checking the first import. Enabling it adds the trigger tag and may start a GHL workflow. Read the imported and failed counts; a partially completed contact may still need its tags retried.', link='/tools/landing-ads/prospects', link_text="Open tool"),
