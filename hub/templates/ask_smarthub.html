@@ -31,6 +31,7 @@
 (function(){
   var thread=document.getElementById('askThread'), empty=document.getElementById('askEmpty'), input=document.getElementById('askInput'), form=document.getElementById('askForm'), send=document.getElementById('askSend');
   var initialClient={{ initial_client|tojson }}, contextPath={{ context_path|tojson }};
+  var initialQuestion={{ initial_question|tojson }};
   var context={client:initialClient,path:contextPath,page_title:document.title};
   var key='s1hub:ask:v1', history=[];
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]});}
@@ -43,7 +44,11 @@
   document.querySelectorAll('.ask-prompt').forEach(function(b){b.addEventListener('click',function(){ask(b.textContent)})});
   document.getElementById('clearHistory').addEventListener('click',function(){history=[];try{localStorage.removeItem(key)}catch(e){}location.reload()});
   document.getElementById('clearContext').addEventListener('click',function(){context={client:'',path:'',page_title:'Ask SmartHub'};document.getElementById('askContext').hidden=true});
-  input.focus();
+  // A question typed into the dashboard's own Ask SmartHub box arrives here
+  // as ?q=, sent once on load rather than left sitting in the input for a
+  // second press -- the dashboard box is a front door, not a second copy of
+  // this chat.
+  if(initialQuestion) ask(initialQuestion); else input.focus();
 })();
 </script>
 {% endblock %}
