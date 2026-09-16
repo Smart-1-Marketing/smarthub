@@ -67,6 +67,8 @@ tri-state: matched, generic-because-unmatched, or generic-because-nothing-was
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 # ---------------------------------------------------------------------------
 # How it gets made. Derived from `commercial_type`, which stays exactly as it
 # is — this is a reading of that column, not a replacement for it.
@@ -594,9 +596,7 @@ GENERIC_PACK = {
 }
 
 
-_CANONICAL_TO_PACK: dict[str, str] | None = None
-
-
+@lru_cache(maxsize=1)
 def _canonical_to_pack() -> dict[str, str]:
     """canonical industry key -> this module's own pack key.
 
@@ -607,9 +607,6 @@ def _canonical_to_pack() -> dict[str, str]:
     Hub already resolved (`marine`, `healthcare`, `recruiting`, `events`)
     still finds the pack it always found.
     """
-    global _CANONICAL_TO_PACK
-    if _CANONICAL_TO_PACK is not None:
-        return _CANONICAL_TO_PACK
     mapping: dict[str, str] = {}
     try:
         from hub.industry import LEGACY_MAP
@@ -618,7 +615,6 @@ def _canonical_to_pack() -> dict[str, str]:
     for pack_key in INDUSTRY_PACKS:
         canon = LEGACY_MAP.get(pack_key, pack_key)
         mapping[canon] = pack_key
-    _CANONICAL_TO_PACK = mapping
     return mapping
 
 
