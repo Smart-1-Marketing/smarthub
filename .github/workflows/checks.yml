@@ -3634,6 +3634,17 @@ jobs:
       - name: The config-driven GroundTruth pull and its check page
         if: matrix.group == 8
         run: python3 test_reports_groundtruth.py
+      # Amazon DSP: five separate claims told apart (a revoked consent, a
+      # consent given by somebody who does not administer the entity, an
+      # API application not approved for the entity, and write access never
+      # probed), one report per advertiser polled inside the StackAdapt
+      # budget with pending carried between ticks rather than paid for
+      # twice, the pre-signed download fetched with no Authorization header,
+      # purchases kept out of conversions, and the Settings card, callback
+      # and disconnect in Smart 1 Ads.
+      - name: The native Amazon DSP pull and its connection
+        if: matrix.group == 8
+        run: python3 test_reports_amazon_dsp.py
       # The organic-search section: gated on an SEO product AND a linked
       # analytics property, the client-facing labels naming no product by
       # default, Search Console missing said neutrally to the client and by
@@ -3754,7 +3765,8 @@ jobs:
                    test_reports_seo.py test_reports_ttd.py test_reports_stackadapt.py \
                    test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
                    test_reports_confirmations.py test_reports_quarantine.py \
-                   test_reports_reconcile.py test_reports_bing.py test_reports_groundtruth.py; do
+                   test_reports_reconcile.py test_reports_bing.py test_reports_groundtruth.py \
+                   test_reports_amazon_dsp.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1
           done
 

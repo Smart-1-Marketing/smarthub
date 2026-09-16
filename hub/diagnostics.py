@@ -209,6 +209,44 @@ def check_microsoft_ads() -> Check:
                  "The pull's last outcome is on /reports/.", 0)
 
 
+def check_amazon_dsp() -> Check:
+    """Off, configured and unconsented, the last pull's own error, or ok --
+    read off the settings and the watermark, and deliberately never probed:
+    the only authenticated call is a token refresh against an entity, and
+    /tools/ads/settings and /reports/ already carry the pull's own last
+    outcome. The field map being unconfirmed is a warning and not an error:
+    the pull runs, and what it files is a claim until somebody has looked."""
+    try:
+        from modules.reports import amazon_dsp
+        st = amazon_dsp.status()
+    except Exception as exc:                            # noqa: BLE001
+        return Check("amazon_dsp", "Amazon DSP", "error",
+                     f"The reports module could not be read ({type(exc).__name__}).", 0)
+    if st["missing"]:
+        names = " / ".join(st["missing"])
+        return Check("amazon_dsp", "Amazon DSP", "off",
+                     f"Not configured — {names} unset; the reports module cannot pull Amazon DSP.", 0,
+                     False, f"Set {names} in the Render dashboard.")
+    if not st.get("connected"):
+        return Check("amazon_dsp", "Amazon DSP", "warn",
+                     "Credentials are set; nobody has consented to the DSP entity yet.", 0,
+                     fix="Open /tools/ads/settings and press Connect Amazon Ads, signed in as an "
+                         "admin on the entity — a rep's own Amazon login reaches nothing.")
+    if st.get("last_error"):
+        return Check("amazon_dsp", "Amazon DSP", "warn",
+                     f"Connected; the last pull said: {st['last_error'][:200]}", 0,
+                     fix="Open /reports/amazon-check: a 403 there is the Amazon Ads API "
+                         "application not being approved for this entity, not a wrong key.")
+    if not st.get("confirmed"):
+        return Check("amazon_dsp", "Amazon DSP", "warn",
+                     f"Connected in {st['region']}; the field map is a transcription nobody has "
+                     "confirmed, so what the pull files is a claim.", 0,
+                     fix="Open /reports/amazon-check, compare a raw row to FIELD_MAP, and flip "
+                         "CONFIRMED in modules/reports/amazon_dsp.py.")
+    return Check("amazon_dsp", "Amazon DSP", "ok",
+                 f"Connected in {st['region']}; the pull's last outcome is on /reports/.", 0)
+
+
 def check_groundtruth() -> Check:
     """Off, the origin owed, configured and never pulled, the last pull's
     own error, or ok -- read off the settings and the watermark, and never
@@ -895,7 +933,7 @@ CHECKS = [
     check_database, check_json_backup, check_activity_log, check_lead_store,
     check_public_base_url,
     check_openai, check_cloudinary,
-    check_brandfetch, check_places, check_youtube, check_microsoft_ads, check_groundtruth, check_insites,
+    check_brandfetch, check_places, check_youtube, check_microsoft_ads, check_groundtruth, check_amazon_dsp, check_insites,
     check_removebg, check_pexels,
     check_pixabay, check_unsplash, check_google_fonts, check_ghl,
     check_ghl_app, check_knack, check_quickbooks, check_google_oauth,
