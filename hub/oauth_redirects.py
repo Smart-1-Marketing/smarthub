@@ -1,6 +1,6 @@
 """Every OAuth redirect URI this Hub will actually send, and where to register it.
 
-Eight OAuth flows run here and each hands a provider a callback URL that has
+Nine OAuth flows run here and each hands a provider a callback URL that has
 to have been registered, verbatim, in that provider's console first. Nothing
 in the Hub listed them: `/diagnostics` said which *variables* resolved, the
 Google Access admin page printed its own one, and the rest were knowable only
@@ -35,7 +35,7 @@ whatever anybody browses, and moving the Hub to a new domain changes them
 *only* when the variable is edited:
 
 * Google Access, Smart 1 Suite, the Ads Grader and Smart 1 Ads' Microsoft
-  Advertising connection, `PUBLIC_BASE_URL`
+  Advertising and Amazon Ads connections, `PUBLIC_BASE_URL`
 * Smart 1 Ads, `GOOGLE_ADS_REDIRECT_URI`, which is a whole URL rather than a
   path and so does not follow `PUBLIC_BASE_URL` either
 
@@ -72,6 +72,8 @@ GOOGLE_CONSOLE = "Google Cloud Console → APIs & Services → Credentials"
 GHL_CONSOLE = "HighLevel Marketplace → your app → Redirect URLs"
 INTUIT_CONSOLE = "developer.intuit.com → your app → Keys & OAuth"
 MICROSOFT_CONSOLE = "Azure portal → App registrations → your app → Authentication → Redirect URIs"
+AMAZON_CONSOLE = ("developer.amazon.com → Login with Amazon → your security profile → "
+                  "Web Settings → Allowed Return URLs")
 
 HOST = "host"  # built from the hostname of the request
 
@@ -210,6 +212,24 @@ FLOWS = (
         # The developer token is the credential Microsoft issues on its own
         # timetable; without it there is nothing to connect for.
         "requires": ("BING_AD_DEVELOPER_TOKEN",),
+    },
+    {
+        "key": "amazon_ads",
+        "label": "Smart 1 Ads — Amazon Ads (DSP entity)",
+        "path": "/tools/ads/oauth/amazon/callback",
+        # PUBLIC_BASE_URL, like the Microsoft flow beside it: the string
+        # pasted into the Login with Amazon console must be the string the
+        # code sends, whichever hostname the entity admin happened to open.
+        # AMAZON_ADS_REDIRECT_URI pins it for the day the two have to differ.
+        "source": "PUBLIC_BASE_URL",
+        "pin": "AMAZON_ADS_REDIRECT_URI",
+        "console": AMAZON_CONSOLE,
+        "client": ("AMAZON_ADS_CLIENT_ID",),
+        "where": "modules/ads_builder/amazon_ads.py",
+        # Without the entity there is nothing to consent to: the consent
+        # inherits the access of whoever presses Connect, and it is the
+        # entity that decides what that reaches.
+        "requires": ("AMAZON_DSP_ENTITY_ID",),
     },
     {
         "key": "suite",

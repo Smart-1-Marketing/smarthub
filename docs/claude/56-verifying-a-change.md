@@ -546,6 +546,14 @@ python3 test_reports_groundtruth.py # the GroundTruth pull, whose key arrived
                                    #   person confirms, the key sent nowhere
                                    #   until the origin is named, visits under
                                    #   their own name and on the client's page
+python3 test_reports_amazon_dsp.py # the native Amazon DSP pull and the
+                                   #   connection behind it: five claims told
+                                   #   apart rather than one "connected", one
+                                   #   report per advertiser polled inside the
+                                   #   budget with pending carried between
+                                   #   ticks, the pre-signed download fetched
+                                   #   with no Authorization header on it, and
+                                   #   purchases kept out of conversions
 python3 test_reports_seo.py        # the organic search section for SEO clients
 python3 test_places.py             # a client's Google listing: proposed once,
                                    #   confirmed by a person, read once a night,
