@@ -3014,16 +3014,6 @@ def ask_gaps() -> dict:
 
 
 REPORTS = {
-    "ask-gaps": {
-        "title": "Questions With No Answer",
-        "desc": "What people asked Ask SmartHub that it could read nothing "
-                "for, most-asked first — the list of what it should be able "
-                "to read next, chosen by the people asking rather than by "
-                "whoever built it.",
-        "ico": "&#10067;",
-        "fn": ask_gaps,
-        "group": "Data Quality",
-    },
     "prospect-queue": {
         "title": "Prospects To Chase",
         "desc": "Who to call, in the order the work has to happen — not in the "
@@ -3049,6 +3039,19 @@ REPORTS = {
         "ico": "&#9679;",
         "fn": active_clients,
         "group": "Clients",
+    },
+    # Placed among the Data Quality reports rather than first, because
+    # /qa orders its groups by the first report it sees in here and
+    # test_prospect_queue.py pins Sales to the top of that page on purpose.
+    "ask-gaps": {
+        "title": "Questions With No Answer",
+        "desc": "What people asked Ask SmartHub that it could read nothing "
+                "for, most-asked first — the list of what it should be able "
+                "to read next, chosen by the people asking rather than by "
+                "whoever built it.",
+        "ico": "&#10067;",
+        "fn": ask_gaps,
+        "group": "Data Quality",
     },
     "knack-field-map": {
         "title": "Knack Field Map",
