@@ -20,9 +20,24 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # A new push supersedes the run in flight for the same branch.
+  # A new push supersedes the run in flight for the same pull request -- the
+  # eight-way matrix is expensive and the older result is about to be stale.
+  #
+  # Pushes to main are NOT cancelled, because main's result is the deploy gate:
+  # the Render service runs autoDeployTrigger: checksPass, and a cancelled run
+  # never reports a pass. Every push to main shares one github.ref, so with
+  # cancel-in-progress on, a merge landing while the previous commit was still
+  # building cancelled it -- and with a ~30 minute suite and merges arriving
+  # faster than that, main stopped going green at all. Measured 2026-09-16:
+  # one of the last sixteen commits on main had a complete run, the rest showed
+  # eight cancelled shards, and releases were going out by hand.
+  #
+  # Main runs still queue rather than running in parallel: one in flight, at
+  # most one waiting, and a third push supersedes the one that is waiting. The
+  # newest commit is therefore always the one that runs to completion, which is
+  # the one worth deploying.
   group: checks-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
