@@ -17,15 +17,18 @@
    column it ran a third of the page down past the bottom of the ask box and
    left that much white space beside it. 372px is what two columns need for
    the longest label in the list to stay on one line -- at 344 "Campaign
-   Support" wrapped, and a wrapped label makes its whole row taller. */
+   Support" wrapped, and a wrapped label makes its whole row taller. The two
+   cards stretch to one another rather than each taking its own height: two
+   boxes side by side with different bottom edges read as a mistake, and
+   whichever is taller is only ever a few rows taller. */
 .top-row{display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:12px;
-  align-items:start;margin:0 0 14px}
+  align-items:stretch;margin:0 0 14px}
 @media(max-width:860px){.top-row{grid-template-columns:1fr}}
 
 /* Kept deliberately short: this card is a doorway to /ask-smarthub, not the
    chat itself, so it earns the height of one question and no more. Every
    figure here is tighter than the card default for that reason. */
-.ask-card{padding:11px 14px}
+.ask-card{padding:11px 14px;display:flex;flex-direction:column}
 .ask-card-head{display:flex;align-items:center;gap:8px;margin-bottom:2px}
 .ask-card-ico{flex:none;width:22px;height:22px;border-radius:6px;
   background:linear-gradient(140deg,#3b5bdb,#5b3bd6);color:#fff;font-size:12px;
@@ -42,8 +45,12 @@
 /* The example questions and the "Enter to send" note share one line rather
    than stacking two -- the note is a caption on the row it follows, and on
    its own line it cost the card more height than it was worth. It drops
-   below the chips only when there is no room beside them. */
-.ask-card-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
+   below the chips only when there is no room beside them. The row sits on
+   the bottom edge of the card (margin-top:auto) so that when the card is
+   stretched to match the list beside it, the spare height falls between the
+   ask box and the chips rather than below everything as dead space. */
+.ask-card-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;
+  margin-top:auto;padding-top:8px}
 .ask-chip{font-size:12px;color:#334155;background:#f8fafc;border:1px solid var(--line);
   border-radius:999px;padding:4px 10px;cursor:pointer;text-align:left}
 .ask-chip:hover{background:#eef2fb;border-color:#9db8e6}
