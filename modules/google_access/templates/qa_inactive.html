@@ -191,7 +191,7 @@ function selectedRows(sec){return rowsOf(sec).filter(r=>SEL[sec].has(keyOf(r)))}
 // A row that is no longer in the section it was picked in -- deleted,
 // skipped into another table, promoted by a site check -- drops out of the
 // selection rather than staying picked invisibly.
-function pruneSelection(){for(const sec of SECTIONS){const live=new Set(rowsOf(sec).map(keyOf));for(const k of Array.from(SEL[sec]))if(!live.has(k))SEL[sec].delete(k)}}
+function pruneSelection(){for(const sec of SECTIONS){const live=new Set(rowsOf(sec).map(keyOf));for(const k of Array.from(SEL[sec]))if(!live.has(k))SEL[sec].delete(k);}}
 function pickCell(sec,r){const k=keyOf(r);return `<td class="pick"><input type="checkbox" data-sec="${sec}" data-key="${esc(k)}"${SEL[sec].has(k)?' checked':''} aria-label="Select ${esc(r.name)}"></td>`}
 
 function rowInactive(r){return `<tr>${pickCell('inactive',r)}<td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${r.public_id?`<small>${esc(r.public_id)}</small>`:''}${siteCheckLine(r.site_check)}</td><td>${esc(r.resource)}</td><td class="num">${n(r.events)}</td><td class="num">${n(r.sessions)}</td><td class="reason">${esc(r.reason)}</td><td><div class="row-actions">${checkButton(r)}<button class="small" data-skip='${encodeURIComponent(JSON.stringify(r))}'>Skip</button><button class="small danger" data-delete='${encodeURIComponent(JSON.stringify(r))}'>Delete</button></div></td></tr>`}
@@ -203,7 +203,7 @@ function render(data){state=data;pruneSelection();$('#inactiveCount').textConten
  $('#reviewBody').innerHTML=data.review.length?data.review.map(rowReview).join(''):'<tr><td colspan="8" class="empty">Nothing needs manual review.</td></tr>';
  $('#skippedBody').innerHTML=data.skipped.length?data.skipped.map(rowSkipped).join(''):'<tr><td colspan="7" class="empty">Nothing skipped.</td></tr>';
  const bits=[];if(data.source_error)bits.push(data.source_error);if(data.errors?.length)bits.push(data.errors.join(' | '));show(bits.join(' — ')); bind(); refreshBulkBars();}
-function bind(){document.querySelectorAll('[data-skip]').forEach(b=>b.onclick=()=>openSkip(JSON.parse(decodeURIComponent(b.dataset.skip))));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>openDelete(JSON.parse(decodeURIComponent(b.dataset.delete))));document.querySelectorAll('[data-unskip]').forEach(b=>b.onclick=()=>unskip(JSON.parse(decodeURIComponent(b.dataset.unskip))));document.querySelectorAll('[data-check]').forEach(b=>b.onclick=()=>openCheck(JSON.parse(decodeURIComponent(b.dataset.check))));document.querySelectorAll('input[data-sec]').forEach(c=>c.onchange=()=>{const s=SEL[c.dataset.sec];if(!s)return;if(c.checked)s.add(c.dataset.key);else s.delete(c.dataset.key);refreshBulkBars()})}
+function bind(){document.querySelectorAll('[data-skip]').forEach(b=>b.onclick=()=>openSkip(JSON.parse(decodeURIComponent(b.dataset.skip))));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>openDelete(JSON.parse(decodeURIComponent(b.dataset.delete))));document.querySelectorAll('[data-unskip]').forEach(b=>b.onclick=()=>unskip(JSON.parse(decodeURIComponent(b.dataset.unskip))));document.querySelectorAll('[data-check]').forEach(b=>b.onclick=()=>openCheck(JSON.parse(decodeURIComponent(b.dataset.check))));document.querySelectorAll('input[data-sec]').forEach(c=>c.onchange=()=>{const s=SEL[c.dataset.sec];if(!s)return;if(c.checked)s.add(c.dataset.key);else s.delete(c.dataset.key);refreshBulkBars();});}
 let pollTimer=null;
 function stopPolling(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
 function setScanningUI(on){$('#refresh').disabled=on;$('#fullRescan').disabled=on;$('#refresh').innerHTML=on?'<span class="spinner"></span>Scanning':'Update scan'}
@@ -365,7 +365,7 @@ function refreshBulkBars(){
       el.disabled=cfg.gtmOnly.includes(id)?gtm===0:picked.length===0;
     }
     const box=$(cfg.all);
-    if(box){box.checked=rows.length>0&&picked.length===rows.length;box.indeterminate=picked.length>0&&picked.length<rows.length}
+    if(box){box.checked=rows.length>0&&picked.length===rows.length;box.indeterminate=picked.length>0&&picked.length<rows.length;}
     const checkBtn=cfg.gtmOnly[0]&&$(cfg.gtmOnly[0]);
     if(checkBtn)checkBtn.textContent=gtm?`Check ${gtm} site${gtm===1?'':'s'}`:'Check sites';
   }
@@ -380,7 +380,7 @@ function clearSelection(sec){toggleAll(sec,false)}
 function chunk(list,size){const out=[];for(let i=0;i<list.length;i+=size)out.push(list.slice(i,i+size));return out}
 async function postJSON(url,body){
   const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  let d={};try{d=await r.json()}catch(e){/* an empty or non-JSON body is reported by status below */}
+  let d={};try{d=await r.json();}catch(e){/* an empty or non-JSON body is reported by status below */}
   if(!r.ok)throw new Error(d.error||`Request failed (HTTP ${r.status})`);
   return d;
 }
@@ -456,7 +456,7 @@ $('#bulkDeleteForm').addEventListener('submit',async e=>{
   e.preventDefault();
   if(!bulkDeleteRows.length)return;
   const total=bulkDeleteRows.length, phrase=$('#bulkDeleteConfirm').value.trim();
-  if(phrase.toUpperCase()!==`DELETE ${total}`){$('#bulkDeleteResult').textContent=`Type DELETE ${total} exactly to confirm.`;return}
+  if(phrase.toUpperCase()!==`DELETE ${total}`){$('#bulkDeleteResult').textContent=`Type DELETE ${total} exactly to confirm.`;return;}
   const b=$('#confirmBulkDelete');b.disabled=true;
   let deleted=0,results=[];
   try{
