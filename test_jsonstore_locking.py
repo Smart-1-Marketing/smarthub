@@ -519,6 +519,22 @@ class DiagnosticsSaysSo(unittest.TestCase):
     def setUp(self):
         self._saved = (jsonstore._lock_backend, jsonstore._lock_timeouts,
                        set(jsonstore._unmirrored_keys))
+        # Seed one blob, because the count has its own early return and this
+        # class is about the LOCK line rather than the count. Without it these
+        # passed locally against a database that happened to hold 34 blobs
+        # from earlier runs and failed on CI's fresh one -- a test reading the
+        # ambient state of the database rather than the code.
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        base = os.environ.get("HUB_DATA_DIR")
+        os.environ["HUB_DATA_DIR"] = self._dir.name
+        if base is None:
+            self.addCleanup(os.environ.pop, "HUB_DATA_DIR", None)
+        else:
+            self.addCleanup(os.environ.__setitem__, "HUB_DATA_DIR", base)
+        seed = os.path.join(self._dir.name, f"seed-{uuid.uuid4().hex}.json")
+        jsonstore.write_json(seed, ["seed"])
+        self.addCleanup(jsonstore._forget, jsonstore.key_for(seed))
 
     def tearDown(self):
         (jsonstore._lock_backend, jsonstore._lock_timeouts, keys) = self._saved
@@ -532,6 +548,18 @@ class DiagnosticsSaysSo(unittest.TestCase):
     @unittest.skipUnless(ON_PG, SKIP_PG)
     def test_the_advisory_lock_reads_ok(self):
         jsonstore._lock_backend = "postgres"
+        jsonstore._lock_timeouts = 0
+        jsonstore._unmirrored_keys.clear()
+        self.assertEqual(self._detail().state, "ok")
+
+    @unittest.skipUnless(ON_PG, SKIP_PG)
+    def test_a_process_that_has_not_locked_yet_says_nothing(self):
+        """"" is "no write has locked yet", not "the lock failed".
+
+        Defaulted to a real backend name this would warn about a degraded
+        lock at every boot, before anything had locked anything.
+        """
+        jsonstore._lock_backend = ""
         jsonstore._lock_timeouts = 0
         jsonstore._unmirrored_keys.clear()
         self.assertEqual(self._detail().state, "ok")

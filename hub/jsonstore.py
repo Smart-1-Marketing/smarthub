@@ -549,7 +549,12 @@ _lock_slots = threading.BoundedSemaphore(LOCK_MAX_HELD)
 # advisory lock timed out and fell back. Reported by status() for the reason
 # _lock_error exists: a deployment serialising less than it thinks it is looks
 # exactly like one that is.
-_lock_backend = "thread-only"
+# "" until exclusive() has actually taken a lock in this process. A process
+# that has not written yet has no lock state to report, and defaulting it to
+# a real backend name would have /diagnostics warning about a degraded lock at
+# every boot, before anything had locked anything -- the check that cries wolf
+# and gets skipped past.
+_lock_backend = ""
 _lock_timeouts = 0
 
 
