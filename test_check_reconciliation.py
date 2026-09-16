@@ -13,6 +13,7 @@ Nothing here reaches QuickBooks or OpenAI: these are the pure halves of the
 module — name normalization, match scoring, allocation suggestion and the
 Payment payload — driven directly.
 """
+import io
 import json
 import os
 import pathlib
@@ -198,6 +199,91 @@ check("a file of the wrong shape reads back as the default",
 check("and keys it does not know are kept",
       cr._shaped({"extra": 1})["extra"], 1)
 
+
+# ---------------------------------------------------------------------------
+print("\nThe check image is read and not kept")
+
+# A scanned check carries an account number, a routing number and a signature.
+# Nothing in this module ever read the stored file back -- no route serves one
+# and the OCR works on the uploaded bytes in memory -- so the file was
+# write-only: all of the exposure and none of the use.
+#
+# Driven through the real route rather than read off the source, because the
+# claim is about what reaches the disk and prose naming a write is not a write.
+cr.app.config["TESTING"] = True
+_client = cr.app.test_client()
+_seen = {}
+_real_extract = cr._extract_check
+
+
+def _fake_extract(raw, mime):
+    _seen["bytes"] = len(raw)
+    return {"payer": "Acme", "amount": "10.00", "date": "2026-09-16",
+            "check_number": "1234", "confidence": 0.9}
+
+
+cr._extract_check = _fake_extract
+cr._owner_gate_saved = cr._owner_gate
+cr._owner_gate = lambda: None          # the gate is asserted elsewhere
+try:
+    _before = set(p.name for p in cr._upload_dir().glob("*")) if cr._upload_dir().exists() else set()
+    _r = _client.post("/api/upload", data={"file": (io.BytesIO(b"fake-check-bytes"), "check.png")},
+                      content_type="multipart/form-data")
+    check("the upload is accepted", _r.status_code, 200)
+    check("...and the OCR still saw the bytes", _seen.get("bytes"), len(b"fake-check-bytes"))
+    check("...and records no filename", _r.get_json()["check"]["file"], "")
+    _after = set(p.name for p in cr._upload_dir().glob("*")) if cr._upload_dir().exists() else set()
+    check("...and wrote nothing to the uploads directory", _after, _before)
+finally:
+    cr._extract_check = _real_extract
+    cr._owner_gate = cr._owner_gate_saved
+
+# The resolver stays, because a check recorded before this change carries a
+# filename and deleting that check should still take its file with it.
+check("the uploads path is still resolvable for old rows",
+      cr._upload_dir().name, "uploads")
+
+
+# ---------------------------------------------------------------------------
+print("\nSweeping the images the old upload path left behind")
+
+_up = cr._upload_dir()
+_up.mkdir(parents=True, exist_ok=True)
+(_up / "chk_aaa.png").write_bytes(b"scan-one")
+(_up / "chk_bbb.jpg").write_bytes(b"scan-two-longer")
+(_up / "nested").mkdir(exist_ok=True)            # a directory must survive
+(_up / "nested" / "keep.txt").write_bytes(b"not mine to delete")
+_res = cr.sweep_legacy_uploads()
+check("it removes the images", _res["removed"], 2)
+check("...and counts the bytes it freed", _res["bytes"], len(b"scan-one") + len(b"scan-two-longer"))
+check("...and the files are actually gone",
+      sorted(x.name for x in _up.iterdir()) if _up.exists() else [], ["nested"])
+check("...and it does not recurse into a directory",
+      (_up / "nested" / "keep.txt").exists(), True)
+check("...and nothing failed", _res["failed"], 0)
+
+# Second run is a no-op rather than an error: it runs on every boot, so being
+# idempotent is the property that makes having no marker safe.
+_again = cr.sweep_legacy_uploads()
+check("a second sweep removes nothing", _again["removed"], 0)
+
+# An empty directory is taken away with the files; a missing one is not an
+# error, because that is the steady state on every boot after the first.
+import shutil as _sh
+_sh.rmtree(_up, ignore_errors=True)
+_gone = cr.sweep_legacy_uploads()
+check("no directory is not a failure", (_gone["removed"], _gone["failed"], _gone["swept"]),
+      (0, 0, False))
+
+# It may never raise: a cleanup that stops a worker coming up is worse than the
+# files it was cleaning.
+_real_dir = cr._upload_dir
+cr._upload_dir = lambda: (_ for _ in ()).throw(RuntimeError("disk gone"))
+try:
+    check("a failure inside it is reported, not raised",
+          cr.sweep_legacy_uploads()["removed"], 0)
+finally:
+    cr._upload_dir = _real_dir
 
 # ---------------------------------------------------------------------------
 print("\nTwo workers, which is the only way a lost write shows")

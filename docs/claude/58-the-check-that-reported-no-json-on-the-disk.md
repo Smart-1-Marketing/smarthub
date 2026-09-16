@@ -141,10 +141,29 @@ other — the measurement `hub/leads.py` records as 30 of 60 leads surviving.
 The check was confirmed red against a neutered flock before it was confirmed
 green.
 
-**Not moved:** `uploads/`, which holds the scanned check images. Those are
-binary, and the repo's answer for binary is Cloudinary through
-`hub/storage.py` — a different change from moving the JSON writers, and one
-that deserves its own decision rather than being folded in here.
+**Not moved, and then not kept.** `uploads/` held the scanned check images.
+The reflexive answer was Cloudinary through `hub/storage.py`, which is what
+this repo does with binary — and it is the wrong one here twice over.
+
+Nothing ever read the file back. Every route the module serves is OAuth, the
+status, the checks JSON, the uploads, the per-check actions and the audit; not
+one serves an image, and `_extract_check` works on the uploaded bytes in memory
+rather than on a path. The file was written, its name recorded, and unlinked
+when the check was deleted. Write-only.
+
+And a scanned check carries an account number, a routing number and a
+signature. `storage.put()` uploads at `type="upload"`, which is public to
+anyone with the delivery URL; `signed_url()` signs an upload-type asset, which
+does not make the underlying object private. So the move would have traded a
+disk behind an owner gate for a public-by-URL address, to buy durability
+nothing was consuming.
+
+So the bytes are read and dropped. `_upload_dir()` still resolves, because a
+check recorded before this carries a filename and deleting that check should
+still take its file with it — the rule this repo applies to a log name it will
+not rename, wearing a directory. New checks record an empty `file`. Asserted
+through the real upload route rather than read off the source: prose naming a
+write is not a write, and the claim here is about what reaches the disk.
 
 ## The assertion that had to change with it
 
