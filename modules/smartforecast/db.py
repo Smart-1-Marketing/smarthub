@@ -241,10 +241,6 @@ class Cursor:
 
 _PRAGMA = re.compile(r"^\s*PRAGMA\s+(\w+)\s*(?:=\s*(\S+))?\s*$", re.I)
 
-# The ledger row `PRAGMA user_version` becomes. Version 0 is "nothing applied
-# yet", which is what a SQLite database with no user_version answers too.
-_LEDGER_VERSION_KEY = 0
-
 
 class Connection:
     """A `sqlite3.Connection` in behaviour, over a SQLAlchemy connection."""

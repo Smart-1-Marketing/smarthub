@@ -273,6 +273,37 @@ class Backup(unittest.TestCase):
         self.assertEqual(db.in_managed_backup(), ON_PG)
 
 
+class WhichDatabaseThisModuleIsOn(unittest.TestCase):
+    """A setting, re-read, rather than latched on the first call."""
+
+    def tearDown(self):
+        db._reset_engine_for_tests()
+        db.engine()
+
+    def test_a_changed_database_url_is_picked_up(self):
+        """`hub/jsonstore._init()` gives the reason at length and the same
+        thing is true here: a DATABASE_URL that changes after the first query
+        was otherwise read as applied while every row went on landing in the
+        database the first call happened to see. The remembered URL is what
+        notices -- it looks unread, because the only read is in the function
+        that also assigns it."""
+        first = db.engine()
+        self.assertIsNotNone(first)
+        real = os.environ["DATABASE_URL"]
+        other = "sqlite:///" + os.path.join(TMP, "somewhere-else.sqlite3")
+        try:
+            os.environ["DATABASE_URL"] = other
+            self.assertIsNot(db.engine(), first)
+            self.assertEqual(db.dialect(), "sqlite")
+        finally:
+            os.environ["DATABASE_URL"] = real
+
+    def test_an_unchanged_url_reuses_the_engine(self):
+        """The re-read costs one environment read, not a new pool."""
+        first = db.engine()
+        self.assertIs(db.engine(), first)
+
+
 class OneDatabaseForEveryModule(unittest.TestCase):
     """The names are shared now, and two of them are the obvious ones.
 
