@@ -206,8 +206,10 @@ check("...and the campaign has left the list", body.count('name="client_name"'),
 check("...and is on the recently-mapped list", "Acme Co" in body and "d:acme.com" in body)
 check("the store agrees", store.mapped_campaigns()[0]["client"], "d:acme.com")
 
-with open(os.environ["AUDIT_LOG_PATH"], encoding="utf-8") as fh:
-    entries = [json.loads(ln) for ln in fh if ln.strip()]
+# Through the module: the activity log's backend is the database now, so
+# reading AUDIT_LOG_PATH reads a fallback nothing writes to.
+from hub import audit as _audit                                  # noqa: E402
+entries = list(reversed(_audit.read(limit=2000)))
 mapped = [e for e in entries if e.get("module") == "reports" and e["type"] == "campaign_mapped"]
 check("the mapping is in the activity log", len(mapped), 1)
 check("...under the client's name, so it lands on their record",
@@ -347,8 +349,10 @@ body = r.get_data(as_text=True)
 check("a budget line is added", "Budget line #" in body and "$2,500.00" in body)
 check("...marked manual", "Manual" in body)
 check("...and the store agrees", store.budget_lines()[0]["product"], "CTV")
-with open(os.environ["AUDIT_LOG_PATH"], encoding="utf-8") as fh:
-    entries = [json.loads(ln) for ln in fh if ln.strip()]
+# Through the module: the activity log's backend is the database now, so
+# reading AUDIT_LOG_PATH reads a fallback nothing writes to.
+from hub import audit as _audit                                  # noqa: E402
+entries = list(reversed(_audit.read(limit=2000)))
 check("the budget is in the activity log under the client",
       [e.get("client") for e in entries if e.get("type") == "budget_added"], ["Acme Co"])
 
@@ -639,8 +643,10 @@ check("the row with more clicks than impressions is held, not filed",
       [(h["campaign_id"], h["rule"]) for h in _held], [("c-52", "clicks_over_impressions")])
 _un = [u["campaign_id"] for u in store.unmapped_campaigns() if u["platform"] == "linkedin"]
 check("the written campaign is on the unmapped queue, filed under nobody", _un, ["c-51"])
-with open(os.environ["AUDIT_LOG_PATH"], encoding="utf-8") as fh:
-    entries = [json.loads(ln) for ln in fh if ln.strip()]
+# Through the module: the activity log's backend is the database now, so
+# reading AUDIT_LOG_PATH reads a fallback nothing writes to.
+from hub import audit as _audit                                  # noqa: E402
+entries = list(reversed(_audit.read(limit=2000)))
 _up = [e for e in entries if e.get("module") == "reports" and e["type"] == "csv_uploaded"]
 check("the upload is in the activity log with who did it and what landed",
       (len(_up), _up[-1].get("actor"), _up[-1].get("rows"), _up[-1].get("quarantined"))

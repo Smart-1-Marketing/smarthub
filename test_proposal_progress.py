@@ -90,13 +90,17 @@ def _read(*parts):
 
 
 def _log_at(when, module, action, client, **extra):
-    """An activity-log row at a chosen date. audit.log() stamps the clock,
-    and the floor under the evidence is the run's own day, so an entry
-    from before the run has to be written with its date on it."""
-    row = {"time": when, "module": module, "type": action, "actor": "t", "client": client}
-    row.update(extra)
-    with open(os.environ["AUDIT_LOG_PATH"], "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row) + "\n")
+    """An activity-log row at a chosen date.
+
+    The floor under the evidence is the run's own day, so an entry from before
+    the run has to carry its date. Written through audit.log() rather than
+    appended to the JSONL file, because the log's backend is the database now
+    and a row in that file is one no reader looks at -- this seeding went on
+    "passing" against it, which is a check that cannot fail. `time` in the
+    extras is what sets the date; log() documents that it wins.
+    """
+    from hub import audit
+    audit.log(module, action, actor="t", client=client, time=when, **extra)
 
 
 CLIENT = "Acme Tyre"

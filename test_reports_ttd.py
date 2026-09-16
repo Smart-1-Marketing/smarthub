@@ -274,9 +274,9 @@ check("...that does not carry the token", TOKEN not in json.dumps(res) and TOKEN
 check("...nor does the watermark", TOKEN not in store.sync_status()["ttd"]["error"])
 check("...while still saying what happened", "HTTP 403" in res["error"])
 STATE["fail_download"] = False
-audit = Path(os.environ["AUDIT_LOG_PATH"])
+from hub import audit as _audit                                  # noqa: E402
 check("nothing in the activity log carries it",
-      TOKEN not in (audit.read_text() if audit.exists() else ""))
+      TOKEN not in json.dumps(_audit.read(limit=2000)))
 src = (ROOT / "modules" / "reports" / "ttd.py").read_text(encoding="utf-8")
 check("the module never logs the token (no log call names it)",
       "log." not in src.split("def request")[1].split("def _paged")[0])

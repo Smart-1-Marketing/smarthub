@@ -73,15 +73,14 @@ NOW = datetime.now(timezone.utc)
 
 def log_order(order, client, days_ago, start="", partner="", monthly=0):
     """Write an io_submitted entry and back-date it."""
+    # Stamped rather than written and then rewritten on disk: the log's
+    # backend is the database now, so editing the last line of the JSONL file
+    # edits something no reader looks at. `time` in the extras wins, which is
+    # documented in log() for exactly this.
     audit.log("io_builder", "io_submitted", actor="Harness", client=client,
               order=order, partner=partner or None, start=start or None,
-              monthly=monthly or None)
-    path = os.environ["AUDIT_LOG_PATH"]
-    lines = open(path, encoding="utf-8").read().splitlines()
-    entry = json.loads(lines[-1])
-    entry["time"] = (NOW - timedelta(days=days_ago)).isoformat(timespec="seconds")
-    lines[-1] = json.dumps(entry)
-    open(path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+              monthly=monthly or None,
+              time=(NOW - timedelta(days=days_ago)).isoformat(timespec="seconds"))
 
 
 def orders_in(data):

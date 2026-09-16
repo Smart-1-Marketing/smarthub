@@ -90,8 +90,8 @@ def daily(platform, acct, camp, name, spend_by_day: dict):
 
 
 def entries():
-    p = Path(os.environ["AUDIT_LOG_PATH"])
-    return [json.loads(l) for l in p.read_text().splitlines() if l.strip()] if p.exists() else []
+    from hub import audit
+    return list(reversed(audit.read(limit=2000)))
 
 
 # ------------------------------------------------------------ the book

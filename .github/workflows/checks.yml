@@ -431,6 +431,42 @@ jobs:
             echo "test_jsonstore_locking.py not on this branch — nothing to run."
           fi
 
+      - name: Activity log store tests
+        if: matrix.group == 2
+        # The activity log moved off the JSONL file on the Render disk and
+        # into hub_activity. Two ways that could have been done and silently
+        # not done, and both are asserted here rather than inferred from a
+        # passing suite: AUDIT_LOG_PATH must not select the backend (the live
+        # service sets it, so "the file when it is set" keeps production on
+        # the disk with every test green), and the database must not be gated
+        # on Postgres (78 of the 79 test files that set AUDIT_LOG_PATH pin
+        # DATABASE_URL at a SQLite file, so a Postgres-only rule leaves every
+        # one of them on the old backend). Guarded like the steps around it so
+        # this workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_audit_store.py ]; then
+            python test_audit_store.py
+          else
+            echo "test_audit_store.py not on this branch — nothing to run."
+          fi
+
+      - name: Activity log store against Postgres
+        if: matrix.group == 2
+        # The backend rule is "the database wherever the shared engine
+        # answers", so both shapes have to be exercised: the run above is
+        # SQLite, which is what 78 of the 79 test files pin, and this is
+        # production's. Asserted on both rather than reasoned about, because
+        # the failure that made this move necessary at all was a backend
+        # nobody had checked.
+        env:
+          S1_AUDIT_TEST_DB: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          if [ -f test_audit_store.py ]; then
+            python test_audit_store.py
+          else
+            echo "test_audit_store.py not on this branch — nothing to run."
+          fi
+
       - name: Database boot tests
         if: matrix.group == 2
         # A database briefly unreachable during a deploy, and the four ways

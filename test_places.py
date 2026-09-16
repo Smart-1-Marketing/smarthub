@@ -91,11 +91,15 @@ def _place(pid="ChIJacme", name="Acme Plumbing", website="https://acme.com",
 
 
 def entries():
-    try:
-        with open(os.environ["AUDIT_LOG_PATH"], encoding="utf-8") as fh:
-            return [json.loads(ln) for ln in fh if ln.strip()]
-    except FileNotFoundError:
-        return []
+    """Oldest first, read through the module rather than off the file.
+
+    The activity log's backend is the database now, so a test that opens
+    AUDIT_LOG_PATH is asserting about a fallback nothing writes to while the
+    thing it means to check is somewhere else -- which is a check that passes
+    whatever the code does.
+    """
+    from hub import audit
+    return list(reversed(audit.read(limit=500)))
 
 
 # ---------------------------------------------------------------------------

@@ -3233,6 +3233,101 @@ lead books and there is nothing authoritative to read. The same is true of
 every SQLite file on the disk. Those are a store problem rather than a lock
 problem, and the lock is what had to be right first.
 
+**And the log the whole Hub writes through was a file on that same disk.**
+`hub/audit.py` is where every module files what it did, and it appended JSONL
+to `/var/data`. Two things were wrong with that and only one of them was the
+backup. The disk is outside the database backup, which is the argument this
+module opens with. The other is worse and is what the flock above cannot
+reach: **a file is local to one instance**, so the two halves of a
+zero-downtime deploy keep two histories, each complete-looking, and
+`/activity` shows whichever one the browser reached. This is the record
+somebody reconstructs an incident from, and a record that depends on which
+worker answered is not one.
+
+The rows are `hub_activity` now, through the shared engine.
+
+**`AUDIT_LOG_PATH` had to stop deciding anything, and that is the half the
+obvious design gets wrong.** It names *where the file is*, and this
+deployment sets it — so "the file when it is set, the database otherwise"
+reads as a sensible migration switch and would have kept **production on the
+disk** while every test passed on the new path. The reverse is as bad and is
+why the database is deliberately not gated on Postgres: **78 of the 79 test
+files that set that variable pin `DATABASE_URL` at a SQLite file of their
+own**, so a Postgres-only rule leaves every one of them exercising the file
+backend while production runs the table. A backend no test exercises is a
+backend nobody has checked. The rule is *the database wherever the shared
+engine answers*, which is Postgres in production and SQLite in a test — the
+same shape at both ends. `test_audit_store.py` asserts both by name, and
+reads the module's **AST** to require `AUDIT_LOG_PATH` to be consulted in
+`_path()` and nowhere else: a rule reading it back in somewhere else is
+invisible to any behavioural check that happens to run with it set.
+
+**Read and tail are one function.** They were two because the file had a
+cheap way and an expensive one — load the whole JSONL and reverse it, or seek
+a byte window from the end and guess how many rows fitted — and a query with
+an `ORDER BY` and a `LIMIT` is neither. Both names stay, because ten call
+sites use one or the other and which of the two somebody reached for was
+never a decision about the answer. Ordering is by **`id`**, which is
+insertion order and therefore the exact analogue of the file's own: ordering
+on the timestamp would reorder every row written inside one second, and the
+log stamps to the second.
+
+**The history is carried across once, across every instance.** The check for
+whether the import has run and the insert have to be inside one lock, or two
+workers both read *not yet* and the whole of it lands twice — so the marker
+is written through `jsonstore.update_json()`, which is the lock the section
+above exists to have built. Two more rules on it. The marker is **durable and
+is not the row count**: "the table is empty" would replay the entire old file
+the first time `rotate()` pruned it back to nothing, a migration firing again
+years later on a log somebody had pruned on purpose. And **a file that could
+not be read is not a file with nothing in it** — nothing is marked done on a
+failed read, so the next boot tries again rather than recording that a
+history we never saw had been carried across.
+
+**A database that will not answer writes a file, and it is a different
+file.** `log()` has always swallowed its own failures, because the action is
+what matters and a log that breaks it is worse than a missing row. What that
+now needs is somewhere to put the row, and it is deliberately *not* the
+legacy log: those two answer different questions — one is the history being
+migrated *from* and the other is what this process could not write *today* —
+and one file holding both leaves the import unable to tell them apart, so the
+rows written during an outage are either imported twice or not at all.
+
+Three rules on the fallback, and the second was found by asserting the order
+rather than the contents. `read()` puts those rows **in front of** the
+table's, because they are newer than everything in it and left out
+altogether an outage reads on `/activity` as an hour in which nothing
+happened. The flush runs **before** the row being written, not after: run
+afterwards it gives the outage's rows ids *above* the row being written now,
+so the first thing shown once the database comes back is the outage with
+everything since it underneath. And a batch the database then refuses is
+**put back rather than dropped** — these are the rows that have already had
+one chance to be lost.
+
+**And it says so on a screen**, because the whole finding is a mechanism that
+is invisible from every screen when it quietly stops: a database that will
+not answer degrades to a file, silently, correctly, and for as long as nobody
+looks. `/diagnostics` has an **Activity log** row — in the database, or
+writing a file and therefore local to this instance and outside the backup,
+with anything still owed named rather than counted quietly. `status()`'s
+error is **one line**, because SQLAlchemy puts the statement and every bound
+parameter into `str(exc)` and those are activity rows naming clients and
+members of staff, on a page that gets pasted into chats: the
+`services/provider_check.py` rule, wearing a traceback.
+
+**Fifteen test files were reading the log off the disk**, and that is not a
+detail of the migration — it is the same "check that cannot fail" this file
+counts a dozen of. `test_proposal_progress.py` seeded its evidence by
+appending JSONL and **went on passing** against a file no reader looks at.
+They read through `audit.read()` now, which is what they meant to assert
+either way; the two that back-date a fixture pass `time=` in the extras,
+which `log()` documents as winning rather than leaving it as a property of a
+dict update that a tidy-up would remove.
+
+**What this does not fix.** `leads.jsonl` and every SQLite file on the disk
+are still one-instance stores with nothing authoritative behind them. Those
+are the next phase, and they are a store problem rather than a log one.
+
 **Deleting a mirrored file needs `jsonstore.delete_json`, not `os.remove`.**
 Removing only the file leaves the database copy to be restored by the next
 read, so the delete appears to work and then undoes itself. This is the one

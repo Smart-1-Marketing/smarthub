@@ -425,6 +425,16 @@ services:
       - key: SCANS_WIDGET_PRECHECK_LIMIT
         value: "12"
       # ---- shared ----
+      # The activity log is a table (hub_activity) now, not this file. What is
+      # left here is where the history written before that move lives, so
+      # import_legacy() can carry it across at boot -- and where a Hub with no
+      # database at all would fall back to. It selects NO backend: it is set on
+      # this service, so a rule reading it as "use the file" would have kept
+      # production on a disk nobody backs up with every test green.
+      #
+      # Safe to remove once /diagnostics' Activity log row has reported the
+      # import ran. Removing it before then loses the pre-move history, which
+      # is the only copy of it.
       - key: AUDIT_LOG_PATH
         value: /var/data/hub-audit.log.jsonl
       - key: FLASK_ENV

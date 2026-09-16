@@ -241,8 +241,8 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
             headers={"X-Smart1-User": "release-tester@example.com"},
         )
         self.assertEqual(response.status_code, 200)
-        audit_path = Path(self.temp.name) / "hub-audit.log.jsonl"
-        entries = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+        from hub import audit as _audit
+        entries = list(reversed(_audit.read(limit=200)))
         self.assertEqual(entries[-1]["module"], "smartforecast")
         self.assertEqual(entries[-1]["type"], "site_paused")
         self.assertEqual(entries[-1]["actor"], "release-tester@example.com")

@@ -8401,6 +8401,25 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # The activity log moved off the JSONL file and into `hub_activity`, so the
+    # history written before that has to be carried across -- once, across
+    # every instance rather than once per worker, which is what the lock
+    # inside `import_legacy()` is for. Here rather than lazily for the reason
+    # the restore above is here: /activity and the dashboard read the log
+    # before any user does, and a history that appears on the second page load
+    # reads as a history that was lost. Guarded like every other boot step --
+    # but recorded, not swallowed.
+    try:
+        from . import audit as _audit_boot
+        app.config["HUB_AUDIT_IMPORT"] = _audit_boot.import_legacy()
+    except Exception as _au_exc:  # noqa: BLE001
+        app.config["HUB_AUDIT_IMPORT"] = {
+            "ran": False, "reason": f"{type(_au_exc).__name__}: {_au_exc}"}
+        try:
+            errors.log_exception("audit", _au_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ---------------- v7: help bubbles, tool walkthroughs, demo mode -------
     # Registered last, because it needs _hub_user (defined with the login
     # routes above). The fallbacks below are not decoration: an earlier build

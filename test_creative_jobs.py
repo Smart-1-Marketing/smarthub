@@ -184,12 +184,11 @@ with wsgi.hub_app.app_context():
           creative_jobs.claim_next(), None)
 
     # Visible: a permanent give-up writes an activity-log line naming the lead.
+    # Read through the module: the activity log's backend is the database,
+    # so opening the JSONL file reads a fallback nothing writes to.
     from hub import audit
-    log_path = audit._path()
-    with open(log_path, encoding="utf-8") as fh:
-        lines = [json.loads(l) for l in fh if l.strip()]
-    gave_up = [l for l in lines if l.get("type") == "job_failed"
-              and l.get("module") == "creative_jobs"]
+    gave_up = list(reversed(audit.read(limit=500, module="creative_jobs",
+                                       type_="job_failed")))
     check_true("the permanent give-up is logged", bool(gave_up))
     check("...naming the lead", gave_up[-1].get("lead"), "lead-stadium-2")
     check("...and the client", gave_up[-1].get("client"), "Monogram Homes")
