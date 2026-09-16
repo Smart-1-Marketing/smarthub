@@ -1064,14 +1064,22 @@
       .then(function(buf){ return ctx.decodeAudioData(buf); });
   }
 
-  function buildMix(spot){
+  /* The second argument is the rate the read is played at, and 1 is every
+     read this tool recorded itself. Web Audio's playbackRate RESAMPLES — the
+     read gets shorter and higher together, because there is no pitch-
+     preserving time-stretch here and this Hub does not add a library from a
+     CDN for one feature. That is stated on the panel rather than hidden: a
+     spot that quietly came back a semitone up is the kind of thing nobody
+     notices until the client does. */
+  function buildMix(spot, speed){
+    var rate = Number(speed) > 1 ? Number(speed) : 1;
     var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
     if(!OAC) return Promise.reject(new Error("This browser cannot render audio "
       + "offline, so the mix cannot be made here. Chrome, Edge, Firefox and "
       + "Safari all can."));
     var M = Object.assign({},(MIXCFG && MIXCFG.mix) || {},selectedMixLevel());
-    var rate = M.sample_rate || 44100, chans = M.channels || 2;
-    var probe = new OAC(1, 1024, rate);
+    var sampleRate = M.sample_rate || 44100, chans = M.channels || 2;
+    var probe = new OAC(1, 1024, sampleRate);
     var hasBed = !!(spot.bed && spot.bed.audio_url);
     return decodeRef(spot.id, "vo", probe).then(function(vo){
       return (hasBed ? decodeRef(spot.id, "bed", probe)
@@ -1085,16 +1093,18 @@
           // would cut the end off a long one — and it is the phone number that
           // lives there. A read that overruns comes back measured and over,
           // which is what the length check is for.
-          var total = Math.max(spot.seconds || 30, lead + vo.duration);
-          var ctx = new OAC(chans, Math.max(1, Math.round(total*rate)), rate);
+          var voLen = vo.duration / rate;
+          var total = Math.max(spot.seconds || 30, lead + voLen);
+          var ctx = new OAC(chans, Math.max(1, Math.round(total*sampleRate)), sampleRate);
           var voSrc = ctx.createBufferSource();
-          voSrc.buffer = vo; voSrc.connect(ctx.destination); voSrc.start(lead);
+          voSrc.buffer = vo; voSrc.playbackRate.value = rate;
+          voSrc.connect(ctx.destination); voSrc.start(lead);
 
           var note = "";
           if(bed){
             var bedG = dbGain(M.bed_db), duckG = dbGain(M.ducked_db);
             var atk = (M.duck_attack_ms||0)/1000, rel = (M.duck_release_ms||0)/1000;
-            var voEnd = Math.min(total, lead + vo.duration);
+            var voEnd = Math.min(total, lead + voLen);
             var duck = ctx.createGain(), fade = ctx.createGain();
             var src = ctx.createBufferSource(); src.buffer = bed;
             src.connect(duck); duck.connect(fade); fade.connect(ctx.destination);
@@ -1126,7 +1136,8 @@
             }
           }
           return ctx.startRendering().then(function(out){
-            return {buffer: out, note: note}; });
+            return {buffer: out, note: note, speed: rate,
+                    voSeconds: vo.duration}; });
         });
     });
   }
@@ -1287,20 +1298,24 @@
       if(made){
         var clip = made.peak > -0.1;
         madeBlock = '<div class="hint" style="margin-top:8px">Rendered here: '
-          + made.seconds.toFixed(2) + 's · peak '
+          + made.seconds.toFixed(2) + 's'
+          + (made.speed > 1 ? ' at ' + made.speed.toFixed(2) + '×' : '') + ' · peak '
           + (made.peak === -Infinity ? "silent" : made.peak.toFixed(1) + " dBFS")
           + (clip ? ' <b style="color:var(--bad)">— clipping. Re-record the '
                   + 'read quieter.</b>' : "")
           + ' <span class="opt">measured in your browser, not on the server</span>'
           + '</div>'
           + (made.note ? '<div class="why warn">' + esc(made.note) + '</div>' : "")
-          + '<div class="audio-row"><audio controls src="' + made.url + '"></audio>'+timingBadge(made.seconds,s.seconds,true)+'</div>';
+          + '<div class="audio-row"><audio controls src="' + made.url + '"></audio>'+timingBadge(made.seconds,s.seconds,true)+'</div>'
+          + speedPanel(s, made);
       }
       var filedBlock = "";
       if(mix.audio_url){
         filedBlock = '<div class="hint" style="margin-top:8px"><b>Filed</b> at '
           + mix.seconds + 's, measured from the file · ' + esc(mix.level || "")
           + ' (' + mix.bed_db + ' / ' + mix.ducked_db + ' dB)'
+          + (mix.speed > 1 ? ' · the uploaded read was time-compressed to '
+              + Number(mix.speed).toFixed(2) + '×' : '')
           + (mix.override ? ' <b style="color:var(--bad)">· filed over findings by '
               + esc(mix.override_by) + ': “' + esc(mix.override_reason) + '”</b>' : "")
           + ' — this is what the client hears.</div>'
@@ -1323,7 +1338,10 @@
             + (blocked ? "File it anyway, with a reason" : "File this mix")
             + '</button>' : "")
         + (made ? '<a class="btn sec sm" href="' + made.url + '" download="mix-'
-            + esc(s.id) + '.wav">Download</a>' : "")
+            + esc(s.id) + (made.speed > 1 ? '-' + made.speed.toFixed(2) + 'x' : '')
+            + '.wav">Download</a>' : "")
+        + (made && made.speed > 1 ? '<button class="btn sec sm" data-a="unspeed" '
+            + 'data-s="' + esc(s.id) + '">Back to the original pace</button>' : "")
         + '<span class="msg" data-m="mix-' + esc(s.id) + '"></span></div>'
         + qcRows(s.id) + ownVo(s) + '</div>';
     }).join("");
@@ -1415,6 +1433,10 @@
           askToReuse(sid).catch(function(e){ say(msgSel, e.message, "err"); });
         } else if(a === "render"){
           makeMix(sid);
+        } else if(a === "speed"){
+          approveSpeed(sid);
+        } else if(a === "unspeed"){
+          resetSpeed(sid);
         } else if(a === "file"){
           fileMix(sid, !!(QCC[sid] && (QCC[sid].blocking||[]).length));
         }
@@ -1422,23 +1444,127 @@
     });
   }
 
-  function makeMix(sid){
+  /* An approved rate outlives the render it was approved for, but never the
+     READ it was approved against. Changing the bed volume clears RENDERED, and
+     having that also throw away a pace somebody signed off on would send them
+     round the whole offer again for a slider move — whereas a re-recorded or
+     re-uploaded read is a different length, so a rate worked out for the old
+     one is a number nobody can account for. It is keyed on the read rather
+     than cleared at each of the four places a read can change, because the
+     fifth one added later is the one that would not clear it. */
+  var APPROVED = {};
+  function readKey(spot){
+    return (spot.recorded_at || "") + "|" + (spot.audio_url || "");
+  }
+  function approvedSpeed(spot){
+    var a = APPROVED[spot.id];
+    if(a && a.read === readKey(spot)) return a;
+    delete APPROVED[spot.id];
+    return null;
+  }
+
+  function makeMix(sid, speed){
     var spot = spotById(sid);
     if(!spot) return;
     var sel = "[data-m='mix-" + sid + "']";
-    say(sel, "Rendering the mix…", "wait");
+    var kept = approvedSpeed(spot);
+    var rate = Number(speed) > 1 ? Number(speed) : (kept ? kept.speed : 1);
+    say(sel, rate > 1 ? "Re-rendering at " + rate.toFixed(2) + "×…"
+                      : "Rendering the mix…", "wait");
     localMixes++;
     var usedLevel=selectedMixLevel().label;
-    buildMix(spot).then(function(out){
+    buildMix(spot, rate).then(function(out){
       var blob = toWav(out.buffer);
       if(RENDERED[sid] && RENDERED[sid].url) URL.revokeObjectURL(RENDERED[sid].url);
       RENDERED[sid] = {blob: blob, level:usedLevel, url: URL.createObjectURL(blob),
-                       seconds: out.buffer.duration,
+                       seconds: out.buffer.duration, speed: out.speed,
+                       voSeconds: out.voSeconds,
+                       semitones: (APPROVED[sid] || {}).semitones,
                        peak: peakDbfs(out.buffer), note: out.note};
       drawMusic();
-      say(sel, "Rendered. Listen to it, then file it.", "ok");
+      say(sel, out.speed > 1
+          ? "Re-rendered at " + out.speed.toFixed(2) + "×. Listen to it, then "
+            + "save it below."
+          : "Rendered. Listen to it, then file it.", "ok");
+      return askSpeed(sid);
     }).catch(function(e){ say(sel, e.message, "err"); })
       .finally(function(){ localMixes--; finishRadioWork(); });
+  }
+
+  /* What rate would land this read inside its slot — decided on the server,
+     for the same reason the dB pair is: a second copy of "how fast is too
+     fast" in here is how the panel and the record come to disagree about what
+     was approved. Only asked when the render is actually long; the ±1s
+     tolerance is the server's call, not this line's. */
+  function askSpeed(sid){
+    var made = RENDERED[sid], spot = spotById(sid);
+    if(!made || !spot) return Promise.resolve();
+    if(made.seconds <= (spot.seconds || 30) + 0.05){
+      made.suggestion = null; made.speedError = ""; return Promise.resolve(); }
+    return api("/api/projects/"+P.id+"/spots/"+sid+"/speed", {method:"POST",
+      body:{vo_seconds: made.voSeconds, mixed_seconds: made.seconds}})
+      .then(function(j){
+        if(RENDERED[sid] !== made) return;           // a newer render won
+        made.suggestion = j.suggestion; made.uploaded = j.uploaded;
+        made.alternative = j.alternative; made.speedError = "";
+        drawMusic(); })
+      .catch(function(e){
+        // Reported, never swallowed. A panel that silently drops the one
+        // suggestion it had is the empty result this codebase keeps undoing.
+        if(RENDERED[sid] !== made) return;
+        made.suggestion = null;
+        made.speedError = "This mix is over its slot and the speed that would "
+          + "fix it could not be worked out: " + e.message;
+        drawMusic(); });
+  }
+
+  /* Approved. Re-render at the rate, and the save options follow it. */
+  function approveSpeed(sid){
+    var made = RENDERED[sid], sug = made && made.suggestion;
+    if(!sug || !sug.speed) return;
+    APPROVED[sid] = {speed: sug.speed, semitones: sug.semitones,
+                     read: readKey(spotById(sid) || {})};
+    makeMix(sid, sug.speed);
+  }
+
+  function resetSpeed(sid){
+    delete APPROVED[sid];
+    makeMix(sid, 1);
+  }
+
+  /* The offer, and — once it has been taken — what was done and how to keep
+     it. Only an uploaded read gets the offer: a read this tool recorded has a
+     re-record to ask for, and asking for it is the better answer. */
+  function speedPanel(s, made){
+    if(!made) return "";
+    if(made.speedError) return '<div class="why warn">' + esc(made.speedError) + '</div>';
+    var out = "";
+    if(made.speed > 1){
+      out += '<div class="why"><b>Read time-compressed to '
+        + made.speed.toFixed(2) + '×.</b> The uploaded read runs '
+        + made.voSeconds.toFixed(2) + 's on its own; at this rate the mix comes '
+        + 'back ' + made.seconds.toFixed(2) + 's against a ' + esc(s.seconds + "")
+        + 's slot'
+        + (made.semitones ? ', with the voice about ' + Number(made.semitones).toFixed(2)
+            + ' semitones higher — resampling is the only time-stretch here' : '')
+        + '. Listen to it before you keep it: this is the file the client hears.'
+        + '</div>'
+        + '<div class="hint"><b>Keep it:</b> <i>File this mix</i> below makes it '
+        + 'the client\'s copy and records the rate against it, <i>Download</i> '
+        + 'saves the WAV, and <i>Back to the original pace</i> undoes it.</div>';
+    }
+    var sug = made.suggestion;
+    if(!sug || !sug.needed) return out;
+    if(!made.uploaded)
+      return out + '<div class="why warn">' + esc(sug.note) + ' '
+        + esc(made.alternative || "") + '</div>';
+    if(!sug.speed)
+      return out + '<div class="why warn">' + esc(sug.note) + '</div>';
+    return out + '<div class="why warn">' + esc(sug.note) + '</div>'
+      + '<div class="sfoot"><button class="btn sm" data-a="speed" data-s="'
+      + esc(s.id) + '">Re-render at ' + sug.speed.toFixed(2) + '× and fit the slot'
+      + '</button><span class="opt">worked out from the length your browser '
+      + 'decoded — the filed length is still measured from the file</span></div>';
   }
 
   function fileMix(sid, blocked){
@@ -1448,6 +1574,7 @@
     var level = made.level || "";
     var fd = new FormData();
     fd.append("level", level);
+    fd.append("speed", String(made.speed || 1));
     fd.append("file", made.blob, "mix-" + sid + ".wav");
     if(blocked){
       var why = prompt("This mix has findings that stop it being filed. Why is "
@@ -1459,8 +1586,10 @@
     postForm("/api/projects/"+P.id+"/spots/"+sid+"/mix", fd).then(function(j){
       putSpot(j.spot); QCC[sid] = j.qc;
       drawMusic();
-      say(sel, "Filed. Measured at " + j.mix.seconds + "s — this is what the "
-        + "client hears now.", "ok");
+      say(sel, "Filed. Measured at " + j.mix.seconds + "s"
+        + (j.mix.speed > 1 ? " with the read at " + Number(j.mix.speed).toFixed(2)
+            + "×" : "")
+        + " — this is what the client hears now.", "ok");
     }).catch(function(e){
       var payload = e.payload || {};
       if(payload.blocked){ QCC[sid] = payload.qc; drawMusic();

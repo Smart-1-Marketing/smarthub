@@ -2575,7 +2575,14 @@ jobs:
       # described-only or mock bed stops a mix being filed, that an override
       # needs a reason and a name, that the audio the browser reads back is
       # only what the project's own row recorded, and that a variation carries
-      # the scripts without the audio.
+      # the scripts without the audio. It also holds Fan Radio's answer to the
+      # one read the length check was a dead end for: a read somebody UPLOADED
+      # cannot be tightened and recorded again, so the panel works out the
+      # playback rate that lands it back inside its slot, quotes what that
+      # costs in pitch, refuses past 1.15x -- "speed it up" is not an answer to
+      # a read five seconds too long -- and records the approved rate on the
+      # mix, because a mix that only fits because it was sped up otherwise
+      # reads exactly like one that landed on the clock.
       - name: Radio Ad Creator — beds composed, the mix measured off the file
         if: matrix.group == 6
         run: python3 test_radio_ads.py

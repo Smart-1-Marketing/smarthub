@@ -1361,6 +1361,7 @@ def _qc_for(project: dict, spot: dict) -> dict:
         words_low=budget.get("low"), words_high=budget.get("high"),
         target_seconds=spot.get("seconds"),
         mixed_seconds=mix.get("seconds") if mix.get("measured") else None,
+        speed=mix.get("speed"),
         bed=bed, vo_only=bed is None)
     report["available"] = True
     report["error"] = ""
@@ -1379,6 +1380,58 @@ def api_qc(pid):
              if not only or s.get("id") == only]
     return jsonify({"ok": True,
                     "reports": {s["id"]: _qc_for(project, s) for s in spots}})
+
+
+# ------------------------------------------------- an over-long uploaded read
+@app.route("/api/projects/<pid>/spots/<sid>/speed", methods=["POST"])
+def api_speed_suggestion(pid, sid):
+    """The rate that would get an uploaded read back inside its slot.
+
+    A read this tool *recorded* and that overruns has two levers already on the
+    screen — tighten the script, or drop the voice speed in the casting step —
+    and both produce a fresh read at the right pace. A read somebody
+    **uploaded** has neither: it is a finished file made by talent who has gone
+    home, and with no ffmpeg in this runtime the only lever left is the one the
+    browser already has, which is to play it faster.
+
+    So this answers with a rate rather than the page working one out.
+    `hub/radio_spec.speed_suggestion()` owns the arithmetic, the ceiling and
+    the sentence, exactly as it owns the dB pair — a second copy of "how fast
+    is too fast" in JavaScript is how the panel and the render come to
+    disagree about what was approved.
+
+    Every number in is a duration the browser decoded, and the answer says so.
+    It changes nothing about what gets filed: that is still measured from the
+    WAV's own header by `wav_seconds()` on the way in.
+    """
+    try:
+        project, spot = _spot_or_fail(pid, sid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    spec, error = _need_spec()
+    if not spec:
+        return fail(error, 503)
+
+    body = request.get_json(silent=True) or {}
+    mix_cfg = spec.mix_defaults((project.get("mix_level") or ""))
+    lead = mix_cfg["lead_in_ms"] if (spot.get("bed") or {}).get("audio_url") else 0
+    suggestion = spec.speed_suggestion(
+        vo_seconds=body.get("vo_seconds"),
+        target_seconds=spot.get("seconds"),
+        mixed_seconds=body.get("mixed_seconds"),
+        lead_in_ms=lead)
+
+    # Whose read it is decides which advice is the right advice, and only the
+    # route knows: `audio_provider` is set by the upload and by nothing else.
+    uploaded = (spot.get("audio_provider") or "") == "upload"
+    return jsonify({"ok": True, "uploaded": uploaded,
+                    "suggestion": suggestion,
+                    "alternative": "" if uploaded else
+                    ("This read was recorded here, so the honest fix is a fresh "
+                     "one: tighten the script, or drop the voice speed in the "
+                     "casting step, and record it again. Speeding a finished "
+                     "file up is for a read somebody uploaded, where there is "
+                     "no re-record to ask for.")})
 
 
 # ------------------------------------------------------------------ the mix
@@ -1431,7 +1484,16 @@ def api_mix(pid, sid):
 
     level = (request.form.get("level") or "").strip()
     pair = spec.ducked_db(level)
-    probe = dict(spot, mix={"seconds": seconds, "measured": True})
+    # The rate the read was played at, if it was time-compressed to fit. It is
+    # validated rather than trusted: the ceiling lives in `radio_spec` so the
+    # panel, the render and the record cannot disagree about what is allowed,
+    # and a rate past it is a 400 rather than a filed mix nobody can account
+    # for. Absent or 1.0 means the read played at its own pace.
+    speed, speed_error = spec.speed_ok(request.form.get("speed"))
+    if speed_error:
+        return fail(speed_error)
+    probe = dict(spot, mix={"seconds": seconds, "measured": True,
+                            "speed": speed})
     report = _qc_for(project, probe)
     override = str(request.form.get("override") or "").strip().lower() in (
         "1", "true", "yes")
@@ -1449,6 +1511,8 @@ def api_mix(pid, sid):
                    "seconds": seconds, "measured": True, "bytes": len(data),
                    "filename": filename, "format": spec.MIX_FORMAT,
                    "level": level or spec.bed_levels().get("reference", ""),
+                   "speed": speed,
+                   "speed_semitones": spec.speed_semitones(speed) if speed > 1 else 0,
                    "bed_db": pair["bed"], "ducked_db": pair["ducked"],
                    "level_known": pair["known"],
                    "bed": (spot.get("bed") or {}).get("kind") or "",
@@ -1460,7 +1524,8 @@ def api_mix(pid, sid):
     spot.pop("mix_note", None)
     store.save(project)
     _log("spot_mixed", project=pid, spot=sid, qc=report["status"],
-         override=spot["mix"]["override"], client=project.get("client") or "")
+         override=spot["mix"]["override"], speed=speed,
+         client=project.get("client") or "")
     payload = {"ok": True, "spot": spot, "mix": spot["mix"], "qc": report}
     if asset.get("warning"):
         payload["warning"] = asset["warning"]

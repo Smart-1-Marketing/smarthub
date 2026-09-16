@@ -95,6 +95,13 @@ Turn the link off, or issue a new one — the old link dies immediately.
 * **Somebody's own read.** A client with their own talent uploads the
   recording; it lands on the same fields a rendered read does, except that its
   length is honestly *not measured* where a rendered one is.
+* **And a way out when that read runs long.** A read this tool recorded and
+  that overruns has two levers already on the screen — tighten the script, or
+  drop the voice speed, and record it again. An uploaded read has neither: the
+  talent has gone home. So when the mix comes back over its slot, the panel
+  works out the **playback rate** that would land it back inside, says what
+  that costs in pitch, and re-renders on approval. Past **1.15×** it offers
+  nothing and says how many seconds have to come out of the read instead.
 
 ## Flow
 
@@ -157,6 +164,41 @@ A bed shorter than the spot is **reported, never looped** — a loop puts an
 audible seam in the middle of a client's commercial. A read that overruns is
 **never trimmed** — the mix renders at the longer of the two and comes back
 measured and over, which is what the length check is for.
+
+## Time compression, for the one read that cannot be recorded again
+
+The length check used to be a dead end for an **uploaded** read. It said the
+mix was 2.1s over a :30 and stopped the filing, and there was nothing on the
+screen that could act on it: the talent who made the file has gone home, and
+there is no ffmpeg here to re-time it with.
+
+What there is, is the pipeline the mix already runs in. `playbackRate` on the
+voice source plays the read faster, and a station's own playout does exactly
+this — time compression is how a :32 read makes a :30 log. So the panel offers
+the rate:
+
+* **`hub/radio_spec.speed_suggestion()` works it out**, not the page — same
+  rule as the dB pair. `vo ÷ (slot − lead-in)`, rounded **up** to the
+  hundredth so the mix lands at or inside the slot rather than one rounding
+  short of it. The bed's 0.3s lead-in is taken off the runway where there is a
+  bed and not where there isn't.
+* **It says what it costs.** `playbackRate` resamples, so the read gets shorter
+  *and higher* — there is no pitch-preserving time-stretch in this runtime and
+  this Hub does not add a library from a CDN for one feature. The offer quotes
+  the semitones. Under **1.05×** is named as the rate nobody hears; between
+  that and **1.15×** as audible on a close listen and inside what a station
+  does.
+* **Past 1.15× it offers nothing.** "Speed it up" is not an answer to a read
+  five seconds too long. It says how far over the mix would still land at the
+  ceiling and roughly how many seconds have to come out of the read itself.
+* **Only an uploaded read is offered it.** A read recorded here gets the note
+  that it has a re-record to ask for, because that is the better answer.
+* **The rate is recorded on the mix.** A mix that only fits because it was sped
+  up reads, on the panel, exactly like one that landed on the clock — so the
+  length check's own row says `time-compressed to 1.08x (+1.33 semitones)`,
+  and the filed record, the download filename and the activity log carry it
+  too. The ceiling is enforced again on the way in: the route validates the
+  rate through `speed_ok()` rather than trusting the form.
 
 Findings **stop a mix being filed**; filing one anyway needs a reason and is
 recorded against a name. Nothing here refuses a *render*: a check that refuses
