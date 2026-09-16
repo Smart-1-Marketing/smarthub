@@ -3573,6 +3573,15 @@ jobs:
       - name: The YouTube channel reading
         if: matrix.group == 8
         run: python3 test_youtube.py
+      # A client's email campaigns read from their own Suite sub-account: the
+      # two email read scopes requested, the campaign list as the source with
+      # the per-campaign statistics endpoint filling gaps under a cap, five
+      # kinds of nothing drawn apart, the nightly sweep held back while a
+      # scope is missing, and the client's report gated on a live email
+      # product AND a linked, read sub-account.
+      - name: The client's email campaign reading
+        if: matrix.group == 8
+        run: python3 test_suite_email_stats.py
       # The provider normalize: raw provider tables read through
       # provider_map's placeholder column names, spend divided on the way in,
       # one platform's failure isolated on its own watermark, the provider
