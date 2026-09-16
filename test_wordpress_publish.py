@@ -442,14 +442,17 @@ with app.test_client() as c:
     check("the state route answers", r.status_code == 200, r.status_code)
     check("and carries no secret",
           "abcdEFGH" not in body and SECRET not in body, body[:200])
-    for kind in ("schema", "faqs"):
-        r = c.post("/api/seo/wordpress/publish",
-                   json={"client": CLIENT, "kind": kind})
-        msg = r.get_json().get("error", "")
-        check(f"{kind} is refused by name, not as an unknown kind",
-              "unfiltered_html" in msg or "REST" in msg, msg)
-        check(f"{kind} points at the path that does work",
-              "Claude" in msg, msg)
+    # Schema moved onto the plugin path and is asserted in
+    # test_wordpress_schema.py. What stays here is the FAQ refusal, because it
+    # is the one that is NOT about what REST can reach: the accordion carries
+    # its own FAQPage markup, so there is nothing separate to send.
+    r = c.post("/api/seo/wordpress/publish", json={"client": CLIENT, "kind": "faqs"})
+    msg = r.get_json().get("error", "")
+    check("faqs are refused by name, not as an unknown kind",
+          "FAQPage" in msg, msg)
+    check("and the refusal is the real reason rather than 'REST cannot'",
+          "two copies" in msg and "cannot see" in msg, msg)
+    check("faqs point at the path that does work", "Claude" in msg, msg)
     r = c.post("/api/seo/wordpress/publish", json={"client": CLIENT, "kind": "blogs"})
     check("publishing nothing is refused rather than reporting a clean run",
           r.status_code == 400, r.status_code)
