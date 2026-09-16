@@ -2575,7 +2575,14 @@ jobs:
       # described-only or mock bed stops a mix being filed, that an override
       # needs a reason and a name, that the audio the browser reads back is
       # only what the project's own row recorded, and that a variation carries
-      # the scripts without the audio.
+      # the scripts without the audio. It also holds Fan Radio's answer to the
+      # one read the length check was a dead end for: a read somebody UPLOADED
+      # cannot be tightened and recorded again, so the panel works out the
+      # playback rate that lands it back inside its slot, quotes what that
+      # costs in pitch, refuses past 1.15x -- "speed it up" is not an answer to
+      # a read five seconds too long -- and records the approved rate on the
+      # mix, because a mix that only fits because it was sped up otherwise
+      # reads exactly like one that landed on the clock.
       - name: Radio Ad Creator — beds composed, the mix measured off the file
         if: matrix.group == 6
         run: python3 test_radio_ads.py
@@ -2595,6 +2602,37 @@ jobs:
       - name: Radio Promo parity — the lengths, their costs, the beats, the panel
         if: matrix.group == 6
         run: python3 test_radio_parity.py
+
+      # And Fan Radio's half of the same list, which is the other direction.
+      # Every item above landed in the Radio Ad Creator and none of them here,
+      # in the tool writing the same reads for the same clients against the
+      # same clock: Fan Radio had two of the nine checks, so a :30 that never
+      # said the client's web address was a named finding one tool over and
+      # silence in this one, and a required disclaimer was nothing at all
+      # because there was nowhere to type one. The checks are
+      # hub/radio_script_qc.py now and both builders read them, so what this
+      # asserts is that the one table is read twice rather than two that agree
+      # today -- plus the two rows that are genuinely this tool's own, the
+      # trademark verdict and the post-game result rule, on the same panel
+      # rather than beside it.
+      - name: Fan Radio parity — the script panel, its own two rows, the rail
+        if: matrix.group == 6
+        run: python3 test_radio_feature_parity.py
+
+      # The reusable-read library, which was the last thing one radio builder
+      # had and the other did not -- and which no screen in either tool
+      # reached: four default reads, a store, a route and a test that drove the
+      # route, with nothing a rep could press. A test that drives a route
+      # cannot notice that nobody can press it, so this asserts the screen as
+      # well as the store. It is one library both tools read now, so a read
+      # saved in one is offered in the other; the `{business}` placeholder is
+      # filled on the way out and put *back* on the way in, or the library
+      # stops being reusable the first time somebody saves to it; and a preset
+      # saved under the old per-tool file is still offered, because migrating
+      # it on read would race the second worker.
+      - name: Radio reusable reads — one library, both tools, reachable
+        if: matrix.group == 6
+        run: python3 test_radio_presets.py
 
       # The sample campaigns both radio builders open empty without. Two
       # things about the seeder are worth holding to an assertion. It must not
@@ -3596,6 +3634,17 @@ jobs:
       - name: The config-driven GroundTruth pull and its check page
         if: matrix.group == 8
         run: python3 test_reports_groundtruth.py
+      # Amazon DSP: five separate claims told apart (a revoked consent, a
+      # consent given by somebody who does not administer the entity, an
+      # API application not approved for the entity, and write access never
+      # probed), one report per advertiser polled inside the StackAdapt
+      # budget with pending carried between ticks rather than paid for
+      # twice, the pre-signed download fetched with no Authorization header,
+      # purchases kept out of conversions, and the Settings card, callback
+      # and disconnect in Smart 1 Ads.
+      - name: The native Amazon DSP pull and its connection
+        if: matrix.group == 8
+        run: python3 test_reports_amazon_dsp.py
       # The organic-search section: gated on an SEO product AND a linked
       # analytics property, the client-facing labels naming no product by
       # default, Search Console missing said neutrally to the client and by
@@ -3716,7 +3765,8 @@ jobs:
                    test_reports_seo.py test_reports_ttd.py test_reports_stackadapt.py \
                    test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
                    test_reports_confirmations.py test_reports_quarantine.py \
-                   test_reports_reconcile.py test_reports_bing.py test_reports_groundtruth.py; do
+                   test_reports_reconcile.py test_reports_bing.py test_reports_groundtruth.py \
+                   test_reports_amazon_dsp.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1
           done
 

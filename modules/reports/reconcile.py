@@ -262,6 +262,34 @@ def bing_total(start: date, end: date) -> dict:
             "label": f"Microsoft Ads account report over the same window ({counted} account{'s' if counted != 1 else ''})"}
 
 
+def amazon_dsp_total(start: date, end: date) -> dict:
+    """Amazon's month asked for again, one report per advertiser under the
+    entity, summed. A re-read: the same reporting endpoint the pull reads,
+    over the whole window rather than the trailing fortnight, so it catches
+    a day the restate window never re-read and an advertiser a pull failed
+    on -- and not the feed itself being wrong. A report Amazon is still
+    preparing inside the budget is *not measured* tonight rather than the
+    scheduler thread being held for it."""
+    from . import amazon_dsp
+    st = amazon_dsp.amazon_status()
+    if not st["configured"]:
+        return {"measured": False, "reason": amazon_dsp.not_configured_line()}
+    if not st["connected"]:
+        return {"measured": False, "reason": amazon_dsp.NOT_CONNECTED}
+    try:
+        got = amazon_dsp.month_total(start, end)
+    except (amazon_dsp.amz.AmazonAuthError, amazon_dsp.amz.AmazonApiError) as exc:
+        return {"measured": False, "reason": amazon_dsp.amz._redact(exc)}
+    rows = got["rows"]
+    return {"measured": True,
+            "spend": _q(sum((Decimal(str(r.get("spend") or 0)) for r in rows), Decimal(0))),
+            "impressions": sum(int(r.get("impressions") or 0) for r in rows),
+            "clicks": sum(int(r.get("clicks") or 0) for r in rows),
+            "independent": False,
+            "label": (f"Amazon's month fetched again across {got['advertisers']} advertiser"
+                      f"{'s' if got['advertisers'] != 1 else ''} ({len(rows)} order-days)")}
+
+
 def theirs(platform: str, start: date, end: date) -> dict:
     """The platform's own figure for the window, or not measured with the
     reason. Google's customer query first where it is connected -- the one
@@ -276,6 +304,8 @@ def theirs(platform: str, start: date, end: date) -> dict:
         readers.append(stackadapt_total)
     if platform == "bing":
         readers.append(bing_total)
+    if platform == "amazon_dsp":
+        readers.append(amazon_dsp_total)
     readers.append(lambda a, b: provider_total(platform, a, b))
     reasons = []
     for reader in readers:

@@ -52,6 +52,11 @@ class Tool:
     roles: tuple[str, ...]
     fn: Callable[..., dict]
     arguments: tuple[str, ...]
+    # Reads the signed-in account's own work. `execute()` supplies the email
+    # from the session; it is never one of `arguments`, so no question can
+    # plan it and "what is on my desk" cannot be turned into somebody
+    # else's desk by asking nicely. test_ask_smarthub.py holds that.
+    needs_actor: bool = False
 
 
 STAFF = ("member", "admin", "super_admin")
@@ -88,6 +93,28 @@ TOOLS: dict[str, Tool] = {
     "get_client_insertion_orders": Tool(
         "Read submitted insertion-order summaries for a client.", STAFF,
         v2_tools.client_insertion_orders, ("client_name", "limit")),
+    "get_my_clients": Tool(
+        "Read what is outstanding on the clients assigned to the signed-in "
+        "account -- their own desk. Takes no name: it always reads the asker.",
+        STAFF, lambda actor="": my_clients(actor), (), needs_actor=True),
+    "get_my_qa_tasks": Tool(
+        "Read the QA tasks waiting on the signed-in account, and the ones "
+        "they raised and are waiting on. Takes no name.",
+        STAFF, lambda actor="": my_qa_tasks(actor), (), needs_actor=True),
+    "get_client_next_action": Tool(
+        "Read the one line Client 360 leads with: what to do about this "
+        "client next, and how urgent it is.", STAFF,
+        lambda client_name="": client_next_action(client_name), ("client_name",)),
+    "get_client_work": Tool(
+        "Read what the Hub has produced for a client -- creative, reports, "
+        "pages, posts -- newest first.", STAFF,
+        lambda client_name="", limit=20: client_work(client_name, limit),
+        ("client_name", "limit")),
+    "get_client_launch_blockers": Tool(
+        "Read what would leave a paid campaign to this client's site "
+        "unmeasurable: analytics, tags, consent, pixels, certificate.",
+        STAFF, lambda client_name="": client_launch_blockers(client_name),
+        ("client_name",)),
     "search_help": Tool(
         "Explain how a Hub tool or screen works and where to start it, from "
         "the written help for every screen.", STAFF,
@@ -156,6 +183,177 @@ def help_answers(query: str = "", limit: int = MAX_HELP) -> dict:
                         "No screen in this Hub has written help matching that.")}
 
 
+def my_clients(actor: str = "") -> dict:
+    """What is on the asker's own desk.
+
+    hub/client_owner.py was written for this question -- "what is on my
+    desk?", which it says no report in the Hub could answer -- and
+    /my-clients answers it on a screen. This reads the same run rather than
+    counting again: two screens answering it separately is how they come to
+    disagree in front of the same person.
+    """
+    email = _clean(actor, 180).lower()
+    if "@" not in email:
+        return {"measured": False, "owner": "",
+                "message": "This session has no account behind it, so there "
+                           "is nobody to show a book for. Sign in with your "
+                           "own account to ask about your clients.",
+                "opens": {"label": "Open My Clients", "href": "/my-clients"}}
+    try:
+        from hub import client_health, client_owner
+        board = client_health.scoreboard(owner=email)
+        assigned = client_owner.clients_for(email)
+    except Exception as exc:                                  # noqa: BLE001
+        return {"measured": False, "owner": email,
+                "message": f"The client book could not be read "
+                           f"({type(exc).__name__}).",
+                "opens": {"label": "Open My Clients", "href": "/my-clients"}}
+
+    top = []
+    for row in (board.get("top") or [])[:4]:
+        top.append({"client": _clean(row.get("client"), 180),
+                    "issues": row.get("issues"),
+                    "open": _clean(row.get("url"), 240)})
+    out = {
+        "measured": bool(board.get("measured")),
+        "owner": email,
+        "clients_assigned": len(assigned),
+        "clients_shown": board.get("clients", 0),
+        "clients_with_something_outstanding": board.get("with_issues", 0),
+        "outstanding_items": board.get("issues", 0),
+        "billing_monthly": board.get("billing_monthly"),
+        "most_outstanding_first": top,
+        "opens": {"label": "Open My Clients", "href": "/my-clients"},
+    }
+    if not board.get("measured"):
+        out["message"] = _clean(board.get("error"), 300) or (
+            "The client book could not be read, so this is not a count of "
+            "nothing outstanding.")
+    elif not assigned:
+        # Nobody owns them is a different answer from nothing is wrong, and
+        # the fix is a screen away rather than a mystery.
+        out["message"] = ("No client is assigned to you, so this is not a "
+                          "reading of your desk. Assignments are made on "
+                          "Assign Clients.")
+        out["opens"] = {"label": "Open Assign Clients", "href": "/qa/client-owners"}
+    return out
+
+
+def my_qa_tasks(actor: str = "") -> dict:
+    """The QA tasks waiting on the asker, and the ones they are waiting on."""
+    email = _clean(actor, 180).lower()
+    try:
+        from hub import qa_tasks
+        data = qa_tasks.for_person(email, limit=50)
+    except Exception as exc:                                  # noqa: BLE001
+        return {"measured": False, "email": email,
+                "message": f"QA tasks could not be read ({type(exc).__name__}).",
+                "opens": {"label": "Open QA Tasks", "href": "/qa-tasks"}}
+
+    def rows(key: str) -> list[dict]:
+        out = []
+        for row in (data.get(key) or [])[:5]:
+            out.append({"task": _clean(row.get("target_label"), 160),
+                        "asks": _clean(row.get("instructions"), 300),
+                        "status": _clean(row.get("status_label"), 60),
+                        "due": _clean(row.get("due_on_pretty"), 40),
+                        "overdue": bool(row.get("overdue")),
+                        "raised_by": _clean(row.get("created_by_name"), 120),
+                        "for": _clean(row.get("assigned_to_name"), 120)})
+        return out
+
+    return {
+        "measured": bool(data.get("measured")),
+        "email": email,
+        "message": _clean(data.get("error"), 300) or _clean(data.get("line"), 300),
+        "counts": data.get("counts") or {},
+        "waiting_on_you_to_do": rows("to_do"),
+        "waiting_on_your_answer": rows("waiting_on_you"),
+        "opens": {"label": "Open QA Tasks", "href": "/qa-tasks"},
+    }
+
+
+def client_next_action(client_name: str = "") -> dict:
+    """The one line Client 360 leads with: what to do about this client next."""
+    name = _clean(client_name, 180)
+    try:
+        from hub import next_action
+        picked = next_action.for_client(name)
+    except Exception as exc:                                  # noqa: BLE001
+        return {"client": name, "measured": False,
+                "message": f"The record could not be read ({type(exc).__name__})."}
+    href = _clean(picked.get("href"), 240)
+    out = {"client": name, "measured": bool(picked.get("measured")),
+           "next_action": _clean(picked.get("text"), 400),
+           "urgency": _clean(picked.get("state"), 20)}
+    if not out["measured"]:
+        out["message"] = ("Nothing this reads has been measured for that "
+                          "client, which is not the same as nothing being "
+                          "outstanding.")
+    if href.startswith("/"):
+        out["opens"] = {"label": _clean(picked.get("go"), 60) or "Open the record",
+                        "href": href}
+    return out
+
+
+def client_work(client_name: str = "", limit: int = 20) -> dict:
+    """Everything the Hub has produced for one client, newest first."""
+    name = _clean(client_name, 180)
+    try:
+        want = max(1, min(int(limit or 20), 40))
+    except (TypeError, ValueError):
+        want = 20
+    try:
+        from hub import client_brand, client_groups
+        also = client_groups.member_names(name, "")
+        log = client_brand.work_log(name, want, also=also)
+    except Exception as exc:                                  # noqa: BLE001
+        return {"client": name, "measured": False,
+                "message": f"The work log could not be read "
+                           f"({type(exc).__name__})."}
+    items = []
+    for row in (log.get("items") or [])[:want]:
+        item = {"when": _clean(row.get("when"), 40),
+                "what": _clean(row.get("kind"), 120),
+                "made_by": _clean(row.get("source"), 120)}
+        if row.get("member"):
+            # A grouped client's work keeps the member's name on it: the
+            # group is a billing relationship, not a rename.
+            item["for_group_member"] = _clean(row.get("member"), 180)
+        items.append(item)
+    return {"client": name, "measured": True, "count": log.get("count", len(items)),
+            "last_activity": _clean(log.get("last_activity"), 40),
+            "by_source": log.get("by_source") or {}, "items": items,
+            "note": _clean(log.get("note"), 300)}
+
+
+def client_launch_blockers(client_name: str = "") -> dict:
+    """What would leave a paid campaign to this client's site unmeasurable."""
+    name = _clean(client_name, 180)
+    try:
+        from hub import client_brief, launch_blockers
+        brief = client_brief.build(name, "")
+        found = launch_blockers.find(brief)
+    except Exception as exc:                                  # noqa: BLE001
+        return {"client": name, "measured": False,
+                "message": f"The site's readings could not be read "
+                           f"({type(exc).__name__})."}
+    blockers = [{"blocker": _clean(row.get("label"), 160),
+                 "why_it_matters": _clean(row.get("why"), 400)}
+                for row in (found or [])[:12]]
+    return {
+        "client": name, "measured": True, "count": len(blockers),
+        "blockers": blockers,
+        # find() returns nothing both when the site is ready and when it was
+        # never scanned, and those read very differently to somebody about to
+        # spend money, so the empty answer says which this is.
+        "note": ("Nothing is blocking measurement in what has been scanned. "
+                 "A site nobody has scanned also reports nothing here."
+                 if not blockers else
+                 "Each of these would leave a paid buy unmeasured or untracked."),
+    }
+
+
 def next_steps(results: list[dict]) -> list[dict]:
     """Where to start, from the help the answer was read out of.
 
@@ -166,17 +364,27 @@ def next_steps(results: list[dict]) -> list[dict]:
     """
     steps: list[dict] = []
     seen: set[str] = set()
+
+    def offer(opener: Any) -> None:
+        opener = opener if isinstance(opener, dict) else {}
+        href = _clean(opener.get("href"), 240)
+        label = _clean(opener.get("label"), 60)
+        if not href.startswith("/") or not label or href in seen:
+            return
+        seen.add(href)
+        steps.append({"label": label, "href": href})
+
     for row in results:
-        if row.get("tool") != "search_help" or not row.get("ok"):
+        if not row.get("ok"):
             continue
         result = row.get("result") if isinstance(row.get("result"), dict) else {}
-        for topic in result.get("topics") or []:
-            opener = topic.get("open") or {}
-            href, label = _clean(opener.get("href"), 240), _clean(opener.get("label"), 60)
-            if not href.startswith("/") or not label or href in seen:
-                continue
-            seen.add(href)
-            steps.append({"label": label, "href": href})
+        # The screen a read is drawn on, named by the read itself: "what is
+        # on my desk" answered in the chat is worth one tap to the page that
+        # lets you work it.
+        offer(result.get("opens"))
+        if row.get("tool") == "search_help":
+            for topic in result.get("topics") or []:
+                offer(topic.get("open"))
     return steps[:MAX_STEPS]
 
 
@@ -257,6 +465,10 @@ def plan(question: str, role: str, context: dict, history: list[dict]) -> dict:
         "when the user asks to find or list clients. Use search_help when the "
         "question asks how something is done, where a tool is, what a screen or "
         "field means, or how to start a piece of work; pass the subject as query. "
+        "For my, mine, or I -- my clients, my tasks, what is on my desk -- use "
+        "the tools that read the signed-in account and pass them no arguments "
+        "at all; they never take a name or an email, and naming a person or "
+        "asking on somebody else's behalf does not change whose work is read. "
         "If no tool is needed, calls is empty and direct_answer is a short "
         "acknowledgment -- never a description of what Ask SmartHub can do, "
         "which Python supplies. Never plan "
@@ -419,7 +631,7 @@ def resolve_plan_clients(plan_data: dict, question: str) -> tuple[dict, list[dic
     return resolved, matches, None
 
 
-def execute(plan_data: dict, role: str) -> list[dict]:
+def execute(plan_data: dict, role: str, actor: str = "") -> list[dict]:
     allowed = allowed_tools(role)
     out = []
     for call in plan_data.get("calls") or []:
@@ -429,6 +641,10 @@ def execute(plan_data: dict, role: str) -> list[dict]:
             continue
         incoming = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
         arguments = {key: incoming[key] for key in tool.arguments if key in incoming}
+        if tool.needs_actor:
+            # From the session, after the filter above and never through it:
+            # whose desk this is was decided at sign-in, not by the question.
+            arguments["actor"] = actor
         try:
             result = tool.fn(**arguments)
             out.append({"tool": name, "ok": True, "result": result})
@@ -482,7 +698,7 @@ def ask(question: str, *, role: str, actor: str, context: Any = None,
         return {"answer": clarification["prompt"], "sources": [], "next_steps": [],
                 "context": ctx, "read_only": True,
                 "clarification": clarification, "client_matches": matches}
-    results = execute(checked, role)
+    results = execute(checked, role, actor)
     # Nothing could be read, so before falling back to "here is what I can
     # answer", look for the written help on whatever was asked about. This
     # runs in Python rather than as a second turn at the model: the question
