@@ -142,12 +142,138 @@ class AskClientMatchingTests(unittest.TestCase):
         self.assertEqual(result["match_status"], "resolved")
 
 
+class AskHelpTests(unittest.TestCase):
+    """"How do I…" is answered from hub/help.py, which said so all along."""
+
+    def test_help_tool_is_available_to_every_staff_role(self):
+        self.assertIn("search_help", ask_smarthub.allowed_tools("member"))
+        self.assertIn("search_help", ask_smarthub.allowed_tools("admin"))
+        self.assertEqual(ask_smarthub.allowed_tools("demo"), {})
+
+    def test_a_process_question_finds_its_screen_and_where_to_start(self):
+        found = ask_smarthub.help_answers("how do I raise a web ticket")
+        self.assertTrue(found["count"])
+        top = found["topics"][0]
+        self.assertEqual(top["title"], "Raise a web ticket")
+        self.assertEqual(top["open"]["href"], "/tools/tickets/")
+        self.assertIn("eight", top["explains"])
+
+    def test_a_question_with_no_searchable_word_answers_nothing(self):
+        """Better than an unrelated screen: the caller falls back to the
+        honest summary of what it can read."""
+        self.assertEqual(ask_smarthub.help_answers("what do you do")["count"], 0)
+        self.assertEqual(ask_smarthub.help_answers("")["count"], 0)
+
+    def test_two_letter_hub_words_survive_the_stopword_strip(self):
+        self.assertEqual(ask_smarthub._help_terms("where do I ask for ad copy?"),
+                         "ask ad copy")
+
+    def test_next_steps_take_only_relative_links_from_help_reads(self):
+        results = [
+            {"tool": "search_help", "ok": True, "result": {"topics": [
+                {"open": {"label": "Open Web Tickets", "href": "/tools/tickets/"}},
+                {"open": {"label": "Elsewhere", "href": "https://evil.invalid"}},
+                {"open": {"label": "Again", "href": "/tools/tickets/"}},
+                {"open": None},
+            ]}},
+            {"tool": "get_client_proposals", "ok": True,
+             "result": {"topics": [{"open": {"label": "No", "href": "/nope"}}]}},
+            {"tool": "search_help", "ok": False, "error": "unavailable"},
+        ]
+        self.assertEqual(ask_smarthub.next_steps(results),
+                         [{"label": "Open Web Tickets", "href": "/tools/tickets/"}])
+
+    def test_capability_summary_is_the_allowlist_not_a_sentence(self):
+        member = ask_smarthub.capability_summary("member")
+        admin = ask_smarthub.capability_summary("admin")
+        self.assertIn(ask_smarthub.TOOLS["get_client_proposals"].description, member)
+        self.assertNotIn("QuickBooks balance", member)
+        self.assertIn(ask_smarthub.TOOLS["get_client_quickbooks"].description, admin)
+        self.assertIn("I only read", member)
+        self.assertEqual(ask_smarthub.capability_summary("demo"),
+                         "This account cannot read anything through Ask SmartHub.")
+
+    def test_a_question_no_tool_could_answer_reaches_the_written_help(self):
+        empty_plan = {"calls": [], "direct_answer": "Sure."}
+        with patch.object(ask_smarthub, "plan", return_value=empty_plan), \
+             patch.object(ask_smarthub, "answer", return_value="Here is how."), \
+             patch.object(ask_smarthub.audit, "log"):
+            out = ask_smarthub.ask("how do I raise a web ticket",
+                                   role="member", actor="tester@example.test")
+        self.assertEqual([row["tool"] for row in out["sources"]], ["search_help"])
+        self.assertEqual(out["next_steps"][0]["href"], "/tools/tickets/")
+        self.assertTrue(out["read_only"])
+
+    def test_nothing_read_and_no_help_still_says_what_it_can_read(self):
+        empty_plan = {"calls": [], "direct_answer": ""}
+        with patch.object(ask_smarthub, "plan", return_value=empty_plan), \
+             patch.object(ask_smarthub.audit, "log"):
+            out = ask_smarthub.ask("what do you do", role="member",
+                                   actor="tester@example.test")
+        self.assertEqual(out["sources"], [])
+        self.assertEqual(out["next_steps"], [])
+        self.assertIn("What I can read:", out["answer"])
+
+
+class AskGapReportTests(unittest.TestCase):
+    """The questions it could read nothing for are already in the log."""
+
+    ROWS = [
+        {"time": "2026-09-16T10:00:00+00:00", "question": "Show me last month invoices",
+         "source_count": 0, "actor": "rep@example.test"},
+        {"time": "2026-09-15T09:00:00+00:00", "question": "show me last month INVOICES",
+         "source_count": 0, "actor": "other@example.test"},
+        {"time": "2026-09-14T09:00:00+00:00", "question": "Which GA4 properties for Acme",
+         "source_count": 2, "tools": ["get_client_ga4_properties"]},
+        {"time": "2026-09-13T09:00:00+00:00", "question": "proposals for acme",
+         "source_count": 0, "match_status": "clarification"},
+        {"time": "2026-09-12T09:00:00+00:00", "question": "Who owns this client",
+         "source_count": 0, "actor": "rep@example.test"},
+        {"time": "2026-09-11T09:00:00+00:00", "question": "   ", "source_count": 0},
+    ]
+
+    def test_only_the_unanswered_are_reported_and_alike_ones_are_one_row(self):
+        from hub import qa, audit
+        with patch.object(audit, "read", return_value=self.ROWS):
+            out = qa.ask_gaps()
+        self.assertTrue(out["measured"])
+        questions = [row[0] for row in out["rows"]]
+        self.assertEqual(questions, ["Show me last month invoices",
+                                     "Who owns this client"])
+        self.assertEqual(out["rows"][0][1], 2)                  # asked twice
+        self.assertEqual(out["rows"][0][2], "2026-09-16 10:00")  # newest of the two
+        self.assertEqual(out["rows"][0][3], "rep@example.test")
+
+    def test_an_unreadable_log_is_unmeasured_rather_than_empty(self):
+        from hub import qa, audit
+        with patch.object(audit, "read", side_effect=RuntimeError("no table")):
+            out = qa.ask_gaps()
+        self.assertFalse(out["measured"])
+        self.assertIn("could not be read", out["note"])
+
+    def test_the_report_is_on_the_qa_index(self):
+        from hub import qa
+        self.assertEqual(qa.REPORTS["ask-gaps"]["fn"], qa.ask_gaps)
+        self.assertTrue(qa.REPORTS["ask-gaps"]["group"])
+
+
 class AskClientChoiceUiTests(unittest.TestCase):
     def test_template_renders_clickable_clarification_choices(self):
         template = Path("hub/templates/ask_smarthub.html").read_text()
         self.assertIn("clarification.choices", template)
         self.assertIn("ask(choice.question)", template)
         self.assertIn("ask-choice", template)
+
+    def test_template_renders_where_to_start_links(self):
+        """The answer is escaped text, so a path inside it is not clickable.
+
+        These are, and the page refuses anything that is not a Hub path --
+        the same rule the server applies, on the side that would render it.
+        """
+        template = Path("hub/templates/ask_smarthub.html").read_text()
+        self.assertIn("d.next_steps", template)
+        self.assertIn("Where to start", template)
+        self.assertIn("step.href.charAt(0)!=='/'", template)
 
 
 if __name__ == "__main__":

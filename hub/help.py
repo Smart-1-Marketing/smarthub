@@ -17,6 +17,7 @@ anyone should care.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 
@@ -29,6 +30,15 @@ class Help:
     selector: str = ""               # CSS target for the tour highlight
     link: str = ""
     link_text: str = ""
+    # Written for the Ask assistant rather than for a bubble on a screen.
+    # `hub/help_audit.py` reports a registered key that no template places,
+    # because until this flag existed every entry here was a bubble and an
+    # unplaced one meant somebody had written help nobody could reach. An
+    # answer to "how do I raise a web ticket" is reached by asking, so it is
+    # accounted for as this rather than as a bubble that was never put on a
+    # page -- and the audit still names it, the way it names every other
+    # thing it decided not to call a fault.
+    ask_only: bool = False
 
     @property
     def screen(self) -> str:
@@ -446,6 +456,78 @@ REGISTRY: list[Help] = [
        "The version in the footer is read from the running code, not from a "
        "config file. If it doesn't match what you last deployed, the deploy "
        "didn't take."),
+
+    # ---------------- Raising a request ----------------
+    # The five request routes on the dashboard's Tools & requests list had no
+    # written help of any kind, so the one place somebody types "how do I
+    # raise a web ticket" in plain English -- Ask SmartHub, which reads this
+    # registry -- had nothing to answer them with and said so about screens
+    # that merely contain the word "raise". Each entry says where the form
+    # opens and what the form will ask for, because the question behind "how
+    # do I" is usually "what will I need in front of me".
+    _h("hub.requests.web_ticket", "Raise a web ticket",
+       "A web ticket asks the website team for a change to a client's site. "
+       "Open Web Ticket from the dashboard's Tools & requests list, or raise "
+       "one against a client from their record. It asks for all eight fields "
+       "the ticket object carries: title, client organization, media partner, "
+       "the website URL the work is on, the type of ticket, whether the "
+       "revision requires billing, the description of the changes, and "
+       "whether you are ready to submit. That last one is a button rather "
+       "than a question -- it opens on yes, and turning it off files a ticket "
+       "you mean to finish later rather than one the website team will pick "
+       "up. The URL opens on the site the ticket was raised from, with the "
+       "client's other sites offered beside it, and stays free text because "
+       "the site needing the work is not always one we hold a record for.",
+       link="/tools/tickets/", link_text="Open Web Tickets", ask_only=True),
+    _h("hub.requests.ad_copy", "Request ad copy",
+       "Ad Copy Request asks the campaign team to write copy for a live "
+       "campaign. It opens as a drawer from the dashboard's Tools & requests "
+       "list and from a client's record, where it arrives with the client, "
+       "the campaign, the order number and the media partner already filled "
+       "in from the record you opened it on. The campaign team's form has "
+       "fourteen fields and the Hub sends all of them, so the request does "
+       "not come back as a question. Raise it from the client's record when "
+       "you can: that is what pre-fills the campaign and order.",
+       link="/client360", link_text="Open a client record", ask_only=True),
+    _h("hub.requests.campaign_change", "Request a campaign change",
+       "Campaign Change asks the campaign team to change something on a live "
+       "campaign -- budget, targeting, creative, scheduling. It opens as a "
+       "drawer from the dashboard's Tools & requests list and from a client's "
+       "record. Ad Copy is the same object with its subject pre-written, so "
+       "use Ad Copy when the change is the words in the ad and Campaign "
+       "Change for everything else.",
+       link="/", link_text="Open the dashboard", ask_only=True),
+    _h("hub.requests.campaign_support", "Request campaign support",
+       "Campaign Support asks for help on a campaign that is already "
+       "running: tracking that is not reporting, a pixel to place, a rush on "
+       "a deadline. It opens as a drawer from the dashboard's Tools & "
+       "requests list and from a client's record. The support object carries "
+       "twenty-three fields -- the insertion order, the due date, the kind of "
+       "support, the pixel URL, the timeline, whether it is a rush and why, "
+       "who to notify at the client and at the partner, the notes, the IO "
+       "number, the campaign and the product -- and the Hub sends them, so "
+       "have the IO and the due date to hand.",
+       link="/", link_text="Open the dashboard", ask_only=True),
+    _h("hub.requests.accounting", "Raise an accounting issue",
+       "Accounting Issues opens the accounting team's own form in a window "
+       "over the dashboard, from the Tools & requests list. It is their form "
+       "rather than a Hub object, so what it asks for is theirs to change, "
+       "and nothing about it is recorded on the client's Hub record. For a "
+       "question about what a client was invoiced, their record's billing "
+       "figures and the QuickBooks reports under QA answer without raising "
+       "anything.",
+       link="/", link_text="Open the dashboard", ask_only=True),
+    _h("hub.requests.ask", "Ask SmartHub, and what it can reach",
+       "Ask SmartHub answers questions in plain English about what the Hub "
+       "already holds: the client registry, recorded Google access, GA4 "
+       "properties and channel metrics, proposals, insertion orders, and -- "
+       "for admins -- QuickBooks. It reads and never writes: it cannot raise "
+       "a request, change a campaign or send anything. Ask how something is "
+       "done and it reads this help registry and offers the screen that "
+       "starts it. A question it cannot answer from any of that is written to "
+       "the activity log and shows up on the Questions With No Answer report "
+       "under QA, which is how the list of what it can read gets extended.",
+       link="/ask-smarthub", link_text="Open Ask SmartHub", ask_only=True),
 
     # ---------------- Client 360 ----------------
     _h("hub.client360.header", "Client 360 and its next action",
@@ -2675,26 +2757,47 @@ def screens() -> list[str]:
     return sorted({h.screen for h in REGISTRY})
 
 
+# One word of a question landing in one body is not a match. Three points is
+# a word in a title, or a word in a key and the same word in its body, or
+# three separate words of the question in one body.
+MIN_SCORE = 3
+
+
 def search(term: str, limit: int = 8) -> list[dict]:
-    """Backs the 'how do I…' half of the Ask box."""
+    """Backs the 'how do I…' half of the Ask box.
+
+    Scores the phrase, then each word, and then refuses anything that only
+    brushed one body: asked how to raise a web ticket, this used to answer
+    with four screens whose only connection was the word "raise" — which is
+    worse than saying nothing, because on a screen it reads as the answer.
+    Ranking by title and key first is what puts the screen somebody named
+    above every screen that mentions it in passing.
+    """
     t = (term or "").lower().strip()
     if not t:
         return []
+    words = {w for w in re.findall(r"[a-z0-9']+", t) if len(w) > 2}
     scored = []
     for h in REGISTRY:
+        title, body, key = h.title.lower(), h.body.lower(), h.key.lower()
         score = 0
-        if t in h.title.lower():
+        if t in title:
+            score += 8
+        if t in body:
+            score += 4
+        if t in key:
             score += 3
-        if t in h.body.lower():
-            score += 2
-        if t in h.key.lower():
-            score += 1
-        for word in t.split():
-            if len(word) > 3 and word in h.body.lower():
+        for word in words:
+            if word in title:
+                score += 3
+            if word in key:
+                score += 2
+            if word in body:
                 score += 1
-        if score:
+        if score >= MIN_SCORE:
             scored.append((score, h))
-    scored.sort(key=lambda x: -x[0])
+    # By key after score, so the same question asks the same way twice.
+    scored.sort(key=lambda pair: (-pair[0], pair[1].key))
     return [h.as_dict() for _, h in scored[:limit]]
 
 

@@ -18,13 +18,18 @@ Search -- with no entry behind any of them. Video Search's template even
 carries a comment saying the key must not be renamed *because renaming would
 orphan the bubble*, protecting a key that pointed at nothing.
 
-## Three answers, because three things are true of a key
+## Four answers, because four things are true of a key
 
 **Placed and registered** is the ordinary case and is not reported.
 
 **Placed and not registered** is the finding: somebody wrote the bubble and
 the help text was never written, or the key was typed wrong. One of the two,
 and both show the reader nothing.
+
+**Registered for the assistant** (`ask_only=True`) is help written to be
+*asked* for rather than pointed at: Ask SmartHub reads this registry for "how
+do I..." questions, so those entries are reachable with no bubble anywhere.
+Named, never counted as unplaced.
 
 **Registered and never placed** is deliberately *not* a finding on its own. A
 tour step needs no bubble -- it is anchored by a selector, not by a
@@ -179,9 +184,16 @@ def audit(root: str | None = None) -> dict:
     missing = sorted(set(literal) - set(known))
     placed_or_covered = set(literal) | {
         k for k in known if any(k.startswith(p) for p in prefixes)}
+    # Written to be asked for, not to be pointed at. Ask SmartHub reads this
+    # registry for "how do I..." questions, so an entry can be reachable
+    # without any screen carrying a bubble for it. Named below rather than
+    # counted as unplaced -- the distinction this module's docstring draws
+    # between a finding and a fact, applied to a fourth thing a key can be.
+    ask_only = sorted(k for k, h in known.items() if getattr(h, "ask_only", False))
     unplaced = sorted(
         k for k, h in known.items()
-        if k not in placed_or_covered and h.step is None)
+        if k not in placed_or_covered and h.step is None
+        and not getattr(h, "ask_only", False))
 
     return {
         "registry": len(known),
@@ -196,6 +208,9 @@ def audit(root: str | None = None) -> dict:
             k for k in known if any(k.startswith(p) for p in prefixes)),
         # Also not a finding on its own — see the module docstring.
         "unplaced": unplaced,
+        # Reached by asking rather than by a bubble. Not a finding either,
+        # and named so that "registered" and "on a screen" stay two counts.
+        "ask_only": ask_only,
         "measured": True,
     }
 
