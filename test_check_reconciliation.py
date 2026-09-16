@@ -15,6 +15,9 @@ Payment payload — driven directly.
 """
 import json
 import os
+import pathlib
+import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -194,6 +197,62 @@ check("a file of the wrong shape reads back as the default",
       cr._shaped({"aliases": "not a dict", "checks": None})["aliases"], {})
 check("and keys it does not know are kept",
       cr._shaped({"extra": 1})["extra"], 1)
+
+
+# ---------------------------------------------------------------------------
+print("\nTwo workers, which is the only way a lost write shows")
+
+# The check above proves the cross-worker lock is *taken*. This proves nothing
+# is *lost*, which is a different claim and the one the store exists for: a
+# lock can be entered and still not serialise -- the wrong scope, a lock per
+# process, a read that happened before it was held. Counting the call cannot
+# see any of that.
+#
+# It needs two real processes. Threads cannot show it, because `_LOCK`
+# serialises them and every assertion passes while two containers quietly
+# overwrite each other -- the measurement `hub/leads.py` records as 30 of 60
+# leads surviving. Each worker reads, waits inside the mutation, and writes;
+# with the read and the write not held together the second silently lands on
+# top of the first and one check simply goes.
+WORKER = pathlib.Path(_TMP) / "worker.py"
+WORKER.write_text(
+    "import os, sys, time\n"
+    "sys.path.insert(0, os.environ['CR_REPO'])\n"
+    "from modules.check_reconciliation import app as cr\n"
+    "tag = sys.argv[1]\n"
+    "def fn(state):\n"
+    "    state['checks'].append({'id': tag})\n"
+    "    time.sleep(0.6)\n"
+    "    state['oauth']['refresh_token'] = tag\n"
+    "cr._mutate(fn)\n"
+    "print('done', tag)\n", encoding="utf-8")
+
+_CONC = tempfile.mkdtemp(prefix="s1-checkrec-conc-")
+_env = dict(os.environ)
+_env["CR_REPO"] = str(pathlib.Path(__file__).resolve().parent)
+_env["HUB_DATA_DIR"] = _CONC
+_env.pop("CHECK_RECONCILIATION_DATA_DIR", None)
+_env["DATABASE_URL"] = (os.environ.get("CHECKREC_TEST_DATABASE_URL")
+                        or "sqlite:///" + os.path.join(_CONC, "hub.sqlite3"))
+# Warm the store first, so the two children race the data rather than the
+# schema the first one to arrive would create.
+subprocess.run([sys.executable, str(WORKER), "warm"], env=_env, capture_output=True)
+_procs = [subprocess.Popen([sys.executable, str(WORKER), tag], env=_env,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+          for tag in ("A", "B")]
+_results = [p.communicate() for p in _procs]
+check("both workers report success",
+      all(b"done" in (out or b"") for out, _ in _results))
+_final = subprocess.run(
+    [sys.executable, "-c",
+     "import os, sys, json\n"
+     "sys.path.insert(0, os.environ['CR_REPO'])\n"
+     "from modules.check_reconciliation import app as cr\n"
+     "print(json.dumps([c['id'] for c in cr._read_state()['checks']]))"],
+    env=_env, capture_output=True, text=True)
+check("and neither write was lost",
+      sorted(json.loads(_final.stdout.strip() or "[]")), ["A", "B", "warm"])
+shutil.rmtree(_CONC, ignore_errors=True)
 
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

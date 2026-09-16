@@ -126,6 +126,21 @@ instances, and does the read and the write inside all three.
 `_write_state()` went with it. It had exactly one caller, and leaving it would
 have left a second door onto the file that takes none of those locks.
 
+**Taken and not-lost are different claims, and only one of them needs two
+processes.** The first check written for that lock patches `jsonstore._exclusive`
+and counts the call — which is right, and proves the lock is *entered*. It
+cannot prove it *serialises*: the wrong scope, a lock per process, or a read
+that happened before it was held all count exactly one. Neutering `_take_flock`
+demonstrates the gap — the counting check stays green and one of the two
+writes silently goes.
+
+So the property is asserted directly, with two real processes that each read,
+wait inside the mutation and write. Threads cannot show it, because `_LOCK`
+serialises them and every assertion passes while two containers overwrite each
+other — the measurement `hub/leads.py` records as 30 of 60 leads surviving.
+The check was confirmed red against a neutered flock before it was confirmed
+green.
+
 **Not moved:** `uploads/`, which holds the scanned check images. Those are
 binary, and the repo's answer for binary is Cloudinary through
 `hub/storage.py` — a different change from moving the JSON writers, and one
