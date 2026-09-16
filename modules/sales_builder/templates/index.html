@@ -1478,6 +1478,11 @@ function editLoaded(q){
  S=Object.assign(freshState(),q.data||{});QUOTE_ID=q.id;QUOTE_NUMBER=q.quote_number;_lastStep=-1;
  step=resumeStep();
  S._kpiPlan=q.kpi_framework||null;
+ // The scan's own competitive reading, read the same place the KPI
+ // framework is -- WO-3e. Never a client-side re-derivation. The SEO & AEO
+ // scope reads the same way, but only inside media_plan_rows()'s own row
+ // description below -- no second, standalone copy of it here.
+ S._standing=q.where_you_stand||null;
  /* The delivery figures, computed server-side. Never a JavaScript copy of
     that arithmetic: the PDF, the Word export and this preview are three
     renderers of one table already, and a fourth answer to "what does this
@@ -1574,6 +1579,11 @@ async function persistQuote(extra){
    const before=JSON.stringify(S._kpiPlan||null);
    S._kpiPlan=saved.quote.kpi_framework;
    if(before!==JSON.stringify(S._kpiPlan))repaint=true;
+  }
+  if(saved&&saved.quote&&saved.quote.where_you_stand){
+   const before=JSON.stringify(S._standing||null);
+   S._standing=saved.quote.where_you_stand;
+   if(before!==JSON.stringify(S._standing))repaint=true;
   }
   if(repaint&&!S._editSec&&!S._tableEdit&&document.getElementById('docPreview'))drawPreview();
   const review=document.getElementById('reviewSummary');
@@ -3665,6 +3675,13 @@ function roiTable(){
  const plan=kpiPlan();
  if(!plan)return '<div class="dnote">The measurement framework loads with the quote.</div>';
  let h='';
+ // "Where you stand" leads it -- the scan's own competitive reading,
+ // printed only where it was measured, never a placeholder line invented
+ // to fill the space. WO-3e.
+ const standing=S._standing;
+ if(standing&&standing.measured&&(standing.lines||[]).length)
+  h+=`<div class="dbody"><p><b>Where you stand today</b></p><ul class="dlist">${
+    standing.lines.map(l=>'<li>'+esc(l)+'</li>').join('')}</ul></div>`;
  if(plan.measured){
   h+=`<div class="dbody"><p><b>Primary KPI</b></p><ul class="dlist"><li>${esc(plan.primary)}</li></ul></div>`;
   if((plan.secondary||[]).length)

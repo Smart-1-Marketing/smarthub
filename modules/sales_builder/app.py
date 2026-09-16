@@ -86,6 +86,7 @@ from hub import current_marketing as hub_discovery
 from hub import industries as hub_industries
 from hub import kpi_framework as hub_kpi
 from hub import product_intake as hub_intake
+from hub import proposal_scan_insights as _proposal_scan_insights
 from hub import proposal_spec as hub_spec
 from hub import quote_validity as hub_validity
 from hub import rate_card as hub_rate_card
@@ -595,6 +596,13 @@ def quote_json(q, include_data=False, sent_at=_UNSET):
         # derived from the KPIs and the media mix, and a stale copy of it is a
         # measurement framework that no longer matches the plan under it.
         "kpi_framework": hub_kpi.framework(state),
+        # The scan's own competitive numbers, read the same place the KPI
+        # framework is -- WO-3e. Never stored: a client rescanned between two
+        # opens of this quote must not go on reading last month's standing.
+        # The SEO & AEO scope reads the same way, but only as a media-plan
+        # row's description (media_plan_rows() below) -- there is no second,
+        # standalone reading of it here to keep in step with that one.
+        "where_you_stand": _proposal_scan_insights.where_you_stand(q.client, q.website),
         "target_areas": campaign_areas(state),
         "targets_of_interest": targets_of_interest(state),
         "zip_exceptions": hub_areas.zip_exceptions(campaign_areas(state)),
@@ -891,6 +899,38 @@ def is_consulting(item) -> bool:
     """
     return (str((item or {}).get("product") or "").strip()
             == hub_intake.CONSULTING["product"])
+
+
+# The one join to the placeholder rate-card line WO-3e's scope maps onto --
+# exact string, byte-for-byte the card's own "product" field
+# (hub/data/rate_card.json), never a substring: the client_key.py rule
+# applied to a product name rather than a business.
+SEO_AEO_SCOPE_PRODUCT = "SEO & AEO Scope Package"
+
+
+def is_seo_aeo_scope(item) -> bool:
+    """Whether a plan line is the SEO & AEO Scope Package, the join
+    `_seo_aeo_scope_note()` uses to attach the audit's own derivation."""
+    return (str((item or {}).get("product") or "").strip()
+            == SEO_AEO_SCOPE_PRODUCT)
+
+
+def _seo_aeo_scope_note(state) -> str:
+    """The scope_for() derivation, for a media-plan row's description.
+
+    Computed once and reused for every SEO & AEO Scope Package line on one
+    proposal rather than re-derived per row -- the audit it reads does not
+    change between two lines quoting the same client's same site. Never a
+    placeholder sentence: an unmeasured scope leaves the description blank,
+    the same rule `where_you_stand()` and `scope_for()` themselves already
+    hold.
+    """
+    try:
+        scope = _proposal_scan_insights.scope_for(
+            str(state.get("client") or ""), str(state.get("url") or ""))
+    except Exception:                                     # noqa: BLE001
+        return ""
+    return scope.get("note") or "" if scope.get("measured") else ""
 
 
 def consulting_unresolved(state) -> list:
@@ -2575,6 +2615,15 @@ def build_proposal_pdf(q, state, sent_at=_UNSET):
             # agreed to impressions and the campaign was run against KPIs.
             # `hub/kpi_framework.py` is the one description now, and the IO's
             # own copy is asserted against it.
+            #
+            # "Where you stand" leads it -- the scan's own competitive
+            # reading, printed only where it was measured, never a
+            # placeholder line invented to fill the space. WO-3e.
+            standing = _proposal_scan_insights.where_you_stand(q.client, q.website)
+            if standing["measured"]:
+                story += _body_flowables(
+                    hub_spec.bullets(standing["lines"], "<b>Where you stand today</b>"),
+                    st_body)
             plan = hub_kpi.framework(state)
             if plan["measured"]:
                 story += _body_flowables(
@@ -2924,6 +2973,9 @@ def build_proposal_docx(q, state, sent_at=_UNSET):
                                 f"{_creative_phrase(row)}. "
                                 f"Needs: {hub_creative.units_line(state, row['medium'])}")
         elif kind == "roi":
+            standing = _proposal_scan_insights.where_you_stand(q.client, q.website)
+            if standing["measured"]:
+                _docx_body(d, hub_spec.bullets(standing["lines"], "Where you stand today"))
             plan = hub_kpi.framework(state)
             if plan["measured"]:
                 _docx_body(d, hub_spec.bullets([plan["primary"]], "Primary KPI"))
@@ -3092,6 +3144,11 @@ def expected_results(state):
     months = max(1, int(state.get("months") or 1))
     rows, totals = [], {"impressions": 0, "views": 0, "monthly": 0.0}
     unpriced = []
+    # Computed once, before the loop, rather than per row: nothing on this
+    # campaign changes which client or domain the audit was run against.
+    seo_aeo_note = (_seo_aeo_scope_note(state)
+                    if any(is_seo_aeo_scope(i) for i in state.get("items") or [])
+                    else "")
 
     for item in state.get("items") or []:
         try:
@@ -3179,13 +3236,17 @@ def expected_results(state):
             "units": units,
             "unit_label": delivery.get("unit_label") or "",
             "note": delivery.get("note") or "",
-            # Only the catch-all line carries one, and for that line it is the
-            # whole of what was sold: every consulting row on every proposal
-            # prints the same product string, so without this the client's
-            # media plan reads "Consulting & Strategic Services — $5,000" and
-            # says nothing about the engagement they are agreeing to.
-            "description": (str(item.get("description") or "").strip()
-                            if is_consulting(item) else ""),
+            # Only two products carry one. The catch-all's is the whole of
+            # what was sold: every consulting row on every proposal prints
+            # the same product string, so without this the client's media
+            # plan reads "Consulting & Strategic Services — $5,000" and says
+            # nothing about the engagement they are agreeing to. The SEO &
+            # AEO Scope Package's is the audit's own derivation of the tier
+            # -- WO-3e -- shown wherever it was measured and left blank
+            # otherwise, never a placeholder line invented to fill the space.
+            "description": ((str(item.get("description") or "").strip()
+                            if is_consulting(item) else "")
+                            or (seo_aeo_note if is_seo_aeo_scope(item) else "")),
         })
 
     totals["campaign"] = round(sum(r["campaign"] for r in rows), 2)
@@ -4010,11 +4071,10 @@ def api_scan_insights(qid):
         domain = q.website or ""
     finally:
         db.close()
-    from hub import proposal_scan_insights as psi
     return jsonify({
         "ok": True,
-        "where_you_stand": psi.where_you_stand(client, domain),
-        "seo_aeo_scope": psi.scope_for(client, domain),
+        "where_you_stand": _proposal_scan_insights.where_you_stand(client, domain),
+        "seo_aeo_scope": _proposal_scan_insights.scope_for(client, domain),
     })
 
 
