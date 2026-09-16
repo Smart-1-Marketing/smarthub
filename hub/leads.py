@@ -777,6 +777,41 @@ def _lead_domain(row: dict) -> str:
     return ""
 
 
+def find_by_domain(domain: str) -> dict | None:
+    """The live lead this website already has, or None.
+
+    Asked before anything files a lead it worked out from a website rather
+    than from a form somebody filled in -- a site scan, today. Two rows for
+    one business is the duplicate `merge_candidates()` below exists to find
+    and the prospect queue's second band exists to make somebody fix, and it
+    is cheaper not to write the second one.
+
+    **Raises where the store could not be read.** "There is no lead for this
+    website" and "we could not look" are different answers, and only the
+    first one makes it safe to write one; a caller that swallowed this would
+    file a duplicate every time the database blinked.
+
+    A row merged into another is not a second lead -- `merge()` leaves it in
+    place rather than deleting it -- so those are skipped here the way
+    `listing()` skips them. The newest match wins: several live rows for one
+    website is itself a merge candidate, and the newest is the one somebody
+    is working.
+    """
+    try:
+        from hub.client_context import canonical_domain
+        want = canonical_domain(domain)
+    except Exception:                                   # noqa: BLE001
+        want = ""
+    if not want:
+        return None
+    hits = [r for r in _read_all(strict=True)
+            if not r.get("merged_into") and _lead_domain(r) == want]
+    if not hits:
+        return None
+    hits.sort(key=lambda r: r.get("created") or "")
+    return hits[-1]
+
+
 def merge_candidates(days: int = 365, limit: int = 100) -> dict:
     """Groups of rows that look like one prospect. Suggestions, never merges.
 

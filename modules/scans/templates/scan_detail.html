@@ -38,6 +38,11 @@
     margin-right:8px; vertical-align:middle; background:#cbd5e1; }
   .dot.bad { background:var(--bad); } .dot.warn { background:var(--warn); }
   .dot.ok { background:var(--ok); }
+  /* The by-hand lead form: two columns on a desktop, one on a phone. */
+  .leadgrid { display:grid; gap:10px 14px; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); }
+  .leadgrid label { display:block; font-size:12.5px; font-weight:600; color:var(--muted); }
+  .leadgrid input { display:block; width:100%; margin-top:4px; padding:8px 10px;
+    border:1px solid var(--line); border-radius:8px; font:14px inherit; color:var(--ink); }
   .chips { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 4px; }
   .chip { background:#f1f5f9; color:var(--muted); border-radius:999px;
     padding:5px 12px; font-size:12.5px; font-weight:600; }
@@ -379,6 +384,96 @@
       <dt>Insites report ID</dt><dd style="font-family:monospace;font-size:12px">{{ insites_report_id or "—" }}</dd>
     </dl>
   </div>
+
+  {# ---------------- Lead: a scanned business that is not a client -------
+     Filed automatically when the audit lands -- modules/scans/prospect_leads
+     holds the rules. This card is the verdict and the one way back from the
+     answers a person can do something about: no contact details were found
+     on the site, or the client list could not be read at the time. #}
+  <div class="card" id="leadCard" data-state="{{ scan.lead_state }}">
+    <h2>Lead</h2>
+    <p class="muted" style="margin:0 0 12px">A business we scan and don't
+      already bill is a prospect. It is filed once, in the one lead store
+      every tool writes to, and worked from the prospect record &mdash; not
+      from this page.</p>
+    <p style="margin:0 0 4px" id="leadState"><b>{{ scan.lead_label or "Not decided yet" }}</b></p>
+    <p class="muted" style="margin:0" id="leadNote">{{ scan.lead_note or
+      "This scan has not been through the check yet. File it below, or press
+       Re-check on the scan to run the whole thing again." }}</p>
+    {% if scan.lead_url %}
+    <p style="margin:12px 0 0" id="leadLink"><a href="{{ scan.lead_url }}">Open the prospect record &#8599;</a></p>
+    {% else %}
+    <p style="margin:12px 0 0;display:none" id="leadLink"><a href="#">Open the prospect record &#8599;</a></p>
+    {% endif %}
+
+    {# A client is not a lead and the widget files its own, so neither offers
+       a form: both are decisions, not something half-done. #}
+    {% if scan.lead_state not in ("client", "widget") and not scan.lead_id %}
+    <div id="leadForm" style="margin-top:14px;border-top:1px solid var(--line);padding-top:14px">
+      <p class="muted" style="margin:0 0 10px">A lead with no email address and
+        no phone number reads as a live prospect on every report that counts
+        it, and nothing can write it into Smart 1 Suite either. Add one you
+        have and file it.</p>
+      <div class="leadgrid">
+        <label>Email<input id="leadEmail" type="email" autocomplete="off" placeholder="name@example.com" /></label>
+        <label>Phone<input id="leadPhone" type="text" autocomplete="off" placeholder="(555) 555-0123" /></label>
+        <label>Contact name<input id="leadName" type="text" autocomplete="off" placeholder="Who we spoke to" /></label>
+        <label>Business<input id="leadCompany" type="text" autocomplete="off" value="{{ scan.business_name }}" /></label>
+      </div>
+      <p style="margin:12px 0 0"><button id="leadFile">File as a lead</button>
+        <span class="muted" id="leadMsg" style="margin-left:10px"></span></p>
+    </div>
+    {% endif %}
+  </div>
+  <script>
+  // File the lead by hand. The same call the audit makes for itself when it
+  // lands, with whatever contact details somebody has typed in.
+  (function(){
+    var btn = document.getElementById("leadFile");
+    if(!btn) return;
+    var PID = {{ scan.public_id|tojson }};
+    var msg = document.getElementById("leadMsg");
+    function val(id){
+      var el = document.getElementById(id);
+      return el ? el.value.trim() : "";
+    }
+    btn.onclick = function(){
+      btn.disabled = true;
+      msg.style.color = "";
+      msg.textContent = "Filing\u2026";
+      fetch("../api/scans/" + encodeURIComponent(PID) + "/lead",
+            {method: "POST", credentials: "same-origin",
+             headers: {"Content-Type": "application/json"},
+             body: JSON.stringify({email: val("leadEmail"), phone: val("leadPhone"),
+                                   name: val("leadName"), company: val("leadCompany")})})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          d = d || {};
+          document.getElementById("leadState").innerHTML =
+            "<b>" + (d.label || "Not filed") + "</b>";
+          document.getElementById("leadNote").textContent = d.note || "";
+          if(d.ok && d.record_url){
+            // The record, not just the word "filed": the panel is a list, the
+            // record is where a prospect is actually worked.
+            var link = document.getElementById("leadLink");
+            link.style.display = "";
+            link.getElementsByTagName("a")[0].href = d.record_url;
+            document.getElementById("leadForm").style.display = "none";
+            msg.textContent = "";
+            return;
+          }
+          btn.disabled = false;
+          msg.style.color = "#dc2626";
+          msg.textContent = d.error || "It could not be filed.";
+        })
+        .catch(function(){
+          btn.disabled = false;
+          msg.style.color = "#dc2626";
+          msg.textContent = "Could not reach the Hub. Nothing was filed.";
+        });
+    };
+  })();
+  </script>
 
   <div class="card" data-demo="scan-reports">
     <h2>Reports</h2>
