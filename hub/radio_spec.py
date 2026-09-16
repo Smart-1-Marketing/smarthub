@@ -93,6 +93,7 @@ that files a mix asks for an explicit override and records who gave it.
 
 from __future__ import annotations
 
+import math
 import re
 import struct
 
@@ -550,6 +551,163 @@ def mix_defaults(level: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Getting an over-long read back inside the slot.
+# ---------------------------------------------------------------------------
+# A read that was *recorded here* and overruns has an obvious fix: tighten the
+# script, or drop the voice's speed, and record it again. A read somebody
+# **uploaded** has neither. It is a finished file made by talent who has gone
+# home, and the only lever left in a runtime with no ffmpeg is the one the
+# browser already has: play it faster. A station's own playout does exactly
+# this -- time compression is how a :32 read makes a :30 log -- so the answer
+# is to work out the rate, say what it costs, and let somebody approve it,
+# rather than blocking the mix and leaving them nowhere to go.
+#
+# Two numbers bound it, and both are about the ear rather than the arithmetic:
+SPEED_CLEAN_MAX = 1.05   # under this nobody hears it; stations compress here daily
+SPEED_MAX = 1.15         # past this the read is audibly hurried, whatever the clock says
+SPEED_STEP = 0.01        # the rate is quoted to the hundredth, always rounded UP
+
+# What playing a buffer faster actually does, stated rather than glossed. The
+# Web Audio API's `playbackRate` resamples: the read gets shorter *and* higher,
+# because there is no pitch-preserving time-stretch in this runtime and this
+# Hub does not add a library from a CDN for one feature. At 1.05x that is 0.84
+# of a semitone, which is the honest reason SPEED_CLEAN_MAX sits where it does.
+
+
+def speed_semitones(speed) -> float | None:
+    """How far the voice rises at this rate, in semitones. ``None`` if unusable."""
+    try:
+        rate = float(speed)
+    except (TypeError, ValueError):
+        return None
+    if rate <= 0:
+        return None
+    return round(12.0 * math.log2(rate), 2)
+
+
+def speed_suggestion(*, vo_seconds, target_seconds, lead_in_ms=None,
+                     mixed_seconds=None, tolerance_s=None) -> dict:
+    """The rate that lands an over-long read inside its slot, and what it costs.
+
+    Advice, never a measurement. The read's length comes from whatever decoded
+    it -- the browser, on an uploaded MP3 this runtime cannot measure -- so
+    every number here is arithmetic on a reported duration. What gets filed is
+    still measured from the WAV's own header by `wav_seconds()`, and this
+    changes nothing about that.
+
+    ``needed`` is False for a read that already fits, and ``speed`` is ``None``
+    whenever no rate inside `SPEED_MAX` gets there -- with ``trim_seconds``
+    saying how much still has to come out of the script, because "speed it up"
+    is not an answer to a read that is five seconds long.
+    """
+    def _num(value):
+        try:
+            out = float(value)
+        except (TypeError, ValueError):
+            return None
+        return out if math.isfinite(out) else None
+
+    vo = _num(vo_seconds)
+    target = _num(target_seconds)
+    if vo is None or vo <= 0:
+        return {"available": False, "needed": False, "speed": None,
+                "reason": "The read's length is not known, so there is no rate "
+                          "to work out."}
+    if target is None or target <= 0:
+        return {"available": False, "needed": False, "speed": None,
+                "reason": "This spot has no slot length on it to fit the read into."}
+
+    lead_ms = MIX_LEAD_IN_MS if lead_in_ms is None else (_num(lead_in_ms) or 0.0)
+    lead = max(0.0, lead_ms / 1000.0)
+    runway = target - lead
+    if runway <= 0:
+        return {"available": False, "needed": False, "speed": None,
+                "reason": f"A :{target:g} slot is shorter than the bed's "
+                          f"{lead:g}s lead-in, so there is no runway to fit a "
+                          "read into."}
+
+    tol = _num(tolerance_s)
+    tol = length_tolerance_s() if tol is None else tol
+    # The mix renders at the longer of the slot and the read, so it is never
+    # short -- the bed fills the rest. Over is the only direction this can go.
+    rendered = _num(mixed_seconds)
+    if rendered is None:
+        rendered = max(target, lead + vo)
+    over = round(rendered - target, 2)
+
+    base = {"available": True, "vo_seconds": round(vo, 2),
+            "target_seconds": target, "lead_seconds": round(lead, 3),
+            "rendered_seconds": round(rendered, 2), "over_seconds": over,
+            "tolerance_s": tol, "clean_max": SPEED_CLEAN_MAX,
+            "max_speed": SPEED_MAX, "reason": ""}
+
+    if over <= tol:
+        return {**base, "needed": False, "speed": None, "comfort": "fits",
+                "note": f"{rendered:.2f}s against a :{target:g} slot, inside "
+                        f"±{tol:g}s. Nothing to speed up."}
+
+    # The rate that fits the read into what is left after the lead-in, rounded
+    # UP to the hundredth so it lands at or inside the slot rather than one
+    # rounding short of it.
+    exact = vo / runway
+    speed = math.ceil(exact / SPEED_STEP) * SPEED_STEP
+    speed = round(speed, 2)
+    lands = round(max(target, lead + vo / speed), 2)
+
+    if speed > SPEED_MAX:
+        # What the fastest honest rate still leaves, said two ways: how far
+        # over the slot the mix would land, and -- the one somebody can act on
+        # -- how much has to come out of the read as it was recorded.
+        over_at_max = round(max(0.0, (lead + vo / SPEED_MAX) - target), 2)
+        trim = round(max(0.0, vo - runway * SPEED_MAX), 2)
+        return {**base, "needed": True, "speed": None, "comfort": "too_far",
+                "speed_needed": speed, "trim_seconds": trim,
+                "over_at_max_seconds": over_at_max,
+                "note": f"This read is {over:.2f}s over a :{target:g} slot, and "
+                        f"no speed fixes that: it would take {speed:.2f}x, past "
+                        f"the {SPEED_MAX:g}x where a read stops sounding like "
+                        f"one. Even at {SPEED_MAX:g}x the mix lands "
+                        f"{over_at_max:.2f}s over, so roughly {trim:.2f}s has to "
+                        "come out of the read itself. Cut the script and have it "
+                        "read again."}
+
+    semis = speed_semitones(speed)
+    comfort = "clean" if speed <= SPEED_CLEAN_MAX else "audible"
+    pitch = (f"The voice rises about {semis:.2f} of a semitone with it"
+             if semis is not None and semis < 1
+             else f"The voice rises about {semis:.2f} semitones with it")
+    heard = ("under the 5% nobody hears" if comfort == "clean"
+             else "audible on a close listen, and inside what a station's own "
+                  "playout does")
+    return {**base, "needed": True, "speed": speed, "comfort": comfort,
+            "lands_seconds": lands, "semitones": semis,
+            "note": f"{rendered:.2f}s is {over:.2f}s over the :{target:g} slot. "
+                    f"Playing the read at {speed:.2f}x lands the mix on "
+                    f"{lands:.2f}s — {heard}. {pitch}, because resampling is the "
+                    "only time-stretch this runtime has."}
+
+
+def speed_ok(speed) -> tuple[float, str]:
+    """A rate a caller sent, or a sentence. ``1.0`` means no time compression."""
+    if speed in (None, "", "1", "1.0"):
+        return 1.0, ""
+    try:
+        rate = float(speed)
+    except (TypeError, ValueError):
+        return 1.0, "That playback rate is not a number."
+    if not math.isfinite(rate):
+        return 1.0, "That playback rate is not a number."
+    rate = round(rate, 4)
+    if rate < 1.0:
+        return 1.0, ("A mix is never short of its slot — the bed fills the rest "
+                     "— so a slower read has nothing to fix here.")
+    if rate > SPEED_MAX:
+        return 1.0, (f"{rate:g}x is past the {SPEED_MAX:g}x where a read stops "
+                     "sounding like one. Cut the script and have it read again.")
+    return rate, ""
+
+
+# ---------------------------------------------------------------------------
 # Measuring a file we stored.
 # ---------------------------------------------------------------------------
 def wav_seconds(data: bytes) -> float | None:
@@ -753,7 +911,8 @@ def _row(check_id, label, level, detail, **extra) -> dict:
 def qc(*, script: str = "", words: int | None = None,
        words_low: int | None = None, words_high: int | None = None,
        target_seconds: int | None = None, mixed_seconds: float | None = None,
-       bed: dict | None = None, vo_only: bool = False) -> dict:
+       bed: dict | None = None, vo_only: bool = False,
+       speed: float | None = None) -> dict:
     """Every check, each answering for itself.
 
     Four levels, and the fourth is the point: ``not_measured`` is never folded
@@ -775,16 +934,29 @@ def qc(*, script: str = "", words: int | None = None,
                            "This spot has no slot length on it to measure against."))
     else:
         off = round(float(mixed_seconds) - float(target_seconds), 2)
+        # A mix that only fits because the read was played faster says so on
+        # the row itself. Left off, the panel reads as a read that landed on
+        # the clock -- and the next person to re-cut the spot would expect it
+        # to land there again at 1.00x.
+        try:
+            rate = round(float(speed), 2)
+        except (TypeError, ValueError):
+            rate = 1.0
+        compressed = (f" The read was time-compressed to {rate:.2f}x to land "
+                      f"there ({speed_semitones(rate):+.2f} semitones)."
+                      if rate > 1.0 else "")
         if abs(off) <= tol:
             checks.append(_row("length_match", "Mix lands on the clock", "pass",
                                f"{mixed_seconds:.2f}s against a :{target_seconds} "
-                               f"slot, inside ±{tol:g}s.", off=off))
+                               f"slot, inside ±{tol:g}s." + compressed,
+                               off=off, speed=rate))
         else:
             way = "over" if off > 0 else "under"
             checks.append(_row("length_match", "Mix lands on the clock", "block",
                                f"{mixed_seconds:.2f}s is {abs(off):.2f}s {way} the "
                                f":{target_seconds} slot, outside ±{tol:g}s. A station "
-                               "rejects the file rather than trimming it.", off=off))
+                               "rejects the file rather than trimming it."
+                               + compressed, off=off, speed=rate))
 
     # 2. Word count. A warning, because the mix length above is the real
     #    constraint and this is the proxy for it before one exists.
