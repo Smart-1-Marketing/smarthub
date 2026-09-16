@@ -588,6 +588,29 @@ def check_json_backup() -> Check:
         if st["declared_caches"]:
             detail += (f". {len(st['declared_caches'])} deliberately excluded "
                        f"as rebuildable.")
+        if st.get("unmirrored"):
+            # Not rebuildable and not backed up, which is the one combination
+            # this panel exists to name. Reported above the lock state because
+            # these are files already at risk rather than a risk to writes.
+            return ("warn", detail + f". {len(st['unmirrored'])} file"
+                    f"{'s' if len(st['unmirrored']) != 1 else ''} the mirror "
+                    f"would not take and is NOT backed up: "
+                    f"{', '.join(st['unmirrored'][:3])}"
+                    f"{'…' if len(st['unmirrored']) > 3 else ''}.")
+        backend = st.get("lock_backend")
+        if backend == "flock":
+            # An flock serialises the workers that share a filesystem and says
+            # nothing about another instance -- which during a deploy is the
+            # other half of the deploy. It succeeds either way, so without
+            # this line there is no screen anywhere that tells the two apart.
+            return ("warn", detail + ". Writes are serialised by the file "
+                    "lock, not the database one, so two instances can drop "
+                    "each other's updates to the same file.")
+        if st.get("lock_timeouts"):
+            return ("warn", detail + f". {st['lock_timeouts']} write"
+                    f"{'s' if st['lock_timeouts'] != 1 else ''} waited "
+                    "for another instance's lock and gave up, and went ahead "
+                    "unserialised.")
         return ("ok", detail + ".")
     (state, detail), ms = _timed(go)
     return Check("json_backup", "JSON backup", state, detail, ms, required=True,
