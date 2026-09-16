@@ -87,14 +87,14 @@ with mock.patch("hub.client_brief.build", return_value=FULL_BRIEF), \
 check("measured_for() is True", measured is True)
 sections = {r["section"] for r in rows}
 check("alt-text row present", "alt" in sections, sections)
-check("images-to-optimise row present", "images" in sections, sections)
+check("images-to-optimize row present", "images" in sections, sections)
 check("missing-title row present", "titles" in sections, sections)
 check("missing-description row present", "descriptions" in sections, sections)
 check("missing-h1 row present", "headings" in sections, sections)
 check("missing-schema row present", "schema" in sections, sections)
 check("no-sitemap row present", "sitemap" in sections, sections)
 check("no-og-tags row present", "og" in sections, sections)
-check("not-voice-optimised row present", "voice" in sections, sections)
+check("not-voice-optimized row present", "voice" in sections, sections)
 
 title_row = next(r for r in rows if r["section"] == "titles")
 check("counts appear in the row's own title", "2" in title_row["title"], title_row)
