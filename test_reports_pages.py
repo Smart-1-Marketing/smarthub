@@ -120,6 +120,7 @@ check("the module serves the staff screens, the picker's search and the client's
               "/reconcile", "/reconcile/run",
               "/pacing", "/pacing.csv", "/cost", "/cost.csv",
               "/api/clients", "/health", "/client/x", "/client/x/campaign", "/client/x/link", "/client/x/push",
+              "/client/x/summary", "/client/x/summary/draft",
               "/r/c/x", "/r/c/x.pdf", "/r/c/x/data.json", "/upload"]))
 # The public trio is asserted by test_reports_public.py; here every OTHER
 # route must refuse a stranger.

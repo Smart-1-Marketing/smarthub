@@ -247,7 +247,7 @@ def period_label(period: str) -> str:
 
 
 def fill(recipe: Recipe, client: str = "", period: str = "",
-         placement: str = "") -> str:
+         placement: str = "", period_text: str = "") -> str:
     """One recipe's question, with the page's own context filled in.
 
     A recipe that needs a client and has not been given one asks for one in
@@ -261,9 +261,14 @@ def fill(recipe: Recipe, client: str = "", period: str = "",
         chosen = recipe.default_period or DEFAULT_PERIOD
     _code, label = PLATFORM_FOR_PLACEMENT.get(
         " ".join(str(placement or "").split())[:60], ("google_ads", "Google Ads"))
+    # ``period_text`` is a phrase the caller has already worked out -- a
+    # named month with its own ISO dates, say -- and it is used verbatim.
+    # The caller computing the dates is the point: the planner is told never
+    # to compute one, so a question about an arbitrary month has to carry
+    # the days it means rather than leave them to be guessed at.
+    words = " ".join(str(period_text or "").split())[:120] or period_label(chosen)
     return recipe.question.format(
-        client=name or "this client", period=period_label(chosen),
-        platform_label=label)
+        client=name or "this client", period=words, platform_label=label)
 
 
 def chip(recipe: Recipe, client: str = "", period: str = "",

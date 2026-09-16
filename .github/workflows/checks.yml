@@ -3651,6 +3651,9 @@ jobs:
       - name: The Ask SmartHub recipe library and its placements
         if: matrix.group == 8
         run: python3 test_ask_recipes.py
+      - name: The client dashboard executive summary
+        if: matrix.group == 8
+        run: python3 test_reports_exec_summary.py
       - name: The reports tests against Postgres
         if: matrix.group == 8
         env:
@@ -3662,7 +3665,7 @@ jobs:
                    test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
                    test_reports_confirmations.py test_reports_quarantine.py \
                    test_reports_reconcile.py test_reports_bing.py test_reports_groundtruth.py \
-                   test_v2_performance.py; do
+                   test_v2_performance.py test_reports_exec_summary.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1
           done
 
