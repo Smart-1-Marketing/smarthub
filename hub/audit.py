@@ -66,7 +66,6 @@ _db_lock = threading.Lock()
 _engine = None
 _table = None
 _ready = False
-_init_done = False
 _init_error = ""
 _init_retry_at = 0.0
 INIT_RETRY_SECONDS = 120
@@ -154,13 +153,20 @@ def _init() -> bool:
     a Hub that came up while Render's Postgres was waking would otherwise
     file every row of that boot on a disk nobody backs up.
     """
-    global _engine, _table, _ready, _init_done, _init_error, _init_retry_at
+    global _engine, _table, _ready, _init_error, _init_retry_at
     with _db_lock:
-        if _init_done and (_ready or time.time() < _init_retry_at):
+        # Two pieces of state and no third: ready, or inside the cooldown a
+        # failure started. A `_init_done` flag rode along here as well, copied
+        # from jsonstore's `_init()` -- where it is load-bearing, because that
+        # one has a branch that clears it when DATABASE_URL changes. This one
+        # has no such branch, so it was only ever True after the first call
+        # and the condition means exactly the same without it: on a fresh
+        # process `_ready` is False and `_init_retry_at` is 0.0, which is the
+        # one state it was there to distinguish.
+        if _ready or time.time() < _init_retry_at:
             return _ready
         # Past here the cooldown has elapsed (or nothing has been tried yet),
         # so this attempt is the retry and the next one waits again.
-        _init_done = True
         _init_retry_at = time.time() + INIT_RETRY_SECONDS
         if Table is None:
             _init_error = f"SQLAlchemy unavailable ({_SA_ERROR})"
@@ -246,10 +252,9 @@ def _db_write(entries: list[dict]) -> bool:
             cx.execute(insert(_table), [_row_for(e) for e in entries])
         return True
     except Exception as exc:                            # noqa: BLE001
-        global _ready, _init_done, _init_error, _init_retry_at
+        global _ready, _init_error, _init_retry_at
         with _db_lock:
             _ready = False
-            _init_done = True
             _init_retry_at = time.time() + INIT_RETRY_SECONDS
             _init_error = _reason(exc)
         return False

@@ -256,7 +256,7 @@ class NeverCostsTheAction(unittest.TestCase):
             audit.log("m", "during_the_outage", client="Acme")
         finally:
             audit._db_write = real
-        self.assertTrue(os.path.getsize(audit._pending_path()) > 0)
+        self.assertGreater(os.path.getsize(audit._pending_path()), 0)
         self.assertEqual([e["type"] for e in audit.read(limit=5)],
                          ["during_the_outage"],
                          "a row written during an outage must still be read back")
@@ -326,7 +326,7 @@ class NeverCostsTheAction(unittest.TestCase):
         finally:
             audit._db_write = real
         self.assertEqual([e["type"] for e in audit.read(limit=5)], ["owed"])
-        self.assertTrue(os.path.getsize(audit._pending_path()) > 0)
+        self.assertGreater(os.path.getsize(audit._pending_path()), 0)
 
 
 class TheRetryCooldown(unittest.TestCase):
@@ -344,7 +344,6 @@ class TheRetryCooldown(unittest.TestCase):
         try:
             # the state a refused first attempt leaves behind
             audit._ready = False
-            audit._init_done = True
             audit._init_error = "was asleep"
             audit._init_retry_at = time.time() + 9999
             self.assertFalse(audit._init(), "inside the cooldown, no retry")
@@ -354,7 +353,7 @@ class TheRetryCooldown(unittest.TestCase):
             self.assertTrue(audit._ready)
         finally:
             audit._engine, audit._ready = real_engine, real_ready
-            audit._init_done = True
+            audit._init_retry_at = 0.0
 
     def test_a_row_written_while_it_was_refusing_is_not_lost(self):
         """The cooldown and the fallback are one behaviour from a caller's
