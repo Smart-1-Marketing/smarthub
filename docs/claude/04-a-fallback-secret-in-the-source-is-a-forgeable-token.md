@@ -3164,6 +3164,75 @@ knows each tool, not a sweep to land red: `test_jsonstore.py` holds the two
 that moved so neither can quietly go back to a lock of its own, which is what
 a per-process lock reads as when you find one.
 
+**And that flock stops working the day the service stops having one disk.**
+The pair above is right about the two ways a write is lost *on one machine*,
+and the second of them is a lock on a **local sidecar file**. It serialises
+workers that share a filesystem, which is every worker for as long as there
+is one disk mounted at one path — and it is not the two halves of a
+zero-downtime deploy, which are separate instances with separate
+filesystems. Each takes its own flock on its own file, succeeds, and
+serialises nothing. Measured, two processes each appending 30 rows through
+`update_json()`:
+
+    one data root  (one filesystem):   60 of 60 survived
+    two data roots (two filesystems):  34 of 60 survived
+
+That is the same arithmetic `hub/leads.py` already paid for — 30 of 60 — and
+the fix for *that* was this flock. It is the worst shape a lock can fail in:
+both processes reported success, and `status()` reported no `lock_error`,
+because each flock really was taken. A lock that succeeds and means nothing.
+
+Every instance talks to the same database, so a **Postgres advisory lock** is
+the only lock available here that spans them, and `exclusive()` takes it
+first wherever the mirror is on Postgres — the flock standing behind it for
+SQLite, for a database that is down, and for the timeout case. `_advisory_key()`
+is derived from `key_for()` rather than the absolute path, because two
+instances whose roots differ have to agree on the id or they take two
+different locks and serialise nothing, which is the bug wearing a hat.
+
+**The lock alone was not the fix, and this is the half that is easy to miss.**
+Serialise the two instances perfectly and each one still reads its **own**
+copy of the file, mutates that, and writes the whole collection back. So the
+read half of a read-modify-write has to come from the mirror too, which is
+`_authoritative()`: the mirror is the only copy the instances share.
+Confirmed red separately — 39 of 60 with the lock removed, 43 of 60 with the
+read left on the disk, 60 of 60 with both.
+
+Three rules on it. **The disk still wins in the cases where the mirror is not
+the better source** — `durable=False`, a database that did not answer (which
+is also what happens while it is down, so the degraded path is the old
+behaviour), and a key in `_unmirrored_keys`, which is a file this process
+wrote that the mirror would not take. Without that last one the fix is worse
+than the bug: a payload over the size cap is permanently behind in the
+mirror, and reading it would revert a real write on every save. **Nothing may
+raise and nothing may refuse a save** — a failed lock is a reason to
+serialise less, never to lose the write — so a timeout falls back, and is
+*counted and named* rather than absorbed, since it is the return of the
+measured defect. And **the lock connections are bounded** (`LOCK_MAX_HELD`),
+because each holder needs a second connection for its own `_upsert` against a
+pool of 5 + 10: unbounded, a burst of 24 writers took **120.3 seconds**
+against 0.7 bounded, which in production is every write route stalling.
+
+`status()` carries `lock_backend`, `lock_timeouts` and `unmirrored`, and
+`/diagnostics` **warns on each** — the whole finding is a mechanism that is
+invisible from every screen when it silently stops working, so leaving the
+state in a JSON dict nobody opens would have left it exactly as invisible.
+`test_jsonstore_locking.py` drives two real **processes** with two real data
+roots, because threads share a filesystem and cannot show any of this. Its
+gate is a **deterministic alternation** rather than the race: the race
+version failed the unfixed code only three runs in five, because whichever
+child finished first left the other a clean restore-from-mirror and nothing
+was lost — a check that catches the defect sometimes reads as a flake
+somebody re-runs. Alternating removes the timing entirely and still
+reproduces it every time.
+
+**What this does not fix, and neither does any lock.** `hub/leads.py` gets
+the cross-instance lock for free, since it calls `exclusive()` — and
+`leads.jsonl` is not mirrored at all, so two instances hold two different
+lead books and there is nothing authoritative to read. The same is true of
+every SQLite file on the disk. Those are a store problem rather than a lock
+problem, and the lock is what had to be right first.
+
 **Deleting a mirrored file needs `jsonstore.delete_json`, not `os.remove`.**
 Removing only the file leaves the database copy to be restored by the next
 read, so the delete appears to work and then undoes itself. This is the one

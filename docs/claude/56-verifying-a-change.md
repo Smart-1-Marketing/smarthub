@@ -15,6 +15,11 @@ python tools/spellcheck.py         # American English in everything a person rea
 python3 test_jsonstore.py          # the mirror restores, one answer on who is outside
                                    #   it, and which database it mirrors into being a
                                    #   setting rather than a latch on the first write
+python3 test_jsonstore_locking.py  # two real processes with two real data roots:
+                                   #   a flock each instance takes on its own disk
+                                   #   serialises nothing, and the read half of a
+                                   #   read-modify-write has to come from the mirror
+                                   #   too -- both halves confirmed red on their own
 python3 test_db_boot.py            # a database blip at boot is not a verdict for
                                    #   the life of the worker, and sign-in says
                                    #   so in words rather than answering 500

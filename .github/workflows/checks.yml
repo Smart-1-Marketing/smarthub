@@ -406,6 +406,31 @@ jobs:
         if: matrix.group == 2
         run: python test_jsonstore.py
 
+      - name: Cross-instance locking tests
+        if: matrix.group == 2
+        # The lock that stops working the day the service stops having one
+        # shared disk. jsonstore.exclusive() held a threading.Lock and an
+        # flock on a sidecar file; the flock serialises workers that share a
+        # filesystem, and the two halves of a zero-downtime deploy do not --
+        # each takes its own flock on its own file, succeeds, and serialises
+        # nothing, with status() reporting no lock error because each flock
+        # really was taken. Measured before the fix, two processes each
+        # appending 30 rows through update_json(): 60 of 60 survived on one
+        # data root and 34 of 60 on two.
+        #
+        # Needs REAL PROCESSES and Postgres: threads share a filesystem and
+        # cannot show it, and the advisory lock is the only one of the three
+        # that spans instances. The cross-instance checks skip themselves
+        # with a printed reason on SQLite rather than passing quietly.
+        # Guarded like the steps around it so this workflow stays mergeable
+        # on a branch that predates the file.
+        run: |
+          if [ -f test_jsonstore_locking.py ]; then
+            python test_jsonstore_locking.py
+          else
+            echo "test_jsonstore_locking.py not on this branch — nothing to run."
+          fi
+
       - name: Database boot tests
         if: matrix.group == 2
         # A database briefly unreachable during a deploy, and the four ways

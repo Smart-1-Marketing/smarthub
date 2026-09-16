@@ -546,6 +546,42 @@ def check_database() -> Check:
     return Check("database", "Database", state, detail, ms, required=True)
 
 
+def _write_safety_note(st: dict) -> str:
+    """How safe writes are right now, in one sentence, or "".
+
+    Separate from the backup count because it is true whatever is mirrored,
+    and the count has an early return for an empty database -- which on an
+    instance with no disk of its own is every deploy. Folded into that branch
+    it would be invisible exactly when it matters.
+    """
+    unmirrored = st.get("unmirrored") or []
+    if unmirrored:
+        # Not rebuildable and not backed up, which is the one combination this
+        # panel exists to name. Named rather than counted: a number alone
+        # cannot be acted on.
+        return (f"{len(unmirrored)} file{'s' if len(unmirrored) != 1 else ''} "
+                f"the mirror would not take and is NOT backed up: "
+                f"{', '.join(unmirrored[:3])}"
+                f"{'…' if len(unmirrored) > 3 else ''}.")
+    backend = st.get("lock_backend")
+    if backend in ("flock", "thread-only"):
+        # An flock serialises the workers that share a filesystem and says
+        # nothing about another instance -- which during a deploy is the other
+        # half of the deploy. It succeeds either way, so without this line
+        # there is no screen anywhere that tells the two apart. "" means no
+        # write has taken a lock in this process yet and there is nothing to
+        # report, which is not the same as a lock that failed.
+        return ("Writes are serialised by the file lock, not the database "
+                "one, so two instances can drop each other's updates to the "
+                "same file.")
+    if st.get("lock_timeouts"):
+        return (f"{st['lock_timeouts']} write"
+                f"{'s' if st['lock_timeouts'] != 1 else ''} waited for "
+                f"another instance's lock and gave up, and went ahead "
+                f"unserialised.")
+    return ""
+
+
 def check_json_backup() -> Check:
     """Is the JSON on the persistent disk mirrored anywhere backed up?
 
@@ -579,8 +615,14 @@ def check_json_backup() -> Check:
         if blobs is None:
             return ("unverified", "Could not count what is backed up.")
         if not blobs:
+            # The note rides along rather than being skipped. With no disk of
+            # its own an instance starts every deploy with nothing mirrored,
+            # so returning here without it would hide the lock state at
+            # precisely the moment it is most worth knowing.
+            note = _write_safety_note(st)
             return ("warn", "Connected, but nothing has been mirrored yet. "
-                            "The hourly backup_json job populates it.")
+                            "The hourly backup_json job populates it."
+                            + (f" {note}" if note else ""))
         kb = round((st["bytes"] or 0) / 1024)
         detail = f"{blobs} file{'s' if blobs != 1 else ''} mirrored ({kb} KB)"
         if st["newest"]:
@@ -588,7 +630,9 @@ def check_json_backup() -> Check:
         if st["declared_caches"]:
             detail += (f". {len(st['declared_caches'])} deliberately excluded "
                        f"as rebuildable.")
-        return ("ok", detail + ".")
+        note = _write_safety_note(st)
+        return ("warn" if note else "ok",
+                detail + "." + (f" {note}" if note else ""))
     (state, detail), ms = _timed(go)
     return Check("json_backup", "JSON backup", state, detail, ms, required=True,
                  fix="Set DATABASE_URL so hub/jsonstore.py can mirror the disk.")

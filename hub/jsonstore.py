@@ -91,11 +91,11 @@ except ImportError:                                         # pragma: no cover
 # disk half of this module from working — that half is what modules depend on.
 try:
     from sqlalchemy import (Column, DateTime, Integer, MetaData, String, Table,
-                            Text, delete, select)
+                            Text, delete, select, text as _sa_text)
     _SA_ERROR = ""
 except Exception as exc:                                # noqa: BLE001
     Column = DateTime = Integer = MetaData = String = Table = Text = None
-    delete = select = None
+    delete = select = _sa_text = None
     _SA_ERROR = f"{type(exc).__name__}: {exc}"
 
 
@@ -164,6 +164,17 @@ INIT_RETRY_SECONDS = 120
 # deliberately not backed up next to what is.
 _declared_caches: set[str] = set()
 _mirrored: dict[str, float] = {}
+
+# Keys whose CURRENT disk contents the mirror does not have: an _upsert that
+# failed, or a payload over MAX_MIRROR_BYTES. _authoritative() reads the disk
+# for these, because reading the database would quietly revert them.
+#
+# In-process, and that is the right scope rather than a limitation: it records
+# something THIS process did. A worker that restarts loses the note and also
+# loses the reason for it -- sweep() re-mirrors anything whose mtime is past
+# its last mirror, and on an instance with no disk of its own the local file
+# is gone at that point anyway.
+_unmirrored_keys: set[str] = set()
 
 
 # --------------------------------------------------------------------- paths
@@ -353,6 +364,7 @@ def _upsert(key: str, text: str) -> bool:
         with _lock:
             _mirrored[key] = time.time()
             _declared_caches.discard(key)
+            _unmirrored_keys.discard(key)
         return True
     except Exception as exc:                            # noqa: BLE001
         _note_failure(exc)
@@ -477,9 +489,16 @@ def write_json(path: str, data, *, durable: bool = True, indent=None) -> bool:
             _last_error = (f"{key} is {size // 1024} KB, over the "
                            f"{MAX_MIRROR_BYTES // 1024} KB mirror limit, and "
                            f"was NOT backed up")
+            _unmirrored_keys.add(key)
         return True
 
-    _upsert(key, text)
+    if not _upsert(key, text):
+        # The disk is ahead of the database now. Remembered so a later
+        # read-modify-write does not start from the stale mirrored copy and
+        # revert this write -- the one way making the mirror authoritative
+        # could have been worse than the bug it fixes.
+        with _lock:
+            _unmirrored_keys.add(key)
     return True
 
 
@@ -496,6 +515,158 @@ def _file_lock(path: str) -> threading.Lock:
         if got is None:
             got = _FILE_LOCKS[key] = threading.Lock()
         return got
+
+
+# ---------------------------------------------------- cross-instance locking
+# The flock below serialises workers that share a filesystem. That is every
+# worker for as long as this service has one disk mounted at one path -- and
+# it is NOT the two halves of a zero-downtime deploy, which are separate
+# instances with separate filesystems. Each takes its own flock on its own
+# sidecar file, succeeds, and serialises nothing.
+#
+# Measured, two processes each appending 30 rows through update_json():
+#
+#     one data root  (one filesystem):   60 of 60 survived
+#     two data roots (two filesystems):  34 of 60 survived
+#
+# Both processes reported success and status() reported no lock error, because
+# each flock really was taken -- a lock that succeeds and means nothing, which
+# is worse than one that fails loudly. Every instance talks to the same
+# database, so a Postgres advisory lock is the only lock available here that
+# spans them, and it is tried first wherever the mirror is on Postgres.
+LOCK_WAIT_SECONDS = 10.0
+
+# Never let lock connections starve the pool the writes themselves need.
+# engine_options() gives 5 + 10 overflow per worker and each holder needs a
+# second connection for its own _upsert, so capping holders at 5 leaves a
+# third of the pool for everything else. Blocking on this is deliberate:
+# falling back to a weaker lock under contention would drop serialisation at
+# exactly the moment it is load-bearing.
+LOCK_MAX_HELD = 5
+_lock_slots = threading.BoundedSemaphore(LOCK_MAX_HELD)
+
+# Which mechanism the last exclusive() actually got, and how many times the
+# advisory lock timed out and fell back. Reported by status() for the reason
+# _lock_error exists: a deployment serialising less than it thinks it is looks
+# exactly like one that is.
+# "" until exclusive() has actually taken a lock in this process. A process
+# that has not written yet has no lock state to report, and defaulting it to
+# a real backend name would have /diagnostics warning about a degraded lock at
+# every boot, before anything had locked anything -- the check that cries wolf
+# and gets skipped past.
+_lock_backend = ""
+_lock_timeouts = 0
+
+
+def _advisory_key(path: str) -> int:
+    """A stable signed 64-bit lock id for one file.
+
+    Derived from ``key_for()`` -- the path relative to the data root -- so two
+    instances whose roots differ still agree on the id for the same logical
+    file. Keyed on the absolute path instead, they would take two different
+    locks and serialise nothing, which is the bug this is here to fix wearing
+    a different hat.
+    """
+    import hashlib
+    digest = hashlib.blake2b(key_for(path).encode("utf-8"),
+                             digest_size=8).digest()
+    return int.from_bytes(digest, "big", signed=True)
+
+
+class _PgLock:
+    """A held Postgres advisory lock. ``close()`` is the unlock."""
+
+    backend = "postgres"
+
+    def __init__(self, conn, key: int):
+        self._conn = conn
+        self._key = key
+
+    def close(self) -> None:
+        global _lock_error
+        try:
+            self._conn.execute(_sa_text("SELECT pg_advisory_unlock(:k)"),
+                               {"k": self._key})
+        except Exception as exc:                        # noqa: BLE001
+            # An advisory lock is SESSION-scoped and conn.close() only returns
+            # the connection to the pool -- the session survives, so a lock
+            # left held would be inherited by whoever is handed that
+            # connection next and would wedge them. Invalidating drops the
+            # connection instead, and a dropped connection is released by
+            # Postgres, which is the one thing that has to happen here.
+            _lock_error = (f"advisory unlock failed: "
+                           f"{type(exc).__name__}: {exc}")
+            try:
+                self._conn.invalidate()
+            except Exception:                           # noqa: BLE001
+                pass
+        finally:
+            try:
+                self._conn.close()
+            except Exception:                           # noqa: BLE001
+                pass
+            _lock_slots.release()
+
+
+def _take_pg_lock(path: str):
+    """Hold this path against every other instance, or answer None.
+
+    Answering None is never a refusal to save: the caller falls back to the
+    flock and the in-process lock still holds, which is the rule every entry
+    point in this module works to. What it must not do is fail *quietly*, so
+    each reason is recorded and status() prints it.
+    """
+    global _lock_error, _lock_timeouts
+    if _sa_text is None or not _init():
+        return None
+    try:
+        if not _engine.dialect.name.startswith("postgres"):
+            return None            # SQLite is one process; the flock is enough
+    except Exception:                                   # noqa: BLE001
+        return None
+
+    deadline = time.monotonic() + LOCK_WAIT_SECONDS
+    if not _lock_slots.acquire(timeout=LOCK_WAIT_SECONDS):
+        _lock_error = (f"{path}: no advisory-lock slot within "
+                       f"{LOCK_WAIT_SECONDS}s")
+        return None
+
+    key = _advisory_key(path)
+    conn = None
+    try:
+        # AUTOCOMMIT so the lock is not sitting inside an open transaction
+        # holding a snapshot for as long as the caller's work takes.
+        conn = _engine.connect().execution_options(
+            isolation_level="AUTOCOMMIT")
+        wait = 0.005
+        while True:
+            got = conn.execute(_sa_text("SELECT pg_try_advisory_lock(:k)"),
+                               {"k": key}).scalar()
+            if got:
+                return _PgLock(conn, key)
+            if time.monotonic() >= deadline:
+                # Proceeding unserialised is the lesser evil -- refusing the
+                # write is the one thing this module never does -- but it is
+                # the return of the measured defect above, so it is counted
+                # and named rather than being absorbed into a fallback.
+                _lock_timeouts += 1
+                _lock_error = (
+                    f"{path}: another instance held the advisory lock for "
+                    f"{LOCK_WAIT_SECONDS}s; fell back to the flock, which "
+                    f"does not span instances")
+                break
+            time.sleep(wait)
+            wait = min(wait * 2, 0.1)
+    except Exception as exc:                            # noqa: BLE001
+        _lock_error = (f"{path}: advisory lock failed: "
+                       f"{type(exc).__name__}: {exc}")
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:                               # noqa: BLE001
+            pass
+    _lock_slots.release()
+    return None
 
 
 def _take_flock(path: str):
@@ -530,12 +701,14 @@ def _take_flock(path: str):
 
 @contextlib.contextmanager
 def exclusive(path: str):
-    """Hold one file against every other thread AND every other worker.
+    """Hold one file against every other thread, worker AND instance.
 
-    Two locks because there are two ways to lose a write. A ``threading.Lock``
-    serialises the threads inside one gunicorn worker; an ``flock`` on a
-    sidecar file serialises the workers, of which this deployment runs two.
-    Either one alone leaves half the problem.
+    Three locks because there are three ways to lose a write. A
+    ``threading.Lock`` serialises the threads inside one gunicorn worker; an
+    ``flock`` on a sidecar file serialises the workers, of which this
+    deployment runs two; and a Postgres advisory lock serialises the
+    *instances*, which is the only one of the three that still holds once they
+    stop sharing a filesystem. Any one alone leaves part of the problem.
 
     **Failing to take the flock never costs the write.** A filesystem that
     does not support it, or a directory we cannot create a lock file in, is a
@@ -543,11 +716,36 @@ def exclusive(path: str):
     in-process lock still holds and the write goes ahead. That is the rule
     every entry point in this module already works to.
     """
+    global _lock_backend
     thread_lock = _file_lock(path)
     thread_lock.acquire()
     handle = None
     try:
-        handle = _take_flock(path)
+        # Postgres first: it is the only one of the three that spans
+        # instances. The flock stands behind it for SQLite, for a database
+        # that is down, and for the timeout case -- weaker, and better than
+        # the thread lock alone.
+        #
+        # Both are wrapped because the rule is that ACQUIRING A LOCK NEVER
+        # COSTS THE WRITE, and each of them being individually careful is not
+        # the same promise: measured, a fault raised out of the lock
+        # machinery propagated straight through here and the caller lost a
+        # save it would have made without any of this. The thread lock is
+        # already held by this point, so the degraded path is exactly the
+        # behaviour this module had before either of the other two existed.
+        try:
+            handle = _take_pg_lock(path)
+            if handle is not None:
+                _lock_backend = "postgres"
+            else:
+                handle = _take_flock(path)
+                _lock_backend = "flock" if handle is not None else "thread-only"
+        except Exception as exc:                        # noqa: BLE001
+            global _lock_error
+            _lock_error = (f"{path}: locking raised: "
+                           f"{type(exc).__name__}: {exc}")
+            handle = None
+            _lock_backend = "thread-only"
         yield
     finally:
         # Closing the descriptor is what releases the flock, so this is the
@@ -567,6 +765,58 @@ def exclusive(path: str):
 # drift this codebase keeps having to undo, and the half that would have been
 # missing is the flock.
 _exclusive = exclusive
+
+
+def _authoritative(path: str, default=None, *, durable: bool = True):
+    """What every instance last wrote -- not what *this* instance last wrote.
+
+    ``read_json()`` answers from the local disk first. That is right for an
+    ordinary read and wrong for the read half of a read-modify-write once
+    instances stop sharing a filesystem: the lock serialises them perfectly,
+    each one then reads its OWN copy, mutates it, and writes the whole
+    collection back. The locking is correct and the update is still lost --
+    which is why the lock on its own was not the fix. Measured, three
+    alternating turns between two instances kept 4 of 6 rows with a disk-first
+    read and all 6 with this one.
+
+    So the mirror wins, because it is the only copy the instances share. The
+    disk answers in exactly the three cases where the mirror is not the better
+    source:
+
+    * ``durable=False`` -- there is no mirrored copy by definition;
+    * the database did not answer, which is also what happens while it is
+      down, so the degraded path is the old behaviour rather than a failure;
+    * the key is in ``_unmirrored_keys`` -- this process wrote something the
+      mirror did not take (a failed upsert, or a payload over the size cap),
+      so the mirrored copy is behind the disk and reading it would revert a
+      real write.
+
+    The residual window is small and worth stating: a write whose mirror
+    failed in a *previous* process is not known about here, so a
+    read-modify-write in the window between that restart and the next
+    successful mirror or hourly ``sweep()`` can still start from the older
+    copy. That is strictly narrower than the defect this replaces, which lost
+    every cross-instance update every time.
+
+    The disk stays the fast path for every ordinary read. This is the one
+    place that has to be right about which copy is current.
+    """
+    if not durable:
+        return read_json(path, default=default)
+    key = key_for(path)
+    with _lock:
+        ours_is_ahead = key in _unmirrored_keys
+    if ours_is_ahead:
+        return read_json(path, default=default)
+    raw = _fetch(key)
+    if raw is None:
+        return read_json(path, default=default)
+    try:
+        return json.loads(raw)
+    except ValueError:
+        # A payload we cannot parse is not a reason to lose the file: fall
+        # back to the disk, which is what the caller had before this existed.
+        return read_json(path, default=default)
 
 
 def update_json(path: str, mutate, *, default=None, durable: bool = True,
@@ -597,7 +847,7 @@ def update_json(path: str, mutate, *, default=None, durable: bool = True,
     and it does not.
     """
     with _exclusive(path):
-        data = read_json(path, default=default)
+        data = _authoritative(path, default=default, durable=durable)
         changed = mutate(data)
         if changed is None:
             return data
@@ -846,6 +1096,12 @@ def status() -> dict:
         "ready": ready,
         "error": _init_error or _last_error,
         "lock_error": _lock_error,
+        # Which of the three locks exclusive() last actually got. "flock" on
+        # Postgres means the advisory lock could not be taken, so writes are
+        # serialised within an instance and not between them -- the state that
+        # is invisible from every screen unless it is printed here.
+        "lock_backend": _lock_backend,
+        "lock_timeouts": _lock_timeouts,
         "breaker_open": _breaker_open(),
         # Named rather than left silent: rows written before a switch are in
         # the previous database and are not moved, so a mirror that looks
@@ -856,6 +1112,12 @@ def status() -> dict:
         "database_switched": len(_switches),
         "root": data_root(),
         "declared_caches": sorted(_declared_caches),
+        # Files this process wrote that the mirror did not take -- a failed
+        # upsert, or a payload over the size cap. This is the "what would we
+        # lose?" answer that declared_caches deliberately is not: a cache is
+        # rebuildable and these are not, so they are listed apart rather than
+        # summed into one number that reads as neither.
+        "unmirrored": sorted(_unmirrored_keys),
         "same_disk": ready and mirror_is_on_the_same_disk(),
         "blobs": None,
         "bytes": None,
