@@ -11,7 +11,7 @@ python-dotenv==1.1.1
 beautifulsoup4==4.13.4
 SQLAlchemy==2.0.36
 Flask-SQLAlchemy==3.1.1
-flask-cors==5.0.0
+flask-cors==6.0.5
 reportlab==4.2.5
 # fpdf2 is used by the ported landing pages (boat first, the other ten to
 # follow). The standing rule is no new dependencies — this is a deliberate
