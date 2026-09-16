@@ -34,6 +34,7 @@ say "above" or "below" mean earlier or later files in this list.
 | [`27-a-clients-document-published-to-the-agencys-own-blog.md`](27-a-clients-document-published-to-the-agencys-own-blog.md) | A client's document, published to the agency's own blog | 50 |
 | [`28-publishing-is-a-prompt-not-a-panel-and-not-a-button.md`](28-publishing-is-a-prompt-not-a-panel-and-not-a-button.md) | Publishing is a prompt, not a panel and not a button | 61 |
 | [`28a-except-that-one-of-the-two-cmses-has-had-a-write-api-all-a.md`](28a-except-that-one-of-the-two-cmses-has-had-a-write-api-all-a.md) | Except that one of the two CMSes has had a write API all along | 158 |
+| [`28b-schema-needs-one-file-on-the-site-and-that-is-all-it-need.md`](28b-schema-needs-one-file-on-the-site-and-that-is-all-it-need.md) | Schema needs one file on the site, and that is all it needs | 163 |
 | [`29-alt-text-is-read-from-the-site-not-invented-for-it.md`](29-alt-text-is-read-from-the-site-not-invented-for-it.md) | Alt text is read from the site, not invented for it | 34 |
 | [`30-getting-a-file-back-out-is-storages-job-not-each-modules.md`](30-getting-a-file-back-out-is-storages-job-not-each-modules.md) | Getting a file back out is storage's job, not each module's | 133 |
 | [`31-a-cache-that-is-careful-with-credits-on-one-worker-in-two.md`](31-a-cache-that-is-careful-with-credits-on-one-worker-in-two.md) | A cache that is careful with credits, on one worker in two | 56 |
@@ -64,5 +65,5 @@ say "above" or "below" mean earlier or later files in this list.
 | [`57-smartforecast-moved-to-the-hub-database.md`](57-smartforecast-moved-to-the-hub-database.md) | SmartForecast moved to the Hub database, and what the move found | 133 |
 | [`58-the-check-that-reported-no-json-on-the-disk.md`](58-the-check-that-reported-no-json-on-the-disk.md) | The check that reported no JSON on the disk | 147 |
 | [`59-leads-in-a-table-not-a-file-on-one-instance.md`](59-leads-in-a-table-not-a-file-on-one-instance.md) | Leads in a table, not a file on one instance | 136 |
-| [`60-a-clients-email-campaigns-read-from-their-own-sub-account.md`](60-a-clients-email-campaigns-read-from-their-own-sub-account.md) | A client's email campaigns, read from their own sub-account | 55 |
+| [`60-a-clients-email-campaigns-read-from-their-own-sub-account.md`](60-a-clients-email-campaigns-read-from-their-own-sub-account.md) | A client's email campaigns, read from their own sub-account | 65 |
 | [`61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md`](61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md) | Amazon DSP: five claims, and four of them fail as a working configuration | 95 |

@@ -5059,8 +5059,36 @@ function renderSuiteEmail(d,name){
   (d.notes||[]).forEach(function(n){h+='<div class="muted" style="font-size:12px">'+esc(n)+'</div>';});
   if(st==='no_scope') h+='<div class="muted" style="font-size:12px;color:#a15c00">'+esc(sc.detail||'')+'</div>';
   else if(d.staff_note&&st!=='empty') h+='<div class="muted" style="font-size:12px;color:#a15c00">'+esc(d.staff_note)+'</div>';
-  h+='<div class="row" style="margin-top:8px;gap:6px"><button class="btn small" data-act="refresh">Refresh reading</button></div>';
+  h+='<div class="row" style="margin-top:8px;gap:6px"><button class="btn small" data-act="refresh">Refresh reading</button>'
+    + ((st==='ok')?'<button class="btn small" data-act="raw">Show raw statistics</button>':'')
+    + '</div><div id="c-suite-email-raw"></div>';
   return h;
+}
+/* Draws /api/client/suite-email?raw=1. The Suite's own statistics object
+   beside what the module made of it, so a mapping is fixed from what was
+   sent rather than by re-pulling (docs/claude/60). Staff only: the route is
+   behind _require_api() and a client's page is built by public_view(). */
+function renderSuiteEmailRaw(d){
+  d=d||{};
+  if(!d.measured) return '<div class="muted" style="font-size:12px;margin-top:8px">'+esc(d.staff_note||'There is no reading to show raw statistics from.')+'</div>';
+  var camps=d.campaigns||[];
+  if(!camps.length) return '<div class="muted" style="font-size:12px;margin-top:8px">The reading carried no campaign to show statistics for.</div>';
+  var h='<div style="margin-top:10px;border-top:1px solid #eef1f5;padding-top:8px">'
+    + '<div class="muted" style="font-size:12px">What the sub-account sent on '+esc(d.as_of||'')+', beside what the Hub read from it. A count under <b>unclaimed</b> is a key no spelling in _COUNT_KEYS matches yet.</div>';
+  camps.forEach(function(c){
+    h+='<div style="margin-top:8px"><b style="font-size:12.5px">'+esc(c.name||'')+'</b>'
+      + '<span class="muted" style="font-size:11.5px"> &middot; '+esc(String(c.sent_at||'').slice(0,10))+(c.stats_source?' &middot; from the '+esc(c.stats_source):'')+'</span>';
+    var res=c.resolved||{}, names=Object.keys(res);
+    if(names.length){
+      h+='<div class="muted" style="font-size:11.5px">read: '+names.map(function(k){
+        return esc(k)+(res[k]?'&nbsp;&larr;&nbsp;'+esc(res[k]):'&nbsp;(off the row)');
+      }).join(', ')+'</div>';
+    }
+    if((c.missing||[]).length) h+='<div class="muted" style="font-size:11.5px;color:#a15c00">no value: '+esc((c.missing||[]).join(', '))+'</div>';
+    if((c.unmapped||[]).length) h+='<div style="font-size:11.5px;color:#b3261e">unclaimed: '+esc((c.unmapped||[]).join(', '))+'</div>';
+    h+='<pre style="font-size:11px;background:#f7f8fa;border-radius:4px;padding:6px;overflow:auto;margin:4px 0 0">'+esc(JSON.stringify(c.raw_stats||{},null,2))+'</pre></div>';
+  });
+  return h+'</div>';
 }
 /* ---- end c360 email campaigns ---- */
 function loadSuiteEmail(name){
@@ -5091,6 +5119,20 @@ function seAct(e,name){
       if(r&&r.ok===false&&r.error){ loadSuiteEmail(name); var b=document.getElementById('c-suite-email'); if(b) b.insertAdjacentHTML('afterbegin','<div class="muted" style="font-size:12px;color:#a15c00">'+esc(r.error)+'</div>'); return; }
       loadSuiteEmail(name);
     }).catch(function(){wait.done();loadSuiteEmail(name);});
+  }
+  if(t.getAttribute('data-act')==='raw'){
+    fetch('/api/client/suite-email?raw=1&name='+encodeURIComponent(name),{credentials:'same-origin'})
+      .then(function(r){return r.json();})
+      .then(function(d){
+        wait.done();
+        var b=document.getElementById('c-suite-email-raw');
+        if(b) b.innerHTML=renderSuiteEmailRaw(d&&d.raw);
+      })
+      .catch(function(){
+        wait.done();
+        var b=document.getElementById('c-suite-email-raw');
+        if(b) b.innerHTML='<div class="muted" style="font-size:12px;margin-top:8px">The raw statistics could not be read.</div>';
+      });
   }
 }
 function loadYouTube(name){

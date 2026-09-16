@@ -40,6 +40,16 @@ Six things to know before touching it:
    sub-account is where the key mapping gets confirmed** -- compare
    `raw_stats` on the stored reading with the Suite's own Statistics tab
    and fix `_COUNT_KEYS` from what was stored, not by re-pulling.
+   `raw_view()` is that comparison, on the **Show raw statistics** press
+   on the Client 360 card (`GET /api/client/suite-email?raw=1`, staff
+   only): per campaign it prints the stored object, the key each count
+   was read from, the counts that came back empty, and the keys the
+   Suite sent that no spelling in `_COUNT_KEYS` claims -- which are the
+   candidates for the fix. It shipped a release after the rest of this,
+   because the instruction above had no screen to carry it out on and
+   the comparison needed shell access to the Render disk; a mapping
+   nobody can check is a mapping that stays wrong. `public_view()` takes
+   `PUBLIC_KEYS` and cannot reach any of it.
 4. **Five kinds of nothing, drawn apart.** `not_linked`, `no_scope`,
    `no_snapshot`, `unread`, `empty` -- because a zero printed over a 401
    tells a rep the client never emailed anyone.
