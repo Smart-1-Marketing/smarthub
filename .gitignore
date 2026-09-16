@@ -6,11 +6,6 @@ modules/*/data/
 # rate card is simply empty in production, with nothing to say why.
 !hub/data/
 !hub/data/**
-# ...but hub/data holds source data that ships with the code, not runtime
-# output. Without this the rate card JSON is silently never committed and the
-# rate card is simply empty in production, with nothing to say why.
-!hub/data/
-!hub/data/**
 _attic/
 
 # Private client and billing exports. Production reads Knack directly and may

@@ -368,7 +368,7 @@ with hub_app.app_context():
 # ---------------------------------------------------------------------------
 section("Wiring")
 check("CI runs this file", "test_proposal_progress.py" in _read(".github", "workflows", "checks.yml"))
-check("the module is named in the verifying list", "test_proposal_progress.py" in _read("CLAUDE.md"))
+check("the module is named in the verifying list", "test_proposal_progress.py" in _read("docs", "claude", "56-verifying-a-change.md"))
 
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)
