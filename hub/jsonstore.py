@@ -1264,8 +1264,10 @@ def unmirrored_json_writers(root=None) -> list[dict]:
 # matched neither the old pattern nor, once its source happened to contain the
 # word "jsonstore", the old exemption. Both held for hub/leads.py, so the
 # check reported a clean bill about every lead the business had captured.
-_DUMPS = ("dump", "dumps")
-_TO_DISK = ("write", "write_text", "writelines", "replace", "writestr")
+# `os.replace` is not here: it renames, so its arguments are paths and the
+# serialised string never passes through it. The write it makes durable is
+# the `write` above, which is what this matches.
+_TO_DISK = ("write", "write_text", "writelines", "writestr")
 
 #: Calling one of these is what "goes through the mirror" means. The word
 #: alone is not a call site -- a file that imports ``jsonstore`` for

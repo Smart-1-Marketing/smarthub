@@ -376,6 +376,13 @@ check("and so is the two-step spelling",
           "with open(p, 'w') as fh:\n"
           "    fh.write(text)\n"),
       "json.dumps() written to a file")
+# os.replace renames: its arguments are paths, so the serialised string never
+# passes through it. Listing it looked like coverage and could match nothing.
+check("a rename is not a write",
+      js_scan._writes_json_to_disk(
+          "import json, os\n"
+          "os.replace(tmp, path)\n"
+          "body = json.dumps(row)\n"), "")
 check("json.dump is still found on its own",
       js_scan._writes_json_to_disk(
           "import json\n"
