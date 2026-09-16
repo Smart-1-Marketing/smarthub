@@ -17,6 +17,7 @@ def guard():
             return jsonify(error='Send application/json.'), 415
         if request.headers.get('Origin') and request.headers['Origin'].rstrip('/') != request.host_url.rstrip('/'):
             return jsonify(error='Cross-origin changes are not allowed.'), 403
+    return None
 
 
 @bp.errorhandler(SQLAlchemyError)
