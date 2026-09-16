@@ -412,6 +412,7 @@ function render(g,q){
   if(g.smart1_site) head+=`<span class="pill info" style="font-size:12.5px;padding:5px 12px">&#11041; Smart 1 Site</span>`;
   if(g.billing_monthly) head+=`<span class="pill ok" style="font-size:12.5px;padding:5px 12px">Active billing: ${money(g.billing_monthly)}/mo</span>`;
   if(liveCount) head+=`<span class="pill neutral" style="font-size:12.5px;padding:5px 12px">${liveCount} live product${liveCount>1?'s':''}</span>`;
+  head+='<span id="c360IndustryPill"></span>';
   if(g.dash_url) head+=`<a class="btn-primary" style="padding:8px 16px;font-size:13px;text-decoration:none" href="${esc(g.dash_url)}" target="_blank" rel="noopener">Smart 1 Dashboard →</a>`;
   head+='</div></div>';
   /* A client whose only trace is an insertion order. Said out loud, because
@@ -4385,10 +4386,54 @@ function wireEmailComposer(name){
 }
 /* ==================== end 360 Skills cards ==================== */
 
+function loadIndustry(name){
+  var el=document.getElementById('c360IndustryPill');
+  if(!el||!name) return;
+  fetch('/api/client/industry?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(function(r){return r.json();}).then(function(d){renderIndustryPill(name, d);})
+    .catch(function(){ el.innerHTML=''; });
+}
+function renderIndustryPill(name, d){
+  var el=document.getElementById('c360IndustryPill');
+  if(!el) return;
+  var ind=(d&&d.industry)||{};
+  var options=(d&&d.options)||[];
+  var label=ind.label||'General Business';
+  var srcWords={manual:'set by hand', scan_primary:'their website', scan_sectors:'their website',
+                gbp:'their Google listing', name:'their name', general:''};
+  var src=srcWords[ind.source||'']||'';
+  var when=(ind.resolved_at||'').slice(0,10);
+  var title=(src?('Source: '+src+'. '):'')+(when?('Resolved '+when+'. '):'')
+    +(ind.evidence?('Evidence: '+ind.evidence):'');
+  var optHtml=options.map(function(o){
+    return '<option value="'+esc(o.key)+'"'+(o.key===ind.key?' selected':'')+'>'+esc(o.label)+'</option>';
+  }).join('');
+  el.innerHTML='<span class="pill neutral" title="'+esc(title)+'" '
+    +'style="font-size:12.5px;padding:5px 12px;cursor:pointer" '
+    +'onclick="this.style.display=\'none\';this.nextElementSibling.style.display=\'inline-flex\'">'
+    +esc(label)+(src?(' <span class="muted" style="font-size:11px">('+esc(src)+')</span>'):'')+'</span>'
+    +'<span style="display:none;gap:6px;align-items:center" class="c360-industry-edit">'
+    +'<select onchange="void 0">'+optHtml+'</select>'
+    +'<button type="button" onclick="saveIndustry(\''+esc(name).replace(/'/g,"\\'")+'\',this)">Save</button>'
+    +'</span>';
+}
+function saveIndustry(name, btn){
+  var sel=btn.previousElementSibling;
+  var key=sel&&sel.value;
+  if(!key) return;
+  fetch('/api/client/industry',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({client:name, key:key})})
+    .then(function(r){return r.json();})
+    .then(function(){ loadIndustry(name); })
+    .catch(function(){});
+}
+
 function loadBrandAndWork(name){
   loadForms(name);
   loadGroup(name);
   loadOwner(name);
+  loadIndustry(name);
   loadOrders(name);
   loadAdPerformance(name);
   loadPipeline(name);

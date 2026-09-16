@@ -33,6 +33,18 @@
     <div id="diag-housekeeping" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
   </section>
 
+  <!-- ---------------- industry taxonomy ---------------- -->
+  <section class="diag-card">
+    <h2>Industry &mdash; hub/industry.py</h2>
+    <p class="diag-help">
+      Read-only. Clients still on <code>general</code> (nothing resolved, or
+      nothing available to resolve from), and clients where the remaining
+      sources disagree about the key on file &mdash; no Knack tier in this
+      deployment pass, so both counts are read off what is already stored.
+    </p>
+    <div id="diag-industry" class="diag-rows"><p class="diag-loading">Loading&hellip;</p></div>
+  </section>
+
   <!-- ---------------- the help layer ---------------- -->
   <section class="diag-card">
     <h2>The help layer &mdash; what still explains itself</h2>
@@ -600,6 +612,23 @@ function renderOauth(d){
   el.innerHTML = head + problems + rows;
 }
 
+function renderIndustry(d){
+  var el=document.getElementById("diag-industry"); if(!el) return;
+  if(!d.measured){ el.innerHTML='<p class="diag-note">Could not be measured.</p>'; return; }
+  var gen=(d.general_clients||[]).map(esc).join(", ");
+  var dis=(d.disagree_clients||[]).map(function(r){
+    return esc(r.client)+" (on file: "+esc(r.stored)+" from "+esc(r.stored_source)+
+      "; resolves to: "+esc(r.resolved)+" from "+esc(r.resolved_source)+")";
+  }).join("<br>");
+  el.innerHTML =
+    '<div class="diag-row"><span class="diag-pill warn">'+(d.general_count||0)+
+    '</span><span>Clients on <code>general</code>'+
+    (gen?'<br><span class="diag-note">'+gen+'</span>':'')+'</span></div>'+
+    '<div class="diag-row"><span class="diag-pill warn">'+(d.disagree_count||0)+
+    '</span><span>Industry sources disagree'+
+    (dis?'<br><span class="diag-note">'+dis+'</span>':'')+'</span></div>';
+}
+
 function renderHousekeeping(d){
   var el=document.getElementById("diag-housekeeping"); if(!el) return;
   var rows=(d.findings||[]).map(function(f){
@@ -1086,6 +1115,9 @@ function loadAll(force){
     .then(function(r){return r.json();}).then(renderOauth)
     .catch(function(){document.getElementById("diag-oauth").innerHTML=
       '<p class="diag-loading">Could not read the redirect URIs.</p>';});
+  fetch("/api/industry-diagnostics",{credentials:"same-origin"})
+    .then(function(r){return r.json();}).then(renderIndustry)
+    .catch(function(){});
   fetch("/api/housekeeping",{credentials:"same-origin"})
     .then(function(r){return r.json();}).then(renderHousekeeping)
     .catch(function(){document.getElementById("diag-housekeeping").innerHTML=

@@ -88,6 +88,10 @@ UTILITY_PREFIXES = (
     # emptying it makes every report on the Hub run again, which is not
     # everybody's button to press.
     "/api/report-cache",
+    # Clients on `general` and clients where two remaining sources
+    # disagree -- read-only, but a maintenance report gated with the
+    # Diagnostics page it is drawn on, the same as help-audit above.
+    "/api/industry-diagnostics",
     # Curating what a department's view contains, and who is on it. Reading
     # your own view (`/views`, `/api/department-views/mine`) stays open to
     # everyone -- this is only the editor and the roster it writes against.

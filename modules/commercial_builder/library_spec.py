@@ -594,6 +594,34 @@ GENERIC_PACK = {
 }
 
 
+_CANONICAL_TO_PACK: dict[str, str] | None = None
+
+
+def _canonical_to_pack() -> dict[str, str]:
+    """canonical industry key -> this module's own pack key.
+
+    `INDUSTRY_PACKS` is keyed on legacy spellings (`boat`, `medical_dental`,
+    `recruit`, `stadium`) that predate `hub/industry.py`'s canonical table,
+    and the packs' content stays exactly as it is -- only the lookup is
+    re-keyed, through `hub.industry.LEGACY_MAP`, so a canonical key this
+    Hub already resolved (`marine`, `healthcare`, `recruiting`, `events`)
+    still finds the pack it always found.
+    """
+    global _CANONICAL_TO_PACK
+    if _CANONICAL_TO_PACK is not None:
+        return _CANONICAL_TO_PACK
+    mapping: dict[str, str] = {}
+    try:
+        from hub.industry import LEGACY_MAP
+    except Exception:                                     # noqa: BLE001
+        LEGACY_MAP = {}
+    for pack_key in INDUSTRY_PACKS:
+        canon = LEGACY_MAP.get(pack_key, pack_key)
+        mapping[canon] = pack_key
+    _CANONICAL_TO_PACK = mapping
+    return mapping
+
+
 def pack_for(industry):
     """The creative pack for this client's category, and whether one matched.
 
@@ -602,10 +630,30 @@ def pack_for(industry):
     a name nobody matched puts a restaurant's vocabulary on a machine shop —
     and a wrong pack is worse than none, since it reads as research somebody
     did rather than as a gap.
+
+    Tries a canonical `hub.industry` key first (accepting either the key
+    itself or free text resolved against it), then the legacy spelling this
+    module's own `INDUSTRY_PACKS` is keyed on, then the original text match —
+    so a client already resolved to `healthcare` finds the pack filed as
+    `medical_dental` without either table being renamed.
     """
     text = str(industry or "").strip().lower()
     if not text:
         return "", dict(GENERIC_PACK), "not_recorded"
+
+    try:
+        from hub import industry as _hub_industry
+        canon = text if text in _hub_industry.INDUSTRY_BY_KEY else None
+        if canon is None:
+            resolved_key, _sub = _hub_industry.resolve(text)
+            canon = resolved_key if resolved_key != "general" else None
+        if canon:
+            pack_key = _canonical_to_pack().get(canon)
+            if pack_key and pack_key in INDUSTRY_PACKS:
+                return pack_key, INDUSTRY_PACKS[pack_key], "matched"
+    except Exception:                                     # noqa: BLE001
+        pass
+
     for key, pack in INDUSTRY_PACKS.items():
         if any(word in text for word in pack["match"]):
             return key, pack, "matched"

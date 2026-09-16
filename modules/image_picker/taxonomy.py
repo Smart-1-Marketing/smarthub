@@ -19,8 +19,6 @@ not have to scroll past them.
 
 from __future__ import annotations
 
-import re
-
 from typing import Any
 
 # Terms filtered out of every industry's results. Stock libraries return a lot of
@@ -850,49 +848,64 @@ INDUSTRIES: list[dict[str, Any]] = [
 INDUSTRY_BY_KEY = {i["key"]: i for i in INDUSTRIES}
 
 
+# hub.industry is the one canonical taxonomy the Hub resolves and stores
+# against; this module keeps its own curated topics/services (real content,
+# not restated anywhere else) but is a thin shim over that module for the
+# matching itself, so a client keyed `automotive` there and a picker gallery
+# keyed `auto` here read as one business rather than two. Only the three
+# canonical keys below have picker content under a different spelling --
+# everything else identity-maps, and a canonical key with no picker content
+# at all (solar, ecommerce, senior_care, ...) resolves to no picker key.
+_CANONICAL_TO_PICKER = {
+    "automotive": "auto",
+    "healthcare": "medical",
+    "professional_services": "professional",
+}
+
+
+def picker_key_for(canonical_key: str | None) -> str:
+    """This picker's own content key for a canonical industry key, or ""
+    when nothing here is curated for it."""
+    if not canonical_key:
+        return ""
+    k = str(canonical_key).strip().lower()
+    k = _CANONICAL_TO_PICKER.get(k, k)
+    return k if k in INDUSTRY_BY_KEY else ""
+
+
 def industry(key: str | None) -> dict[str, Any] | None:
     if not key:
         return None
-    return INDUSTRY_BY_KEY.get(str(key).strip().lower())
+    k = str(key).strip().lower()
+    if k in INDUSTRY_BY_KEY:
+        return INDUSTRY_BY_KEY[k]
+    picker_key = picker_key_for(k)
+    return INDUSTRY_BY_KEY.get(picker_key) if picker_key else None
 
 
 def guess_industry(text: str | None) -> str:
-    """Best-effort map of a free-text industry string onto an industry key.
+    """Best-effort map of a free-text industry string onto a picker key.
 
-    Client records carry industry as whatever someone typed into Knack, so this
-    has to cope with "HVAC Contractor", "Heating & Cooling", "Boat Dealership".
-
-    Two rules, both learned from getting it wrong:
-
-    * Match on **word boundaries**. Plain substring matching made "Roofing
-      Contractor" an HVAC client, because "ac" is inside "contractor".
-    * When several aliases match, the **earliest** one wins. English puts the
-      specific noun first, so "Boat Dealership" is a boat business and
-      "Auto Dealership" is a car business, even though both contain "dealership".
-      Longer alias breaks a positional tie.
+    Client records carry industry as whatever someone typed, so this has to
+    cope with "HVAC Contractor", "Heating & Cooling", "Boat Dealership" --
+    which is exactly what `hub.industry.resolve()` already does (word-
+    boundary matching, earliest alias wins, a longer alias breaks a
+    positional tie on "Roofing Contractor" vs "ac" inside "contractor").
+    This delegates to it rather than keeping a second copy of that
+    algorithm, and translates the canonical key onto this module's own
+    content key.
 
     Falls back to `general`, which is a usable picker rather than an error.
     """
     if not text:
         return "general"
-    t = str(text).strip().lower()
-    if not t:
-        return "general"
-
-    for ind in INDUSTRIES:
-        if t == ind["key"] or t == ind["label"].lower():
-            return ind["key"]
-
-    best: tuple[int, int, str] | None = None   # (position, -len, key)
-    for ind in INDUSTRIES:
-        for alias in ind["aliases"]:
-            m = re.search(r"\b" + re.escape(alias) + r"\b", t)
-            if not m:
-                continue
-            candidate = (m.start(), -len(alias), ind["key"])
-            if best is None or candidate < best:
-                best = candidate
-    return best[2] if best else "general"
+    try:
+        from hub import industry as _hub_industry
+        canonical_key, _subtype = _hub_industry.resolve(text)
+    except Exception:                                     # noqa: BLE001
+        canonical_key = ""
+    picker_key = picker_key_for(canonical_key) if canonical_key else ""
+    return picker_key or "general"
 
 
 def collection(industry_key: str, kind: str, coll_key: str) -> dict[str, Any] | None:

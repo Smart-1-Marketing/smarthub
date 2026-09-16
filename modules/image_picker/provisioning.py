@@ -209,6 +209,11 @@ def link_for(name: str, url: str = "", *, create: bool = False,
                       actor=actor or "", gallery=client.slug)
         except Exception:                                 # noqa: BLE001
             pass
+        try:
+            from hub import industry as _hub_industry
+            _hub_industry.write_industry(name, _hub_industry.resolve_industry(client=name))
+        except Exception:                                 # noqa: BLE001
+            pass
         return {"ok": True, "created": True, "matched_on": "",
                 "client": client.to_dict(include_secrets=True),
                 "share_url": share_url(client, base),

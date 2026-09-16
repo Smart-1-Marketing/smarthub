@@ -417,6 +417,24 @@ def _apply_report(s: Scan, report: dict):
         s.raw_report = json.dumps({"unserialisable": True})
     s.completed_at = _now()
     _fetch_llm_narrative(s)
+    _resolve_industry_from_scan(s)
+
+
+def _resolve_industry_from_scan(s: Scan) -> None:
+    """A completed scan is one of the sources `hub.industry.resolve_industry`
+    reads, so a client whose scan just landed can be re-resolved and, when
+    the scan carries higher-precedence evidence than whatever is on file,
+    written down. Never raises -- a scan finishing is the transaction that
+    matters here, not the resolve."""
+    try:
+        name = str(s.business_name or "").strip()
+        if not name:
+            return
+        from hub import industry as _hub_industry
+        result = _hub_industry.resolve_industry(client=name, domain=s.domain_key or "")
+        _hub_industry.write_industry(name, result)
+    except Exception:                                     # noqa: BLE001
+        pass
 
 
 def _seed_brand_review(s: Scan) -> None:
