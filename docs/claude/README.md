@@ -61,3 +61,4 @@ say "above" or "below" mean earlier or later files in this list.
 | [`53-groundtruth-the-key-arrived-before-the-document.md`](53-groundtruth-the-key-arrived-before-the-document.md) | GroundTruth: the key arrived before the document | 61 |
 | [`54-one-industry-taxonomy-resolved-and-written-down.md`](54-one-industry-taxonomy-resolved-and-written-down.md) | One industry taxonomy, resolved and written down | 33 |
 | [`56-verifying-a-change.md`](56-verifying-a-change.md) | Verifying a change | 679 |
+| [`57-smartforecast-moved-to-the-hub-database.md`](57-smartforecast-moved-to-the-hub-database.md) | SmartForecast moved to the Hub database, and what the move found | 133 |

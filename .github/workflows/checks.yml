@@ -467,6 +467,40 @@ jobs:
             echo "test_audit_store.py not on this branch — nothing to run."
           fi
 
+      - name: SmartForecast store tests
+        if: matrix.group == 2
+        # SmartForecast moved off its own SQLite file onto the shared engine.
+        # Three things that are invisible on SQLite by construction, and each
+        # was found by RUNNING the module against Postgres: a forward
+        # foreign-key reference (SQLite resolves them lazily), a generated-id
+        # sequence that does not advance on an explicit id -- so the demo seed
+        # left a fresh deployment raising a duplicate key on the first client
+        # anybody added -- and a SELECT alias in HAVING. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates the file.
+        run: |
+          if [ -f test_smartforecast_store.py ]; then
+            python test_smartforecast_store.py
+          else
+            echo "test_smartforecast_store.py not on this branch — nothing to run."
+          fi
+
+      - name: SmartForecast against Postgres
+        if: matrix.group == 2
+        # The run above is SQLite; this is what production is. All three
+        # findings above are Postgres-only, so a suite that only ever sees
+        # SQLite is a suite that cannot see them -- the module's own tests run
+        # both ways too.
+        env:
+          SMARTFORECAST_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          if [ -f test_smartforecast_store.py ]; then
+            python test_smartforecast_store.py
+            python test_smartforecast.py
+          else
+            echo "test_smartforecast_store.py not on this branch — nothing to run."
+          fi
+
       - name: Database boot tests
         if: matrix.group == 2
         # A database briefly unreachable during a deploy, and the four ways

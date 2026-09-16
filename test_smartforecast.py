@@ -104,6 +104,21 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         self.db_path = str(Path(self.temp.name) / "smartforecast.sqlite3")
         os.environ["SMARTFORECAST_DB_PATH"] = self.db_path
         os.environ["AUDIT_LOG_PATH"] = str(Path(self.temp.name) / "hub-audit.log.jsonl")
+        # The rows are in the Hub's shared database now, so pointing
+        # SMARTFORECAST_DB_PATH somewhere fresh is no longer what isolates a
+        # test -- that path names the legacy file the import reads. A test
+        # that means to start empty pins the database, the way 78 of the 79
+        # files that set AUDIT_LOG_PATH already do.
+        os.environ["HUB_DATA_DIR"] = self.temp.name
+        os.environ["DATABASE_URL"] = (
+            os.environ.get("SMARTFORECAST_TEST_DATABASE_URL")
+            or "sqlite:///" + str(Path(self.temp.name) / "hub.sqlite3"))
+        from modules.smartforecast import db as sfdb
+        sfdb._reset_engine_for_tests()
+        # A fresh SQLite file per test is a clean start by itself; a shared
+        # Postgres is not, so it is emptied -- or every check after the first
+        # reads the one before it.
+        sfdb.drop_all_for_tests()
         from modules.smartforecast.app import app as app_object, _store_for_path
         _store_for_path.cache_clear()
         app_object.config.update(TESTING=True)
@@ -112,6 +127,8 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
     def tearDown(self):
         os.environ.pop("SMARTFORECAST_DB_PATH", None)
         os.environ.pop("AUDIT_LOG_PATH", None)
+        os.environ.pop("HUB_DATA_DIR", None)
+        os.environ.pop("DATABASE_URL", None)
         self.temp.cleanup()
 
     def test_schema_has_all_core_tables_and_seeded_demo(self):
@@ -128,12 +145,14 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         negative = self.client.get("/api/bootstrap?site_id=-500")
         self.assertEqual(negative.status_code, 200)
         self.assertEqual(negative.get_json()["site"]["id"], 1)
-        con = sqlite3.connect(self.db_path)
-        try:
-            tables = {row[0] for row in con.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'")}
-        finally:
-            con.close()
+        # Through the store: the rows are in the Hub's shared database now,
+        # so sqlite_master is the catalogue of a file nothing writes to.
+        from modules.smartforecast.app import store
+        from modules.smartforecast import db as sfdb
+        with store().connect() as con:
+            tables = {t for t in sfdb.TABLES
+                      if con.execute(
+                          f"SELECT COUNT(*) FROM {t}").fetchone()[0] >= 0}
         expected = {"clients", "sites", "locations", "weather_snapshots",
                     "trigger_templates", "site_triggers", "content_slots",
                     "content_variants", "trigger_events", "trigger_event_history",
@@ -199,19 +218,14 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
             "wind_mph": 12, "humidity": 68, "dew_point": 72,
             "official_alerts": [], "hours_until_event": 0,
         }
-        con = sqlite3.connect(self.db_path)
-        try:
+        from modules.smartforecast.app import store
+        with store().connect() as con:
             before = con.execute("SELECT COUNT(*) FROM weather_snapshots").fetchone()[0]
-        finally:
-            con.close()
         with patch("modules.smartforecast.app.provider.fetch_weather", return_value=snapshot):
             response = self.client.post("/api/weather/refresh", json={})
         self.assertEqual(response.status_code, 200)
-        con = sqlite3.connect(self.db_path)
-        try:
+        with store().connect() as con:
             after = con.execute("SELECT COUNT(*) FROM weather_snapshots").fetchone()[0]
-        finally:
-            con.close()
         self.assertEqual(after, before + 1)
         from modules.smartforecast.app import store
         self.assertEqual(store().due_sites(), [])
@@ -461,13 +475,11 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         self.assertEqual(report["clicks"], 1)
         self.assertEqual(report["conversions"], 1)
         self.assertEqual(report["click_rate"], 100.0)
-        con = sqlite3.connect(self.db_path)
-        try:
+        from modules.smartforecast.app import store
+        with store().connect() as con:
             row = con.execute(
                 "SELECT session_hash,referrer_domain,metadata_json FROM engagement_events ORDER BY id LIMIT 1"
             ).fetchone()
-        finally:
-            con.close()
         self.assertNotEqual(row[0], common["session_id"])
         self.assertEqual(len(row[0]), 64)
         self.assertEqual(row[1], "client.example")
@@ -499,13 +511,11 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
     def test_schema_ledger_and_operational_health_are_current(self):
         self.client.get("/api/bootstrap")
         from modules.smartforecast.store import SCHEMA_VERSION
-        con = sqlite3.connect(self.db_path)
-        try:
+        from modules.smartforecast.app import store
+        with store().connect() as con:
             version = con.execute("PRAGMA user_version").fetchone()[0]
             ledger = [row[0] for row in con.execute(
                 "SELECT version FROM schema_migrations ORDER BY version")]
-        finally:
-            con.close()
         self.assertEqual(version, SCHEMA_VERSION)
         self.assertEqual(ledger, list(range(1, SCHEMA_VERSION + 1)))
         health = self.client.get("/api/operations")
@@ -521,8 +531,8 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
         now = datetime.now(timezone.utc)
         old = (now - timedelta(days=500)).isoformat()
         expired = (now - timedelta(hours=1)).isoformat()
-        con = sqlite3.connect(self.db_path)
-        try:
+        from modules.smartforecast.app import store
+        with store().connect() as con:
             token_id = con.execute("SELECT id FROM embed_tokens WHERE active=1 LIMIT 1").fetchone()[0]
             con.execute("UPDATE weather_snapshots SET observed_at=?", (old,))
             con.execute(
@@ -535,27 +545,60 @@ class SmartForecastStoreAndRoutesTests(unittest.TestCase):
                 """INSERT INTO manual_overrides(site_id,starts_at,ends_at,active,note,created_by,created_at)
                    VALUES(1,?,?,1,'expired','test',?)""", (old, expired, old),
             )
-            con.commit()
-        finally:
-            con.close()
         result = store().run_maintenance(now)
         self.assertEqual(result["weather_snapshots_deleted"], 1)
         self.assertEqual(result["engagement_events_deleted"], 1)
         self.assertEqual(result["overrides_expired"], 1)
 
     def test_backup_restores_a_fresh_render_disk(self):
+        """The disaster path, on the deployment where it still exists.
+
+        A fresh disk is now the loss of the *database*, not of the legacy
+        SmartForecast file -- so that is what this deletes. It is also the
+        SQLite fallback specifically: on a managed database the dump is not
+        taken at all, which the check below asserts rather than leaving the
+        two deployments to be assumed identical.
+        """
+        if os.environ.get("SMARTFORECAST_TEST_DATABASE_URL"):
+            self.skipTest("this run is on a managed database, where the dump "
+                          "is deliberately not taken -- see the check below")
         self.client.get("/api/bootstrap")
         from modules.smartforecast.app import _store_for_path, store
+        from modules.smartforecast import db as sfdb
         result = store().backup()
         self.assertTrue(result["ok"], result)
         backup_path = Path(result["path"])
         payload = json.loads(backup_path.read_text(encoding="utf-8"))
         self.assertTrue(payload["sql"].startswith("BEGIN TRANSACTION"))
-        os.unlink(self.db_path)
+
+        # the disk goes: the database with it, and the legacy file was never
+        # where these rows lived
+        os.unlink(str(Path(self.temp.name) / "hub.sqlite3"))
+        sfdb._reset_engine_for_tests()
         _store_for_path.cache_clear()
         restored = store().bootstrap()
         self.assertEqual(restored["site"]["client_name"], "Quality Air Columbus")
         self.assertGreaterEqual(len(restored["history"]), 1)
+
+    def test_a_managed_database_takes_no_second_copy(self):
+        """A dump beside a backed-up database is a second copy of the truth.
+
+        And `operational_health()` would then carry a `backup_fresh` that
+        nothing refreshes -- the permanently amber row this codebase names as
+        the check people learn to skip. It reports the state instead, and
+        stays ok, because the rows ARE backed up; what changes is by what.
+        """
+        from modules.smartforecast.app import store
+        from modules.smartforecast import db as sfdb
+        real = sfdb.in_managed_backup
+        sfdb.in_managed_backup = lambda: True
+        try:
+            result = store().backup()
+        finally:
+            sfdb.in_managed_backup = real
+        self.assertTrue(result["ok"], result)
+        self.assertTrue(result.get("in_database_backup"))
+        self.assertNotIn("sql", result)
 
 
 if __name__ == "__main__":

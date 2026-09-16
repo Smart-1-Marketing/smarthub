@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterator
 from urllib.parse import urlparse
 
+from . import db
 from . import packs as industry_catalog
 from .engine import advance_state, choose_winner, empty_state, iso, parse_time, simulate, utcnow
 from .readability import assess_readability, failure_message, normalize_hex
@@ -20,27 +21,38 @@ from .readability import assess_readability, failure_message, normalize_hex
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
+
+-- Parents before children. Postgres refuses a foreign key to a table that
+-- does not exist yet; SQLite resolves them lazily, which is why this block
+-- could declare engagement_events four tables ahead of the embed_tokens it
+-- references and be correct for the life of the module. db.TABLES is the
+-- order, and db.check_declaration_order() holds this string to it -- the next
+-- table somebody adds could reintroduce that just as invisibly.
+--
+-- The generated-id placeholder below is spelled per dialect by db.autoid():
+-- SQLite autoincrements a rowid only for a column declared exactly INTEGER
+-- PRIMARY KEY, and Postgres needs a sequence, which that does not give it.
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, description TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS clients (
-  id INTEGER PRIMARY KEY, name TEXT NOT NULL, industry TEXT NOT NULL,
+  id %%AUTOID%%, name TEXT NOT NULL, industry TEXT NOT NULL,
   business_goals_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS sites (
-  id INTEGER PRIMARY KEY, client_id INTEGER NOT NULL REFERENCES clients(id),
+  id %%AUTOID%%, client_id INTEGER NOT NULL REFERENCES clients(id),
   name TEXT NOT NULL, domain TEXT NOT NULL, platform TEXT NOT NULL DEFAULT 'Smart 1 Sites',
   enabled INTEGER NOT NULL DEFAULT 1, check_interval_minutes INTEGER NOT NULL DEFAULT 30,
   weather_provider TEXT NOT NULL DEFAULT 'WeatherAPI', branding_json TEXT NOT NULL DEFAULT '{}',
   state_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS locations (
-  id INTEGER PRIMARY KEY, site_id INTEGER NOT NULL REFERENCES sites(id),
+  id %%AUTOID%%, site_id INTEGER NOT NULL REFERENCES sites(id),
   label TEXT NOT NULL, postal_code TEXT NOT NULL, latitude REAL, longitude REAL,
   timezone TEXT NOT NULL DEFAULT 'America/New_York', is_primary INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS weather_snapshots (
-  id INTEGER PRIMARY KEY, location_id INTEGER NOT NULL REFERENCES locations(id),
+  id %%AUTOID%%, location_id INTEGER NOT NULL REFERENCES locations(id),
   observed_at TEXT NOT NULL, expires_at TEXT NOT NULL, source TEXT NOT NULL,
   payload_json TEXT NOT NULL, temperature REAL, feels_like REAL, humidity REAL,
   dew_point REAL, forecast_high REAL, forecast_low REAL, rain_probability REAL,
@@ -52,7 +64,7 @@ CREATE TABLE IF NOT EXISTS trigger_templates (
   updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS site_triggers (
-  id INTEGER PRIMARY KEY, site_id INTEGER NOT NULL REFERENCES sites(id),
+  id %%AUTOID%%, site_id INTEGER NOT NULL REFERENCES sites(id),
   template_id TEXT NOT NULL REFERENCES trigger_templates(id), enabled INTEGER NOT NULL DEFAULT 1,
   priority INTEGER NOT NULL DEFAULT 50, lead_hours REAL NOT NULL DEFAULT 24,
   min_duration_hours REAL NOT NULL DEFAULT 0, post_hours REAL NOT NULL DEFAULT 0,
@@ -61,12 +73,12 @@ CREATE TABLE IF NOT EXISTS site_triggers (
   UNIQUE(site_id, template_id)
 );
 CREATE TABLE IF NOT EXISTS content_slots (
-  id INTEGER PRIMARY KEY, site_id INTEGER NOT NULL REFERENCES sites(id),
+  id %%AUTOID%%, site_id INTEGER NOT NULL REFERENCES sites(id),
   slot_key TEXT NOT NULL, label TEXT NOT NULL, default_variant_id INTEGER,
   UNIQUE(site_id, slot_key)
 );
 CREATE TABLE IF NOT EXISTS content_variants (
-  id INTEGER PRIMARY KEY, slot_id INTEGER NOT NULL REFERENCES content_slots(id),
+  id %%AUTOID%%, slot_id INTEGER NOT NULL REFERENCES content_slots(id),
   trigger_key TEXT NOT NULL, phase TEXT NOT NULL, name TEXT NOT NULL,
   eyebrow TEXT NOT NULL DEFAULT '', headline TEXT NOT NULL, body TEXT NOT NULL,
   cta_label TEXT NOT NULL, cta_url TEXT NOT NULL, desktop_image_url TEXT,
@@ -75,41 +87,41 @@ CREATE TABLE IF NOT EXISTS content_variants (
   metadata_json TEXT NOT NULL DEFAULT '{}', UNIQUE(slot_id, trigger_key, phase)
 );
 CREATE TABLE IF NOT EXISTS content_publications (
-  id INTEGER PRIMARY KEY, variant_id INTEGER NOT NULL UNIQUE REFERENCES content_variants(id),
+  id %%AUTOID%%, variant_id INTEGER NOT NULL UNIQUE REFERENCES content_variants(id),
   site_id INTEGER NOT NULL REFERENCES sites(id), payload_json TEXT NOT NULL,
   approved_by TEXT NOT NULL, approved_at TEXT NOT NULL, created_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS engagement_events (
-  id INTEGER PRIMARY KEY, site_id INTEGER NOT NULL REFERENCES sites(id),
-  token_id INTEGER NOT NULL REFERENCES embed_tokens(id), content_variant_id INTEGER,
-  event_type TEXT NOT NULL CHECK(event_type IN ('view','click','conversion')),
-  occurred_at TEXT NOT NULL, session_hash TEXT NOT NULL, referrer_domain TEXT NOT NULL DEFAULT '',
-  destination_url TEXT NOT NULL DEFAULT '', metadata_json TEXT NOT NULL DEFAULT '{}',
-  dedupe_key TEXT NOT NULL UNIQUE
-);
 CREATE TABLE IF NOT EXISTS trigger_events (
-  id INTEGER PRIMARY KEY, site_id INTEGER NOT NULL REFERENCES sites(id),
+  id %%AUTOID%%, site_id INTEGER NOT NULL REFERENCES sites(id),
   trigger_key TEXT NOT NULL, status TEXT NOT NULL, phase TEXT NOT NULL,
   activated_at TEXT NOT NULL, deactivated_at TEXT, last_snapshot_id INTEGER,
   content_variant_id INTEGER, manual_override INTEGER NOT NULL DEFAULT 0,
   activation_reason TEXT NOT NULL DEFAULT '', state_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE IF NOT EXISTS trigger_event_history (
-  id INTEGER PRIMARY KEY, event_id INTEGER, site_id INTEGER NOT NULL REFERENCES sites(id),
+  id %%AUTOID%%, event_id INTEGER, site_id INTEGER NOT NULL REFERENCES sites(id),
   trigger_key TEXT, phase TEXT NOT NULL, event_type TEXT NOT NULL, recorded_at TEXT NOT NULL,
   source TEXT NOT NULL, snapshot_json TEXT NOT NULL DEFAULT '{}', rule_json TEXT NOT NULL DEFAULT '{}',
   content_variant_id INTEGER, manual_override INTEGER NOT NULL DEFAULT 0, reason TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS embed_tokens (
-  id INTEGER PRIMARY KEY, site_id INTEGER NOT NULL REFERENCES sites(id),
+  id %%AUTOID%%, site_id INTEGER NOT NULL REFERENCES sites(id),
   token TEXT NOT NULL UNIQUE, label TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
   allowed_origins_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS manual_overrides (
-  id INTEGER PRIMARY KEY, site_id INTEGER NOT NULL REFERENCES sites(id),
+  id %%AUTOID%%, site_id INTEGER NOT NULL REFERENCES sites(id),
   content_variant_id INTEGER, trigger_key TEXT, phase TEXT,
   starts_at TEXT NOT NULL, ends_at TEXT, active INTEGER NOT NULL DEFAULT 1,
   note TEXT NOT NULL DEFAULT '', created_by TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS engagement_events (
+  id %%AUTOID%%, site_id INTEGER NOT NULL REFERENCES sites(id),
+  token_id INTEGER NOT NULL REFERENCES embed_tokens(id), content_variant_id INTEGER,
+  event_type TEXT NOT NULL CHECK(event_type IN ('view','click','conversion')),
+  occurred_at TEXT NOT NULL, session_hash TEXT NOT NULL, referrer_domain TEXT NOT NULL DEFAULT '',
+  destination_url TEXT NOT NULL DEFAULT '', metadata_json TEXT NOT NULL DEFAULT '{}',
+  dedupe_key TEXT NOT NULL UNIQUE
 );
 CREATE INDEX IF NOT EXISTS idx_weather_location_time ON weather_snapshots(location_id, observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_history_site_time ON trigger_event_history(site_id, recorded_at DESC);
@@ -149,20 +161,50 @@ def default_path() -> Path:
 
 
 class SmartForecastStore:
+    """The store, on the Hub's shared database.
+
+    `self.path` is no longer where the rows live. It is the legacy SQLite
+    file: what `_import_legacy_sqlite()` reads once, and what
+    `_restore_latest_backup()` rebuilds from the mirrored dump when a
+    recreated disk still has one to carry across. SMARTFORECAST_DB_PATH names
+    it and selects no backend -- the rule `hub/audit.py` arrived at one store
+    earlier, and for the same reason: a variable that is set on the live
+    service and also chooses the backend keeps production on the disk while
+    every test passes on the new path.
+    """
+
     def __init__(self, path: str | Path | None = None):
         self.path = Path(path or default_path())
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        if not self.path.exists():
-            self._restore_latest_backup()
         self.initialize()
 
     @property
     def backup_path(self) -> Path:
         return self.path.parent / "latest-backup.json"
 
-    def _restore_latest_backup(self) -> bool:
-        """Restore a fresh Render disk from the Postgres-mirrored SQL dump."""
+    def _restore_latest_backup(self, con) -> bool:
+        """Refill an empty database from the mirrored SQL dump.
+
+        The disaster path, and only that. It replays into **the database this
+        module is actually on** rather than into the legacy file, because that
+        file is no longer where anything reads from -- restoring into it would
+        report success and leave every screen empty, which is the shape this
+        whole phase exists to stop.
+
+        It does nothing where there is nothing to restore: on a managed
+        database the rows are already in its own backup, and a database with
+        rows in it is not a fresh disk. The checksum is still what decides
+        whether the dump is usable, because a half-written mirror replayed
+        over a schema is worse than no restore at all.
+        """
+        if db.in_managed_backup():
+            return False
+        try:
+            if int(con.execute("SELECT COUNT(*) FROM sites").fetchone()[0]):
+                return False        # not a fresh disk
+        except Exception:  # noqa: BLE001 — no schema yet means nothing to keep
+            pass
         try:
             from hub import jsonstore
             payload = jsonstore.read_json(str(self.backup_path), default={}) or {}
@@ -173,43 +215,153 @@ class SmartForecastStore:
         if not sql or checksum != hashlib.sha256(sql.encode("utf-8")).hexdigest():
             return False
         try:
-            con = sqlite3.connect(str(self.path), timeout=30)
-            try:
-                con.executescript(sql)
-                con.commit()
-            finally:
-                con.close()
+            con.executescript(sql)
+            con.commit()
             return True
-        except sqlite3.Error:
-            try:
-                self.path.unlink(missing_ok=True)
-            except OSError:
-                pass
+        except Exception:  # noqa: BLE001 — a dump that will not replay is not
+            con.rollback()  # a reason to refuse to start; the seed still runs
             return False
 
     @contextmanager
-    def connect(self) -> Iterator[sqlite3.Connection]:
-        con = sqlite3.connect(str(self.path), timeout=15)
-        con.row_factory = sqlite3.Row
-        con.execute("PRAGMA foreign_keys = ON")
-        try:
+    def connect(self) -> Iterator["db.Connection"]:
+        """The shared Hub database, through a connection shaped like sqlite3's.
+
+        Every query below is unchanged: `modules/smartforecast/db.py` is where
+        the `?` binds, `INSERT OR IGNORE`, the three PRAGMAs and `lastrowid`
+        become portable, so the 115 statements this module already had are the
+        115 it still has.
+        """
+        with db.connect() as con:
             yield con
-            con.commit()
-        finally:
-            con.close()
 
     def initialize(self) -> None:
         with self._lock, self.connect() as con:
-            con.executescript(SCHEMA)
+            con.executescript(SCHEMA.replace("%%AUTOID%%", db.autoid(con.dialect)))
+            self._import_legacy_sqlite(con)
+            self._restore_latest_backup(con)
             count = con.execute("SELECT COUNT(*) FROM sites").fetchone()[0]
             if not count:
                 self._seed(con)
             self._migrate(con)
             self._sync_pack_templates(con)
             self._backfill_publications(con)
+            # Every path above writes rows with ids chosen in the SQL: the
+            # demo seed does it six times (`clients(id,...) VALUES(1,...)`),
+            # the one-time import preserves them because they are foreign keys
+            # to each other, and a restored dump carries its own. A generated
+            # -id column does not advance its sequence for any of those, so
+            # without this a fresh Postgres deployment SEEDS PERFECTLY and
+            # then raises a duplicate key the first time somebody adds a
+            # client. Found by running the suite against Postgres; SQLite has
+            # no sequence, so nothing here could ever have shown it.
+            #
+            # Once, at the end, rather than after each of the three -- it is
+            # idempotent and thirteen cheap statements, and a rule three call
+            # sites have to remember is not a rule.
+            db.fix_sequences(con)
+
+    def _import_legacy_sqlite(self, con) -> dict:
+        """Carry the SQLite file into the shared database, once.
+
+        Three things this has to get right, and each is a way to end up worse
+        off than before the move.
+
+        **Once across every instance, not once per worker.** The check for
+        whether it has run and the copy have to be inside one lock, or two
+        workers both read "not yet" and every row lands twice -- so the marker
+        goes through `jsonstore.update_json()`, which holds the thread lock,
+        the flock and the Postgres advisory lock that spans instances.
+
+        **The sequences have to be moved with the rows.** A generated-id
+        column keeps its sequence at 1 when ids are inserted explicitly, so
+        after an id-preserving copy the FIRST row anybody creates raises a
+        duplicate key -- with the import reporting success and every count
+        matching. SQLite has no sequence, so nothing here would ever have
+        shown it.
+
+        **It is verified rather than assumed**, and a verification that fails
+        does not mark the import done: the next boot tries again rather than
+        recording that a history we never checked had been carried across.
+        """
+        legacy = self.path
+        try:
+            if not legacy.exists() or legacy.stat().st_size <= 0:
+                return {"ran": False, "reason": "no legacy database"}
+        except OSError:
+            return {"ran": False, "reason": "no legacy database"}
+
+        try:
+            from hub import jsonstore
+            marker = os.path.join(jsonstore.data_dir("smartforecast"),
+                                  "sqlite-import.json")
+        except Exception as exc:  # noqa: BLE001
+            return {"ran": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+        outcome: dict = {"ran": False, "reason": "already imported"}
+
+        def _mutate(cur):
+            if isinstance(cur, dict) and cur.get("done"):
+                return None            # nothing to write, and nothing to do
+            copied = self._copy_sqlite_into(con, legacy)
+            if copied.get("error"):
+                outcome.update(ran=False, reason=copied["error"])
+                return None
+            db.fix_sequences(con)
+            report = db.verify(con, copied["counts"])
+            if not report["ok"]:
+                outcome.update(ran=False, reason="verification failed",
+                               verification=report)
+                return None            # unmarked, so the next boot retries
+            outcome.update(ran=True, reason="", counts=copied["counts"],
+                           verification=report)
+            return {"done": True, "counts": copied["counts"],
+                    "from": str(legacy), "at": iso(utcnow())}
+
+        try:
+            from hub import jsonstore
+            jsonstore.update_json(marker, _mutate, default={})
+        except Exception as exc:  # noqa: BLE001
+            return {"ran": False, "reason": f"{type(exc).__name__}: {exc}"}
+        return outcome
 
     @staticmethod
-    def _migrate(con: sqlite3.Connection) -> None:
+    def _copy_sqlite_into(con, legacy) -> dict:
+        """Copy every table, parents first, ids preserved.
+
+        Ids are preserved because they are foreign keys to each other -- a
+        copy that let them be regenerated would have to rewrite every
+        reference, and getting one wrong points a client's content at another
+        client's site.
+        """
+        counts: dict[str, int] = {}
+        try:
+            src = sqlite3.connect(str(legacy), timeout=30)
+            src.row_factory = sqlite3.Row
+        except sqlite3.Error as exc:
+            return {"error": f"the legacy database could not be opened: {exc}"}
+        try:
+            have = {r[0] for r in src.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+            for table in db.TABLES:
+                if table not in have:
+                    continue
+                rows = [dict(r) for r in src.execute(f"SELECT * FROM {table}")]
+                counts[table] = len(rows)
+                for row in rows:
+                    cols = list(row)
+                    con.execute(
+                        f"INSERT INTO {table}({','.join(cols)}) VALUES("
+                        f"{','.join('?' for _ in cols)}) ON CONFLICT DO NOTHING",
+                        tuple(row[c] for c in cols))
+        except Exception as exc:  # noqa: BLE001
+            return {"error": f"{type(exc).__name__}: "
+                             f"{str(exc).splitlines()[0][:200]}"}
+        finally:
+            src.close()
+        return {"counts": counts}
+
+    @staticmethod
+    def _migrate(con: "db.Connection") -> None:
         """Advance the SQLite schema ledger after idempotent DDL is present."""
         current = int(con.execute("PRAGMA user_version").fetchone()[0])
         descriptions = {
@@ -226,7 +378,7 @@ class SmartForecastStore:
         con.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     @staticmethod
-    def _sync_pack_templates(con: sqlite3.Connection) -> None:
+    def _sync_pack_templates(con: "db.Connection") -> None:
         """Add catalog templates without overwriting database-edited rules."""
         stamp = iso(utcnow())
         for rule in industry_catalog.all_rules():
@@ -238,7 +390,7 @@ class SmartForecastStore:
                  _json(rule), stamp, stamp),
             )
 
-    def _backfill_publications(self, con: sqlite3.Connection) -> None:
+    def _backfill_publications(self, con: "db.Connection") -> None:
         """Treat content that predates approvals as the currently published copy."""
         rows = con.execute(
             """SELECT v.*,s.site_id FROM content_variants v JOIN content_slots s ON s.id=v.slot_id
@@ -254,7 +406,7 @@ class SmartForecastStore:
                  "SmartForecast migration", stamp, stamp),
             )
 
-    def _seed(self, con: sqlite3.Connection) -> None:
+    def _seed(self, con: "db.Connection") -> None:
         now = utcnow()
         stamp = iso(now)
         con.execute(
@@ -333,7 +485,7 @@ class SmartForecastStore:
         event = con.execute(
             """INSERT INTO trigger_events(site_id,trigger_key,status,phase,activated_at,last_snapshot_id,
                content_variant_id,activation_reason,state_json) VALUES(1,'hvac_extreme_heat','active',
-               'pre_event',?,1,2,'Forecast high reached 96°F',?)""",
+               'pre_event',?,1,2,'Forecast high reached 96°F',?) RETURNING id""",
             (state["activated_at"], _json(state)),
         ).lastrowid
         con.execute(
@@ -404,7 +556,7 @@ class SmartForecastStore:
             return self._sites(con)
 
     @staticmethod
-    def _sites(con: sqlite3.Connection) -> list[dict]:
+    def _sites(con: "db.Connection") -> list[dict]:
         rows = con.execute(
             """SELECT s.id,s.client_id,c.name client_name,c.industry,s.name site_name,s.domain,
                s.platform,s.enabled,l.postal_code,l.label location_label
@@ -415,7 +567,7 @@ class SmartForecastStore:
         return [{**dict(row), "enabled": bool(row["enabled"])} for row in rows]
 
     @staticmethod
-    def _pack_summaries(con: sqlite3.Connection, site_id: int, industry: str) -> list[dict]:
+    def _pack_summaries(con: "db.Connection", site_id: int, industry: str) -> list[dict]:
         assigned = {row["template_id"]: bool(row["enabled"]) for row in con.execute(
             "SELECT template_id,enabled FROM site_triggers WHERE site_id=?", (site_id,))}
         out = []
@@ -429,7 +581,7 @@ class SmartForecastStore:
                         "recommended": pack["industry"].lower() == str(industry).lower()})
         return out
 
-    def _rules(self, con: sqlite3.Connection, site_id: int) -> list[dict]:
+    def _rules(self, con: "db.Connection", site_id: int) -> list[dict]:
         rows = con.execute(
             """SELECT t.*,s.enabled,s.priority,s.lead_hours,s.min_duration_hours,s.post_hours,
                s.cooldown_hours,s.activation_checks,s.clear_checks,s.overrides_json
@@ -516,13 +668,13 @@ class SmartForecastStore:
                 con.execute("UPDATE clients SET industry=? WHERE id=?", (industry, client_id))
             else:
                 client_id = con.execute(
-                    "INSERT INTO clients(name,industry,business_goals_json,created_at) VALUES(?,?,?,?)",
+                    "INSERT INTO clients(name,industry,business_goals_json,created_at) VALUES(?,?,?,?) RETURNING id",
                     (client_name, industry, "[]", now),
                 ).lastrowid
             site_id = con.execute(
                 """INSERT INTO sites(client_id,name,domain,platform,enabled,check_interval_minutes,
                    weather_provider,branding_json,state_json,created_at,updated_at)
-                   VALUES(?,?,?,?,1,30,'WeatherAPI',?,?,?,?)""",
+                   VALUES(?,?,?,?,1,30,'WeatherAPI',?,?,?,?) RETURNING id""",
                 (client_id, str(body.get("site_name") or f"{client_name} Website")[:200], domain,
                  str(body.get("platform") or "Smart 1 Sites")[:80], _json(_default_branding()),
                  _json(empty_state()), now, now),
@@ -550,7 +702,7 @@ class SmartForecastStore:
                      rule.get("activation_checks", 2), rule.get("clear_checks", 2)),
                 )
             slot_id = con.execute(
-                "INSERT INTO content_slots(site_id,slot_key,label) VALUES(?,'hero','Homepage hero')",
+                "INSERT INTO content_slots(site_id,slot_key,label) VALUES(?,'hero','Homepage hero') RETURNING id",
                 (site_id,),
             ).lastrowid
             root_url = domain if domain.startswith(("https://", "http://")) else f"https://{domain}"
@@ -558,7 +710,7 @@ class SmartForecastStore:
                 """INSERT INTO content_variants(slot_id,trigger_key,phase,name,eyebrow,headline,body,
                    cta_label,cta_url,desktop_image_url,mobile_image_url,alt_text,desktop_focal,
                    mobile_focal,overlay_opacity,metadata_json) VALUES(?,'default','default',?,?,?,?,?,
-                   ?,NULL,NULL,'','50% 50%','50% 50%',.15,'{}')""",
+                   ?,NULL,NULL,'','50% 50%','50% 50%',.15,'{}') RETURNING id""",
                 (slot_id, "Default website message", "Local service",
                  f"{industry} Services from {client_name}",
                  "Reliable local help, ready when customers need it.", "Contact Us", root_url),
@@ -727,7 +879,7 @@ class SmartForecastStore:
             )
         return {"ok": True, "site_id": site_id, "token": token}
 
-    def _publish_variant(self, con: sqlite3.Connection, variant_id: int,
+    def _publish_variant(self, con: "db.Connection", variant_id: int,
                          site_id: int, user: str) -> None:
         variant = self._variant_row(
             con.execute("SELECT * FROM content_variants WHERE id=?", (variant_id,)).fetchone())
@@ -785,20 +937,44 @@ class SmartForecastStore:
                    FROM sites s JOIN locations l ON l.site_id=s.id AND l.is_primary=1
                    LEFT JOIN weather_snapshots w ON w.location_id=l.id
                    WHERE s.enabled=1 GROUP BY s.id,l.postal_code,s.check_interval_minutes
-                   HAVING latest_expiry IS NULL OR latest_expiry<=? ORDER BY s.id""",
+                   -- The aggregate is repeated rather than the alias reused:
+                   -- a SELECT alias is visible in HAVING on SQLite and is not
+                   -- in Postgres, where this read "column latest_expiry does
+                   -- not exist" and took the whole weather refresh with it.
+                   HAVING MAX(w.expires_at) IS NULL OR MAX(w.expires_at)<=?
+                   ORDER BY s.id""",
                 (stamp,),
             )
             return [dict(row) for row in rows]
 
     def backup(self) -> dict:
-        """Write one verified SQL dump and mirror it through hub.jsonstore.
+        """A SQL dump, where one still means something.
 
-        The live SQLite database stays on Render's persistent disk. The fixed
-        JSON backup key is also mirrored into the Hub's managed Postgres store,
-        so a recreated or replaced disk can restore before seeding a new site.
+        This existed because the rows lived in a SQLite file on the Render
+        disk, which is outside the backup: dump it, mirror the dump through
+        `hub/jsonstore.py`, and a recreated disk restores. With the rows in
+        the Hub's managed Postgres that argument is gone -- the dump would be
+        a **second copy of the truth**, taken on a different schedule from the
+        backup that already holds them, and `operational_health()` would then
+        report a `backup_fresh` that nothing refreshes: the permanently amber
+        row this codebase names as the check people learn to skip.
+
+        So it reports the state rather than producing a redundant dump, and
+        keeps dumping on the fallback -- where the database is a SQLite file
+        on the very disk this was trying to survive the loss of, which is
+        `hub/jsonstore.status()`'s `same_disk` finding one store over.
+
+        It stays **ok** in both cases, because in both cases the rows are
+        backed up. What changes is which thing is doing it, and the answer
+        says which rather than leaving a reader to infer it from an age.
         """
+        if db.in_managed_backup():
+            return {"ok": True, "in_database_backup": True, "bytes": 0,
+                    "reason": "the rows are in the Hub database, which is "
+                              "backed up; a separate dump would be a second "
+                              "copy on a different schedule"}
         with self._lock, self.connect() as con:
-            sql = "\n".join(con.iterdump())
+            sql = db.sqlite_dump(con)
         payload = {
             "schema_version": SCHEMA_VERSION,
             "created_at": iso(utcnow()),
@@ -858,27 +1034,45 @@ class SmartForecastStore:
                 "SELECT MAX(observed_at) latest FROM weather_snapshots"
             ).fetchone()["latest"]
             events = int(con.execute("SELECT COUNT(*) FROM engagement_events").fetchone()[0])
+        # Its own connection: the size is measured by a statement that can
+        # fail, and on Postgres a failed statement aborts the transaction it
+        # is in -- taking the counts above with it to report one row.
+        with self.connect() as con:
+            database_bytes = db.database_bytes(con)
+            bytes_scope = db.bytes_scope(con)
         due = self.due_sites(now)
         latest_at = parse_time(latest)
         latest_age_minutes = round((now - latest_at).total_seconds() / 60, 1) if latest_at else None
+        # On the Hub database `backup()` deliberately takes no dump, so an age
+        # read from one would be missing or frozen at the last SQLite-era dump
+        # -- and `backup_fresh` would be permanently false with nothing able to
+        # refresh it: the amber row people learn to skip. Say what is doing the
+        # backing up instead, so nobody reads this as "there is a dump".
+        managed = db.in_managed_backup()
         backup_created = None
-        try:
-            from hub import jsonstore
-            backup = jsonstore.read_json(str(self.backup_path), default={}) or {}
-            backup_created = parse_time(backup.get("created_at")) if isinstance(backup, dict) else None
-        except Exception:  # noqa: BLE001
-            backup_created = None
+        if not managed:
+            try:
+                from hub import jsonstore
+                backup = jsonstore.read_json(str(self.backup_path), default={}) or {}
+                backup_created = parse_time(backup.get("created_at")) if isinstance(backup, dict) else None
+            except Exception:  # noqa: BLE001
+                backup_created = None
         backup_age_hours = round((now - backup_created).total_seconds() / 3600, 1) if backup_created else None
-        database_bytes = self.path.stat().st_size if self.path.exists() else 0
+        backup_fresh = True if managed else (
+            backup_age_hours is not None and backup_age_hours <= 24)
         critical = integrity != "ok" or schema_version != SCHEMA_VERSION
         return {"ok": not critical, "checked_at": iso(now), "schema_version": schema_version,
                 "expected_schema_version": SCHEMA_VERSION, "database_integrity": integrity,
-                "database_bytes": database_bytes, "sites": int(site_counts["total"] or 0),
+                "database_bytes": database_bytes or 0,
+                "database_bytes_measured": database_bytes is not None,
+                "database_bytes_scope": bytes_scope,
+                "sites": int(site_counts["total"] or 0),
                 "enabled_sites": int(site_counts["enabled"] or 0), "due_sites": len(due),
                 "latest_weather_at": latest, "latest_weather_age_minutes": latest_age_minutes,
                 "weather_provider_configured": provider_configured,
                 "backup_created_at": iso(backup_created), "backup_age_hours": backup_age_hours,
-                "backup_fresh": backup_age_hours is not None and backup_age_hours <= 24,
+                "backup_fresh": backup_fresh,
+                "backup_by": "hub_database" if managed else "dump",
                 "engagement_events": events}
 
     def preflight(self, site_id: int = 1, provider_configured: bool = False) -> dict:
@@ -1188,20 +1382,20 @@ class SmartForecastStore:
                                  row["referrer_domain"], row["destination_url"], row["metadata_json"]])
         return output.getvalue()
 
-    def _insert_snapshot(self, con: sqlite3.Connection, location_id: int,
+    def _insert_snapshot(self, con: "db.Connection", location_id: int,
                          snapshot: dict, source: str) -> int:
         now = utcnow()
         return con.execute(
             """INSERT INTO weather_snapshots(location_id,observed_at,expires_at,source,payload_json,
                temperature,feels_like,humidity,dew_point,forecast_high,forecast_low,rain_probability,
-               snow_inches,wind_mph,official_alerts_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               snow_inches,wind_mph,official_alerts_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id""",
             (location_id, iso(now), iso(now + timedelta(minutes=30)), source, _json(snapshot),
              snapshot["temperature"], snapshot["feels_like"], snapshot["humidity"], snapshot["dew_point"],
              snapshot["forecast_high"], snapshot["forecast_low"], snapshot["rain_probability"],
              snapshot["snow_inches"], snapshot["wind_mph"], _json(snapshot["official_alerts"])),
         ).lastrowid
 
-    def _record_transition(self, con: sqlite3.Connection, site_id: int, old: dict, new: dict,
+    def _record_transition(self, con: "db.Connection", site_id: int, old: dict, new: dict,
                            transition: str, snapshot: dict, snapshot_id: int,
                            variant: dict | None, source: str) -> None:
         trigger = new.get("current_trigger") or old.get("current_trigger")
@@ -1230,7 +1424,7 @@ class SmartForecastStore:
                 )
             event_id = con.execute(
                 """INSERT INTO trigger_events(site_id,trigger_key,status,phase,activated_at,last_snapshot_id,
-                   content_variant_id,activation_reason,state_json) VALUES(?,?,?,?,?,?,?,?,?)""",
+                   content_variant_id,activation_reason,state_json) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id""",
                 (site_id, trigger, "active", new["phase"], new["activated_at"], snapshot_id,
                  variant.get("id") if variant else None, new.get("reason", ""), _json(new)),
             ).lastrowid
@@ -1250,7 +1444,7 @@ class SmartForecastStore:
              _json(snapshot), _json(rule), variant.get("id") if variant else None, new.get("reason", "")),
         )
 
-    def _select_variant(self, con: sqlite3.Connection, site_id: int,
+    def _select_variant(self, con: "db.Connection", site_id: int,
                         trigger_key: str | None, phase: str | None,
                         published: bool = False) -> dict | None:
         row = con.execute(
@@ -1269,7 +1463,7 @@ class SmartForecastStore:
         variant = self._variant_row(row)
         return self._published_variant_by_id(con, variant["id"]) if published else variant
 
-    def _published_variant_by_id(self, con: sqlite3.Connection, variant_id: int) -> dict | None:
+    def _published_variant_by_id(self, con: "db.Connection", variant_id: int) -> dict | None:
         row = con.execute(
             "SELECT payload_json,approved_by,approved_at FROM content_publications WHERE variant_id=?",
             (variant_id,),
@@ -1281,7 +1475,7 @@ class SmartForecastStore:
                         "approved_at": row["approved_at"]})
         return payload
 
-    def _decorate_publication(self, con: sqlite3.Connection, variant: dict) -> dict:
+    def _decorate_publication(self, con: "db.Connection", variant: dict) -> dict:
         row = con.execute(
             "SELECT payload_json,approved_by,approved_at FROM content_publications WHERE variant_id=?",
             (variant["id"],),
@@ -1298,7 +1492,7 @@ class SmartForecastStore:
         return {key: variant.get(key) for key in CONTENT_FIELDS}
 
     @staticmethod
-    def _variant_row(row: sqlite3.Row | None) -> dict | None:
+    def _variant_row(row: "db.Row | None") -> dict | None:
         if not row:
             return None
         data = dict(row)
@@ -1307,7 +1501,7 @@ class SmartForecastStore:
         return data
 
     @staticmethod
-    def _weather_row(row: sqlite3.Row) -> dict:
+    def _weather_row(row: "db.Row") -> dict:
         data = dict(row)
         payload = _loads(data.pop("payload_json", "{}"), {})
         data["official_alerts"] = _loads(data.pop("official_alerts_json", "[]"), [])
@@ -1315,7 +1509,7 @@ class SmartForecastStore:
         return data
 
     @staticmethod
-    def _history_row(row: sqlite3.Row) -> dict:
+    def _history_row(row: "db.Row") -> dict:
         data = dict(row)
         data["snapshot"] = _loads(data.pop("snapshot_json", "{}"), {})
         data["rule"] = _loads(data.pop("rule_json", "{}"), {})
@@ -1323,7 +1517,7 @@ class SmartForecastStore:
         return data
 
     @staticmethod
-    def _report(con: sqlite3.Connection, site_id: int) -> dict:
+    def _report(con: "db.Connection", site_id: int) -> dict:
         since = iso(utcnow() - timedelta(days=30))
         rows = list(con.execute(
             "SELECT event_type,trigger_key,recorded_at FROM trigger_event_history WHERE site_id=? AND recorded_at>=?",
