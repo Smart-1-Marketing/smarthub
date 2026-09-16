@@ -20,9 +20,8 @@ for a drop, children first.
 """
 from __future__ import annotations
 
-from hub.dbshim import (  # noqa: F401 -- re-exported; this is the module's API
+from hub.dbshim import (
     Connection,
-    Cursor,
     Row,
     autoid,
     bytes_scope,
@@ -30,7 +29,6 @@ from hub.dbshim import (  # noqa: F401 -- re-exported; this is the module's API
     connect,
     dialect,
     engine,
-    engine_error,
     in_managed_backup,
     portable,
     sqlite_dump,
@@ -38,6 +36,25 @@ from hub.dbshim import (  # noqa: F401 -- re-exported; this is the module's API
     to_named,
 )
 from hub import dbshim as _shim
+
+#: What this module is, to the code that imports it. These names are the
+#: shared driver's and are re-exported rather than re-implemented, so a caller
+#: goes on writing `db.connect()` and `db.autoid()` exactly as before the
+#: translation layer moved to `hub/dbshim.py`.
+#:
+#: Declared rather than left to a `# noqa`, because "imported and not used" is
+#: true of every one of them *in this file* and a linter is right to say so --
+#: `__all__` is the answer that says which of them are the interface. Two that
+#: were in the list when it was a comment, `Cursor` and `engine_error`, had no
+#: caller anywhere and are simply gone: a re-export nothing imports is dead
+#: weight wearing the word "API".
+__all__ = [
+    "Connection", "Row", "TABLES", "GENERATED_ID", "autoid", "bytes_scope",
+    "check_declaration_order", "connect", "database_bytes", "dialect",
+    "drop_all_for_tests", "engine", "fix_sequences", "in_managed_backup",
+    "portable", "sequence_state", "sqlite_dump", "statements", "to_named",
+    "verify",
+]
 
 TABLES = (
     "schema_migrations", "clients", "sites", "locations", "weather_snapshots",
