@@ -38,9 +38,10 @@ raise on and take the whole library down with it.
 from __future__ import annotations
 
 import os
+import re
 import secrets
 
-from hub import jsonstore
+from hub import jsonstore, script_contents
 
 # The placeholder the defaults are written with. One name, because a second
 # spelling is a preset that silently never fills in.
@@ -162,24 +163,51 @@ def save(name, script, actor: str = "") -> dict:
     return row
 
 
+# Anchored so a name only matches where a name is, rather than anywhere its
+# letters appear. A bare substring search put "{business}" inside "Box office"
+# for a client called Ox, inside "Acmeburger" for one called Acme, and -- for a
+# client recorded as "A" -- through every "a" in the read. What is deliberately
+# NOT a word boundary (`\b`) is the edge itself: a name may end in a period
+# ("Acme Inc."), where `\b` sits before the period rather than after it and the
+# match fails on the one form that needs it most.
+_EDGE_BEFORE = r"(?<![0-9A-Za-z])"
+_EDGE_AFTER = r"(?![0-9A-Za-z])"
+
+
+def _name_forms(business: str) -> list:
+    """The ways a script might write this business's name, longest first.
+
+    A record saying "Acme Plumbing, LLC" is called "Acme Plumbing" in every
+    script anybody would write, so generalizing only on the recorded spelling
+    left the client's literal name in the saved read -- and the next project to
+    reuse it read out somebody else's business, which is the whole failure this
+    function exists to prevent, on the commonest company format there is.
+
+    The suffix reading is `hub/script_contents.spoken_name()`, the same one the
+    content check uses to decide whether a read names the business at all.
+    Longest first so "Acme Plumbing, LLC" is preferred over "Acme Plumbing"
+    where a script happens to say the whole thing.
+    """
+    raw = str(business or "").strip()
+    if not raw:
+        return []
+    forms = {raw, script_contents.spoken_name(raw)}
+    return sorted((f for f in forms if f.strip()), key=len, reverse=True)
+
+
 def generalize(script: str, business: str = "") -> str:
     """A read with this project's business name put back to the placeholder.
 
-    The inverse of `fill()`, for the save path. Case-insensitive on the name
-    because a script says "Acme" where the record says "ACME", and both are
-    the same business.
+    The inverse of `fill()`, for the save path: a read saved off a live project
+    carries that client's name, and reusing it would read out the wrong
+    business. Case-insensitive, because a script says "Acme" where the record
+    says "ACME" and both are the same business.
     """
-    name = str(business or "").strip()
     text = str(script or "")
-    if not name:
-        return text
-    lowered, out, at = text.lower(), [], 0
-    needle = name.lower()
-    while True:
-        found = lowered.find(needle, at)
-        if found < 0:
-            out.append(text[at:])
-            return "".join(out)
-        out.append(text[at:found])
-        out.append(PLACEHOLDER)
-        at = found + len(needle)
+    for form in _name_forms(business):
+        # A callable replacement, so `re` never reads the placeholder as a
+        # template -- a backslash or a `\\g<1>` in it would otherwise be
+        # expanded, or raise, on somebody's saved read.
+        text = re.sub(_EDGE_BEFORE + re.escape(form) + _EDGE_AFTER,
+                      lambda _m: PLACEHOLDER, text, flags=re.I)
+    return text

@@ -69,7 +69,7 @@ import wsgi                                                       # noqa: E402
 
 from werkzeug.test import Client                                  # noqa: E402
 
-from hub import jsonstore, radio_presets                          # noqa: E402
+from hub import jsonstore, radio_presets, script_contents         # noqa: E402
 from modules.fan_radio import script_presets as fan_presets       # noqa: E402
 from modules.fan_radio import store as fan_store                  # noqa: E402
 from modules.radio_promo import store as promo_store              # noqa: E402
@@ -205,6 +205,85 @@ check("and generalizing is case-insensitive, because a record and a script "
       "Visit {business} today.")
 check("a project with no name on it generalizes to itself rather than emptying",
       radio_presets.generalize("Visit Acme Tire.", ""), "Visit Acme Tire.")
+
+
+# ===========================================================================
+section("A business name is matched where a name is, not where its letters are")
+# ===========================================================================
+# A bare substring replace did all three of these, and the third is the one
+# that matters: it left the client's literal name in the saved read, so the
+# next project to reuse it read out somebody else's business -- on the
+# commonest company format there is.
+check("a one-letter client name does not rewrite every 'a' in the read",
+      radio_presets.generalize("Call Acme at noon.", "A"),
+      "Call Acme at noon.")
+check("a short name matches itself and not the word it sits inside",
+      radio_presets.generalize("Ox Motors is open. Box office too.", "Ox"),
+      "{business} Motors is open. Box office too.")
+check("and a longer one does not match inside a longer word",
+      radio_presets.generalize("Shop at Acme. Acmeburger is next door.", "Acme"),
+      "Shop at {business}. Acmeburger is next door.")
+check("a legal suffix nobody reads aloud still generalizes the name",
+      radio_presets.generalize("Visit Acme Plumbing today.", "Acme Plumbing, LLC"),
+      "Visit {business} today.")
+check("both the recorded spelling and the spoken one, in one pass",
+      radio_presets.generalize(
+          "Acme Plumbing, LLC is open, and Acme Plumbing is too.",
+          "Acme Plumbing, LLC"),
+      "{business} is open, and {business} is too.")
+check("a name ending in a period is still matched",
+      radio_presets.generalize("Come to Boehm Heating.", "Boehm Heating Inc."),
+      "Come to {business}.")
+check("a name at the very end of the read, before its full stop",
+      radio_presets.generalize("Acme.", "Acme"), "{business}.")
+# The suffix reading is one function, shared with the check that decides
+# whether a read names the business at all.
+check("the suffix reading is script_contents', not a second list",
+      script_contents.spoken_name("Acme Plumbing, LLC"), "Acme Plumbing")
+check("and it is the one the module under test reads",
+      radio_presets.script_contents is script_contents, True)
+
+
+# ===========================================================================
+section("The library is staff-only, and two saves do not lose one")
+# ===========================================================================
+# Neither prefix is public: `PUBLIC_PREFIXES` on both modules covers the
+# approval page, and a reusable-read library is not part of it.
+_anon = Client(wsgi.application)
+check("a caller with no session cannot read the library",
+      _anon.get(FR).status_code in (301, 302, 401, 403), True)
+check("nor the other tool's",
+      _anon.get(RP).status_code in (301, 302, 401, 403), True)
+check("nor save to it",
+      _anon.post(FR, json={"name": "x", "script": "y"}).status_code
+      in (301, 302, 401, 403), True)
+
+# Two writers, one file. `jsonstore.update_json` is a read-modify-write under
+# one lock for exactly this reason: with the read outside the lock, the second
+# writer starts from the first one's snapshot and silently drops it, and both
+# callers are told they succeeded.
+import threading                                                  # noqa: E402
+_before = len(radio_presets.custom())
+_errors = []
+
+
+def _save(n):
+    try:
+        radio_presets.save(f"Concurrent {n}", f"Read number {n}.", "tester")
+    except Exception as exc:                                       # noqa: BLE001
+        _errors.append(exc)
+
+
+_threads = [threading.Thread(target=_save, args=(n,)) for n in range(8)]
+for _t in _threads:
+    _t.start()
+for _t in _threads:
+    _t.join()
+check("eight concurrent saves all report success", _errors, [])
+check("and all eight are on disk — none silently dropped",
+      len(radio_presets.custom()) - _before, 8)
+check("each with its own id",
+      len({r["id"] for r in radio_presets.custom()}), len(radio_presets.custom()))
 
 
 # ===========================================================================
