@@ -325,7 +325,6 @@ check("a read that finds no sent campaign is empty, never a nought over a refusa
 for i in range(se.KEEP_READINGS + 5):
     se._append_reading(NAME, location_id=LOC, campaigns=[], notes=[], today=TODAY - timedelta(days=i))
 check("readings are capped", len(se.readings(NAME)), se.KEEP_READINGS)
-_ACCT_saved = dict(_ACCT)
 suite_accounts.token_for = lambda name, url="": {"state": "not_connected", "location_id": "", "token": None, "detail": "the app is not installed on it", "connected": False}
 out = se.snapshot(NAME, today=TODAY)
 check("a sub-account that issues no token is said as such, no reading taken", (out["ok"], out["kind"], "not installed" in out["error"]), (False, "not_connected", True))
