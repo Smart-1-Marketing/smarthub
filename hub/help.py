@@ -45,12 +45,41 @@ def _h(*a, **kw) -> Help:
 
 
 REGISTRY: list[Help] = [
-    _h("ads_builder.campaigns.lsa_workflow", "Build and review Local Services Ads",
+    _h("lsa_ads.workspace.workflow", "Build and review Local Services Ads",
        "Open LSA Ads under Product Success. Choose the business account and save or resume a setup with its services, coverage, answering hours and planning budget. Saving a setup does not create a campaign. Finish campaign creation, billing and verification in Google. Optimize can apply confirmed pause, enable and budget changes to supported traditional Local Services campaigns. Performance Max settings, coverage and bidding use the Google management link. Monitor and Report show 7, 30 or 90 complete account-local days; optional five-minute refresh runs only while the page is visible.",
        link="/tools/lsa/", link_text="Open LSA Ads"),
-    _h("ads_builder.campaigns.lsa_client_intake", "Collect and review the client's LSA details",
+    _h("lsa_ads.workspace.client_intake", "Collect and review the client's LSA details",
        "In Build & saved setups, choose Save setup & create client link, then Copy link. Share it with the client to collect business details, services, service areas, answering hours and proposed budget without a Hub login. Creating a link does not send it. Open the saved setup and Check client response, then review before choosing Use these answers in setup. This imports the setup fields; it does not launch ads. Links expire after 30 days. Disable client link revokes access while retaining the response; a replacement invalidates the old link.",
        link="/tools/lsa/", link_text="Open LSA Ads"),
+    _h("lsa_ads.workspace.period", "What the reporting period counts",
+       "7, 30 or 90 *complete* days in the account's own time zone, with the end date excluded — so a period never includes a part-finished day that would read as a fall in leads. Spend and credits can post after the lead they belong to, so spend per charged lead moves for a while after the day closes and is not invoice reconciliation. A source Google could not answer for is named above the figures rather than counted as nought.",
+       link="/tools/lsa/", link_text="Open LSA Ads"),
+    _h("lsa_ads.workspace.apply_change", "Pausing, enabling and budget changes reach Google",
+       "These apply to the live account, so each one asks you to type PAUSE, ENABLE or UPDATE before it is sent — enabling a campaign can start advertising spend. Only traditional Local Services campaigns are changed here: a Local Services Performance Max campaign, its service coverage, bidding and answering hours are managed in Google, and the link at the foot of the panel is where.",
+       link="/tools/lsa/", link_text="Open LSA Ads"),
+
+    # Client Link Masking. A hub route, so its keys are `short_links.*` for the
+    # same reason the Website Audit's are `hub.website_audit.*`.
+    _h("short_links.masking.slug", "The slug is built from what you type",
+       "`client/month/year/project`, one segment at a time. The client segment goes through the same slugifier every other client join in this Hub keys on, so a masked link for Riverside HVAC agrees with that client's record, their gallery and their reports. Project gets a smaller one of its own: it is a title rather than a business name, and the client slugifier drops legal suffixes and filler words, which mangles an ordinary project title."),
+    _h("short_links.masking.domain", "Four domains, and one of them is the client-facing one",
+       "`s1report.co` is what a client should see and is the default. `s1dev.co`, `s1leads.co` and `s1snap.co` are the others this Short.io account holds. A domain outside those four is refused here rather than sent to Short.io, because a masked link on a domain nobody recognizes is one nobody remembers to point DNS at."),
+    _h("short_links.masking.cloaking", "Masking is asked for, not guaranteed",
+       "Short.io keeps the address bar on our domain by serving the destination in a frame, which only renders where the destination allows itself to be framed. Every page this Hub serves does, so a proposal, preview or review link masks correctly. A page on somebody else's site may refuse, and that is yours to judge before you send it — nothing here can tell from this screen."),
+    _h("short_links.masking.collision", "A slug already in use is never repointed",
+       "Two previews for one client inside one month is ordinary rather than a mistake, so a slug that already points somewhere else gets a numbered suffix instead. Quietly changing what a link means, when it is already sitting in somebody's inbox, is worse than making a second one."),
+    _h("short_links.masking.opens", "Where an open is counted, and why refreshing is a button",
+       "Short.io is the only place a click is actually counted; what is stored here is which link was made for which destination, so this page can list them without spending an API call on every load. *Refresh opens* is what reaches Short.io for the counts — a page nobody asked to refresh must not be what pays for the request."),
+
+    # Sites (Smart 1 Sites / Simvoly reseller admin). Mounted at /sites.
+    _h("sites_admin.accounts.registry", "A local registry, refreshed from the platform",
+       "The platform's own project list is customer-scoped, so it cannot hand over every project this reseller account holds. The registry here is seeded through *Import / Discover Projects* and then refreshed with official API calls — which is why a project somebody created in the builder this morning is not here until one of those has run."),
+    _h("sites_admin.accounts.margin", "What the three money tiles are measured over",
+       "Active projects only. *Active client MRR* is what the client pays — the per-account price where one is entered, otherwise the plan's list price. *Platform cost* is what the account costs us — the per-account cost where one is entered, otherwise the plan's wholesale monthly. Gross margin is the difference. A trial or expired project is in neither, so cancelling one moves the count and not the money."),
+    _h("sites_admin.accounts.alerts", "What puts a project in Needs Attention",
+       "One of four things: a trial nobody has reviewed, an expired site, a project that is active with no recurring subscription behind it, or one billing within seven days. A project raises the first of those that applies rather than one row per finding, so a row leaving this list means that reason was settled — not that nothing else is true of it."),
+    _h("sites_admin.accounts.mode", "Demo and Live are not a label",
+       "The pill says whether this module is reaching Simvoly. On *Live* a cancellation reaches the platform and takes a client's website down; on *Demo data* every figure on this page is from the local registry and nothing leaves. It is drawn as a state rather than as branding because it decides what a button does, which is not something to find out by pressing one."),
     _h("youtube_ads.workspace.overview", "Build and review YouTube advertising",
        "Choose the advertiser's Google Ads account, save a video campaign draft, review its settings and validate it with Google. Creation leaves the campaign and ad paused. Review conversion tracking, audience targeting and policy approval in Google Ads before enabling. YouTube Data API access alone does not authorize paid advertising."),
     _h("youtube_ads.workspace.results", "Read paid results in context",
