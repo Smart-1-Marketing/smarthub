@@ -34,9 +34,40 @@ from werkzeug.utils import secure_filename
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024
 
-DATA_ROOT = Path(os.environ.get("CHECK_RECONCILIATION_DATA_DIR", "/var/data/check-reconciliation"))
-DATA_FILE = DATA_ROOT / "state.json"
-UPLOAD_DIR = DATA_ROOT / "uploads"
+def _data_root() -> Path:
+    """Where this module's state and uploads live.
+
+    Resolved on each call rather than at import. Two things were wrong with
+    the constant this replaces. It named `/var/data` outright, which is the
+    hard-coded path `hub/jsonstore.data_dir()` exists to stop being copied --
+    on a deployment with HUB_DATA_DIR set it was writing somewhere nothing
+    else reads, and in a test it tried to create a directory under a root the
+    process does not own. And it was captured at import, so a variable set
+    after this module loaded read as applied and was not.
+
+    CHECK_RECONCILIATION_DATA_DIR still wins, because naming this one
+    directory is more specific than naming a root. It names a *place* and
+    selects no backend -- the rule `hub/audit.py` arrived at and the three
+    stores after it repeated.
+    """
+    override = (os.environ.get("CHECK_RECONCILIATION_DATA_DIR") or "").strip()
+    if override:
+        return Path(override)
+    try:
+        from hub import jsonstore
+        return Path(jsonstore.data_dir("check-reconciliation"))
+    except Exception:  # noqa: BLE001 — the tool must still resolve a path
+        return Path(__file__).resolve().parent.parent.parent / "data" / "check-reconciliation"
+
+
+def _data_file() -> Path:
+    return _data_root() / "state.json"
+
+
+def _upload_dir() -> Path:
+    return _data_root() / "uploads"
+
+
 _LOCK = threading.RLock()
 
 QBO_AUTH_URL = "https://appcenter.intuit.com/connect/oauth2"
@@ -59,42 +90,67 @@ def _now() -> str:
 
 
 def _ensure_dirs() -> None:
-    DATA_ROOT.mkdir(parents=True, exist_ok=True)
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    _data_root().mkdir(parents=True, exist_ok=True)
+    _upload_dir().mkdir(parents=True, exist_ok=True)
+
+
+def _shaped(raw) -> dict[str, Any]:
+    """`raw` with every key of DEFAULT_STATE present and the right type.
+
+    Unchanged from what `_read_state()` always did, lifted out so the read and
+    the read-modify-write below share one answer rather than two that drift.
+    """
+    out = json.loads(json.dumps(DEFAULT_STATE))
+    if isinstance(raw, dict):
+        out.update(raw)
+    for k, default in DEFAULT_STATE.items():
+        if not isinstance(out.get(k), type(default)):
+            out[k] = json.loads(json.dumps(default))
+    return out
 
 
 def _read_state() -> dict[str, Any]:
     _ensure_dirs()
-    with _LOCK:
-        if not DATA_FILE.exists():
-            return json.loads(json.dumps(DEFAULT_STATE))
-        try:
-            raw = json.loads(DATA_FILE.read_text("utf-8"))
-        except Exception:
-            raw = {}
-        out = json.loads(json.dumps(DEFAULT_STATE))
-        if isinstance(raw, dict):
-            out.update(raw)
-        for k, default in DEFAULT_STATE.items():
-            if not isinstance(out.get(k), type(default)):
-                out[k] = json.loads(json.dumps(default))
-        return out
-
-
-def _write_state(state: dict[str, Any]) -> None:
-    _ensure_dirs()
-    with _LOCK:
-        tmp = DATA_FILE.with_suffix(".tmp")
-        tmp.write_text(json.dumps(state, indent=2, sort_keys=True), "utf-8")
-        os.replace(tmp, DATA_FILE)
+    from hub import jsonstore
+    return _shaped(jsonstore.read_json(str(_data_file()), default=None))
 
 
 def _mutate(fn):
+    """Read, change and write as one step, across both workers.
+
+    `_LOCK` is a `threading.RLock`: it serialises the threads inside one
+    gunicorn worker and says nothing whatever about the other one, and this
+    deployment runs two. Two reps pressing approve at the same moment on
+    different workers each read the state, each changed their copy and each
+    wrote the lot back -- and the second write silently dropped the first
+    allocation, a QuickBooks payment that was made and is no longer recorded
+    as made.
+
+    `jsonstore.update_json()` holds the thread lock, an flock across the
+    workers and a Postgres advisory lock across instances, and does the read
+    and the write inside all three. The local lock stays as the innermost of
+    them; taking fewer is never the safe direction here.
+
+    `fn` still mutates the state in place and returns whatever the caller
+    wants back, which is the contract every call site below is written to.
+
+    There is no `_write_state()` beside this any more. It had exactly one
+    caller -- this function -- and leaving it would have left a second door
+    onto the file that takes none of those locks, which is how half a module
+    quietly goes on writing the old way.
+    """
+    from hub import jsonstore
+    carried: dict[str, Any] = {}
+
+    def _apply(raw):
+        state = _shaped(raw)
+        carried["result"] = fn(state)
+        return state
+
     with _LOCK:
-        state = _read_state()
-        result = fn(state)
-        _write_state(state)
-        return result
+        _ensure_dirs()
+        jsonstore.update_json(str(_data_file()), _apply, default=None)
+    return carried.get("result")
 
 
 def _account_session() -> dict[str, Any]:
@@ -607,7 +663,7 @@ def api_upload():
     mime = file.mimetype or "application/octet-stream"
     ext = Path(secure_filename(file.filename)).suffix.lower()[:8] or ".bin"
     cid = "chk_" + secrets.token_hex(8)
-    path = UPLOAD_DIR / f"{cid}{ext}"
+    path = _upload_dir() / f"{cid}{ext}"
     _ensure_dirs(); path.write_bytes(raw)
     extracted = _extract_check(raw, mime)
     manual = request.form
@@ -760,7 +816,7 @@ def api_delete_check(check_id: str):
         state["checks"] = [x for x in state["checks"] if x.get("id") != check_id]; return chk
     try:
         chk = _mutate(apply)
-        try: (UPLOAD_DIR / str(chk.get("file") or "")).unlink(missing_ok=True)
+        try: (_upload_dir() / str(chk.get("file") or "")).unlink(missing_ok=True)
         except Exception: pass
         _audit("check_deleted", check_id=check_id); return jsonify({"ok": True})
     except Exception as exc:

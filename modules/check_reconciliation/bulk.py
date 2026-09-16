@@ -87,7 +87,7 @@ def install_bulk(module) -> None:
         mime = file.mimetype or "application/octet-stream"
         ext = Path(secure_filename(file.filename or "check")).suffix.lower()[:8] or ".bin"
         cid = "chk_" + secrets.token_hex(8)
-        path = module.UPLOAD_DIR / f"{cid}{ext}"
+        path = module._upload_dir() / f"{cid}{ext}"
         module._ensure_dirs()
         path.write_bytes(raw)
         extracted = module._extract_check(raw, mime)

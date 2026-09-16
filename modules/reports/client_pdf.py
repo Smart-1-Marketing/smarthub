@@ -276,6 +276,49 @@ def _organic(d: "_Doc", o: dict | None):
     d.space(10)
 
 
+def _email(d: "_Doc", e: dict | None):
+    """The email campaigns section, from the same block the page draws.
+    Absent where nothing was measured, the YouTube rule."""
+    if not e or not e.get("measured"):
+        return
+    L = e.get("labels") or {}
+    t = (e.get("totals") or {}).get("30") or {}
+
+    def n(v):
+        return f"{v:,}" if isinstance(v, (int, float)) and v is not None else "—"
+
+    def pct(v):
+        return f"{v:.1f}%" if isinstance(v, (int, float)) and v is not None else "—"
+
+    d.rule()
+    d.text(L.get("section", "Email campaigns"), size=14, bold=True, color=NAVY)
+    d.text(L.get("period", "Over the last 30 days"), size=9, color=MUTED, gap=8)
+    d.tiles([
+        {"label": L.get("campaigns", "Campaigns sent"), "display": n(t.get("campaigns"))},
+        {"label": L.get("delivered", "Emails delivered"), "display": n(t.get("delivered") or t.get("sent"))},
+        {"label": L.get("opened", "Opened"), "display": pct(t.get("open_rate"))},
+        {"label": L.get("clicked", "Clicked"), "display": pct(t.get("click_rate"))},
+    ])
+    rows = []
+    for c in (e.get("campaigns") or [])[:12]:
+        if c.get("has_stats"):
+            deliv = c.get("delivered") if c.get("delivered") is not None else c.get("sent")
+            rows.append([str(c.get("name") or ""), str(c.get("sent_at") or "")[:10], n(deliv),
+                         n(c.get("opened")) + (f" ({pct(c.get('open_rate'))})" if c.get("open_rate") is not None else ""),
+                         n(c.get("clicked")) + (f" ({pct(c.get('click_rate'))})" if c.get("click_rate") is not None else "")])
+        else:
+            rows.append([str(c.get("name") or ""), str(c.get("sent_at") or "")[:10],
+                         L.get("no_counts", "counts not yet reported"), "", ""])
+    if rows:
+        d.table([(L.get("table_campaign", "Campaign"), W - 70 - 3 * 90, False),
+                 (L.get("table_sent", "Sent"), 70, False),
+                 (L.get("table_delivered", "Delivered"), 90, True),
+                 (L.get("table_opened", "Opened"), 90, True),
+                 (L.get("table_clicked", "Clicked"), 90, True)], rows)
+    d.text(f"Read {e.get('as_of', '')}", size=8.5, color=MUTED)
+    d.space(10)
+
+
 def _youtube(d: "_Doc", y: dict | None):
     """The channel section, from the same block the page draws. Absent
     where nothing was measured: the page carries no card, and the PDF is
@@ -350,6 +393,7 @@ def build(agg: dict) -> bytes:
 
     _organic(d, agg.get("organic"))
     _youtube(d, agg.get("youtube"))
+    _email(d, agg.get("email"))
 
     table = agg.get("table") or []
     d.text("Product detail", size=12, bold=True, color=NAVY, gap=8)
