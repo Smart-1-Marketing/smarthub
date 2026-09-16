@@ -225,6 +225,14 @@ python3 test_wordpress_publish.py  # the other publishing path: a credential
                                    #   category matched exactly or created, and
                                    #   two pages wanting two alts on one image
                                    #   named rather than last-one-wins
+python3 test_wordpress_schema.py   # the other half of that: one meta key
+                                   #   spelled the same in Python and in PHP,
+                                   #   a write read back because a 200 is not
+                                   #   evidence it landed, a URL resolved by
+                                   #   WordPress rather than guessed from a
+                                   #   slug, nothing unapproved reaching a
+                                   #   client's live site, and the plugin's
+                                   #   own functions run rather than grepped
 python3 test_webargs.py            # a caller's number: never a 500, never a
                                    #   negative slice, and the three call
                                    #   sites the shared helper never reached

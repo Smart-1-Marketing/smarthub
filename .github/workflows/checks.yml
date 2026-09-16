@@ -1634,6 +1634,23 @@ jobs:
             echo "test_wordpress_publish.py not on this branch — nothing to run."
           fi
 
+      - name: Page schema, and the plugin that makes it writable
+        if: matrix.group == 4
+        # The other half of the WordPress story: the meta key and the REST
+        # namespace are written once in Python and once in PHP, and a key
+        # spelled one way here and another there is a write that answers 200
+        # and stores nothing — so the two halves are held against each other,
+        # and every write is read back. It also runs the plugin's own functions
+        # through test_wordpress_plugin.php where php is installed, and says so
+        # out loud where it is not. Guarded like the steps around it so this
+        # workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_wordpress_schema.py ]; then
+            python test_wordpress_schema.py
+          else
+            echo "test_wordpress_schema.py not on this branch — nothing to run."
+          fi
+
       - name: The hub's own tours and walkthrough buttons
         if: matrix.group == 4
         # That every registered hub tour can actually be offered, and that a
