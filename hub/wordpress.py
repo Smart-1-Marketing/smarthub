@@ -1,0 +1,810 @@
+"""Writing blog posts and image alt text straight into a client's WordPress.
+
+`hub/cms_publish.py` covers the CMSes with no write API by handing a browser
+agent a prompt. WordPress is not one of them: core has had `/wp-json/wp/v2/`
+since 4.7 and **Application Passwords** since 5.6, so nothing has to be
+installed on the client's site for this to work. `hub/cms_credentials.py`
+holds what the calls are made with; this makes them.
+
+What it deliberately does **not** cover is schema and FAQ accordions. Yoast and
+Rank Math both keep their fields in postmeta that is not `show_in_rest`, and
+JSON-LD inside post content is stripped by `wp_kses` for any user without
+`unfiltered_html`. Those two stay on the Claude-in-Chrome path until either a
+must-use plugin of ours is acceptable on client sites or the user we
+authenticate as is an administrator -- and the decision is named here rather
+than discovered by a rep at the moment they press the button.
+
+## The rules, each of which is a way this goes quietly wrong
+
+**Everything lands as a draft.** `status: "draft"`, always. It is the same rule
+the Chrome prompt has carried since it was written -- *leave it unpublished and
+tell me when it is ready* -- and the argument is stronger over an API, because
+there is no human watching each step. Nothing here publishes and nothing here
+schedules.
+
+**A flagged post is refused by name.** `blog_spec.scan_forbidden()` reads the
+finished copy against the client's own never-mention list, and `p["flags"]` is
+its evidence. Publishing that copy unattended, to the client's live site, is
+precisely what the flag exists to stop -- so the post is refused with the terms
+quoted, rather than written as a draft somebody might not read. The refusal for
+a mock render in `approve_render` is the same shape.
+
+**A pending image is not a featured image.** `hub/blog_images.py` draws the
+line: generated art is `pending` until somebody has looked at it, and approving
+is what files it. Sending a pending one would put an unreviewed generated
+storefront on the client's website.
+
+**A second press updates the post it made, it does not make a second one.**
+The WordPress post id is recorded back onto the post. Two identical drafts on a
+client's blog with no way to tell which is current is what `upsert_from_ghl`
+learned from GoHighLevel first.
+
+**A term matches exactly or is created; it is never the nearest hit.**
+`GET /wp/v2/categories?search=` is a search, so it answers "Roof Repair" to a
+query for "Roofing" -- filing a post under a category nobody chose. Matching is
+on the normalised name and nothing else, and what is genuinely missing is
+created with the exact name, bounded by `blog_spec.MAX_NEW_CATEGORIES_PER_POST`
+so a taxonomy cannot grow by surprise.
+
+**An author who is not on the site is reported, never substituted.** The Chrome
+prompt says this in words and the API has to keep it: publishing under the
+wrong byline is worse than publishing under ours and saying so.
+
+**Alt text is a property of the media item, not of the page.** One attachment
+used on three pages has one alt, so two pages asking for two different strings
+is a conflict this cannot resolve -- named and refused rather than last-one-
+wins. An image that is not in the media library at all (a theme asset, a page
+builder background, a hotlink) is named too: that is most of what a scan of a
+built page finds, and reporting it as failed would bury the ones that are real.
+
+**Every item reports its own outcome.** One number back hides the two that
+failed -- `client_urls.accept_many()`'s rule. And the work is bounded on both
+axes, count and wall clock, because these are HTTP calls to somebody else's
+server made from a request thread; what was not reached is counted and said,
+since a run that stops part-way and says nothing reads exactly like one that
+finished.
+
+**Nothing here logs a credential.** Not in an error, not in a note, not in the
+activity row. `_call()` builds the Authorization header and it goes no further.
+"""
+from __future__ import annotations
+
+import base64
+
+import os
+import re
+import time
+import urllib.parse
+
+import requests
+
+from . import audit, blog_spec, cms_credentials
+
+TIMEOUT = 25
+# Bounded on both axes. A post is up to three calls (terms, media, the post
+# itself) against a host we do not control, from a request thread.
+MAX_POSTS_PER_RUN = 10
+MAX_IMAGES_PER_RUN = 40
+BUDGET_SECONDS = 90
+
+UA = {"User-Agent": "Smart1Hub/1.0 (+https://smart1.agency)"}
+
+# Read-only namespaces that tell us which SEO plugin is on the site. Neither
+# lets us write its schema or its meta description -- what knowing buys is a
+# true sentence about where the meta description ended up instead.
+SEO_NAMESPACES = {
+    "yoast/v1": "Yoast SEO",
+    "rankmath/v1": "Rank Math",
+}
+
+
+def _now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+class Refused(Exception):
+    """A refusal with a sentence a person can act on.
+
+    Carries no credential and no raw provider body: `modules/fan_radio.fail()`
+    and the two file optimizers' rule, one provider further out.
+    """
+
+
+# ---------------------------------------------------------------- discovery
+def _origin(url: str) -> str:
+    raw = str(url or "").strip()
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = "https://" + raw
+    p = urllib.parse.urlsplit(raw)
+    if not p.netloc:
+        return ""
+    return f"{p.scheme}://{p.netloc}"
+
+
+_REST_LINK = re.compile(
+    r'<link[^>]+rel=["\']https://api\.w\.org/["\'][^>]*href=["\']([^"\']+)["\']',
+    re.I)
+
+
+def discover(site_url: str) -> dict:
+    """Find the REST root rather than composing one.
+
+    `<origin>/wp-json/` is right on most sites and wrong on a site with plain
+    permalinks, which answers at `/?rest_route=/`. WordPress advertises the
+    real address in a `Link` header and in a `<link>` in the head, so both are
+    read before anything is assumed -- the one-hop-at-a-time reading
+    `hub/llms_hosting.verify()` settled on for the same reason.
+    """
+    origin = _origin(site_url)
+    if not origin:
+        return {"error": "No website URL is saved for this client, so there is "
+                         "nothing to connect to. Add the site under Client Setup."}
+    if origin.startswith("http://"):
+        return {"error": "This site is on plain http. WordPress refuses "
+                         "application passwords over an unencrypted connection, "
+                         "so the site needs HTTPS before it can be connected."}
+    candidates: list[tuple[str, str]] = []
+    try:
+        r = requests.get(origin + "/", headers=UA, timeout=TIMEOUT,
+                         allow_redirects=True)
+        link = (r.links.get("https://api.w.org/") or {}).get("url")
+        if link:
+            candidates.append((link, "advertised in the site's own Link header"))
+        else:
+            m = _REST_LINK.search(r.text[:200000] or "")
+            if m:
+                candidates.append((m.group(1), "advertised in the page head"))
+    except requests.RequestException:
+        pass
+    candidates.append((origin + "/wp-json/", "the default address"))
+    candidates.append((origin + "/?rest_route=/", "the plain-permalinks address"))
+
+    tried = []
+    for url, how in candidates:
+        root = url if url.endswith("/") else url + "/"
+        try:
+            r = requests.get(root, headers=UA, timeout=TIMEOUT)
+        except requests.RequestException as exc:            # noqa: BLE001
+            tried.append(f"{root} ({type(exc).__name__})")
+            continue
+        if r.status_code != 200:
+            tried.append(f"{root} ({r.status_code})")
+            continue
+        try:
+            data = r.json()
+        except ValueError:
+            tried.append(f"{root} (not JSON)")
+            continue
+        namespaces = list(data.get("namespaces") or [])
+        if "wp/v2" not in namespaces:
+            tried.append(f"{root} (no wp/v2 namespace)")
+            continue
+        return {"rest_root": root, "how": how,
+                "name": str(data.get("name") or ""),
+                "namespaces": namespaces,
+                "seo_plugin": next((SEO_NAMESPACES[n] for n in namespaces
+                                    if n in SEO_NAMESPACES), ""),
+                "note": f"REST API found at {root} — {how}."}
+    return {"error": "No WordPress REST API answered at this domain. Tried: "
+                     + "; ".join(tried) + ". Either the site is not WordPress, "
+                     "or the REST API has been disabled by a plugin or a "
+                     "security rule."}
+
+
+# --------------------------------------------------------------------- http
+def _auth_header(username: str, app_password: str) -> str:
+    raw = f"{username}:{app_password}".encode("utf-8")
+    return "Basic " + base64.b64encode(raw).decode("ascii")
+
+
+def _endpoint(root: str, path: str) -> str:
+    """`/?rest_route=/` and `/wp-json/` join a path differently."""
+    root = str(root or "")
+    path = str(path or "").lstrip("/")
+    if "rest_route=" in root:
+        sep = "" if root.endswith("/") else "/"
+        return root + sep + path
+    return (root if root.endswith("/") else root + "/") + path
+
+
+def _explain(status: int, body: dict, sent_auth: bool) -> str:
+    """Turn a WordPress refusal into a sentence that names the next step.
+
+    The distinction that matters is at 401. `incorrect_password` is a bad or
+    revoked application password. `rest_not_logged_in` **while we sent an
+    Authorization header** is the host having stripped it -- ordinary on
+    CGI/FastCGI setups, fixed with one `.htaccess` line, and indistinguishable
+    from a wrong password to anybody reading a bare 401.
+    """
+    code = str((body or {}).get("code") or "")
+    msg = str((body or {}).get("message") or "").strip()
+    if status == 401:
+        if code == "rest_not_logged_in" and sent_auth:
+            return ("WordPress did not see the credentials we sent. This is "
+                    "almost always the host stripping the Authorization header "
+                    "(common on CGI/FastCGI). Adding "
+                    "`SetEnvIf Authorization \"(.*)\" HTTP_AUTHORIZATION=$1` to "
+                    "the site's .htaccess fixes it.")
+        return ("WordPress refused the application password. It has been "
+                "revoked, mistyped, or belongs to a different user — generate "
+                "a new one under Users → Profile → Application Passwords.")
+    if status == 403:
+        return ("This WordPress user is not allowed to do that"
+                + (f" ({msg})" if msg else "")
+                + ". The application password inherits the user's role, so it "
+                  "needs an Author or Editor account for posts and an Editor "
+                  "for media.")
+    if status == 404:
+        return ("WordPress answered 404 for that endpoint. The REST API may be "
+                "disabled, or the address saved for this site is wrong — run "
+                "the connection check again.")
+    if status == 413:
+        return "The site refused the upload as too large."
+    return (f"WordPress answered {status}" + (f": {msg}" if msg else "") + ".")
+
+
+def _call(cred: dict, method: str, path: str, *, json_body=None,
+          params=None, data: bytes | None = None,
+          content_type: str = "", filename: str = "") -> dict:
+    """One authenticated call. Answers, never raises through to a route."""
+    root = cred.get("rest_root") or ""
+    if not root:
+        raise Refused("No REST root is saved for this client. Run the "
+                      "connection check.")
+    headers = dict(UA)
+    headers["Authorization"] = _auth_header(cred.get("username") or "",
+                                            cred.get("app_password") or "")
+    if content_type:
+        headers["Content-Type"] = content_type
+    if filename:
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    url = _endpoint(root, path)
+    try:
+        r = requests.request(method, url, headers=headers, params=params,
+                             json=json_body, data=data, timeout=TIMEOUT)
+    except requests.RequestException as exc:                # noqa: BLE001
+        raise Refused("Could not reach this WordPress site "
+                      f"({type(exc).__name__}). It may be down, or blocking "
+                      "requests from outside.") from exc
+    try:
+        body = r.json()
+    except ValueError:
+        body = {}
+    if r.status_code >= 400:
+        raise Refused(_explain(r.status_code, body if isinstance(body, dict) else {},
+                               sent_auth=True))
+    return {"body": body, "headers": r.headers, "status": r.status_code}
+
+
+def _credential(client: str) -> dict:
+    cred = cms_credentials.get(client, cms_credentials.WORDPRESS)
+    if cred.get("error"):
+        raise Refused(cred["error"])
+    return cred
+
+
+# -------------------------------------------------------------------- probe
+def probe(client: str) -> dict:
+    """One round trip that answers what this credential may actually do.
+
+    Asked at connect and re-asked on a button, never on a page load. Four
+    things come out of it and each decides something: who we are (the default
+    author), what the role may do, whether `unfiltered_html` is there (which is
+    what would make schema-in-content possible later), and which SEO plugin is
+    installed (which is where a meta description can go).
+    """
+    try:
+        cred = _credential(client)
+        me = _call(cred, "GET", "wp/v2/users/me",
+                   params={"context": "edit"})["body"]
+    except Refused as exc:
+        return {"ok": False, "error": str(exc)}
+    caps = me.get("capabilities") or {}
+    roles = [str(r) for r in (me.get("roles") or [])]
+    can_post = bool(caps.get("publish_posts") or caps.get("edit_posts"))
+    can_media = bool(caps.get("upload_files"))
+    namespaces: list[str] = []
+    try:
+        root = requests.get(cred["rest_root"], headers=UA, timeout=TIMEOUT)
+        namespaces = list((root.json() or {}).get("namespaces") or [])
+    except Exception:                                       # noqa: BLE001
+        namespaces = []
+    plugin = next((SEO_NAMESPACES[n] for n in namespaces if n in SEO_NAMESPACES), "")
+    out = {
+        "ok": True,
+        "user_id": me.get("id"),
+        "user_name": str(me.get("name") or ""),
+        "roles": roles,
+        "can_write_posts": can_post,
+        "can_upload_media": can_media,
+        "unfiltered_html": bool(caps.get("unfiltered_html")),
+        "seo_plugin": plugin,
+        "warnings": [],
+    }
+    if not can_post:
+        out["warnings"].append(
+            "This user cannot create posts. The application password inherits "
+            "the user's role — it needs Author or above.")
+    if not can_media:
+        out["warnings"].append(
+            "This user cannot upload files, so featured images will be skipped "
+            "and the post still written.")
+    if not plugin:
+        out["warnings"].append(
+            "No Yoast or Rank Math REST namespace was found, so meta "
+            "descriptions are written into the post's Excerpt field instead.")
+    else:
+        out["warnings"].append(
+            f"{plugin} is installed, but it does not expose its meta "
+            "description over the API, so the description is written into the "
+            "Excerpt field and should be copied across by hand.")
+    if not out["unfiltered_html"]:
+        out["warnings"].append(
+            "This user does not have unfiltered_html, so JSON-LD pasted into "
+            "post content would be stripped. Schema and FAQ blocks stay on the "
+            "Claude-in-Chrome path for this site.")
+    return out
+
+
+def connect(client: str, *, site_url: str, username: str, app_password: str,
+            actor: str = "") -> dict:
+    """Discover, save, probe — in that order, because each needs the last.
+
+    The probe runs against the credential as stored, so what the panel reports
+    is what a publish will actually be made with rather than what was typed
+    into the form a moment earlier.
+    """
+    found = discover(site_url)
+    if found.get("error"):
+        return {"error": found["error"]}
+    saved = cms_credentials.save(
+        client, cms_credentials.WORDPRESS, rest_root=found["rest_root"],
+        username=username, app_password=app_password, actor=actor)
+    if saved.get("error"):
+        return saved
+    result = probe(client)
+    if not result.get("ok"):
+        # Kept rather than discarded: a probe that could not run is a fact
+        # about the site or the header, and throwing the credential away would
+        # make the .htaccess case unfixable without retyping the password.
+        cms_credentials.record_probe(client, cms_credentials.WORDPRESS,
+                                     {"ok": False, "error": result.get("error", "")})
+        return {"ok": False, "error": result.get("error", ""),
+                "discovered": found,
+                "state": cms_credentials.state(client)}
+    cms_credentials.record_probe(client, cms_credentials.WORDPRESS, result)
+    audit.log("seo", "wordpress_connected", actor=actor or None, client=client,
+              detail=found["rest_root"])
+    return {"ok": True, "discovered": found, "probe": result,
+            "state": cms_credentials.state(client)}
+
+
+# ------------------------------------------------------------------- terms
+def _term_ids(cred: dict, taxonomy: str, names: list[str], *,
+              may_create: int) -> tuple[list[int], list[str]]:
+    """Resolve names to term ids, creating at most `may_create` of them.
+
+    `search` is a search: asked for "Roofing" it will happily answer "Roof
+    Repair", so the match is on the normalised name and nothing else. What was
+    not matched and could not be created is returned rather than dropped.
+    """
+    ids: list[int] = []
+    notes: list[str] = []
+    created = 0
+    norm = (blog_spec.normalise_category if taxonomy == "categories"
+            else blog_spec.normalise_tag)
+    for raw in names:
+        want = norm(raw)
+        if not want:
+            continue
+        found = _call(cred, "GET", f"wp/v2/{taxonomy}",
+                      params={"search": want, "per_page": 100})["body"]
+        hit = next((t for t in (found or [])
+                    if norm(str(t.get("name") or "")).lower() == want.lower()), None)
+        if hit:
+            ids.append(int(hit["id"]))
+            continue
+        if created >= may_create:
+            notes.append(f"'{want}' is not on the site and was not created — "
+                         f"only {may_create} new {taxonomy[:-3]}y/ies may be "
+                         "added per post. Add it in WordPress and re-publish.")
+            continue
+        try:
+            made = _call(cred, "POST", f"wp/v2/{taxonomy}",
+                         json_body={"name": want})["body"]
+            ids.append(int(made["id"]))
+            created += 1
+            notes.append(f"Created the {taxonomy[:-3]}y '{want}' on the site.")
+        except Refused as exc:
+            notes.append(f"'{want}' is not on the site and could not be "
+                         f"created: {exc}")
+    return ids, notes
+
+
+def _author_id(cred: dict, name: str, probe_row: dict) -> tuple[int | None, str]:
+    """The site's user with exactly this name, or ours with a note.
+
+    Never a near match. Publishing under the wrong byline is worse than
+    publishing under the account we authenticated as and saying so.
+    """
+    want = str(name or "").strip()
+    if not want:
+        return None, ""
+    try:
+        users = _call(cred, "GET", "wp/v2/users",
+                      params={"search": want, "per_page": 100})["body"]
+    except Refused as exc:
+        return None, f"Could not look up the author '{want}': {exc}"
+    hits = [u for u in (users or [])
+            if str(u.get("name") or "").strip().lower() == want.lower()]
+    if len(hits) == 1:
+        return int(hits[0]["id"]), ""
+    if len(hits) > 1:
+        return None, (f"{len(hits)} users on this site are called '{want}', so "
+                      "the byline was left as "
+                      f"{probe_row.get('user_name') or 'the connected user'}.")
+    return None, (f"No user called '{want}' exists on this site, so the post "
+                  f"is under {probe_row.get('user_name') or 'the connected user'}. "
+                  "Create the user in WordPress and re-publish to change it.")
+
+
+# ------------------------------------------------------------------- media
+def _fetch_bytes(url: str) -> tuple[bytes, str]:
+    r = requests.get(url, headers=UA, timeout=TIMEOUT)
+    r.raise_for_status()
+    return r.content, (r.headers.get("Content-Type") or "").split(";")[0].strip()
+
+
+def _upload_featured(cred: dict, post: dict) -> tuple[int | None, str]:
+    """Put the approved featured image in the media library.
+
+    Only an **approved** one. `hub/blog_images.py` holds generated art at
+    `pending` until somebody has looked at it, and approving is the press that
+    files it — sending a pending image would put an unreviewed generated
+    storefront on the client's live website.
+    """
+    img = post.get("image") or {}
+    url = str(img.get("url") or "")
+    if not url:
+        return None, ""
+    if str(img.get("status") or "") != "approved":
+        return None, ("The featured image is still waiting for approval, so it "
+                      "was not uploaded. Approve it and re-publish.")
+    try:
+        raw, ctype = _fetch_bytes(url)
+    except Exception as exc:                                # noqa: BLE001
+        return None, f"The featured image could not be fetched ({type(exc).__name__})."
+    name = os.path.basename(urllib.parse.urlsplit(url).path) or "featured.jpg"
+    if "." not in name:
+        name += {"image/png": ".png", "image/webp": ".webp"}.get(ctype, ".jpg")
+    try:
+        made = _call(cred, "POST", "wp/v2/media", data=raw,
+                     content_type=ctype or "application/octet-stream",
+                     filename=name)["body"]
+    except Refused as exc:
+        return None, f"The featured image could not be uploaded: {exc}"
+    media_id = int(made.get("id") or 0) or None
+    if media_id and post.get("title"):
+        # The alt on a featured image is what a screen reader announces for the
+        # post's own hero, and WordPress leaves it empty unless it is set.
+        try:
+            _call(cred, "POST", f"wp/v2/media/{media_id}",
+                  json_body={"alt_text": str(post.get("title") or "")[:125]})
+        except Refused:
+            pass
+    return media_id, ""
+
+
+# -------------------------------------------------------------------- posts
+def _post_payload(post: dict, *, category_ids, tag_ids, author_id,
+                  media_id) -> dict:
+    body = {
+        "title": str(post.get("title") or ""),
+        "content": str(post.get("content") or ""),
+        "slug": str(post.get("slug") or blog_spec.slugify_title(post.get("title", ""))),
+        # Always. Nothing here publishes and nothing here schedules -- the
+        # rule the Chrome prompt has carried since it was written.
+        "status": "draft",
+    }
+    if post.get("meta_description"):
+        body["excerpt"] = str(post["meta_description"])
+    if category_ids:
+        body["categories"] = category_ids
+    if tag_ids:
+        body["tags"] = tag_ids
+    if author_id:
+        body["author"] = author_id
+    if media_id:
+        body["featured_media"] = media_id
+    return body
+
+
+def _post_blockers(post: dict) -> str:
+    if str(post.get("status") or "") != "written" or not str(post.get("content") or "").strip():
+        return ("This post has not been written yet, so there is nothing to "
+                "publish. Write it first.")
+    flags = post.get("flags") or []
+    if flags:
+        terms = ", ".join(sorted({str(f.get("term") or "") for f in flags if f.get("term")}))
+        return ("This post trips the client's never-mention list"
+                + (f" ({terms})" if terms else "")
+                + ", so it was not sent. Rewrite it, or clear the flag, and "
+                  "publish again.")
+    return ""
+
+
+def publish_posts(client: str, ids: list, *, actor: str = "") -> dict:
+    """Write the chosen posts into WordPress as drafts.
+
+    Every post reports its own outcome. Bounded on count and wall clock, and
+    what was not reached is said rather than left to look like a clean run.
+    """
+    from . import seo
+    try:
+        cred = _credential(client)
+    except Refused as exc:
+        return {"error": str(exc)}
+    state = cms_credentials.state(client)
+    probe_row = state.get("probe") or {}
+    if probe_row.get("ok") is False:
+        return {"error": "The last connection check on this site failed: "
+                         + str(probe_row.get("error") or "")}
+    if probe_row and not probe_row.get("can_write_posts", True):
+        return {"error": "The connected WordPress user cannot create posts. "
+                         "Connect an Author or Editor account."}
+
+    store = seo.load_store(client)
+    settings = seo.blog_settings(client, store)
+    posts = {p.get("id"): p for p in (store.get("blogs") or {}).get("posts") or []}
+    wanted = [i for i in ids if i in posts]
+    todo, deferred = wanted[:MAX_POSTS_PER_RUN], wanted[MAX_POSTS_PER_RUN:]
+
+    author_name = (settings.get("author") or {}).get("name") or ""
+    author_id, author_note = (None, "")
+    if author_name:
+        try:
+            author_id, author_note = _author_id(cred, author_name, probe_row)
+        except Refused as exc:
+            author_note = str(exc)
+
+    started = time.time()
+    results, published = [], 0
+    for pid in todo:
+        post = posts[pid]
+        row = {"id": pid, "title": str(post.get("title") or ""), "ok": False,
+               "notes": []}
+        if time.time() - started > BUDGET_SECONDS:
+            deferred.append(pid)
+            continue
+        blocker = _post_blockers(post)
+        if blocker:
+            row["error"] = blocker
+            results.append(row)
+            continue
+        try:
+            cats, cat_notes = _term_ids(
+                cred, "categories", post.get("categories") or [],
+                may_create=blog_spec.MAX_NEW_CATEGORIES_PER_POST)
+            tags, tag_notes = _term_ids(
+                cred, "tags", post.get("tags") or [],
+                may_create=blog_spec.MAX_TAGS)
+            row["notes"] += cat_notes + tag_notes
+            media_id, media_note = (None, "")
+            if probe_row.get("can_upload_media", True):
+                media_id, media_note = _upload_featured(cred, post)
+            elif (post.get("image") or {}).get("url"):
+                media_note = ("The connected user cannot upload files, so the "
+                              "featured image was skipped.")
+            if media_note:
+                row["notes"].append(media_note)
+            if author_note:
+                row["notes"].append(author_note)
+            body = _post_payload(post, category_ids=cats, tag_ids=tags,
+                                 author_id=author_id, media_id=media_id)
+            existing = (post.get("wordpress") or {}).get("post_id")
+            path = f"wp/v2/posts/{int(existing)}" if existing else "wp/v2/posts"
+            made = _call(cred, "POST", path, json_body=body)["body"]
+        except Refused as exc:
+            row["error"] = str(exc)
+            results.append(row)
+            continue
+        wp_id = int(made.get("id") or 0)
+        link = str(made.get("link") or "")
+        edit = _edit_link(cred, wp_id)
+        post["wordpress"] = {"post_id": wp_id, "link": link, "edit_url": edit,
+                             "status": str(made.get("status") or "draft"),
+                             "at": _now(), "by": str(actor or ""),
+                             "updated": bool(existing)}
+        row.update({"ok": True, "post_id": wp_id, "link": link,
+                    "edit_url": edit, "updated": bool(existing)})
+        if not post.get("meta_description"):
+            row["notes"].append("No meta description has been written for this "
+                                "post, so the Excerpt is empty.")
+        elif probe_row.get("seo_plugin"):
+            row["notes"].append(
+                f"The meta description went into the Excerpt field — "
+                f"{probe_row['seo_plugin']} does not accept one over the API, "
+                "so copy it across in WordPress.")
+        published += 1
+        results.append(row)
+
+    if published:
+        seo.save_store(client, store)
+        audit.log("seo", "wordpress_posts_published", actor=actor or None,
+                  client=client, detail=f"{published} draft(s)")
+    return {"ok": True, "results": results, "published": published,
+            "left": len(deferred),
+            "note": _left_note(len(deferred), "post"),
+            "reminder": "Every post was written as a DRAFT. Nothing was "
+                        "published and nothing was scheduled."}
+
+
+def _edit_link(cred: dict, post_id: int) -> str:
+    root = cred.get("rest_root") or ""
+    origin = _origin(root)
+    if not origin or not post_id:
+        return ""
+    return f"{origin}/wp-admin/post.php?post={post_id}&action=edit"
+
+
+def _left_note(left: int, noun: str) -> str:
+    if not left:
+        return ""
+    return (f"{left} {noun}{'s' if left != 1 else ''} were not reached in this "
+            "run — press again to carry on. They are untouched, not failed.")
+
+
+# ----------------------------------------------------------------- alt text
+def _norm_src(url: str) -> str:
+    """Compare two image URLs without the parts that do not identify a file."""
+    p = urllib.parse.urlsplit(str(url or "").strip())
+    host = (p.netloc or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host + p.path
+
+
+_SIZE_SUFFIX = re.compile(r"-\d{2,5}x\d{2,5}(?=\.[A-Za-z0-9]+$)")
+
+
+def _stem(url: str) -> str:
+    name = os.path.basename(urllib.parse.urlsplit(str(url or "")).path)
+    name = _SIZE_SUFFIX.sub("", name)
+    name = re.sub(r"-scaled(?=\.[A-Za-z0-9]+$)", "", name)
+    return os.path.splitext(name)[0]
+
+
+def _find_media(cred: dict, src: str) -> tuple[int | None, str]:
+    """The attachment this URL is, or why it is not one.
+
+    WordPress publishes no "attachment by URL" endpoint, so this searches on
+    the filename and then matches the **full source URL** — against the
+    original and against every generated size, because a built page very often
+    carries `photo-1024x768.jpg` where the library holds `photo.jpg`. Never the
+    first search hit: that is the substring guess `hub/client_key.py` refuses.
+    """
+    stem = _stem(src)
+    if not stem:
+        return None, "That image URL has no filename in it."
+    try:
+        found = _call(cred, "GET", "wp/v2/media",
+                      params={"search": stem, "per_page": 100})["body"]
+    except Refused as exc:
+        return None, str(exc)
+    want = _norm_src(src)
+    hits = []
+    for item in (found or []):
+        urls = [str(item.get("source_url") or "")]
+        sizes = ((item.get("media_details") or {}).get("sizes") or {})
+        for size in sizes.values():
+            urls.append(str((size or {}).get("source_url") or ""))
+        if any(_norm_src(u) == want for u in urls if u):
+            hits.append(item)
+    if len(hits) == 1:
+        return int(hits[0]["id"]), ""
+    if len(hits) > 1:
+        return None, (f"{len(hits)} media items on this site claim that exact "
+                      "URL, so nothing was changed.")
+    return None, ("This image is not in the WordPress media library — it is a "
+                  "theme asset, a page-builder background or a hotlink, so its "
+                  "alt text lives in the template rather than in an "
+                  "attachment. Use the Claude → WordPress path for it.")
+
+
+def _alt_plan(pages: list[dict]) -> tuple[list[dict], list[dict]]:
+    """One row per image, and the conflicts named.
+
+    Alt text belongs to the **attachment**, not to the page: one photo used on
+    three pages has one alt. So two pages asking for two different strings is a
+    conflict this cannot resolve, and taking the last one silently would change
+    a page nobody was looking at.
+    """
+    by_src: dict[str, dict] = {}
+    for page in pages:
+        for img in page.get("images") or []:
+            src = str(img.get("src") or "").strip()
+            if not src:
+                continue
+            new_alt = "" if img.get("decorative") else str(img.get("new_alt") or "")
+            if not new_alt and not img.get("decorative"):
+                continue
+            key = _norm_src(src)
+            row = by_src.setdefault(key, {"src": src, "alt": new_alt,
+                                          "pages": [], "conflict": False,
+                                          "others": set()})
+            row["pages"].append(page.get("url", ""))
+            if row["alt"] != new_alt:
+                row["conflict"] = True
+                row["others"].add(new_alt)
+    plan, conflicts = [], []
+    for row in by_src.values():
+        row["pages"] = sorted({p for p in row["pages"] if p})
+        if row["conflict"]:
+            conflicts.append({
+                "src": row["src"], "pages": row["pages"], "ok": False,
+                "error": "Two pages ask for different alt text on this same "
+                         "image, and the alt belongs to the image rather than "
+                         "to the page. Settle on one before publishing it."})
+            continue
+        row.pop("others", None)
+        row.pop("conflict", None)
+        plan.append(row)
+    return plan, conflicts
+
+
+def publish_alt(client: str, urls: list[str] | None = None, *,
+                actor: str = "") -> dict:
+    """Write rewritten alt text onto the media library items it belongs to."""
+    from . import alt_text
+    try:
+        cred = _credential(client)
+    except Refused as exc:
+        return {"error": str(exc)}
+    state = cms_credentials.state(client)
+    probe_row = state.get("probe") or {}
+    if probe_row.get("ok") is False:
+        return {"error": "The last connection check on this site failed: "
+                         + str(probe_row.get("error") or "")}
+
+    pages = alt_text.selected_pages(client, urls or None)
+    plan, results = _alt_plan(pages)
+    todo, deferred = plan[:MAX_IMAGES_PER_RUN], plan[MAX_IMAGES_PER_RUN:]
+
+    started = time.time()
+    changed = 0
+    for row in todo:
+        if time.time() - started > BUDGET_SECONDS:
+            deferred.append(row)
+            continue
+        out = {"src": row["src"], "alt": row["alt"], "pages": row["pages"],
+               "ok": False}
+        media_id, why = _find_media(cred, row["src"])
+        if not media_id:
+            out["error"] = why
+            results.append(out)
+            continue
+        try:
+            _call(cred, "POST", f"wp/v2/media/{media_id}",
+                  json_body={"alt_text": row["alt"]})
+        except Refused as exc:
+            out["error"] = str(exc)
+            results.append(out)
+            continue
+        out.update({"ok": True, "media_id": media_id})
+        if len(row["pages"]) > 1:
+            out["note"] = ("This image is used on "
+                           f"{len(row['pages'])} pages, and the alt applies to "
+                           "all of them.")
+        changed += 1
+        results.append(out)
+
+    if changed:
+        audit.log("seo", "wordpress_alt_published", actor=actor or None,
+                  client=client, detail=f"{changed} image(s)")
+    return {"ok": True, "results": results, "changed": changed,
+            "left": len(deferred),
+            "note": _left_note(len(deferred), "image"),
+            "reminder": "Alt text is a property of the media library item, so "
+                        "the change applies everywhere that image is used."}
