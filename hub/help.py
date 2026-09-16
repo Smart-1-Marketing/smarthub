@@ -502,7 +502,11 @@ REGISTRY: list[Help] = [
        "no campaigns are four different sentences here, because a nought "
        "printed over a refusal would say the client never emailed anyone. "
        "It needs the two email read scopes on the Hub app, granted by the "
-       "agency owner re-consenting once."),
+       "agency owner re-consenting once. Show raw statistics prints what "
+       "the sub-account actually sent beside what the Hub read from it: "
+       "the Suite does not publish the field names of its counts, so that "
+       "is how a count showing as a dash gets traced to the key it "
+       "arrived under."),
     _h("hub.client360.adperf", "What their advertising is doing",
        "What the Reports module holds for this client: the campaigns filed "
        "under them, this month's spend by platform beside what they are "

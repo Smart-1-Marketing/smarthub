@@ -575,6 +575,84 @@ def public_view(r: dict | None, *, limit: int = 12) -> dict | None:
             "totals": r.get("totals") or {}}
 
 
+# ---------------------------------------------------------------------------
+# Confirming the key mapping from the first live read
+# ---------------------------------------------------------------------------
+#
+# HighLevel's published spec (apps/emails.json) documents
+# `GET /emails/schedule?showStats=true` but not the field names of the
+# statistics it returns, so `_COUNT_KEYS` above is a list of spellings this
+# module guesses at. `_stats_of()` therefore keeps the raw statistics object
+# beside every stored reading, and docs/claude/60 says to fix the mapping
+# from what was stored rather than by re-pulling.
+#
+# Nothing read that object. It is stripped from `reading()` and from
+# `public_view()`, and no screen carried it, so the comparison the doc asks
+# for needed shell access to the Render disk -- which is how a mapping stays
+# unconfirmed and a card prints an em-dash over a count the Suite did send.
+# `raw_view()` is that comparison, and it is staff-only: the route behind it
+# is `_require_api()`, and a client's page is built by `public_view()`, which
+# takes PUBLIC_KEYS and cannot reach this.
+
+
+def unmapped_keys(raw: dict) -> list[str]:
+    """Keys the sub-account sent that no `_COUNT_KEYS` spelling claims.
+
+    These are the candidates for a mapping fix: a count the Suite reported
+    under a name this module does not yet know.
+    """
+    if not isinstance(raw, dict):
+        return []
+    claimed = {k for keys in _COUNT_KEYS.values() for k in keys} | set(_REVENUE_KEYS)
+    return sorted(k for k in raw if k not in claimed)
+
+
+def raw_view(name: str, *, today: date | None = None, limit: int = 12) -> dict:
+    """The latest reading's raw statistics beside what this module made of
+    them, so a mapping is fixed from what the Suite actually sent.
+
+    Per campaign: the raw object as stored, the counts that resolved, the
+    ones that came back empty, and the keys the object carried that no
+    spelling claims. `resolved` names the key each count was read from, so a
+    right answer read from the wrong key is visible too.
+    """
+    today = today or date.today()
+    out = {"measured": False, "state": "", "as_of": None, "campaigns": [],
+           "count_keys": {k: list(v) for k, v in _COUNT_KEYS.items()}, "staff_note": ""}
+    r = reading(name, today=today)
+    out["state"] = r.get("state") or ""
+    out["staff_note"] = r.get("staff_note") or r.get("error") or ""
+    if r.get("state") not in ("ok", "empty"):
+        return out
+    rows = _good(readings(name))
+    if not rows:
+        return out
+    latest = rows[0]
+    out["as_of"] = latest.get("day")
+    for c in (latest.get("campaigns") or [])[:limit]:
+        raw = c.get("raw_stats") if isinstance(c.get("raw_stats"), dict) else {}
+        resolved, missing = {}, []
+        for ours, theirs in _COUNT_KEYS.items():
+            if c.get(ours) is None:
+                missing.append(ours)
+                continue
+            for k in theirs:
+                if k in raw:
+                    resolved[ours] = k
+                    break
+            else:
+                # Read off the row itself rather than a stats object.
+                resolved[ours] = ""
+        out["campaigns"].append({
+            "id": c.get("id"), "name": c.get("name"), "sent_at": c.get("sent_at"),
+            "stats_source": c.get("stats_source") or "", "has_stats": bool(c.get("has_stats")),
+            "raw_stats": raw, "resolved": resolved, "missing": missing,
+            "unmapped": unmapped_keys(raw),
+        })
+    out["measured"] = True
+    return out
+
+
 def card_for(name: str, *, today: date | None = None) -> dict | None:
     try:
         return public_view(reading(name, today=today))
