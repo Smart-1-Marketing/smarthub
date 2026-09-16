@@ -1507,6 +1507,28 @@ jobs:
             echo "test_google_inactive_qa_sitecheck.py not on this branch — nothing to run."
           fi
 
+      - name: Google Access inactive-accounts bulk action tests
+        if: matrix.group == 4
+        # Each section of the QA page acts on several rows at once. A bulk
+        # action has to be the per-row action repeated -- same keys, same
+        # audit entry per resource -- with a failure that lands on one row
+        # rather than cancelling the batch, and a delete guarded on the count
+        # somebody typed rather than a name nobody would type twenty times.
+        # Offline; nothing reaches Google or a live website. Guarded like the
+        # steps around it so this workflow stays mergeable on a branch that
+        # predates it.
+        run: |
+          if [ -f test_google_inactive_qa_bulk.py ]; then
+            python test_google_inactive_qa_bulk.py
+          else
+            echo "test_google_inactive_qa_bulk.py not on this branch — nothing to run."
+          fi
+          if [ -f test_google_inactive_qa_bulk_ui.js ]; then
+            node test_google_inactive_qa_bulk_ui.js
+          else
+            echo "test_google_inactive_qa_bulk_ui.js not on this branch — nothing to run."
+          fi
+
       - name: Blog taxonomy, guardrail and CMS publish tests
         if: matrix.group == 4
         # The blog section's approved-topic list, the never-mention check and

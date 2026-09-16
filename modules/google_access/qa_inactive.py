@@ -294,19 +294,37 @@ def _resolve_client_url(account: str) -> tuple[str, dict]:
     return "", result
 
 
-def _audit(action: str, row: dict, result="ok", detail="") -> None:
-    p = _path("google_inactive_qa_audit.json")
-    data = jsonstore.read_json(p, default=[])
-    if not isinstance(data, list):
-        data = []
-    data.append({
+def _audit_entry(action: str, row: dict, result="ok", detail="") -> dict:
+    return {
         "at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "actor": _actor(), "action": action, "result": result,
         "kind": row.get("kind", ""), "google_login": row.get("login", ""),
         "account_id": row.get("account_id", ""), "resource": row.get("resource", ""),
         "name": row.get("name", ""), "detail": str(detail)[:500],
-    })
+    }
+
+
+def _audit_write(entries: list[dict]) -> None:
+    """Append a batch of audit entries in one read-modify-write.
+
+    A bulk action files one entry per resource -- the log has to name every
+    property that was skipped or deleted, not "20 rows" -- but writing the
+    whole file once per row would be twenty reads and twenty writes of the
+    same JSON, and on the mirrored jsonstore that is twenty database round
+    trips as well. One write for the batch instead.
+    """
+    if not entries:
+        return
+    p = _path("google_inactive_qa_audit.json")
+    data = jsonstore.read_json(p, default=[])
+    if not isinstance(data, list):
+        data = []
+    data.extend(entries)
     jsonstore.write_json(p, data[-2000:])
+
+
+def _audit(action: str, row: dict, result="ok", detail="") -> None:
+    _audit_write([_audit_entry(action, row, result, detail)])
 
 
 def _headers(token: str) -> dict:
@@ -1077,6 +1095,54 @@ def api_scan_progress():
     return jsonify(prog)
 
 
+# ---------------------------------------------------------------------------
+# Bulk actions
+# ---------------------------------------------------------------------------
+# Every section of the page works a list, and the list is long: a scan across
+# every connected login routinely turns up dozens of dead GA4 properties and
+# containers at once, and clearing them one dialog at a time is the reason
+# the backlog never got cleared. So each section can act on several rows in
+# one press.
+#
+# Each bulk endpoint takes its own per-request cap rather than one shared
+# number, because what a request costs differs by an order of magnitude:
+# skip and un-skip are local JSON writes, a delete is one Google API call per
+# row, and a site check is a fetch of somebody else's website with a 20s
+# timeout on it. gunicorn runs with --timeout 180 (docker-start.sh), and a
+# bulk request that blows through that is killed mid-flight -- taking whatever
+# else that worker was doing with it -- so the caps below are sized to finish
+# well inside it and the page sends a long selection as several requests
+# instead. Worst case per request: deletes len * ~20s timeout, site checks
+# ceil(len / SITE_CHECK_WORKERS) * _SITE_CHECK_TIMEOUT.
+BULK_MAX_ROWS = 500
+BULK_DELETE_MAX = 20
+BULK_SITE_CHECK_MAX = 12
+
+
+def _bulk_rows(payload: dict, limit: int) -> tuple[list[dict], str]:
+    rows = payload.get("rows")
+    if not isinstance(rows, list) or not rows:
+        return [], "Select at least one row first."
+    rows = [r for r in rows if isinstance(r, dict)]
+    if not rows:
+        return [], "Select at least one row first."
+    if len(rows) > limit:
+        return [], f"Too many rows in one request -- {limit} at a time."
+    return rows, ""
+
+
+def _row_label(row: dict) -> str:
+    """How a row is named back to the person in a per-row bulk result."""
+    name = str(row.get("name") or row.get("resource") or "").strip() or "Unnamed resource"
+    kind = str(row.get("kind") or "").upper()
+    return f"{kind}: {name}" if kind else name
+
+
+def _row_identity(row: dict) -> tuple[str, str, str]:
+    return (str(row.get("kind") or "").upper(), str(row.get("login") or "").strip(),
+            str(row.get("resource") or "").strip())
+
+
 @qa_bp.route("/api/skip", methods=["POST"])
 @require_login
 def api_skip():
@@ -1095,6 +1161,47 @@ def api_skip():
     return jsonify(ok=True)
 
 
+@qa_bp.route("/api/skip/bulk", methods=["POST"])
+@require_login
+def api_skip_bulk():
+    """Skip several inactive candidates at once, with one shared reason.
+
+    Exactly what pressing Skip on each row in turn would do -- the same
+    record, the same audit entry per resource -- with one write of the skip
+    file and one of the audit log instead of one of each per row. A row that
+    is missing what a skip is keyed on is reported back by name rather than
+    failing the whole batch: the other nineteen were still a deliberate
+    press.
+    """
+    body = request.get_json(silent=True) or {}
+    rows, error = _bulk_rows(body, BULK_MAX_ROWS)
+    if error:
+        return jsonify(ok=False, error=error), 400
+    reason = str(body.get("reason") or "").strip()
+    data = _skips()
+    actor = _actor()
+    stamp = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    entries, failed, done = [], [], 0
+    for row in rows:
+        kind, login, resource = _row_identity(row)
+        if kind not in ("GA4", "GTM") or not login or not resource:
+            failed.append({"name": _row_label(row),
+                           "error": "kind, login and resource are required"})
+            continue
+        data[_skip_key(kind, login, resource)] = {
+            "kind": kind, "login": login, "resource": resource,
+            "name": str(row.get("name") or ""), "reason": reason,
+            "by": actor, "at": stamp,
+        }
+        entries.append(_audit_entry("skip", row, detail=reason))
+        done += 1
+    if done:
+        _save_skips(data)
+        _audit_write(entries)
+        _clear_cache()
+    return jsonify(ok=True, done=done, failed=failed)
+
+
 @qa_bp.route("/api/unskip", methods=["POST"])
 @require_login
 def api_unskip():
@@ -1104,6 +1211,32 @@ def api_unskip():
                        str(row.get("resource") or "")), None)
     _save_skips(data); _audit("unskip", row); _clear_cache()
     return jsonify(ok=True)
+
+
+@qa_bp.route("/api/unskip/bulk", methods=["POST"])
+@require_login
+def api_unskip_bulk():
+    """Put several skipped resources back among the candidates at once."""
+    body = request.get_json(silent=True) or {}
+    rows, error = _bulk_rows(body, BULK_MAX_ROWS)
+    if error:
+        return jsonify(ok=False, error=error), 400
+    data = _skips()
+    entries, failed, done = [], [], 0
+    for row in rows:
+        kind, login, resource = _row_identity(row)
+        if not kind or not login or not resource:
+            failed.append({"name": _row_label(row),
+                           "error": "kind, login and resource are required"})
+            continue
+        data.pop(_skip_key(kind, login, resource), None)
+        entries.append(_audit_entry("unskip", row))
+        done += 1
+    if done:
+        _save_skips(data)
+        _audit_write(entries)
+        _clear_cache()
+    return jsonify(ok=True, done=done, failed=failed)
 
 
 @qa_bp.route("/api/gtm/resolve-url", methods=["POST"])
@@ -1171,6 +1304,100 @@ def api_gtm_site_check():
     return jsonify(ok=True, **entry)
 
 
+@qa_bp.route("/api/gtm/site-check/bulk", methods=["POST"])
+@require_login
+def api_gtm_site_check_bulk():
+    """Run the on-page tag check across several GTM containers at once.
+
+    The one thing a person cannot supply for a batch is a URL per row, so
+    each row's site is worked out the same way the automatic pass in
+    `_run_scan()` works it out, in this order: a URL sent with the row (the
+    site somebody already checked it against), then an exact client-registry
+    match on the GTM account's own name. Never a substring and never a guess
+    -- an account that resolves to nothing records exactly that, with the
+    error on the row, rather than fetching somebody else's website and
+    reporting the answer as this container's.
+
+    GA4 rows are refused rather than quietly counted: a property has no tag
+    to look for on a page. Results come back per row for the page to apply
+    in place, and are persisted on the same key the single check uses, so the
+    next scan reattaches them (and promotes a confirmed find into Needs
+    Review) exactly as it does for a check run by hand.
+    """
+    body = request.get_json(silent=True) or {}
+    rows, error = _bulk_rows(body, BULK_SITE_CHECK_MAX)
+    if error:
+        return jsonify(ok=False, error=error), 400
+
+    stored = _site_checks()
+    actor = _actor()
+    results: list[dict] = []
+    targets: list[tuple[dict, str, str]] = []
+    for row in rows:
+        kind, login, resource = _row_identity(row)
+        public_id = str(row.get("public_id") or "").strip()
+        if kind != "GTM":
+            results.append({"kind": kind, "login": login, "resource": resource,
+                            "name": _row_label(row), "ok": False,
+                            "error": "Only GTM containers can be checked on a page."})
+            continue
+        if not login or not resource or not public_id:
+            results.append({"kind": kind, "login": login, "resource": resource,
+                            "name": _row_label(row), "ok": False,
+                            "error": "login, resource and public_id are required"})
+            continue
+        url = str(row.get("url") or "").strip()
+        if not url:
+            url = str((stored.get(_skip_key("GTM", login, resource)) or {}).get("url") or "").strip()
+        if not url:
+            url, _resolved = _resolve_client_url(row.get("account") or "")
+        targets.append((row, public_id, url))
+
+    def _check(item: tuple[dict, str, str]) -> tuple[dict, dict]:
+        row, public_id, url = item
+        if not url:
+            return row, {
+                "url": "",
+                "checked_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+                "found": None, "status": None, "by": actor,
+                "error": "No website could be resolved from the account name automatically "
+                         "-- use Check site to supply one.",
+            }
+        entry = _run_site_check(public_id, url)
+        entry["by"] = actor
+        return row, entry
+
+    checked: list[tuple[dict, dict]] = []
+    if targets:
+        with ThreadPoolExecutor(max_workers=min(SITE_CHECK_WORKERS, len(targets))) as pool:
+            for fut in as_completed([pool.submit(_check, item) for item in targets]):
+                checked.append(fut.result())
+
+    entries = []
+    for row, entry in checked:
+        kind, login, resource = _row_identity(row)
+        stored[_skip_key("GTM", login, resource)] = entry
+        if entry.get("found") is True:
+            detail = f"found on {entry['url']}"
+        elif entry.get("found") is False:
+            detail = f"not found on {entry['url']}"
+        else:
+            detail = entry.get("error") or "could not check"
+        entries.append(_audit_entry("site_check", {**row, "kind": "GTM"},
+                                    result="error" if entry.get("error") else "ok", detail=detail))
+        results.append({"kind": "GTM", "login": login, "resource": resource,
+                        "name": _row_label(row), "ok": True, **entry})
+    if checked:
+        _save_site_checks(stored)
+        _audit_write(entries)
+    # No _clear_cache() here, for the same reason the single check does not
+    # rescan: a scan is minutes of Google API calls to redraw a few lines,
+    # and the persisted record above is what carries these results into the
+    # next scan's own payload (see _with_site_check in _run_scan).
+    found = sum(1 for _row, e in checked if e.get("found") is True)
+    return jsonify(ok=True, checked=len(checked), found=found, results=results)
+
+
 def _access_token(login: str) -> str:
     gf = _finder()
     accounts, error = gf.connected_accounts_result()
@@ -1180,6 +1407,35 @@ def _access_token(login: str) -> str:
     if not found:
         raise LookupError("Connected Google login not found")
     return gf.refresh_access_token(found["email"], found["refresh_token"])
+
+
+def _delete_resource(token: str, kind: str, resource: str, account_id: str) -> str:
+    """Delete one GA4 property or GTM container. Shared by both delete routes.
+
+    GA4 deletion is Google's own soft delete -- the property lands in the
+    Analytics trash can and can be restored from there. A GTM container is
+    gone for good. The two are worded differently everywhere for that reason.
+    """
+    if kind == "GA4":
+        url = f"https://analyticsadmin.googleapis.com/v1beta/properties/{quote(resource, safe='')}"
+        success = "GA4 property moved to the Analytics trash can."
+    else:
+        url = ("https://tagmanager.googleapis.com/tagmanager/v2/accounts/"
+               f"{quote(account_id, safe='')}/containers/{quote(resource, safe='')}")
+        success = "GTM container deleted."
+    _delete(token, url)
+    return success
+
+
+def _delete_http_reason(exc: requests.HTTPError, kind: str) -> str:
+    detail = _http_reason(exc)
+    status = exc.response.status_code if exc.response is not None else 500
+    if status in (401, 403):
+        needed = ("https://www.googleapis.com/auth/analytics.edit" if kind == "GA4" else
+                  "https://www.googleapis.com/auth/tagmanager.delete.containers")
+        detail += (f". This Google login may have the older read-only/edit grant. "
+                   f"Reconnect it with {needed} permission, then retry.")
+    return detail
 
 
 @qa_bp.route("/api/delete", methods=["POST"])
@@ -1202,22 +1458,10 @@ def api_delete():
 
     try:
         token = _access_token(login)
-        if kind == "GA4":
-            url = f"https://analyticsadmin.googleapis.com/v1beta/properties/{quote(resource, safe='')}"
-            success = "GA4 property moved to the Analytics trash can."
-        else:
-            url = ("https://tagmanager.googleapis.com/tagmanager/v2/accounts/"
-                   f"{quote(account_id, safe='')}/containers/{quote(resource, safe='')}")
-            success = "GTM container deleted."
-        _delete(token, url)
+        success = _delete_resource(token, kind, resource, account_id)
     except requests.HTTPError as exc:
-        detail = _http_reason(exc)
+        detail = _delete_http_reason(exc, kind)
         status = exc.response.status_code if exc.response is not None else 500
-        if status in (401, 403):
-            needed = ("https://www.googleapis.com/auth/analytics.edit" if kind == "GA4" else
-                      "https://www.googleapis.com/auth/tagmanager.delete.containers")
-            detail += (f". This Google login may have the older read-only/edit grant. "
-                       f"Reconnect it with {needed} permission, then retry.")
         _audit("delete", row, result="error", detail=detail)
         return jsonify(ok=False, error=detail), status
     except Exception as exc:
@@ -1227,6 +1471,110 @@ def api_delete():
     data = _skips(); data.pop(_skip_key(kind, login, resource), None); _save_skips(data)
     _audit("delete", row, detail=success); _clear_cache()
     return jsonify(ok=True, message=success)
+
+
+@qa_bp.route("/api/delete/bulk", methods=["POST"])
+@require_login
+def api_delete_bulk():
+    """Delete several inactive candidates in one press.
+
+    The per-row route asks for the resource's own name to be typed, which is
+    the right guard for one deletion and no guard at all for twenty -- nobody
+    types twenty names, they paste or they stop using the screen. The guard
+    that carries over is the count: the page shows every row it is about to
+    delete and asks for `DELETE <n>` where n is how many, so the confirmation
+    cannot be right unless the person read the number they were shown. `total`
+    is that number, checked against the typed phrase; a long selection arrives
+    as several requests (BULK_DELETE_MAX at a time) and each one carries the
+    selection's own total, never the chunk's.
+
+    A failure is per row, never the batch: one container whose login lost its
+    Tag Manager grant does not cancel the nineteen that were fine. Every row
+    comes back with its own outcome and every one of them is in the audit log
+    by name.
+    """
+    if not _is_admin():
+        return jsonify(ok=False, error="Admin access is required to delete Google resources."), 403
+    body = request.get_json(silent=True) or {}
+    rows, error = _bulk_rows(body, BULK_DELETE_MAX)
+    if error:
+        return jsonify(ok=False, error=error), 400
+    try:
+        total = int(body.get("total") or 0)
+    except (TypeError, ValueError):
+        total = 0
+    if total < len(rows):
+        return jsonify(ok=False, error="The confirmation count is smaller than the rows sent."), 400
+    if str(body.get("confirm") or "").strip().upper() != f"DELETE {total}":
+        noun = "resource" if total == 1 else "resources"
+        return jsonify(ok=False,
+                       error=f"Type DELETE {total} exactly to confirm deleting {total} {noun}."), 400
+
+    # One access token per Google login rather than one per row: refreshing
+    # it is a network call of its own, and twenty rows off one login is the
+    # ordinary case. A login whose refresh fails is remembered as failed so
+    # the rest of its rows report that immediately instead of each retrying
+    # a refresh that has already been answered.
+    tokens: dict[str, tuple[bool, str]] = {}
+
+    def _token_for(login: str) -> tuple[bool, str]:
+        key = login.lower()
+        if key not in tokens:
+            try:
+                tokens[key] = (True, _access_token(login))
+            except Exception as exc:                       # noqa: BLE001
+                tokens[key] = (False, str(exc))
+        return tokens[key]
+
+    skips = _skips()
+    entries: list[dict] = []
+    results: list[dict] = []
+    deleted = 0
+    skips_changed = False
+    for row in rows:
+        kind, login, resource = _row_identity(row)
+        account_id = str(row.get("account_id") or "").strip()
+        label = _row_label(row)
+        if kind not in ("GA4", "GTM") or not login or not resource:
+            results.append({"name": label, "kind": kind, "resource": resource, "ok": False,
+                            "error": "kind, login and resource are required"})
+            continue
+        if kind == "GTM" and not account_id:
+            results.append({"name": label, "kind": kind, "resource": resource, "ok": False,
+                            "error": "GTM account id is required."})
+            continue
+        ok, token = _token_for(login)
+        if not ok:
+            entries.append(_audit_entry("delete", row, result="error", detail=token))
+            results.append({"name": label, "kind": kind, "resource": resource, "ok": False,
+                            "error": token})
+            continue
+        try:
+            success = _delete_resource(token, kind, resource, account_id)
+        except requests.HTTPError as exc:
+            detail = _delete_http_reason(exc, kind)
+            entries.append(_audit_entry("delete", row, result="error", detail=detail))
+            results.append({"name": label, "kind": kind, "resource": resource, "ok": False,
+                            "error": detail})
+            continue
+        except Exception as exc:                           # noqa: BLE001
+            entries.append(_audit_entry("delete", row, result="error", detail=str(exc)))
+            results.append({"name": label, "kind": kind, "resource": resource, "ok": False,
+                            "error": str(exc)})
+            continue
+        if skips.pop(_skip_key(kind, login, resource), None) is not None:
+            skips_changed = True
+        entries.append(_audit_entry("delete", row, detail=success))
+        results.append({"name": label, "kind": kind, "resource": resource, "ok": True,
+                        "message": success})
+        deleted += 1
+
+    if skips_changed:
+        _save_skips(skips)
+    _audit_write(entries)
+    if deleted:
+        _clear_cache()
+    return jsonify(ok=True, deleted=deleted, failed=len(results) - deleted, results=results)
 
 
 @qa_bp.route("/api/audit")
