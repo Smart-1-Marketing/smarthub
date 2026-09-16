@@ -6,6 +6,7 @@ returns a narrow, sanitized surface suitable for an external MCP client.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from hub import audit, client_key as hub_client_key, clients_registry, quickbooks
@@ -313,14 +314,175 @@ def _ga4_selection(identity: dict, property_id: str = "") -> tuple[dict | None, 
     return (rows[0] if len(rows) == 1 else None), found
 
 
+# What each breakdown asks GA4 for. The channel grouping is what the tool
+# always answered; source/medium and campaign are the two readings a person
+# actually acts on -- what to scale, and what is tagged wrongly.
+#
+# Two dimensions, never three: ``analytics_ask.validate`` caps a request at
+# two and silently drops the rest, so asking for campaign, source AND medium
+# would have returned a campaign table keyed on something other than what the
+# caller was told it was keyed on. The pair below carries the same
+# information, and ``_ga4_split`` takes the source and medium back apart.
+GA4_BREAKDOWNS = {
+    "channel": ("sessionDefaultChannelGroup",),
+    "source_medium": ("sessionSourceMedium",),
+    "campaign": ("sessionCampaignName", "sessionSourceMedium"),
+}
+
+# The metric set every breakdown reports, in the order a table reads them.
+# ``keyEvents`` is GA4's own name for what the property counts as a
+# conversion; ``conversions`` rides beside it because older properties still
+# answer on that one and a property that answers neither reports null rather
+# than zero.
+GA4_METRICS = ("sessions", "totalUsers", "newUsers", "engagedSessions",
+               "engagementRate", "averageSessionDuration", "keyEvents",
+               "conversions")
+
+
+def _ga4_split(dims: list, breakdown: str) -> dict:
+    """One GA4 row's dimensions as the columns a table shows."""
+    first = _clean(dims[0] if dims else "", 300)
+    if breakdown == "campaign":
+        source, _, medium = _clean(dims[1] if len(dims) > 1 else "", 300).partition(" / ")
+        return {"label": first, "campaign": first,
+                "source": source.strip(), "medium": medium.strip()}
+    if breakdown == "source_medium":
+        source, _, medium = first.partition(" / ")
+        return {"label": first, "source": source.strip(), "medium": medium.strip()}
+    return {"label": first, "channel": first}
+
+
+def _ga4_rows(shaped: dict, breakdown: str, limit: int) -> list[dict]:
+    """``analytics_ask.shape`` output as the rows this tool publishes.
+
+    The conversion rate is computed here rather than asked of GA4, because
+    GA4 has no single metric for it, and it is None -- not zero -- when there
+    were no sessions to divide by.
+    """
+    out = []
+    for row in (shaped.get("rows") or [])[:limit]:
+        cells = {c["metric"]: c for c in row.get("cells") or []}
+        item = _ga4_split(row.get("dims") or [], breakdown)
+        for metric in GA4_METRICS:
+            cell = cells.get(metric)
+            item[metric] = round(float(cell["value"]), 2) if cell else None
+        conversions = item.get("keyEvents") or item.get("conversions") or 0
+        item["conversions"] = round(float(conversions), 2)
+        item["conv_rate"] = _ratio(conversions, item.get("sessions"), scale=100)
+        if shaped.get("compared"):
+            delta = {}
+            for metric in GA4_METRICS:
+                cell = cells.get(metric)
+                delta[metric] = (cell.get("change_pct")
+                                 if cell and "change_pct" in cell else None)
+            was_sessions = (cells.get("sessions") or {}).get("previous")
+            was_convs = ((cells.get("keyEvents") or {}).get("previous")
+                         or (cells.get("conversions") or {}).get("previous"))
+            was_rate = _ratio(was_convs, was_sessions, scale=100)
+            from hub.periods import pct_change
+            delta["conv_rate"] = pct_change(item["conv_rate"], was_rate)
+            item["delta"] = delta
+        else:
+            item["delta"] = None
+        out.append(item)
+    return out
+
+
+def _ga4_window(period: str, compare: str, start_date: str, end_date: str,
+                compare_start: str, compare_end: str):
+    """The two date ranges for a GA4 read, and the labels to echo back.
+
+    A named period is resolved in Python. Explicit ISO dates are a `custom`
+    period and go through the same validation. GA4's own relative tokens
+    ("28daysAgo", "yesterday") are still accepted and passed through
+    untouched, because an MCP client that learned the older signature should
+    not start getting refusals -- but nothing invents one.
+    """
+    from hub import periods
+
+    def relative(value: str) -> bool:
+        text = _clean(value, 40)
+        return bool(text) and not re.match(r"^\d{4}-\d{2}-\d{2}$", text)
+
+    if start_date and end_date and (relative(start_date) or relative(end_date)):
+        ranges = [{"startDate": _clean(start_date, 40),
+                   "endDate": _clean(end_date, 40), "name": "Current"}]
+        label = f"{_clean(start_date, 40)} to {_clean(end_date, 40)}"
+        window = {"period": "custom", "label": label,
+                  "start": _clean(start_date, 40), "end": _clean(end_date, 40),
+                  "days": None}
+        compare_out = None
+        if compare_start and compare_end:
+            ranges.append({"startDate": _clean(compare_start, 40),
+                           "endDate": _clean(compare_end, 40), "name": "Comparison"})
+            compare_out = {"mode": "custom", "period": "custom",
+                           "label": f"{_clean(compare_start, 40)} to {_clean(compare_end, 40)}",
+                           "start": _clean(compare_start, 40),
+                           "end": _clean(compare_end, 40), "days": None}
+        return ranges, window, compare_out
+
+    name = _clean(period, 40) or periods.DEFAULT_PERIOD
+    if start_date or end_date:
+        name = "custom"
+    win = periods.resolve(name, start=start_date, end=end_date)
+    ranges = [{"startDate": win.start.isoformat(), "endDate": win.end.isoformat(),
+               "name": "Current"}]
+    # Explicit comparison dates win over the named mode, so a caller that
+    # already knows both windows keeps getting exactly those two.
+    if compare_start and compare_end:
+        prior_start, prior_end = _clean(compare_start, 40), _clean(compare_end, 40)
+        ranges.append({"startDate": prior_start, "endDate": prior_end,
+                       "name": "Comparison"})
+        return ranges, win.as_dict(), {
+            "mode": "custom", "period": "custom", "days": None,
+            "label": f"{prior_start} to {prior_end}",
+            "start": prior_start, "end": prior_end}
+    if compare_start or compare_end:
+        raise ValueError("Both comparison dates are required.")
+    prior = periods.compare_window(win, compare)
+    if prior is None:
+        return ranges, win.as_dict(), None
+    ranges.append({"startDate": prior.start.isoformat(),
+                   "endDate": prior.end.isoformat(), "name": "Comparison"})
+    return ranges, win.as_dict(), {**prior.as_dict(), "mode": compare}
+
+
 def client_ga4_summary(client_name: str, property_id: str = "",
-                       start_date: str = "28daysAgo", end_date: str = "yesterday",
-                       compare_start: str = "", compare_end: str = "") -> dict:
-    """Read a bounded GA4 channel summary from a mapped client property."""
+                       period: str = "last_30", compare: str = "previous_period",
+                       breakdown: str = "channel",
+                       start_date: str = "", end_date: str = "",
+                       compare_start: str = "", compare_end: str = "",
+                       limit: int = 25) -> dict:
+    """Read a bounded GA4 summary from a mapped client property.
+
+    ``breakdown`` chooses what the rows are keyed on: the default channel
+    grouping, source/medium, or campaign. The flags are the same
+    ``modules/reports/flags.py`` rules the ad-performance tool uses, so a
+    tagging problem means the same thing on both sides of the Hub.
+    """
+    limit = max(1, min(int(limit or 25), 200))
     identity = resolve_identity(client_name)
     if not identity.get("known"):
         _audit("get_client_ga4_summary", identity, status="not_found")
         return _not_found(client_name, identity)
+
+    wanted = _clean(breakdown, 40).lower() or "channel"
+    if wanted not in GA4_BREAKDOWNS:
+        _audit("get_client_ga4_summary", identity, status="unknown_breakdown")
+        return {"found": True, "available": False, "identity": identity,
+                "reason": "unknown_breakdown", "error": "unknown breakdown",
+                "breakdowns": list(GA4_BREAKDOWNS)}
+    try:
+        ranges, window, compare_out = _ga4_window(
+            period, compare, start_date, end_date, compare_start, compare_end)
+    except ValueError as exc:
+        from hub import periods
+        _audit("get_client_ga4_summary", identity, status="invalid_period")
+        return {"found": True, "available": False, "identity": identity,
+                "reason": "invalid_date_range", "error": _clean(str(exc), 300),
+                "message": _clean(str(exc), 300),
+                "periods": list(periods.PERIODS), "compares": list(periods.COMPARES)}
+
     try:
         selected, index = _ga4_selection(identity, property_id)
     except Exception as exc:
@@ -344,21 +506,12 @@ def client_ga4_summary(client_name: str, property_id: str = "",
         }
 
     from hub import analytics_ask
-    ranges = [{"startDate": start_date, "endDate": end_date, "name": "Current"}]
-    if compare_start or compare_end:
-        if not (compare_start and compare_end):
-            return {"found": True, "available": False, "identity": identity,
-                    "reason": "invalid_date_range",
-                    "message": "Both comparison dates are required."}
-        ranges.append({"startDate": compare_start, "endDate": compare_end,
-                       "name": "Comparison"})
     request, error = analytics_ask.validate({
-        "metrics": ["sessions", "activeUsers", "newUsers", "engagedSessions",
-                    "engagementRate", "keyEvents", "conversions"],
-        "dimensions": ["sessionDefaultChannelGroup"],
+        "metrics": list(GA4_METRICS),
+        "dimensions": list(GA4_BREAKDOWNS[wanted]),
         "dateRanges": ranges,
         "orderBy": {"metric": "sessions", "desc": True},
-        "limit": 20,
+        "limit": limit,
     })
     if error or request is None:
         _audit("get_client_ga4_summary", identity, status="invalid_request")
@@ -387,16 +540,39 @@ def client_ga4_summary(client_name: str, property_id: str = "",
             "error": _clean(f"{type(exc).__name__}: {exc}", 500),
         }
 
-    _audit("get_client_ga4_summary", identity, result_count=shaped.get("row_count"))
+    rows = _ga4_rows(shaped, wanted, limit)
+    totals = {c["metric"]: round(float(c["value"]), 2)
+              for c in (shaped.get("totals") or [])}
+    total_sessions = totals.get("sessions") or 0
+    total_convs = totals.get("keyEvents") or totals.get("conversions") or 0
+    totals["conversions"] = round(float(total_convs), 2)
+    totals["conv_rate"] = _ratio(total_convs, total_sessions, scale=100)
+
+    from modules.reports import flags as flag_rules
+    ga4_flags = flag_rules.ga4_flags(
+        rows, breakdown=wanted, total_sessions=int(total_sessions),
+        property_conv_rate=totals["conv_rate"])
+
+    _audit("get_client_ga4_summary", identity, result_count=len(rows),
+           period=window.get("period"), breakdown=wanted)
     return {
         "found": True, "available": True, "identity": identity,
         "property": {"property_id": _clean(selected.get("resource_id"), 80),
                      "name": _clean(selected.get("name"), 180)},
         "index_built_at": index.get("built_at"),
         "index_stale": bool(index.get("stale")),
+        "window": window, "compare": compare_out, "breakdown": wanted,
+        "compared": bool(shaped.get("compared")),
         "query": {"metrics": [m["name"] for m in request["metrics"]],
                   "dimensions": [d["name"] for d in request.get("dimensions", [])],
                   "date_ranges": request["dateRanges"]},
+        "row_count": shaped.get("row_count"),
+        "rows": rows,
+        "totals": totals,
+        "totals_of": _clean(shaped.get("totals_of"), 80),
+        "flags": ga4_flags,
+        "thresholds": flag_rules.thresholds(),
+        "note": _clean(shaped.get("note"), 300),
         "result": shaped,
     }
 
@@ -967,6 +1143,204 @@ def client_performance(client_name: str, period: str = "last_30",
         "note": " ".join(notes),
     }
 
+
+# ---------------------------------------------------------------------------
+# What the optimization sweep already found
+# ---------------------------------------------------------------------------
+# modules/ads_builder runs a twice-daily sweep over every live Google Ads
+# account and keeps the whole finding list on the run row. The dashboard card
+# reads the COLUMNS and refuses to open the blobs -- totalling the money
+# behind every finding means opening every account's whole scan on a page
+# that loads on every visit. Asking about one named client is the other case:
+# one account's blob, on a question somebody typed.
+#
+# Nothing is re-analysed here. "What did the 06:00 sweep flag for Acme?" is a
+# question about what the sweep recorded, and a second analyser answering it
+# would give a different answer from the page the link opens.
+
+# The severities the sweep writes, worst first.
+SEVERITIES = ("high", "medium", "low")
+
+# What each finding category is called in a sentence. A category the sweep
+# gains that this map does not know falls back to its own key rather than
+# being dropped -- a finding nobody can name is still a finding.
+FINDING_KINDS = {
+    "click_costs": "Click costs",
+    "search_terms": "Wasted spend on search terms",
+    "keyword_pauses": "Keywords to pause",
+    "keywords": "Keywords",
+    "schedule": "Ad schedule",
+    "diagnostics": "Tracking and setup",
+    "recommendations": "Google recommendations",
+}
+
+# Platforms this tool can answer for at all, and what each is called.
+FINDINGS_PLATFORMS = {"google_ads": "Google Ads", "google": "Google Ads",
+                      "bing": "Microsoft Ads", "microsoft": "Microsoft Ads"}
+
+
+def _finding(item: dict, url: str) -> dict:
+    """One sweep finding as a row an answer can quote."""
+    data = item.get("data") if isinstance(item.get("data"), dict) else {}
+    kind = _clean(item.get("category"), 40) or "other"
+    # The sweep records no monetary estimate, so this is null rather than a
+    # number worked out here. The campaign's spend over the scan's own window
+    # rides beside it under a name that says what window it is.
+    spend = data.get("cost")
+    try:
+        spend = round(float(spend), 2) if spend is not None else None
+    except (TypeError, ValueError):
+        spend = None
+    return {
+        "kind": kind,
+        "kind_label": FINDING_KINDS.get(kind, kind.replace("_", " ").capitalize()),
+        "severity": _clean(item.get("severity"), 20) or "low",
+        "source": _clean(item.get("source"), 20),
+        "campaign": _clean(data.get("name") or data.get("campaign"), 200),
+        "title": _clean(item.get("title"), 300),
+        "detail": _clean(item.get("why"), 600),
+        "next_step": _clean(item.get("next_step"), 600),
+        "estimated_monthly": None,
+        "scan_window_spend": spend,
+        "url": url,
+    }
+
+
+def client_ads_findings(client_name: str, platform: str = "google_ads",
+                        severity: str = "high", limit: int = 20) -> dict:
+    """Read what the latest optimization sweep flagged for one client.
+
+    Google Ads today. Microsoft Ads answers "not built" rather than a number,
+    because ``modules/reports/bing.py`` pulls spend and has no analysis step:
+    an empty finding list from a sweep that never ran reads as a clean
+    account, and that is the one answer that must not be invented.
+    """
+    limit = max(1, min(int(limit or 20), 100))
+    identity = resolve_identity(client_name)
+    if not identity.get("known"):
+        _audit("get_client_ads_findings", identity, status="not_found")
+        return _not_found(client_name, identity)
+
+    wanted = _clean(platform, 40).lower() or "google_ads"
+    if wanted not in FINDINGS_PLATFORMS:
+        _audit("get_client_ads_findings", identity, status="unknown_platform")
+        return {"found": True, "available": False, "identity": identity,
+                "error": "unknown platform", "reason": "unknown_platform",
+                "platforms": sorted(set(FINDINGS_PLATFORMS))}
+    if FINDINGS_PLATFORMS[wanted] == "Microsoft Ads":
+        _audit("get_client_ads_findings", identity, status="not_built",
+               platform=wanted)
+        return {"found": True, "available": False, "identity": identity,
+                "platform": wanted, "platform_label": "Microsoft Ads",
+                "error": "Microsoft Ads sweep not built",
+                "reason": "sweep_not_built", "accounts": [],
+                "message": ("Microsoft Ads spend is pulled into the reports "
+                            "fact table, but no optimization sweep analyses it "
+                            "yet, so there are no findings to read.")}
+
+    wanted_severity = _clean(severity, 20).lower() or "high"
+    if wanted_severity not in SEVERITIES + ("all", ""):
+        _audit("get_client_ads_findings", identity, status="unknown_severity")
+        return {"found": True, "available": False, "identity": identity,
+                "error": "unknown severity", "reason": "unknown_severity",
+                "severities": list(SEVERITIES) + ["all"]}
+
+    try:
+        from hub import ads_status
+        from modules.ads_builder import store as ads_store
+        from modules.reports import client_card
+    except Exception as exc:                                # noqa: BLE001
+        _audit("get_client_ads_findings", identity, status="unavailable")
+        return {"found": True, "available": False, "identity": identity,
+                "accounts": [],
+                "error": _clean(f"{type(exc).__name__}: {exc}", 500)}
+
+    try:
+        from hub import client_key as ck
+        wanted_name = ck.normalise_name(identity["client"])
+    except Exception:                                       # noqa: BLE001
+        wanted_name = _clean(identity["client"], 200).lower()
+
+    try:
+        accounts = [a for a in ads_store.deployed_accounts(limit=500)
+                    if client_card._norm(a.get("client_name") or "") == wanted_name]
+        runs = {r["customer_id"]: r
+                for r in ads_store.latest_optimization_runs(limit=200)}
+        overdue_minutes, cadence_measured = ads_status.overdue_after_minutes()
+    except Exception as exc:                                # noqa: BLE001
+        _audit("get_client_ads_findings", identity, status="unavailable")
+        return {"found": True, "available": False, "identity": identity,
+                "accounts": [],
+                "error": _clean(f"{type(exc).__name__}: {exc}", 500)}
+
+    from datetime import datetime, timedelta, timezone
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=overdue_minutes)
+
+    out = []
+    total_high = 0
+    for account in accounts:
+        cid = _clean(account.get("customer_id"), 20)
+        run = runs.get(cid)
+        url = ads_status._account_url(cid)
+        state = ads_status.account_state(run, cutoff)
+        row = {
+            "customer_id": cid,
+            "state": state,
+            "state_label": ads_status.STATES[state],
+            "scanned_at": (run or {}).get("scanned_at"),
+            "date_range": _clean((run or {}).get("date_range"), 40),
+            "high_severity_count": int((run or {}).get("high_severity_count") or 0),
+            "item_count": int((run or {}).get("item_count") or 0),
+            "error": _clean((run or {}).get("error"), 300),
+            "url": url,
+            "findings": [],
+        }
+        total_high += row["high_severity_count"]
+        # The blob is opened once, for this one named client, and only when
+        # there is a successful run to open.
+        if run is not None and not run.get("error"):
+            try:
+                full = ads_store.latest_optimization_run(cid, with_result=True) or {}
+                items = (full.get("result") or {}).get("items") or []
+            except Exception as exc:                        # noqa: BLE001
+                items = []
+                row["error"] = _clean(f"the scan could not be opened "
+                                      f"({type(exc).__name__})", 300)
+            if wanted_severity in ("", "all"):
+                keep = list(items)
+            else:
+                keep = [i for i in items
+                        if _clean(i.get("severity"), 20).lower() == wanted_severity]
+            keep.sort(key=lambda i: SEVERITIES.index(_clean(i.get("severity"), 20).lower())
+                      if _clean(i.get("severity"), 20).lower() in SEVERITIES else 9)
+            row["findings"] = [_finding(i, url) for i in keep[:limit]]
+            row["findings_omitted"] = max(0, len(keep) - limit)
+        out.append(row)
+
+    out.sort(key=lambda r: (-r["high_severity_count"], r["scanned_at"] or ""))
+    note = ""
+    if not accounts:
+        note = ("No deployed proposal carries a Google customer id for this "
+                "client, so the sweep has no account to reach.")
+    elif not cadence_measured:
+        note = ("The sweep's configured cadence could not be read, so how old "
+                "a reading may be before it is out of date is a fallback.")
+
+    _audit("get_client_ads_findings", identity, result_count=len(out),
+           platform=wanted, severity=wanted_severity)
+    return {
+        "found": True, "available": True, "identity": identity,
+        "platform": wanted, "platform_label": FINDINGS_PLATFORMS[wanted],
+        "severity": wanted_severity,
+        "account_count": len(out),
+        "high_severity_count": total_high,
+        "accounts": out,
+        "overdue_after_hours": round(overdue_minutes / 60.0, 1),
+        "cadence_measured": cadence_measured,
+        "states": ads_status.STATES,
+        "note": note,
+    }
+
 def register(mcp) -> None:
     """Attach V2 read tools once to the existing V1 MCP server object."""
     if getattr(mcp, "_smarthub_v2_registered", False):
@@ -1012,13 +1386,16 @@ def register(mcp) -> None:
 
     @mcp.tool(title="Get client GA4 summary", annotations=READ_ONLY_TOOL_ANNOTATIONS)
     def get_client_ga4_summary(client_name: str, property_id: str = "",
-                               start_date: str = "28daysAgo",
-                               end_date: str = "yesterday",
-                               compare_start: str = "",
-                               compare_end: str = "") -> dict:
-        """Get bounded GA4 channel metrics for a mapped client property."""
-        return client_ga4_summary(client_name, property_id, start_date, end_date,
-                                  compare_start, compare_end)
+                               period: str = "last_30",
+                               compare: str = "previous_period",
+                               breakdown: str = "channel",
+                               start_date: str = "", end_date: str = "",
+                               compare_start: str = "", compare_end: str = "",
+                               limit: int = 25) -> dict:
+        """Get GA4 metrics for a mapped client property, by channel, source/medium or campaign."""
+        return client_ga4_summary(client_name, property_id, period, compare,
+                                  breakdown, start_date, end_date,
+                                  compare_start, compare_end, limit)
 
     @mcp.tool(title="Get client ad performance", annotations=READ_ONLY_TOOL_ANNOTATIONS)
     def get_client_performance(client_name: str, period: str = "last_30",
@@ -1029,6 +1406,13 @@ def register(mcp) -> None:
         """Get a client's campaign performance, pacing and margin for a named period."""
         return client_performance(client_name, period, compare, platform, product,
                                   start_date, end_date, limit)
+
+    @mcp.tool(title="Get client ad optimization findings",
+              annotations=READ_ONLY_TOOL_ANNOTATIONS)
+    def get_client_ads_findings(client_name: str, platform: str = "google_ads",
+                                severity: str = "high", limit: int = 20) -> dict:
+        """Get what the latest optimization sweep flagged for a client's account."""
+        return client_ads_findings(client_name, platform, severity, limit)
 
     @mcp.tool(title="List client proposals", annotations=READ_ONLY_TOOL_ANNOTATIONS)
     def get_client_proposals(client_name: str) -> dict:

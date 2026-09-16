@@ -3645,6 +3645,9 @@ jobs:
       - name: Ask SmartHub ad-performance read
         if: matrix.group == 8
         run: python3 test_v2_performance.py
+      - name: Ask SmartHub traffic and sweep reads
+        if: matrix.group == 8
+        run: python3 test_v2_insights.py
       - name: The reports tests against Postgres
         if: matrix.group == 8
         env:

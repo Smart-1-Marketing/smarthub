@@ -64,10 +64,12 @@ TOOLS: dict[str, Tool] = {
         "List GA4 properties mapped to a client.", STAFF,
         v2_tools.client_ga4_properties, ("client_name",)),
     "get_client_ga4_summary": Tool(
-        "Read GA4 channel metrics for a mapped client property and date range.", STAFF,
+        "Read a client's website traffic from a mapped GA4 property for a named period, "
+        "broken down by channel, source/medium or campaign, with period-over-period "
+        "deltas and deterministic tagging flags.", STAFF,
         v2_tools.client_ga4_summary,
-        ("client_name", "property_id", "start_date", "end_date",
-         "compare_start", "compare_end")),
+        ("client_name", "property_id", "period", "compare", "breakdown",
+         "start_date", "end_date", "compare_start", "compare_end", "limit")),
     "get_client_performance": Tool(
         "Read a client's ad performance from the reports fact table for a named period: "
         "campaign table, totals, period-over-period deltas, pacing band and prorated "
@@ -75,6 +77,12 @@ TOOLS: dict[str, Tool] = {
         v2_tools.client_performance,
         ("client_name", "period", "compare", "platform", "product",
          "start_date", "end_date", "limit")),
+    "get_client_ads_findings": Tool(
+        "Read what the latest twice-daily optimization sweep flagged for a client's "
+        "Google Ads account: the findings it recorded, when it last scanned, and "
+        "whether that reading is current. Microsoft Ads is not swept yet.", STAFF,
+        v2_tools.client_ads_findings,
+        ("client_name", "platform", "severity", "limit")),
     "get_client_proposals": Tool(
         "Read saved and uploaded proposal summaries for a client.", STAFF,
         v2_tools.client_proposals, ("client_name",)),
@@ -144,7 +152,20 @@ def plan(question: str, role: str, context: dict, history: list[dict]) -> dict:
         "misspellings, and aliases before any read runs. Use search_clients only "
         "when the user asks to find or list clients. If no data tool is needed, calls is empty "
         "and direct_answer briefly explains what Ask SmartHub can do. Never plan "
-        "a write, update, send, delete, payment, budget change, or other action."
+        "a write, update, send, delete, payment, budget change, or other action. "
+        # Dates are Python's job, not the model's. A model asked for a date
+        # always produces one, and the ones it produces are plausible rather
+        # than measured: hub/periods.py resolves a NAME so a window cannot be
+        # invented, and every tool echoes the window it read back.
+        "Periods: use the period argument with one of last_7, last_14, last_30, "
+        "last_90, this_month, last_month, this_quarter, last_quarter, this_year, "
+        "last_year; use custom with start_date and end_date only when the user "
+        "gave explicit dates. Never compute dates yourself. Use "
+        "compare=previous_period unless the user asks for year-over-year. For ad "
+        "performance, pacing, margin, or campaign questions call "
+        "get_client_performance. For website traffic call get_client_ga4_summary. "
+        "For sweep or optimization findings call get_client_ads_findings. Flags in "
+        "tool results are facts; report them as given and do not add flags of your own."
     )
     payload = {"question": question, "context": context,
                "available_tools": catalog, "recent_history": history}
