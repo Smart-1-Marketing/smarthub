@@ -96,6 +96,23 @@ READ: tuple[Scope, ...] = (
           ("modules/suite_panel/app.py",), True),
     Scope("users.readonly", "Who is on a sub-account",
           ("modules/suite_panel/app.py",), True),
+
+    # Email campaign reporting (hub/suite_email_stats.py): the client's own
+    # sub-account's sent campaigns with delivered/opened/clicked counts, on
+    # the Client 360 card and the client's report. Two scopes because
+    # HighLevel splits them: the campaign list (which carries statistics
+    # when asked with showStats) and the unified per-campaign statistics
+    # endpoint. Both are HighLevel's own console names (AVAILABLE below)
+    # and unverified until an agency owner re-consents; until then
+    # suite_email_stats.scope_state() reports them missing and the card
+    # says so rather than 401-ing quietly. The sweep does not run at all
+    # while they are missing, because one refusal repeats for every client.
+    Scope("emails/schedule.readonly", "Listing a client's sent email campaigns and their counts "
+          "on Client 360 and the client's report",
+          ("hub/suite_email_stats.py",), False),
+    Scope("emails/stats.readonly", "Per-campaign email statistics where the campaign list "
+          "carries none",
+          ("hub/suite_email_stats.py",), False),
 )
 
 # --------------------------------------------------------------------------

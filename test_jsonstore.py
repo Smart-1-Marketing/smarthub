@@ -450,9 +450,12 @@ for rel in ("modules/io_builder/app.py", "modules/suite_panel/app.py",
     check(f"...and the exemption says what losing it costs",
           len(js_scan.UNMIRRORED_EXEMPT[rel]) > 60, True)
 
-# What is left is the work, and naming it is the point of the check.
-check("one store is left on the disk, and this is it",
-      sorted(found), ["modules/check_reconciliation/app.py"])
+# Nothing is left, and this is the assertion to be most careful with: the
+# check answered 0 before any of this work, because it could not see. An empty
+# list is the right answer now and was the wrong answer then, and the checks
+# above are what tell those two apart -- they drive the detection on real
+# source rather than trusting the count.
+check("no store is left writing JSON to the disk", sorted(found), [])
 
 # seo_intelligence came off that list without moving anywhere, and the reason
 # is the interesting one: context._memory() reads that file ONLY where the
@@ -503,8 +506,7 @@ check("and the header pill ignores resolved rows",
 # it", and that is the pressure that produced the hole in the first place.
 outstanding = sorted((r["level"], r["title"]) for r in report["risks"]
                      if r["level"] != "low")
-check("the outstanding risk is the JSON still on the disk",
-      outstanding, [("medium", "1 file writes JSON outside hub/jsonstore.py")])
+check("nothing is outstanding on the panel now", outstanding, [])
 check("and nothing is high", [r for r in report["risks"]
                               if r["level"] == "high"], [])
 

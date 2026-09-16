@@ -492,6 +492,17 @@ REGISTRY: list[Help] = [
        "person confirms; a wrong channel here is somebody else's "
        "subscriber count under their name. A channel that hides its "
        "subscriber count reads as hidden, never as zero."),
+    _h("hub.client360.suite_email", "Their email campaigns, read last night",
+       "The sent email campaigns on the client's own Smart 1 Suite "
+       "sub-account, with how many were delivered, opened and clicked, "
+       "and the 30- and 90-day totals over them. Read once a night and on "
+       "the Refresh press, never on a page load. Which sub-account is the "
+       "client's is the Suite Account card's decision; this card reads it "
+       "and never guesses. Not linked, not consented, could not read and "
+       "no campaigns are four different sentences here, because a nought "
+       "printed over a refusal would say the client never emailed anyone. "
+       "It needs the two email read scopes on the Hub app, granted by the "
+       "agency owner re-consenting once."),
     _h("hub.client360.adperf", "What their advertising is doing",
        "What the Reports module holds for this client: the campaigns filed "
        "under them, this month's spend by platform beside what they are "
@@ -2570,6 +2581,9 @@ REGISTRY: list[Help] = [
        link='/tools/google-access/qa-inactive/', link_text="Open tool"),
     _h('google_access.cleanup.bulk', 'Act on several rows at once',
        "Each section works in bulk. Tick rows, or use the checkbox in the table header to take the whole section, and use the buttons above that table. A section offers in bulk only what its rows already offer: Inactive candidates can check sites, skip and delete; Needs Review can check sites and is never deleted here; Skipped can check sites and un-skip. Bulk skip records one shared reason against every row. Bulk delete lists every resource first and asks you to type DELETE and the count, because typing one name is no guard on twenty; GA4 goes to the Analytics trash and GTM deletion is permanent, and a row the Google login is refused for is reported by name while the rest still go. Bulk site check uses the site each container was last checked against, or an exact client match on its account name, and says so on a row it could not resolve one for; use Check site on that row to supply an address. A long selection is sent in several batches, so read the progress before leaving the page.",
+       link='/tools/google-access/qa-inactive/', link_text="Open tool"),
+    _h('google_access.cleanup.history', 'Read what this tool has already done',
+       "Cleanup history lists every skip, un-skip, site check and deletion made here, newest first, with who made it and what Google answered. It loads when you open the panel and refreshes itself after an action. A failed row is shown in red with the reason rather than left out, so a deletion the Google login was refused for is visible instead of silently missing. Filter by resource name, ID, Google login or the person who acted. The panel holds the most recent entries and says so when the stored log is longer; a log that cannot be read says that rather than showing an empty table, because no history and no readable history are opposite answers.",
        link='/tools/google-access/qa-inactive/', link_text="Open tool"),
     _h('seo_intelligence.overview.evidence', 'Use Search Console evidence in SEO Intelligence',
        'Open SEO Intelligence for client snapshots and the agency Action Queue. Recommendations use weekly Search Console evidence and 28-day comparisons. A connected Google account needs access to the property and may need reconnection to grant Search Console access. Review the evidence behind a recommendation before creating another page, especially when existing pages compete for the same queries. Record completed actions so later snapshots can measure outcomes.',
