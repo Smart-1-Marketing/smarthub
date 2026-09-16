@@ -418,6 +418,26 @@ def _apply_report(s: Scan, report: dict):
     s.completed_at = _now()
     _fetch_llm_narrative(s)
     _resolve_industry_from_scan(s)
+    _tag_lead_temperature(s, report)
+
+
+def _tag_lead_temperature(s: "Scan", report: dict) -> None:
+    """Tag this scan's lead hot/warm/cold now that the paid audit landed.
+
+    A tag update, never a re-delivery — `hub.leads.tag_temperature()` never
+    calls `capture_and_deliver`. Never raises: a completed scan is the
+    transaction that matters here, not the scoring of its lead. WO-3d.
+    """
+    lead_id = str(getattr(s, "lead_id", "") or "")
+    if not lead_id:
+        return
+    try:
+        from . import score as _score
+        from hub import leads as _leads
+        temperature, reasons = _score.lead_temperature(report)
+        _leads.tag_temperature(lead_id, temperature, reasons)
+    except Exception:                                     # noqa: BLE001
+        pass
 
 
 def _resolve_industry_from_scan(s: Scan) -> None:

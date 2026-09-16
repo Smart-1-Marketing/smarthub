@@ -212,6 +212,14 @@ def report_field_ids() -> dict:
             "pdf_url": _env(LEAD_PDF_FIELD_ENV)}
 
 
+def scan_score_field_id() -> str:
+    """The custom-field id the scan temperature's reasons are written into,
+    if one has been minted. Empty where unset — WO-3d writes the tag either
+    way; this is the optional extra half."""
+    from hub.config import SCAN_SCORE_NOTE_FIELD_ENV
+    return _env(SCAN_SCORE_NOTE_FIELD_ENV)
+
+
 def report_links(row: dict) -> dict:
     """What a lead row carries that a Suite workflow would want to email,
     and whether it can be sent.
@@ -277,11 +285,18 @@ def payload_for(row: dict) -> dict:
     links = report_links(row)
     custom = [{"id": links["field_ids"][k], "field_value": links[k]}
               for k in links["sent"]]
-    if custom:
-        body["customFields"] = custom
     # Field IDs are installation-specific; retain all metadata locally even
     # when a Suite account has not configured these optional custom fields.
     meta = row.get("meta") or {}
+    # The scan hot/warm/cold reasons, if a note field has been mapped --
+    # WO-3d. The temperature tag itself is unconditional (lead_tags.tags_for
+    # already carries it); this is only the optional extra explanation.
+    score_field = scan_score_field_id()
+    reasons = meta.get("scan_temperature_reasons") or []
+    if score_field and reasons:
+        custom.append({"id": score_field, "field_value": " ".join(str(r) for r in reasons)[:2000]})
+    if custom:
+        body["customFields"] = custom
     if row.get("source") == "landing" and meta.get("industry_id"):
         keys = ("industry_id", "industry_family", "page_id", "page_version", "service", "market",
                 "radius", "trigger_profile", "trigger_ids", "creative_profile", "conversion_goal",

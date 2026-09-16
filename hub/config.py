@@ -150,6 +150,13 @@ ALIASES: dict[str, tuple[str, ...]] = {
 # leads panel says so. hub/ghl_contacts.py reads these same names.
 LEAD_REPORT_FIELD_ENV = "GHL_LEAD_REPORT_URL_FIELD_ID"
 LEAD_PDF_FIELD_ENV = "GHL_LEAD_PDF_URL_FIELD_ID"
+# Same shape, one field further: where a scan-widget lead's hot/warm/cold
+# reasons are written on the Suite contact, if a custom field has been
+# minted for it. Unset (the state on this deployment today) leaves the
+# temperature as a tag alone, which is what `hub/lead_tags.py` already does
+# for every other segmentation tag -- optional, degrading to "not written"
+# rather than failing the tag update. hub/leads.py reads this name.
+SCAN_SCORE_NOTE_FIELD_ENV = "GHL_SCAN_SCORE_NOTE_FIELD_ID"
 # Only names that are actually in use — in this repo, or set on the Render
 # account this Hub runs in. A speculative spelling costs nothing to resolve and
 # a great deal to police: every module reading the one real name is then a
