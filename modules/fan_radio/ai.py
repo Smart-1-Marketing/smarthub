@@ -224,12 +224,13 @@ def _spot_user(brief: dict, dp: dict, seconds: int, tone: dict,
     # anyway to be helpful, and the tag runs over.
     dropped = [k for k in asked if k not in require and must.get(k)]
     if dropped:
-        lines += ["", "This length carries no response mechanism — it is read "
-                      "against a live announcer. Do not read a web address or "
-                      "a phone number."]
+        lines += ["", ("This length carries no response mechanism — it is "
+                       "read against a live announcer. Do not read a web "
+                       "address or a phone number.")]
     if must.get("disclaimer"):
-        lines += ["", "DISCLAIMER — reproduce this word for word, exactly as "
-                      "written, inside the read: " + str(must["disclaimer"])]
+        lines += ["", ("DISCLAIMER — reproduce this word for word, exactly "
+                       "as written, inside the read: ")
+                      + str(must["disclaimer"])]
     if steer:
         lines += ["", f"EXTRA DIRECTION FROM THE ACCOUNT MANAGER: {steer}"]
     return "\n".join(lines)

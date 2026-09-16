@@ -85,11 +85,6 @@ def claim_facts(row: dict) -> dict:
     }
 
 
-# The name this reading answered to before it moved. Kept because it reads
-# better at the `validate_copy` call site than `claim_facts` does, and because
-# renaming a private helper is not a fix.
-_facts = claim_facts
-
 
 def run_slot(row: dict, slot_key: str, required=None) -> dict:
     """Every check for one of this project's reads, named."""

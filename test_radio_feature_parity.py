@@ -69,7 +69,9 @@ for _k in ("OPENAI_API_KEY", "ELEVENLABS_API", "ELEVENLABS_API_KEY",
 # already served a request, so driving a module's own test client before this
 # import turns a real failure into a confusing one. The same order
 # `test_radio_parity.py` opens with, for the same reason.
-import wsgi                                                     # noqa: E402,F401
+import wsgi                                                       # noqa: E402
+
+from werkzeug.test import Client                                  # noqa: E402
 
 from hub import radio_script_qc, radio_spec                      # noqa: E402
 from modules.fan_radio import app as fan_app                      # noqa: E402
@@ -307,6 +309,21 @@ check("it serves the labels rather than leaving them to the template",
       sorted(_sq["labels"]), sorted(fan_qc.CHECK_LABELS))
 check("and says which findings stop a record",
       sorted(_sq["blocks_render"]), sorted(fan_qc.BLOCKS_RENDER))
+
+# And it is reachable through the composed app, not just the module's own
+# client. DispatcherMiddleware routes by URL prefix, so a route that answers
+# here can still be unreachable once mounted -- the trap CLAUDE.md names, and
+# the reason `wsgi` is imported at the top of this file rather than only the
+# module.
+_mounted = wsgi.application
+_composed = Client(_mounted)
+_composed.post("/login", data={"password": os.environ["PANEL_PASSWORD"]},
+               follow_redirects=True)
+check("the panel answers under the mount, not only on the module",
+      _composed.get(f"/tools/fan-radio/api/projects/{PID}/script-qc")
+      .status_code, 200)
+check("and the mix panel still answers beside it under the mount",
+      _composed.get(f"/tools/fan-radio/api/projects/{PID}/qc").status_code, 200)
 
 _mq = fan.get(f"/api/projects/{PID}/qc").get_json()
 check("the mix panel still answers on its own path", _mq.get("ok"), True)
