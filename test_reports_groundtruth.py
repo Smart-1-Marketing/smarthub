@@ -424,7 +424,9 @@ for fname in ("env.example", "render.yaml"):
     check(f"{fname} documents the key and the origin",
           "GROUND_TRUTH_API" in text and "GROUND_TRUTH_API_BASE" in text)
     check(f"...and no GROUNDTRUTH_ twin", re.search(r"^\s*(- key: )?GROUNDTRUTH_", text, re.M) is None)
-guide = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+# The guide is CLAUDE.md plus the long-form docs/claude/ files split out of it.
+guide = "\n".join(p.read_text(encoding="utf-8") for p in
+                  [ROOT / "CLAUDE.md", *sorted((ROOT / "docs" / "claude").glob("*.md"))])
 check("the guide has the section", "## GroundTruth: the key arrived before the document" in guide)
 
 shutil.rmtree(TMP, ignore_errors=True)

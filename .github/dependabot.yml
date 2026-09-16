@@ -1,0 +1,47 @@
+# Dependency update PRs.
+#
+# Monthly and grouped on purpose: every PR runs checks.yml (8 parallel jobs),
+# so one grouped PR per ecosystem costs a fraction of the CI minutes that a PR
+# per package would. Security updates are separate — enable "Dependabot
+# security updates" in Settings → Code security and they open as soon as an
+# advisory lands, independent of this schedule.
+#
+# requirements.txt pins exact versions and CLAUDE.md's rule is no NEW
+# dependencies. These PRs only bump what is already pinned; they add nothing.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directories: ["/", "/mcp_gateway"]
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      python:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: npm
+    directories:
+      - "/modules/ad_builder"
+      - "/modules/hf_render_service"
+      - "/modules/marketing_audit"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      node:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: monthly
