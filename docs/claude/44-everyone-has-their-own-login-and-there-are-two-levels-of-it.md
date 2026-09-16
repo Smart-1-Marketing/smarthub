@@ -578,3 +578,40 @@ Google sign-in is the intended destination and `hub/identity.py` already has
 it, behind `HUB_GOOGLE_LOGIN`; it stays off until the OAuth consent screen
 clears review. Both routes resolve to the same account row, so nothing above
 has to change when it lands.
+
+**A ported module can arrive with a login of its own, and the Hub's login does
+not remove it.** The Smart 1 Suite control panel (`/suite`) was a standalone
+Node app before it was a module, and its password screen came across with the
+rest of it. Mounted, the server half was correct — `AuthGuard` answers 302 to
+`/login` for a page and 401 for a fetch before a request reaches the module, and
+`actor_name()` reads the signed-in user off the environ — but the page the
+browser received still shipped `#login` visible and `#app` hidden. So the first
+thing painted, on every visit by somebody the Hub had already authenticated, was
+"Control Panel — enter the access password to continue", and it stayed until an
+`/api/session` round trip came back to say what the request that served the page
+had already established. A slow answer was a password box for as long as it
+took. A failed one was a password box that stayed, since the boot's `catch`
+called `showLogin()`.
+
+**The password it asked for was checked by nothing.** `/api/login` returned
+`{"ok": true}` to whatever reached it without looking at the body, because the
+Hub was doing the authenticating — which made the visible gate decoration in
+front of the real gate, and misinformation about where the real one was. Worse,
+the 401 path in the page's `api()` helper opened the same box: a Hub session
+that expired mid-session put up a form whose submit hit `AuthGuard`, came back
+401, and re-opened the form. There was no way through it from that page.
+
+The fix is the shape to copy for any module ported in with its own front door.
+The gate markup, its CSS, its handler and the three routes that served it
+(`/api/session`, `/api/login`, `/api/logout`) are **deleted**, not hidden —
+`/logout` is the Hub's, as it is everywhere else. Who is signed in is
+**rendered by the server**: `index()` reads `public/index.html` and substitutes
+`__HUB_USER__`, a plain token rather than a Jinja tag because the file is static
+HTML outside any template environment. That substitution is what lets the markup
+drop the gate — with the name already in the first paint there is nothing left
+for the page to wait to find out, and no state for a failed fetch to fall back
+to. A missing token raises rather than rendering an em dash that looks like
+loading. A 401 on a later fetch sends the browser to `/login?next=`, the place
+that can actually fix it. `test_suite_panel.py` asserts the shape, not the
+wording: no `#login`, no password input, no `showLogin`, the three routes absent
+from the url map, the token filled in, and the name HTML-escaped on the way in.

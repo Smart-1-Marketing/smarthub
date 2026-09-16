@@ -67,15 +67,6 @@
   .brand-preview .swatches { display: flex; gap: 6px; }
   .brand-preview .sw { width: 22px; height: 22px; border-radius: 5px; border: 1px solid rgba(0,0,0,.12); }
 
-  /* Login */
-  #login {
-    position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 50;
-  }
-  #login .box { background: #fff; border-radius: 14px; padding: 32px; width: 360px; max-width: 90vw; }
-  #login h1 { margin: 0 0 4px; font-size: 20px; }
-  #login h1 span { color: var(--brand); }
-  #login p { margin: 0 0 20px; color: var(--muted); font-size: 13px; }
-
   /* Modal */
   #modal, #dupModal { position: fixed; inset: 0; background: rgba(15,23,42,.55); display: none; align-items: center; justify-content: center; z-index: 60; }
   #modal.show, #dupModal.show { display: flex; }
@@ -121,7 +112,6 @@
     .toolbar input { min-width: 0; }
     #tableWrap { overflow-x: auto; }
     table { min-width: 560px; }
-    #login .box { padding: 24px; width: 100%; }
     #modal .box, #dupModal .box { padding: 18px; }
     .diag-row { flex-wrap: wrap; }
     .diag-row .diag-tag { margin-left: 0; }
@@ -131,25 +121,23 @@
 </head>
 <body data-module="suite_panel">
 
-<!-- ============ LOGIN ============ -->
-<div id="login">
-  <div class="box">
-    <h1>Smart <span>1</span> Suite</h1>
-    <p>Control Panel — enter the access password to continue.</p>
-    <div id="loginMsg" class="s1d-note msg err"></div>
-    <form id="loginForm">
-      <label>Your name</label>
-      <input type="text" id="loginName" autocomplete="name" placeholder="e.g. Todd" required style="margin-bottom:14px;" />
-      <label>Password</label>
-      <input type="password" id="loginPw" autocomplete="current-password" required />
-      <div class="hint" style="margin-bottom:4px;">Your name is attached to any account you create or delete, for the activity log.</div>
-      <button class="s1d-btn" style="width:100%; justify-content:center; margin-top:12px;" type="submit">Unlock</button>
-    </form>
-  </div>
-</div>
-
 <!-- ============ APP ============ -->
-<div id="app" class="hidden">
+<!--
+  There is no password screen here. The Hub's own login is the only login this
+  panel has ever had once it was mounted: AuthGuard in wsgi.py answers 302 to
+  /login for a page and 401 for a fetch before a request reaches this app, so
+  anyone who can see this markup is already signed in. The screen that used to
+  sit here was the standalone Node panel's, kept through the port. It asked for
+  a password that nothing checked -- /api/login returned {ok:true} to whoever
+  reached it -- and, because it was the markup the browser painted first, it
+  was a second sign-in page in front of a tool the user was already signed into.
+  Who is signed in is rendered by the server into the head of the panel below,
+  rather than fetched, so the page is right in its first paint and stays right
+  if the network is not. index() in app.py owns that substitution -- and this
+  comment deliberately does not spell the token it looks for, because a second
+  copy of it would be filled in too, putting a name inside an HTML comment.
+-->
+<div id="app">
   <!--
     No dark branded header. This panel is mounted inside the Hub, so the page
     already carries the Hub's own sidebar; a second bar reading "Smart 1 Suite ·
@@ -170,7 +158,7 @@
         <p>Sub-accounts, snapshots and the activity behind them. <span id="acctCount"></span></p>
       </div>
       <div class="s1d-actions">
-        <span class="who">Signed in as <b id="whoName">—</b></span>
+        <span class="who">Signed in as <b id="whoName">__HUB_USER__</b></span>
         <button class="s1d-btn sec" id="logoutBtn">Log out</button>
       </div>
     </div>
@@ -403,7 +391,13 @@ async function api(path, opts = {}) {
     headers: { 'Content-Type': 'application/json' },
     ...opts,
   });
-  if (res.status === 401) { showLogin(); throw new Error('Session expired — please log in again.'); }
+  if (res.status === 401) {
+    // The Hub session expired underneath the page. There is nothing to type
+    // here that would fix that, so send the browser where it can be fixed and
+    // come back to the page it was on.
+    location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+    throw new Error('Your Hub session expired. Taking you to the sign-in page\u2026');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(data.error === 'duplicate' ? (data.message || 'A similar account already exists.') : (data.error || 'Request failed'));
@@ -429,16 +423,6 @@ function flash(el, type, text) {
   el.className = 's1d-note msg ' + (NOTE_LEVEL[type] || '') + ' show';
   el.textContent = text;
   if (type === 'ok') setTimeout(() => el.classList.remove('show'), 6000);
-}
-
-// ---------- Login ----------
-function showLogin() { $('login').classList.remove('hidden'); $('app').classList.add('hidden'); }
-function showApp(name) {
-  $('login').classList.add('hidden'); $('app').classList.remove('hidden');
-  $('whoName').textContent = name || 'Unknown';
-  loadSnapshots(); loadAccounts();
-  applyPrefill();
-  handleManageParam();
 }
 
 // ---------- Existing-client lookup (Smart 1 Team data via the Hub) ----------
@@ -552,19 +536,6 @@ function applyPrefill() {
   const nameEl = $('name');
   if (nameEl) nameEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
-
-$('loginForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  try {
-    const r = await api('/suite/api/login', {
-      method: 'POST',
-      body: JSON.stringify({ password: $('loginPw').value, name: $('loginName').value.trim() }),
-    });
-    $('loginPw').value = '';
-    $('loginMsg').classList.remove('show');
-    showApp(r.name);
-  } catch (err) { flash($('loginMsg'), 'err', err.message); }
-});
 
 $('logoutBtn').addEventListener('click', () => { location.href = '/logout'; });
 
@@ -954,11 +925,15 @@ async function loadOauthStatus() {
 }
 
 // ---------- Boot ----------
-(async function init() {
-  try {
-    const { authenticated, name } = await api('/suite/api/session');
-    if (authenticated) { showApp(name); loadOauthStatus(); } else showLogin();
-  } catch { showLogin(); }
+// No session round trip in front of the page. The request that served this
+// HTML was already authenticated, so the panel loads its data directly; a
+// session that expires later is caught by api() above, per request.
+(function init() {
+  loadSnapshots();
+  loadAccounts();
+  applyPrefill();
+  handleManageParam();
+  loadOauthStatus();
 })();
 </script>
 
