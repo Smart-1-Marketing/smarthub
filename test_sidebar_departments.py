@@ -68,6 +68,15 @@ check("in the agreed order", slugs,
       ["sales", "client-success", "product-success", "seo", "web-dev", "accounting",
        "creative", "studio", "ad-tools", "leads", "qa", "utilities"])
 
+print("\n-- every tool says what it does, in fifty words or fewer --")
+check("every leaf has a blurb", sorted(set(sidebar.LEAVES) - set(sidebar.BLURBS)), [])
+check("no blurb names a tool that does not exist", sorted(set(sidebar.BLURBS) - set(sidebar.LEAVES)), [])
+check("none is over fifty words",
+      sorted(k for k, b in sidebar.BLURBS.items() if len(b.split()) > 50), [])
+check("none says GoHighLevel", sorted(k for k, b in sidebar.BLURBS.items() if "GoHighLevel" in b or "GHL" in b), [])
+check("every department has a color of its own",
+      len({d["color"] for d in sidebar.departments(True)}), 12)
+
 print("\n-- the pinned five --")
 check("Dashboard, Ask SmartHub, Client 360, My Clients, My View",
       [r[1] for r in sidebar.PINNED], ["/", "/ask-smarthub", "/client360", "/my-clients", "/views"])
@@ -127,6 +136,9 @@ for d in sidebar.departments(True):
     body = r.get_data(as_text=True)
     first = next(h for _g, leaves in sidebar.department_tiles(d) for _k, h, *_ in leaves)
     check(f"  {d['href']} renders with its tools", r.status_code == 200 and f'href="{first}"' in body)
+    check(f"  ...with the menu's icon, its color and a description",
+          d["ico"] in body and f'--dept:{d["color"]}' in body and 'class="s1d-sec"' in body
+          and "<p>" in body.split("s1d-tiles")[1].split("</section>")[0])
 check("/views/utilities is a Utilities path for the gate", access.is_utility("/views/utilities"))
 check("/views/sales is not", access.is_utility("/views/sales"), False)
 r = signed.get("/views")

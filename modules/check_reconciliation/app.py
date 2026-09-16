@@ -29,7 +29,6 @@ from urllib.parse import urlencode
 import requests
 from cryptography.fernet import Fernet, InvalidToken
 from flask import Flask, Response, jsonify, redirect, request
-from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 15 * 1024 * 1024
@@ -91,7 +90,94 @@ def _now() -> str:
 
 def _ensure_dirs() -> None:
     _data_root().mkdir(parents=True, exist_ok=True)
-    _upload_dir().mkdir(parents=True, exist_ok=True)
+    # The uploads directory is no longer created: nothing writes to it. It is
+    # still *resolved* by `_upload_dir()`, because a check recorded before this
+    # change carries a filename and deleting that check should still take the
+    # file with it -- the rule this repo applies to a renamed log name, wearing
+    # a directory. New checks record an empty `file`.
+
+
+# How much of a legacy uploads directory one boot will clear, and how long it
+# may spend doing it. Bounded on both axes for `hub/scheduler.py`'s reason: a
+# directory with thousands of files must not hold up a worker coming up, and a
+# slow disk must not turn a cleanup into an outage.
+SWEEP_MAX_FILES = 2000
+SWEEP_MAX_SECONDS = 5.0
+
+
+def sweep_legacy_uploads() -> dict[str, Any]:
+    """Delete the scanned check images the old upload path left on the disk.
+
+    Nothing writes to that directory any more and nothing ever read it back,
+    so what is in it is a bank account number, a routing number and a signature
+    per file, kept for no reader. This removes them.
+
+    **Every boot, and deliberately no marker.** The obvious shape is a one-time
+    migration with a flag in the store, and it is wrong here: that store is
+    mirrored into the database and shared, while the directory is local to an
+    instance. A shared "already swept" would leave a second instance's disk
+    untouched for ever. Run per boot it is idempotent, costs one directory
+    listing once the directory is gone, and self-heals wherever it runs.
+
+    **It never raises.** A cleanup that stops a worker coming up is worse than
+    the files it was cleaning, so every failure is counted and reported rather
+    than propagated. Only regular files directly in the directory are removed:
+    never a directory, never a recursive walk.
+
+    The check records are left exactly as they are. `file` is read by nothing
+    but an unlink that already passes `missing_ok=True`, so a name pointing at
+    a file that has gone is inert -- and rewriting every historical row to
+    blank it would be a far larger mutation than this needs.
+    """
+    out = {"removed": 0, "bytes": 0, "failed": 0, "left": 0, "swept": False}
+    try:
+        folder = _upload_dir()
+        if not folder.is_dir():
+            return out
+        out["swept"] = True
+        started = time.time()
+        for entry in folder.iterdir():
+            if out["removed"] + out["failed"] >= SWEEP_MAX_FILES or \
+                    time.time() - started > SWEEP_MAX_SECONDS:
+                out["left"] += 1
+                continue
+            try:
+                if not entry.is_file():
+                    continue
+                size = entry.stat().st_size
+                entry.unlink()
+                out["removed"] += 1
+                out["bytes"] += size
+            except OSError:
+                out["failed"] += 1
+        if not out["left"] and not out["failed"]:
+            try:
+                folder.rmdir()          # empty now; recreated by nothing
+            except OSError:
+                pass
+    except Exception:                                       # noqa: BLE001
+        return out
+    return out
+
+
+def _sweep_on_boot() -> None:
+    """Run the sweep once per worker, and say so only when it did something.
+
+    A boot that found nothing writes no row. That is a *state* -- the directory
+    is clear and stays clear -- and writing one every boot for ever is the
+    noise `hub/google_index.py` had to learn to stop making. A boot that
+    removed something is an event and is recorded.
+    """
+    try:
+        result = sweep_legacy_uploads()
+        if not result.get("removed") and not result.get("failed"):
+            return
+        from hub import audit as hub_audit
+        hub_audit.log("check_reconciliation", "legacy_check_images_removed",
+                      actor="system", **{k: result[k] for k in
+                                         ("removed", "bytes", "failed", "left")})
+    except Exception:                                       # noqa: BLE001
+        pass
 
 
 def _shaped(raw) -> dict[str, Any]:
@@ -661,10 +747,15 @@ def api_upload():
     if not raw:
         return _api_error(ValueError("The uploaded file is empty."))
     mime = file.mimetype or "application/octet-stream"
-    ext = Path(secure_filename(file.filename)).suffix.lower()[:8] or ".bin"
     cid = "chk_" + secrets.token_hex(8)
-    path = _upload_dir() / f"{cid}{ext}"
-    _ensure_dirs(); path.write_bytes(raw)
+    # The bytes are read here and not kept. A scanned check carries an account
+    # number, a routing number and a signature, and nothing in this module ever
+    # read the stored file back: every route is listed a few hundred lines
+    # below and none serves one, and the OCR below works on `raw` in memory
+    # rather than on a path. So the file was write-only -- all of the exposure
+    # and none of the use. The extension went with it: it was only ever the
+    # suffix of the name being written, and `_extract_check` branches on the
+    # mimetype.
     extracted = _extract_check(raw, mime)
     manual = request.form
     payer = (manual.get("payer") or extracted.get("payer") or "").strip()
@@ -677,7 +768,7 @@ def api_upload():
     check_no = (manual.get("check_number") or extracted.get("check_number") or "").strip()
     rec = {"id": cid, "created_at": _now(), "payer": payer, "date": date, "amount": amount,
            "check_number": check_no, "ocr_confidence": extracted.get("confidence"),
-           "ocr_error": extracted.get("ocr_error"), "file": path.name, "status": "new",
+           "ocr_error": extracted.get("ocr_error"), "file": "", "status": "new",
            "customer_matches": [], "selected_customers": [], "suggestion": {}, "payments": []}
     def apply(state): state["checks"].append(rec)
     _mutate(apply)
@@ -835,3 +926,7 @@ _PAGE = r'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta nam
 
 if __name__ == "__main__":
     app.run("0.0.0.0", int(os.environ.get("PORT", "8000")), debug=True)
+
+
+# Clear any images the old upload path left behind. See sweep_legacy_uploads().
+_sweep_on_boot()

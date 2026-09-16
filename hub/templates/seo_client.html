@@ -233,6 +233,7 @@
         <button class="seoc-btn seoc-small" data-pub="smart1" data-kind="schema">&#10024; Claude &rarr; Smart 1 Sites</button>
         <button class="seoc-btn seoc-small" data-pub="wordpress" data-kind="schema">&#10024; Claude &rarr; WordPress</button>
         <button class="seoc-btn seoc-small" data-wppub="schema" id="wpPubSchema" style="display:none">&#8599; Send to WordPress</button>
+        <button class="seoc-btn seoc-sec seoc-small" id="wpVerifySchema" style="display:none">&#128269; Is it live?</button>
       </div>
     </div>
     <div style="overflow-x:auto">
@@ -3044,6 +3045,10 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     var plug=((wpState||{}).probe||{}).plugin||{};
     if($('wpPubSchema'))
       $('wpPubSchema').style.display = (live && plug.installed) ? 'inline-block' : 'none';
+    /* Checking is a fetch of the client's own public pages, so it needs no
+       plugin and no credential — only somewhere to have sent the block. */
+    if($('wpVerifySchema'))
+      $('wpVerifySchema').style.display = live ? 'inline-block' : 'none';
     var b=$('wpConnectBlogs');
     if(b) b.textContent = live ? 'WordPress connection ✓' : 'WordPress connection';
   }
@@ -3091,6 +3096,14 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
         +'Written as <b>drafts</b>. Nothing is published and nothing is scheduled.</div></div>'
         +'<div class="seoc-pubfield"><b>Image alt text</b><div class="note" style="grid-column:2/4">'
         +'Written onto the media library item, so it applies everywhere that image is used.</div></div>'
+        +'<div class="seoc-pubfield"><b>Meta descriptions</b><div class="note" style="grid-column:2/4">'
+        +(plug.description_by
+          ? 'Written into <b>'+esc(plug.description_by)+'</b>&rsquo;s own field, and into the Excerpt. '
+            +'Nothing has to be copied across.'
+          : 'Written into the post&rsquo;s Excerpt field and copied across by hand. An SEO plugin&rsquo;s '
+            +'own field becomes writable once the Smart 1 Hub plugin is installed &mdash; except All in '
+            +'One SEO, which keeps its metadata in its own table rather than in post meta.')
+        +'</div></div>'
         +'<div class="seoc-pubfield"><b>Page schema</b><div class="note" style="grid-column:2/4">'
         +(plug.installed
           ? 'Written into the page <b>head</b> through the Smart 1 Hub plugin (version '
@@ -3245,6 +3258,37 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     $('wpPubMsg').textContent='';
     $('wpPubModal').classList.add('open');
   }
+  function wpVerify(){
+    var urls=selectedUrls('schemaRows');
+    if(!urls.length){ seoSay('schemaTableMsg','Tick the pages you want to check first.'); return; }
+    var w=seoBusy('schemaTableMsg','Fetching each page the way a visitor gets it','scan');
+    post('/api/seo/wordpress/verify',{client:CLIENT,urls:urls}).then(function(d){
+      w.done();
+      if(d.error){ seoSay('schemaTableMsg',d.error); return; }
+      seoSay('schemaTableMsg','');
+      var c=d.counts||{};
+      $('wpPubTitle').textContent='Is the schema live?';
+      var h='<div class="seoc-pubstep"><b>'
+        +(c.live||0)+' live &middot; '+(c.stale||0)+' out of date &middot; '
+        +(c.absent||0)+' not on the page &middot; '+(c.not_measured||0)+' not measured'
+        +'</b><p>'+esc(d.reminder||'')+'</p></div>';
+      if(d.note) h+='<div class="seoc-pubwarn">'+esc(d.note)+'</div>';
+      (d.results||[]).forEach(function(r){
+        var mark = r.verdict==='live' ? '&#10003; '
+                 : r.verdict==='not_measured' ? '&#8211; ' : '&#9888; ';
+        h+='<div class="seoc-pubitem"><div class="seoc-pubitem-head">'
+          +'<span>'+mark+esc(r.title||r.url||'')+'</span>'
+          +'<span class="seoc-muted">'+esc(r.verdict.replace('_',' '))+'</span></div>'
+          +'<div class="seoc-pubfield"><b>Page</b><div class="note" style="grid-column:2/4">'+esc(r.url||'')+'</div></div>'
+          +'<div class="seoc-pubfield"><b>What we found</b><div class="note" style="grid-column:2/4">'+esc(r.note||'')+'</div></div>'
+          +'</div>';
+      });
+      $('wpPubBody').innerHTML=h;
+      $('wpPubMsg').textContent='';
+      $('wpPubModal').classList.add('open');
+    },function(){ w.done(); seoSay('schemaTableMsg','That did not go through.'); });
+  }
+  if($('wpVerifySchema')) $('wpVerifySchema').onclick=wpVerify;
   document.querySelectorAll('[data-wppub]').forEach(function(b){
     b.onclick=function(){ wpPublish(b.dataset.wppub); };
   });

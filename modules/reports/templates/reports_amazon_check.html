@@ -1,0 +1,134 @@
+{% extends "_reports_base.html" %}
+{% block title %}Amazon DSP check · Reports{% endblock %}
+{% block heading %}Amazon DSP check{% endblock %}
+{% block lede %}What the DSP entity actually answers, against the names
+  <span class="mono">modules/reports/amazon_dsp.py</span> expects. No live entity has
+  answered this code yet, so every field name in that file is a transcription and the
+  pull says so on the Reports index until somebody has compared a raw row to it here.
+  Five separate things have to be true before a row exists at all; the ladder below says
+  which one is not.{% endblock %}
+
+{% block body %}
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>The connection {{ help_dot('reports.amazon.check') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">
+      {% if chk.status.connected %}<span class="s1d-pill ok">connected</span>
+      {% elif chk.status.configured %}<span class="s1d-pill warn">not connected</span>
+      {% else %}<span class="s1d-pill warn">not configured</span>{% endif %}</span></div>
+  {% if chk.error %}<div class="notice err">{{ chk.error }}</div>{% endif %}
+  {% if not chk.status.configured %}
+  <div class="notice">Nothing was called: the credentials are not set, and a credential is not
+    sent to find out whether it is set. Set <span class="mono">AMAZON_ADS_CLIENT_ID</span>,
+    <span class="mono">AMAZON_ADS_CLIENT_SECRET</span> and <span class="mono">AMAZON_DSP_ENTITY_ID</span>
+    on the service first.</div>
+  {% elif not chk.status.connected %}
+  <div class="notice">Nothing was called: nobody has consented yet. Press <b>Connect Amazon Ads</b> on
+    <a href="/tools/ads/settings">Smart 1 Ads settings</a>, signed in as an <b>admin on the DSP
+    entity</b> — the consent inherits that person's access, and a rep's own Amazon login reaches
+    nothing.</div>
+  {% endif %}
+  <div class="s1d-kv"><b>Entity</b><span class="mono">{{ chk.status.entity_id or '(not set)' }}</span></div>
+  <div class="s1d-kv"><b>Region</b><span class="mono">{{ chk.status.region }}</span></div>
+  <div class="s1d-kv"><b>Report asked for</b>
+    <span class="mono">POST {{ chk.request.host }}{{ chk.request.path }}<br>
+      &nbsp;&nbsp;{{ chk.window.start }} &rarr; {{ chk.window.end }}<br>
+      {% for k, v in chk.request.body.items() %}&nbsp;&nbsp;{{ k }} = {{ v }}<br>{% endfor %}</span></div>
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>The ladder</h2>
+    <span class="s1d-muted">{% if chk.preflight %}rung {{ chk.preflight.rung }} of 5{% else %}not climbed{% endif %}</span></div>
+  <p class="s1d-hint">&ldquo;We have Amazon API access&rdquo; is five claims, and four of them fail in
+    ways that look like a working configuration. Every unmet one is reported at once rather than
+    one per attempt.</p>
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr><th>#</th><th>What has to be true</th><th>How it reads when it is not</th><th></th></tr></thead>
+    <tbody>
+      {% set rung = chk.preflight.rung if chk.preflight else 0 %}
+      {% for n, claim, fails in [
+        (1, 'The variables are set, and are not a quoted value or a placeholder', 'named, one by one'),
+        (2, 'The refresh token mints an access token', 'invalid_grant — a consent revoked or from another application, never a bad secret'),
+        (3, "The entity's profile is visible to this consent", 'an empty match — Connect was pressed by somebody who does not administer the entity, or the entity id is wrong'),
+        (4, 'The advertisers are readable', '403 not_permitted — the Amazon Ads API application is not approved for this entity, which reads exactly like a wrong key'),
+        (5, 'Writes are allowed in this region', 'not probed here at all — nothing in the Hub writes an Amazon campaign, so nothing here may claim it')] %}
+      <tr>
+        <td>{{ n }}</td>
+        <td>{{ claim }}</td>
+        <td class="s1d-muted">{{ fails }}</td>
+        <td>{% if n == 5 %}<span class="s1d-pill">{{ chk.preflight.write_access if chk.preflight else 'unprobed' }}</span>
+            {% elif rung > n %}<span class="s1d-pill ok">met</span>
+            {% elif rung == n %}<span class="s1d-pill bad">here</span>
+            {% else %}<span class="s1d-muted">not reached</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% if chk.preflight and chk.preflight.problems %}
+    {% for p in chk.preflight.problems %}<div class="notice err">{{ p }}</div>{% endfor %}
+  {% endif %}
+  {% if chk.preflight and chk.preflight.advertisers %}
+  <div class="s1d-kv"><b>Advertisers under the entity</b>
+    <span class="mono">{% for a in chk.preflight.advertisers %}{{ a.name or '(unnamed)' }} — {{ a.id }}{{ ' · ' + a.currency if a.currency }}<br>{% endfor %}</span></div>
+  {% endif %}
+</div>
+
+<div class="s1d-grid">
+  <div class="s1d-card">
+    <div class="s1d-cardhead"><h2>Field map expected</h2>
+      <span class="s1d-muted">{% if chk.resolves %}{% if chk.resolves.resolved %}<span class="s1d-pill ok">Resolved</span>{% else %}<span class="s1d-pill bad">Does not resolve</span>{% endif %}{% else %}<span class="s1d-muted">not checked</span>{% endif %}</span></div>
+    <div class="s1d-scroll">
+    <table class="s1d-t">
+      <thead><tr><th>Fact column</th><th>Response field</th></tr></thead>
+      <tbody>
+      {% for k, v in chk.map.items() %}
+        <tr><td>{{ k }}</td><td class="mono">{{ v }}
+          {% if chk.resolves and v in chk.resolves.missing %}<span class="s1d-pill bad">missing</span>{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <p class="s1d-hint">Spend is <span class="mono">totalCost</span> in the advertiser's own
+      currency, with no divisor: a first row a thousand times too big means the field is wrong,
+      not the divisor. Purchases and detail-page views are Amazon-storefront metrics and ride in
+      extras under their own names — they are never folded into conversions, which this platform
+      does not report. Completes are carried only on a row that served video.</p>
+    {% if chk.resolves and chk.resolves.why %}<p class="s1d-hint">{{ chk.resolves.why }}</p>{% endif %}
+  </div>
+
+  <div class="s1d-card">
+    <div class="s1d-cardhead"><h2>What came back</h2>
+      <span class="s1d-muted">{% if chk.resolves %}{{ chk.resolves.rows }} row{{ '' if chk.resolves.rows == 1 else 's' }}{% else %}nothing read{% endif %}</span></div>
+    {% if chk.sample %}
+      <div class="s1d-kv"><b>First row</b><span class="mono">{% for k, v in chk.sample.items() %}{{ k }} = {{ v }}<br>{% endfor %}</span></div>
+    {% else %}
+      <p class="empty">{% if chk.status.connected %}No report body has been read. The error above says what happened; a report Amazon is still preparing is not a failure, and asking again in a moment collects it.{% else %}Connect first.{% endif %}</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>Paths, and which of them a person has confirmed</h2>
+    <span class="s1d-muted">{% if chk.confirmed %}<span class="s1d-pill ok">map confirmed</span>{% else %}<span class="s1d-pill warn">reading as a claim</span>{% endif %}</span></div>
+  <p class="s1d-hint">Amazon is mid-way through moving DSP onto the <span class="mono">/adsApi/v1</span>
+    model, and the legacy <span class="mono">/dsp/</span> paths answer today as well, for different
+    things. Every path lives in <span class="mono">amazon_ads.ENDPOINTS</span> and nowhere else.</p>
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr><th>Name</th><th>Call</th><th>Confirmed</th></tr></thead>
+    <tbody>
+      {% for name, ep in chk.endpoints.items() %}
+      <tr><td class="mono">{{ name }}</td><td class="mono">{{ ep.method }} {{ ep.path }}</td>
+        <td>{% if ep.confirmed %}<span class="s1d-pill ok">yes</span>{% else %}<span class="s1d-pill warn">a claim</span>{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="s1d-hint">When a raw row above matches the field map, set
+    <span class="mono">CONFIRMED = True</span> in <span class="mono">modules/reports/amazon_dsp.py</span>
+    and each <span class="mono">ENDPOINTS[...]["confirmed"]</span> that has answered, in the same
+    change as any correction the row calls for. Until then the Reports index says the pull is
+    reading a claim — which is the honest reading, not a fault.</p>
+</div>
+{% endblock %}

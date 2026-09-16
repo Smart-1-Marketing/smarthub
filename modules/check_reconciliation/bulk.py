@@ -8,10 +8,8 @@ invoice-allocation approval flow.
 from __future__ import annotations
 
 import secrets
-from pathlib import Path
 
 from flask import jsonify, request
-from werkzeug.utils import secure_filename
 
 
 # Checks captured in the September 2026 reconciliation conversation. These are
@@ -85,11 +83,8 @@ def install_bulk(module) -> None:
         if not raw:
             raise ValueError(f"{file.filename or 'Uploaded file'} is empty.")
         mime = file.mimetype or "application/octet-stream"
-        ext = Path(secure_filename(file.filename or "check")).suffix.lower()[:8] or ".bin"
         cid = "chk_" + secrets.token_hex(8)
-        path = module._upload_dir() / f"{cid}{ext}"
-        module._ensure_dirs()
-        path.write_bytes(raw)
+        # Not written to disk -- see the note in app.py's api_upload.
         extracted = module._extract_check(raw, mime)
         amount_raw = extracted.get("amount")
         try:
@@ -105,7 +100,7 @@ def install_bulk(module) -> None:
             "check_number": str(extracted.get("check_number") or "").strip(),
             "ocr_confidence": extracted.get("confidence"),
             "ocr_error": extracted.get("ocr_error"),
-            "file": path.name,
+            "file": "",
             "source": source,
             "status": "new",
             "customer_matches": [],
