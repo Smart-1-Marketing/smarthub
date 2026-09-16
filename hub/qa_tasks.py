@@ -68,6 +68,8 @@ import os
 import re
 import time as _time
 from functools import lru_cache
+from html.parser import HTMLParser
+from urllib.parse import urljoin
 
 import requests
 from sqlalchemy import (Column, Date, DateTime, Integer, LargeBinary, String,
@@ -747,10 +749,37 @@ def autoclaim() -> dict:
 _IMAGE_URL_RE = re.compile(r"https?://\S+\.(?:png|jpe?g|gif|webp)(?:\?\S*)?", re.I)
 _SCREENSHOT_HOST_RE = re.compile(
     r"https?://(?:www\.)?awesomescreenshot\.com/image/\S+", re.I)
-_OG_IMAGE_RE = re.compile(
-    r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
-    re.I)
 _SCREENSHOT_UA = "Mozilla/5.0 (compatible; Smart1Hub/1.0; +https://smart1-hub.onrender.com)"
+
+
+class _MetaImageParser(HTMLParser):
+    """Reads a page's own preview-card image out of its `<head>`, the way a
+    browser resolving a link preview would -- rather than a regex assuming
+    one attribute order and one spelling. `property="og:image"` is the
+    Open Graph spelling; `name="twitter:image"` is Twitter's card spelling
+    and a page that skipped the first still very often publishes the
+    second, since both exist for the identical purpose of a link preview.
+    Stops parsing once it has both, so a malformed or enormous page never
+    costs more than its own `<head>`.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.og_image = None
+        self.twitter_image = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "meta" or (self.og_image and self.twitter_image):
+            return
+        names = {k: v for k, v in attrs}
+        key = (names.get("property") or names.get("name") or "").lower()
+        content = names.get("content")
+        if not content:
+            return
+        if key == "og:image":
+            self.og_image = content
+        elif key == "twitter:image":
+            self.twitter_image = content
 
 
 def _image_urls(text: str) -> list[str]:
@@ -771,29 +800,52 @@ def _resolve_screenshot_url(url: str) -> str:
     table was failing on it, silently, for as long as the tool has existed.
 
     The share page's own preview card publishes the real screenshot as
-    `og:image` -- that is how a link posted in Slack or iMessage renders a
-    thumbnail -- so this reads that tag rather than guessing at the host's
-    CDN layout, which would be a second thing to keep in step with a vendor
-    that owes this codebase nothing.
+    `og:image` (or `twitter:image` where a page skipped the first) -- that
+    is how a link posted in Slack or iMessage renders a thumbnail -- so this
+    reads that tag rather than guessing at the host's CDN layout, which
+    would be a second thing to keep in step with a vendor that owes this
+    codebase nothing.
 
     A URL that already ends in an image extension needs none of this and is
-    returned unchanged. Anything this cannot resolve -- a network failure, a
-    page carrying no og:image tag -- falls back to the *original* URL rather
-    than dropping the task: still wrong in the way it always was, never
-    worse for having tried.
+    returned unchanged. Everything else falls back to the *original* URL --
+    still wrong in the way it always was, never worse for having tried --
+    and the three ways that can happen are told apart in the log rather
+    than collapsed into one silence: a network failure or non-2xx status (an
+    exception), a page that answered but carried neither tag (nothing to
+    read, which drew no warning at all until this said so), and a tag whose
+    content is not usable as an image URL once resolved against the page's
+    own address.
     """
     if _IMAGE_URL_RE.fullmatch(url):
         return url
     try:
         resp = requests.get(url, timeout=10, headers={
-            "User-Agent": _SCREENSHOT_UA, "Accept": "text/html"})
+            "User-Agent": _SCREENSHOT_UA,
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9",
+        })
         resp.raise_for_status()
-        match = _OG_IMAGE_RE.search(resp.text)
-        if match:
-            return match.group(1)
     except Exception as exc:                            # noqa: BLE001
         _warn(f"_resolve_screenshot_url({url}) could not read the share page", exc)
-    return url
+        return url
+
+    parser = _MetaImageParser()
+    try:
+        parser.feed(resp.text)
+    except Exception:                                   # noqa: BLE001
+        pass  # a malformed head is read as far as it got; nothing to raise over
+    content = parser.og_image or parser.twitter_image
+    if not content:
+        _warn(f"_resolve_screenshot_url({url}) found no og:image or "
+              f"twitter:image tag on the page it fetched", "")
+        return url
+
+    resolved = urljoin(resp.url, content)
+    if not resolved.lower().startswith(("http://", "https://")):
+        _warn(f"_resolve_screenshot_url({url}) found a preview tag "
+              f"({content!r}) that does not resolve to a fetchable URL", "")
+        return url
+    return resolved
 
 
 def describe_images(task_id: int) -> dict:

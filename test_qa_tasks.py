@@ -312,9 +312,10 @@ with app.app_context():
     print("\n-- resolving a share page to its real image --")
 
     class _FakeResp:
-        def __init__(self, text="", status=200):
+        def __init__(self, text="", status=200, url=None):
             self.text = text
             self.status_code = status
+            self.url = url or "https://www.awesomescreenshot.com/image/1?key=x"
 
         def raise_for_status(self):
             if self.status_code >= 400:
@@ -338,6 +339,30 @@ with app.app_context():
           qa_tasks._resolve_screenshot_url("https://example.com/chart.png"),
           "https://example.com/chart.png")
 
+    HTML_WITH_TWITTER = ('<html><head><meta name="twitter:image" '
+                         'content="https://cdn.awesomescreenshot.com/tw/abc.png">'
+                         '</head></html>')
+
+    def fake_get_twitter_only(url, **kw):
+        return _FakeResp(HTML_WITH_TWITTER)
+    requests_mod.get = fake_get_twitter_only
+    check("a page with no og:image falls back to twitter:image",
+          qa_tasks._resolve_screenshot_url(
+              "https://www.awesomescreenshot.com/image/1?key=x"),
+          "https://cdn.awesomescreenshot.com/tw/abc.png")
+
+    HTML_WITH_RELATIVE_OG = ('<html><head><meta property="og:image" '
+                             'content="/real/abc.png"></head></html>')
+
+    def fake_get_relative_og(url, **kw):
+        return _FakeResp(HTML_WITH_RELATIVE_OG,
+                          url="https://www.awesomescreenshot.com/image/1?key=x")
+    requests_mod.get = fake_get_relative_og
+    check("a relative og:image is resolved against the page's own address",
+          qa_tasks._resolve_screenshot_url(
+              "https://www.awesomescreenshot.com/image/1?key=x"),
+          "https://www.awesomescreenshot.com/real/abc.png")
+
     def fake_get_raises(url, **kw):
         raise requests_mod.ConnectionError("blocked")
     requests_mod.get = fake_get_raises
@@ -350,6 +375,17 @@ with app.app_context():
         return _FakeResp("<html><body>no preview tag here</body></html>")
     requests_mod.get = fake_get_no_og
     check("a page with no og:image tag falls back to itself",
+          qa_tasks._resolve_screenshot_url(
+              "https://www.awesomescreenshot.com/image/1?key=x"),
+          "https://www.awesomescreenshot.com/image/1?key=x")
+
+    HTML_WITH_JS_TAG = ('<html><head><meta property="og:image" '
+                        'content="javascript:void(0)"></head></html>')
+
+    def fake_get_unusable_og(url, **kw):
+        return _FakeResp(HTML_WITH_JS_TAG)
+    requests_mod.get = fake_get_unusable_og
+    check("a preview tag that resolves to no fetchable scheme falls back to itself",
           qa_tasks._resolve_screenshot_url(
               "https://www.awesomescreenshot.com/image/1?key=x"),
           "https://www.awesomescreenshot.com/image/1?key=x")
