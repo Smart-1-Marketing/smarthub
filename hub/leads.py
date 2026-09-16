@@ -368,7 +368,8 @@ def _read_all(*, strict: bool = False) -> list[dict]:
         if rows is not None:
             counted, from_table = rows, True
     except Exception:  # noqa: BLE001 — fall through to the file
-        pass
+        pass        # no table answering is a reason to read the file, not to
+                    # return nothing
     if not from_table:
         try:
             with open(_path(), encoding="utf-8") as fh:
@@ -479,7 +480,7 @@ def _rewrite(rows: list[dict]) -> None:
         if lead_store.replace_all(rows):
             return
     except Exception:  # noqa: BLE001 — fall through to the file
-        pass
+        pass        # the rewrite below is what a Hub with no database does
     with _exclusive():
         known = {r.get("id") for r in rows if r.get("id")}
         arrived = [r for r in _read_all()
@@ -610,7 +611,7 @@ def _update(row: dict) -> None:
         if lead_store.update_one(row):
             return
     except Exception:  # noqa: BLE001 — fall through to the rewrite
-        pass
+        pass        # the read-modify-write below is the fallback, not the plan
     rows = _read_all()
     for i, r in enumerate(rows):
         if r.get("id") == row["id"]:

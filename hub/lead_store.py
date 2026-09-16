@@ -442,11 +442,14 @@ def flush_pending() -> int:
                 for r in rows:
                     fh.write(json.dumps(r, ensure_ascii=False) + "\n")
         except OSError:
-            pass
+            # A disk that will not take them back has lost them, and there is
+            # nowhere left to put them. Raising here would cost the caller the
+            # capture as well, which is the one thing store() may never do.
+            pass    # nowhere left to put them; raising costs the capture too
         try:
             os.remove(claimed)
         except OSError:
-            pass
+            pass    # the claim file is litter; the leads are the thing above
         return 0
     try:
         os.remove(claimed)
@@ -602,10 +605,11 @@ def _missing_ids(ids: list[str]) -> set[str] | None:
 
 def status() -> dict:
     """Which backend answered, and what the fallback is still holding."""
-    pending = -1
     try:
         pending = len(_file_rows(pending_path()))
     except Exception:                                   # noqa: BLE001
+        # -1, not 0. "The spill could not be read" and "there is no spill"
+        # are different answers, and the panel says which.
         pending = -1
     return {
         "backend": "database" if _ready else "file",
@@ -634,7 +638,7 @@ def drop_for_tests() -> None:
         with _engine.begin() as cx:
             _table.drop(cx, checkfirst=True)
     except Exception:                                   # noqa: BLE001
-        pass
+        pass    # a table that will not drop is one the reset below recreates
     with _db_lock:
         _ready = False
         _table = None

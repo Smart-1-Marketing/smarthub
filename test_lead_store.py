@@ -64,7 +64,7 @@ def _fresh() -> None:
         try:
             os.remove(path)
         except OSError:
-            pass
+            pass        # not there is the state this is trying to reach
     # And the "already imported" marker, which goes through jsonstore and is
     # therefore mirrored into the database -- deleting the file alone leaves
     # the mirror answering, and every import check after the first reads
@@ -74,7 +74,7 @@ def _fresh() -> None:
         jsonstore.delete_json(os.path.join(jsonstore.data_dir("leads"),
                                            "import.json"))
     except Exception:                                   # noqa: BLE001
-        pass
+        pass        # no marker to clear is the state this is reaching for
     lead_store._init()
 
 
@@ -181,6 +181,29 @@ class WhenTheDatabaseWillNotAnswer(unittest.TestCase):
         lead_store.store(_lead("after"))
         self.assertEqual([r["id"] for r in leads._read_all()],
                          ["during-1", "during-2", "after"])
+
+    def test_the_failure_is_cached_rather_than_retried_per_lead(self):
+        """`_init_retry_at` is the cooldown, and it looks unread because its
+        only read is inside the function that also assigns it.
+
+        Without it every capture during an outage re-opens the engine and
+        waits for the same timeout again, in front of a visitor -- and with it
+        cached for ever, a Hub that came up while Render's Postgres was waking
+        would file every lead of that boot on the disk. It is a window, and
+        both edges of it matter.
+        """
+        import time as _time
+        # The database in this fixture is perfectly reachable, so the only
+        # thing that can make _init() answer False is the cooldown itself.
+        self._no_database()
+        lead_store._init_retry_at = _time.time() + lead_store.INIT_RETRY_SECONDS
+        self.assertFalse(lead_store._init())
+        self.assertEqual(lead_store.store(_lead("during")), "pending")
+        # Past it, the next call really does try again -- and succeeds, which
+        # is the half that a cooldown cached for the life of the worker loses.
+        lead_store._init_retry_at = 0.0
+        self.assertTrue(lead_store._init())
+        self.assertEqual(lead_store.store(_lead("after")), "database")
 
     def test_a_spill_from_a_previous_process_is_flushed(self):
         """The counter that tracks the spill is per process, and the deploy is
