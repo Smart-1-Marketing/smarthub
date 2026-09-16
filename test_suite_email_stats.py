@@ -439,6 +439,90 @@ check("a reading draws the totals, the table and the day",
       "campaigns, last 30 days" in _okm and "1,180" in _okm and "33.9%" in _okm and "September specials" in _okm and "Read " + TODAY.isoformat() in _okm)
 check("...and the press", 'data-act="refresh"' in _okm)
 check("the token never reaches the card's markup", TOKEN not in _okm)
+check("...and a read offers the raw statistics beside it", 'data-act="raw"' in _okm)
+check("...which a state with no reading does not", 'data-act="raw"' not in _nsnap and 'data-act="raw"' not in _empty)
+
+
+# ---------------------------------------------------------------------------
+section("Confirming the key mapping: the raw statistics beside what was read")
+# ---------------------------------------------------------------------------
+
+# The spec does not name the statistics' field names, so _COUNT_KEYS is a
+# guess and the raw object is kept beside every reading to correct it from.
+# Nothing read that object until raw_view(), which is what makes the
+# comparison docs/claude/60 asks for possible without shell access.
+
+check("a key no spelling claims is named", se.unmapped_keys({"delivered": 1, "totalOpens": 9, "widgets": 2}),
+      ["totalOpens", "widgets"])
+check("...and a claimed one is not", se.unmapped_keys({"delivered": 1, "opened": 2, "revenue": 0}), [])
+check("...a non-object is no keys rather than a raise", se.unmapped_keys(None), [])
+
+jsonstore.delete_json(se._readings_path(NAME))
+_book["list"] = [_row("c1", "September specials", stats=dict(STATS, weirdCount=7))]
+se.snapshot(NAME, today=TODAY)
+rv = se.raw_view(NAME, today=TODAY)
+check("the raw view carries the stored statistics object whole",
+      (rv["measured"], rv["as_of"], rv["campaigns"][0]["raw_stats"]["delivered"]),
+      (True, TODAY.isoformat(), 1180))
+check("...naming the key each count was read from", rv["campaigns"][0]["resolved"]["delivered"], "delivered")
+check("...and the key the Suite sent that nothing claims", rv["campaigns"][0]["unmapped"], ["weirdCount"])
+check("...with the spellings tried, so a fix is written against them",
+      "deliveredCount" in rv["count_keys"]["delivered"])
+
+_book["list"] = [_row("c2", "Other spelling", stats={"deliveredCount": 50, "openedCount": 10}, top=True)]
+jsonstore.delete_json(se._readings_path(NAME))
+se.snapshot(NAME, today=TODAY)
+rv = se.raw_view(NAME, today=TODAY)
+c0 = rv["campaigns"][0]
+check("a count read off the row rather than a statistics object says so",
+      (c0["resolved"]["delivered"], c0["raw_stats"]), ("", {}))
+check("...and the counts that came back empty are named", "clicked" in c0["missing"] and "bounced" in c0["missing"])
+
+jsonstore.delete_json(se._readings_path(NAME))
+rv = se.raw_view(NAME, today=TODAY)
+check("no reading is not measured, and says which kind of nothing",
+      (rv["measured"], rv["state"], "not read yet" in rv["staff_note"]), (False, "no_snapshot", True))
+
+_book["list"] = [_row("c1", "September specials", stats=dict(STATS, weirdCount=7))]
+se.snapshot(NAME, today=TODAY)
+check("the plain reading still strips the raw statistics",
+      all("raw_stats" not in c for c in se.reading(NAME, today=TODAY)["campaigns"]))
+check("...and a client's page cannot carry them",
+      all("raw_stats" not in c for c in se.public_view(se.reading(NAME, today=TODAY))["campaigns"]))
+check("...because PUBLIC_KEYS does not name them", "raw_stats" in se.PUBLIC_KEYS, False)
+
+r = staff.get("/api/client/suite-email?raw=1&name=" + NAME.replace("'", "%27").replace(" ", "%20"))
+d = r.get_json()
+check("the staff GET offers the raw statistics when asked",
+      (r.status_code, d["raw"]["measured"], d["raw"]["campaigns"][0]["unmapped"]), (200, True, ["weirdCount"]))
+check("...and carries none unasked", "raw" in staff.get(
+    "/api/client/suite-email?name=" + NAME.replace("'", "%27").replace(" ", "%20")).get_json(), False)
+r = anon.get("/api/client/suite-email?raw=1&name=" + NAME.replace("'", "%27").replace(" ", "%20"))
+check("...and refuses a stranger exactly as the plain GET does",
+      r.status_code in (302, 401) and (r.status_code == 401 or r.headers.get("Location", "").startswith("/login")))
+check("the raw read reaches no Suite call either",
+      "raw_view(" in _src[_src.index('@app.route("/api/client/suite-email")'):_src.index('@app.route("/api/client/suite-email/refresh"')])
+
+_raw_payloads = [
+    {"measured": False, "staff_note": "Linked and not read yet."},
+    {"measured": True, "as_of": TODAY.isoformat(), "campaigns": []},
+    se.raw_view(NAME, today=TODAY),
+]
+_rdriver = ("function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;')"
+            ".replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;');}\n"
+            + _SRC + "\nconst P=" + json.dumps(_raw_payloads) + ";\n"
+            "console.log(JSON.stringify(P.map(p=>renderSuiteEmailRaw(p))));\n")
+_rr = subprocess.run(["node", "-"], input=_rdriver, capture_output=True, text=True)
+check("the raw renderer runs on its own", _rr.returncode, 0)
+if _rr.returncode:
+    print("          node:", _rr.stderr[-400:])
+_rout = json.loads(_rr.stdout or "[]") if _rr.returncode == 0 else [""] * 3
+_rnone, _rempty, _rok = (_rout + [""] * 3)[:3]
+check("nothing read says so rather than drawing an empty table", "not read yet" in _rnone)
+check("a reading with no campaign says that apart", "no campaign" in _rempty)
+check("a reading draws the object, what was read from it, and what nothing claims",
+      "September specials" in _rok and "weirdCount" in _rok and "unclaimed" in _rok and "delivered" in _rok)
+check("the token never reaches the raw markup", TOKEN not in _rok)
 
 
 # ---------------------------------------------------------------------------
