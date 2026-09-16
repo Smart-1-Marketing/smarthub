@@ -1577,8 +1577,28 @@ def api_delete_bulk():
     return jsonify(ok=True, deleted=deleted, failed=len(results) - deleted, results=results)
 
 
+# How many entries the history panel is handed. The store itself keeps 2000
+# (see _audit_write); this is what one screen can usefully hold, newest
+# first, and the panel says so rather than implying it is the whole log.
+AUDIT_PAGE_SIZE = 200
+
+
 @qa_bp.route("/api/audit")
 @require_login
 def api_audit():
+    """What was skipped, un-skipped, checked and deleted here, newest first.
+
+    `total` is the whole stored log, not this page of it, so the panel can
+    say "showing the last 200 of 640" rather than presenting a window as the
+    entirety. A store that is not a list is a store this cannot read: it
+    answers `ok: false` rather than an empty list, because "nothing has been
+    cleaned up" and "the log could not be read" are opposite answers and a
+    panel that draws them identically is how a lost audit trail goes
+    unnoticed.
+    """
     rows = jsonstore.read_json(_path("google_inactive_qa_audit.json"), default=[])
-    return jsonify(rows=list(reversed(rows[-200:]))) if isinstance(rows, list) else jsonify(rows=[])
+    if not isinstance(rows, list):
+        return jsonify(ok=False, rows=[], total=0,
+                       error="The cleanup log could not be read.")
+    return jsonify(ok=True, total=len(rows), page_size=AUDIT_PAGE_SIZE,
+                   rows=list(reversed(rows[-AUDIT_PAGE_SIZE:])))

@@ -51,6 +51,10 @@
 <div class="notice">This client has a video or social product and no confirmed YouTube channel, so the public page
   has no channel section. Confirm one on the client's record (the YouTube channel card on Client 360) to enable it.</div>
 {% endif %}
+{% if email is defined and email.product and not email.account %}
+<div class="notice">This client has an email product and no linked Smart 1 Suite sub-account, so the public page
+  has no email campaigns section. Attach one on the client's record (the Smart 1 Suite card on Client 360) to enable it.</div>
+{% endif %}
 <div class="s1d-grid">
   <div class="s1d-card">
     <div class="s1d-cardhead"><h2>The client's link {{ help_dot('reports.client.link') if help_dot is defined else '' }}</h2>
@@ -234,6 +238,19 @@
       {% if youtube.read_note %}<span class="s1d-muted">{{ youtube.read_note }}</span>{% endif %}
       {% if youtube.errors %}<span class="s1d-pill bad">not measured</span> <span class="s1d-muted">{{ youtube.errors|join('; ') }}</span>{% endif %}
     </span></div>
+  {% if email is defined %}
+  <div class="s1d-kv" style="margin-top:8px"><b>Email campaigns</b>
+    <span>
+      {% if email.gated and email.read %}<span class="s1d-pill ok">Email section on</span>{% elif email.gated %}<span class="s1d-pill warn">Email section waiting on a reading</span>{% else %}<span class="s1d-pill warn">Email section off</span>{% endif %}
+      &mdash; email product: <b>{{ 'yes' if email.product else 'no' }}</b>{% if email.products %} ({{ email.products|join(', ') }}){% endif %},
+      Suite sub-account linked: <b>{{ 'yes' if email.account else 'no' }}</b>{% if email.gated %},
+      read: <b>{{ 'yes' if email.read else 'no' }}</b>{% if email.as_of %} ({{ email.as_of }}){% endif %}{% endif %}.
+      {% if email.why %}<span class="s1d-muted">{{ email.why|join('; ') }}.</span>{% endif %}
+      {% if email.scope_missing %}<span class="s1d-pill warn">scope missing</span> <span class="s1d-muted">{{ email.scope_missing|join(', ') }} &mdash; the agency owner re-consenting the Hub app grants it.</span>{% endif %}
+      {% if email.read_note %}<span class="s1d-muted">{{ email.read_note }}</span>{% endif %}
+      {% if email.errors %}<span class="s1d-pill bad">not measured</span> <span class="s1d-muted">{{ email.errors|join('; ') }}</span>{% endif %}
+    </span></div>
+  {% endif %}
   <div class="row" style="margin-top:12px">
     <div class="field grow"><label>Logo URL (blank uses the Hub's brand cache, then the Smart 1 logo)</label>
       <input type="text" name="logo_url" value="{{ link.view_json.logo_url or '' }}"></div>

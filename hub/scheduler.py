@@ -402,6 +402,25 @@ def job_youtube_snapshot(app) -> dict:
         return youtube.sweep(force=False)
 
 
+def job_suite_email_snapshot(app) -> dict:
+    """Read every linked client's sent email campaigns once a night
+    (hub/suite_email_stats.py).
+
+    The youtube_snapshot shape: ticks hourly, the module decides inside
+    the nightly window, a client already read today is skipped, and the
+    run is under a wall-clock budget with what it did not reach named.
+    It does not run at all while the two email scopes are unconsented --
+    one refusal there repeats for every sub-account, and the card says
+    which scope is missing instead.
+    """
+    try:
+        from hub import suite_email_stats
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        return suite_email_stats.sweep(force=False)
+
+
 def job_refresh_purchased_domains(app) -> dict:
     """Re-pull the two sources behind /tools/domains, once a night.
 
@@ -1190,6 +1209,8 @@ JOBS = {
                           "or below the top source tier."),
     "youtube_snapshot":  (60, job_youtube_snapshot,
                           "Read every confirmed YouTube channel once a night."),
+    "suite_email_snapshot": (60, job_suite_email_snapshot,
+                          "Read every linked client's sent email campaigns once a night."),
     "video_backlog":     (60, job_index_video_backlog,
                           "Describe another batch of the video background library."),
     "picker_describe":   (60, job_describe_client_uploads,

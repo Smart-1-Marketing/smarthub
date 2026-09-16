@@ -305,6 +305,13 @@ def index():
     )
 
 
+@admin_bp.route("/<path:legacy_path>")
+@require_login
+def legacy_path(legacy_path):
+    """Return stale Google Access paths to the active staff tool."""
+    return redirect(url_for("google_access.index"), 302)
+
+
 @admin_bp.route("/api/requests", methods=["POST"])
 @require_login
 def create_request():
