@@ -343,6 +343,9 @@ python3 test_google_inactive_qa_bulk.py
                                    #   empty log, and a Needs Review row the
                                    #   scan honors a skip on -- except the
                                    #   broken login, which is refused in words
+                                   #   -- and a resolver that says which site
+                                   #   each container would be fetched against
+                                   #   without fetching any of them
 node test_google_inactive_qa_bulk_ui.js
                                    # the same page's own script, run for real:
                                    #   selection per section surviving the
@@ -354,7 +357,10 @@ node test_google_inactive_qa_bulk_ui.js
                                    #   open, reloaded after an action, and a
                                    #   window on the log saying it is one; and
                                    #   Needs Review offering Skip on the rows a
-                                   #   skip means something for and no other
+                                   #   skip means something for and no other;
+                                   #   and the bulk check collecting a site per
+                                   #   container first, checking only the ones
+                                   #   given an address and naming the blanks
 python3 test_analytics_ids.py      # two names for one property are not a
                                    #   disagreement: the measurement id Knack
                                    #   holds against the property id Google
