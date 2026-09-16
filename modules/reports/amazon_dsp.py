@@ -11,7 +11,12 @@ them (``normalize.py``'s native-wins rule).
 The connection, the entity and every call are ``modules/ads_builder/
 amazon_ads.py``; this file is the pull and the decisions it carries:
 
-* **The campaign is the DSP *order*.** The line item rides in ``extras``.
+* **The campaign is the DSP *order*, and the report's finer grain is folded
+  before it is written.** The report answers one row per line item per day;
+  the fact table's key is the order-day, so the figures are summed per
+  order-day and the line items ride in ``extras`` by name. Writing the
+  unfolded rows would file the last line item's spend as the order's, which
+  is a wrong client-facing number that nothing on screen would question.
   The auto-mapper files a client from the order name the way it does from a
   Google campaign name, and an order whose name carries no client waits on
   ``/reports/unmapped`` for a person rather than being guessed at.
@@ -142,12 +147,25 @@ def _day(value) -> str:
 def to_facts(raw, advertiser: dict) -> dict:
     """``{"rows": [...], "skipped": n}`` from one advertiser's report body.
 
+    **The report's grain is finer than the fact table's, so it is folded
+    here.** The request asks for ORDER *and* LINE_ITEM, so Amazon answers one
+    row per line item per day, while ``AdPerfDaily``'s key is
+    (platform, account, campaign, date) with the order as the campaign. Handed
+    over unfolded, three line items on one order-day are three upserts into
+    one row and the last one silently wins: an order that spent sixty dollars
+    is filed as whatever its last line item spent, on a client-facing figure,
+    with every screen looking healthy. So the figures are summed per
+    order-day the way ``ttd_myreports`` sums a split row, and the line items
+    ride in ``extras`` by name rather than as one arbitrary survivor.
+
     Every field is read with a default and a row missing its day or its
     order id is skipped and counted, never invented -- parse_records()'s
     rule one platform over.
     """
     f = FIELD_MAP
-    rows, skipped = [], 0
+    folded: dict = {}
+    order: list = []
+    skipped = 0
     aid = str(advertiser.get("id") or "").strip()
     for r in raw or []:
         if not isinstance(r, dict):
@@ -158,29 +176,46 @@ def to_facts(raw, advertiser: dict) -> dict:
         if day is None or not order_id or not aid:
             skipped += 1
             continue
-        extras = {"line_item_id": str(r.get(f["line_id"]) or "").strip(),
-                  "line_item_name": str(r.get(f["line_name"]) or "").strip(),
-                  "advertiser_name": str(advertiser.get("name") or "").strip()}
-        if advertiser.get("currency"):
-            extras["currency"] = str(advertiser["currency"])
-        for key in ("purchases", "detail_page_views"):
-            value = _num(r.get(f[key]))
-            if value is not None:
-                extras[key] = value
-        row = {
-            "platform": PLATFORM, "source": "native", "date": day,
-            "account_id": aid, "campaign_id": order_id,
-            "campaign_name": str(r.get(f["order_name"]) or "").strip(),
-            "spend": round(_num(r.get(f["spend"])) or 0.0, 2),
-            "impressions": _int(r.get(f["impressions"])),
-            "clicks": _int(r.get(f["clicks"])),
-            # conversions is deliberately absent: see the module docstring.
-            "extras": extras,
-        }
+        key = (aid, order_id, day)
+        row = folded.get(key)
+        if row is None:
+            extras = {"advertiser_name": str(advertiser.get("name") or "").strip(),
+                      "line_items": []}
+            if advertiser.get("currency"):
+                extras["currency"] = str(advertiser["currency"])
+            row = {
+                "platform": PLATFORM, "source": "native", "date": day,
+                "account_id": aid, "campaign_id": order_id,
+                "campaign_name": str(r.get(f["order_name"]) or "").strip(),
+                "spend": 0.0, "impressions": 0, "clicks": 0,
+                # conversions is deliberately absent: see the module docstring.
+                "extras": extras,
+            }
+            folded[key] = row
+            order.append(key)
+        elif not row["campaign_name"]:
+            # A later line item may carry the order name where the first did
+            # not; an order with no name at all waits on /reports/unmapped.
+            row["campaign_name"] = str(r.get(f["order_name"]) or "").strip()
+        row["spend"] = round(row["spend"] + (_num(r.get(f["spend"])) or 0.0), 2)
+        row["impressions"] += _int(r.get(f["impressions"]))
+        row["clicks"] += _int(r.get(f["clicks"]))
         completes = _num(r.get(f["completes"]))
         if completes:
-            row["completes"] = int(completes)
-        rows.append(row)
+            row["completes"] = int(row.get("completes") or 0) + int(completes)
+        for key_name in ("purchases", "detail_page_views"):
+            value = _num(r.get(f[key_name]))
+            if value is not None:
+                row["extras"][key_name] = (row["extras"].get(key_name) or 0.0) + value
+        name = str(r.get(f["line_name"]) or "").strip() or str(r.get(f["line_id"]) or "").strip()
+        if name and name not in row["extras"]["line_items"]:
+            # Named rather than counted: a client reading "3 line items" learns
+            # nothing, and the names are what a person recognizes on a report.
+            row["extras"]["line_items"].append(name)
+    rows = [folded[k] for k in order]
+    for row in rows:
+        if not row["extras"]["line_items"]:
+            row["extras"].pop("line_items")
     return {"rows": rows, "skipped": skipped}
 
 

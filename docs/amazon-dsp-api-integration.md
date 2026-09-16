@@ -84,8 +84,16 @@ ladder with the rung it stopped at.
   *Streaming TV* — all three were already in `store.PLATFORMS`,
   `provider_map.py` and `products.py` for the provider feed, and the native
   pull files under the same key rather than a second one.
-* Campaign name = **order** name; the line item rides in `extras`. The
-  unmapped queue works on the order.
+* Campaign name = **order** name; the line items ride in `extras` by name.
+  The unmapped queue works on the order.
+* **The report's grain is finer than the fact table's, and is folded before
+  it is written.** The request asks for ORDER *and* LINE_ITEM, so Amazon
+  answers one row per line item per day, while `AdPerfDaily`'s key is
+  (platform, account, campaign, date) with the order as the campaign. Written
+  unfolded, three line items on one order-day are three upserts into one row
+  and the last one silently wins — an order that spent $60 filed as $30, on a
+  client-facing figure, with every screen looking healthy. So the figures are
+  summed per order-day, the way `ttd_myreports` sums a split row.
 * `totalCost` in the advertiser's currency, **no divisor**. A first row a
   thousand times too big means the field is wrong, not the divisor.
 * **Purchases are not conversions.** `totalPurchases` and

@@ -30,7 +30,9 @@ What it holds:
     from a pre-signed URL with NO Authorization header on it, and parsed
     defensively -- a row with no day or no order id is counted, not
     invented;
-  * the order is the campaign and the line item rides in extras; spend is
+  * the order is the campaign, and the report's finer grain is folded onto
+    the order-day rather than upserted over itself — line items ride in
+    extras by name; spend is
     totalCost with no divisor; purchases and detail-page views land in
     extras under their own names and never into conversions; completes
     are carried only where video served;
@@ -345,11 +347,16 @@ os.environ.pop("AMAZON_DSP_ENTITY_PROFILE_ID")
 section("One report per advertiser: submit, poll, download, parse")
 
 RAW = [
-    # An order with a line item, video served, one purchase, in USD.
+    # The request asks for ORDER *and* LINE_ITEM, so one order-day comes back
+    # as one row per line item. These two are the same order on the same day.
     {"date": "20260914", "orderId": "o1", "orderName": "S1M | Acme Plumbing | Targeted Display",
      "lineItemId": "l1", "lineItemName": "Acme CTV 30s", "totalCost": "12.50",
      "impressions": 1000, "clickThroughs": 3, "videoComplete": 400,
      "totalPurchases": 2, "totalDetailPageViews": 9},
+    {"date": "20260914", "orderId": "o1", "orderName": "S1M | Acme Plumbing | Targeted Display",
+     "lineItemId": "l7", "lineItemName": "Acme CTV 15s", "totalCost": "7.50",
+     "impressions": 600, "clickThroughs": 2, "videoComplete": 100,
+     "totalPurchases": 1, "totalDetailPageViews": 3},
     # A display-only order: no completes on the row at all.
     {"date": "2026-09-13", "orderId": "o2", "orderName": "Acme display",
      "lineItemId": "l2", "lineItemName": "Acme banners", "totalCost": 3.25,
@@ -379,7 +386,7 @@ ANSWERS.extend([
 slept = []
 res = amazon_dsp.pull(today=date(2026, 9, 16), sleep=slept.append)
 check("the pull is ok", (res["ok"], res["error"]), (True, ""), note=res)
-check("...landing the two complete rows and counting the two it could not read",
+check("...landing two order-days from three readable rows, and counting the two it could not read",
       (res["rows"], res["skipped"]), (2, 2))
 check("...across one advertiser, with nothing left pending",
       (res["advertisers"], res["pending"]), (1, {}))
@@ -415,21 +422,33 @@ check("the rows are platform amazon_dsp / source native",
 r1 = facts[("A1", "o1")]
 check("the campaign is the DSP order, filed under the advertiser",
       (r1.campaign_name, r1.account_id), ("S1M | Acme Plumbing | Targeted Display", "A1"))
-check("...spend is totalCost in the advertiser's currency, with no divisor",
-      (float(r1.spend), r1.impressions, r1.clicks), (12.5, 1000, 3))
+# The bug this pins: the fact table's key is the order-day, so two line items
+# on one order-day are two upserts into one row. Written unfolded, the last
+# one wins and an order that spent 20.00 is filed as 7.50 — a wrong number on
+# a client's report with nothing on any screen to question it.
+check("...the order-day's line items are summed rather than the last one winning",
+      (float(r1.spend), r1.impressions, r1.clicks), (20.0, 1600, 5))
 check("...a YYYYMMDD day and an ISO one both read",
       (r1.date, facts[("A1", "o2")].date), (date(2026, 9, 14), date(2026, 9, 13)))
 check("...no Amazon purchase is written into conversions, which stays at nothing",
       float(r1.conversions), 0.0)
-check("...completes are carried where video served", r1.completes, 400)
+check("...completes summed across them where video served", r1.completes, 500)
 check("...and not at all where it did not", facts[("A1", "o2")].completes, None)
 ex1 = r1.extras if isinstance(r1.extras, dict) else json.loads(r1.extras or "{}")
-check("the line item rides in extras, with the advertiser's name and currency",
-      (ex1.get("line_item_id"), ex1.get("line_item_name"), ex1.get("advertiser_name"),
-       ex1.get("currency")),
-      ("l1", "Acme CTV 30s", "Acme Plumbing", "USD"))
-check("purchases and detail-page views ride there too, under their own names",
-      (ex1.get("purchases"), ex1.get("detail_page_views")), (2.0, 9.0))
+check("every line item on the order-day rides in extras by name, not one survivor",
+      (ex1.get("line_items"), ex1.get("advertiser_name"), ex1.get("currency")),
+      (["Acme CTV 30s", "Acme CTV 15s"], "Acme Plumbing", "USD"))
+check("purchases and detail-page views ride there too, summed, under their own names",
+      (ex1.get("purchases"), ex1.get("detail_page_views")), (3.0, 12.0))
+# Folding is per order AND per day: neither may be summed into the other.
+one_line = amazon_dsp.to_facts(
+    [{"date": "20260914", "orderId": "oA", "orderName": "A", "lineItemName": "x", "totalCost": 1},
+     {"date": "20260915", "orderId": "oA", "orderName": "A", "lineItemName": "x", "totalCost": 2},
+     {"date": "20260914", "orderId": "oB", "orderName": "B", "lineItemName": "y", "totalCost": 4}],
+    {"id": "A1", "name": "Acme"})["rows"]
+check("a second day on one order is its own row, and another order is its own row",
+      sorted((r["campaign_id"], r["date"].isoformat(), r["spend"]) for r in one_line),
+      [("oA", "2026-09-14", 1.0), ("oA", "2026-09-15", 2.0), ("oB", "2026-09-14", 4.0)])
 
 check("the native watermark is stamped", store.sync_status()["amazon_dsp"]["source"], "native")
 check("...so the provider normalize defers to it", store.native_is_current("amazon_dsp"), True)
@@ -556,7 +575,8 @@ ANSWERS.extend([
 ])
 theirs = reconcile.theirs("amazon_dsp", date(2026, 9, 1), date(2026, 9, 15))
 check("the month is measured", theirs["measured"], True, note=theirs)
-check("...summing the same report over the window", float(theirs["spend"]), 15.75)
+check("...summing the same report over the window, line items and all",
+      float(theirs["spend"]), 23.25)
 check("...labeled a re-read and never an independent source",
       (theirs["independent"], "fetched again" in theirs["label"]), (False, True))
 

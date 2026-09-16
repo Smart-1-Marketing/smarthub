@@ -63,8 +63,22 @@ does not stamp a last-pull time for a feed nobody has ever read.
 **The order is the campaign; the line item is not.** The auto-mapper files a
 client from the order name the way it does from a Google campaign name, and
 an order whose name carries no client waits on `/reports/unmapped`. The line
-item rides in `extras`, which is where it can be read and where it cannot be
-mistaken for a second campaign.
+items ride in `extras` by name, which is where they can be read and where
+they cannot be mistaken for a second campaign.
+
+**And the report's grain is folded before it is written, which the first
+version of this did not do.** The request asks for ORDER *and* LINE_ITEM, so
+one order-day comes back as one row per line item; the fact table's key is
+the order-day. Handed over unfolded, those rows are several upserts into one
+row and the last one wins — an order that spent sixty dollars filed as
+whatever its last line item spent. Nothing would have shown it: the number is
+plausible, it is on a client's report, and every screen would have read
+healthy. It survived the first test file because every fixture had one line
+item per order, which is the shape the documentation's examples happen to
+use and not the shape the request asks for. The figures are summed per
+order-day now, `ttd_myreports`'s rule for a split row, and the regression
+test is two line items on one order-day asserting the sum rather than the
+survivor.
 
 **Purchases are not conversions**, and the limit of that is written down
 rather than implied. `totalPurchases` and `totalDetailPageViews` are
