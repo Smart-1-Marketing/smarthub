@@ -39,7 +39,6 @@ one of the ways closing it could go wrong instead:
   4. **Filing it twice.** A late callback, the refresh button and the
      scheduler's sweep over stuck rows all land in `_apply_report()`.
 """
-import json
 import os
 import sys
 import tempfile
