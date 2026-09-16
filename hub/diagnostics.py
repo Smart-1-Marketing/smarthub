@@ -237,6 +237,14 @@ def check_amazon_dsp() -> Check:
                      f"Connected; the last pull said: {st['last_error'][:200]}", 0,
                      fix="Open /reports/amazon-check: a 403 there is the Amazon Ads API "
                          "application not being approved for this entity, not a wrong key.")
+    if st.get("stuck"):
+        hours = ", ".join(f"{h:g}h" for h in sorted(st["stuck"].values()))
+        return Check("amazon_dsp", "Amazon DSP", "warn",
+                     f"Connected; {len(st['stuck'])} report(s) have been preparing at Amazon "
+                     f"for {hours} and nothing has landed for them.", 0,
+                     fix="The next run asks Amazon for a fresh report rather than carrying that "
+                         "id again. If it keeps happening, /reports/amazon-check says which "
+                         "rung the connection reaches.")
     if not st.get("confirmed"):
         return Check("amazon_dsp", "Amazon DSP", "warn",
                      f"Connected in {st['region']}; the field map is a transcription nobody has "
