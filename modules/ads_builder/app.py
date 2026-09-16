@@ -748,7 +748,8 @@ def oauth_amazon_callback():
         provider="Amazon Advertising",
         pin_var="AMAZON_ADS_REFRESH_TOKEN",
         blurb="The reports module can now pull Amazon DSP order figures for every advertiser "
-              "under the entity, every six hours. What this consent reaches is whatever the "
+              "under the entity, nightly at 3 AM Eastern. What this consent reaches is "
+              "whatever the "
               "account that just signed in can reach: if that account is not an admin on the "
               "DSP entity, the entity's profile will not be in the list and /reports/ will "
               "say so.",
@@ -814,7 +815,7 @@ def api_status():
         # campaign, so nothing here claims writes are available in a region.
         "amazon": {**amazon_ads.connection_status(store),
                    "note": "Connected, the reports module pulls Amazon DSP order figures "
-                           "every six hours. Campaign management is not built."},
+                           "nightly at 3 AM Eastern. Campaign management is not built."},
     })
 
 

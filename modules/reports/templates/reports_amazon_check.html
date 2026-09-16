@@ -29,6 +29,12 @@
   {% endif %}
   <div class="s1d-kv"><b>Entity</b><span class="mono">{{ chk.status.entity_id or '(not set)' }}</span></div>
   <div class="s1d-kv"><b>Region</b><span class="mono">{{ chk.status.region }}</span></div>
+  {% if chk.status.stuck %}
+  <div class="notice">{{ chk.status.stuck|length }} report(s) have been preparing at Amazon for
+    {{ chk.status.stuck.values()|join('h, ') }}h with nothing landing. The next run stops carrying
+    that id and asks for a fresh report; a report that keeps sticking is Amazon's side of the
+    connection, not a field map.</div>
+  {% endif %}
   <div class="s1d-kv"><b>Report asked for</b>
     <span class="mono">POST {{ chk.request.host }}{{ chk.request.path }}<br>
       &nbsp;&nbsp;{{ chk.window.start }} &rarr; {{ chk.window.end }}<br>
