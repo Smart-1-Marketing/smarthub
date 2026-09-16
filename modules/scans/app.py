@@ -38,7 +38,8 @@ from sqlalchemy import Column, DateTime, Integer, String, Text, func, or_
 from sqlalchemy.orm import declarative_base
 
 from . import (audit_fields, brand, insites_client, leads as widget_state,
-               linkcheck, report_pdf, reports, site_health, widget)
+               linkcheck, prospect_leads, report_pdf, reports, site_health,
+               widget)
 from .insites_client import InsitesError, is_configured
 from hub.extensions import (BootProbe, create_all_metadata, session_factory,
                             shared_engine)
@@ -68,7 +69,24 @@ CALLBACK_TOKEN = (os.environ.get("SCANS_CALLBACK_TOKEN") or "").strip()
 
 # The externally-reachable base URL of the Hub, so we can tell Insites where to
 # POST the finished audit. On Render set PUBLIC_BASE_URL to the service URL.
-PUBLIC_BASE_URL = (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+#
+# Through hub/config.py rather than os.environ, per the opportunistic-migration
+# rule: a module reading a variable itself is one the next spelling fix has to
+# be made in twice, which is exactly how the Insites key came to be read two
+# ways (`insites_client.py` was moved onto config for that). `public_base_url_raw`
+# is the same value this line used to compute -- what was actually set, with
+# the trailing slash off -- and deliberately not `public_base_url`, which
+# discards any path: trimming the callback URL a scan is already waiting on is
+# a separate decision from where the value is read.
+def _public_base_url() -> str:
+    try:
+        from hub.config import settings
+        return settings.public_base_url_raw
+    except Exception:                                   # noqa: BLE001
+        return (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+
+
+PUBLIC_BASE_URL = _public_base_url()
 
 
 def config_warnings() -> list[str]:
@@ -137,6 +155,19 @@ class Scan(Base):
     llm_narrative = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     completed_at = Column(DateTime, nullable=True)
+    # A scanned business that is not a client is a prospect, and a prospect in
+    # this Hub is a row in hub/leads.py -- the store, the panel and the record
+    # at /prospect/<lead id> all hang off that id. modules/scans/prospect_leads
+    # decides it and writes all three of these: the id where one was filed, and
+    # otherwise which answer this scan got and why, because "no lead" reads
+    # identically whether it was decided or dropped.
+    #
+    # lead_id has been read since WO-3d -- `_tag_lead_temperature()` scores
+    # every completed audit and tags the lead -- against a column that did not
+    # exist, so every staff scan scored itself and wrote the result nowhere.
+    lead_id = Column(String(32), default="")
+    lead_state = Column(String(24), default="")
+    lead_note = Column(String(400), default="")
 
     @property
     def client_key(self) -> str:
@@ -193,6 +224,9 @@ _LATE_COLUMNS = [
     ("scan_widget_runs", "kind", "VARCHAR(16)"),
     ("scan_widget_runs", "intake_json", "TEXT"),
     ("scans", "llm_narrative", "TEXT"),
+    ("scans", "lead_id", "VARCHAR(32)"),
+    ("scans", "lead_state", "VARCHAR(24)"),
+    ("scans", "lead_note", "VARCHAR(400)"),
 ]
 
 
@@ -366,6 +400,15 @@ def scan_to_row(s: Scan) -> dict:
         "error_message": s.error_message or "",
         "created_at": _iso(s.created_at),
         "completed_at": _iso(s.completed_at),
+        # Whether this scan became a lead, and where that lead is. A state
+        # with no id is an answer too -- "a client", "already a lead", "no
+        # contact details" -- so all three ride together rather than the
+        # reader inferring a verdict from an empty id.
+        "lead_id": s.lead_id or "",
+        "lead_state": s.lead_state or "",
+        "lead_label": prospect_leads.STATES.get(s.lead_state or "", ""),
+        "lead_note": s.lead_note or "",
+        "lead_url": f"/prospect/{s.lead_id}" if s.lead_id else "",
     }
 
 
@@ -418,7 +461,31 @@ def _apply_report(s: Scan, report: dict):
     s.completed_at = _now()
     _fetch_llm_narrative(s)
     _resolve_industry_from_scan(s)
+    _file_prospect_lead(s, report)
     _tag_lead_temperature(s, report)
+
+
+def _file_prospect_lead(s: "Scan", report: dict) -> None:
+    """A scanned business that is not a client becomes a lead.
+
+    Before `_tag_lead_temperature()`, not after: that function scores the
+    audit and tags `s.lead_id`, which until this line was a column no staff
+    scan ever filled in. Filing first is what gives it something to tag.
+
+    The rules -- a client is not a lead, an unreadable client list is not a
+    verdict, one business is one row, and a lead nobody can contact is not
+    filed -- are `modules/scans/prospect_leads.py`. Never raises: the
+    completed audit is the transaction that matters here, the same way the
+    industry resolve and the brand review either side of it are not allowed
+    to cost it.
+    """
+    try:
+        out = prospect_leads.ensure(s, report=report)
+    except Exception:                                     # noqa: BLE001
+        return
+    if out.get("filed"):
+        _log("scan_lead_filed", detail=s.domain_key, scan=s.public_id,
+             lead=out.get("lead_id") or "")
 
 
 def _tag_lead_temperature(s: "Scan", report: dict) -> None:
@@ -1060,6 +1127,65 @@ def api_refresh(public_id):
             s.error_message = ""
             db.commit()
         return jsonify({"ok": True, "status": s.status, "scan": scan_to_row(s)})
+    finally:
+        db.close()
+
+
+# The HTTP answer each verdict gets. A deliberate "no" and "we could not
+# look" are different from each other and from "what you sent is not enough",
+# and a page that has to tell them apart from one status code guesses.
+_LEAD_STATUS = {"filed": 200, "linked": 200,
+                "client": 409, "widget": 409,
+                "no_contact": 422,
+                "undecided": 503, "off": 503}
+
+
+@app.route("/api/scans/<public_id>/lead", methods=["POST"])
+def api_scan_lead(public_id):
+    """File this scan's business as a lead by hand.
+
+    The automatic pass runs when the audit lands. This is the way back from
+    the two answers it gives that a person can do something about: no contact
+    details were found on the website (type one in), and the client list could
+    not be read at the time (ask it again).
+
+    It deliberately does **not** override a scan matched to a client. Filing a
+    client as a lead is a thing this Hub does on purpose elsewhere -- the
+    Website Audit tool files one against the client's own name -- and doing it
+    from here because somebody pressed a button on a scan is how a business we
+    bill turns up in the prospect queue with nobody able to say why.
+    """
+    body = request.get_json(silent=True) or {}
+    typed = {k: body.get(k) for k in ("name", "email", "phone", "company")}
+    db = SessionLocal()
+    try:
+        s = db.query(Scan).filter(Scan.public_id == public_id).first()
+        if not s:
+            return jsonify({"ok": False, "error": "Unknown scan."}), 404
+        try:
+            raw = json.loads(s.raw_report) if s.raw_report else None
+        except (TypeError, ValueError):
+            raw = None          # an unreadable payload costs the top issues,
+                                # not the lead
+        out = prospect_leads.ensure(s, report=raw, typed=typed)
+        db.commit()
+        filed = out["state"] in ("filed", "linked")
+        if out["state"] == "filed":
+            _log("scan_lead_filed", detail=s.domain_key, scan=s.public_id,
+                 lead=out.get("lead_id") or "", by_hand=True)
+        return jsonify({
+            "ok": filed,
+            "state": out["state"],
+            "label": out["label"],
+            "note": out["note"],
+            "lead_id": out["lead_id"],
+            # Where it can be worked, not just that it exists. The panel is a
+            # list; the record is the prospect -- the audit, the proposals and
+            # the Suite stage in one place -- which is the step
+            # hub/website_audit_routes.py added for the same reason.
+            "record_url": f"/prospect/{out['lead_id']}" if out["lead_id"] else "",
+            "error": "" if filed else out["note"],
+        }), _LEAD_STATUS.get(out["state"], 200)
     finally:
         db.close()
 

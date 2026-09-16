@@ -41,6 +41,15 @@ SOURCES: dict[str, dict] = {
         "what": "the AI-visibility check a prospect runs on a client's site (modules/scans)",
         "workflow": None,   # to build: email the report link on this tag
     },
+    "site_scan": {
+        "what": "a business a rep scanned from /scans that turned out not to "
+                "be a client (modules/scans/prospect_leads.py)",
+        # To build: nothing is emailed on this one. The business did not ask
+        # us for anything -- somebody here typed their website into the Hub --
+        # so a workflow that mails them off this tag would be a cold send
+        # nobody chose. The tag is the audience a rep works from.
+        "workflow": None,
+    },
     "website_audit": {
         "what": "the full website audit placement, and the staff audit tool (hub/website_audit_routes.py)",
         "workflow": None,   # to build: email the audit page link on this tag

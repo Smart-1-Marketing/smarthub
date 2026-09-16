@@ -935,6 +935,20 @@ jobs:
             echo "test_scan_widgets.py not on this branch — nothing to run."
           fi
 
+      - name: Scan-to-lead tests
+        if: matrix.group == 2
+        # A scanned business that is not a client becomes a lead: the client
+        # check that refuses to answer from a registry it could not read, the
+        # website that is already a lead, and the contactless row that is
+        # refused by name. Guarded like the steps around it so this workflow
+        # stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_scan_lead.py ]; then
+            python test_scan_lead.py
+          else
+            echo "test_scan_lead.py not on this branch — nothing to run."
+          fi
+
       - name: Prospect queue tests
         if: matrix.group == 3
         # Who to call, in the order the work has to happen. Guarded like the
