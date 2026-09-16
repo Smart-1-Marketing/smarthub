@@ -81,6 +81,13 @@ python3 test_scan_run.py           # what a prospect on somebody else's
                                    #   being polled to the ceiling, no
                                    #   promise of an email nothing here
                                    #   can send, and one unlock per run
+python3 test_scan_lead.py          # a scanned business that is not a client
+                                   #   becomes a lead: an unreadable client
+                                   #   list refuses to answer rather than
+                                   #   filing the client book as prospects,
+                                   #   a website that is already a lead is
+                                   #   linked not re-filed, and a row nobody
+                                   #   can contact is refused by name
 python3 test_prospect_queue.py     # who to call, in the order the work has to happen
 python3 test_upsell_report.py      # what the audit says we could sell each client:
                                    #   coverage named, recorded vs observed kept apart
