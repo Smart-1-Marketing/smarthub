@@ -68,6 +68,13 @@ TOOLS: dict[str, Tool] = {
         v2_tools.client_ga4_summary,
         ("client_name", "property_id", "start_date", "end_date",
          "compare_start", "compare_end")),
+    "get_client_performance": Tool(
+        "Read a client's ad performance from the reports fact table for a named period: "
+        "campaign table, totals, period-over-period deltas, pacing band and prorated "
+        "margin, with deterministic flags. Optional platform or product filter.", STAFF,
+        v2_tools.client_performance,
+        ("client_name", "period", "compare", "platform", "product",
+         "start_date", "end_date", "limit")),
     "get_client_proposals": Tool(
         "Read saved and uploaded proposal summaries for a client.", STAFF,
         v2_tools.client_proposals, ("client_name",)),

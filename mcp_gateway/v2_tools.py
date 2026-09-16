@@ -475,6 +475,498 @@ def client_insertion_orders(client_name: str, limit: int = 20) -> dict:
             "count": len(orders), "orders": orders}
 
 
+# ---------------------------------------------------------------------------
+# Ad performance, out of the reports fact table
+# ---------------------------------------------------------------------------
+# The Hub already holds every figure this answers from: modules/reports keeps
+# a fact table fed by Google Ads, Microsoft Ads, The Trade Desk, StackAdapt,
+# GroundTruth and the CSV door, with hourly pacing and prorated margin over
+# the top. What it did not have was a reading an assistant could ask a
+# question of. Three rules hold this one honest:
+#
+# * It is a SUPERSET of the Client 360 ad-performance card, never a rival.
+#   The two-spellings reading is ``client_card.candidate_keys()`` -- the same
+#   function the card calls -- and the pacing block is
+#   ``pacing.compute(client=)`` passed through field for field. Two readings
+#   of one question drift the day either is edited, which is the failure
+#   ``client_view.pacing`` records about its own first draft.
+# * Only CONFIRMED mappings reach a figure. ``store.facts_for`` enforces that
+#   for every reader in the Hub; pending campaigns are counted and named so
+#   an answer can say what is not in the total.
+# * A ratio with no denominator is ``None``, never 0 and never infinity. An
+#   answer renders None as "not measured"; rendering it as zero is a figure
+#   this Hub did not measure, which is ``hub/audit_summary.py``'s house rule.
+
+
+def _f(value, places: int = 2):
+    """A Decimal or number as a rounded float; None stays None."""
+    if value is None:
+        return None
+    try:
+        return round(float(value), places)
+    except (TypeError, ValueError):
+        return None
+
+
+def _ratio(top, bottom, *, scale: float = 1.0, places: int = 2):
+    """One derived metric, or None when there is nothing to divide by."""
+    try:
+        bottom = float(bottom or 0)
+        if not bottom:
+            return None
+        return round(float(top or 0) / bottom * scale, places)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+# Where a sync would put a conversion value if it carried one. None of the
+# pulls writes one today, which is why ``roas`` reads null with a note rather
+# than a number: a return on ad spend computed against conversions counted as
+# dollars is a figure nobody measured.
+_VALUE_KEYS = ("conversion_value", "conversions_value", "conv_value",
+               "revenue", "total_conversion_value")
+
+
+def _conversion_value(fact: dict):
+    extras = fact.get("extras") if isinstance(fact.get("extras"), dict) else {}
+    for key in _VALUE_KEYS:
+        if extras.get(key) is not None:
+            try:
+                return float(extras[key])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _blank() -> dict:
+    return {"spend": 0.0, "impressions": 0, "clicks": 0, "conversions": 0.0,
+            "value": None, "value_rows": 0, "rows": 0}
+
+
+def _add(bucket: dict, fact: dict) -> None:
+    bucket["spend"] += float(fact.get("spend") or 0)
+    bucket["impressions"] += int(fact.get("impressions") or 0)
+    bucket["clicks"] += int(fact.get("clicks") or 0)
+    bucket["conversions"] += float(fact.get("conversions") or 0)
+    bucket["rows"] += 1
+    value = _conversion_value(fact)
+    if value is not None:
+        bucket["value"] = (bucket["value"] or 0.0) + value
+        bucket["value_rows"] += 1
+
+
+def _metrics(bucket: dict) -> dict:
+    """The eight headline figures for one bucket of fact rows."""
+    imps, clicks = bucket["impressions"], bucket["clicks"]
+    spend, convs = bucket["spend"], bucket["conversions"]
+    return {
+        "spend": round(spend, 2), "impressions": imps, "clicks": clicks,
+        "conversions": round(convs, 2),
+        "ctr": _ratio(clicks, imps, scale=100),
+        "cpc": _ratio(spend, clicks),
+        "cpa": _ratio(spend, convs),
+        "conv_rate": _ratio(convs, clicks, scale=100),
+    }
+
+
+_DELTA_METRICS = ("spend", "impressions", "clicks", "conversions",
+                  "ctr", "cpc", "cpa", "conv_rate")
+
+
+def _delta(now_metrics: dict, was_metrics: dict | None, *,
+           asked: bool = True) -> dict | None:
+    """Percent move per metric.
+
+    Three answers, and keeping them apart is the point. ``None`` for the
+    whole block means no comparison was ASKED for (``compare=none``). A block
+    of nulls means one was asked for and could not be made -- nothing was
+    filed in the compare window -- which is a client's first period, and
+    reporting it as a rise of zero or of infinity is the same lie twice.
+    A figure means it was measured.
+    """
+    if not asked:
+        return None
+    if was_metrics is None:
+        return {m: None for m in _DELTA_METRICS}
+    from hub.periods import pct_change
+    return {m: pct_change(now_metrics.get(m), was_metrics.get(m))
+            for m in _DELTA_METRICS}
+
+
+def _has_compare(buckets: dict) -> bool:
+    return any(b["rows"] for b in buckets.values())
+
+
+def _prorated_sold(lines: list[dict], start, end):
+    """The sold figure for a window, prorated day by day.
+
+    ``sold_amount`` on a budget line is a MONTHLY figure and a window is
+    rarely a whole month, so comparing them whole inflates every margin by
+    the days not yet spent -- the failure ``pacing.cost()`` records at
+    length. Each day the line is in flight contributes one month-day of it,
+    which reproduces that report's own arithmetic for a window inside one
+    month and keeps working for one that spans several.
+
+    Returns (prorated, monthly, lines_counted); prorated is None -- not
+    zero -- when no line in the window carries a sold figure at all, because
+    "not sold through this Hub" and "sold for nothing" are different answers.
+    """
+    import calendar
+    from datetime import date as _date, timedelta as _td
+    priced = [b for b in lines if b.get("sold_amount") is not None]
+    if not priced:
+        return None, None, 0
+    total = 0.0
+    counted = set()
+    day = start
+    while day <= end:
+        days_in_month = calendar.monthrange(day.year, day.month)[1]
+        for index, line in enumerate(priced):
+            fs = line.get("flight_start") or ""
+            fe = line.get("flight_end") or ""
+            begins = _date.fromisoformat(fs) if fs else None
+            ends = _date.fromisoformat(fe) if fe else None
+            if (begins and day < begins) or (ends and day > ends):
+                continue
+            total += float(line["sold_amount"]) / days_in_month
+            counted.add(index)
+        day += _td(days=1)
+    if not counted:
+        return None, None, 0
+    monthly = sum(float(priced[i]["sold_amount"]) for i in sorted(counted))
+    return round(total, 2), round(monthly, 2), len(counted)
+
+
+def _perf_unavailable(identity: dict, exc: Exception) -> dict:
+    _audit("get_client_performance", identity, status="unavailable")
+    return {"found": True, "available": False, "identity": identity,
+            "error": _clean(f"{type(exc).__name__}: {exc}", 500),
+            "message": "The reports store could not be read."}
+
+
+def client_performance(client_name: str, period: str = "last_30",
+                       compare: str = "previous_period",
+                       platform: str = "", product: str = "",
+                       start_date: str = "", end_date: str = "",
+                       limit: int = 50) -> dict:
+    """One client's ad performance for a named period, with the flags already
+    decided.
+
+    The campaign table, per-platform and account totals, period-over-period
+    deltas, the pacing board's own rows and the prorated margin -- as one
+    payload, so an answer never has to compute a figure to say one.
+    """
+    limit = max(1, min(int(limit or 50), 200))
+    identity = resolve_identity(client_name)
+    if not identity.get("known"):
+        _audit("get_client_performance", identity, status="not_found")
+        return _not_found(client_name, identity)
+
+    from hub import periods
+
+    # The window first: a bad period is refused before any query runs.
+    try:
+        window = periods.resolve(period, start=start_date, end=end_date)
+        compare_win = periods.compare_window(window, compare)
+    except ValueError as exc:
+        _audit("get_client_performance", identity, status="invalid_period")
+        return {"found": True, "available": False, "identity": identity,
+                "error": _clean(str(exc), 300), "reason": "invalid_period",
+                "periods": list(periods.PERIODS), "compares": list(periods.COMPARES)}
+
+    try:
+        from modules.reports import (client_card, flags as flag_rules, pacing,
+                                     pricing, products, quarantine, store)
+    except Exception as exc:                                # noqa: BLE001
+        return _perf_unavailable(identity, exc)
+
+    # Filters are matched exactly against the vocabularies that exist, and a
+    # miss is refused by name. Fuzzy-matching a platform files one client's
+    # spend under a filter they did not ask for and reports it as working.
+    wanted_platform = _clean(platform, 40).lower()
+    if wanted_platform and wanted_platform not in store.PLATFORMS:
+        _audit("get_client_performance", identity, status="unknown_platform")
+        return {"found": True, "available": False, "identity": identity,
+                "error": "unknown platform", "reason": "unknown_platform",
+                "platforms": [{"platform": p, "label": store.platform_label(p)}
+                              for p in store.PLATFORMS]}
+    wanted_product = _clean(product, 120)
+    if wanted_product and wanted_product not in products.PRODUCTS:
+        _audit("get_client_performance", identity, status="unknown_product")
+        return {"found": True, "available": False, "identity": identity,
+                "error": "unknown product", "reason": "unknown_product",
+                "products": list(products.PRODUCTS)}
+
+    # Every key this client's rows may be filed under -- the card's own
+    # reading, not a second one. Summed once: a key that resolves to rows
+    # already counted under another spelling would double the client's spend.
+    try:
+        keys = client_card.candidate_keys(identity["client"],
+                                          identity.get("domain") or "")
+        seen: set[tuple] = set()
+        current, prior = [], []
+        for key in keys:
+            for row in store.facts_for(key, window.start, window.end):
+                ident = (row["platform"], row["account_id"], row["campaign_id"],
+                         row["date"])
+                if ident in seen:
+                    continue
+                seen.add(ident)
+                current.append(row)
+        if compare_win is not None:
+            seen_prior: set[tuple] = set()
+            for key in keys:
+                for row in store.facts_for(key, compare_win.start, compare_win.end):
+                    ident = (row["platform"], row["account_id"], row["campaign_id"],
+                             row["date"])
+                    if ident in seen_prior:
+                        continue
+                    seen_prior.add(ident)
+                    prior.append(row)
+        campaigns_filed = [m for m in store.mapped_campaigns(limit=10000)
+                           if m["client"] in keys]
+        budget_lines = [b for b in store.budget_lines(limit=5000)
+                        if b["client"] in keys
+                        and (b.get("status") or "active") == "active"]
+        links = [l for l in (store.link_for_client(k) for k in keys) if l is not None]
+    except Exception as exc:                                # noqa: BLE001
+        return _perf_unavailable(identity, exc)
+
+    def keep(row: dict) -> bool:
+        if wanted_platform and row["platform"] != wanted_platform:
+            return False
+        if wanted_product and (row.get("product") or "") != wanted_product:
+            return False
+        return True
+
+    current = [r for r in current if keep(r)]
+    prior = [r for r in prior if keep(r)]
+
+    def name_of(row: dict) -> str:
+        return (row.get("display_name") or row.get("campaign_name")
+                or row["campaign_id"])
+
+    # One bucket per scope, current and compare side by side, so every delta
+    # is the same arithmetic on the same two windows.
+    totals_now, totals_was = _blank(), _blank()
+    plat_now: dict[str, dict] = {}
+    plat_was: dict[str, dict] = {}
+    camp_now: dict[tuple, dict] = {}
+    camp_was: dict[tuple, dict] = {}
+    camp_meta: dict[tuple, dict] = {}
+    converting: set[str] = set()
+    for rows, totals, by_plat, by_camp in ((current, totals_now, plat_now, camp_now),
+                                           (prior, totals_was, plat_was, camp_was)):
+        for row in rows:
+            _add(totals, row)
+            _add(by_plat.setdefault(row["platform"], _blank()), row)
+            key = (row["platform"], row["account_id"], row["campaign_id"])
+            _add(by_camp.setdefault(key, _blank()), row)
+            camp_meta.setdefault(key, {
+                "campaign": name_of(row), "platform": row["platform"],
+                "label": store.platform_label(row["platform"]),
+                "product": row.get("product") or ""})
+            if float(row.get("conversions") or 0) > 0:
+                converting.add(row["platform"])
+
+    compare_present = compare_win is not None and totals_was["rows"] > 0
+    totals = _metrics(totals_now)
+    asked = compare_win is not None
+    totals["delta"] = _delta(totals, _metrics(totals_was) if compare_present else None,
+                             asked=asked)
+
+    # Pricing, through the module's own rule rather than a second markup
+    # table here. None -- "not priced" -- whenever any contributing platform
+    # has no rule; a partial sum is a smaller number reported as a total.
+    link = links[0] if links else None
+    priced_total, all_priced = 0.0, bool(plat_now)
+    by_platform = []
+    for code, bucket in sorted(plat_now.items(), key=lambda kv: -kv[1]["spend"]):
+        row = {"platform": code, "label": store.platform_label(code),
+               "product": ", ".join(sorted({
+                   meta["product"] for key, meta in camp_meta.items()
+                   if key[0] == code and meta["product"]})) or ""}
+        row.update(_metrics(bucket))
+        was = plat_was.get(code)
+        row["delta"] = _delta(row, _metrics(was) if (compare_present and was) else None,
+                              asked=asked)
+        try:
+            price = pricing.client_price(code, bucket["spend"],
+                                         bucket["impressions"], link)
+        except Exception:                                   # noqa: BLE001
+            price = None
+        row["client_price"] = _f(price)
+        if price is None:
+            all_priced = False
+        else:
+            priced_total += float(price)
+        by_platform.append(row)
+    totals["client_price"] = round(priced_total, 2) if all_priced and plat_now else None
+
+    sold_prorated, sold_month, sold_lines = _prorated_sold(
+        budget_lines, window.start, window.end)
+    totals["sold_prorated"] = sold_prorated
+    totals["sold_month"] = sold_month
+    totals["margin_pct"] = (round((sold_prorated - totals["spend"]) / sold_prorated * 100, 1)
+                            if sold_prorated else None)
+
+    # Return on ad spend needs a conversion VALUE, and no sync writes one
+    # today. Null with a note naming the platforms, never a number computed
+    # from conversion counts as though they were dollars.
+    missing_value = sorted({code for code, bucket in plat_now.items()
+                            if bucket["value_rows"] < bucket["rows"]})
+    if plat_now and not missing_value and totals_now["value"]:
+        totals["roas"] = _ratio(totals_now["value"], totals_now["spend"], places=2)
+    else:
+        totals["roas"] = None
+        if plat_now:
+            totals["roas_note"] = _clean(
+                "conversion value not reported by "
+                + ", ".join(store.platform_label(p) for p in missing_value), 300)
+
+    campaigns = []
+    for key, bucket in sorted(camp_now.items(), key=lambda kv: -kv[1]["spend"]):
+        meta = camp_meta[key]
+        row = {"campaign": meta["campaign"], "platform": meta["platform"],
+               "platform_label": meta["label"], "product": meta["product"],
+               "partner": ""}
+        row.update(_metrics(bucket))
+        was = camp_was.get(key)
+        row["delta"] = _delta(row, _metrics(was) if (compare_present and was) else None,
+                              asked=asked)
+        row["compare_impressions"] = was["impressions"] if was else None
+        campaigns.append(row)
+    shown, more = campaigns[:limit], max(0, len(campaigns) - limit)
+
+    # The pacing board's own rows, field for field. The utilization and the
+    # line's CPA are added beside them for the flag rules; nothing the board
+    # computed is recomputed here.
+    pacing_rows = []
+    try:
+        for key in keys:
+            for row in pacing.compute(client=key):
+                line = {k: (_f(v) if hasattr(v, "quantize") else v)
+                        for k, v in row.items()}
+                line["as_of"] = row["as_of"].isoformat()
+                line["period_start"] = row["period_start"].isoformat()
+                line["period_end"] = row["period_end"].isoformat()
+                line["last_spend_date"] = (row["last_spend_date"].isoformat()
+                                           if row.get("last_spend_date") else None)
+                line["last_sync"] = store.iso(row.get("last_sync"))
+                line["band_label"] = pacing.BAND_LABELS.get(
+                    row["band"], ("", row["band"]))[1]
+                line["spent"] = _f(row["actual_to_date"])
+                line["expected"] = _f(row["expected_to_date"])
+                line["utilization_pct"] = _ratio(
+                    row["actual_to_date"], row["monthly_budget"], scale=100, places=1)
+                # The line's own cost per conversion, on the campaigns that
+                # line actually covers, so the flag compares like with like.
+                covered = [c for c in campaigns
+                           if (not line.get("product") or c["product"] == line["product"])
+                           and (not line.get("platform") or c["platform"] == line["platform"])]
+                line_spend = sum(c["spend"] for c in covered)
+                line_convs = sum(c["conversions"] for c in covered)
+                line["line_cpa"] = _ratio(line_spend, line_convs)
+                pacing_rows.append(line)
+    except Exception:                                       # noqa: BLE001
+        # A pacing board that blinked must not lose the spend table; the
+        # answer says the block is absent rather than reporting no lines.
+        pacing_rows = None
+
+    try:
+        held = [h for key in keys for h in quarantine.held_for_client(key)]
+        quarantined = len({h["date"] for h in held
+                           if h.get("date")
+                           and window.start.isoformat() <= h["date"] <= window.end.isoformat()})
+    except Exception:                                       # noqa: BLE001
+        quarantined = None
+
+    confirmed = [m for m in campaigns_filed if not m.get("pending")]
+    pending = [m for m in campaigns_filed if m.get("pending")]
+    if not campaigns_filed and not budget_lines and not links:
+        state = "nothing_filed"
+    elif campaigns_filed and not confirmed:
+        state = "all_pending"
+    elif not current:
+        state = "nothing_this_period"
+    else:
+        state = "ok"
+
+    computed = flag_rules.compute_flags(
+        totals, campaigns, pacing_rows or [], compare_present,
+        by_platform=by_platform, window_label=(compare_win.label if compare_win else ""),
+        conversion_platforms=converting or None)
+    # Campaign flags are hung on the row they are about as well as listed at
+    # the top, so a table can carry them without the reader matching names.
+    per_campaign = flag_rules.campaign_flags(
+        campaigns, totals["cpa"],
+        window_label=(compare_win.label if compare_win else ""),
+        conversion_platforms=converting or None)
+    for index, row in enumerate(shown):
+        row["flags"] = [f["code"] for f in per_campaign.get(str(index), [])]
+        row.pop("compare_impressions", None)
+
+    data_through = max((r["date"] for r in current), default=None)
+    notes = []
+    if quarantined:
+        notes.append(f"{quarantined} day{'' if quarantined == 1 else 's'} in this "
+                     "window are held in quarantine, so these figures are incomplete.")
+    if pending:
+        notes.append(f"{len(pending)} campaign{'' if len(pending) == 1 else 's'} "
+                     "filed under this client are still waiting for confirmation; "
+                     "their spend is not in these totals.")
+    if compare_win is not None and not compare_present:
+        notes.append("Nothing was filed in the comparison window, so no change "
+                     "figures could be measured.")
+    if pacing_rows is None:
+        notes.append("The pacing board could not be read, so no pacing lines are shown.")
+    if more:
+        notes.append(f"{more} further campaigns are not listed; the {limit} "
+                     "largest by spend are.")
+
+    sources = []
+    try:
+        synced = store.sync_status()
+    except Exception:                                       # noqa: BLE001
+        synced = {}
+    for code in sorted(plat_now):
+        row = synced.get(code) or {}
+        sources.append({"platform": code, "label": store.platform_label(code),
+                        "written_by": _clean(row.get("source"), 40) or "native",
+                        "synced_at": _clean(row.get("at") or row.get("synced_at"), 40) or None})
+
+    _audit("get_client_performance", identity, result_count=len(shown),
+           period=window.period, platform=wanted_platform or None,
+           product=wanted_product or None, state=state)
+    return {
+        "found": True, "available": True, "identity": identity,
+        "window": window.as_dict(),
+        "compare": ({**compare_win.as_dict(), "mode": compare}
+                    if compare_win is not None else None),
+        "filters": {"platform": wanted_platform, "product": wanted_product},
+        "state": state,
+        "keys": keys,
+        "data_through": data_through.isoformat() if data_through else None,
+        "campaigns_confirmed": len(confirmed),
+        "pending_campaigns": len(pending),
+        "pending_campaign_names": sorted(
+            {_clean(m.get("display_name") or m.get("campaign_name")
+                    or m.get("campaign_id"), 200) for m in pending})[:25],
+        "quarantined_days": quarantined,
+        "sources": sources,
+        "totals": totals,
+        "by_platform": by_platform,
+        "campaigns": shown,
+        "campaign_count": len(campaigns),
+        "campaigns_omitted": more,
+        "pacing": pacing_rows,
+        "flags": computed,
+        "thresholds": flag_rules.thresholds(),
+        "conversion_platforms": sorted(converting),
+        "staff_url": client_card._staff_url(keys[0]) if keys else "",
+        "note": " ".join(notes),
+    }
+
 def register(mcp) -> None:
     """Attach V2 read tools once to the existing V1 MCP server object."""
     if getattr(mcp, "_smarthub_v2_registered", False):
@@ -527,6 +1019,16 @@ def register(mcp) -> None:
         """Get bounded GA4 channel metrics for a mapped client property."""
         return client_ga4_summary(client_name, property_id, start_date, end_date,
                                   compare_start, compare_end)
+
+    @mcp.tool(title="Get client ad performance", annotations=READ_ONLY_TOOL_ANNOTATIONS)
+    def get_client_performance(client_name: str, period: str = "last_30",
+                               compare: str = "previous_period",
+                               platform: str = "", product: str = "",
+                               start_date: str = "", end_date: str = "",
+                               limit: int = 50) -> dict:
+        """Get a client's campaign performance, pacing and margin for a named period."""
+        return client_performance(client_name, period, compare, platform, product,
+                                  start_date, end_date, limit)
 
     @mcp.tool(title="List client proposals", annotations=READ_ONLY_TOOL_ANNOTATIONS)
     def get_client_proposals(client_name: str) -> dict:
