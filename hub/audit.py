@@ -156,10 +156,10 @@ def _init() -> bool:
     """
     global _engine, _table, _ready, _init_done, _init_error, _init_retry_at
     with _db_lock:
-        if _init_done:
-            if _ready or time.time() < _init_retry_at:
-                return _ready
-            _init_done = False
+        if _init_done and (_ready or time.time() < _init_retry_at):
+            return _ready
+        # Past here the cooldown has elapsed (or nothing has been tried yet),
+        # so this attempt is the retry and the next one waits again.
         _init_done = True
         _init_retry_at = time.time() + INIT_RETRY_SECONDS
         if Table is None:
@@ -420,16 +420,19 @@ def _flush_pending() -> int:
                 for e in entries:
                     fh.write(json.dumps(e, ensure_ascii=False) + "\n")
         except OSError:
+            # A disk that will not take them back has lost them, and there is
+            # nowhere left to put them: raising here would cost the caller the
+            # action as well, which is the one thing log() may never do.
             pass
         try:
             os.remove(claimed)
         except OSError:
-            pass
+            pass                    # a leftover claim file is swept by rotate
         return 0
     try:
         os.remove(claimed)
     except OSError:
-        pass
+        pass                        # the rows are in the table; this is litter
     _file_rows_written = max(0, _file_rows_written - len(entries))
     return len(entries)
 
@@ -614,11 +617,11 @@ def _roll_file(path: str, max_mb: int, keep: int) -> bool:
                 try:
                     os.replace(newer, older)
                 except OSError:
-                    pass
+                    pass        # one generation not rolled; the rest still do
         try:
             open(path, "w").close()
         except OSError:
-            return False
+            return False        # nothing rolled, and saying so beats guessing
     return True
 
 

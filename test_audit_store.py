@@ -35,6 +35,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import textwrap
 import unittest
 import uuid
@@ -68,7 +69,7 @@ def _reset() -> None:
         try:
             os.remove(p)
         except OSError:
-            pass
+            pass                # not there yet is the ordinary starting state
 
 
 class Backend(unittest.TestCase):
@@ -106,7 +107,8 @@ class Backend(unittest.TestCase):
         reader -- is the failure this file exists to refuse, and it would not
         show up in any behavioural check that happens to run with it set.
         """
-        src = open(os.path.join(REPO, "hub", "audit.py"), encoding="utf-8").read()
+        with open(os.path.join(REPO, "hub", "audit.py"), encoding="utf-8") as fh:
+            src = fh.read()
         import ast
         reads = []
         for node in ast.walk(ast.parse(src)):
@@ -153,7 +155,8 @@ class NothingElseReadsTheFile(unittest.TestCase):
                 continue
             if name in self.ALLOWED:
                 continue
-            src = open(os.path.join(REPO, name), encoding="utf-8").read()
+            with open(os.path.join(REPO, name), encoding="utf-8") as fh:
+                src = fh.read()
             try:
                 tree = ast.parse(src)
             except SyntaxError:
@@ -326,6 +329,50 @@ class NeverCostsTheAction(unittest.TestCase):
         self.assertTrue(os.path.getsize(audit._pending_path()) > 0)
 
 
+class TheRetryCooldown(unittest.TestCase):
+    """A database that was asleep must not cost the whole boot.
+
+    Render's Postgres can be waking when the first write of a boot lands.
+    Caching that first failure for the life of the worker would mean a Hub
+    that came up at the wrong moment files every row of that boot on a disk
+    nobody backs up -- silently, because every screen still works.
+    """
+
+    def test_a_failure_is_not_a_verdict_for_the_life_of_the_worker(self):
+        _reset()
+        real_engine, real_ready = audit._engine, audit._ready
+        try:
+            # the state a refused first attempt leaves behind
+            audit._ready = False
+            audit._init_done = True
+            audit._init_error = "was asleep"
+            audit._init_retry_at = time.time() + 9999
+            self.assertFalse(audit._init(), "inside the cooldown, no retry")
+
+            audit._init_retry_at = time.time() - 1      # cooldown elapsed
+            self.assertTrue(audit._init(), "past it, it tries again")
+            self.assertTrue(audit._ready)
+        finally:
+            audit._engine, audit._ready = real_engine, real_ready
+            audit._init_done = True
+
+    def test_a_row_written_while_it_was_refusing_is_not_lost(self):
+        """The cooldown and the fallback are one behaviour from a caller's
+        side: the row goes somewhere either way, and lands in the table when
+        the database comes back."""
+        _reset()
+        real = audit._db_write
+        audit._db_write = lambda entries: False
+        try:
+            audit.log("m", "while_it_was_waking")
+        finally:
+            audit._db_write = real
+        self.assertEqual([e["type"] for e in audit.read(limit=5)],
+                         ["while_it_was_waking"])
+        audit.log("m", "awake")
+        self.assertEqual(audit.status()["pending_rows"], 0)
+
+
 class TheImport(unittest.TestCase):
     def _seed_legacy(self, n=5):
         with open(audit._path(), "w", encoding="utf-8") as fh:
@@ -339,7 +386,7 @@ class TheImport(unittest.TestCase):
         try:
             jsonstore.delete_json(os.path.join(jsonstore.data_root(),
                                                "audit-import.json"))
-        except Exception:
+        except Exception:       # no marker yet -- which is what this wants
             pass
 
     def test_it_carries_the_history_across(self):

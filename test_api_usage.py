@@ -102,7 +102,7 @@ def clear_log():
     try:
         os.remove(audit._pending_path())
     except OSError:
-        pass
+        pass                    # no fallback file is the ordinary state
 
 
 def rows_of(provider):
