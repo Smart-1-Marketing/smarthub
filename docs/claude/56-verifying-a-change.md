@@ -329,9 +329,11 @@ python3 test_google_inactive_qa_bulk.py
                                    #   on its own row, a delete guarded on the
                                    #   count somebody typed, and a site check
                                    #   that refuses a GA4 row and a site nobody
-                                   #   can point at, and an audit endpoint
-                                   #   that answers "could not read" rather
-                                   #   than an empty log
+                                   #   can point at, an audit endpoint that
+                                   #   answers "could not read" rather than an
+                                   #   empty log, and a Needs Review row the
+                                   #   scan honors a skip on -- except the
+                                   #   broken login, which is refused in words
 node test_google_inactive_qa_bulk_ui.js
                                    # the same page's own script, run for real:
                                    #   selection per section surviving the
@@ -341,7 +343,9 @@ node test_google_inactive_qa_bulk_ui.js
                                    #   nothing until its count is typed, and
                                    #   the Cleanup history panel: loaded on
                                    #   open, reloaded after an action, and a
-                                   #   window on the log saying it is one
+                                   #   window on the log saying it is one; and
+                                   #   Needs Review offering Skip on the rows a
+                                   #   skip means something for and no other
 python3 test_analytics_ids.py      # two names for one property are not a
                                    #   disagreement: the measurement id Knack
                                    #   holds against the property id Google

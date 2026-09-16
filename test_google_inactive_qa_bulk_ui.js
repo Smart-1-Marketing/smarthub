@@ -22,6 +22,10 @@
 //     would outlive gunicorn's --timeout and be killed mid-flight.
 //   * Delete asks for the count it is about to delete, and refuses to send
 //     anything at all until that is typed correctly.
+//   * Needs Review offers Skip on the rows a skip means something for, and
+//     not on a connected login that needs reconnecting — neither on the row
+//     nor in the bulk press, which posts only what it can skip and says what
+//     it left alone.
 //   * The Cleanup history panel loads when it is opened rather than on page
 //     load, reloads after an action writes to the log it is showing, says
 //     when it is showing a window on a longer log, and never draws a log it
@@ -251,6 +255,47 @@ function bulkBarState(s, sec) {
   const unskipPost = s.requests.find(r => r.url.includes('unskip/bulk'));
   assert.equal(unskipPost.body.rows[0].resource, 's1');
 
+  // --- Needs Review can skip, and only what a skip means something for ------
+  s = setup();
+  const loginRow = {kind: 'Google', login: 'adops@example.com', account: 'Connected login',
+                    account_id: '', name: 'adops@example.com', resource: 'adops@example.com',
+                    public_id: '', reason: 'Google login requires reconnection'};
+  render(s, payload([], [row('GTM', 'live1'), loginRow], []));
+  assert.doesNotMatch(s.$('#reviewBody').innerHTML.split('adops@example.com').pop(), /data-skip/,
+    'a login that needs reconnecting is offered no Skip button');
+  assert.match(s.$('#reviewBody').innerHTML, /data-skip/,
+    '...while the container beside it is');
+
+  // Picking only the login leaves the bulk Skip disabled.
+  pick(s, 'review', ['Google:adops@example.com:adops@example.com']);
+  assert.equal(s.$('#cntReview').textContent, 1);
+  assert.equal(s.$('#bulkReviewSkip').disabled, true,
+    'a selection with nothing skippable in it must not enable Skip');
+  pick(s, 'review', ['GTM:adops@example.com:live1']);
+  assert.equal(s.$('#bulkReviewSkip').disabled, false);
+
+  s.$('#bulkReviewSkip').onclick();
+  assert.equal(s.$('#bulkSkipDialog').open, true);
+  assert.match(s.$('#bulkSkipCount').textContent, /1 resource will be moved to Skipped/);
+  assert.match(s.$('#bulkSkipCount').textContent, /needs reconnecting/,
+    'the dialog says what it is leaving alone rather than dropping it quietly');
+  await s.$('#bulkSkipForm')._handlers.submit({preventDefault() {}});
+  const reviewSkipPost = s.requests.find(r => r.url.includes('skip/bulk'));
+  assert.equal(reviewSkipPost.body.rows.length, 1);
+  assert.equal(reviewSkipPost.body.rows[0].resource, 'live1',
+    'only the skippable row is posted');
+  assert.equal(s.$('#cntReview').textContent, 0,
+    "the review section's own selection is what gets cleared");
+
+  // --- The Skipped table says which section a row came from -----------------
+  s = setup();
+  render(s, payload([], [], [
+    Object.assign(row('GTM', 's1'), {from: 'review', skip: {reason: 'tag is live', by: 'me', at: '2026-09-16'}}),
+    Object.assign(row('GA4', 's2'), {from: 'inactive', skip: {reason: 'old client', by: 'me', at: '2026-09-16'}}),
+  ]));
+  assert.match(s.$('#skippedBody').innerHTML, /Needs review/);
+  assert.match(s.$('#skippedBody').innerHTML, /Inactive candidate/);
+
   // --- Cleanup history: loaded on open, not on page load --------------------
   auditResponse = {ok: true, total: 3, page_size: 200, rows: [
     {at: '2026-09-16T10:00:00+00:00', actor: 'todd@smart1marketing.com', action: 'delete',
@@ -332,5 +377,5 @@ function bulkBarState(s, sec) {
   assert.equal(s.$('#cntReview').textContent, 0,
     '...and is not silently selected in the one it arrived in');
 
-  console.log('14 bulk-action and history UI scenarios passed');
+  console.log('16 bulk-action, review-skip and history UI scenarios passed');
 })().catch(e => { console.error(e); process.exitCode = 1; });
