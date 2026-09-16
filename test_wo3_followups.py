@@ -112,7 +112,7 @@ try:
           captured_payloads)
 
     captured_payloads.clear()
-    out2 = faq.generate("Acme HVAC", "https://acme.com/ac-repair", count=1)
+    faq.generate("Acme HVAC", "https://acme.com/ac-repair", count=1)
     check("omitting focus_topic sends an empty string, never None or absent",
           captured_payloads and captured_payloads[-1].get("requested_focus") == "",
           captured_payloads)
