@@ -65,7 +65,15 @@ LENGTHS = {d["seconds"]: {"min": d["low"], "max": d["high"], "label": d["label"]
                           "key": d["key"], "name": d["name"], "note": d["note"],
                           "cost": d["cost"], "word_target": d["word_target"],
                           "min_seconds": d.get("min_seconds"),
-                          "warning": d.get("warning", "")}
+                          "warning": d.get("warning", ""),
+                          # The beats this length is planned around, carried on
+                          # the length so the builder can draw the rail beside
+                          # the copy. `ai.py` has always stated them in the
+                          # prompt; a rep could not see them, so a script that
+                          # had wandered from the plan read exactly like one
+                          # written to it -- the gap the Radio Ad Creator's own
+                          # rail closed, from this same shared table.
+                          "beats": radio_spec.structure_for(d["key"])}
            for d in radio_spec.DURATIONS}
 LENGTH_IDS = [d["seconds"] for d in radio_spec.DURATIONS]
 

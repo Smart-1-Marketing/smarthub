@@ -1155,6 +1155,19 @@ REGISTRY: list[Help] = [
        "the key to whoever answers there. Visits land under their own name "
        "and draw the client's Store visits tile; they are never counted as "
        "conversions."),
+    _h("reports.amazon.check", "Five claims, and four fail as a working setup",
+       "No live Amazon entity has answered this code, so every field name in "
+       "amazon_dsp.py is a transcription. This page walks the five things "
+       "that have to be true -- the variables set, the refresh token still "
+       "consented, the entity's profile visible to whoever pressed Connect, "
+       "the advertisers readable, and writes, which are never probed because "
+       "nothing here writes -- and prints one raw row against the field map. "
+       "The refusals it separates are the ones that look alike: an "
+       "invalid_grant is a consent to give again rather than a key to "
+       "rotate, and a 403 on the advertiser list is the Amazon Ads API "
+       "application not being approved for this entity. Until a person has "
+       "compared a row and flipped CONFIRMED, the Reports index says the "
+       "pull is reading a claim."),
     _h("reports.reconcile.states", "Our month against the platform's own",
        "Everything a client reads is campaign-days summed, and nothing else "
        "could say whether that sum is the month the platform would invoice. "
@@ -1616,6 +1629,19 @@ REGISTRY: list[Help] = [
        "under exactly the names set on Render, and a customer id that is "
        "not digits is refused here by name \u2014 the API answers a wrong id "
        "with the same bare failure as a bad token."),
+    _h("ads_builder.settings.amazon", "One consent, given by the entity admin",
+       "Connect signs in to Amazon and keeps its refresh token, the way the "
+       "Google and Microsoft connections do \u2014 and the one thing that is "
+       "different matters: the consent inherits the access of whoever presses "
+       "the button, so it has to be an admin on the DSP entity. A rep's own "
+       "Amazon login consents happily and then sees no entity at all. Nothing "
+       "here manages an Amazon campaign: what the connection buys is the "
+       "native pull on /reports/, nightly at 3 AM Eastern, for every advertiser "
+       "under "
+       "the entity. Reading the DSP API also needs the Amazon Ads API "
+       "application approved for this entity, which is a separate application "
+       "on Amazon's timetable \u2014 until it is, every call answers 403, which "
+       "reads exactly like a wrong key and is not one."),
     _h("ads_builder.settings.openai", "The key is the deployment\u2019s, not yours",
        "The generator reads OPENAI_API_KEY from this service at call time — the "
        "same key the SEO, FAQ and proposal tools use. This page will never ask "

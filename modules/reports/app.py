@@ -198,7 +198,8 @@ def _health_by_platform() -> dict:
 
 NATIVE_PULLS = (("ttd", "ttd"), ("google", "google_ads_perf"),
                 ("stackadapt", "stackadapt"), ("audiogo", "audiogo"),
-                ("bing", "bing"), ("groundtruth", "groundtruth"))
+                ("bing", "bing"), ("groundtruth", "groundtruth"),
+                ("amazon_dsp", "amazon_dsp"))
 
 
 def _native_status() -> list[dict]:
@@ -453,6 +454,19 @@ def groundtruth_check():
     sent to a host nobody has confirmed."""
     from . import groundtruth
     return render_template("reports_groundtruth_check.html", chk=groundtruth.check())
+
+
+@app.route("/amazon-check")
+def amazon_check():
+    """What the Amazon DSP entity actually answers, against what
+    amazon_dsp.FIELD_MAP expects -- the groundtruth-check pattern, for the
+    platform whose paths Amazon is mid-way through moving. Walks the
+    preflight ladder so an unmet claim is named as itself rather than as a
+    refusal, and calls nothing at all while the connection is unconfigured
+    or unconsented: a credential is not sent to find out whether it is set.
+    """
+    from . import amazon_dsp
+    return render_template("reports_amazon_check.html", chk=amazon_dsp.check())
 
 
 # ---------------------------------------------------------------- mapping

@@ -220,6 +220,91 @@
 </div>
 {% endif %}
 
+{# Amazon Ads: the Microsoft card's shape again, for the DSP entity. The one
+   thing said on every screen this connection appears on is who has to press
+   the button -- an admin on the entity, not whoever is at the keyboard, since
+   the token inherits that person's access and a rep's own login consents
+   happily and then reaches nothing. Guarded like `bing`, because
+   test_ads_explainer renders this page with none. #}
+{% if amazon %}
+<div class="card">
+  <div class="row" style="margin-bottom:12px">
+    <h3 style="margin:0">Amazon Ads (DSP) {{ help_dot('ads_builder.settings.amazon') if help_dot is defined else '' }}</h3>
+    <div class="spacer"></div>
+    {% if amazon.connected %}
+      <button class="b-bad b-sm" onclick="disconnectAmazon()">Disconnect</button>
+    {% elif amazon.configured %}
+      <a class="btn b-primary" href="{{ mount }}/connect/amazon" target="_blank" rel="noopener">Connect Amazon Ads</a>
+    {% endif %}
+  </div>
+
+  <div class="grid g3" style="margin-bottom:12px">
+    <div class="s1d-tile">
+      <div class="l">Credentials</div>
+      <div class="v" style="font-size:17px">{{ 'Configured' if amazon.configured else 'Incomplete' }}</div>
+      <div class="f">{{ ('Missing: ' + amazon.missing|join(', ')) if amazon.missing else ('AMAZON_ADS_REGION ' + amazon.region_problem if amazon.region_problem else 'All three present') }}</div>
+    </div>
+    <div class="s1d-tile">
+      <div class="l">Authorization</div>
+      <div class="v" style="font-size:17px">{{ 'Connected' if amazon.connected else 'Not connected' }}</div>
+      <div class="f">{{ amazon.refresh_token_source }}</div>
+    </div>
+    <div class="s1d-tile">
+      <div class="l">DSP entity</div>
+      <div class="v" style="font-size:17px">{{ amazon.entity_id or '&mdash;' }}</div>
+      <div class="f">{{ amazon.region }} &middot; {{ ('profile ' + amazon.entity_profile_id) if amazon.entity_profile_id else 'profile discovered on the first call' }}</div>
+    </div>
+  </div>
+
+  {% if amazon.missing %}
+    <div class="note n-bad">
+      <b>Missing environment variables</b>
+      Set these on the Hub service, then redeploy: <span class="mono">{{ amazon.missing|join(', ') }}</span>
+    </div>
+  {% endif %}
+  {% if amazon.region_problem %}
+    <div class="note n-bad">
+      <b>AMAZON_ADS_REGION is not a region this API has</b>
+      It {{ amazon.region_problem }}. The entity lives in one region, and a consent given
+      against another reads nothing at all rather than refusing.
+    </div>
+  {% endif %}
+
+  <div class="note n-warn">
+    <b>Sign in as an admin on the DSP entity</b>
+    The consent inherits the access of whoever presses the button. A rep&rsquo;s own Amazon
+    login consents happily and then sees no entity, which reads on
+    <a href="/reports/">Reports</a> as an entity that is not visible rather than as a
+    sign-in that went to the wrong account.
+  </div>
+
+  {% if amazon.connected and amazon.refresh_token_source.startswith('hub database') %}
+    <div class="note n-warn">
+      <b>This connection is not pinned</b>
+      The refresh token lives in the Hub database. Setting
+      <span class="mono">AMAZON_ADS_REFRESH_TOKEN</span> in the environment makes it immune to a
+      database reset. Reconnect to see the value again.
+    </div>
+  {% endif %}
+
+  <p style="color:#64748b">
+    What the connection buys is the native pull on <a href="/reports/">Reports</a>: nightly at 3 AM
+    Eastern, order and line-item figures for every advertiser under the entity, the way Microsoft
+    Ads is pulled. What the pull files is a claim until somebody compares a raw row to the field map on
+    <a href="/reports/amazon-check">the Amazon check page</a>. Managing an Amazon DSP order from
+    here is not built.
+  </p>
+
+  <div class="hint">
+    Redirect URI in use: <span class="mono brk">{{ amazon.redirect_uri or 'not set &mdash; PUBLIC_BASE_URL is empty' }}</span><br>
+    Register it, character for character, under the Login with Amazon security profile&rsquo;s
+    <b>Web Settings → Allowed Return URLs</b> at developer.amazon.com. Reading the DSP API also
+    needs the Amazon Ads API application approved for this entity, which is a separate
+    application on Amazon&rsquo;s own timetable &mdash; until it is, every call answers 403.
+  </div>
+</div>
+{% endif %}
+
 {# The access tier. Google publishes it nowhere an API can read, so this panel
    is deliberately three claims of different weight: what somebody typed, what
    a probe observed, and — where neither exists — "not recorded", which is not
@@ -325,6 +410,14 @@ async function disconnectBing() {
   if (!confirm('Disconnect Microsoft Advertising from the Hub?')) return;
   try {
     const d = await api('POST', MOUNT + '/api/bing/disconnect');
+    toast('good', d.note || 'Disconnected.');
+    setTimeout(() => location.reload(), 900);
+  } catch (e) { toast('bad', e.message); }
+}
+async function disconnectAmazon() {
+  if (!confirm('Disconnect Amazon Ads from the Hub?')) return;
+  try {
+    const d = await api('POST', MOUNT + '/api/amazon/disconnect');
     toast('good', d.note || 'Disconnected.');
     setTimeout(() => location.reload(), 900);
   } catch (e) { toast('bad', e.message); }

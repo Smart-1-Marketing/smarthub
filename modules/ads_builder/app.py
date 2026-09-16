@@ -60,6 +60,7 @@ from . import (ad_intel, api_readiness, campaign_ai, client_link, copy_ideas, ex
 from .campaign_ai import SECTOR_CPC, GenerationError, analyse_budget
 from .google_ads import GoogleAdsError
 from . import bing_ads
+from . import amazon_ads
 from hub.webargs import clamp_int
 
 BASE_DIR = Path(__file__).parent
@@ -516,6 +517,11 @@ def page_settings():
         # time in bing_ads.redirect_uri(), which is also what
         # hub/oauth_redirects.py prints for the Azure portal.
         bing=bing_ads.connection_status(store),
+        # The Amazon Ads connection, the third card in the same shape. Its
+        # consent has to be given by an admin on the DSP entity rather than
+        # by whoever is at the keyboard, which the card says on the card:
+        # a rep's own Amazon login consents happily and reaches nothing.
+        amazon=amazon_ads.connection_status(store),
     )
 
 
@@ -668,6 +674,94 @@ def api_bing_disconnect():
     })
 
 
+# ------------------------------------------------------- OAuth: Amazon Ads
+# The Microsoft flow above, for the DSP entity. Its own state cookie, its own
+# settings key and its own log events -- and the one difference that matters
+# is said out loud on every screen it appears on: the consent inherits the
+# access of whoever presses Connect, so it has to be an admin on the entity.
+# A rep's own Amazon login consents happily, and then lists no profiles.
+
+@app.get("/connect/amazon")
+def oauth_connect_amazon():
+    status = amazon_ads.connection_status(store)
+    if status["missing"] or status["region_problem"]:
+        why = ", ".join(status["missing"]) if status["missing"] else (
+            amazon_ads.ENV["region"] + " " + status["region_problem"])
+        return render_template(
+            "ads_error.html",
+            error="Amazon sign-in cannot start until these are set: " + why,
+        ), 400
+    state = secrets.token_hex(16)
+    resp = make_response(redirect(amazon_ads.build_auth_url(state)))
+    resp.set_cookie("s1ads_amazon_oauth_state", state, httponly=True, samesite="Lax", max_age=600)
+    return resp
+
+
+@app.get("/oauth/amazon/callback")
+def oauth_amazon_callback():
+    error = request.args.get("error")
+    code = request.args.get("code")
+    state = request.args.get("state")
+
+    if error:
+        store.log_event("AMAZON_OAUTH_DENIED", current_user(), error=error)
+        return render_template("ads_error.html",
+                               error=f"Amazon sign-in was cancelled: {error}"), 400
+    if not code:
+        return render_template("ads_error.html",
+                               error="Amazon did not return an authorization code."), 400
+
+    expected = request.cookies.get("s1ads_amazon_oauth_state")
+    if expected and state != expected:
+        return render_template(
+            "ads_error.html",
+            error="Sign-in state mismatch. Start the connection again from Settings.",
+        ), 400
+
+    try:
+        tokens = amazon_ads.exchange_code(code)
+    except amazon_ads.AmazonAuthError as exc:
+        store.log_event("AMAZON_OAUTH_FAILED", current_user(), error=str(exc)[:300])
+        return render_template("ads_error.html", error=str(exc)), 502
+    refresh = tokens.get("refresh_token", "")
+    if refresh:
+        store.set_setting("amazon_refresh_token", refresh)
+
+    store.log_event("AMAZON_OAUTH_SUCCESS", current_user(), got_refresh_token=bool(refresh))
+
+    resp = make_response(render_template(
+        "ads_connected.html",
+        refresh_token=refresh,
+        pinned=bool(os.environ.get("AMAZON_ADS_REFRESH_TOKEN", "").strip()),
+        provider="Amazon Advertising",
+        pin_var="AMAZON_ADS_REFRESH_TOKEN",
+        blurb="The reports module can now pull Amazon DSP order figures for every advertiser "
+              "under the entity, nightly at 3 AM Eastern. What this consent reaches is "
+              "whatever the "
+              "account that just signed in can reach: if that account is not an admin on the "
+              "DSP entity, the entity's profile will not be in the list and /reports/ will "
+              "say so.",
+        revoke_note="Revoke the application at amazon.com → Account → Login with Amazon, then "
+                    "connect again — Amazon issues a refresh token on a consented "
+                    "authorization.",
+        next_url=MOUNT + "/settings",
+        next_label="Back to settings",
+    ))
+    resp.delete_cookie("s1ads_amazon_oauth_state")
+    return resp
+
+
+@app.post("/api/amazon/disconnect")
+def api_amazon_disconnect():
+    store.set_setting("amazon_refresh_token", "")
+    amazon_ads.forget_tokens()
+    store.log_event("AMAZON_DISCONNECTED", current_user())
+    return jsonify({
+        "ok": True,
+        "note": "Also clear AMAZON_ADS_REFRESH_TOKEN in the environment if it is set there.",
+    })
+
+
 # -------------------------------------------------------------------- API
 @app.get("/api/version")
 def api_version():
@@ -704,6 +798,12 @@ def api_status():
         "bing": {**bing_ads.connection_status(store),
                  "note": "Connected, the reports module pulls campaign figures every six "
                          "hours. Campaign management is not built."},
+        # Amazon, in the same shape again. The note says what the consent
+        # buys and, deliberately, what it does not: nothing here writes a
+        # campaign, so nothing here claims writes are available in a region.
+        "amazon": {**amazon_ads.connection_status(store),
+                   "note": "Connected, the reports module pulls Amazon DSP order figures "
+                           "nightly at 3 AM Eastern. Campaign management is not built."},
     })
 
 
@@ -1880,6 +1980,22 @@ def api_bing(_rest):
     return jsonify({
         "error": "Microsoft Advertising campaign management is not built. The connection "
                  "(Settings → Connect Microsoft Ads) and the performance pull (/reports/) are.",
+        "code": "NOT_IMPLEMENTED",
+    }), 501
+
+
+# ------------------------------------------ Amazon campaign management (not built)
+# The connection and the DSP pull are live (/connect/amazon above,
+# modules/reports/amazon_dsp.py); creating, pausing and budgeting an Amazon
+# DSP order from here is not. Whether writes are even available to this seat
+# in this region is a claim the first validate-only call would settle, and no
+# such call is made, so nothing here implies one way or the other.
+# /api/amazon/disconnect is a static rule and wins over this catch-all.
+@app.route("/api/amazon/<path:_rest>", methods=["GET", "POST", "PUT", "DELETE"])
+def api_amazon(_rest):
+    return jsonify({
+        "error": "Amazon DSP campaign management is not built. The connection "
+                 "(Settings → Connect Amazon Ads) and the DSP pull (/reports/) are.",
         "code": "NOT_IMPLEMENTED",
     }), 501
 

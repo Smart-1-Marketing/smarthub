@@ -406,7 +406,11 @@ python3 test_radio_ads.py          # the Radio Ad Creator's second half: a bed
                                    #   without the audio -- and Fan Radio's
                                    #   half of the same list, asserted as one
                                    #   table read twice rather than two that
-                                   #   agree today
+                                   #   agree today; plus the playback rate that
+                                   #   gets an over-long UPLOADED read back
+                                   #   inside its slot, its 1.15x ceiling, and
+                                   #   the rate being recorded on the mix rather
+                                   #   than inferred later
 python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
                                    #   and the :60 that were unbuildable, the
                                    #   cost note said at pick time rather than
@@ -415,6 +419,29 @@ python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
                                    #   named script panel run on the copy --
                                    #   where certainty rather than severity
                                    #   decides what may refuse a billed record
+python3 test_radio_presets.py      # the reusable-read library: one store both
+                                   #   builders offer rather than a second copy
+                                   #   in each, the {business} placeholder
+                                   #   filled on the way out and put back on
+                                   #   the way in so the library survives its
+                                   #   own first save, a preset saved under the
+                                   #   old per-tool file still offered, and the
+                                   #   screen asserted as well as the route --
+                                   #   this was four reads, a store, a route
+                                   #   and a test, reachable from no page
+python3 test_radio_feature_parity.py # Fan Radio's half, which is the other
+                                   #   direction: every item above landed in
+                                   #   the Radio Ad Creator and none of them
+                                   #   here, so this tool had two of the nine
+                                   #   checks and no way to know a :30 never
+                                   #   said the address. The panel is
+                                   #   hub/radio_script_qc.py and both read
+                                   #   it, asserted as one table read twice
+                                   #   rather than two that agree today, plus
+                                   #   the trademark and post-game rows that
+                                   #   are genuinely this tool's own, and a
+                                   #   :10 neither asked for a response nor
+                                   #   judged for leaving one out
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_commercial_meter.py   # every billed call records, no invented price,
@@ -583,6 +610,14 @@ python3 test_reports_groundtruth.py # the GroundTruth pull, whose key arrived
                                    #   person confirms, the key sent nowhere
                                    #   until the origin is named, visits under
                                    #   their own name and on the client's page
+python3 test_reports_amazon_dsp.py # the native Amazon DSP pull and the
+                                   #   connection behind it: five claims told
+                                   #   apart rather than one "connected", one
+                                   #   report per advertiser polled inside the
+                                   #   budget with pending carried between
+                                   #   ticks, the pre-signed download fetched
+                                   #   with no Authorization header on it, and
+                                   #   purchases kept out of conversions
 python3 test_reports_seo.py        # the organic search section for SEO clients
 python3 test_places.py             # a client's Google listing: proposed once,
                                    #   confirmed by a person, read once a night,

@@ -185,6 +185,19 @@ QUOTAS: dict[str, Quota] = {
         "the nightly reconcile. Microsoft charges nothing per call and "
         "publishes no ceiling this Hub can read; no limit until "
         "MICROSOFT_ADS_MONTHLY_LIMIT is set."),
+    # Amazon Ads bills nothing for the API and limits by request, with a
+    # ceiling it publishes per endpoint family rather than as one number
+    # this deployment can cite, so this is counted in calls and the row
+    # reads *not measured* against a limit until somebody sets one. Every
+    # call the pull makes -- the profile list, the advertiser list, the
+    # report submit, each poll, the download -- is a row, filed under `api`.
+    "amazon_ads": Quota(
+        "amazon_ads", "Amazon Ads", "calls", 0, 0,
+        "AMAZON_ADS_WARN_AT", "AMAZON_ADS_MONTHLY_LIMIT",
+        "Profile, DSP advertiser and DSP reporting calls made by the native "
+        "Amazon DSP pull, its check page and the nightly reconcile. Amazon "
+        "charges nothing per call and publishes no monthly ceiling this Hub "
+        "can read; no limit until AMAZON_ADS_MONTHLY_LIMIT is set."),
     # GroundTruth publishes no per-call price and no ceiling this Hub can
     # read, so the native pull's calls are counted and the row reads *not
     # measured* against a limit until GROUND_TRUTH_MONTHLY_LIMIT is set --
@@ -396,6 +409,20 @@ def record_microsoft_ads(url: str, *, module: str, api: str = "",
     can say which half of a pull spent it."""
     try:
         record("microsoft_ads", module=module, units=1, api=api or "",
+               detail=str(url or "")[:120], ok=ok)
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
+def record_amazon_ads(url: str, *, module: str, api: str = "",
+                      ok: bool = True) -> None:
+    """One call to the Amazon Ads API, filed under the endpoint family
+    (``profiles``, ``advertisers``, ``reporting``, ``download``,
+    ``forecast``, ``guidance``) so the usage page can say which half of a
+    pull spent it. The Login with Amazon token endpoint is deliberately not
+    recorded here: a token refresh is not a metered call."""
+    try:
+        record("amazon_ads", module=module, units=1, api=api or "",
                detail=str(url or "")[:120], ok=ok)
     except Exception:                                   # noqa: BLE001
         pass
@@ -1565,6 +1592,24 @@ _PROVIDER_MARKERS = {
                   "so the pull's calls never reach the usage page.",
         "fix": "Call through bing_ads.call(), which records every request, or "
                "add quotas.record_microsoft_ads(url, module=..., api=...) after "
+               "the response.",
+    },
+    "amazon_ads": {
+        # All three regional hosts share this suffix (advertising-api,
+        # advertising-api-eu and advertising-api-fe .amazon.com), so the
+        # marker is the suffix rather than any one host: a module reaching
+        # the region this check did not think of would otherwise get a clean
+        # bill. The Login with Amazon token endpoint (api.amazon.com) is
+        # deliberately not here -- a token refresh is not a metered call.
+        "calls": lambda src: "advertising-api" in src and ".amazon.com" in src and "requests." in src,
+        "recorded": ("record_amazon_ads", 'record("amazon_ads"',
+                     "from modules.ads_builder import amazon_ads",
+                     "modules.ads_builder.amazon_ads"),
+        "detail": "Calls the Amazon Ads API outside "
+                  "modules/ads_builder/amazon_ads.py and without recording it, "
+                  "so the DSP pull's calls never reach the usage page.",
+        "fix": "Call through amazon_ads.call(), which records every request, or "
+               "add quotas.record_amazon_ads(url, module=..., api=...) after "
                "the response.",
     },
     "groundtruth": {

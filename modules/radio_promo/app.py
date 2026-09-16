@@ -66,6 +66,7 @@ from hub import radio_share
 from hub import radio_delivery as delivery
 from . import music_library
 from hub import script_contents
+from hub import radio_presets
 
 try:
     from hub import radio_spec
@@ -690,6 +691,37 @@ def api_mix_settings(pid):
     if level not in {r["label"] for r in spec.bed_levels()["levels"]}:
         return fail("Choose a bed volume from the slider.")
     return jsonify(ok=True, project=store.update(pid, {"mix_level": level}))
+
+
+@app.route("/api/script-presets", methods=["GET", "POST"])
+def api_script_presets():
+    """The shared reusable-read library, filled in for a project if named.
+
+    `hub/radio_presets.py`, which is the same rows Fan Radio offers: a read
+    saved in one tool is offered in the other, because both write the same
+    lengths against the same word budgets and the same read pace. This tool
+    had no equivalent at all, and the library it now reads was reachable from
+    no screen in either -- four default reads, a store and a route with
+    nothing a rep could press.
+
+    `?project=` is optional and only decides whose name the `{business}`
+    placeholder is filled with.
+    """
+    row = store.get((request.args.get("project") or "").strip()) or {}
+    company = row.get("company") or row.get("client") or ""
+    if request.method == "GET":
+        return jsonify({"ok": True, **radio_presets.library(company)})
+    data = body()
+    # Saved with this client's name put back to the placeholder, or the
+    # library's first reuse reads out somebody else's business.
+    text = radio_presets.generalize(data.get("script"), company)
+    try:
+        preset = radio_presets.save(data.get("name"), text, actor())
+    except ValueError as exc:
+        return fail(str(exc))
+    log("script_preset_saved", preset=preset["id"])
+    return jsonify({"ok": True, "preset": preset,
+                    **radio_presets.library(company)})
 
 
 @app.route("/api/music-library")

@@ -24,7 +24,7 @@ import json
 import os
 import re
 
-from hub import radio_spec, voice_casting
+from hub import radio_script_qc, radio_spec, voice_casting
 
 from . import catalog, phrases
 
@@ -132,7 +132,7 @@ Return JSON:
 
 def _spot_user(brief: dict, dp: dict, seconds: int, tone: dict,
                outcome: str, safe_bank: list[str], banned: list[str],
-               steer: str = "") -> str:
+               steer: str = "", must: dict | None = None) -> str:
     b = catalog.budget(seconds)
     # The floor is the shared table's `min_seconds` -- the same number the
     # length menu prints -- rather than one re-derived here, and a length with
@@ -189,6 +189,48 @@ def _spot_user(brief: dict, dp: dict, seconds: int, tone: dict,
     elif outcome == "loss":
         lines += ["", "Assume the weekend went badly. Commiserate lightly, "
                       "no mockery, and still name no team."]
+    # The three content non-negotiables and the disclaimer, asked for here
+    # because `hub/radio_script_qc.py` checks the answer. Asking the panel's
+    # question of the model rather than only of its output is the difference
+    # between a finding a rep has to fix by hand and one that rarely appears:
+    # a prompt that never mentioned the web address produced scripts without
+    # it, and the check would then have been a wall of red on every first draft.
+    must = must or {}
+    # Narrowed by the length, through the same function the panel uses. Asking
+    # a :10 for the whole web address and then not checking for it would be
+    # two rules; asking for it and checking for it would be a tag that cannot
+    # pass. The shared table says ten seconds carries no response.
+    asked = tuple(must.get("require") or ())
+    require = radio_script_qc.narrow_require(
+        asked, radio_script_qc.duration_for(seconds=seconds))
+    wanted = []
+    if "company" in require and must.get("company"):
+        said = 2 if int(seconds or 0) >= 30 else 1
+        wanted.append(f'say the business name "{must["company"]}" '
+                      f'{"twice" if said == 2 else "at least once"}')
+    if "url" in require and must.get("url"):
+        wanted.append(f'say the whole web address "{must["url"]}" — the full '
+                      f'address, not just the domain, because that is where '
+                      f'the campaign sends people')
+    if "phone" in require and must.get("phone"):
+        wanted.append(f'say the phone number {must["phone"]}')
+    if wanted:
+        lines += ["", "THE READ MUST: " + "; ".join(wanted) + "."]
+    # A response this project has that this length cannot carry is named as
+    # deliberate, independently of what the read *is* asked for -- a :10 is
+    # still asked to name the business, so folding this into the branch above
+    # meant the note only ever appeared on a length that asked for nothing at
+    # all, which is no length. Unsaid, the next draft reads the address in
+    # anyway to be helpful, and the tag runs over.
+    dropped = [k for k in asked if k not in require and must.get(k)]
+    if dropped:
+        lines += ["", ("This length carries no response mechanism — it is "
+                       "read against a live announcer. Do not read a web "
+                       "address or a phone number.")]
+    if must.get("disclaimer"):
+        lines += ["", ("DISCLAIMER — reproduce this word for word, exactly "
+                       "as written, inside the read: ")
+                      + str(must["disclaimer"])]
     if steer:
         lines += ["", f"EXTRA DIRECTION FROM THE ACCOUNT MANAGER: {steer}"]
     return "\n".join(lines)
@@ -196,13 +238,21 @@ def _spot_user(brief: dict, dp: dict, seconds: int, tone: dict,
 
 def write_spot(brief: dict, daypart_id: str, seconds: int, tone_id: str,
                outcome: str = "neutral", banned: list[str] | None = None,
-               steer: str = "", attempts: int = 2) -> dict:
-    """Write one spot, re-asking once if the trademark scan finds a hit."""
+               steer: str = "", attempts: int = 2,
+               must: dict | None = None) -> dict:
+    """Write one spot, re-asking once if the trademark scan finds a hit.
+
+    ``must`` is the project's non-negotiables — the business name, the web
+    address, the phone number and any required disclaimer, with ``require``
+    naming which of them this project actually owes. The script panel checks
+    the answer; this is where the question gets asked.
+    """
     dp = catalog.daypart(daypart_id)
     tone = catalog.tone(tone_id)
     bank = phrases.suggest(daypart_id, 10)
     banned = banned or []
-    user = _spot_user(brief, dp, seconds, tone, outcome, bank, banned, steer)
+    user = _spot_user(brief, dp, seconds, tone, outcome, bank, banned, steer,
+                      must)
 
     last_err = ""
     for attempt in range(max(1, attempts)):
