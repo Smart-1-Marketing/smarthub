@@ -145,9 +145,22 @@ The Hub already computes this: `Settings.status()` in `hub/config.py` carries
 one row per provider with what unset costs, rendered on `/status`, and
 `env_report()` on `/diagnostics` says which spelling answered and which were
 set and ignored. Read those rather than writing a third description.
-**Render's API exposes no way to read the variables that are set**, so anything
-said from here about what is *already* on Render is inference from
-`render.yaml` — say so rather than implying the live environment was checked.
+
+**Say what has to be true, never that it is missing.** Render's API exposes no
+read for a service's environment variables *or* for the env groups linked to
+it — `get_service` returns none and there is no env-group tool at all — so
+nothing said from here about what is already set is a measurement. It is
+inference from `render.yaml`, and it must be worded as one.
+
+**A variable may already be arriving from a linked env group, and adding it to
+the service is not harmless.** A service-level value **overrides** a linked
+group's (`docs/claude/03`, the `PUBLIC_BASE_URL` note), so a well-meant
+addition silently wins over the group for that service alone, and the two then
+disagree with nothing anywhere saying so — the ALIASES conflict one layer out,
+minus the panel that reports it, because `env_report()` names which *spelling*
+answered and not which *source*. So the list is **what to check in the group
+first**, not what to add. Never call `update_environment_variables` to "make
+sure" a variable is set, and never with `replace: true`.
 
 ## Delivery
 
