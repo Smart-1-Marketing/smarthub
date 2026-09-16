@@ -1408,6 +1408,59 @@ def create_hub_app() -> Flask:
         out = youtube.clear(name, actor=current_user() or "")
         return jsonify(out), (200 if out.get("ok") else 404)
 
+    # ---- the client's email campaigns, read through hub/suite_email_stats.py
+    # The YouTube shape one channel over: the GET reads the stored reading
+    # for nothing, the POST is a press because a read is a call against
+    # the client's own sub-account. No lookup or confirm here -- which
+    # sub-account is the client's is the Suite Account card's decision,
+    # read through hub/suite_accounts and never restated.
+
+    @app.route("/api/client/suite-email")
+    def api_client_suite_email():
+        """The client's sent email campaigns as their Suite sub-account
+        answered last night -- names, dates, delivered/opened/clicked --
+        with which kind of nothing it is when there is none. Never a
+        Suite call."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_email_stats
+        name = (request.args.get("name", "") or request.args.get("client", "")).strip()
+        if not name:
+            return jsonify({"error": "No client was named.", "state": "unread"}), 400
+        try:
+            out = suite_email_stats.reading(name)
+        except Exception as exc:  # noqa: BLE001
+            out = {"measured": False, "state": "unread", "campaigns": [],
+                   "error": f"The campaign store could not be read ({type(exc).__name__})."}
+        out["sweep"] = suite_email_stats.sweep_state()
+        # ?raw=1 adds the stored raw statistics beside what the module made
+        # of them, so the key mapping is confirmed from the first live read
+        # (docs/claude/60). Staff only -- this route is behind _require_api()
+        # and a client's page is built by public_view(), which cannot reach it.
+        if request.args.get("raw") in ("1", "true", "yes"):
+            try:
+                out["raw"] = suite_email_stats.raw_view(name)
+            except Exception as exc:  # noqa: BLE001
+                out["raw"] = {"measured": False, "campaigns": [],
+                              "staff_note": f"The raw statistics could not be read ({type(exc).__name__})."}
+        return jsonify(out)
+
+    @app.route("/api/client/suite-email/refresh", methods=["POST"])
+    def api_client_suite_email_refresh():
+        """Read the client's sub-account now: behind a button."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import suite_email_stats
+        body = request.get_json(silent=True) or {}
+        name = str(body.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "No client was named."}), 400
+        out = suite_email_stats.snapshot(name, actor=current_user() or "")
+        return jsonify(out), (200 if out.get("ok") else 502 if out.get("kind") in
+                              ("refused", "rate_limited", "unreachable", "http", "unreadable", "missing") else 400)
+
     @app.route("/api/client/brand/push-to-suite", methods=["POST"])
     def api_brand_push():
         """Send the brand guide into the client's Smart 1 Suite sub-account."""
@@ -5928,6 +5981,55 @@ def create_hub_app() -> Flask:
                       client=client)
         return jsonify({**out, "state": cms_credentials.state(client)})
 
+    @app.route("/api/seo/wordpress/plugin")
+    def api_seo_wordpress_plugin():
+        """Download the plugin that makes schema writable.
+
+        Two formats because there are two ways to install one and only the zip
+        is always available: a must-use plugin needs SFTP or a file manager,
+        and the zip goes in through Plugins -> Add New -> Upload. The file is
+        the same either way and carries nothing client-specific, so this is a
+        staff download rather than anything per client.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import wordpress
+        fmt = (request.args.get("format") or "zip").strip().lower()
+        if fmt == "php":
+            body, ctype, name = (wordpress.plugin_bytes(), "text/plain",
+                                 wordpress.PLUGIN_SLUG + ".php")
+        elif fmt == "zip":
+            body, ctype, name = (wordpress.plugin_zip(), "application/zip",
+                                 wordpress.PLUGIN_SLUG + ".zip")
+        else:
+            return jsonify({"error": "format must be zip or php."}), 400
+        resp = app.response_class(body, mimetype=ctype)
+        resp.headers["Content-Disposition"] = f'attachment; filename="{name}"'
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        return resp
+
+    @app.route("/api/seo/wordpress/verify", methods=["POST"])
+    def api_seo_wordpress_verify():
+        """Fetch each page as a visitor and say whether the block is really on it.
+
+        A POST and a button rather than a page load: it is one outbound fetch
+        per page against the client's own site, and what it answers changes
+        when somebody clears a cache rather than when somebody opens a screen.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import wordpress
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        urls = [str(u) for u in (body.get("urls") or []) if str(u).strip()]
+        if not urls:
+            return jsonify({"error": "Tick the pages you want to check."}), 400
+        return jsonify(wordpress.verify_schema(client, urls))
+
     @app.route("/api/seo/wordpress/publish", methods=["POST"])
     def api_seo_wordpress_publish():
         """Write the selection into WordPress. Blogs and alt text only.
@@ -5946,13 +6048,22 @@ def create_hub_app() -> Flask:
         kind = (body.get("kind") or "blogs").strip()
         if not client:
             return jsonify({"error": "client is required."}), 400
-        if kind in ("schema", "faqs"):
+        if kind == "faqs":
             return jsonify({"error":
-                            "Schema and FAQ blocks cannot be written over the "
-                            "WordPress API: the SEO plugins keep those fields "
-                            "out of REST, and JSON-LD in post content is "
-                            "stripped unless the user has unfiltered_html. Use "
-                            "the Claude → WordPress button for those."}), 400
+                            "The FAQ accordion carries its own FAQPage markup "
+                            "inside the block that goes on the page, so there "
+                            "is nothing separate to send: writing it from here "
+                            "would put two copies on the page, and writing it "
+                            "without the accordion would be FAQPage markup for "
+                            "questions a visitor cannot see. Placing the "
+                            "accordion is an edit to the page itself — use the "
+                            "Claude → WordPress button."}), 400
+        if kind == "schema":
+            urls = [str(u) for u in (body.get("urls") or []) if str(u).strip()]
+            if not urls:
+                return jsonify({"error": "Tick the pages you want to send."}), 400
+            out = wordpress.publish_schema(client, urls, actor=current_user())
+            return jsonify(out), (400 if out.get("error") else 200)
         if kind == "alt":
             out = wordpress.publish_alt(
                 client, [str(u) for u in (body.get("urls") or [])],

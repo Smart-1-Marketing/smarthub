@@ -10,6 +10,7 @@ python tools/jscheck.py            # every .js file and inline block, via node
 python tools/checktemplates.py     # the Jinja-carrying blocks jscheck skips
 python tools/linkcheck.py          # every internal URL resolves, every url_for has a route
 python tools/pagecheck.py          # the page the browser actually receives
+python tools/menucheck.py          # every link the menu emits, and the anchors it aims at
 python tools/integritycheck.py     # known defect patterns
 python tools/spellcheck.py         # American English in everything a person reads
 python3 test_jsonstore.py          # the mirror restores, one answer on who is outside
@@ -229,6 +230,14 @@ python3 test_wordpress_publish.py  # the other publishing path: a credential
                                    #   category matched exactly or created, and
                                    #   two pages wanting two alts on one image
                                    #   named rather than last-one-wins
+python3 test_wordpress_schema.py   # the other half of that: one meta key
+                                   #   spelled the same in Python and in PHP,
+                                   #   a write read back because a 200 is not
+                                   #   evidence it landed, a URL resolved by
+                                   #   WordPress rather than guessed from a
+                                   #   slug, nothing unapproved reaching a
+                                   #   client's live site, and the plugin's
+                                   #   own functions run rather than grepped
 python3 test_webargs.py            # a caller's number: never a 500, never a
                                    #   negative slice, and the three call
                                    #   sites the shared helper never reached
@@ -334,14 +343,29 @@ python3 test_google_inactive_qa_bulk.py
                                    #   on its own row, a delete guarded on the
                                    #   count somebody typed, and a site check
                                    #   that refuses a GA4 row and a site nobody
-                                   #   can point at
+                                   #   can point at, an audit endpoint that
+                                   #   answers "could not read" rather than an
+                                   #   empty log, and a Needs Review row the
+                                   #   scan honors a skip on -- except the
+                                   #   broken login, which is refused in words
+                                   #   -- and a resolver that says which site
+                                   #   each container would be fetched against
+                                   #   without fetching any of them
 node test_google_inactive_qa_bulk_ui.js
                                    # the same page's own script, run for real:
                                    #   selection per section surviving the
                                    #   re-render, a long selection sent in
                                    #   several requests at the caps the
-                                   #   endpoints enforce, and a delete that
-                                   #   sends nothing until its count is typed
+                                   #   endpoints enforce, a delete that sends
+                                   #   nothing until its count is typed, and
+                                   #   the Cleanup history panel: loaded on
+                                   #   open, reloaded after an action, and a
+                                   #   window on the log saying it is one; and
+                                   #   Needs Review offering Skip on the rows a
+                                   #   skip means something for and no other;
+                                   #   and the bulk check collecting a site per
+                                   #   container first, checking only the ones
+                                   #   given an address and naming the blanks
 python3 test_analytics_ids.py      # two names for one property are not a
                                    #   disagreement: the measurement id Knack
                                    #   holds against the property id Google
@@ -569,6 +593,14 @@ python3 test_youtube.py            # a client's YouTube channel: a link read
                                    #   saying which variable answered, and the
                                    #   client's page gated on a video or social
                                    #   product AND a confirmed, read channel
+python3 test_suite_email_stats.py   # a client's email campaigns read from their
+                                   #   own Suite sub-account: two scopes, the
+                                   #   campaign list with the statistics
+                                   #   endpoint filling gaps under a cap, five
+                                   #   kinds of nothing drawn apart, the nightly
+                                   #   sweep held back while a scope is missing,
+                                   #   and the client's report gated on a live
+                                   #   email product AND a linked, read account
 python3 test_reports_normalize.py  # the provider normalize, provider check and auto-mapper
 python3 test_reports_public.py     # the client's live report page, its link and the spend rule
 python3 test_reports_crossover.py  # the product-level crossover and the forbidden-word sweep
@@ -688,6 +720,31 @@ each half internally consistent, only the join between them wrong, which is
 the shape this file counts a dozen of. Both are corrected together, because
 correcting either alone is what makes the other dangerous.
 
+**And `checksPass` turned the gate's own cancellation rule into a deploy
+freeze.** `checks.yml` set `cancel-in-progress: true` on a group of
+`checks-${{ github.ref }}` -- written for pull requests, where nobody wants the
+verdict on a commit the author has already replaced. A push to `main` shared
+that group, so **every merge cancelled the run for the merge before it**, and
+with merges landing faster than a run takes (~15-18 minutes) `main` stopped
+completing runs at all. A cancelled run is not a passed one, so nothing
+auto-deployed.
+
+Measured on 16 September 2026 rather than inferred: the last deploy with
+`trigger: "new_commit"` was `11be225`, which is *exactly* the last commit on
+`main` whose run completed instead of being cancelled. Twelve merges later the
+service was still serving that code, moved on only by one `trigger: "manual"`
+deploy somebody pressed. Every screen said green the whole time, because every
+one of those merges really had passed on its own pull request.
+
+The second cost is the one that outlives the deploy: **a cancelled run on
+`main` is a verdict thrown away.** Every commit there is a different tree --
+the merge result -- that nothing else will ever check, which is how the
+`/qa-inactive/` breakage above sat on `main` with no completed run saying so. A
+push gets a group of its own per commit now (`github.sha` in the group name, for
+`push` only), so nothing cancels it. Not `cancel-in-progress: false` on the
+shared group: that would have queued every merge behind one lane instead of
+running them alongside each other.
+
 `test_ci_gate.py` asserts what is true now instead of what the job used to
 promise: **this workflow holds no credential at all** — no stored secret, and
 no second job carrying one. Everything the gate runs, a contributor runs on a
@@ -719,6 +776,28 @@ the page's script early, and the entire tool rendered blank. It checks that
 the chrome arrives as an *element* (`html.parser` goes raw-text inside
 `<script>` exactly as a browser does, so chrome hidden in a literal is not
 seen) and that every browser-delimited script block still parses.
+
+`tools/menucheck.py` covers the gap between those two. linkcheck reads URL
+literals out of files; pagecheck walks a hand-maintained list of pages. Neither
+asks the navigation what it is actually putting in front of a person, and the
+sidebar builds its hrefs from `LEAVES` in `hub/sidebar.py` rather than from URL
+literals in a template — so a row whose route moved is data nothing reads, and
+`department_tiles()` drops a key missing from `LEAVES` on purpose rather than
+raising, because the nav must never break a page. This asks the nav for its own
+links and follows every one: each department index, each leaf, each tile.
+
+It also checks the half nothing else can see — every flyout group heading links
+to `/views/<slug>#<anchor>`, and a fragment matching no element on the page is
+invisible to every other check here: the link resolves, the page returns 200,
+and the browser silently stays where it is. Both halves were confirmed red
+first, against a leaf pointed at a route that does not exist and against the
+heading rendering without its `id`.
+
+Three non-2xx answers are gates working rather than defects, and `EXPECTED` in
+that file names each with its reason so a fourth is a finding rather than noise
+somebody learns to scroll past: Check Reconciliation's allowlist, the Users
+panel needing a named Admin account, and a proxied mount whose Node process is
+not running outside the container.
 
 `tools/jscheck.py` and `tools/checktemplates.py` split the JavaScript between
 them. jscheck hands every file and every inline block to `node --check`, the

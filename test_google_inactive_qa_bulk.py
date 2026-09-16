@@ -29,6 +29,37 @@ not match is refused before a single Google call is made. The per-request
 caps are enforced server-side too: a page that sent a hundred deletions in
 one request would outlive gunicorn's --timeout and be killed mid-flight.
 
+**A Needs Review row can be skipped, and the scan honors it.** The skip
+records were always written for any row the page posted; only the inactive
+list was ever partitioned against them, so a skip on a review row was
+recorded and then ignored -- a container whose tag a site check found
+genuinely live came back every scan forever. Both lists are partitioned
+now, and each skipped row says which section it was skipped from, recomputed
+per scan rather than remembered from the press.
+
+**A connected login that needs reconnecting is refused rather than
+skipped.** The scan cannot see one resource behind a login it could not
+read, so skipping the row would hide however many properties are behind it
+and report a clean sweep of accounts nothing looked at. Both skip routes say
+so in words instead of failing on a field check.
+
+**The bulk check says what it would fetch before it fetches anything.**
+A container is only checkable against a site somebody can name, and the ones
+nothing could name were the rows most in need of checking -- they came back
+"no website could be resolved" and had to be fixed one dialog at a time. The
+resolver route answers, per row and without fetching, which site the check
+would use and where it came from: the site last checked, an exact
+client-registry match (named, so a wrong guess is visible rather than
+silently used), or nothing at all.
+
+**The history panel reads a log that can say it could not be read.** The
+audit endpoint the panel draws answers `ok: false` for a store it cannot
+parse rather than an empty list -- "nothing has been cleaned up" and "the
+log could not be read" are opposite answers, and a panel that draws them
+identically is how a lost audit trail goes unnoticed. It also reports the
+whole log's length alongside the page it returns, so the panel can say it
+is showing a window rather than everything.
+
 **Only GTM containers can be site-checked, and only against a site somebody
 can point at.** A GA4 property is refused rather than quietly counted, and a
 container whose account resolves to no client website records exactly that
@@ -79,7 +110,7 @@ app = Flask(__name__)
 
 
 def call(view, payload):
-    """Post `payload` to a bulk route and return (status, json)."""
+    """Post `payload` to one of these routes and return (status, json)."""
     with app.app_context():
         with app.test_request_context("/bulk", method="POST", json=payload):
             result = view.__wrapped__()
@@ -416,6 +447,187 @@ check("one it did not find stays an inactive candidate",
 check("...with its own result on the row, rather than nothing",
       (inactive.get("notfound1") or {}).get("site_check", {}).get("found") is False,
       inactive.get("notfound1"))
+
+
+# ---------------------------------------------------------------------------
+section("POST /api/gtm/resolve-url/bulk: what would be fetched, before fetching")
+# ---------------------------------------------------------------------------
+fetched.clear()
+_client_key.resolve = _resolve
+try:
+    status, payload = call(qa.api_gtm_resolve_url_bulk, {"rows": [
+        gtm("found1", "Already checked", "GTM-FOUND1"),
+        gtm("fresh1", "Never checked", "GTM-FRESH1"),
+        gtm("ghost2", "No client match", "GTM-GHOST2", account="Ghost Co"),
+        ga4("p-ga4b", "A property"),
+    ]})
+finally:
+    _client_key.resolve = _real_resolve
+
+by_resource = {r["resource"]: r for r in payload.get("rows") or []}
+check("the request succeeds", status == 200 and payload.get("ok"), payload)
+check("nothing is fetched to answer it", not fetched, fetched)
+check("a container already checked offers the site it was checked against",
+      by_resource["found1"]["source"] == "checked"
+      and by_resource["found1"]["url"] == "https://chosen.example.com", by_resource.get("found1"))
+check("one never checked offers its exact client match",
+      by_resource["fresh1"]["source"] == "client"
+      and by_resource["fresh1"]["url"] == "https://acmeplumbing.com", by_resource.get("fresh1"))
+check("...naming the client it matched, so a wrong guess is visible",
+      by_resource["fresh1"]["client"] == "Acme Plumbing, LLC", by_resource.get("fresh1"))
+check("an account matching no client offers nothing, and says so",
+      by_resource["ghost2"]["source"] == "none" and by_resource["ghost2"]["url"] == "",
+      by_resource.get("ghost2"))
+check("...and is counted, so the dialog can say how many need an address",
+      payload.get("unresolved") == 1, payload.get("unresolved"))
+check("a GA4 row is left out rather than offered a site it has no use for",
+      "p-ga4b" not in by_resource, list(by_resource))
+
+status, payload = call(qa.api_gtm_resolve_url_bulk, {"rows": []})
+check("an empty selection is refused", status == 400, payload)
+
+# A site typed by hand is remembered, so the next resolve finds it without
+# asking -- the whole point of filling one in.
+call(qa.api_gtm_site_check_bulk,
+     {"rows": [{**gtm("ghost2", "No client match", "GTM-GHOST2", account="Ghost Co"),
+                "url": "https://typed-by-hand.example.com"}]})
+status, payload = call(qa.api_gtm_resolve_url_bulk,
+                       {"rows": [gtm("ghost2", "No client match", "GTM-GHOST2", account="Ghost Co")]})
+again = (payload.get("rows") or [{}])[0]
+check("a site supplied by hand is what the next resolve offers",
+      again.get("source") == "checked"
+      and again.get("url") == "https://typed-by-hand.example.com", again)
+
+
+# ---------------------------------------------------------------------------
+section("A Needs Review row can be skipped, and the scan acts on it")
+# ---------------------------------------------------------------------------
+def _login_row():
+    return {"kind": "Google", "login": LOGIN, "account": "Connected login", "account_id": "",
+            "name": LOGIN, "resource": LOGIN, "public_id": "", "status": "review",
+            "events": None, "sessions": None, "reason": "Google login requires reconnection"}
+
+
+def _scan_with(inactive_rows, review_rows):
+    """Run _run_scan() with _scan_login faked to return exactly these rows."""
+    class _Finder:
+        def connected_accounts_result(self):
+            return ([{"email": LOGIN, "refresh_token": "r", "status": "ACTIVE"}], "")
+
+        def refresh_access_token(self, login, refresh):
+            return "tok"
+
+    def _fake(login, refresh, on_progress=None, **_ignored):
+        return list(inactive_rows), list(review_rows), []
+
+    real_finder, real_scan = qa._finder, qa._scan_login
+    qa._finder, qa._scan_login = _Finder, _fake
+    try:
+        with app.app_context():
+            return qa._run_scan(full=False)
+    finally:
+        qa._finder, qa._scan_login = real_finder, real_scan
+
+
+live_gtm = {**gtm("live1", "Tag is live", "GTM-LIVE01"), "status": "review",
+            "reason": "Tag found live during an automatic site check"}
+dead_ga4 = {**ga4("p-dead", "Dead property"), "status": "inactive"}
+
+# Nothing skipped yet: each row is in its own section.
+before = _scan_with([dead_ga4], [live_gtm, _login_row()])
+check("the live container starts in Needs Review",
+      any(r["resource"] == "live1" for r in before["review"]), before["review"])
+
+status, payload = call(qa.api_skip, {**live_gtm, "reason": "tag is live, leave it"})
+check("a review row can be skipped", status == 200 and payload.get("ok"), payload)
+
+after = _scan_with([dead_ga4], [live_gtm, _login_row()])
+check("...and the next scan moves it out of Needs Review",
+      not any(r["resource"] == "live1" for r in after["review"]), after["review"])
+check("...into Skipped, with the reason on it",
+      any(r["resource"] == "live1" and r["skip"]["reason"] == "tag is live, leave it"
+          for r in after["skipped"]), after["skipped"])
+skipped_live = next(r for r in after["skipped"] if r["resource"] == "live1")
+check("...saying which section it was skipped from", skipped_live.get("from") == "review",
+      skipped_live.get("from"))
+check("an inactive row skipped alongside it says inactive, not review",
+      all(r.get("from") == "inactive" for r in after["skipped"] if r["resource"] == "p-dead"),
+      after["skipped"])
+check("the unskipped inactive row is untouched",
+      any(r["resource"] == "p-dead" for r in after["inactive"]), after["inactive"])
+
+# Un-skipping returns it to whichever section the scan puts it in now.
+call(qa.api_unskip, live_gtm)
+back = _scan_with([dead_ga4], [live_gtm, _login_row()])
+check("un-skipping a review row returns it to Needs Review",
+      any(r["resource"] == "live1" for r in back["review"]), back["review"])
+check("...and it is gone from Skipped",
+      not any(r["resource"] == "live1" for r in back["skipped"]), back["skipped"])
+
+
+# ---------------------------------------------------------------------------
+section("A login that needs reconnecting is refused rather than skipped")
+# ---------------------------------------------------------------------------
+status, payload = call(qa.api_skip, _login_row())
+check("the single route refuses it", status == 400, payload)
+check("...saying why, rather than naming a field", "reconnect" in (payload.get("error") or "").lower(),
+      payload.get("error"))
+
+status, payload = call(qa.api_skip_bulk, {"rows": [_login_row(), ga4("p-ok2", "Fine")]})
+check("the bulk route refuses it too", len(payload.get("failed") or []) == 1, payload)
+check("...with the same explanation",
+      "reconnect" in (payload["failed"][0]["error"] or "").lower(), payload["failed"][0])
+check("...while the resource beside it in the same request is still skipped",
+      payload.get("done") == 1 and qa._skip_key("GA4", LOGIN, "p-ok2") in qa._skips(), payload)
+
+still_there = _scan_with([], [_login_row()])
+check("so the broken login stays visible in Needs Review",
+      any(r["resource"] == LOGIN for r in still_there["review"]), still_there["review"])
+
+call(qa.api_unskip, ga4("p-ok2", "Fine"))
+
+
+# ---------------------------------------------------------------------------
+section("GET /api/audit: what the Cleanup history panel reads")
+# ---------------------------------------------------------------------------
+with app.app_context():
+    with app.test_request_context("/api/audit"):
+        audit_payload = qa.api_audit.__wrapped__().get_json()
+
+stored_rows = audit_rows()
+check("it answers ok with the log's own total", audit_payload.get("ok") is True
+      and audit_payload.get("total") == len(stored_rows), audit_payload.get("total"))
+check("the page is capped at AUDIT_PAGE_SIZE",
+      len(audit_payload.get("rows") or []) == min(len(stored_rows), qa.AUDIT_PAGE_SIZE),
+      len(audit_payload.get("rows") or []))
+check("...and says which cap, so the panel can name the window",
+      audit_payload.get("page_size") == qa.AUDIT_PAGE_SIZE, audit_payload.get("page_size"))
+check("newest first, so the panel does not have to re-sort",
+      (audit_payload["rows"] or [{}])[0] == stored_rows[-1], audit_payload["rows"][:1])
+check("a bulk action's own entries are in it by name",
+      any(r.get("action") == "delete" and r.get("name") for r in audit_payload["rows"]),
+      audit_payload["rows"][:3])
+check("a failed row carries its result and reason, rather than being left out",
+      any(r.get("result") == "error" and r.get("detail") for r in audit_payload["rows"]),
+      [r for r in audit_payload["rows"] if r.get("result") == "error"][:1])
+
+# A store this cannot parse is not an empty store.
+from hub import jsonstore as _jsonstore  # noqa: E402
+_jsonstore.write_json(qa._path("google_inactive_qa_audit.json"), {"not": "a list"})
+with app.app_context():
+    with app.test_request_context("/api/audit"):
+        broken = qa.api_audit.__wrapped__().get_json()
+check("an unreadable log says so rather than reading as an empty one",
+      broken.get("ok") is False and broken.get("error"), broken)
+check("...and offers no rows to draw as if they were the whole history",
+      broken.get("rows") == [] and broken.get("total") == 0, broken)
+
+_jsonstore.write_json(qa._path("google_inactive_qa_audit.json"), [])
+with app.app_context():
+    with app.test_request_context("/api/audit"):
+        empty = qa.api_audit.__wrapped__().get_json()
+check("a genuinely empty log is ok with nothing in it",
+      empty.get("ok") is True and empty.get("rows") == [] and empty.get("total") == 0, empty)
 
 
 print()

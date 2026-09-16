@@ -19,6 +19,26 @@ inactive bucket into Needs Review, since the tag is genuinely on the page and
 whether to act on that is a person's call. Needs Review otherwise stays what
 it always was: a scan that genuinely could not run (a listing call that
 failed, a login that needs reconnecting), not an activity judgment call.
+
+A container is only checkable against a site somebody can name. The scan
+works one out where it can -- the site last checked, then an exact
+client-registry match on the GTM account's own name -- and records "no
+website could be resolved" for the rest. Those were the rows most in need of
+a check and the most expensive to get one, because each needed its own
+dialog; the bulk check asks `/api/gtm/resolve-url/bulk` first and offers
+every selected container's site in an editable field, so the blanks are
+filled in one pass. A site supplied that way is persisted like any other
+check, so it answers for that container from then on.
+
+A Needs Review row can be skipped, and the scan honors it. A container whose
+tag a site check found genuinely live is never going to be deleted, so
+without this it came back every scan forever with no way to say "seen it,
+leave it" -- the record was written and only the inactive list was ever
+partitioned against it. A connected login that needs reconnecting is the one
+row skipping is refused for (SKIPPABLE_KINDS): the scan cannot see a single
+resource behind a login it could not read, so hiding the row would hide
+however many properties are behind it and report a clean sweep of accounts
+nothing actually looked at.
 """
 from __future__ import annotations
 
@@ -959,14 +979,27 @@ def _run_scan(full: bool = False) -> dict:
     inactive = [_with_site_check(r) for r in inactive]
     review = [_with_site_check(r) for r in review]
 
+    # Both working lists are partitioned against the skip records, not just
+    # the inactive one. A Needs Review row used to be unskippable in effect:
+    # the record was written and the next scan never looked at it, so a
+    # container whose tag a site check found genuinely live came back every
+    # single scan, forever, with no way to say "seen it, leave it". Skipping
+    # is the one answer that fits a row nobody is going to delete.
+    #
+    # `from` is recomputed here rather than stored on the record, so it
+    # cannot go stale: it says which bucket the row falls into on *this*
+    # scan, which is the honest answer once un-skipping puts it back.
     skip_data = _skips()
-    visible, skipped = [], []
-    for row in inactive:
-        rec = skip_data.get(_skip_key(row["kind"], row["login"], row["resource"]))
-        if rec:
-            skipped.append({**row, "skip": rec})
-        else:
-            visible.append(row)
+    visible, unsure, skipped = [], [], []
+    for bucket, rows in (("inactive", inactive), ("review", review)):
+        keep = visible if bucket == "inactive" else unsure
+        for row in rows:
+            rec = skip_data.get(_skip_key(row["kind"], row["login"], row["resource"]))
+            if rec:
+                skipped.append({**row, "skip": rec, "from": bucket})
+            else:
+                keep.append(row)
+    review = unsure
 
     sort_key = lambda r: (str(r.get("kind")), str(r.get("account", "")).lower(), str(r.get("name", "")).lower())
     payload = {
@@ -1143,14 +1176,38 @@ def _row_identity(row: dict) -> tuple[str, str, str]:
             str(row.get("resource") or "").strip())
 
 
+# A skip is a judgment about a Google *resource*: this property or container
+# is dead, or it is alive and we know, either way stop offering it. Needs
+# Review also carries rows that are not resources at all -- a connected login
+# that needs reconnecting -- and those are deliberately not skippable. The
+# scan cannot see a single property behind a login it could not read, so
+# skipping one would hide however many resources are behind it, and the
+# screen would report a clean sweep of accounts nothing actually looked at.
+# Reconnect the login instead; the row leaves on its own once it works.
+SKIPPABLE_KINDS = ("GA4", "GTM")
+_NOT_SKIPPABLE = ("Only GA4 properties and GTM containers can be skipped. A Google login "
+                  "that needs reconnecting hides every resource behind it, so reconnect it "
+                  "rather than skipping the row.")
+
+
+def _skip_refusal(kind: str, login: str, resource: str) -> str:
+    """Why this row cannot be skipped, or "" if it can."""
+    if not login or not resource:
+        return "kind, login and resource are required"
+    if kind not in SKIPPABLE_KINDS:
+        return _NOT_SKIPPABLE
+    return ""
+
+
 @qa_bp.route("/api/skip", methods=["POST"])
 @require_login
 def api_skip():
     row = request.get_json(silent=True) or {}
     kind = str(row.get("kind") or "").upper()
     login, resource = str(row.get("login") or "").strip(), str(row.get("resource") or "").strip()
-    if kind not in ("GA4", "GTM") or not login or not resource:
-        return jsonify(ok=False, error="kind, login and resource are required"), 400
+    refusal = _skip_refusal(kind, login, resource)
+    if refusal:
+        return jsonify(ok=False, error=refusal), 400
     data = _skips()
     data[_skip_key(kind, login, resource)] = {
         "kind": kind, "login": login, "resource": resource, "name": str(row.get("name") or ""),
@@ -1184,9 +1241,9 @@ def api_skip_bulk():
     entries, failed, done = [], [], 0
     for row in rows:
         kind, login, resource = _row_identity(row)
-        if kind not in ("GA4", "GTM") or not login or not resource:
-            failed.append({"name": _row_label(row),
-                           "error": "kind, login and resource are required"})
+        refusal = _skip_refusal(kind, login, resource)
+        if refusal:
+            failed.append({"name": _row_label(row), "error": refusal})
             continue
         data[_skip_key(kind, login, resource)] = {
             "kind": kind, "login": login, "resource": resource,
@@ -1261,6 +1318,60 @@ def api_gtm_resolve_url():
     return jsonify(ok=True, known=bool(url), domain=result.get("domain") or "",
                    client=result.get("client") or "", confidence=result.get("confidence") or "",
                    suggested_url=url)
+
+
+@qa_bp.route("/api/gtm/resolve-url/bulk", methods=["POST"])
+@require_login
+def api_gtm_resolve_url_bulk():
+    """What each of these containers would be checked against, before anything is fetched.
+
+    The bulk site check works out a site per row the same way the automatic
+    scan pass does -- the site it was last checked against, then an exact
+    client-registry match on the GTM account's own name -- and a container
+    neither of those answers for is recorded as "no website could be
+    resolved". Fixing those one dialog at a time is the gap this closes: the
+    page asks here first, shows the answer per row in an editable field, and
+    a person fills in the blanks in one pass.
+
+    Nothing is fetched by this route. It reads the site-check store and the
+    client registry and reports, per row, the URL and where it came from --
+    `checked` (the site it was last checked against), `client` (an exact
+    registry match, with the client it matched so a wrong guess is visible
+    rather than silently used), or `none`.
+    """
+    body = request.get_json(silent=True) or {}
+    rows, error = _bulk_rows(body, BULK_MAX_ROWS)
+    if error:
+        return jsonify(ok=False, error=error), 400
+
+    stored = _site_checks()
+    # One registry lookup per distinct account name rather than per row: a
+    # scan across every login routinely turns up several containers under one
+    # GTM account, and client_key.resolve() is the expensive half of this.
+    resolved: dict[str, tuple[str, dict]] = {}
+    out = []
+    for row in rows:
+        kind, login, resource = _row_identity(row)
+        if kind != "GTM" or not login or not resource:
+            continue
+        account = str(row.get("account") or "").strip()
+        entry = {"kind": "GTM", "login": login, "resource": resource,
+                 "name": str(row.get("name") or ""), "account": account,
+                 "public_id": str(row.get("public_id") or "")}
+        was = str((stored.get(_skip_key("GTM", login, resource)) or {}).get("url") or "").strip()
+        if was:
+            out.append({**entry, "url": was, "source": "checked", "client": ""})
+            continue
+        if account not in resolved:
+            resolved[account] = _resolve_client_url(account)
+        url, result = resolved[account]
+        if url:
+            out.append({**entry, "url": url, "source": "client",
+                        "client": result.get("client") or ""})
+        else:
+            out.append({**entry, "url": "", "source": "none", "client": ""})
+    return jsonify(ok=True, rows=out,
+                   unresolved=sum(1 for r in out if r["source"] == "none"))
 
 
 @qa_bp.route("/api/gtm/site-check", methods=["POST"])
@@ -1577,8 +1688,28 @@ def api_delete_bulk():
     return jsonify(ok=True, deleted=deleted, failed=len(results) - deleted, results=results)
 
 
+# How many entries the history panel is handed. The store itself keeps 2000
+# (see _audit_write); this is what one screen can usefully hold, newest
+# first, and the panel says so rather than implying it is the whole log.
+AUDIT_PAGE_SIZE = 200
+
+
 @qa_bp.route("/api/audit")
 @require_login
 def api_audit():
+    """What was skipped, un-skipped, checked and deleted here, newest first.
+
+    `total` is the whole stored log, not this page of it, so the panel can
+    say "showing the last 200 of 640" rather than presenting a window as the
+    entirety. A store that is not a list is a store this cannot read: it
+    answers `ok: false` rather than an empty list, because "nothing has been
+    cleaned up" and "the log could not be read" are opposite answers and a
+    panel that draws them identically is how a lost audit trail goes
+    unnoticed.
+    """
     rows = jsonstore.read_json(_path("google_inactive_qa_audit.json"), default=[])
-    return jsonify(rows=list(reversed(rows[-200:]))) if isinstance(rows, list) else jsonify(rows=[])
+    if not isinstance(rows, list):
+        return jsonify(ok=False, rows=[], total=0,
+                       error="The cleanup log could not be read.")
+    return jsonify(ok=True, total=len(rows), page_size=AUDIT_PAGE_SIZE,
+                   rows=list(reversed(rows[-AUDIT_PAGE_SIZE:])))

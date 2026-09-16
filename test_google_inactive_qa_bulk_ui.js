@@ -22,6 +22,14 @@
 //     would outlive gunicorn's --timeout and be killed mid-flight.
 //   * Delete asks for the count it is about to delete, and refuses to send
 //     anything at all until that is typed correctly.
+//   * Needs Review offers Skip on the rows a skip means something for, and
+//     not on a connected login that needs reconnecting — neither on the row
+//     nor in the bulk press, which posts only what it can skip and says what
+//     it left alone.
+//   * The Cleanup history panel loads when it is opened rather than on page
+//     load, reloads after an action writes to the log it is showing, says
+//     when it is showing a window on a longer log, and never draws a log it
+//     could not read as a log with nothing in it.
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
@@ -39,6 +47,21 @@ function makeEl(id) {
     showModal() { this.open = true; }, close() { this.open = false; },
     querySelectorAll() { return []; },
   };
+}
+
+// The bulk site-check dialog's URL fields only exist inside the dialog's
+// rendered innerHTML, same as the row checkboxes below.
+function urlInputsFrom(doc) {
+  const list = doc.elements.get('#bulkCheckList');
+  const out = [];
+  if (!list) return out;
+  const re = /<input data-url="([^"]*)" value="([^"]*)"/g;
+  let m;
+  while ((m = re.exec(list.innerHTML))) {
+    const key = m[1].replace(/&amp;/g, '&');
+    out.push(doc.urlInput(key, m[2].replace(/&amp;/g, '&')));
+  }
+  return out;
 }
 
 // Row checkboxes only exist inside a tbody's rendered innerHTML, so they are
@@ -60,12 +83,30 @@ function checkboxesFrom(doc, selector) {
   return out;
 }
 
+let auditResponse = {ok: true, total: 0, page_size: 200, rows: []};
+// Per-resource: a string is the site the server names, '' is "nothing could
+// be resolved", and an absent key falls back to a generated client match.
+let resolveResponse = {};
+let resolveFails = false;
+
 function setup() {
   const elements = new Map();
   const requests = [];
   const boxes = new Map();
+  const urls = new Map();
   const doc = {
     elements,
+    urlInput(key, value) {
+      const id = 'url|' + key;
+      if (!urls.has(id)) {
+        const row = {classList: {toggle() {}}};
+        urls.set(id, {...makeEl(id), dataset: {url: key}, value,
+                      closest: () => row});
+      }
+      const el = urls.get(id);
+      el.value = value;
+      return el;
+    },
     checkbox(sec, key, checked) {
       const id = sec + '|' + key;
       if (!boxes.has(id)) boxes.set(id, {...makeEl(id), dataset: {sec, key}, checked});
@@ -79,6 +120,7 @@ function setup() {
     },
     querySelectorAll(sel) {
       if (sel.includes('data-sec')) return checkboxesFrom(doc, sel);
+      if (sel.includes('data-url')) return urlInputsFrom(doc);
       return [];
     },
   };
@@ -90,7 +132,9 @@ function setup() {
     fetch: async (url, options) => {
       const body = options && options.body ? JSON.parse(options.body) : null;
       requests.push({url, body, method: (options || {}).method || 'GET'});
-      return {ok: true, status: 200, json: async () => bodyFor(url, body)};
+      const answer = bodyFor(url, body);
+      if (answer === null) return {ok: false, status: 500, json: async () => ({error: 'boom'})};
+      return {ok: true, status: 200, json: async () => answer};
     },
   });
   function bodyFor(url, body) {
@@ -105,7 +149,18 @@ function setup() {
               results: body.rows.map(r => ({ok: true, name: r.name, kind: r.kind,
                 resource: r.resource, message: 'done'}))};
     }
+    if (url.includes('resolve-url/bulk') && resolveFails) return null;
+    if (url.includes('resolve-url/bulk')) {
+      return {ok: true, unresolved: 0, rows: body.rows.map(r => {
+        const named = resolveResponse[r.resource];
+        if (named === undefined) return {...r, url: `https://${r.resource}.test`, source: 'client', client: 'Acme'};
+        return named
+          ? {...r, url: named, source: 'checked', client: ''}
+          : {...r, url: '', source: 'none', client: ''};
+      })};
+    }
     if (url.includes('/bulk')) return {ok: true, done: body.rows.length, failed: []};
+    if (url.includes('api/audit')) return auditResponse;
     if (url.includes('scan/progress')) return {running: false};
     return {pending: true};
   }
@@ -217,17 +272,71 @@ function bulkBarState(s, sec) {
     'every chunk carries the selection total, never the chunk size');
 
   // --- Check sites sends GTM rows only, chunked at 12 -----------------------
+  resolveResponse = {};
   s = setup();
   const mixed = [row('GA4', 'p1'), ...Array.from({length: 14}, (_, i) => row('GTM', 'c' + i))];
   render(s, payload(mixed, [], []));
   const all5 = s.$('#allInactive'); all5.checked = true; all5.onchange();
-  s.$('#bulkInactiveCheck').onclick();
+  await s.$('#bulkInactiveCheck').onclick();
+  assert.ok(s.requests.some(r => r.url.includes('resolve-url/bulk')),
+    'the dialog asks what each row would be checked against before fetching anything');
+  assert.ok(s.requests.every(r => !r.url.includes('site-check/bulk')),
+    '...and fetches nothing until the person presses Check');
   await s.$('#bulkCheckForm')._handlers.submit({preventDefault() {}});
   const checkPosts = s.requests.filter(r => r.url.includes('site-check/bulk'));
   assert.deepEqual(checkPosts.map(r => r.body.rows.length), [12, 2]);
   assert.ok(checkPosts.every(r => r.body.rows.every(x => x.kind === 'GTM')),
     'a GA4 property is never sent to the site check');
+  assert.ok(checkPosts.every(r => r.body.rows.every(x => x.url)),
+    'every row carries the site it is to be checked against');
   assert.match(s.$('#bulkCheckResult').textContent, /0 tags found, 14 not found/);
+
+  // --- A container nothing can name a site for waits for one ----------------
+  // This is the gap the dialog exists to close: before it, those rows went
+  // through the bulk check, came back "no website could be resolved", and had
+  // to be fixed one at a time.
+  resolveResponse = {c0: '', c1: '', c2: 'https://known.test'};
+  s = setup();
+  render(s, payload([row('GTM', 'c0'), row('GTM', 'c1'), row('GTM', 'c2')], [], []));
+  const all7 = s.$('#allInactive'); all7.checked = true; all7.onchange();
+  await s.$('#bulkInactiveCheck').onclick();
+  assert.match(s.$('#bulkCheckCount').textContent, /1 of 3 containers will be fetched/);
+  assert.match(s.$('#bulkCheckCount').textContent, /2 have no site yet/);
+  assert.match(s.$('#bulkCheckList').innerHTML, /No website could be resolved/,
+    'the rows nothing could name say so, in the dialog, beside an empty field');
+  assert.equal(s.$('#confirmBulkCheck').disabled, false,
+    'the one resolvable row still lets the press go ahead');
+
+  // Typing a site for one of the blanks makes it checkable.
+  const blanks = s.doc.querySelectorAll('#bulkCheckList input[data-url]')
+    .filter(el => !el.value);
+  assert.equal(blanks.length, 2);
+  blanks[0].value = 'typed-by-hand.test';
+  blanks[0].oninput();
+  assert.match(s.$('#bulkCheckCount').textContent, /2 of 3 containers will be fetched/);
+
+  await s.$('#bulkCheckForm')._handlers.submit({preventDefault() {}});
+  const sent = s.requests.filter(r => r.url.includes('site-check/bulk'))
+    .flatMap(r => r.body.rows);
+  assert.deepEqual(sent.map(r => r.resource).sort(), ['c0', 'c2'],
+    'the typed row and the resolvable one go; the still-blank one does not');
+  assert.equal(sent.find(r => r.resource === 'c0').url, 'typed-by-hand.test',
+    'the typed address is what gets posted for that container');
+  assert.match(s.$('#bulkCheckResult').textContent, /1 left blank and not checked/,
+    'what was left alone is named rather than counted as a failure');
+
+  // A dialog is still usable when the resolver itself fails.
+  resolveResponse = {};
+  resolveFails = true;
+  s = setup();
+  render(s, payload([row('GTM', 'c0')], [], []));
+  const all8 = s.$('#allInactive'); all8.checked = true; all8.onchange();
+  await s.$('#bulkInactiveCheck').onclick();
+  assert.match(s.$('#bulkCheckList').innerHTML, /data-url/,
+    'every row still gets a field to type into');
+  assert.match(s.$('#bulkCheckResult').textContent, /Could not read the sites/,
+    '...and the failure is said rather than shown as "no site could be resolved"');
+  resolveFails = false;
 
   // --- Needs review and Skipped carry their own selections ------------------
   s = setup();
@@ -244,6 +353,117 @@ function bulkBarState(s, sec) {
   const unskipPost = s.requests.find(r => r.url.includes('unskip/bulk'));
   assert.equal(unskipPost.body.rows[0].resource, 's1');
 
+  // --- Needs Review can skip, and only what a skip means something for ------
+  s = setup();
+  const loginRow = {kind: 'Google', login: 'adops@example.com', account: 'Connected login',
+                    account_id: '', name: 'adops@example.com', resource: 'adops@example.com',
+                    public_id: '', reason: 'Google login requires reconnection'};
+  render(s, payload([], [row('GTM', 'live1'), loginRow], []));
+  assert.doesNotMatch(s.$('#reviewBody').innerHTML.split('adops@example.com').pop(), /data-skip/,
+    'a login that needs reconnecting is offered no Skip button');
+  assert.match(s.$('#reviewBody').innerHTML, /data-skip/,
+    '...while the container beside it is');
+
+  // Picking only the login leaves the bulk Skip disabled.
+  pick(s, 'review', ['Google:adops@example.com:adops@example.com']);
+  assert.equal(s.$('#cntReview').textContent, 1);
+  assert.equal(s.$('#bulkReviewSkip').disabled, true,
+    'a selection with nothing skippable in it must not enable Skip');
+  pick(s, 'review', ['GTM:adops@example.com:live1']);
+  assert.equal(s.$('#bulkReviewSkip').disabled, false);
+
+  s.$('#bulkReviewSkip').onclick();
+  assert.equal(s.$('#bulkSkipDialog').open, true);
+  assert.match(s.$('#bulkSkipCount').textContent, /1 resource will be moved to Skipped/);
+  assert.match(s.$('#bulkSkipCount').textContent, /needs reconnecting/,
+    'the dialog says what it is leaving alone rather than dropping it quietly');
+  await s.$('#bulkSkipForm')._handlers.submit({preventDefault() {}});
+  const reviewSkipPost = s.requests.find(r => r.url.includes('skip/bulk'));
+  assert.equal(reviewSkipPost.body.rows.length, 1);
+  assert.equal(reviewSkipPost.body.rows[0].resource, 'live1',
+    'only the skippable row is posted');
+  assert.equal(s.$('#cntReview').textContent, 0,
+    "the review section's own selection is what gets cleared");
+
+  // --- The Skipped table says which section a row came from -----------------
+  s = setup();
+  render(s, payload([], [], [
+    Object.assign(row('GTM', 's1'), {from: 'review', skip: {reason: 'tag is live', by: 'me', at: '2026-09-16'}}),
+    Object.assign(row('GA4', 's2'), {from: 'inactive', skip: {reason: 'old client', by: 'me', at: '2026-09-16'}}),
+  ]));
+  assert.match(s.$('#skippedBody').innerHTML, /Needs review/);
+  assert.match(s.$('#skippedBody').innerHTML, /Inactive candidate/);
+
+  // --- Cleanup history: loaded on open, not on page load --------------------
+  auditResponse = {ok: true, total: 3, page_size: 200, rows: [
+    {at: '2026-09-16T10:00:00+00:00', actor: 'todd@smart1marketing.com', action: 'delete',
+     kind: 'GA4', name: 'dead.example.com', resource: 'p1',
+     google_login: 'adops@example.com', result: 'ok', detail: 'GA4 property moved to the Analytics trash can.'},
+    {at: '2026-09-16T09:00:00+00:00', actor: 'todd@smart1marketing.com', action: 'delete',
+     kind: 'GTM', name: 'Refused container', resource: 'c9',
+     google_login: 'adops@example.com', result: 'error', detail: 'HTTP 403: caller does not have permission'},
+    {at: '2026-09-16T08:00:00+00:00', actor: 'sam@smart1marketing.com', action: 'skip',
+     kind: 'GA4', name: 'Kept on purpose', resource: 'p7',
+     google_login: 'second@example.com', result: 'ok', detail: 'old client'},
+  ]};
+  s = setup();
+  render(s, payload([row('GA4', 'p1')], [], []));
+  assert.equal(s.requests.filter(r => r.url.includes('api/audit')).length, 0,
+    'the history must not be fetched on page load — the scan is what this screen is for');
+  const panel = s.$('#historyPanel');
+  panel.open = true;
+  await panel._handlers.toggle();
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(s.requests.filter(r => r.url.includes('api/audit')).length, 1,
+    'opening the panel loads it');
+  assert.match(s.$('#historyBody').innerHTML, /dead\.example\.com/);
+  assert.match(s.$('#historyBody').innerHTML, /hist-bad/,
+    'a failed row is marked rather than left out');
+  assert.match(s.$('#historyBody').innerHTML, /403/,
+    "...and carries Google's own reason");
+  assert.equal(s.$('#historyCount').textContent, '(3)');
+
+  // Filtering narrows what is drawn and says so.
+  s.$('#historyFilter').value = 'sam@';
+  s.$('#historyFilter').oninput();
+  assert.doesNotMatch(s.$('#historyBody').innerHTML, /dead\.example\.com/);
+  assert.match(s.$('#historyBody').innerHTML, /Kept on purpose/);
+  assert.match(s.$('#historyRange').textContent, /1 of 3 shown/);
+  s.$('#historyFilter').value = 'nothing matches this';
+  s.$('#historyFilter').oninput();
+  assert.match(s.$('#historyBody').innerHTML, /Nothing in the history matches that/);
+  s.$('#historyFilter').value = '';
+  s.$('#historyFilter').oninput();
+
+  // --- The panel says it is a window, not the whole log ---------------------
+  auditResponse = {ok: true, total: 640, page_size: 200,
+                   rows: [{at: '2026-09-16T10:00:00+00:00', actor: 'todd', action: 'skip',
+                           kind: 'GA4', name: 'One', resource: 'p1', google_login: 'a@b.c',
+                           result: 'ok', detail: ''}]};
+  s.$('#historyRefresh').onclick();
+  await new Promise(r => setTimeout(r, 0));
+  assert.match(s.$('#historyRange').textContent, /Showing the last 200 of 640/,
+    'a window on the log must not read as the whole log');
+
+  // --- A log that cannot be read is not an empty log ------------------------
+  auditResponse = {ok: false, rows: [], total: 0, error: 'The cleanup log could not be read.'};
+  s.$('#historyRefresh').onclick();
+  await new Promise(r => setTimeout(r, 0));
+  assert.match(s.$('#historyBody').innerHTML, /could not be read/);
+  assert.doesNotMatch(s.$('#historyBody').innerHTML, /Nothing has been skipped/,
+    'an unreadable log must never draw as "nothing has happened"');
+
+  auditResponse = {ok: true, total: 0, page_size: 200, rows: []};
+  s.$('#historyRefresh').onclick();
+  await new Promise(r => setTimeout(r, 0));
+  assert.match(s.$('#historyBody').innerHTML, /Nothing has been skipped, checked or deleted here yet/);
+
+  // --- An action reloads the open panel -------------------------------------
+  const before = s.requests.filter(r => r.url.includes('api/audit')).length;
+  await vm.runInContext('startScan(false)', s.context);
+  assert.ok(s.requests.filter(r => r.url.includes('api/audit')).length > before,
+    'an action that writes to the log refreshes the panel showing it');
+
   // --- A row that leaves its section leaves the selection with it -----------
   s = setup();
   render(s, payload([row('GA4', 'p1'), row('GTM', 'c1')], [], []));
@@ -255,5 +475,5 @@ function bulkBarState(s, sec) {
   assert.equal(s.$('#cntReview').textContent, 0,
     '...and is not silently selected in the one it arrived in');
 
-  console.log('9 bulk-action UI scenarios passed');
+  console.log('19 bulk-action, review-skip, url-collection and history UI scenarios passed');
 })().catch(e => { console.error(e); process.exitCode = 1; });
