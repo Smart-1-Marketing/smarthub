@@ -99,12 +99,15 @@ CLIENT = "Acme Tyre"
 
 
 def _log_row(when, module, action, client, **extra):
-    """An activity-log row at a chosen date. audit.log() stamps the clock,
-    and the schedule is about which month a row fell in."""
-    row = {"time": when, "module": module, "type": action, "actor": "t", "client": client}
-    row.update(extra)
-    with open(os.environ["AUDIT_LOG_PATH"], "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row) + "\n")
+    """An activity-log row at a chosen date.
+
+    Through audit.log() rather than appended to the JSONL file: the log's
+    backend is the database now, so a row written to that file is one no
+    reader looks at. `time` in the extras is what fixes the date, which the
+    schedule is entirely about -- log() documents that it wins.
+    """
+    from hub import audit
+    audit.log(module, action, actor="t", client=client, time=when, **extra)
 
 
 # ---------------------------------------------------------------------------

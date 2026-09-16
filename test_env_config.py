@@ -385,11 +385,15 @@ finally:
 # either.
 from hub import ad_builder_proxy                         # noqa: E402
 
-open(os.environ["AUDIT_LOG_PATH"], "w").close()
+# Measured as a delta rather than by emptying the log first: the backend is
+# the database, so truncating AUDIT_LOG_PATH empties a file nothing reads and
+# every count below would then be of whatever the run had already written.
+_before = len(audit.read(limit=200, module="display_ads"))
 ad_builder_proxy._record("POST", "api/project/abc123/deliver", 200, "todd")
 ad_builder_proxy._record("GET", "api/project/abc123", 200, "todd")
 ad_builder_proxy._record("POST", "api/project/abc123/deliver", 500, "todd")
-rows = audit.read(limit=50, module="display_ads")
+rows = audit.read(limit=200, module="display_ads")
+rows = rows[:max(0, len(rows) - _before)]
 check("a delivered pack is recorded once", len(rows), 1)
 check("under an action somebody can read", rows[0]["type"], "ads_delivered")
 check("with the project it was", rows[0].get("ref"), "abc123")
@@ -397,9 +401,10 @@ check("and who did it", rows[0].get("actor"), "todd")
 
 # A route added in TypeScript later cannot be silent: unnamed writes are still
 # recorded, under their own path.
-open(os.environ["AUDIT_LOG_PATH"], "w").close()
+_before = len(audit.read(limit=200, module="display_ads"))
 ad_builder_proxy._record("POST", "api/something/new", 201, "todd")
-rows = audit.read(limit=50, module="display_ads")
+rows = audit.read(limit=200, module="display_ads")
+rows = rows[:max(0, len(rows) - _before)]
 check("an unnamed write is still attributable",
       (len(rows), rows[0]["type"] if rows else ""), (1, "ads_api_something_new"))
 

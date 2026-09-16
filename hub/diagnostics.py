@@ -638,6 +638,50 @@ def check_json_backup() -> Check:
                  fix="Set DATABASE_URL so hub/jsonstore.py can mirror the disk.")
 
 
+def check_activity_log() -> Check:
+    """Which backend the activity log is on, and what it is still owed.
+
+    The log used to be a JSONL file on the disk that is outside the backup and
+    local to one instance -- so the two halves of a deploy kept two histories
+    and /activity showed whichever answered. It is a table now, and this row
+    exists because that is invisible from every screen when it quietly stops:
+    a database that will not answer degrades to the same file, silently,
+    correctly, and for as long as nobody looks.
+
+    A row still in the fallback is not a row that was lost -- it is read back,
+    and the next successful write puts it in the table -- but on an instance
+    with no disk of its own it is a row the next deploy takes with it, so it
+    is named rather than counted quietly.
+    """
+    def go():
+        from hub import audit
+        st = audit.status()
+        pending = st.get("pending_rows")
+        if not st.get("ready"):
+            return ("warn",
+                    "Writing to a file rather than the database, so the log is "
+                    "local to this instance and outside the backup. "
+                    + (st.get("error") or "No database.")
+                    + (f" {pending} row(s) are waiting to go in."
+                       if pending and pending > 0 else ""))
+        imp = st.get("import") or {}
+        detail = "In the database."
+        if imp.get("ran"):
+            detail += f" Carried {imp.get('imported', 0)} row(s) across from the file."
+        if pending and pending > 0:
+            return ("warn", detail + f" {pending} row(s) written during an "
+                                     "outage are still in the fallback file; "
+                                     "the next write puts them in.")
+        if pending is not None and pending < 0:
+            return ("warn", detail + " The fallback file could not be read, so "
+                                     "whether anything is owed is not measured.")
+        return ("ok", detail)
+    (state, detail), ms = _timed(go)
+    return Check("activity_log", "Activity log", state, detail, ms,
+                 fix="Set DATABASE_URL so the activity log is in the backup "
+                     "and shared between instances.")
+
+
 def check_public_base_url() -> Check:
     if not settings.public_base_url:
         return Check("public_base_url", "Public base URL", "error",
@@ -805,7 +849,8 @@ def check_google_accounts() -> list[Check]:
 
 
 CHECKS = [
-    check_database, check_json_backup, check_public_base_url,
+    check_database, check_json_backup, check_activity_log,
+    check_public_base_url,
     check_openai, check_cloudinary,
     check_brandfetch, check_places, check_youtube, check_microsoft_ads, check_groundtruth, check_insites,
     check_removebg, check_pexels,

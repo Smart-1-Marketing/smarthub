@@ -90,17 +90,25 @@ def section(title):
     print(f"\n{title}")
 
 
+# The activity log's backend is the database now, so emptying the JSONL file
+# empties something no reader looks at -- every count below would then be of
+# whatever the run had already recorded. Both go through the module.
 def clear_log():
-    open(LOG, "w").close()
+    from hub import audit
+    audit._init()
+    if audit._ready:
+        with audit._engine.begin() as cx:
+            cx.execute(audit._table.delete())
+    try:
+        os.remove(audit._pending_path())
+    except OSError:
+        pass
 
 
 def rows_of(provider):
-    out = []
-    for line in open(LOG, encoding="utf-8"):
-        row = json.loads(line)
-        if row.get("provider") == provider:
-            out.append(row)
-    return out
+    from hub import audit
+    return [r for r in reversed(audit.read(limit=5000))
+            if r.get("provider") == provider]
 
 
 # --------------------------------------------------- 1-3. ElevenLabs characters

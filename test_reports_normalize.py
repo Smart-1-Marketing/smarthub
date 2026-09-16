@@ -291,7 +291,8 @@ check("an unresolvable client token is reported by name", am3["unresolved"], ["N
 check("...and mapped nowhere", ("x", "x-1") not in
       {(m["platform"], m["campaign_id"]) for m in store.mapped_campaigns(limit=100)})
 
-entries = [json.loads(l) for l in Path(os.environ["AUDIT_LOG_PATH"]).read_text().splitlines() if l.strip()]
+from hub import audit
+entries = list(reversed(audit.read(limit=2000)))   # the log is a table now, not that file
 auto = [e for e in entries if e.get("action") == "campaign_automapped"]
 check("the automap wrote an activity row under the client's name",
       bool(auto) and auto[0].get("client") == "Acme Plumbing" and auto[0].get("module") == "reports")
@@ -306,7 +307,7 @@ check("...because the automap's filing is pending",
       all(m["pending"] for m in store.mapped_campaigns(limit=100) if m["client"] == "d:acme.com"))
 store.confirm_mapping("google", "123-456", "g-1", by="Todd")
 normalize.run(today=TODAY, actor="test")
-entries = [json.loads(l) for l in Path(os.environ["AUDIT_LOG_PATH"]).read_text().splitlines() if l.strip()]
+entries = list(reversed(audit.read(limit=2000)))   # the log is a table now, not that file
 sync = [e for e in entries if e.get("action") == "reports_sync"]
 check("confirmed, the sync wrote one activity row per client touched",
       sorted(e.get("client") for e in sync[:1]), ["Acme Plumbing"])

@@ -294,7 +294,8 @@ check("an empty box goes back to the vendor-stripped default",
 r = staff.post(f"/reports/client/{CLIENT}/campaign", data={
     "platform": "meta", "account_id": "x", "campaign_id": "y", "display_name": "z"})
 check("a campaign not mapped to this client is refused", "not+mapped" in r.headers.get("Location", ""))
-entries = [json.loads(l) for l in Path(os.environ["AUDIT_LOG_PATH"]).read_text().splitlines() if l.strip()]
+from hub import audit
+entries = list(reversed(audit.read(limit=2000)))   # the log is a table now, not that file
 check("the override reached the activity log under the client",
       [e.get("client") for e in entries if e.get("type") == "campaign_display_saved"][:1], [NAME])
 check("the staff page offers the product picker and the display-name box on every row",

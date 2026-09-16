@@ -1,22 +1,100 @@
-"""Suite-wide append-only activity log (JSONL).
+"""Suite-wide append-only activity log.
 
 Every module writes through here so the Hub has ONE attributed history:
-logins, GHL account create/delete, etc.  Point AUDIT_LOG_PATH at a file on
-the Render persistent disk (/var/data) so history survives deploys.
+logins, GHL account create/delete, etc.
+
+## The backend is the database wherever there is one
+
+This was a JSONL file on the Render persistent disk, and that disk is the one
+thing here that is **not** backed up -- the argument `hub/jsonstore.py` opens
+with, applied to the log rather than to a JSON blob. Worse than unbacked: a
+file is local to one instance, so the two halves of a zero-downtime deploy
+keep two different histories and `/activity` shows whichever one answered.
+The activity log is the record somebody reconstructs an incident from, and a
+record that depends on which worker you reached is not one.
+
+So the rows live in `hub_activity`, through the shared engine -- Postgres in
+production, whatever `DATABASE_URL` names in a test. The file is what a Hub
+with no database at all falls back to, and it is what the one-time import
+reads.
+
+**`AUDIT_LOG_PATH` no longer decides anything**, and that is the part worth
+reading twice. It names *where the file is*, which is a fact about the
+fallback; the live service sets it, so had it gone on selecting the backend
+the obvious design -- "the file when it is set, the database otherwise" --
+would have kept production on the disk while every test passed on the new
+path. It is read by `_path()`, by the import, and by nothing else.
+
+The reverse is just as bad and is the reason the database is not gated on
+Postgres specifically: 78 of the 79 test files that set `AUDIT_LOG_PATH` pin
+`DATABASE_URL` at a SQLite file of their own, so a Postgres-only rule would
+have left every one of them exercising the file backend while production ran
+the database one. A backend no test exercises is a backend nobody has checked.
+
+## Failure is never the caller's problem
+
+`log()` has always swallowed its own failures -- the action is what matters
+and a log that breaks it is worse than a missing row -- and that is unchanged:
+a database that will not answer falls back to the file, and a file that will
+not open is a silent no-op exactly as before. `read()` and `tail()` keep their
+signatures and their shape: a row is the same dict the JSONL held, because the
+whole entry is stored as its payload and handed back verbatim.
 """
 import json
 import os
 import threading
+import time
 from datetime import datetime, timezone
+
+try:                                                     # pragma: no cover
+    from sqlalchemy import (BigInteger, Column, DateTime, Index, Integer,
+                            MetaData, String, Table, Text, delete, insert,
+                            select)
+    _SA_ERROR = ""
+except Exception as _exc:                                # noqa: BLE001
+    BigInteger = Column = DateTime = Index = Integer = None
+    MetaData = None
+    String = Table = Text = delete = insert = select = None
+    _SA_ERROR = f"{type(_exc).__name__}: {_exc}"
 
 _lock = threading.Lock()
 
+# The database half. `_init()` is lazy for the reason jsonstore's is: import
+# time is boot time, and a database still waking must not hold the workers
+# back -- the first write is a much better moment to find out.
+_db_lock = threading.Lock()
+_engine = None
+_table = None
+_ready = False
+_init_done = False
+_init_error = ""
+_init_retry_at = 0.0
+INIT_RETRY_SECONDS = 120
+
+# What the fallback has written since the database stopped answering. Reported
+# rather than counted silently: rows in the file on an instance with no disk
+# of its own are rows the next deploy takes with it, which is the whole thing
+# this module moved to the database to stop.
+_file_rows_written = 0
+_import_state: dict = {"ran": False}
+
+# Rows kept when `rotate()` prunes. An append-only table with no ceiling is
+# the same slow-motion outage the unrotated file was, one storage layer over.
+MAX_ROWS = 400_000
+
 
 def _path() -> str:
-    """Where the activity log lives.
+    """Where the log *file* lives -- which is no longer where the log lives.
 
-    `AUDIT_LOG_PATH` still wins -- it names one file rather than a root, so it
-    is the more specific answer. Everything else defers to
+    It is the legacy history the import reads, and the fallback a Hub with no
+    database writes to. `AUDIT_LOG_PATH` still wins over the root for it, and
+    still for the same reason: it names one file rather than a directory, so
+    it is the more specific answer. What it no longer does is choose a
+    backend, and the module docstring says why at length -- the live service
+    sets it, so a rule reading it as "use the file" would have kept
+    production on the disk with every test green.
+
+    Everything else defers to
     `jsonstore.data_root()`, which is *the* place that decides where persistent
     files live and whose own docstring names this failure: "every module had
     its own copy of this expression. They all agreed, which is luck rather
@@ -43,7 +121,338 @@ def _path() -> str:
         return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "hub-audit.log.jsonl")
 
 
+def _reason(exc: Exception) -> str:
+    """One line, because `status()` is rendered into /diagnostics.
+
+    SQLAlchemy puts the statement and every bound parameter into `str(exc)` --
+    so an insert that failed would have printed the rows it was carrying, and
+    those are activity rows naming clients and members of staff, onto a page
+    that gets pasted into chats. The rule `services/provider_check.py` works
+    to, wearing a traceback. The cause still rides the exception chain, so a
+    real fault is diagnosable from the log.
+    """
+    return f"{type(exc).__name__}: {_one_line(str(exc))}"
+
+
+def _one_line(text: str) -> str:
+    """First line, capped. See `_reason`.
+
+    A string as well as an exception, because `create_all_metadata()` RETURNS
+    its error rather than raising it -- so that one reached `status()` whole,
+    past the trimmer, which is a rule enforced at one of its two doors.
+    """
+    lines = [ln for ln in str(text or "").splitlines() if ln.strip()]
+    return lines[0][:200] if lines else ""
+
+
+def _init() -> bool:
+    """Open the engine and make sure `hub_activity` exists. Once, lazily.
+
+    Never raises. A database that will not answer is a reason to write the
+    row to the file, never a reason to lose it -- and the failure is cached
+    for `INIT_RETRY_SECONDS` rather than for the life of the worker, because
+    a Hub that came up while Render's Postgres was waking would otherwise
+    file every row of that boot on a disk nobody backs up.
+    """
+    global _engine, _table, _ready, _init_done, _init_error, _init_retry_at
+    with _db_lock:
+        if _init_done:
+            if _ready or time.time() < _init_retry_at:
+                return _ready
+            _init_done = False
+        _init_done = True
+        _init_retry_at = time.time() + INIT_RETRY_SECONDS
+        if Table is None:
+            _init_error = f"SQLAlchemy unavailable ({_SA_ERROR})"
+            return False
+        try:
+            from . import extensions
+            _engine = extensions.engine_for()
+            meta = MetaData()
+            _table = Table(
+                "hub_activity", meta,
+                # BigInteger because this table grows for ever, and the
+                # sqlite variant because SQLite autoincrements a rowid only
+                # for a column declared INTEGER -- against a BIGINT it
+                # refuses every insert on a NOT NULL id, which is the whole
+                # test suite silently on the fallback file with production on
+                # the table. Found by running it.
+                Column("id", BigInteger().with_variant(Integer, "sqlite"),
+                       primary_key=True, autoincrement=True),
+                Column("at", DateTime, nullable=False),
+                Column("module", String(80), nullable=False, index=True),
+                Column("type", String(80), nullable=False, index=True),
+                Column("actor", String(60)),
+                Column("payload", Text, nullable=False),
+            )
+            # Narrowing by module is what /activity's own dropdown does and
+            # what client_brand's work index does per client, so the pair is
+            # the index that matters rather than either column alone.
+            Index("ix_hub_activity_module_id", _table.c.module, _table.c.id)
+            # Advisory-locked through extensions, so two workers racing to
+            # create it is not the pg_type_typname_nsp_index violation on
+            # every deploy. retry=False for jsonstore's reason: this is
+            # reached from the write path, not from boot, so the boot backoff
+            # would be spent inside somebody's action.
+            err = extensions.create_all_metadata(meta, retry=False)
+            if err:
+                _init_error = _one_line(err)
+                _engine = None
+                return False
+            _ready = True
+            _init_error = ""
+            return True
+        except Exception as exc:                        # noqa: BLE001
+            _init_error = _reason(exc)
+            _engine = None
+            return False
+
+
+def _when(entry: dict) -> datetime:
+    """The row's own timestamp, or now.
+
+    `at` is a column so a report can ask for a month without parsing every
+    payload, and it is derived from the entry rather than taken from the clock
+    a second time -- the import reads rows written years ago, and stamping
+    those with today would file the whole of the old log as having happened on
+    the afternoon somebody deployed this.
+    """
+    raw = str(entry.get("time") or "")
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return datetime.now(timezone.utc).replace(tzinfo=None)
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _row_for(entry: dict) -> dict:
+    return {
+        "at": _when(entry),
+        "module": str(entry.get("module") or "")[:80],
+        "type": str(entry.get("type") or "")[:80],
+        "actor": (str(entry.get("actor"))[:60] if entry.get("actor") else None),
+        "payload": json.dumps(entry, ensure_ascii=False),
+    }
+
+
+def _db_write(entries: list[dict]) -> bool:
+    """Insert rows. False means the caller should write the file instead."""
+    if not entries or not _init():
+        return False
+    try:
+        with _engine.begin() as cx:
+            cx.execute(insert(_table), [_row_for(e) for e in entries])
+        return True
+    except Exception as exc:                            # noqa: BLE001
+        global _ready, _init_done, _init_error, _init_retry_at
+        with _db_lock:
+            _ready = False
+            _init_done = True
+            _init_retry_at = time.time() + INIT_RETRY_SECONDS
+            _init_error = _reason(exc)
+        return False
+
+
+def _db_read(limit: int, module: str | None, type_: str | None):
+    """The newest rows, or None where the database could not be asked.
+
+    None rather than `[]`, because *we could not look* and *nothing has been
+    filed* are different answers and only the second means there is nothing
+    here -- the rule `connected_accounts_result()` gives one module over. The
+    caller falls back to the file on None and reports the empty list as an
+    empty list.
+
+    Ordered by `id`, which is insertion order and therefore the exact
+    analogue of the file's own. Ordering on `at` would reorder every row
+    written inside one second, and the log stamps to the second.
+    """
+    if not _init():
+        return None
+    try:
+        q = select(_table.c.payload).order_by(_table.c.id.desc())
+        if module:
+            q = q.where(_table.c.module == str(module)[:80])
+        if type_:
+            q = q.where(_table.c.type == str(type_)[:80])
+        with _engine.connect() as cx:
+            rows = cx.execute(q.limit(max(1, int(limit)))).fetchall()
+    except Exception as exc:                            # noqa: BLE001
+        global _init_error
+        _init_error = _reason(exc)
+        return None
+    out = []
+    for (raw,) in rows:
+        try:
+            out.append(json.loads(raw))
+        except ValueError:
+            continue
+    return out
+
+
+def _file_entries(path: str) -> list[dict]:
+    """Every parseable row in one JSONL file, oldest first."""
+    out = []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for ln in fh:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    out.append(json.loads(ln))
+                except ValueError:
+                    continue
+    except OSError:
+        return []
+    return out
+
+
+def import_legacy(force: bool = False) -> dict:
+    """Move the JSONL history into the table, once.
+
+    Three things this has to get right, and each is a way to end up with a log
+    that is worse than the one it replaced.
+
+    **Once across every instance, not once per worker.** The check for whether
+    it has run and the insert have to be inside one lock or two workers both
+    read "not yet" and the whole history lands twice -- so the marker is
+    written through `jsonstore.update_json()`, which holds the thread lock,
+    the flock and the Postgres advisory lock that spans instances. Deciding
+    inside the mutate is what makes that true rather than nearly true.
+
+    **The marker is durable, and it is not the row count.** "The table is
+    empty" would re-import the entire old file the first time `rotate()`
+    prunes it back to nothing -- a migration that fires again years later, on
+    a Hub whose log had been pruned on purpose.
+
+    **A file that cannot be read is not a file with nothing in it.** Nothing
+    is marked done on a failed read, so the next boot tries again rather than
+    recording that a history we never saw had been carried across.
+    """
+    path = _path()
+    try:
+        if not force and os.path.getsize(path) <= 0:
+            return {"ran": False, "reason": "no legacy file"}
+    except OSError:
+        return {"ran": False, "reason": "no legacy file"}
+    if not _init():
+        return {"ran": False, "reason": _init_error or "no database"}
+
+    try:
+        from . import jsonstore
+        marker = os.path.join(jsonstore.data_root(), "audit-import.json")
+    except Exception as exc:                            # noqa: BLE001
+        return {"ran": False, "reason": _reason(exc)}
+
+    outcome: dict = {"ran": False, "reason": "already imported"}
+
+    def _mutate(cur):
+        if not isinstance(cur, dict):
+            cur = {}
+        if cur.get("done") and not force:
+            return None                     # nothing to write, and none to do
+        entries = _file_entries(path)
+        if not entries:
+            outcome.update(ran=False, reason="legacy file could not be read")
+            return None
+        if not _db_write(entries):
+            outcome.update(ran=False,
+                           reason=_init_error or "the insert did not land")
+            return None
+        outcome.update(ran=True, reason="", imported=len(entries))
+        return {"done": True, "imported": len(entries), "from": path,
+                "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+
+    global _import_state
+    try:
+        jsonstore.update_json(marker, _mutate, default={})
+    except Exception as exc:                            # noqa: BLE001
+        outcome = {"ran": False, "reason": _reason(exc)}
+    _import_state = dict(outcome)
+    return outcome
+
+
+def _pending_path() -> str:
+    """Where a row goes when the database would not take it.
+
+    Deliberately not the legacy log. Those two files answer different
+    questions -- one is the history this module is migrating *from* and the
+    other is what this process could not write *today* -- and one file holding
+    both makes the import unable to tell them apart, so the rows written
+    during an outage are either imported twice or not at all.
+
+    On a deployment that has never had a database at all this is where the
+    whole log ends up, and the name is still the true one: those rows are
+    pending a table that does not exist yet. `status()` and the /diagnostics
+    row say so in words rather than leaving somebody to infer it from a
+    filename.
+    """
+    return _path() + ".pending"
+
+
+def _flush_pending() -> int:
+    """Put what the outage wrote into the table. Returns rows recovered.
+
+    Renamed before it is read, which is what makes this safe to call from
+    every successful write: `os.replace` is atomic, so of two workers reaching
+    here at once exactly one gets the file and the other finds nothing. A
+    batch the database then refuses is put back rather than dropped -- these
+    are the rows that already had one chance to be lost.
+    """
+    global _file_rows_written
+    src = _pending_path()
+    try:
+        if os.path.getsize(src) <= 0:
+            return 0
+    except OSError:
+        return 0
+    claimed = f"{src}.{os.getpid()}.{int(time.time() * 1000)}"
+    try:
+        os.replace(src, claimed)
+    except OSError:
+        return 0
+    entries = _file_entries(claimed)
+    if entries and not _db_write(entries):
+        try:                                   # put it back, do not lose it
+            with _lock, open(src, "a", encoding="utf-8") as fh:
+                for e in entries:
+                    fh.write(json.dumps(e, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
+        try:
+            os.remove(claimed)
+        except OSError:
+            pass
+        return 0
+    try:
+        os.remove(claimed)
+    except OSError:
+        pass
+    _file_rows_written = max(0, _file_rows_written - len(entries))
+    return len(entries)
+
+
+def _write_file(path: str, entry: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with _lock, open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        pass      # best-effort — never break the action because logging failed
+
+
 def log(module: str, type_: str, actor: str | None = None, **extra) -> None:
+    """Write one entry. Never raises, whatever the backend does.
+
+    `time` is in the extras rather than a parameter, and the merge below is
+    what lets a caller override it -- a row is stamped now unless somebody
+    passes a time, which is what back-dating a fixture needs and what the
+    `at` column is read from. It is documented here rather than left as a
+    property of the dict update, because a test relying on an accident is a
+    test that breaks on a tidy-up nobody thought was a behaviour change.
+    """
     entry = {
         "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "module": module,
@@ -52,13 +461,42 @@ def log(module: str, type_: str, actor: str | None = None, **extra) -> None:
     if actor:
         entry["actor"] = str(actor)[:60]
     entry.update({k: v for k, v in extra.items() if v is not None})
+    global _file_rows_written
     try:
-        path = _path()
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with _lock, open(path, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except OSError:
-        pass  # best-effort — never break the action because logging failed
+        if _file_rows_written:
+            # Before this row, not after it. The rows an outage wrote happened
+            # first, and `id` is what "newest" means -- flushed afterwards they
+            # take ids above the row being written now, so the first thing
+            # /activity shows once the database comes back is the outage, with
+            # everything since it underneath. Found by asserting the order
+            # rather than the contents.
+            _flush_pending()
+        if _db_write([entry]):
+            return
+        _file_rows_written += 1
+        _write_file(_pending_path(), entry)
+    except Exception:                                   # noqa: BLE001
+        # The rule this module has always worked to: the action is what
+        # matters, and a log that can break it is worse than a missing row.
+        try:
+            _write_file(_pending_path(), entry)
+        except Exception:                               # noqa: BLE001
+            pass
+
+
+def _file_rows(limit: int, module: str | None, type_: str | None) -> list[dict]:
+    """The newest matching rows across the fallback and the legacy file."""
+    out: list[dict] = []
+    for path in (_pending_path(), _path()):
+        for e in reversed(_file_entries(path)):
+            if module and e.get("module") != module:
+                continue
+            if type_ and e.get("type") != type_:
+                continue
+            out.append(e)
+            if len(out) >= limit:
+                return out
+    return out
 
 
 def read(limit: int = 300, module: str | None = None,
@@ -69,18 +507,52 @@ def read(limit: int = 300, module: str | None = None,
     Hub link to *the rows it counted* rather than to everything one module has
     ever written -- a count that opens a wider list than it counted is the
     "Showing 1 of 7" answer, one page over.
+
+    `read()` and `tail()` are one function now. They were two because the file
+    backend had a cheap way and an expensive one -- load the whole JSONL and
+    reverse it, or seek a byte window from the end and guess how many rows
+    fitted -- and a query with an `ORDER BY` and a `LIMIT` is neither. Both
+    names are kept because ten call sites use one or the other, and which of
+    the two somebody reached for was never a decision about the answer.
     """
+    limit = max(1, int(limit))
+    rows = _db_read(limit, module, type_)
+    if rows is None:
+        return _file_rows(limit, module, type_)
+    pend = _pending_rows(limit, module, type_)
+    if pend:
+        # In front, not behind. These were written while the table was
+        # refusing, so they are newer than everything in it -- and left out
+        # altogether an outage reads on /activity as an hour in which nothing
+        # happened. The legacy file is deliberately not read here: the import
+        # has already put it in the table, and reading both would show every
+        # row of the old history twice.
+        rows = (pend + rows)[:limit]
+    return rows
+
+
+def tail(limit: int = 300, module: str | None = None,
+         type_: str | None = None) -> list[dict]:
+    """read(), under the name ten call sites already use. See read()."""
+    return read(limit=limit, module=module, type_=type_)
+
+
+def _pending_rows(limit: int, module: str | None,
+                  type_: str | None) -> list[dict]:
+    """The fallback file's newest matching rows, newest first.
+
+    Sized first, so the ordinary path -- a database that is answering and a
+    fallback file that has never been written -- costs one `stat` and no
+    parse at all.
+    """
+    path = _pending_path()
     try:
-        with open(_path(), encoding="utf-8") as fh:
-            lines = [ln for ln in fh.read().splitlines() if ln.strip()]
+        if os.path.getsize(path) <= 0:
+            return []
     except OSError:
         return []
     out = []
-    for ln in reversed(lines):
-        try:
-            e = json.loads(ln)
-        except ValueError:
-            continue
+    for e in reversed(_file_entries(path)):
         if module and e.get("module") != module:
             continue
         if type_ and e.get("type") != type_:
@@ -89,6 +561,89 @@ def read(limit: int = 300, module: str | None = None,
         if len(out) >= limit:
             break
     return out
+
+
+def rotate(max_mb: int = 64, keep: int = 5) -> bool:
+    """Keep the log bounded. Called nightly by the maintenance job.
+
+    An append-only store with no ceiling is a slow-motion outage whichever
+    layer it sits on: as a file it filled the Render disk that also held
+    uploaded assets, and as a table it is storage nobody is watching and an
+    `ORDER BY` that gets slower every month.
+
+    So the table is pruned to `MAX_ROWS` by **id**, which is insertion order,
+    rather than by age -- a Hub that was quiet for a year would otherwise have
+    its whole history deleted on the morning somebody looked at it. The file
+    half still rolls, because a deployment with no database is still writing
+    one and it is still on a disk with a size.
+    """
+    pruned = _prune_rows()
+    rolled = _roll_file(_path(), max_mb=max_mb, keep=keep)
+    rolled = _roll_file(_pending_path(), max_mb=max_mb, keep=keep) or rolled
+    return bool(pruned or rolled)
+
+
+def _prune_rows() -> int:
+    if not _init():
+        return 0
+    try:
+        with _engine.begin() as cx:
+            keep_from = cx.execute(
+                select(_table.c.id).order_by(_table.c.id.desc())
+                .offset(MAX_ROWS).limit(1)).scalar()
+            if keep_from is None:
+                return 0
+            res = cx.execute(delete(_table).where(_table.c.id <= keep_from))
+        return int(res.rowcount or 0)
+    except Exception as exc:                            # noqa: BLE001
+        global _init_error
+        _init_error = _reason(exc)
+        return 0
+
+
+def _roll_file(path: str, max_mb: int, keep: int) -> bool:
+    try:
+        if os.path.getsize(path) < max_mb * 1024 * 1024:
+            return False
+    except OSError:
+        return False
+    with _lock:
+        for i in range(keep - 1, 0, -1):
+            older, newer = f"{path}.{i}", f"{path}.{i-1}" if i > 1 else path
+            if os.path.exists(newer):
+                try:
+                    os.replace(newer, older)
+                except OSError:
+                    pass
+        try:
+            open(path, "w").close()
+        except OSError:
+            return False
+    return True
+
+
+def status() -> dict:
+    """Which backend answered, and what the fallback is still holding.
+
+    On the panel rather than in a dict nobody opens, for the reason the whole
+    move was made: rows written to a file on an instance with no disk of its
+    own are rows the next deploy takes with it, and every screen reads exactly
+    the same either way.
+    """
+    pending = 0
+    try:
+        pending = len(_file_entries(_pending_path()))
+    except Exception:                                   # noqa: BLE001
+        pending = -1
+    return {
+        "backend": "database" if _ready else "file",
+        "ready": bool(_ready),
+        "error": _init_error,
+        "pending_rows": pending,
+        "pending_path": _pending_path(),
+        "import": dict(_import_state),
+        "max_rows": MAX_ROWS,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -304,43 +859,6 @@ def silent_modules(expected: list[str]) -> list[str]:
     return sorted(m for m in expected if m not in seen)
 
 
-def tail(limit: int = 300, module: str | None = None,
-         type_: str | None = None) -> list[dict]:
-    """read(), but without loading the entire log into memory."""
-    path = _path()
-    try:
-        size = os.path.getsize(path)
-    except OSError:
-        return []
-    # ~400 bytes/row; read generously then filter.
-    window = min(size, max(limit, 100) * 800 + 65536)
-    try:
-        with open(path, "rb") as fh:
-            fh.seek(size - window)
-            chunk = fh.read().decode("utf-8", "ignore")
-    except OSError:
-        return []
-    lines = chunk.splitlines()
-    if window < size and lines:
-        lines = lines[1:]                   # drop the partial first row
-    out = []
-    for ln in reversed(lines):
-        if not ln.strip():
-            continue
-        try:
-            e = json.loads(ln)
-        except ValueError:
-            continue
-        if module and e.get("module") != module:
-            continue
-        if type_ and e.get("type") != type_:
-            continue
-        out.append(e)
-        if len(out) >= limit:
-            break
-    return out
-
-
 def _route_methods(fn) -> set:
     """The HTTP methods a Flask view is registered for, from its decorators."""
     import ast as _ast
@@ -474,30 +992,3 @@ def write_route_attribution(source: str) -> dict:
         (logs if writes_a_row else silent).append(node.name)
 
     return {"logs": sorted(logs), "silent": sorted(silent), "declared": declared}
-
-
-def rotate(max_mb: int = 64, keep: int = 5) -> bool:
-    """Roll the log when it gets large. Called nightly by the maintenance job.
-
-    An append-only file with no rotation is a slow-motion outage: it fills the
-    1 GB Render disk that also holds uploaded assets.
-    """
-    path = _path()
-    try:
-        if os.path.getsize(path) < max_mb * 1024 * 1024:
-            return False
-    except OSError:
-        return False
-    with _lock:
-        for i in range(keep - 1, 0, -1):
-            older, newer = f"{path}.{i}", f"{path}.{i-1}" if i > 1 else path
-            if os.path.exists(newer):
-                try:
-                    os.replace(newer, older)
-                except OSError:
-                    pass
-        try:
-            open(path, "w").close()
-        except OSError:
-            return False
-    return True

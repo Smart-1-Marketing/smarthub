@@ -20,6 +20,11 @@ python3 test_jsonstore_locking.py  # two real processes with two real data roots
                                    #   serialises nothing, and the read half of a
                                    #   read-modify-write has to come from the mirror
                                    #   too -- both halves confirmed red on their own
+python3 test_audit_store.py        # the activity log is a table now: AUDIT_LOG_PATH
+                                   #   names the legacy file and selects nothing, the
+                                   #   database is not gated on Postgres or no test
+                                   #   would exercise it, the history is carried
+                                   #   across once, and an outage's rows are read back
 python3 test_db_boot.py            # a database blip at boot is not a verdict for
                                    #   the life of the worker, and sign-in says
                                    #   so in words rather than answering 500

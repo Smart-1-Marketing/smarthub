@@ -86,8 +86,8 @@ NAME = "Buckeye Lake Winery"
 
 
 def entries():
-    p = Path(os.environ["AUDIT_LOG_PATH"])
-    return [json.loads(l) for l in p.read_text().splitlines() if l.strip()] if p.exists() else []
+    from hub import audit
+    return list(reversed(audit.read(limit=2000)))
 
 
 # ---------------------------------------------------------------- facts

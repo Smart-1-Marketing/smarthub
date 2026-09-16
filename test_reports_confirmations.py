@@ -72,10 +72,8 @@ def section(title):
 def entries(event):
     """Activity rows of one event: the app's _log() writes the event as
     ``type``, and the automap writes ``action`` beside it."""
-    p = Path(os.environ["AUDIT_LOG_PATH"])
-    if not p.exists():
-        return []
-    rows = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+    from hub import audit
+    rows = list(reversed(audit.read(limit=2000)))
     return [e for e in rows if e.get("type") == event or e.get("action") == event]
 
 
