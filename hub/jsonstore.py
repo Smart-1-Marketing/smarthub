@@ -439,13 +439,21 @@ def read_json(path: str, default=None, *, restore: bool = True):
     return data
 
 
-def _atomic_write(path: str, text: str) -> None:
+def _atomic_write(path: str, text: str, *, fsync: bool = False) -> None:
     """Write via a temp file in the same directory, then rename.
 
     The rename is atomic on POSIX, so a reader never sees a half-written file
     and a crash mid-write leaves the previous version intact rather than a
     truncated one. Every module that hand-rolled this got it right; it is
     preserved here so none of them lose it by moving over.
+
+    ``fsync`` is part of keeping that promise. One module's hand-rolled
+    version flushed to the platter before the rename, and moving it here
+    without this would have quietly traded that away -- which is the exact
+    thing the paragraph above says this function exists to prevent. It is
+    off by default because it costs a real disk round trip and most callers
+    here are writing something a moment's work rebuilds; the caller that had
+    it asks for it.
     """
     parent = os.path.dirname(os.path.abspath(path))
     if parent:
@@ -453,10 +461,14 @@ def _atomic_write(path: str, text: str) -> None:
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         fh.write(text)
+        if fsync:
+            fh.flush()
+            os.fsync(fh.fileno())
     os.replace(tmp, path)
 
 
-def write_json(path: str, data, *, durable: bool = True, indent=None) -> bool:
+def write_json(path: str, data, *, durable: bool = True, indent=None,
+               fsync: bool = False) -> bool:
     """Write a JSON file and, unless it is a cache, mirror it to the database.
 
     Returns True when the disk write succeeded — which is the only part the
@@ -466,11 +478,14 @@ def write_json(path: str, data, *, durable: bool = True, indent=None) -> bool:
 
     Pass ``durable=False`` for anything rebuildable from its source. It stays
     on disk exactly as now and is listed as a known, intentional gap.
+
+    ``fsync=True`` flushes to the platter before the rename, for a caller that
+    was doing that itself before it moved here.
     """
     text = json.dumps(data, indent=indent, ensure_ascii=False, default=str)
     key = key_for(path)
     with _lock:
-        _atomic_write(path, text)
+        _atomic_write(path, text, fsync=fsync)
 
     if not durable:
         with _lock:
