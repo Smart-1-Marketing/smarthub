@@ -625,6 +625,57 @@ def mark_converted(lead_id: str, client_name: str, actor: str = "") -> dict | No
 #   never re-delivered -- re-sending a delivered row is the duplicate this
 #   whole module is built to avoid.
 
+def tag_temperature(lead_id: str, temperature: str, reasons: list[str]) -> dict | None:
+    """Tag a stored lead hot/warm/cold once the paid audit lands. WO-3d.
+
+    This never re-runs `capture_and_deliver` — the lead already exists, and
+    is or is not delivered, and this must not create a second one or
+    re-count as a fresh capture. It replaces any earlier `scan_hot`/
+    `scan_warm`/`scan_cold` tag on the row (a rescan gets one temperature,
+    never a stack of every one it has ever carried), stores the reasons on
+    the row for the leads panel, and — only where the lead already has a
+    Suite contact id — pushes the updated tag list straight through
+    `hub.ghl_contacts.upsert()`. That call is idempotent by email/phone, so
+    it updates the existing contact rather than firing a second capture;
+    where no contact exists yet, the tag rides along on the lead's own
+    first delivery instead and nothing extra needs pushing here.
+
+    Returns the updated row, or None if there is no lead with that id.
+    """
+    lead_id = str(lead_id or "").strip()
+    temperature = str(temperature or "").strip().lower()
+    if not lead_id or temperature not in ("hot", "warm", "cold"):
+        return None
+    row = next((r for r in _read_all() if r.get("id") == lead_id), None)
+    if row is None:
+        return None
+
+    meta = dict(row.get("meta") or {})
+    tags = [t for t in (meta.get("tags") or [])
+            if str(t).lower() not in ("scan_hot", "scan_warm", "scan_cold")]
+    tags.append(f"scan_{temperature}")
+    meta["tags"] = tags
+    meta["scan_temperature"] = temperature
+    meta["scan_temperature_reasons"] = [str(r)[:300] for r in (reasons or [])][:10]
+    row["meta"] = meta
+    _update(row)
+
+    if row.get("contact_id"):
+        try:
+            from hub import ghl_contacts
+            ghl_contacts.upsert(row)
+        except Exception:                                 # noqa: BLE001
+            pass
+
+    try:
+        from hub import audit
+        audit.log("leads", "scan_temperature_tagged", lead=lead_id,
+                  detail=temperature, client=row.get("client") or "")
+    except Exception:                                     # noqa: BLE001
+        pass
+    return row
+
+
 def _digits(v: str) -> str:
     return re.sub(r"\D", "", str(v or ""))
 

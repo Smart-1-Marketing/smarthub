@@ -3268,6 +3268,39 @@ jobs:
         if: matrix.group == 8
         run: python3 test_industry_consumers.py
 
+      # WO-3a: hub/schema_prefill.py prefills the Schema Builder's Business
+      # Info step from the client brief -- offered into empty fields only,
+      # a saved value that disagrees is a note rather than an overwrite, and
+      # every canonical industry key has a schema.org @type.
+      - name: Schema Builder prefill from the client brief
+        if: matrix.group == 8
+        run: python3 test_schema_prefill.py
+      # WO-3b: hub/seo_queue.py feeds the SEO client page's queue from the
+      # scan's own fix counts -- absent is "not measured", never "nothing
+      # to do", and every row names the tool that clears it.
+      - name: SEO "what needs doing" rows from the scan
+        if: matrix.group == 8
+        run: python3 test_seo_queue.py
+      # WO-3c: hub/launch_blockers.py names what stops a paid campaign from
+      # being measured, offered once a client converts and never created
+      # without a press.
+      - name: Launch-blocker ticket on onboarding
+        if: matrix.group == 8
+        run: python3 test_launch_blockers.py
+      # WO-3d: modules/scans/score.py bands a scan-widget lead hot/warm/cold
+      # from the paid audit, and hub.leads.tag_temperature() pushes it as a
+      # tag update -- never a second capture, never a re-fired delivery.
+      - name: Scan-widget lead score
+        if: matrix.group == 8
+        run: python3 test_lead_score.py
+      # WO-3e: hub/proposal_scan_insights.py puts the scan's competitive
+      # numbers and fix counts into a proposal automatically -- every line
+      # only where its own facts were measured, and the SEO & AEO scope
+      # shown with the arithmetic behind it.
+      - name: Proposal proof lines and scan-based scope
+        if: matrix.group == 8
+        run: python3 test_proposal_scan_insights.py
+
       # The Reports module's store: the fact table is in its own database
       # (REPORTS_DATABASE_URL first, then DATABASE_URL, then a SQLite file),
       # a day synced twice is the same spend, a platform outside the list is

@@ -2460,6 +2460,32 @@ def create_hub_app() -> Flask:
         return jsonify(build(request.args.get("client", ""),
                              use_ai=request.args.get("ai", "1") != "0"))
 
+    @app.route("/api/seo/queue")
+    def api_seo_queue():
+        """The scan-derived queue rows, and the topic-ideas card. WO-3b."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo_queue
+        client = request.args.get("client", "")
+        domain = request.args.get("domain", "")
+        return jsonify({
+            "rows": seo_queue.rows(client, domain),
+            "measured": seo_queue.measured_for(client, domain),
+            "topics": seo_queue.topic_ideas(client, domain),
+        })
+
+    @app.route("/api/seo/schema-questions/prefill")
+    def api_schema_prefill():
+        """What the client brief knows that the Business Info step does not
+        already have — offered into empty fields, never applied. WO-3a."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from .schema_prefill import prefill
+        return jsonify(prefill(request.args.get("client", ""),
+                               request.args.get("domain", "")))
+
     @app.route("/api/seo/schema-questions/regenerate", methods=["POST"])
     def api_schema_regenerate():
         """Ask AI again for one question — the New AI button."""
@@ -5194,6 +5220,65 @@ def create_hub_app() -> Flask:
             errors.log_exception("knack-tickets", exc, path=request.path,
                                  actor=current_user() or "")
             return jsonify({"configured": True, "fields": [], "error": str(exc)})
+
+    @app.route("/api/client/launch-blockers")
+    def api_client_launch_blockers():
+        """What is stopping a paid campaign to this client's site from being
+        measured — Client 360's "Can we run a campaign to this site" card
+        and the post-convert offer both read this. WO-3c."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_brief, launch_blockers
+        client = request.args.get("client", "")
+        domain = request.args.get("domain", "")
+        try:
+            brief = client_brief.build(client, domain)
+        except Exception as exc:                          # noqa: BLE001
+            return jsonify({"blockers": [], "error": str(exc)})
+        return jsonify({"blockers": launch_blockers.find(brief)})
+
+    @app.route("/api/client/launch-blockers/ticket", methods=["POST"])
+    def api_client_launch_blockers_ticket():
+        """Create ONE web ticket listing every launch blocker. Never
+        silent — the click is the only thing that creates it."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_brief, launch_blockers, knack_api
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        domain = (body.get("domain") or "").strip()
+        website = (body.get("website") or domain).strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        if not knack_api.configured():
+            return jsonify({"error": "Knack isn't configured — set KNACK_APP_ID and "
+                                     "KNACK_API_KEY, then redeploy."}), 400
+        try:
+            brief = client_brief.build(client, domain)
+        except Exception as exc:                          # noqa: BLE001
+            return jsonify({"error": str(exc)}), 502
+        blockers = launch_blockers.find(brief)
+        if not blockers:
+            return jsonify({"error": "Nothing found to raise a ticket about."}), 400
+        body_text = launch_blockers.ticket_body(client, blockers)
+        try:
+            rec = knack_api.create_ticket(
+                client, website,
+                f"Launch readiness — {client}",
+                body_text, author=current_user() or "",
+                ticket_type="Website")
+        except Exception as exc:                          # noqa: BLE001
+            errors.log_exception("knack-tickets", exc, path=request.path,
+                                 actor=current_user() or "")
+            return jsonify({"error": str(exc)})
+        audit.log("hub", "launch_blocker_ticket_created", actor=current_user(),
+                  client=client, detail=f"{len(blockers)} blocker(s)")
+        return jsonify({"ok": True, "id": rec.get("id"),
+                        "written": rec.get("written") or [],
+                        "rejected": rec.get("rejected") or [],
+                        "blockers": blockers})
 
     @app.route("/api/client/tickets", methods=["POST"])
     def api_client_tickets_create():

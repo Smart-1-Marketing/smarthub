@@ -1286,6 +1286,17 @@ def record_health(client: str, store: dict | None = None, *,
     except Exception:  # noqa: BLE001
         unread.append("the llms.txt record could not be read")
 
+    # ---- the audit's own fix counts: hub/seo_queue.py, WO-3b ----
+    # Read separately from everything above -- a failure here costs only
+    # these rows, never the trackers this function already built.
+    try:
+        from . import seo_queue as _seo_queue
+        for row in _seo_queue.rows(client):
+            queue.append({"level": row["level"], "section": row["section"],
+                          "title": row["title"], "detail": row["detail"]})
+    except Exception:                                     # noqa: BLE001
+        pass
+
     order = {"bad": 0, "warn": 1, "info": 2}
     queue.sort(key=lambda q: order.get(q["level"], 3))
     return {"checks": checks, "schema": schema, "blogs": blogs, "alt": alt,

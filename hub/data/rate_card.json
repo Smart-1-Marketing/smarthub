@@ -1079,6 +1079,18 @@
    "timeline": "5 Business Days",
    "rateType": null,
    "rateValue": null
+  },
+  {
+   "label": "SEARCH ENGINE OPTIMIZATION — SEO & AEO Scope Package",
+   "category": "SEARCH ENGINE OPTIMIZATION",
+   "product": "SEO & AEO Scope Package",
+   "listedRate": "PLACEHOLDER — not yet priced",
+   "retail": "",
+   "description": "Scope-based SEO/AEO engagement, sized small, medium or large from the client's own site-audit fix counts (pages missing a title, description or H1; missing schema items; images missing alt text; broken links). PLACEHOLDER TIERS -- Small: TBD/mo, Medium: TBD/mo, Large: TBD/mo. Not yet priced -- for Todd to set.",
+   "requirements": "Scope is computed from the client's own audit; shown as the fix count behind it.",
+   "timeline": "TBD",
+   "rateType": null,
+   "rateValue": null
   }
  ],
  "category_rename": {
