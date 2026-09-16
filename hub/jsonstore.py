@@ -1177,6 +1177,21 @@ UNMIRRORED_EXEMPT: dict[str, str] = {
     "hub/client_context.py": "reports this check; it writes no JSON",
     "hub/errors.py": "append-only JSONL log, not a whole-file store",
     "hub/audit.py": "append-only JSONL log, not a whole-file store",
+    # Found once the check stopped excusing a file for containing the word
+    # "jsonstore". Each of these writes JSON to a path, and each is exempt
+    # for a reason that names what losing it costs -- not because the loss
+    # is nothing, but because none of them is a store of record.
+    "modules/io_builder/app.py":
+        "a /tmp fallback for the order number, reached only when the Postgres "
+        "sequence is unreachable; the sequence is the store, and a per-instance "
+        "file is the correct shape for a degraded mode",
+    "modules/suite_panel/app.py":
+        "idempotency markers with a TTL, not a store: losing one lets a "
+        "retried request run twice inside the window, which is the cost, and "
+        "mirroring a value that expires would keep it past its expiry",
+    "modules/commercial_builder/services/elevenlabs_audio_service.py":
+        "an audio cache sidecar keyed by content digest; a lost entry is "
+        "re-synthesised, which costs credits rather than data",
 }
 
 
@@ -1236,10 +1251,98 @@ def unmirrored_json_writers(root=None) -> list[dict]:
             src = p.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        if "json.dump(" not in src or "jsonstore" in src:
+        how = _writes_json_to_disk(src)
+        if not how or _calls_the_mirror(src):
             continue
-        out.append({"file": rel, "module": _module_of(rel)})
+        out.append({"file": rel, "module": _module_of(rel), "how": how})
     return out
+
+
+# The two calls that serialise JSON, and the ways a string reaches a file.
+# ``json.dumps`` matters as much as ``json.dump``: an append-only store writes
+# ``fh.write(json.dumps(row) + "\n")``, which is a whole store on the disk and
+# matched neither the old pattern nor, once its source happened to contain the
+# word "jsonstore", the old exemption. Both held for hub/leads.py, so the
+# check reported a clean bill about every lead the business had captured.
+# `os.replace` is not here: it renames, so its arguments are paths and the
+# serialised string never passes through it. The write it makes durable is
+# the `write` above, which is what this matches.
+_TO_DISK = ("write", "write_text", "writelines", "writestr")
+
+#: Calling one of these is what "goes through the mirror" means. The word
+#: alone is not a call site -- a file that imports ``jsonstore`` for
+#: ``data_root()`` or ``exclusive()`` and then writes the file itself is
+#: exactly the case this check exists to find, and the substring test excused
+#: eleven of them, the lead store and the Google OAuth tokens among them.
+MIRROR_WRITERS = frozenset({"write_json", "update_json", "delete_json",
+                            "file_asset"})
+
+
+def _writes_json_to_disk(src: str) -> str:
+    """How this source puts JSON on the disk, or "" if it does not.
+
+    Read rather than run, and by AST rather than by substring: the string
+    "json.dump(" appears in this file's own prose, and a check that a comment
+    can trip is a check whose findings nobody trusts.
+    """
+    import ast
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return ""
+    # Names bound to a `json.dumps(...)` result, so the two-step spelling --
+    # `text = json.dumps(row)` then `fh.write(text)` -- is seen too. Nothing
+    # in the repo writes that way today except the mirror itself; it is here
+    # because the next store written that way would otherwise be invisible,
+    # which is the whole failure this check was just found to have.
+    serialised: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) \
+                and isinstance(node.value.func, ast.Attribute) \
+                and node.value.func.attr == "dumps" \
+                and isinstance(node.value.func.value, ast.Name) \
+                and node.value.func.value.id == "json":
+            serialised.update(t.id for t in node.targets
+                              if isinstance(t, ast.Name))
+
+    dumps_written = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        if not isinstance(fn, ast.Attribute):
+            continue
+        if fn.attr == "dump" and isinstance(fn.value, ast.Name) and \
+                fn.value.id == "json":
+            return "json.dump()"
+        # The serialised string has to reach the write, not merely share a
+        # file with one. `json.dumps` also builds request bodies and database
+        # column values all over this repo, and a check that counts those
+        # reports thirty-odd findings nobody can act on -- which is the same
+        # as reporting none, one screen further along.
+        if fn.attr in _TO_DISK and any(
+                (isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute)
+                 and k.func.attr == "dumps"
+                 and isinstance(k.func.value, ast.Name)
+                 and k.func.value.id == "json")
+                or (isinstance(k, ast.Name) and k.id in serialised)
+                for arg in node.args for k in ast.walk(arg)):
+            dumps_written = True
+    return "json.dumps() written to a file" if dumps_written else ""
+
+
+def _calls_the_mirror(src: str) -> bool:
+    """Whether the source actually calls a jsonstore writer."""
+    import ast
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and node.func.attr in MIRROR_WRITERS:
+            return True
+    return False
 
 
 def stale_exemptions(root=None) -> list[str]:

@@ -335,6 +335,95 @@ check("no exemption names a file that is gone",
 check("and the audit says so too", integrity.check_stale_json_exemptions(), [])
 
 
+# ------------------------------- 14b. the check that reported nothing
+section("What the unmirrored-JSON check could not see")
+# It answered 0 while hub/leads.py held every lead the business had captured
+# in a JSONL on the disk that nothing mirrors. Two blind spots, and leads sat
+# behind both: the pattern was the literal `json.dump(`, so the append-only
+# spelling `fh.write(json.dumps(row) + "\n")` never matched; and any file
+# whose source contained the word "jsonstore" ANYWHERE was skipped, so
+# importing it for `data_root()` or `exclusive()` bought an exemption from
+# the check about what you then did with the path.
+
+found = {h["file"] for h in js_scan.unmirrored_json_writers(REPO)}
+
+check("the lead store is reported", "hub/leads.py" in found, True)
+check("...although it imports jsonstore",
+      "jsonstore" in (REPO / "hub" / "leads.py").read_text(encoding="utf-8"),
+      True)
+check("...and calls no jsonstore writer",
+      js_scan._calls_the_mirror((REPO / "hub" / "leads.py").read_text(encoding="utf-8")),
+      False)
+
+# The other half: a serialised string that never reaches a file. json.dumps
+# builds request bodies and database column values all over this repo, and a
+# check that counts those reports thirty-odd findings nobody can act on --
+# which is the same as reporting none, one screen further along.
+check("a request body is not a store",
+      js_scan._writes_json_to_disk(
+          "import json, requests\n"
+          "requests.post(url, data=json.dumps({'a': 1}))\n"), "")
+check("but a write of one is",
+      js_scan._writes_json_to_disk(
+          "import json\n"
+          "with open(p, 'a') as fh:\n"
+          "    fh.write(json.dumps(row) + chr(10))\n"),
+      "json.dumps() written to a file")
+check("and so is the two-step spelling",
+      js_scan._writes_json_to_disk(
+          "import json\n"
+          "text = json.dumps(row)\n"
+          "with open(p, 'w') as fh:\n"
+          "    fh.write(text)\n"),
+      "json.dumps() written to a file")
+# os.replace renames: its arguments are paths, so the serialised string never
+# passes through it. Listing it looked like coverage and could match nothing.
+check("a rename is not a write",
+      js_scan._writes_json_to_disk(
+          "import json, os\n"
+          "os.replace(tmp, path)\n"
+          "body = json.dumps(row)\n"), "")
+check("json.dump is still found on its own",
+      js_scan._writes_json_to_disk(
+          "import json\n"
+          "with open(p, 'w') as fh:\n"
+          "    json.dump(row, fh)\n"), "json.dump()")
+
+# Reading the source rather than running it means a comment can trip a
+# substring check. This one is an AST walk, so prose about json.dump() is
+# prose -- which matters here, where the reasons are written down at length.
+check("prose naming the call is not a call",
+      js_scan._writes_json_to_disk(
+          "# this module used to call json.dump(row, fh) and no longer does\n"
+          "x = 1\n"), "")
+check("nor is a mention of jsonstore a call to it",
+      js_scan._calls_the_mirror(
+          "# hub/jsonstore.py owns this; jsonstore.write_json is what to use\n"),
+      False)
+check("a real call is",
+      js_scan._calls_the_mirror("jsonstore.write_json(p, row)\n"), True)
+
+# Every exemption added when this was fixed is a file the check WOULD report.
+# An exemption list goes stale in both directions: the file-is-gone half is
+# `stale_exemptions()`, and this is the other half -- an exemption for a file
+# that no longer writes JSON is dead weight that will one day cover something
+# that does.
+for rel in ("modules/io_builder/app.py", "modules/suite_panel/app.py",
+            "modules/commercial_builder/services/elevenlabs_audio_service.py"):
+    src = (REPO / rel).read_text(encoding="utf-8")
+    check(f"{rel} is exempt from a finding it would otherwise be",
+          bool(js_scan._writes_json_to_disk(src)) and not js_scan._calls_the_mirror(src),
+          True)
+    check(f"...and the exemption says what losing it costs",
+          len(js_scan.UNMIRRORED_EXEMPT[rel]) > 60, True)
+
+# What is left is the work, and naming it is the point of the check.
+check("three stores are left on the disk, and these are they",
+      sorted(found),
+      ["hub/leads.py", "modules/check_reconciliation/app.py",
+       "modules/seo_intelligence/file_store.py"])
+
+
 # ------------------------------- 15. a resolved risk is not an amber finding
 section("The structure panel's own colors")
 # The client-key row is the *resolved* case: the columns still differ and
@@ -347,8 +436,20 @@ check("low renders neutral, not amber",
       'level==="low" ? "off"' in page, True)
 check("and the header pill ignores resolved rows",
       'var open=d.risks.filter(function(r){ return r.level!=="low"; });' in page, True)
-levels = {r["level"] for r in report["risks"]}
-check("nothing above low is outstanding", levels - {"low"}, set())
+# This used to read "nothing above low is outstanding", and passed because
+# the check behind that row could not see a store unless it spelled the write
+# `json.dump(` and never mentioned jsonstore. The panel was reporting a clean
+# bill about hub/leads.py. An amber row that names real work is what this
+# panel is for; what it may not have is a row nobody can act on, which is why
+# the outstanding set is asserted BY NAME rather than asserted empty -- an
+# empty-set assertion turns "find the remaining work" into "stop reporting
+# it", and that is the pressure that produced the hole in the first place.
+outstanding = sorted((r["level"], r["title"]) for r in report["risks"]
+                     if r["level"] != "low")
+check("the outstanding risk is the JSON still on the disk",
+      outstanding, [("medium", "3 files write JSON outside hub/jsonstore.py")])
+check("and nothing is high", [r for r in report["risks"]
+                              if r["level"] == "high"], [])
 
 
 # =====================================================================
