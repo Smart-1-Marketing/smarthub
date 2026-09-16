@@ -3329,6 +3329,21 @@ jobs:
           else
             echo "test_check_reconciliation.py not on this branch — nothing to run."
           fi
+
+      - name: Check reconciliation state against Postgres
+        if: matrix.group == 8
+        # The run above is SQLite; this is what production is. The state --
+        # the QuickBooks OAuth tokens, every payer alias the tool has learned,
+        # the reconciliation records and the audit trail -- goes through
+        # jsonstore now, so the mirror is what this exercises.
+        env:
+          CHECKREC_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          if [ -f test_check_reconciliation.py ]; then
+            python3 test_check_reconciliation.py
+          else
+            echo "test_check_reconciliation.py not on this branch — nothing to run."
+          fi
       # One confirmed audience per client (hub/audience_spec.py) and its four
       # readers: the Client 360 card, the Proposal Builder's audience step,
       # the IO Builder's audiences question and AD_COPY's {audience} prefill.
