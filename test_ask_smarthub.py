@@ -58,6 +58,33 @@ class AskExecutionTests(unittest.TestCase):
         self.assertNotIn("strict", out[0]["error"])
 
 
+class AskAuditPrivacyTests(unittest.TestCase):
+    def test_diagnostics_redact_common_pii_and_credentials(self):
+        safe = ask_smarthub._audit_question(
+            "Find jane@example.com or 614-555-1234; "
+            "SSN 123-45-6789; card 4111 1111 1111 1111; "
+            "bearer secret-token; api_key=also-secret"
+        )
+        self.assertNotIn("jane@example.com", safe)
+        self.assertNotIn("614-555-1234", safe)
+        self.assertNotIn("123-45-6789", safe)
+        self.assertNotIn("4111 1111 1111 1111", safe)
+        self.assertNotIn("secret-token", safe)
+        self.assertNotIn("also-secret", safe)
+        self.assertIn("[redacted email]", safe)
+        self.assertIn("[redacted phone]", safe)
+        self.assertIn("[redacted SSN]", safe)
+        self.assertIn("[redacted payment number]", safe)
+        self.assertIn("[redacted credential]", safe)
+
+    def test_diagnostics_keep_the_business_question_useful(self):
+        safe = ask_smarthub._audit_question(
+            "Show Quality Air Columbus proposals and email jane@example.com"
+        )
+        self.assertIn("Show Quality Air Columbus proposals", safe)
+        self.assertNotIn("jane@example.com", safe)
+
+
 class AskClientMatchingTests(unittest.TestCase):
     @staticmethod
     def _index(*names):
