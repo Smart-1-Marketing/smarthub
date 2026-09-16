@@ -34,7 +34,7 @@ import requests
 from flask import (Flask, Response, jsonify, render_template, request,
                    send_file)
 
-from . import ai, catalog, phrases, speech, store, voices, script_presets, delivery
+from . import ai, catalog, phrases, qc, speech, store, voices, script_presets, delivery
 from hub import radio_share, voice_casting
 
 try:
@@ -113,10 +113,29 @@ def rate_limited(bucket: str, limit: int, window: int = 60) -> bool:
     return _limiter.hit(bucket, client_ip(), limit, window)
 
 
-def fail(message: str, code: int = 400):
+def fail(message: str, code: int = 400, **extra):
     """Customer-safe error. No provider bodies, no tracebacks — the audit
-    found an API key prefix reaching a public lead page that way."""
-    return jsonify({"ok": False, "error": message}), code
+    found an API key prefix reaching a public lead page that way.
+
+    ``extra`` carries structure the page can draw rather than parse out of the
+    sentence — the script panel behind a refused record, say. It is this
+    service's own data by construction: every caller passes values it just
+    computed, never a provider's response body, which is the rule above.
+    """
+    return jsonify({"ok": False, "error": message, **extra}), code
+
+
+def write_musts(project: dict) -> dict:
+    """The non-negotiables a write is asked for and the panel checks for.
+
+    `qc.facts_for` and `qc.required_for` are the one reading of which field
+    holds what; this only adds the disclaimer and hands the pair to the
+    prompt. A second description here is how the prompt comes to ask for a
+    `landing_url` the panel never looks at.
+    """
+    return dict(qc.facts_for(project),
+                require=qc.required_for(project),
+                disclaimer=project.get("disclaimer") or "")
 
 
 def banned_terms(project: dict) -> list[str]:
@@ -336,6 +355,33 @@ def api_phrase_check():
 # =====================================================================
 # Projects
 # =====================================================================
+@app.route("/api/projects/<pid>/script-qc")
+def api_script_qc(pid):
+    """The script panel, on demand. Cheap: it reads the copy and reaches no
+    provider, which is the whole point of running it on the Spots step.
+
+    Its own path, and deliberately not `/qc`. That one is the **mix** panel --
+    the bed's source, the loudness, the length measured off the stored WAV --
+    and it answers after a render. This one answers before anybody has paid
+    for a voice. They are neighbours rather than two readings of one question,
+    so they are asked separately; sharing a URL would have made whichever
+    registered second the only one anybody could reach.
+
+    `labels` is served with the panel rather than restated in the template,
+    because a check absent from the label map is skipped silently by the loop
+    that draws it.
+    """
+    project = store.load(pid)
+    if not project:
+        return fail("No project with that id.", 404)
+    only = (request.args.get("spot") or "").strip()
+    spots = [s for s in (project.get("spots") or [])
+             if not only or s.get("id") == only]
+    panel = qc.run(project, spots, banned_terms(project))
+    return jsonify({"ok": True, **panel, "labels": qc.CHECK_LABELS,
+                    "blocks_render": list(qc.BLOCKS_RENDER)})
+
+
 @app.route("/api/projects", methods=["GET"])
 def api_list():
     scope = (request.args.get("scope") or "").strip()
@@ -372,6 +418,14 @@ def api_create():
         "promotion": str(body.get("promotion") or "").strip(),
         "notes": str(body.get("notes") or "").strip(),
         "team_context": str(body.get("team_context") or "").strip(),
+        # The response number and the disclaimer the script panel checks for.
+        # Both were absent here and present in the Radio Ad Creator, so
+        # "the read never says the phone number" and "the required disclaimer
+        # did not make the cut" were findings one tool could make and this one
+        # could not -- there was nowhere to type the answer.
+        "phone": str(body.get("phone") or "").strip(),
+        "include_phone": bool(body.get("include_phone")),
+        "disclaimer": str(body.get("disclaimer") or "").strip(),
         "tone": body.get("tone") if body.get("tone") in catalog.TONE_IDS else "warm",
     }, actor_name())
 
@@ -411,9 +465,11 @@ def api_update(pid):
         return fail("No project with that id.", 404)
     body = request.get_json(silent=True) or {}
     for key in ("company", "home_url", "promotion", "notes", "team_context",
-                "client", "scope"):
+                "client", "scope", "phone", "disclaimer"):
         if key in body:
             project[key] = str(body[key] or "").strip()
+    if "include_phone" in body:
+        project["include_phone"] = bool(body["include_phone"])
     if body.get("tone") in catalog.TONE_IDS:
         project["tone"] = body["tone"]
     if isinstance(body.get("banned"), list):
@@ -476,7 +532,7 @@ def api_write(pid):
         if dp != "postgame":
             outcome = "neutral"
         out = ai.write_spot(project["brief"], dp, seconds, tone_id, outcome,
-                            banned, steer)
+                            banned, steer, must=write_musts(project))
         spot = {
             "id": store.spot_id(), "daypart": dp, "seconds": seconds,
             "outcome": outcome, "tone": tone_id,
@@ -520,7 +576,8 @@ def api_rewrite(pid, sid):
         else spot.get("tone") or project.get("tone", "warm")
     out = ai.write_spot(project["brief"], spot["daypart"], spot["seconds"],
                         tone_id, spot.get("outcome") or "neutral",
-                        banned_terms(project), str(body.get("steer") or "")[:600])
+                        banned_terms(project), str(body.get("steer") or "")[:600],
+                        must=write_musts(project))
     spot.update({"script": out.get("script") or spot.get("script"),
                  "hook": out.get("hook") or "", "notes": out.get("notes") or "",
                  "tone": tone_id, "ai": bool(out.get("ai")),
@@ -753,15 +810,28 @@ def api_set_voice(pid):
 
 @app.route("/api/script-presets", methods=["GET", "POST"])
 def api_script_presets():
+    """The shared reusable-read library, filled in for a project if named.
+
+    `?project=` is optional and only decides whose name the placeholder is
+    filled with. The library itself is `hub/radio_presets.py` and is the same
+    rows the Radio Ad Creator offers -- a read saved in one tool is offered in
+    the other, because both write the same lengths against the same budgets.
+    """
+    project = store.load((request.args.get("project") or "").strip()) or {}
+    company = project.get("company") or ""
     if request.method == "GET":
-        return jsonify({"ok": True, **script_presets.library()})
+        return jsonify({"ok": True, **script_presets.library(company)})
     body = request.get_json(silent=True) or {}
+    # Saved with this client's name put back to the placeholder, or the
+    # library's first reuse reads out somebody else's business.
+    text = script_presets.generalize(body.get("script"), company)
     try:
-        row = script_presets.save(body.get("name"), body.get("script"), actor_name())
+        row = script_presets.save(body.get("name"), text, actor_name())
     except ValueError as exc:
         return fail(str(exc))
     _log("script_preset_saved", preset=row["id"])
-    return jsonify({"ok": True, "preset": row})
+    return jsonify({"ok": True, "preset": row,
+                    **script_presets.library(company)})
 
 
 @app.route("/api/projects/<pid>/voice/preview", methods=["POST"])
@@ -811,15 +881,24 @@ def api_record(pid, sid):
         return fail("No spot with that id.", 404)
     if not spot.get("script"):
         return fail("Nothing to record — write the spot first.")
-    # The trademark check runs before the voice check: it's the problem
-    # that has to be fixed either way, and it costs nothing to find.
-    check = phrases.scan(spot["script"], banned_terms(project),
-                         spot.get("daypart") or "",
-                         spot.get("outcome") or "neutral")
-    if not check["clean"]:
-        hits = ", ".join(h["term"] for h in check["blocked"])
-        return fail(f"This script still says: {hits}. That's a trademark — "
-                    f"fix it before spending a render.")
+    # The script panel runs before the voice check: these are the problems
+    # that have to be fixed either way, and they cost nothing to find. It used
+    # to be the trademark scan alone, which is why a :30 that never said the
+    # client's web address recorded happily here and was refused one tool over.
+    #
+    # Only `qc.BLOCKS_RENDER` refuses, and the line is **certainty** rather
+    # than severity: a registered mark, a missing disclaimer, an invented price
+    # and an address the read never says are facts about the text. The read
+    # estimate is words over a read pace, so it reports loudly and the render
+    # still goes -- refusing that would be refusing a correct read, which is
+    # how a panel comes to be switched off, and switching this one off would
+    # cost the trademark check with it.
+    panel = qc.run_spot(project, spot, banned_terms(project))
+    stopped = qc.blocking(panel)
+    if stopped:
+        return fail(" ".join(panel["checks"][k]["message"] for k in stopped),
+                    422, qc_panel=panel, stopped=stopped,
+                    labels=qc.CHECK_LABELS)
     voice = project.get("voice") or {}
     if not voice.get("voice_id"):
         return fail("Cast a voice for this project first.")

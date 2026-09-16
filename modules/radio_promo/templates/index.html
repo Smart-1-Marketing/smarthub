@@ -466,6 +466,7 @@ function renderCopy(){
           ${over?`<button class="btn sec sm" onclick="tighten('${k}')">Tighten to fit</button>`:''}
           <span class="hint" style="margin:0">${esc(v.tighten_note||'')}</span>
         </div>
+        ${presetControls(k)}
         ${beatRail(k)}
       </div>`;
     }).join('');
@@ -474,6 +475,7 @@ function renderCopy(){
   $('copyBox').insertAdjacentHTML('beforeend','<div id="scriptQc"></div>');
   $('copyBox').insertAdjacentHTML('beforeend','<div class="rowbar"><button class="btn" onclick="goView(\'cast\')">Continue to voice casting</button></div>');
   loadScriptQc();
+  if(!PRESETS.loaded) loadPresets().then(renderCopy);
 }
 
 /* The script panel, run on the copy rather than after the render -- the way to
@@ -641,6 +643,74 @@ function drawSlotWarning(){
   const box = $('slotWarning'); if(!box) return;
   const notes = pickedSlots().map(k => (DUR[k]||{}).warning).filter(Boolean);
   box.innerHTML = notes.map(n => `<p style="margin:4px 0"><b>Worth knowing:</b> ${esc(n)}</p>`).join('');
+}
+
+/* The shared reusable-read library -- `hub/radio_presets.py`, the same rows
+   Fan Radio offers. This tool had no equivalent, and the library itself was
+   reachable from no screen in either: four default reads, a store and a route
+   with nothing a rep could press. The `{business}` placeholder is filled in
+   server-side from this project's company name, so a saved read arrives ready
+   to speak. */
+var PRESETS = {defaults: [], custom: [], loaded: false};
+
+async function loadPresets(){
+  if(!P || !P.id) return;
+  try{
+    const d = await api('/api/script-presets?project=' + encodeURIComponent(P.id));
+    PRESETS = {defaults: d.defaults || [], custom: d.custom || [], loaded: true};
+  }catch(e){
+    // The picker says it has nothing rather than the step failing. `loaded` is
+    // set either way, so a library that cannot be read is not re-fetched on
+    // every redraw.
+    PRESETS = {defaults: [], custom: [], loaded: true};
+  }
+}
+
+/* Insert rather than replace: losing a written read to a mis-click is the one
+   outcome worth designing against. Select the copy first to overwrite it. */
+function presetControls(k){
+  const rows = (PRESETS.defaults||[]).concat(PRESETS.custom||[]);
+  const save = `<button class="btn sec sm" onclick="savePreset('${k}')">Save as a reusable read</button>`;
+  if(!rows.length)
+    return `<div class="rowbar"><span class="hint" style="margin:0">No saved
+      reads yet — write one and save it to start the library.</span>${save}</div>`;
+  return `<div class="rowbar">
+    <label class="f" for="pre-${k}" style="margin:0">Reusable read</label>
+    <select id="pre-${k}"><option value="">Choose a saved read…</option>${
+      rows.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('')
+    }</select>
+    <button class="btn sec sm" onclick="insertPreset('${k}')">Insert at cursor</button>
+    ${save}
+    <span class="hint" style="margin:0">Shared with Fan Radio. A read saved here
+      has this client's name put back to a placeholder.</span>
+  </div>`;
+}
+
+function insertPreset(k){
+  const id = $('pre-'+k).value;
+  if(!id){ alert('Choose a saved read first.'); return; }
+  const rows = (PRESETS.defaults||[]).concat(PRESETS.custom||[]);
+  const row = rows.filter(r => r.id === id)[0];
+  if(!row){ alert('That read is no longer in the library.'); return; }
+  const ta = $('sc-'+k);
+  const at = ta.selectionStart ?? ta.value.length;
+  ta.setRangeText(row.script, at, at, 'end');
+  ta.focus();
+}
+
+async function savePreset(k){
+  const text = ($('sc-'+k).value || '').trim();
+  if(!text){ alert('Write the read first.'); return; }
+  const name = prompt('Name this reusable read — how it appears in the picker, '
+    + 'here and in Fan Radio:');
+  if(name === null) return;
+  try{
+    const d = await api('/api/script-presets?project=' + encodeURIComponent(P.id),
+      {method:'POST', body:JSON.stringify({name:name, script:text})});
+    PRESETS = {defaults: d.defaults || PRESETS.defaults,
+               custom: d.custom || PRESETS.custom, loaded: true};
+    renderCopy();
+  }catch(e){ alert(e.message); }
 }
 
 /* The beats the read is built on, drawn beside the copy. The plan lived in

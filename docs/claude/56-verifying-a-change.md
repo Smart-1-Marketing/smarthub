@@ -412,6 +412,29 @@ python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
                                    #   named script panel run on the copy --
                                    #   where certainty rather than severity
                                    #   decides what may refuse a billed record
+python3 test_radio_presets.py      # the reusable-read library: one store both
+                                   #   builders offer rather than a second copy
+                                   #   in each, the {business} placeholder
+                                   #   filled on the way out and put back on
+                                   #   the way in so the library survives its
+                                   #   own first save, a preset saved under the
+                                   #   old per-tool file still offered, and the
+                                   #   screen asserted as well as the route --
+                                   #   this was four reads, a store, a route
+                                   #   and a test, reachable from no page
+python3 test_radio_feature_parity.py # Fan Radio's half, which is the other
+                                   #   direction: every item above landed in
+                                   #   the Radio Ad Creator and none of them
+                                   #   here, so this tool had two of the nine
+                                   #   checks and no way to know a :30 never
+                                   #   said the address. The panel is
+                                   #   hub/radio_script_qc.py and both read
+                                   #   it, asserted as one table read twice
+                                   #   rather than two that agree today, plus
+                                   #   the trademark and post-game rows that
+                                   #   are genuinely this tool's own, and a
+                                   #   :10 neither asked for a response nor
+                                   #   judged for leaving one out
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_commercial_meter.py   # every billed call records, no invented price,

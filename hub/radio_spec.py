@@ -183,6 +183,11 @@ DURATIONS = [
      "name": "Sponsorship tag",
      "note": "One idea and the brand. No offer, no phone number -- ten seconds "
              "cannot carry a response somebody acts on.",
+     # And so a :10 is not judged for leaving one out. The note above has said
+     # this since the table was written and nothing read it, so the content
+     # check demanded a web address in a sponsorship tag -- a check refusing
+     # correct copy, which is how a panel comes to be switched off.
+     "carries_response": False,
      "cost": "Cheapest read on the menu -- roughly a third of a :30 in "
              "voiceover characters."},
     {"seconds": 15, "key": "fifteen", "label": ":15",
@@ -190,6 +195,7 @@ DURATIONS = [
      "name": "Standard short",
      "note": "One message, one call to action. The brand said at least once, "
              "the address last.",
+     "carries_response": True,
      "cost": "Low -- about half a :30 in voiceover characters."},
     # A :30 is never a short tag. At the normal 2.6 words/second read this
     # floor is just over 25 seconds, leaving room for natural pauses.
@@ -199,6 +205,7 @@ DURATIONS = [
      "name": "The workhorse",
      "note": "The unit most streaming audio is sold in. Hook, value, close, "
              "with the brand said at least twice.",
+     "carries_response": True,
      "cost": "Moderate -- the length every other read here is priced against."},
     {"seconds": 60, "key": "sixty", "label": ":60",
      "word_target": "140-170 words (54+ second read)", "low": 140, "high": 170,
@@ -206,6 +213,7 @@ DURATIONS = [
      "name": "Long form",
      "note": "Room for a story, a testimonial or a real explanation rather "
              "than an offer. Worth it where the listener is already yours.",
+     "carries_response": True,
      "cost": "Roughly twice a :30 in voiceover characters.",
      "warning": "A :60 is about twice a :30 in voiceover characters, and "
                 "ElevenLabs bills the character -- so every re-record of it "
@@ -306,6 +314,61 @@ def length_warning(slot_key: str) -> str:
     return (duration_by_key(slot_key) or {}).get("warning", "")
 
 
+# ---------------------------------------------------------------------------
+# How long a read takes, before anybody has paid for one.
+#
+# These arrived from `modules/radio_promo/speech.py`, which is where the only
+# copy lived -- so Fan Radio had no way to answer *is this :30 short* until it
+# had spent the ElevenLabs characters and listened to the dead air. That is the
+# same shape of defect as the word budgets that used to be two tables: the
+# number existed, one tool could read it, and the other could not.
+#
+# `WORDS_PER_SECOND` is a read pace rather than a fact about a file, so
+# everything derived from it is named an **estimate** at every call site. The
+# render still measures; `wav_seconds()` below is the measurement.
+# ---------------------------------------------------------------------------
+WORDS_PER_SECOND = 2.6          # natural commercial read pace
+
+
+def count_words(script: str = "") -> int:
+    """Words in a script, counted the one way.
+
+    `grade_words()` below had its own `str.split()` count. The two agreed, and
+    two functions answering *how many words is this* is how a panel comes to
+    report 84 words beside a budget check that saw 85 -- so it reads this one.
+    """
+    return len([w for w in re.split(r"\s+", str(script or "")) if w])
+
+
+def estimate_seconds(script: str = "") -> float:
+    """Roughly how long this copy takes to read aloud. An estimate, always."""
+    return round(count_words(script) / WORDS_PER_SECOND, 1)
+
+
+def grade_duration(seconds: float | None, target) -> dict:
+    """How far off the clock a read is, and whether that matters.
+
+    Answers for an estimate or for a measured file -- the caller knows which it
+    handed over and says so. A read that runs long is never trimmed
+    automatically: trimming clips a word off the end of the phone number, so it
+    comes back flagged with how many words to cut instead.
+    """
+    target = int(target or 0)
+    if not seconds or not target:
+        return {"status": "unknown", "label": "Length not measured"}
+    over = seconds - target
+    if over > 0.4:
+        words = max(1, round(over * WORDS_PER_SECOND))
+        return {"status": "long", "over": round(over, 1), "trim_words": words,
+                "label": f"{seconds:.1f}s — {over:.1f}s over. Roughly {words} "
+                         f"word{'' if words == 1 else 's'} too many."}
+    if seconds < target - 2.5:
+        under = target - seconds
+        return {"status": "short", "under": round(under, 1),
+                "label": f"{seconds:.1f}s — {under:.1f}s of dead air at the end."}
+    return {"status": "good", "label": f"{seconds:.1f}s — lands on the clock."}
+
+
 def grade_words(script: str, seconds) -> dict:
     """Word count against the budget for that length, in one shape.
 
@@ -315,7 +378,7 @@ def grade_words(script: str, seconds) -> dict:
     is one function rather than two readings that can disagree about whether a
     script fits.
     """
-    words = len([w for w in str(script or "").split() if w.strip()])
+    words = count_words(script)
     slot = duration_by_seconds(seconds)
     if not slot:
         return {"words": words, "state": "not_measured", "delta": 0,

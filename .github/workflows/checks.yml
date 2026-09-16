@@ -2603,6 +2603,37 @@ jobs:
         if: matrix.group == 6
         run: python3 test_radio_parity.py
 
+      # And Fan Radio's half of the same list, which is the other direction.
+      # Every item above landed in the Radio Ad Creator and none of them here,
+      # in the tool writing the same reads for the same clients against the
+      # same clock: Fan Radio had two of the nine checks, so a :30 that never
+      # said the client's web address was a named finding one tool over and
+      # silence in this one, and a required disclaimer was nothing at all
+      # because there was nowhere to type one. The checks are
+      # hub/radio_script_qc.py now and both builders read them, so what this
+      # asserts is that the one table is read twice rather than two that agree
+      # today -- plus the two rows that are genuinely this tool's own, the
+      # trademark verdict and the post-game result rule, on the same panel
+      # rather than beside it.
+      - name: Fan Radio parity — the script panel, its own two rows, the rail
+        if: matrix.group == 6
+        run: python3 test_radio_feature_parity.py
+
+      # The reusable-read library, which was the last thing one radio builder
+      # had and the other did not -- and which no screen in either tool
+      # reached: four default reads, a store, a route and a test that drove the
+      # route, with nothing a rep could press. A test that drives a route
+      # cannot notice that nobody can press it, so this asserts the screen as
+      # well as the store. It is one library both tools read now, so a read
+      # saved in one is offered in the other; the `{business}` placeholder is
+      # filled on the way out and put *back* on the way in, or the library
+      # stops being reusable the first time somebody saves to it; and a preset
+      # saved under the old per-tool file is still offered, because migrating
+      # it on read would race the second worker.
+      - name: Radio reusable reads — one library, both tools, reachable
+        if: matrix.group == 6
+        run: python3 test_radio_presets.py
+
       # The sample campaigns both radio builders open empty without. Two
       # things about the seeder are worth holding to an assertion. It must not
       # write a script the tool would flag -- four of the first eight were

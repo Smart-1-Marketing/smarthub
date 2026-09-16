@@ -137,6 +137,21 @@
         <input id="promo" type="text" placeholder="$99 fall tune-up, ends Sunday">
       </div>
       <div>
+        <label class="f" for="phone">Response phone number <span class="opt">— optional</span></label>
+        <input id="phone" type="tel" placeholder="(317) 555-0142">
+        <div class="hint"><label><input type="checkbox" id="include_phone">
+          The read has to say it</label> — tick this and a script that leaves the
+          number out is a finding before the record. A :10 tag cannot carry a
+          response somebody acts on, so leave it clear for one.</div>
+      </div>
+      <div>
+        <label class="f" for="disclaimer">Required disclaimer <span class="opt">— optional</span></label>
+        <input id="disclaimer" type="text" placeholder="Offer ends Sunday. See store for details.">
+        <div class="hint">Checked <b>word for word</b> against every script. A
+          disclaimer that did not quite make the cut is the whole reason it was
+          typed in.</div>
+      </div>
+      <div>
         <label class="f" for="team">Local team, for context only</label>
         <input id="team" type="text" placeholder="e.g. Cincinnati Bengals">
         <div class="hint"><b>This never appears in the copy.</b> It tells the writer
@@ -368,7 +383,9 @@
     if (writing) activeWrites++;
     return fetch(BASE + path, opts).then(function(r){
       return r.json().then(function(j){
-        if(!r.ok || j.ok === false) throw new Error(j.error || "That didn't work.");
+        if(!r.ok || j.ok === false){
+          var err = new Error(j.error || "That didn't work.");
+          err.payload = j; throw err; }
         if ((opts.method || 'GET').toUpperCase() !== 'GET') window.dispatchEvent(new Event('radio-library-changed'));
         return j; });
     }).finally(function(){ if (writing) activeWrites--; finishRadioWork(); });
@@ -401,6 +418,8 @@
       company:$('company').value.trim(), client:$('client').value.trim(), home_url:$('url').value.trim(),
       scope:document.querySelector('input[name=scope]:checked').value,
       promotion:$('promo').value, notes:$('notes').value, team_context:$('team').value, tone:$('tone').value,
+      phone:$('phone').value.trim(), include_phone:$('include_phone').checked,
+      disclaimer:$('disclaimer').value.trim(),
       brief:{summary:$('b_summary').value,audience:$('b_audience').value,offer:$('b_offer').value,
         callToAction:$('b_cta').value,mustSay:lines($('b_must').value),avoid:lines($('b_avoid').value)}
     }});
@@ -545,7 +564,10 @@
       scope: scope, client: $("client").value.trim(),
       company: $("company").value.trim(), home_url: $("url").value.trim(),
       promotion: $("promo").value.trim(), notes: $("notes").value.trim(),
-      team_context: $("team").value.trim(), tone: $("tone").value
+      team_context: $("team").value.trim(), tone: $("tone").value,
+      phone: $("phone").value.trim(),
+      include_phone: $("include_phone").checked,
+      disclaimer: $("disclaimer").value.trim()
     };
     if(!body.company){ say("startmsg","Enter the business name.","err"); return; }
     this.disabled = true; say("startmsg","Reading the site…","scan");
@@ -584,6 +606,7 @@
       .then(function(){ return loadQc(); })
       .then(drawMusic)
       .catch(function(){ drawMusic(); });
+    loadPresets().then(loadScriptQc).then(function(){ drawSpots(); });
   }
 
   function fillBrief(){
@@ -633,6 +656,7 @@
           j.warning ? "warn" : "ok");
       $("rewriteall").style.display = "inline-block";
       drawSpots();
+      refreshScriptQc();
       showStep(!j.warning && (P.spots || []).length ? 3 : 2, true);
     }).catch(function(e){
       $("write").disabled = false; say("writemsg", e.message, "err"); });
@@ -678,6 +702,15 @@
     if(!P || !P.voice || !P.voice.voice_id) throw new Error('Choose a voice in Step 4 first.');
     return Object.assign({},P.voice,{speed:Number($('voiceSpeed').value),prompt_strength:Number($('promptStrength').value)/100,stability:Number($('voiceStability').value)/100,model_id:$('voiceMode').value});
   }
+  /* The length's own label, from the shared table. A local map of the two
+     lengths this tool used to build is how the :10 and the :60 came to be
+     drawn as bare numbers after the shared menu brought them in. */
+  function lengthLabel(seconds){
+    var len = ((CAT && CAT.lengths) || []).filter(function(l){
+      return Number(l.seconds) === Number(seconds); })[0];
+    return (len && len.label) || (":" + seconds);
+  }
+
   function timingBadge(seconds,target,measured){
     if(seconds == null || !Number.isFinite(Number(seconds))) return '<span class="timing">Duration unavailable</span>';
     var value=Number(seconds),gap=Number(target)-value;
@@ -687,6 +720,32 @@
   function tagControls(s){
     return '<label class="f" for="tag-'+esc(s.id)+'">Expression tag</label><select id="tag-'+esc(s.id)+'" data-tag><option value="">Choose a delivery…</option>'+['excited','curious','whispers','laughs','sighs','sarcastic','mischievously','short pause','long pause'].map(function(t){return '<option value="'+t+'">['+t+']</option>';}).join('')+'</select><button class="btn sec sm" data-a="insert-tag">Insert at cursor</button><p class="hint">Tags use Expressive mode and work with instant custom voices. Place them before the words they should affect.</p>';
   }
+  /* A saved read, inserted at the cursor. Same shape as the expression-tag
+     control above it, deliberately: two pickers on one card that behave
+     differently is two things to learn. Insert rather than replace, because
+     losing a written spot to a mis-click is the one outcome worth designing
+     against -- select the copy first to overwrite it. */
+  function presetControls(s){
+    var rows = (PRESETS.defaults || []).concat(PRESETS.custom || []);
+    if(!rows.length)
+      return '<p class="hint">No saved reads yet — write one and press '
+           + '<b>Save as a reusable read</b> to start the library.</p>'
+           + '<div class="row"><button class="btn sec sm" data-a="save-preset">'
+           + 'Save as a reusable read</button></div>';
+    return '<label class="f" for="pre-' + esc(s.id) + '">Reusable read</label>'
+      + '<select id="pre-' + esc(s.id) + '" data-preset>'
+      + '<option value="">Choose a saved read…</option>'
+      + rows.map(function(r){
+          return '<option value="' + esc(r.id) + '">' + esc(r.name)
+               + '</option>'; }).join("")
+      + '</select>'
+      + '<button class="btn sec sm" data-a="insert-preset">Insert at cursor</button>'
+      + '<button class="btn sec sm" data-a="save-preset">Save as a reusable read</button>'
+      + '<p class="hint">The library is shared with the Radio Ad Creator. A read '
+      + 'saved here has this client\'s name put back to a placeholder, so the '
+      + 'next project fills in its own.</p>';
+  }
+
   function drawSpots(){
     var spots = (P && P.spots) || [];
     if(!spots.length){
@@ -728,14 +787,17 @@
       return '<div class="spot' + ((sc.blocked||[]).length ? ' flag' : '')
         + '" data-id="' + esc(s.id) + '">'
         + '<div class="shead"><span class="len">'
-        + esc(({15:":15",30:":30"})[s.seconds] || s.seconds) + '</span>'
+        + esc(lengthLabel(s.seconds)) + '</span>'
         + '<b>' + esc((CAT.dayparts.filter(function(d){return d.id===s.daypart;})[0]
                        || {}).label || s.daypart) + '</b>'
         + '<span class="ver">' + esc(out) + '</span>' + tags + '</div>'
         + '<div class="hint">Music bed: '+esc(s.bed && s.bed.audio_url ? bedName(s.bed) : 'No bed')+'</div>'
         + why
+        + scriptQcRows(s.id)
+        + beatRail(s.seconds)
         + '<textarea class="sc">' + esc(s.script) + '</textarea>'
         + tagControls(s)
+        + presetControls(s)
         + '<div class="sfoot">'
         +   '<button class="btn sec sm" data-a="save">Save edit</button>'
         +   '<button class="btn sec sm" data-a="rewrite">Rewrite</button>'
@@ -764,10 +826,46 @@
         // The Music step reads the same spots. Redrawing one screen and not
         // the other is how a mix that has just been retired goes on being
         // offered on the panel below.
-        drawSpots(); drawMusic(); }
+        drawSpots(); drawMusic(); refreshScriptQc(); }
       card.querySelectorAll("button").forEach(function(b){
         b.onclick = function(){
           var a = b.getAttribute("data-a");
+          if(a === 'insert-preset'){
+            var sel = card.querySelector('[data-preset]');
+            var pid = sel ? sel.value : "";
+            if(!pid){msg.textContent='Choose a saved read first.';return;}
+            var rows = (PRESETS.defaults||[]).concat(PRESETS.custom||[]);
+            var row = rows.filter(function(r){return r.id===pid;})[0];
+            if(!row){msg.textContent='That read is no longer in the library.';return;}
+            var at = ta.selectionStart ?? ta.value.length;
+            ta.setRangeText(row.script, at, at, 'end'); ta.focus();
+            msg.className = "msg";
+            msg.textContent = 'Inserted. Save the edit to keep it, then the '
+              + 'script checks re-run.';
+            return;
+          }
+          if(a === 'save-preset'){
+            var text = ta.value.trim();
+            if(!text){msg.textContent='Write the spot first.';return;}
+            var name = prompt('Name this reusable read — how it appears in the '
+              + 'picker, here and in the Radio Ad Creator:');
+            if(name === null) return;
+            b.disabled = true; msg.className = "msg"; msg.textContent = "Saving…";
+            api("/api/script-presets?project=" + encodeURIComponent(P.id),
+                {method:"POST", body:{name:name, script:text}})
+              .then(function(j){
+                PRESETS = {defaults: j.defaults || PRESETS.defaults,
+                           custom: j.custom || PRESETS.custom};
+                b.disabled = false;
+                // Redrawn so every card's picker offers it, not just this one.
+                drawSpots();
+                say("wizardMsg", 'Saved as a reusable read. It is in the picker '
+                  + 'on every spot, and in the Radio Ad Creator.', "ok");
+              })
+              .catch(function(e){ b.disabled = false;
+                msg.className = "msg err"; msg.textContent = e.message; });
+            return;
+          }
           if(a === 'insert-tag'){
             var tag=card.querySelector('[data-tag]').value;
             if(!tag){msg.textContent='Choose an expression tag first.';return;}
@@ -800,11 +898,28 @@
               msg.textContent = ""; return; }
             p = api("/api/projects/"+P.id+"/spots/"+id, {method:"DELETE"})
                  .then(function(){ P.spots = P.spots.filter(function(x){
-                    return x.id !== id; }); drawSpots(); return null; });
+                    return x.id !== id; }); drawSpots(); refreshScriptQc();
+                    return null; });
           }
           p.then(function(j){ if(j && j.spot) done(j); })
            .catch(function(e){ b.disabled = false;
-             msg.className = "msg err"; msg.textContent = e.message; });
+             var panel = (e.payload || {}).qc_panel, note = msg;
+             if(panel){
+               // The refusal shipped the panel that refused. Drawing it is the
+               // difference between "fix the address" and a rep hunting for
+               // which of eleven rows the sentence came from.
+               SQC[id] = panel;
+               if((e.payload || {}).labels) SQC_LABELS = e.payload.labels;
+               drawSpots();
+               // drawSpots() replaces every card, so `msg` is now a detached
+               // node and writing to it would put the refusal on screen
+               // nowhere. The fresh card's own slot is the one to write to.
+               var fresh = $("spots").querySelector('.spot[data-id="'
+                            + (window.CSS && CSS.escape ? CSS.escape(id) : id)
+                            + '"] [data-m="1"]');
+               if(fresh) note = fresh;
+             }
+             note.className = "msg err"; note.textContent = e.message; });
         };
       });
       var voInput = card.querySelector('input[type=file][data-a="voup5"]');
@@ -987,6 +1102,15 @@
      duck their beds by the same amount, and the level this panel shows is the
      level that renders. */
   var MIXCFG = null, QCC = {}, RENDERED = {}, MUSIC_LIBRARY = [], BED_EDITORS = {};
+  // The script panel, keyed by spot, and the labels served with it. The
+  // labels are not restated here on purpose: a check absent from the map
+  // is skipped silently by the loop below, so the map comes from the
+  // server that ran the checks.
+  var SQC = {}, SQC_LABELS = {}, SQC_BLOCKS = [];
+  // The shared reusable-read library, the same rows the Radio Ad Creator
+  // offers. Loaded once a project exists, because the `{business}` placeholder
+  // is filled in server-side from that project's company name.
+  var PRESETS = {defaults: [], custom: []};
 
   function loadMixConfig(){
     return api("/api/mix/config").then(function(j){ MIXCFG = j; return j; });
@@ -1051,6 +1175,36 @@
       QCC = j.reports || {}; })
       .catch(function(){ /* the panel says so; a failed check must not take
                             the step down with it */ });
+  }
+
+  /* The script panel. Cheap -- it reads the copy and reaches no provider --
+     so it is re-asked after every edit, rewrite and tighten rather than on a
+     button. Its own path, deliberately not /qc: that one judges the mix after
+     a render and this one judges the script before anybody pays for a voice. */
+  /* Re-ask and redraw. Every place the copy changes calls this one function:
+     a panel refreshed at four of the five edit points is a panel that
+     confidently reports the previous wording, which is worse than none. */
+  function refreshScriptQc(){
+    return loadScriptQc().then(function(){ drawSpots(); });
+  }
+
+  function loadPresets(){
+    if(!P || !P.id) return Promise.resolve();
+    return api("/api/script-presets?project=" + encodeURIComponent(P.id))
+      .then(function(j){ PRESETS = {defaults: j.defaults || [],
+                                    custom: j.custom || []}; })
+      .catch(function(){ /* the picker is left empty and says so; a library
+                            that cannot be read must not take the step down */ });
+  }
+
+  function loadScriptQc(){
+    if(!P || !P.id) return Promise.resolve();
+    return api("/api/projects/"+P.id+"/script-qc").then(function(j){
+      SQC = j.spots || {};
+      SQC_LABELS = j.labels || {};
+      SQC_BLOCKS = j.blocks_render || []; })
+      .catch(function(){ /* same rule as the mix panel: a failed check reports
+                            itself and must not take the step down with it */ });
   }
 
   function dbGain(db){ return Math.pow(10, (Number(db)||0) / 20); }
@@ -1220,6 +1374,61 @@
             + (QC_PILL[c.level]||"info") + '">' + esc(word) + '</span> <b>'
             + esc(c.label) + '</b> — ' + esc(c.detail) + '</div>'; }).join("")
       + '</div>';
+  }
+
+  /* One row per named check, same shape as the mix panel above so a rep
+     reading both is reading one idea. The level decides the pill; nothing
+     here decides a level, because certainty rather than severity is what
+     separates a fail from a warning and the server holds that rule. */
+  var SQC_PILL = {pass:"ok", warn:"warn", fail:"bad", unknown:""};
+  var SQC_WORD = {pass:"Pass", warn:"Worth a look", fail:"Stops the record",
+                  unknown:"Not measured"};
+  function scriptQcRows(sid){
+    var r = SQC[sid];
+    if(!r) return "";
+    var keys = Object.keys(r.checks || {}).filter(function(k){
+      return SQC_LABELS[k]; });
+    if(!keys.length) return "";
+    var stopped = (r.failed || []).filter(function(k){
+      return SQC_BLOCKS.indexOf(k) >= 0; });
+    var head = stopped.length
+      ? '<div class="why"><b>This spot cannot be recorded yet.</b> '
+        + esc(stopped.length) + ' check'
+        + (stopped.length === 1 ? '' : 's') + ' below must be fixed first.</div>'
+      : "";
+    return '<details class="bank" style="margin-top:8px">'
+      + '<summary>Script checks — '
+      + (stopped.length ? esc(stopped.length) + ' stopping the record'
+         : (r.ready ? 'ready to record' : 'nothing stopping the record'))
+      + '</summary>' + head
+      + '<div class="hint" style="margin-top:8px">'
+      + keys.map(function(k){
+          var c = r.checks[k] || {};
+          return '<div style="margin:4px 0"><span class="tag '
+            + (SQC_PILL[c.level] || "info") + '">'
+            + esc(SQC_WORD[c.level] || c.level) + '</span> <b>'
+            + esc(SQC_LABELS[k]) + '</b> — ' + esc(c.message || "") + '</div>'; }).join("")
+      + '</div></details>';
+  }
+
+  /* The beats the read is built on, drawn beside the copy. The plan lived in
+     the prompt, where a rep could not see it -- so a script that had wandered
+     from the shape read exactly like one written to it. Same table the prompt
+     states, carried on the length by the catalog. */
+  function beatRail(seconds){
+    var len = ((CAT && CAT.lengths) || []).filter(function(l){
+      return Number(l.seconds) === Number(seconds); })[0] || {};
+    var beats = len.beats || [];
+    if(!beats.length) return "";
+    return '<details class="bank" style="margin-top:8px">'
+      + '<summary>The shape a ' + esc(len.label || seconds) + ' is planned around</summary>'
+      + '<table style="margin-top:6px"><tr><th>Beat</th><th>Where</th>'
+      + '<th>What it does</th></tr>'
+      + beats.map(function(b){
+          return '<tr><td><b>' + esc(b.label) + '</b></td><td>'
+            + esc(b.start_pct) + '–' + esc(b.end_pct) + '%</td><td>'
+            + esc(b.guidance) + '</td></tr>'; }).join("")
+      + '</table></details>';
   }
 
   function drawMixConfig(){
@@ -1669,6 +1878,8 @@
       $("company").value = P.company || ""; $("url").value = P.home_url || "";
       $("client").value = P.client || ""; $("team").value = P.team_context || "";
       $("promo").value = P.promotion || ""; $("notes").value = P.notes || "";
+      $("phone").value = P.phone || ""; $("disclaimer").value = P.disclaimer || "";
+      $("include_phone").checked = !!P.include_phone;
       if(P.tone) $("tone").value = P.tone;
       document.querySelector('input[name=scope][value="'+(P.scope === 'spec' ? 'spec' : 'client')+'"]').checked = true;
       fillBrief(); show();
