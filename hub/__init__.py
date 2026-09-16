@@ -8549,6 +8549,23 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # And Google Finder's OAuth refresh tokens, which were a SQLite file on
+    # the same disk. Here rather than lazily because the first thing that
+    # reads them is usually the scheduler's index sweep rather than a person,
+    # and a sweep that runs before the import has an empty account table --
+    # which it reports as "no Google accounts are connected", the confident
+    # wrong answer that module's own docstring records an incident about.
+    try:
+        from modules.google_finder import app as _gf_boot
+        app.config["HUB_GOOGLE_TOKEN_IMPORT"] = _gf_boot.import_legacy()
+    except Exception as _gf_exc:  # noqa: BLE001
+        app.config["HUB_GOOGLE_TOKEN_IMPORT"] = {
+            "ran": False, "reason": f"{type(_gf_exc).__name__}: {_gf_exc}"}
+        try:
+            errors.log_exception("google_finder", _gf_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ---------------- v7: help bubbles, tool walkthroughs, demo mode -------
     # Registered last, because it needs _hub_user (defined with the login
     # routes above). The fallbacks below are not decoration: an earlier build

@@ -66,6 +66,11 @@ python3 test_lead_store.py         # where a lead actually is: the table, the
                                    #   answer, and the one-time import that does
                                    #   not mark itself done unless every lead in
                                    #   the file is in the table
+python3 test_google_token_store.py # the OAuth refresh tokens off their SQLite
+                                   #   file: moved as ciphertext, never through
+                                   #   _fernet(); ids preserved because an alert
+                                   #   points at a report; and the sequences moved
+                                   #   with them, which counting alone misses
 python3 test_check_reconciliation.py # matching and the QBO payment payload, and
                                    #   where the state lives: the QuickBooks
                                    #   tokens, payer aliases, records and audit

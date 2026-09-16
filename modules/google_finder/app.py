@@ -13,10 +13,11 @@ from urllib.parse import urlencode
 import requests
 from bs4 import BeautifulSoup
 from flask import (Flask, redirect, render_template, request, session,
-                   url_for, jsonify, g, current_app, has_app_context)
+                   url_for, jsonify)
 from flask_session import Session
 from cryptography.fernet import Fernet, InvalidToken
 from werkzeug.middleware.proxy_fix import ProxyFix
+from hub import dbshim
 from hub.webargs import clamp_int
 from hub.analytics_ask import range_index
 
@@ -98,15 +99,21 @@ Session(app)
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 CACHE_SECONDS = int(os.environ.get("CACHE_SECONDS", "900"))
-# TOKEN_DB_PATH still wins -- naming one file is more specific than naming a
-# root, and test_google_index.py sets it. Otherwise the token database lives
-# where every other persistent file does: hub/jsonstore.data_root(), which
-# reads HUB_DATA_DIR first and /var/data after. The hard-coded path skipped
-# HUB_DATA_DIR and had no local fallback at all, so on a machine with no
-# /var/data it named a directory nothing could create -- and these are OAuth
-# refresh tokens, which CLAUDE.md counts among the files whose disk copy is
-# the only copy.
-def _token_db_default() -> str:
+def _token_db_path() -> str:
+    """The legacy SQLite file: what the one-time import reads, and nothing else.
+
+    The tables are in the Hub database now. This names the file they came
+    from, and it **selects no backend** -- the rule `hub/audit.py` arrived at
+    and the three stores after it repeated, because a variable that is set on
+    the live service and also chooses where rows go keeps production on the
+    disk while every test passes on the new path.
+
+    Resolved on each call rather than captured at import, so a variable set
+    after this module loaded is applied rather than silently ignored.
+    """
+    named = (os.environ.get("TOKEN_DB_PATH") or "").strip()
+    if named:
+        return named
     try:
         from hub import jsonstore
         return os.path.join(jsonstore.data_root(), "google_tokens.db")
@@ -114,7 +121,6 @@ def _token_db_default() -> str:
         return "/var/data/google_tokens.db"
 
 
-TOKEN_DB_PATH = os.environ.get("TOKEN_DB_PATH") or _token_db_default()
 TOKEN_ENCRYPTION_KEY = os.environ.get("TOKEN_ENCRYPTION_KEY", "")
 
 ALLOWED_EMAILS = {
@@ -154,72 +160,75 @@ def _fernet():
         raise RuntimeError("TOKEN_ENCRYPTION_KEY must be a valid Fernet key.") from exc
 
 
-def _connect():
-    """Open a connection to the token database and make sure it has tables."""
-    db_dir = os.path.dirname(TOKEN_DB_PATH)
-    if db_dir:
-        os.makedirs(db_dir, exist_ok=True)
-    conn = sqlite3.connect(TOKEN_DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL;")
-    init_db(conn)
-    return conn
-
-
-def get_db():
-    if "db" not in g:
-        g.db = _connect()
-    return g.db
+_schema_ready = False
 
 
 @contextmanager
 def _db():
-    """A connection to the token database, with or without a request.
+    """A connection to the token tables, with or without a request.
 
-    ``get_db()`` caches on ``flask.g`` and is closed by ``close_db`` when the
-    request ends. That is right for a route and unusable anywhere else, and
-    the account table is read from two places that are not routes: the
-    scheduler's google_index sweep runs in a background thread with no
-    application context at all, and /api/google/rebuild calls the same sweep
-    under the *hub* app's context. Outside a context every read raised
-    RuntimeError inside connected_accounts()'s except and came back as an
-    empty list, so the sweep concluded "No Google accounts are connected"
-    every three hours while the accounts sat in the table untouched — a
-    confident wrong answer with a live tool behind it.
+    These used to be a SQLite file on the Render disk. That is outside the
+    database backup and does not survive being recreated, and these are Google
+    **OAuth refresh tokens** -- losing the file means every connected account
+    has to reconnect. It was also local to one instance, so the two halves of
+    a zero-downtime deploy each held their own set.
 
-    The ``g`` cache is used only when the context in play is *this* app's.
-    Under the hub app's context ``g`` would take the connection and this
-    app's teardown would never run to close it, which leaks one sqlite handle
-    per rebuild.
+    The `flask.g` cache that used to live here is gone with the file, and so
+    is the hazard it created. It cached one sqlite handle per request, which
+    is right for a route and unusable anywhere else -- and the account table
+    is read from two places that are not routes: the scheduler's google_index
+    sweep runs in a background thread with no application context at all, and
+    /api/google/rebuild calls the same sweep under the *hub* app's context.
+    Outside a context every read raised RuntimeError inside
+    connected_accounts()'s except and came back as an empty list, so the sweep
+    concluded "No Google accounts are connected" every three hours while the
+    accounts sat in the table untouched -- a confident wrong answer with a
+    live tool behind it. The fix was a careful `current_app is app` dance
+    around the cache; a pooled engine has no per-request handle to cache, so
+    there is nothing left to get wrong.
 
-    Anything reaching this table goes through here rather than through
-    get_db(), so the next function added to this module does not have to
-    know which of the two worlds it will be called from.
+    Anything reaching these tables still goes through here, so the next
+    function added to this module does not have to know which of the two
+    worlds it will be called from.
     """
-    own = False
-    try:
-        own = has_app_context() and current_app._get_current_object() is app
-    except Exception:                                   # noqa: BLE001
-        own = False
-    if own:
-        yield get_db()
-        return
-    conn = _connect()
-    try:
+    global _schema_ready
+    if not _schema_ready:
+        # Under the advisory lock, not bare. `CREATE TABLE IF NOT EXISTS` is
+        # not atomic against a second worker running it at the same moment --
+        # on Postgres that is a duplicate key on pg_type_typname_nsp_index,
+        # which is a stack trace in the deploy log on every single deploy, and
+        # a deploy log everyone has learned to ignore is how a real error gets
+        # missed. retry=False because this is reached from a request, not from
+        # boot, so the boot backoff would be spent inside somebody's page load.
+        from hub import extensions
+        with dbshim.connect() as conn:
+            err = extensions.create_all_sql(lambda: init_db(conn), retry=False)
+        if err:
+            raise RuntimeError(f"the token tables could not be created: {err}")
+        _schema_ready = True
+    with dbshim.connect() as conn:
         yield conn
-    finally:
-        conn.close()
-
-
-@app.teardown_appcontext
-def close_db(error):
-    db = g.pop("db", None)
-    if db is not None:
-        db.close()
 
 
 def init_db(conn):
-    conn.execute(
+    """Create the tables if they are not there, per dialect.
+
+    `%%AUTOID%%` rather than either spelling: SQLite autoincrements a rowid
+    only for a column declared exactly INTEGER PRIMARY KEY, and Postgres needs
+    a sequence, which that does not give it. One schema rather than two that
+    drift.
+
+    Parents before children -- `saved_reports` ahead of the `report_alerts`
+    that references it -- because Postgres refuses a foreign key to a table
+    that does not exist yet while SQLite resolves them lazily, so the wrong
+    order is invisible until the day it is not.
+    """
+    _auto = dbshim.autoid(conn.dialect)
+
+    def run(sql):
+        conn.execute(sql.replace("%%AUTOID%%", _auto))
+
+    run(
         """
         CREATE TABLE IF NOT EXISTS google_accounts (
             email TEXT PRIMARY KEY,
@@ -230,10 +239,10 @@ def init_db(conn):
         )
         """
     )
-    conn.execute(
+    run(
         """
         CREATE TABLE IF NOT EXISTS saved_reports (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id %%AUTOID%%,
             customer_name TEXT NOT NULL,
             summary_title TEXT NOT NULL,
             property_id TEXT NOT NULL,
@@ -243,10 +252,10 @@ def init_db(conn):
         )
         """
     )
-    conn.execute(
+    run(
         """
         CREATE TABLE IF NOT EXISTS report_alerts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id %%AUTOID%%,
             report_id INTEGER NOT NULL,
             notification_email TEXT NOT NULL,
             frequency TEXT NOT NULL,
@@ -256,10 +265,10 @@ def init_db(conn):
         )
         """
     )
-    conn.execute(
+    run(
         """
         CREATE TABLE IF NOT EXISTS gtm_change_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id %%AUTOID%%,
             google_login TEXT NOT NULL,
             account_id TEXT NOT NULL,
             container_id TEXT NOT NULL,
@@ -271,6 +280,142 @@ def init_db(conn):
         """
     )
     conn.commit()
+
+
+#: Parents before children, which is also the order a copy has to insert in.
+LEGACY_TABLES = ("google_accounts", "saved_reports", "report_alerts",
+                 "gtm_change_logs")
+#: The three with a generated id. `google_accounts` is keyed by email.
+LEGACY_GENERATED_ID = ("saved_reports", "report_alerts", "gtm_change_logs")
+
+_import_state: dict = {"ran": False}
+
+
+def import_legacy(force: bool = False) -> dict:
+    """Carry the SQLite file into the Hub database, once, and verify it.
+
+    **The refresh tokens move as ciphertext.** `refresh_token_enc` is copied
+    column to column and never passes through `_fernet()`: decrypting to
+    re-encrypt would put every connected account's Google refresh token in
+    this process's memory for no purpose, and would fail outright on a
+    deployment where TOKEN_ENCRYPTION_KEY has been rotated -- turning a
+    migration into a mass disconnect. The ciphertext is opaque to this
+    function and that is the point.
+
+    **Ids are preserved**, because `report_alerts.report_id` is a foreign key
+    to `saved_reports.id`. A copy that let them be regenerated would have to
+    rewrite every reference, and getting one wrong points an alert at another
+    customer's report. The sequences are moved past them afterwards, or the
+    first report anybody saves raises a duplicate key.
+
+    **Once across every instance**, not once per worker: the check and the
+    copy are inside one `jsonstore.update_json()`, which holds the thread
+    lock, the flock and the Postgres advisory lock. And **verified before the
+    marker is written** -- a verification that fails leaves it unmarked so the
+    next boot tries again, rather than recording that a set of OAuth tokens
+    nobody checked had been carried across.
+    """
+    global _import_state
+    path = _token_db_path()
+    try:
+        if not os.path.getsize(path):
+            _import_state = {"ran": False, "reason": "no legacy database"}
+            return dict(_import_state)
+    except OSError:
+        _import_state = {"ran": False, "reason": "no legacy database"}
+        return dict(_import_state)
+
+    outcome: dict = {"ran": False, "reason": "already imported"}
+
+    def _apply(current):
+        if isinstance(current, dict) and current.get("done") and not force:
+            return None                     # nothing to write, nothing to do
+        copied = _copy_legacy_into(path)
+        if copied.get("error"):
+            outcome.update(ran=False, reason=copied["error"])
+            return None
+        report = _verify_legacy(copied["counts"])
+        if not report["ok"]:
+            outcome.update(ran=False, reason="verification failed",
+                           verification=report)
+            return None                     # unmarked, so the next boot retries
+        outcome.update(ran=True, reason="", counts=copied["counts"],
+                       verification=report)
+        return {"done": True, "counts": copied["counts"], "from": path,
+                "at": datetime.utcnow().isoformat(timespec="seconds")}
+
+    try:
+        from hub import jsonstore
+        marker = os.path.join(jsonstore.data_dir("google_finder"),
+                              "sqlite-import.json")
+        jsonstore.update_json(marker, _apply, default={})
+    except Exception as exc:                            # noqa: BLE001
+        outcome = {"ran": False,
+                   "reason": f"{type(exc).__name__}: {str(exc).splitlines()[0][:200]}"}
+    _import_state = dict(outcome)
+    return dict(outcome)
+
+
+def _copy_legacy_into(path: str) -> dict:
+    """Copy every table this module owns, parents first, ids preserved."""
+    counts: dict[str, int] = {}
+    try:
+        src = sqlite3.connect(path, timeout=30)
+        src.row_factory = sqlite3.Row
+    except sqlite3.Error as exc:
+        return {"error": f"the legacy database could not be opened: {exc}"}
+    try:
+        have = {r[0] for r in src.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        with _db() as conn:
+            for table in LEGACY_TABLES:
+                if table not in have:
+                    continue
+                rows = [dict(r) for r in src.execute(f"SELECT * FROM {table}")]
+                counts[table] = len(rows)
+                for row in rows:
+                    cols = list(row)
+                    conn.execute(
+                        f"INSERT INTO {table}({','.join(cols)}) VALUES("
+                        f"{','.join('?' for _ in cols)}) ON CONFLICT DO NOTHING",
+                        tuple(row[c] for c in cols))
+            dbshim.fix_sequences(conn, LEGACY_GENERATED_ID)
+    except Exception as exc:                            # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: "
+                         f"{str(exc).splitlines()[0][:200]}"}
+    finally:
+        src.close()
+    return {"counts": counts}
+
+
+def _verify_legacy(counts: dict) -> dict:
+    """Every row that was in the file is in the table, and the ids can grow.
+
+    Both halves, because one is not enough: the counts say the copy was
+    complete, and the sequences say the database is usable. The sequence trap
+    passes a count check with flying colours and then fails on the first row
+    anybody creates.
+    """
+    try:
+        with _db() as conn:
+            short = {}
+            for table, expected in (counts or {}).items():
+                got = int(conn.execute(
+                    f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+                if got < int(expected):
+                    short[table] = {"expected": int(expected), "got": got}
+            seqs = dbshim.sequence_state(conn, LEGACY_GENERATED_ID)
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "error": f"{type(exc).__name__}: "
+                                      f"{str(exc).splitlines()[0][:200]}"}
+    behind = sorted(t for t, v in seqs.items() if not v["ok"])
+    return {"ok": not short and not behind, "tables": len(counts or {}),
+            "short": short, "sequences_behind": behind}
+
+
+def import_status() -> dict:
+    """What the one-time import did, for /diagnostics and the debug route."""
+    return dict(_import_state)
 
 
 def connected_accounts_result():
@@ -2635,7 +2780,7 @@ def save_report():
         cursor = conn.execute(
             """
             INSERT INTO saved_reports (customer_name, summary_title, property_id, google_login, report_data, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?) RETURNING id
             """,
             (customer_name, summary_title, property_id, google_login, json.dumps(report_data), now)
         )
@@ -2752,7 +2897,9 @@ def health():
         "google_client_id_configured": bool(GOOGLE_CLIENT_ID),
         "google_client_secret_configured": bool(GOOGLE_CLIENT_SECRET),
         "token_encryption_key_configured": bool(TOKEN_ENCRYPTION_KEY),
-        "token_db_path": TOKEN_DB_PATH,
+        "backend": "database",
+        "legacy_token_db_path": _token_db_path(),
+        "legacy_import": import_status(),
         "connected_account_count": len(connected_accounts()),
     }
     checks["ok"] = all([

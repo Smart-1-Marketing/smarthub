@@ -64,3 +64,4 @@ say "above" or "below" mean earlier or later files in this list.
 | [`57-smartforecast-moved-to-the-hub-database.md`](57-smartforecast-moved-to-the-hub-database.md) | SmartForecast moved to the Hub database, and what the move found | 133 |
 | [`58-the-check-that-reported-no-json-on-the-disk.md`](58-the-check-that-reported-no-json-on-the-disk.md) | The check that reported no JSON on the disk | 147 |
 | [`59-leads-in-a-table-not-a-file-on-one-instance.md`](59-leads-in-a-table-not-a-file-on-one-instance.md) | Leads in a table, not a file on one instance | 136 |
+| [`60-the-google-tokens-off-their-own-sqlite-file.md`](60-the-google-tokens-off-their-own-sqlite-file.md) | The Google tokens, off their own SQLite file | 120 |

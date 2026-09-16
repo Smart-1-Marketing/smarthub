@@ -467,6 +467,35 @@ jobs:
             echo "test_audit_store.py not on this branch — nothing to run."
           fi
 
+      - name: Google token store tests
+        if: matrix.group == 2
+        # Google's OAuth refresh tokens moved off a SQLite file on the disk.
+        # Two things this guards and both are silent: the tokens must move as
+        # ciphertext (decrypting to re-encrypt turns a migration into a mass
+        # disconnect on a rotated key), and the ids must keep their sequences
+        # -- an id-preserving copy leaves every Postgres sequence at 1, with
+        # every row count matching, until the first report anybody saves.
+        run: |
+          if [ -f test_google_token_store.py ]; then
+            python test_google_token_store.py
+          else
+            echo "test_google_token_store.py not on this branch — nothing to run."
+          fi
+
+      - name: Google token store against Postgres
+        if: matrix.group == 2
+        # The sequence half is Postgres-only by construction: SQLite has no
+        # sequence to leave behind, so a suite that only sees SQLite cannot
+        # see it.
+        env:
+          GOOGLE_TOKENS_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          if [ -f test_google_token_store.py ]; then
+            python test_google_token_store.py
+          else
+            echo "test_google_token_store.py not on this branch — nothing to run."
+          fi
+
       - name: Lead store tests
         if: matrix.group == 2
         # Leads moved off the append-only JSONL on the disk. Two things this
