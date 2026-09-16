@@ -601,17 +601,23 @@ past. Insurance nobody has checked works is not insurance; insurance that
 makes the alarm ring every day is worse than none, because it trains everyone
 to ignore the alarm.
 
-**What that leaves is a deploy that does not wait for the tests, and that is
-worth knowing rather than discovering.** Render's trigger is `commit`, not
-`checksPass`: a merge ships the moment it builds. Measured on one afternoon,
-`ebb8f0c` went live at 22:08 and its CI finished at 22:19 — production had the
-commit eleven minutes before the tests were done — and the merge after it was
-live twenty-three seconds after the push, before CI had started at all. Both
-happened to pass. **"Main is green" no longer protects production**, because
-production does not wait for it; what green main protects now is the next
-person to branch off it. Switching the service to *After CI checks pass*
-restores the guard at the cost of a build's wait per deploy, and is a trade to
-make deliberately rather than by leaving the setting where a reconnect put it.
+**That left a deploy which did not wait for the tests, and it has since been
+closed.** Render's trigger was `commit` rather than `checksPass`, so a merge
+shipped the moment it built. Measured on one afternoon, `ebb8f0c` went live at
+22:08 and its CI finished at 22:19 — production had the commit eleven minutes
+before the tests were done — and the merge after it was live twenty-three
+seconds after the push, before CI had started at all. Both happened to pass,
+which is the only reason it read as fine: **"main is green" was not protecting
+production**, because production was not waiting for it.
+
+The dashboard switch is now *After CI checks pass* — the Render API reports
+`autoDeployTrigger: checksPass` on smart1-hub as of 16 September 2026, checked
+against the live service rather than against `render.yaml`, which is the whole
+point of the paragraph below. So green main protects production again, at the
+cost of a build's wait per deploy. **Verify it against the API rather than the
+blueprint before relying on it**: this is a dashboard setting on a service the
+blueprint does not own, so it can be changed back by anybody with the
+dashboard, silently, and the file would go on saying otherwise.
 
 **`render.yaml` declares `autoDeployTrigger: checksPass`, and that does not
 make it so.** smart1-hub was not created from that blueprint and takes its

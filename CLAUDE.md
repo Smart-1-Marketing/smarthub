@@ -171,9 +171,9 @@ without asking first — do not stop at "say the word and I'll open one".
 
 **Merge it once CI is green.** Once CI is green on a pull request against this
 repo, **merge it without waiting for a fresh confirmation.** Render
-auto-deploys `main` on every merge (`autoDeployTrigger: commit`, per the note
-at the end of `docs/claude/05-data-sources-and-which-are-stale.md`), so a merge
-here is also a deploy; that is expected and does not need a separate go-ahead.
+auto-deploys `main` once CI passes (`autoDeployTrigger: checksPass`, per the
+deploy note in `docs/claude/56-verifying-a-change.md`), so a merge here is also
+a deploy; that is expected and does not need a separate go-ahead.
 
 This covers the merge action alone. It does not cover, and none of these are
 authorized in advance: force-pushing, rewriting history on a branch you did
