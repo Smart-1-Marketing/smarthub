@@ -134,6 +134,12 @@ MAX_SCHEMA_PAGES_PER_RUN = 20
 # clamp `config.music_length_ms()` refuses one provider over.
 META_DESCRIPTION_SNIPPET = 160
 
+# The marker the plugin prints its block behind. Matched as well as the JSON,
+# because a page can carry somebody else's JSON-LD and this has to be able to
+# say whether OURS is on it.
+SCHEMA_MARKER = "<!-- Smart 1 Hub structured data -->"
+MAX_VERIFY_PAGES_PER_RUN = 20
+
 
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -700,6 +706,151 @@ def publish_schema(client: str, urls: list[str] | None = None, *,
             "left": len(deferred), "note": note, "plugin": plugin,
             "reminder": "The block goes in the page head. No page content was "
                         "changed and nothing was published."}
+
+
+# ------------------------------------------------- is it actually on the page
+_LD_BLOCK = re.compile(
+    re.escape(SCHEMA_MARKER)
+    + r"\s*<script[^>]*application/ld\+json[^>]*>(.*?)</script>",
+    re.I | re.S)
+
+
+def _fetch_public(url: str) -> tuple[str, str]:
+    """The page as a stranger gets it. Returns (html, why-not).
+
+    Deliberately unauthenticated: the whole question is what a visitor -- and
+    therefore a crawler -- sees, and sending the credential would ask a
+    different one. A logged-in request also bypasses most page caches, which
+    is exactly the fault this is looking for.
+    """
+    try:
+        r = requests.get(url, headers=UA, timeout=TIMEOUT, allow_redirects=True)
+    except requests.RequestException as exc:                # noqa: BLE001
+        return "", (f"Could not fetch that page ({type(exc).__name__}).")
+    if r.status_code == 404:
+        return "", ("That address answers 404 to somebody not signed in. A "
+                    "draft or private page is not public, so nothing on it is "
+                    "visible to a crawler either.")
+    if r.status_code >= 400:
+        return "", f"That page answered {r.status_code} to a visitor."
+    ctype = str(r.headers.get("Content-Type") or "")
+    if "html" not in ctype.lower():
+        return "", f"That address served {ctype or 'something that is not a page'}."
+    return r.text or "", ""
+
+
+def verify_schema(client: str, urls: list[str] | None = None) -> dict:
+    """Fetch each page as a visitor and say whether our block is really on it.
+
+    `publish_schema()` reads the value back out of the write, which proves
+    **WordPress stored it** -- and that is not the same claim as a visitor
+    seeing it. Three ordinary things break the second without touching the
+    first: the plugin deactivated, a caching plugin still serving HTML from
+    before the write, and a theme that never calls `wp_head()`. All three
+    leave the Hub saying the schema is on the site, with an added-to-site date
+    against it, and nothing anywhere disagreeing.
+
+    So this is the hop `hub/llms_hosting.verify()` already makes one tool over:
+    ask the page itself, unauthenticated, and report what came back.
+
+    ## The verdicts
+
+    **live** -- our block is on the page and is the JSON we stored.
+
+    **stale** -- our block is on the page and is *different* from what we
+    stored. Almost always a page cache serving HTML from before the last
+    write; occasionally somebody editing the field in WordPress. Named as a
+    difference rather than as either cause, because the page cannot tell us
+    which.
+
+    **absent** -- the page came back and our block is not in it. The plugin
+    deactivated, a theme with no `wp_head()`, or a cache old enough to predate
+    the plugin.
+
+    **not_measured** -- we could not fetch the page, or there is nothing
+    stored to compare against. Never a verdict about the page.
+    """
+    from . import seo
+    store = seo.load_store(client)
+    pages = store.get("pages") or {}
+    wanted = [u for u in (urls or []) if u in pages]
+    todo, deferred = (wanted[:MAX_VERIFY_PAGES_PER_RUN],
+                      wanted[MAX_VERIFY_PAGES_PER_RUN:])
+
+    started = time.time()
+    results = {"live": 0, "stale": 0, "absent": 0, "not_measured": 0}
+    rows = []
+    for url in (u for u in (urls or []) if u not in pages):
+        rows.append({"url": url, "verdict": "not_measured",
+                     "note": "No schema is saved for this page, so there is "
+                             "nothing to compare what is on it against."})
+        results["not_measured"] += 1
+    for url in todo:
+        page = pages[url]
+        if time.time() - started > BUDGET_SECONDS:
+            deferred.append(url)
+            continue
+        row = {"url": url, "title": str(page.get("title") or ""),
+               "verdict": "not_measured", "note": ""}
+        stored = page.get("schema")
+        if not isinstance(stored, (dict, list)) or not stored:
+            row["note"] = "There is no schema saved for this page."
+            rows.append(row)
+            results["not_measured"] += 1
+            continue
+        html, why = _fetch_public(url)
+        if why:
+            row["note"] = why
+            rows.append(row)
+            results["not_measured"] += 1
+            continue
+        found = _LD_BLOCK.search(html)
+        if not found:
+            row["verdict"] = "absent"
+            row["note"] = (
+                "The page loaded and our block is not in it. That is the "
+                "plugin deactivated, a page cache still serving HTML from "
+                "before it was written, or a theme that does not call "
+                "wp_head(). Nothing here can tell those apart from outside.")
+            rows.append(row)
+            results["absent"] += 1
+            continue
+        try:
+            import json as _json
+            on_page = _json.loads(found.group(1))
+        except ValueError:
+            # Not the same finding as a stale cache. The plugin escapes `<` to
+            # its \u003c JSON escape precisely so a `</script>` in the data
+            # cannot end the block early, so unreadable JSON here means the
+            # block on the page was not written by a plugin that does that --
+            # an old one, or somebody's optimizer rewriting the head.
+            row["verdict"] = "stale"
+            row["note"] = (
+                "Our marker is on the page and what follows it is not readable "
+                "JSON. The block was cut short, which is a plugin older than "
+                "the one that escapes it, or something on the site rewriting "
+                "the page head.")
+            rows.append(row)
+            results["stale"] += 1
+            continue
+        if on_page == stored:
+            row["verdict"] = "live"
+            row["note"] = "Our block is on the page, and it is what was sent."
+        else:
+            row["verdict"] = "stale"
+            row["note"] = (
+                "Our block is on the page and is not what was last sent. "
+                "Usually a page cache serving HTML from before the last write "
+                "— clear the site's cache and check again. It can also be "
+                "somebody editing the field in WordPress.")
+        rows.append(row)
+        results[row["verdict"]] += 1
+
+    return {"ok": True, "results": rows, "counts": results,
+            "left": len(deferred), "note": _left_note(len(deferred), "page"),
+            "reminder": "Each page was fetched the way a visitor gets it — "
+                        "signed out, and through whatever cache the site has "
+                        "in front of it."}
 
 
 def connect(client: str, *, site_url: str, username: str, app_password: str,

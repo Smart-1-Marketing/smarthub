@@ -6009,6 +6009,27 @@ def create_hub_app() -> Flask:
         resp.headers["X-Content-Type-Options"] = "nosniff"
         return resp
 
+    @app.route("/api/seo/wordpress/verify", methods=["POST"])
+    def api_seo_wordpress_verify():
+        """Fetch each page as a visitor and say whether the block is really on it.
+
+        A POST and a button rather than a page load: it is one outbound fetch
+        per page against the client's own site, and what it answers changes
+        when somebody clears a cache rather than when somebody opens a screen.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import wordpress
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        urls = [str(u) for u in (body.get("urls") or []) if str(u).strip()]
+        if not urls:
+            return jsonify({"error": "Tick the pages you want to check."}), 400
+        return jsonify(wordpress.verify_schema(client, urls))
+
     @app.route("/api/seo/wordpress/publish", methods=["POST"])
     def api_seo_wordpress_publish():
         """Write the selection into WordPress. Blogs and alt text only.

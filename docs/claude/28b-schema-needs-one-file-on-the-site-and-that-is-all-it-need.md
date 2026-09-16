@@ -216,3 +216,45 @@ The read-back rule is the same one, for the same reason: core drops an
 unregistered meta key without complaining, which on this path is an older
 plugin on the site. The row says whose field took it, or that the field would
 not take it and what to do about it.
+
+### Stored is not the same claim as on the page
+
+`publish_schema()` reads the value back out of the write, which proves
+**WordPress stored it**. That is not the same claim as a visitor seeing it,
+and three ordinary things break the second without touching the first: the
+plugin deactivated, a **page cache** still serving HTML from before the write,
+and a theme that never calls `wp_head()`. All three leave the Hub saying the
+schema is on the site, with an added-to-site date stamped against it, and
+nothing anywhere disagreeing -- the confident wrong answer the read-back was
+written to stop, one hop further out.
+
+`verify_schema()` is that hop, the one `hub/llms_hosting.verify()` already
+makes one tool over: fetch the page and report what came back. **Signed out,
+deliberately** -- the question is what a visitor and therefore a crawler sees,
+and a logged-in request would both ask a different question and bypass most
+page caches, which is exactly the fault being looked for.
+
+Four verdicts. **live** is our block, unchanged. **stale** is our block and
+*different*, named as a difference rather than as either cause, because the
+page cannot say which -- a cache is the usual one and somebody editing the
+field in WordPress is the other. **absent** is the page loading without it,
+and the note names all three causes rather than picking one, because nothing
+from outside can tell them apart. **not_measured** is a page we could not
+fetch, a 404 (a draft is not public, and nothing on it is visible to a crawler
+either), a non-HTML response, or nothing stored to compare against -- never a
+verdict about the page.
+
+**Somebody else's JSON-LD does not count as ours.** Yoast ships its own
+`@graph`, so the match is anchored on `SCHEMA_MARKER` -- the comment the
+plugin prints its block behind -- and not on any `application/ld+json` on the
+page. Without that, every Yoast site would read as live whatever our plugin
+was doing.
+
+**And a block cut short by its own data is its own finding.** Unreadable JSON
+after our marker is not a stale cache: the plugin escapes `<` precisely so a
+`</script>` in the data cannot end the block early, so what is on that page
+was written by something that does not -- an older plugin, or an optimizer
+rewriting the head. The test fixture renders the escape for the same reason,
+and it earned it: `BLOCK` in that file carries a literal `</script>` in its
+description, so an unescaped fixture builds markup the plugin would never emit
+and tests the verifier against a page that cannot exist.

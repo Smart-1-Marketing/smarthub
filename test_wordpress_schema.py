@@ -392,6 +392,119 @@ check("and the refusal says where to get it",
 site.plugin = True
 
 
+# ------------------------------------------- is it actually on the page
+# publish_schema()'s read-back proves WordPress STORED the block. It is not
+# the same claim as a visitor seeing it, and three ordinary things break the
+# second without touching the first.
+print("\nis it actually on the page")
+
+
+class Page:
+    """The client's own site, answering an unauthenticated GET."""
+
+    def __init__(self, body="", status=200, ctype="text/html; charset=UTF-8",
+                 raises=False):
+        self.body, self.status, self.ctype, self.raises = body, status, ctype, raises
+        self.headers = {"Content-Type": ctype}
+        self.text = body
+        self.status_code = status
+        self.sent_auth = None
+
+    def __call__(self, url, headers=None, timeout=None, allow_redirects=None):
+        self.sent_auth = (headers or {}).get("Authorization")
+        if self.raises:
+            raise wordpress.requests.RequestException("boom")
+        return self
+
+
+def rendered(block):
+    """A page the way the plugin actually renders one.
+
+    The escape matters in the fixture too: BLOCK carries a literal `</script>`
+    in its description, which is the case the plugin escapes `<` for -- and an
+    unescaped fixture builds markup the plugin would never emit, so it would
+    be testing the verifier against a page that cannot exist.
+    """
+    body = json.dumps(block).replace("<", chr(92) + "u003c")
+    return ("<html><head><title>x</title>\n"
+            + wordpress.SCHEMA_MARKER
+            + '\n<script type="application/ld+json">\n'
+            + body + "\n</script>\n</head><body>x</body></html>")
+
+
+_real_get = wordpress.requests.get
+URL = "https://schematest.example/roofing/"
+
+
+def verify_against(page):
+    wordpress.requests.get = page
+    try:
+        return wordpress.verify_schema(CLIENT, [URL])["results"][0]
+    finally:
+        wordpress.requests.get = _real_get
+
+
+row = verify_against(Page(rendered(BLOCK)))
+check("a page carrying our block, unchanged, is live", row["verdict"] == "live", row)
+
+page = Page(rendered(BLOCK))
+verify_against(page)
+check("and it was fetched the way a visitor gets it, signed out",
+      page.sent_auth is None, page.sent_auth)
+
+row = verify_against(Page(rendered({"@context": "https://schema.org",
+                                    "@graph": [{"@type": "Other"}]})))
+check("a block that is not what was sent is stale, not live",
+      row["verdict"] == "stale", row)
+check("and it names a cache first, without asserting the cause",
+      "cache" in row["note"] and "can also be" in row["note"], row["note"])
+
+row = verify_against(Page("<html><head></head><body>nothing</body></html>"))
+check("a page with no block of ours is absent", row["verdict"] == "absent", row)
+check("and it names all three causes rather than picking one",
+      "deactivated" in row["note"] and "cache" in row["note"]
+      and "wp_head()" in row["note"], row["note"])
+
+# Somebody else's JSON-LD on the page is not ours, and must not read as ours.
+row = verify_against(Page('<html><head><script type="application/ld+json">'
+                          + json.dumps(BLOCK) + "</script></head><body>x</body></html>"))
+check("another plugin's JSON-LD does not count as our block being live",
+      row["verdict"] == "absent", row)
+
+# And the escape is why: an unescaped block really is cut short by its own
+# data, and that is a different finding from a stale cache.
+row = verify_against(Page(
+    "<html><head>" + wordpress.SCHEMA_MARKER
+    + '<script type="application/ld+json">' + json.dumps(BLOCK)
+    + "</script></head><body>x</body></html>"))
+check("a block cut short by its own data is not read as a stale cache",
+      row["verdict"] == "stale" and "readable JSON" in row["note"], row)
+
+row = verify_against(Page("", status=404))
+check("a 404 to a visitor is not measured, never 'absent'",
+      row["verdict"] == "not_measured", row)
+check("and it says a draft is not public either",
+      "draft" in row["note"], row["note"])
+
+row = verify_against(Page("", status=500))
+check("a page that errored is not a page with no block",
+      row["verdict"] == "not_measured", row)
+
+row = verify_against(Page(raises=True))
+check("a site we could not reach is not measured",
+      row["verdict"] == "not_measured", row)
+
+row = verify_against(Page("{}", ctype="application/json"))
+check("an address that did not serve a page is not measured",
+      row["verdict"] == "not_measured", row)
+
+wordpress.requests.get = _real_get
+out = wordpress.verify_schema(CLIENT, ["https://schematest.example/nope/"])
+check("a URL with no saved schema has nothing to compare against",
+      out["results"][0]["verdict"] == "not_measured", out["results"][0])
+check("and the counts add up to the rows",
+      sum(out["counts"].values()) == len(out["results"]), out["counts"])
+
 # ------------------------------------------------------------------ routes
 print("\nroutes")
 os.environ["HUB_SKIP_SCHEDULER"] = "1"
