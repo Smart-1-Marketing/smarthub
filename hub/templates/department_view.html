@@ -23,7 +23,13 @@
       <a href="/">Dashboard</a> /
       {% if department and department.builtin %}{{ department.name }}{% elif is_mine %}My View{% else %}<a href="/views">My View</a> / {{ department.name }}{% endif %}
     </div>
-    {% if department %}
+    {% if department and department.builtin %}
+      {# The same icon the sidebar row carries, so the page and the menu read
+         as one thing; coloured with the department's own colour. #}
+      <h1 class="s1d-dept-title" style="--dept:{{ department.color }}">
+        <span class="s1d-dept-ico">{{ department.icon|safe }}</span>{{ department.name }}</h1>
+      {% if department.description %}<p>{{ department.description }}</p>{% endif %}
+    {% elif department %}
       <h1>{{ department.name }}</h1>
       {% if department.description %}<p>{{ department.description }}</p>{% endif %}
     {% else %}
@@ -55,16 +61,27 @@
     the same way. Icons are HTML entities authored in that module, not user
     text, which is the one place |safe is used on this page.
   #}
+  {#
+    Each section carries its own colour (a tint from hub/sidebar.py's
+    GROUP_TINTS, cycled so neighbours differ) on a larger heading, a bar
+    beside it and a rule across the top of its tiles -- so somebody who
+    knows "the orange one" finds it without reading every heading. An
+    unlabelled group (the department's own first row of tools) takes the
+    department colour and no heading.
+  #}
   {% for g in department.groups %}
-    {% if g.label %}<div class="qa-group-label" id="{{ g.anchor }}">{{ g.label }}</div>{% endif %}
-    <div class="tool-tiles compact">
-      {% for t in g.tiles %}
-      <a class="tool-tile" href="{{ t.href }}">
-        <div class="t-ico">{{ t.icon|safe }}</div>
-        <h3>{{ t.label|safe }}</h3>
-      </a>
-      {% endfor %}
-    </div>
+    <section class="s1d-sec" style="--tint:{{ g.tint if g.label else department.color }}">
+      {% if g.label %}<h2 class="s1d-sec-h" id="{{ g.anchor }}">{{ g.label }}</h2>{% endif %}
+      <div class="tool-tiles compact s1d-tiles">
+        {% for t in g.tiles %}
+        <a class="tool-tile" href="{{ t.href }}">
+          <div class="t-ico">{{ t.icon|safe }}</div>
+          <h3>{{ t.label|safe }}</h3>
+          {% if t.blurb %}<p>{{ t.blurb }}</p>{% endif %}
+        </a>
+        {% endfor %}
+      </div>
+    </section>
   {% endfor %}
 {% elif department %}
   {% set notes = department.blocks | selectattr('type', 'equalto', 'note') | list %}
@@ -120,5 +137,25 @@
 .qa-group-label{margin:22px 2px 8px;font-size:11px;font-weight:700;text-transform:uppercase;
   letter-spacing:1px;color:#64748b}
 .qa-group-label:first-of-type{margin-top:4px}
+/* The department page: title in the department's colour with the menu's
+   icon; each section a colour of its own on a bigger heading. */
+.s1d-dept-title{display:flex;align-items:center;gap:12px;color:var(--dept)}
+.s1d-dept-ico{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;
+  border-radius:12px;background:color-mix(in srgb,var(--dept) 12%,#fff);font-size:24px;line-height:1}
+.s1d-sec{margin:26px 0 6px;padding-top:2px}
+.s1d-sec:first-of-type{margin-top:6px}
+.s1d-sec-h{margin:0 0 12px;padding:6px 14px;font-size:20px;font-weight:700;letter-spacing:.2px;
+  color:var(--tint);border-left:6px solid var(--tint);border-radius:0 8px 8px 0;
+  background:color-mix(in srgb,var(--tint) 9%,#fff);scroll-margin-top:16px}
+/* .compact lays a tile out as one row (icon beside title) for the index pages
+   that carry no description; with a blurb the tile goes back to stacked:
+   icon and title on the first row, the sentence under them. */
+.s1d-tiles.compact .tool-tile{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;
+  column-gap:11px;row-gap:6px;align-items:center;border-top:4px solid var(--tint);padding:14px 16px 13px}
+.s1d-tiles.compact .tool-tile .t-ico{grid-row:1;grid-column:1;font-size:22px;line-height:1}
+.s1d-tiles.compact .tool-tile h3{grid-row:1;grid-column:2;margin:0;font-size:15px;line-height:1.3}
+.s1d-tiles.compact .tool-tile p{grid-row:2;grid-column:1 / -1;margin:0;font-size:12.5px;line-height:1.45;color:#64748b}
+.s1d-tiles .tool-tile:hover{box-shadow:0 6px 18px color-mix(in srgb,var(--tint) 28%,transparent)}
+@media(max-width:800px){.s1d-sec-h{font-size:18px}}
 </style>
 {% endblock %}

@@ -128,13 +128,20 @@ def _builtin_departments() -> list[dict]:
         return []
     out = []
     for d in sidebar.departments(True):
+        # Section tints cycle the palette but skip the department's own
+        # colour, so a labelled section never matches the unlabelled first
+        # row above it and reads as one.
+        tints = [t for t in sidebar.GROUP_TINTS if t != d.get("color")] or sidebar.GROUP_TINTS
         out.append({
             "id": d["slug"], "name": d["label"], "description": d.get("blurb") or "",
+            "icon": d["ico"], "color": d.get("color") or "#1a2e58",
             "blocks": [], "builtin": True, "admin_only": d["level"] == sidebar.ADMIN_ONLY,
             "groups": [{"label": g, "anchor": sidebar._group_anchor(g),
-                        "tiles": [{"key": k, "href": h, "icon": i, "label": l}
+                        "tint": tints[n % len(tints)],
+                        "tiles": [{"key": k, "href": h, "icon": i, "label": l,
+                                   "blurb": sidebar.BLURBS.get(k, "")}
                                   for k, h, i, l in leaves]}
-                       for g, leaves in sidebar.department_tiles(d)],
+                       for n, (g, leaves) in enumerate(sidebar.department_tiles(d))],
         })
     return out
 
