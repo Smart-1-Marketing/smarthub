@@ -806,13 +806,24 @@ def _resolve_screenshot_url(url: str) -> str:
     would be a second thing to keep in step with a vendor that owes this
     codebase nothing.
 
+    Awesome Screenshot's own share pages turned out to publish neither tag,
+    ever -- logged snippets showed a bare client-rendered app shell with
+    nothing past its own `<head>`, so there was never a server-rendered
+    preview tag to find. The fallback for exactly that case is still reading
+    rather than guessing: an app shell commonly carries its own hydration
+    data as literal JSON in the page, which is there in the raw HTML whether
+    or not the bundle that would render it ever runs, so a bare image URL
+    sitting anywhere in the body (excluding the page's own `/static/` asset
+    directory) is taken as the real one.
+
     A URL that already ends in an image extension needs none of this and is
     returned unchanged. Everything else falls back to the *original* URL --
     still wrong in the way it always was, never worse for having tried --
-    and the three ways that can happen are told apart in the log rather
-    than collapsed into one silence: a network failure or non-2xx status (an
-    exception), a page that answered but carried neither tag (nothing to
-    read, which drew no warning at all until this said so), and a tag whose
+    and the four ways this can go are told apart in the log rather than
+    collapsed into one silence: a network failure or non-2xx status (an
+    exception), a real image URL found loose in the body (used, and named),
+    a page that answered but carried none of that (nothing to read, which
+    drew no warning at all until this said so), and a preview tag whose
     content is not usable as an image URL once resolved against the page's
     own address.
     """
@@ -836,6 +847,29 @@ def _resolve_screenshot_url(url: str) -> str:
         pass  # a malformed head is read as far as it got; nothing to raise over
     content = parser.og_image or parser.twitter_image
     if not content:
+        # The snippet logged here (a 300-char whitespace-collapsed prefix of
+        # the fetched body) showed this is a client-rendered app shell -- a
+        # bare <head> with nothing past charset/viewport/favicon, no title,
+        # no content. A page like that was never going to carry a
+        # server-rendered og:image tag: the real screenshot is injected by
+        # JavaScript this fetch never runs. That rules out a preview-tag fix
+        # entirely and is why this also looks for a real image URL sitting
+        # anywhere in the raw body text -- a client-rendered app commonly
+        # embeds its own hydration/initial-state data as literal JSON in the
+        # page precisely so the client does not need a second round trip
+        # after the bundle loads, and that JSON is there whether or not any
+        # JavaScript ever runs. `/static/` is the site's own asset directory
+        # (the favicon lives there) and never a screenshot somebody made, so
+        # it is the one thing excluded rather than guessed at.
+        candidates = [u for u in _IMAGE_URL_RE.findall(resp.text)
+                      if "/static/" not in u]
+        if candidates:
+            _warn(f"_resolve_screenshot_url({url}) found no preview tag but "
+                  f"a real image URL sitting in the page body: {candidates[0]!r}"
+                  + (f" (+{len(candidates) - 1} more)" if len(candidates) > 1 else ""),
+                  "")
+            return candidates[0]
+
         # Every fetch since the meta-tag fix deployed has landed here --
         # never a network failure, never a mismatched attribute order, just
         # a 200 with neither tag on it, every time. That is not what a
@@ -848,10 +882,12 @@ def _resolve_screenshot_url(url: str) -> str:
         # well under anything that could be the image itself, since this is
         # HTML and the bytes only matter for what they say about the page's
         # shape (a client-rendered app shell, a sign-in wall, a JSON blob).
-        snippet = " ".join(resp.text.split())[:300]
-        _warn(f"_resolve_screenshot_url({url}) found no og:image or "
-              f"twitter:image tag on the page it fetched -- body starts: "
-              f"{snippet!r}", "")
+        # Widened past the head this time, since the head alone already
+        # confirmed the shell and told us nothing about what follows it.
+        snippet = " ".join(resp.text.split())[:1200]
+        _warn(f"_resolve_screenshot_url({url}) found no og:image, "
+              f"twitter:image or bare image URL on the page it fetched -- "
+              f"body starts: {snippet!r}", "")
         return url
 
     resolved = urljoin(resp.url, content)
