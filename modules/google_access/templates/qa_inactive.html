@@ -609,7 +609,7 @@ $('#bulkCheckForm').addEventListener('submit',async e=>{
   const ready=bulkCheckRows
     .map(r=>({...r,url:(bulkCheckUrls[keyOf(r)]||'').trim()}))
     .filter(r=>r.url);
-  if(!ready.length){$('#bulkCheckResult').textContent='Fill in a website for at least one container first.';return}
+  if(!ready.length){$('#bulkCheckResult').textContent='Fill in a website for at least one container first.';return;}
   const b=$('#confirmBulkCheck');b.disabled=true;
   const total=ready.length;
   let results=[],checked=0;
