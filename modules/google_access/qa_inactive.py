@@ -19,6 +19,16 @@ inactive bucket into Needs Review, since the tag is genuinely on the page and
 whether to act on that is a person's call. Needs Review otherwise stays what
 it always was: a scan that genuinely could not run (a listing call that
 failed, a login that needs reconnecting), not an activity judgment call.
+
+A Needs Review row can be skipped, and the scan honors it. A container whose
+tag a site check found genuinely live is never going to be deleted, so
+without this it came back every scan forever with no way to say "seen it,
+leave it" -- the record was written and only the inactive list was ever
+partitioned against it. A connected login that needs reconnecting is the one
+row skipping is refused for (SKIPPABLE_KINDS): the scan cannot see a single
+resource behind a login it could not read, so hiding the row would hide
+however many properties are behind it and report a clean sweep of accounts
+nothing actually looked at.
 """
 from __future__ import annotations
 
@@ -959,14 +969,27 @@ def _run_scan(full: bool = False) -> dict:
     inactive = [_with_site_check(r) for r in inactive]
     review = [_with_site_check(r) for r in review]
 
+    # Both working lists are partitioned against the skip records, not just
+    # the inactive one. A Needs Review row used to be unskippable in effect:
+    # the record was written and the next scan never looked at it, so a
+    # container whose tag a site check found genuinely live came back every
+    # single scan, forever, with no way to say "seen it, leave it". Skipping
+    # is the one answer that fits a row nobody is going to delete.
+    #
+    # `from` is recomputed here rather than stored on the record, so it
+    # cannot go stale: it says which bucket the row falls into on *this*
+    # scan, which is the honest answer once un-skipping puts it back.
     skip_data = _skips()
-    visible, skipped = [], []
-    for row in inactive:
-        rec = skip_data.get(_skip_key(row["kind"], row["login"], row["resource"]))
-        if rec:
-            skipped.append({**row, "skip": rec})
-        else:
-            visible.append(row)
+    visible, unsure, skipped = [], [], []
+    for bucket, rows in (("inactive", inactive), ("review", review)):
+        keep = visible if bucket == "inactive" else unsure
+        for row in rows:
+            rec = skip_data.get(_skip_key(row["kind"], row["login"], row["resource"]))
+            if rec:
+                skipped.append({**row, "skip": rec, "from": bucket})
+            else:
+                keep.append(row)
+    review = unsure
 
     sort_key = lambda r: (str(r.get("kind")), str(r.get("account", "")).lower(), str(r.get("name", "")).lower())
     payload = {
@@ -1143,14 +1166,38 @@ def _row_identity(row: dict) -> tuple[str, str, str]:
             str(row.get("resource") or "").strip())
 
 
+# A skip is a judgment about a Google *resource*: this property or container
+# is dead, or it is alive and we know, either way stop offering it. Needs
+# Review also carries rows that are not resources at all -- a connected login
+# that needs reconnecting -- and those are deliberately not skippable. The
+# scan cannot see a single property behind a login it could not read, so
+# skipping one would hide however many resources are behind it, and the
+# screen would report a clean sweep of accounts nothing actually looked at.
+# Reconnect the login instead; the row leaves on its own once it works.
+SKIPPABLE_KINDS = ("GA4", "GTM")
+_NOT_SKIPPABLE = ("Only GA4 properties and GTM containers can be skipped. A Google login "
+                  "that needs reconnecting hides every resource behind it, so reconnect it "
+                  "rather than skipping the row.")
+
+
+def _skip_refusal(kind: str, login: str, resource: str) -> str:
+    """Why this row cannot be skipped, or "" if it can."""
+    if not login or not resource:
+        return "kind, login and resource are required"
+    if kind not in SKIPPABLE_KINDS:
+        return _NOT_SKIPPABLE
+    return ""
+
+
 @qa_bp.route("/api/skip", methods=["POST"])
 @require_login
 def api_skip():
     row = request.get_json(silent=True) or {}
     kind = str(row.get("kind") or "").upper()
     login, resource = str(row.get("login") or "").strip(), str(row.get("resource") or "").strip()
-    if kind not in ("GA4", "GTM") or not login or not resource:
-        return jsonify(ok=False, error="kind, login and resource are required"), 400
+    refusal = _skip_refusal(kind, login, resource)
+    if refusal:
+        return jsonify(ok=False, error=refusal), 400
     data = _skips()
     data[_skip_key(kind, login, resource)] = {
         "kind": kind, "login": login, "resource": resource, "name": str(row.get("name") or ""),
@@ -1184,9 +1231,9 @@ def api_skip_bulk():
     entries, failed, done = [], [], 0
     for row in rows:
         kind, login, resource = _row_identity(row)
-        if kind not in ("GA4", "GTM") or not login or not resource:
-            failed.append({"name": _row_label(row),
-                           "error": "kind, login and resource are required"})
+        refusal = _skip_refusal(kind, login, resource)
+        if refusal:
+            failed.append({"name": _row_label(row), "error": refusal})
             continue
         data[_skip_key(kind, login, resource)] = {
             "kind": kind, "login": login, "resource": resource,

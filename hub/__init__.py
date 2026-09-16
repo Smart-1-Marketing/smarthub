@@ -1434,6 +1434,16 @@ def create_hub_app() -> Flask:
             out = {"measured": False, "state": "unread", "campaigns": [],
                    "error": f"The campaign store could not be read ({type(exc).__name__})."}
         out["sweep"] = suite_email_stats.sweep_state()
+        # ?raw=1 adds the stored raw statistics beside what the module made
+        # of them, so the key mapping is confirmed from the first live read
+        # (docs/claude/60). Staff only -- this route is behind _require_api()
+        # and a client's page is built by public_view(), which cannot reach it.
+        if request.args.get("raw") in ("1", "true", "yes"):
+            try:
+                out["raw"] = suite_email_stats.raw_view(name)
+            except Exception as exc:  # noqa: BLE001
+                out["raw"] = {"measured": False, "campaigns": [],
+                              "staff_note": f"The raw statistics could not be read ({type(exc).__name__})."}
         return jsonify(out)
 
     @app.route("/api/client/suite-email/refresh", methods=["POST"])
