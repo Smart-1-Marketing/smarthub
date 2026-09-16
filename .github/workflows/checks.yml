@@ -20,8 +20,27 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # A new push supersedes the run in flight for the same branch.
-  group: checks-${{ github.ref }}
+  # A new push supersedes the run in flight for the same PULL REQUEST, which is
+  # what this was written for: nobody wants the verdict on a commit the author
+  # has already replaced.
+  #
+  # A push to `main` is the opposite case and shared the group, so every merge
+  # cancelled the run for the merge before it. With merges landing faster than
+  # a run takes (~15-18 min), `main` stopped completing runs at all -- and
+  # `render.yaml` sets `autoDeployTrigger: checksPass`, so a run that is
+  # cancelled rather than passed never deploys. Measured: the last auto deploy
+  # was 11be225, which is exactly the last commit on `main` whose run completed
+  # instead of being cancelled; twelve merges later the service was still
+  # serving that code, moved on only by one manual deploy.
+  #
+  # And it is how `main` going red stays invisible. Every commit on `main` is a
+  # different tree that nothing else will ever check, so a cancelled run there
+  # is a verdict thrown away, not a superseded one.
+  #
+  # So a push gets a group of its own per commit -- nothing to cancel, and the
+  # runs proceed alongside each other rather than queueing behind one lane,
+  # which `cancel-in-progress: false` on a shared group would have done.
+  group: checks-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || 'ref' }}
   cancel-in-progress: true
 
 permissions:

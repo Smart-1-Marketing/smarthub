@@ -704,6 +704,31 @@ each half internally consistent, only the join between them wrong, which is
 the shape this file counts a dozen of. Both are corrected together, because
 correcting either alone is what makes the other dangerous.
 
+**And `checksPass` turned the gate's own cancellation rule into a deploy
+freeze.** `checks.yml` set `cancel-in-progress: true` on a group of
+`checks-${{ github.ref }}` -- written for pull requests, where nobody wants the
+verdict on a commit the author has already replaced. A push to `main` shared
+that group, so **every merge cancelled the run for the merge before it**, and
+with merges landing faster than a run takes (~15-18 minutes) `main` stopped
+completing runs at all. A cancelled run is not a passed one, so nothing
+auto-deployed.
+
+Measured on 16 September 2026 rather than inferred: the last deploy with
+`trigger: "new_commit"` was `11be225`, which is *exactly* the last commit on
+`main` whose run completed instead of being cancelled. Twelve merges later the
+service was still serving that code, moved on only by one `trigger: "manual"`
+deploy somebody pressed. Every screen said green the whole time, because every
+one of those merges really had passed on its own pull request.
+
+The second cost is the one that outlives the deploy: **a cancelled run on
+`main` is a verdict thrown away.** Every commit there is a different tree --
+the merge result -- that nothing else will ever check, which is how the
+`/qa-inactive/` breakage above sat on `main` with no completed run saying so. A
+push gets a group of its own per commit now (`github.sha` in the group name, for
+`push` only), so nothing cancels it. Not `cancel-in-progress: false` on the
+shared group: that would have queued every merge behind one lane instead of
+running them alongside each other.
+
 `test_ci_gate.py` asserts what is true now instead of what the job used to
 promise: **this workflow holds no credential at all** — no stored secret, and
 no second job carrying one. Everything the gate runs, a contributor runs on a
