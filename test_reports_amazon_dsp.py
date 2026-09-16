@@ -556,6 +556,8 @@ ANSWERS.extend([
 res = amazon_dsp.pull(today=date(2026, 9, 16), budget=0)
 check("a second tick carries the SAME stamp, not a fresh one -- or it is never stuck",
       amazon_dsp.pending_since()["A1"], first_seen)
+check("...still carrying the same report rather than paying for another",
+      (res["pending"]["A1"]["report_id"], res["gave_up"]), ("rep-stuck", {}))
 
 # Age the stamp past the ceiling and run again.
 old_stamp = (datetime.now(timezone.utc)
