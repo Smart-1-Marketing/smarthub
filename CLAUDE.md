@@ -131,6 +131,24 @@ that's how mount shadowing hides) and request the pages you touched.
 `/api/integrity` reports known defect patterns; `/login/health` diagnoses
 sign-in without a session.
 
+## Every change ends with the Render environment list
+
+Todd has asked for this every time, unprompted: finish by saying **what has to
+be added to the Render environment** for the change to work. Not "check the
+settings" — the names, and what each one costs if it stays unset.
+
+Say **"nothing"** in as many words when nothing is needed. An omitted list and
+an empty one read alike, and the omitted one is how a merged feature sits dead
+in production with every screen reporting success.
+
+The Hub already computes this: `Settings.status()` in `hub/config.py` carries
+one row per provider with what unset costs, rendered on `/status`, and
+`env_report()` on `/diagnostics` says which spelling answered and which were
+set and ignored. Read those rather than writing a third description.
+**Render's API exposes no way to read the variables that are set**, so anything
+said from here about what is *already* on Render is inference from
+`render.yaml` — say so rather than implying the live environment was checked.
+
 ## Delivery
 
 Background cutouts use Cloudinary; background scene edits use the shared OpenAI
@@ -143,11 +161,16 @@ overwrites but never deletes**, which is why the repo root accumulated 65
 stray files. If you can push directly, do — it removes the whole class of
 problem.
 
-## Standing authorization: merge on green
+## Standing authorization: open the PR, merge on green
 
-Todd has asked that this not require asking each time: once CI is green on a
-pull request against this repo, **merge it without waiting for a fresh
-confirmation** — this is a durable authorization, not a one-off. Render
+Todd has asked that neither of these require asking each time. Both are
+durable authorizations, not one-offs.
+
+**Open the pull request.** When a branch carries finished work, open the PR
+without asking first — do not stop at "say the word and I'll open one".
+
+**Merge it once CI is green.** Once CI is green on a pull request against this
+repo, **merge it without waiting for a fresh confirmation.** Render
 auto-deploys `main` on every merge (`autoDeployTrigger: commit`, per the note
 at the end of `docs/claude/05-data-sources-and-which-are-stale.md`), so a merge
 here is also a deploy; that is expected and does not need a separate go-ahead.
