@@ -836,8 +836,22 @@ def _resolve_screenshot_url(url: str) -> str:
         pass  # a malformed head is read as far as it got; nothing to raise over
     content = parser.og_image or parser.twitter_image
     if not content:
+        # Every fetch since the meta-tag fix deployed has landed here --
+        # never a network failure, never a mismatched attribute order, just
+        # a 200 with neither tag on it, every time. That is not what a
+        # malformed or unusual head looks like; it is what a page carries
+        # when it was never asked to publish a preview at all, which is
+        # exactly what a private, key-gated share link would do on purpose.
+        # A second guess at *why* without seeing the page is the same
+        # mistake this function was written to stop making, so a short,
+        # whitespace-collapsed snippet of the body rides along -- capped
+        # well under anything that could be the image itself, since this is
+        # HTML and the bytes only matter for what they say about the page's
+        # shape (a client-rendered app shell, a sign-in wall, a JSON blob).
+        snippet = " ".join(resp.text.split())[:300]
         _warn(f"_resolve_screenshot_url({url}) found no og:image or "
-              f"twitter:image tag on the page it fetched", "")
+              f"twitter:image tag on the page it fetched -- body starts: "
+              f"{snippet!r}", "")
         return url
 
     resolved = urljoin(resp.url, content)

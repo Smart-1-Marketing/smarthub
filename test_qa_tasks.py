@@ -379,6 +379,22 @@ with app.app_context():
               "https://www.awesomescreenshot.com/image/1?key=x"),
           "https://www.awesomescreenshot.com/image/1?key=x")
 
+    _warn_calls = []
+    _orig_warn = qa_tasks._warn
+    qa_tasks._warn = lambda msg, exc: _warn_calls.append(msg)
+    long_body = "<html><body>" + ("x" * 5000) + "</body></html>"
+
+    def fake_get_long_no_og(url, **kw):
+        return _FakeResp(long_body)
+    requests_mod.get = fake_get_long_no_og
+    qa_tasks._resolve_screenshot_url(
+        "https://www.awesomescreenshot.com/image/1?key=x")
+    check_true("the no-tag warning carries a capped body snippet, "
+               "not the whole page",
+               len(_warn_calls) == 1 and "xxxx" in _warn_calls[0]
+               and len(_warn_calls[0]) < 500)
+    qa_tasks._warn = _orig_warn
+
     HTML_WITH_JS_TAG = ('<html><head><meta property="og:image" '
                         'content="javascript:void(0)"></head></html>')
 
