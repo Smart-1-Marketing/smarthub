@@ -743,16 +743,15 @@
               ? '<button class="btn sec sm" data-a="tighten">Tighten by '
                 + esc(g.delta) + '</button>' : '')
         +   '<button class="btn sec sm" data-a="record">Record</button>'
+        +   '<label class="btn sec sm" style="cursor:pointer">Upload a recording'
+        +     '<input type="file" accept="audio/*" data-a="voup5" data-s="' + esc(s.id)
+        +     '" style="display:none"></label>'
         +   '<button class="btn danger sm" data-a="delete">Delete</button>'
         +   '<span class="ver">' + ((s.versions||[]).length) + ' version(s)'
         +   (s.notes ? ' · ' + esc(s.notes) : '') + '</span>'
         +   '<span class="msg" data-m="1"></span>'
+        +   '<span class="msg" data-m="vo5-' + esc(s.id) + '"></span>'
         + '</div>'
-        + '<div class="sfoot"><label class="link" style="cursor:pointer">'
-        +   'Use a read you recorded yourself instead'
-        +   '<input type="file" accept="audio/*" data-a="voup5" data-s="' + esc(s.id)
-        +   '" style="display:none"></label>'
-        +   '<span class="msg" data-m="vo5-' + esc(s.id) + '"></span></div>'
         + audio + '</div>';
     }).join("");
 
