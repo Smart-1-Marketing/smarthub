@@ -276,6 +276,78 @@ sp.requests.request = stub
 
 
 # ---------------------------------------------------------------------------
+section("The Hub's login is the only login, and the page opens on the panel")
+# ---------------------------------------------------------------------------
+#
+# The panel was ported from a standalone Node app that had its own password
+# screen, and the screen came with it. Mounted, it was a second sign-in page in
+# front of a tool the Hub had already authenticated: the markup shipped with
+# `#login` visible and `#app` hidden, so the first thing a signed-in person saw
+# was "enter the access password to continue", and it only went away once an
+# `/api/session` round trip came back. A slow answer was a password box for as
+# long as it took; a failed one was a password box that stayed. The password it
+# asked for was never checked by anything — `/api/login` returned `{ok: true}`
+# to whatever reached it — so the gate was decoration in front of the real gate
+# (AuthGuard, in wsgi.py) and misinformation about where the real one was.
+#
+# These assert the shape rather than the wording, so the page can be rewritten
+# without the gate creeping back in.
+PANEL_HTML = (ROOT / "modules" / "suite_panel" / "public" / "index.html").read_text()
+
+check("no password screen in the markup",
+      'id="login"' not in PANEL_HTML and "loginForm" not in PANEL_HTML)
+check("nothing asks for a password this app does not check",
+      "loginPw" not in PANEL_HTML and "current-password" not in PANEL_HTML)
+check("the panel is not hidden behind one either",
+      'id="app" class="hidden"' not in PANEL_HTML)
+check("and the boot does not wait on a session round trip to reveal it",
+      "showLogin" not in PANEL_HTML and "/suite/api/session" not in PANEL_HTML)
+
+# The three routes that existed only to keep that screen working. /api/login
+# was a login endpoint in name only, and a dead route that answers ok is worse
+# than no route at all.
+for _dead in ("/api/session", "/api/login", "/api/logout"):
+    check(f"{_dead} is gone rather than answering nothing useful",
+          _dead not in {str(r.rule) for r in sp.app.url_map.iter_rules()})
+
+# Who is signed in is rendered by the server, which is what lets the page open
+# on the panel: there is nothing left for it to wait to find out.
+check("the page carries a placeholder for the signed-in user",
+      sp._USER_TOKEN in PANEL_HTML)
+# Exactly one. A second copy -- in a comment explaining the first, say -- is
+# filled in too, and a name is not something to put inside an HTML comment:
+# escaping leaves "-->" intact, so it would be a way out of one.
+check("...exactly one of it", PANEL_HTML.count(sp._USER_TOKEN) == 1)
+
+sp.app.config["PROPAGATE_EXCEPTIONS"] = True
+with sp.app.test_request_context("/", environ_base={"s1hub.user": "Dana Whitfield"}):
+    _page = sp.index().get_data(as_text=True)
+check("and the server fills it in before the browser sees the page",
+      '<b id="whoName">Dana Whitfield</b>' in _page)
+check("...leaving no placeholder behind", sp._USER_TOKEN not in _page)
+
+# The name comes out of a signed cookie, so this is not the front line — but a
+# value interpolated into HTML is escaped where it is interpolated, not where
+# it is believed to be safe.
+with sp.app.test_request_context("/", environ_base={"s1hub.user": '<img src=x onerror=1>'}):
+    _page = sp.index().get_data(as_text=True)
+check("the name is escaped on the way in", "<img src=x" not in _page)
+check("...and is still shown, escaped", "&lt;img src=x" in _page)
+
+# A page that cannot say who is signed in should say so, not render a dash and
+# look like it is still loading.
+import unittest.mock as _mock                                       # noqa: E402
+
+with _mock.patch.object(sp.Path, "read_text", lambda self, **k: "<html>no token</html>"):
+    with sp.app.test_request_context("/", environ_base={"s1hub.user": "Todd"}):
+        try:
+            sp.index()
+            _loud = False
+        except RuntimeError:
+            _loud = True
+check("a page that lost the placeholder fails loudly rather than quietly", _loud)
+
+# ---------------------------------------------------------------------------
 section("The guard cannot quietly go back to being per-process")
 # ---------------------------------------------------------------------------
 check("the claim is taken before the work rather than written after it",
