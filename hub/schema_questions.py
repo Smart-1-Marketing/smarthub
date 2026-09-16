@@ -230,6 +230,22 @@ def build(client: str, use_ai: bool = True) -> dict:
     except Exception:                                   # noqa: BLE001
         pass
 
+    # The "single best schema.org type" question, resolved from the client's
+    # canonical industry rather than typed from scratch -- hub/schema_prefill.py.
+    # Offered into the "category" question alone: everything else that module
+    # knows (address, geo, sameAs...) is offered on the /api/seo/schema-questions/
+    # prefill route instead, so a Business Info save cannot silently disagree
+    # with what a person already typed for phone/address/etc.
+    if "category" not in known and "category" not in site_known:
+        try:
+            from . import schema_prefill as _sp
+            offered = _sp.prefill(client)
+            cat = (offered.get("fields") or {}).get("category")
+            if isinstance(cat, dict) and cat.get("value"):
+                site_known["category"] = cat["value"]
+        except Exception:                               # noqa: BLE001
+            pass
+
     industry = str(typed.get("industry") or known.get("industry")
                    or typed.get("category") or known.get("category") or "")
     asked = [q for q in QUESTIONS if applies(q, industry)]
