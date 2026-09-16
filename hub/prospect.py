@@ -638,6 +638,14 @@ def convert(lead_id: str, client: str, actor: str = "") -> dict:
     except Exception:                                       # noqa: BLE001
         carried = -1                       # reported, never silently zero
 
+    try:
+        from hub import industry as _hub_industry
+        domain = _lead_domain(lead)
+        _hub_industry.write_industry(
+            name, _hub_industry.resolve_industry(client=name, domain=domain))
+    except Exception:                                       # noqa: BLE001
+        pass
+
     _log("converted", lead=lead.get("id"), client=name, actor=actor)
     return {"ok": True, "client": name, "lead": row, "assets_carried": carried,
             "note": (f"Filed against {name}."

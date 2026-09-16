@@ -261,6 +261,11 @@ def gallery_for_name(db, name: str, *, create: bool = False) -> PickerClient | N
     )
     db.add(client)
     db.commit()
+    try:
+        from hub import industry as _hub_industry
+        _hub_industry.write_industry(name, _hub_industry.resolve_industry(client=name))
+    except Exception:                                     # noqa: BLE001
+        pass
     return client
 
 

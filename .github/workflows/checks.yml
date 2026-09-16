@@ -3252,6 +3252,22 @@ jobs:
         if: matrix.group == 8
         run: python3 test_ai_injection.py
 
+      # hub/industry.py: the 30-key canonical taxonomy, resolve()'s
+      # word-boundary/earliest-alias matching (Roofing Contractor is not
+      # HVAC), resolve_industry()'s remaining precedence with no Knack tier
+      # in this deployment pass, a manual pick that survives a lower-tier
+      # re-resolve, and a higher-precedence write that logs one row.
+      - name: One industry taxonomy, resolved and written down
+        if: matrix.group == 8
+        run: python3 test_industry.py
+      # The sweep: every INDUSTRIES/INDUSTRY_PACKS literal in hub/ and
+      # modules/ declares only canonical keys or ones hub/industry.LEGACY_MAP
+      # already joins -- so a new pack, or a rename inside one, cannot
+      # quietly introduce a key nothing here can resolve back to the table.
+      - name: Every industry key literal is canonical or legacy
+        if: matrix.group == 8
+        run: python3 test_industry_consumers.py
+
       # The Reports module's store: the fact table is in its own database
       # (REPORTS_DATABASE_URL first, then DATABASE_URL, then a SQLite file),
       # a day synced twice is the same spend, a platform outside the list is

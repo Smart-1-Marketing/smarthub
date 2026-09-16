@@ -4864,6 +4864,45 @@ def create_hub_app() -> Flask:
         audit.log("hub", "client_profile_saved", actor=current_user(), detail=client)
         return jsonify({"ok": True, "profile": prof})
 
+    # ------------- industry: hub/industry.py, the one canonical taxonomy
+    @app.route("/api/client/industry")
+    def api_client_industry():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import industry
+        name = (request.args.get("name") or "").strip()
+        if not name:
+            return jsonify({"industry": {}, "options": []})
+        result = industry._stored_industry(name)  # noqa: SLF001
+        if not result:
+            result = industry.resolve_industry(client=name)
+        ind = industry.industry(result.get("key") or "") or {}
+        result = dict(result)
+        result["label"] = ind.get("label") or "General Business"
+        options = [{"key": i["key"], "label": i["label"],
+                    "subtypes": sorted((i.get("subtypes") or {}).keys())}
+                   for i in industry.INDUSTRIES]
+        return jsonify({"industry": result, "options": options})
+
+    @app.route("/api/client/industry", methods=["POST"])
+    def api_client_industry_set():
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import industry
+        body = request.get_json(silent=True) or {}
+        client = str(body.get("client") or "").strip()
+        key = str(body.get("key") or "").strip()
+        if not client or not key:
+            return jsonify({"error": "client and key are required."}), 400
+        ok = industry.set_manual(client, key, str(body.get("subtype") or ""),
+                                 actor=current_user() or "")
+        if not ok:
+            return jsonify({"error": "Could not save that industry."}), 400
+        return jsonify({"ok": True,
+                        "industry": industry._stored_industry(client)})  # noqa: SLF001
+
     # ------------- client groups: one company, several client records
     # Why this exists, and every rule it enforces: hub/client_groups.py.
     @app.route("/api/client/group")
@@ -6880,6 +6919,16 @@ def create_hub_app() -> Flask:
             return gate
         from . import housekeeping
         return jsonify(housekeeping.findings())
+
+    @app.route("/api/industry-diagnostics")
+    def api_industry_diagnostics():
+        """Clients on `general`, and clients where two remaining sources
+        disagree — read-only, hub/industry.py."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import industry
+        return jsonify(industry.diagnostics_summary())
 
     @app.route("/api/help-audit")
     def api_help_audit():

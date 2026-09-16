@@ -369,6 +369,23 @@ def job_places_snapshot(app) -> dict:
         return places.sweep(force=False)
 
 
+def job_industry_resolve(app) -> dict:
+    """Re-resolve every client whose industry key is missing, stale, or
+    below the top source tier once a day (hub/industry.py).
+
+    No Knack sync in this deployment pass -- the client universe it walks
+    is what the Hub already knows on disk (SEO stores, Image Picker
+    galleries), never `clients_registry`. Per-client error isolation, so
+    one bad row costs only itself; returns the counts for Diagnostics.
+    """
+    try:
+        from hub import industry
+    except Exception as exc:                             # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        return industry.sweep(limit=200)
+
+
 def job_youtube_snapshot(app) -> dict:
     """Read every confirmed YouTube channel once a night (hub/youtube.py).
 
@@ -1161,6 +1178,9 @@ JOBS = {
                           "Re-pull the purchased-domain registry once a night."),
     "places_snapshot":   (60, job_places_snapshot,
                           "Read every confirmed Google Business Profile listing once a night."),
+    "industry_resolve":  (60, job_industry_resolve,
+                          "Re-resolve any client's industry key that is missing, stale, "
+                          "or below the top source tier."),
     "youtube_snapshot":  (60, job_youtube_snapshot,
                           "Read every confirmed YouTube channel once a night."),
     "video_backlog":     (60, job_index_video_backlog,
