@@ -458,6 +458,14 @@ _RERUNS_CLEAN = (
     # here, identical every time.
     "test_knack_map.py",
     "test_prospect_explainer.py",
+    # In the shape ON PURPOSE and unavoidably: it is the two-instances test,
+    # so separate HUB_DATA_DIRs in front of ONE shared mirror is the thing
+    # under test rather than a mistake. Made safe rather than assumed safe --
+    # every key it writes carries a uuid4 and is dropped again in an
+    # addCleanup, so two runs cannot meet each other's rows. Run three times
+    # against one shared Postgres here: 12 tests, identical, and a sweep of
+    # the blob table afterwards found none of its keys left behind.
+    "test_jsonstore_locking.py",
 )
 
 check("no test file is in the shape without having been re-run to prove it is safe",
