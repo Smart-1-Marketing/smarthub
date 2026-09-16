@@ -121,12 +121,16 @@ def build(client: str, domain: str = "") -> dict:
     except Exception as exc:                              # noqa: BLE001
         scan_err = f"{type(exc).__name__}: {exc}"
 
+    # Knack is not a source for this deployment pass. `clients_registry`
+    # wraps a live Knack read (`knack_data.websites()` / `.products()`), so
+    # this file never calls it: `knack` stays an empty dict rather than a
+    # lookup, and every fact that used to fall back to it (the client's own
+    # name, city/state, phone, "currently selling" products) is simply not
+    # available here. The caller's own `client` string is what identity.name
+    # would have compared against a lookup -- with no lookup, it is not
+    # attributed as a fact, which is exactly the "unknown client" behaviour
+    # `for_prompt()` already had, so nothing downstream had to change shape.
     knack: dict = {}
-    try:
-        from hub import clients_registry
-        knack = clients_registry.find_client(client) or {}
-    except Exception:                                     # noqa: BLE001
-        knack = {}
 
     kit: dict = {}
     try:
@@ -149,35 +153,42 @@ def build(client: str, domain: str = "") -> dict:
     # ---- identity ----
     try:
         industry_key = ""
-        industry_label = _s(g("meta.primary_industry")) or _s(knack.get("industry") or knack.get("vertical"))
+        industry_label = _s(g("meta.primary_industry"))
         industry_subtype = ""
+        industry_source = "scan" if industry_label else ""
+        # hub/industry.py speaks in its own tier names (manual, scan_primary,
+        # scan_sectors, gbp, name, general); this file speaks in
+        # SOURCE_LABELS words, so the two are bridged here rather than in
+        # hub/industry.py, which has no reason to know this file's vocabulary.
+        _TIER_TO_LABEL = {
+            "manual": "store", "scan_primary": "scan", "scan_sectors": "scan",
+            "gbp": "scan",
+        }
         try:
             from hub import industry as _industry
             resolved = _industry.resolve_industry(client=client, domain=domain,
                                                     hint=industry_label)
-            industry_key = resolved.get("key", "")
-            industry_label = resolved.get("label", industry_label)
-            industry_subtype = resolved.get("subtype", "")
+            if resolved.get("key") and resolved.get("key") != "general":
+                industry_key = resolved.get("key", "")
+                ind = _industry.industry(industry_key) or {}
+                industry_label = ind.get("label") or industry_label
+                industry_subtype = resolved.get("subtype", "")
+                industry_source = _TIER_TO_LABEL.get(resolved.get("source", ""), "")
         except Exception:                                 # noqa: BLE001
-            # SEAM (WO-2): hub/industry.py does not exist on this branch yet.
-            # Until it lands, industry is whatever tool_context() already
-            # produces — a bare string with no key/subtype, which is the
-            # shape every existing caller already tolerates.
             pass
 
         identity = {
             # The caller's own input is not a lookup -- `for_prompt()`'s
-            # whole rule. A client Knack does not recognise gets no
-            # attributed "name" fact at all, so a brief built from nothing
-            # but the string somebody typed cannot make render() believe a
-            # lookup happened.
-            "name": _fact(knack.get("name"), "knack") if knack.get("name") else None,
+            # whole rule. With no Knack read in this deployment pass, there
+            # is no lookup at all, so a brief built from nothing but the
+            # string somebody typed cannot make render() believe one
+            # happened -- the same shape as an "unknown client" already had.
+            "name": None,
             "site_name": _fact(_s(g("meta.detected_name")), "scan", scanned_at),
-            "website": _fact(_clean(domain) or _s(knack.get("url") or knack.get("domain")),
-                             "scan" if domain else "knack"),
+            "website": _fact(_clean(domain), "scan") if domain else None,
             "domain": _fact(_clean(domain), "form") if domain else None,
             "industry_key": _fact(industry_key, "scan") if industry_key else None,
-            "industry_label": _fact(industry_label, "scan" if _s(g("meta.primary_industry")) else "knack"),
+            "industry_label": _fact(industry_label, industry_source) if industry_label and industry_source else None,
             "industry_subtype": _fact(industry_subtype, "scan") if industry_subtype else None,
         }
         out["identity"] = {k: v for k, v in identity.items() if v} or {"measured": False}
@@ -202,10 +213,6 @@ def build(client: str, domain: str = "") -> dict:
                     state = state or tail[0]
                     if len(tail) > 1:
                         zip_ = zip_ or tail[-1]
-        if not (city or state or zip_):
-            city = _s(knack.get("city"))
-            state = _s(knack.get("state"))
-            loc_source = "knack" if (city or state) else loc_source
         if not (city or state or zip_):
             city = _s(seo_profile.get("city"))
             state = _s(seo_profile.get("state"))
@@ -236,8 +243,6 @@ def build(client: str, domain: str = "") -> dict:
             "phone": _fact(fields.get("phone"), "scan", scanned_at) if fields.get("phone") else None,
             "email": _fact(fields.get("email"), "scan", scanned_at) if fields.get("email") else None,
         }
-        if not contact["phone"] and knack.get("phone"):
-            contact["phone"] = _fact(_s(knack.get("phone")), "knack")
         out["contact"] = {k: v for k, v in contact.items() if v} or {"measured": False}
     except Exception:                                     # noqa: BLE001
         out["contact"] = {"measured": False}
@@ -441,11 +446,11 @@ def build(client: str, domain: str = "") -> dict:
         out["social"] = {"measured": False}
 
     # ---- products ----
-    try:
-        products = sorted(str(p) for p in (knack.get("products") or knack.get("running") or []))
-        out["products"] = {"running": _fact(products, "knack")} if products else {"measured": False}
-    except Exception:                                     # noqa: BLE001
-        out["products"] = {"measured": False}
+    # This section would have come from Knack's "currently selling" product
+    # list -- not a source in this deployment pass. Never a fake source: it
+    # reads as not measured rather than an empty list, which is a different
+    # claim ("we asked and there is none").
+    out["products"] = {"measured": False, "source": "not available"}
 
     # ---- scan meta ----
     if scan_err:
