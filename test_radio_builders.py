@@ -546,8 +546,13 @@ project = fan_store.load(PID)
 project["spots"][0]["script"] = "Proud supporter of the Bengals."
 fan_store.save(project)
 r = fan.post(f"/api/projects/{PID}/spots/sp15/record", json={})
+# 422, not 400: the trademark hit is one row of the script panel now, and a
+# panel refusal answers the code the Radio Ad Creator has always answered for
+# the same refusal. The copy is well formed and cannot be processed, which is
+# what 422 says; two tools answering differently for one refusal is the drift
+# the shared panel exists to stop.
 check("a script carrying a mark is refused before any provider is called",
-      r.status_code, 400)
+      r.status_code, 422)
 check("and the refusal names the term rather than being generic",
       "Bengals" in r.get_json()["error"], True)
 check("and it says the render was not spent",
@@ -555,7 +560,7 @@ check("and it says the render was not spent",
 
 # Voice comes second, and only once the copy is deliverable.
 project = fan_store.load(PID)
-project["spots"][0]["script"] = "Beat the rush before kickoff at Ridgeline."
+project["spots"][0]["script"] = "Beat the rush before kickoff at Ridgeline Tyre."
 fan_store.save(project)
 r = fan.post(f"/api/projects/{PID}/spots/sp15/record", json={})
 check("a clean script then asks for the voice", r.status_code, 400)
@@ -1022,7 +1027,12 @@ check("strength survives switching voices", fan.post(_voice_url, json={"voice_id
 for bad in (-1, 2, "nan", "inf", "wrong"):
     check(f"invalid strength {bad} is rejected", fan.post(_voice_url, json={"voice_id":"sample", "prompt_strength":bad}).status_code, 400)
 _strength_project = fan_store.load(_strength_pid)
-_strength_project["spots"] = [{"id":"strength-spot", "script":"Visit our shop today.", "seconds":30, "daypart":"game"}]
+# The script names the business on purpose. The script panel now refuses a
+# record whose copy never says it -- the check the Radio Ad Creator has always
+# made and Fan Radio could not, so a read that named nobody recorded happily
+# here. This test is about the strength reaching the provider, not about that
+# gate, so the fixture satisfies it rather than working around it.
+_strength_project["spots"] = [{"id":"strength-spot", "script":"Visit Sample Business today.", "seconds":30, "daypart":"game"}]
 fan_store.save(_strength_project)
 _response = Mock(status_code=200)
 _response.json.return_value = {"audio_base64":base64.b64encode(b"test audio").decode(), "alignment":{"character_end_times_seconds":[2.0]}}
@@ -1030,7 +1040,7 @@ with patch("hub.customer_voices.ensure_usable"), patch.object(fan_app.voices.req
     _record = fan.post(f"/api/projects/{_strength_pid}/spots/strength-spot/record", json={})
     check("recording uses persisted strength", _record.status_code, 200)
     check("strength reaches the provider style control", sent.call_args.kwargs["json"]["voice_settings"]["style"], 1.0)
-    check("only spoken copy is sent as text", sent.call_args.kwargs["json"]["text"], "Visit our shop today.")
+    check("only spoken copy is sent as text", sent.call_args.kwargs["json"]["text"], "Visit Sample Business today.")
     fan_app.voices.render_audio("sample", "Hello", "laid_back", prompt_strength=0)
     check("zero strength is not replaced with a default", sent.call_args.kwargs["json"]["voice_settings"]["style"], 0.0)
     fan_app.voices.render_audio("sample", "Hello", "laid_back")

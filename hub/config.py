@@ -304,6 +304,16 @@ class Settings:
     # spelling set on Render -- GROUND_TRUTH_API, underscore and all -- and
     # no GROUNDTRUTH_API_KEY twin: ALIASES is only spellings in use.
     groundtruth_key: str = field(default_factory=lambda: _s("GROUND_TRUTH_API"))
+    # Amazon Ads, for Smart 1 Ads' connection and the reports module's native
+    # Amazon DSP pull (modules/ads_builder/amazon_ads.py reads these at call
+    # time through _s()). Exactly the spellings set on Render: AMAZON_ADS_ is
+    # the Login with Amazon application and the region, AMAZON_DSP_ is the
+    # entity the agency's seat is, and neither gets a twin under the other
+    # prefix -- ALIASES is only spellings in use.
+    amazon_ads_client_id: str = field(default_factory=lambda: _s("AMAZON_ADS_CLIENT_ID"))
+    amazon_ads_client_secret: str = field(default_factory=lambda: _s("AMAZON_ADS_CLIENT_SECRET"))
+    amazon_dsp_entity_id: str = field(default_factory=lambda: _s("AMAZON_DSP_ENTITY_ID"))
+    amazon_ads_region: str = field(default_factory=lambda: _s("AMAZON_ADS_REGION", "NA"))
     google_fonts_key: str = field(default_factory=lambda: _alias("google_fonts_key"))
     insites_key: str = field(default_factory=lambda: _alias("insites_key"))
     heygen_key: str = field(default_factory=lambda: _alias("heygen_key"))
@@ -679,6 +689,20 @@ class Settings:
                 "GROUND_TRUTH_API — the reports module's native pull of geofencing campaigns. The API "
                 "origin (GROUND_TRUTH_API_BASE) and the field map are confirmed from /reports/groundtruth-check; "
                 "the key is sent nowhere until the origin is set."),
+            row("Amazon Ads", bool(self.amazon_ads_client_id and self.amazon_ads_client_secret
+                                    and self.amazon_dsp_entity_id), False,
+                "AMAZON_ADS_CLIENT_ID / AMAZON_ADS_CLIENT_SECRET / AMAZON_DSP_ENTITY_ID — Smart 1 Ads "
+                "consents to the DSP entity with them and the reports module pulls Amazon DSP order "
+                "figures; the consent itself is a press on /tools/ads/settings, by an entity admin. "
+                "AMAZON_ADS_REGION picks the host (NA by default), AMAZON_DSP_ENTITY_PROFILE_ID skips "
+                "discovery once it is known, and AMAZON_ADS_REFRESH_TOKEN pins the consent across a "
+                "redeploy."
+                + (" Missing: " + ", ".join(n for n, v in (
+                    ("AMAZON_ADS_CLIENT_ID", self.amazon_ads_client_id),
+                    ("AMAZON_ADS_CLIENT_SECRET", self.amazon_ads_client_secret),
+                    ("AMAZON_DSP_ENTITY_ID", self.amazon_dsp_entity_id)) if not v) + "."
+                   if not (self.amazon_ads_client_id and self.amazon_ads_client_secret
+                           and self.amazon_dsp_entity_id) else "")),
             row("YouTube Data API", bool(self.youtube_key or self.google_places_key), False,
                 "YOUTUBE_API_KEY — a client's channel subscribers, views and video count, read nightly; "
                 + ("reading GOOGLE_PLACES_API_KEY, the same Cloud project" if self.google_places_key and not self.youtube_key

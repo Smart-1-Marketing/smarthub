@@ -153,6 +153,26 @@ services:
         sync: false
       - key: GROUND_TRUTH_API_BASE
         sync: false
+      # The native Amazon DSP pull: the Login with Amazon application, the
+      # DSP entity the agency's seat is, and the region the entity lives in.
+      # Connect on /tools/ads/settings -- as an admin on the entity -- keeps
+      # the refresh token; AMAZON_ADS_REFRESH_TOKEN pins it across a
+      # redeploy. AMAZON_DSP_ENTITY_PROFILE_ID skips profile discovery once
+      # it is known; AMAZON_ADS_REDIRECT_URI pins the callback.
+      - key: AMAZON_ADS_CLIENT_ID
+        sync: false
+      - key: AMAZON_ADS_CLIENT_SECRET
+        sync: false
+      - key: AMAZON_DSP_ENTITY_ID
+        sync: false
+      - key: AMAZON_DSP_ENTITY_PROFILE_ID
+        sync: false
+      - key: AMAZON_ADS_REFRESH_TOKEN
+        sync: false
+      - key: AMAZON_ADS_REDIRECT_URI
+        sync: false
+      - key: AMAZON_ADS_REGION
+        value: "NA"
       - key: MOCK_MODE
         value: "false"
       - key: ENABLE_WRITE_ACTIONS
