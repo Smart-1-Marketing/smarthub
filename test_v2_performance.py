@@ -31,7 +31,7 @@ import os
 import shutil
 import sys
 import tempfile
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch

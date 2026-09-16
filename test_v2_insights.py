@@ -27,7 +27,6 @@ What it holds:
     account;
   * both tools registered in both catalogs, read-only, and audited.
 """
-import json
 import os
 import shutil
 import sys
@@ -177,9 +176,11 @@ run_ga4([(["Paid Search"], {"sessions": 10})],
         start_date="28daysAgo", end_date="yesterday")
 check("a relative token an older MCP client learned still passes through",
       _sent["request"]["dateRanges"][0]["startDate"], "28daysAgo")
-out = run_ga4([(["Paid Search"], {"sessions": 10})],
-              start_date="2026-07-01", end_date="2026-07-31",
-              compare_start="2026-06-01", compare_end="2026-06-30")
+# Called for what it puts in `_sent`, like the two above it: the assertion
+# is about the request that went out, not the payload that came back.
+run_ga4([(["Paid Search"], {"sessions": 10})],
+        start_date="2026-07-01", end_date="2026-07-31",
+        compare_start="2026-06-01", compare_end="2026-06-30")
 check("explicit comparison dates win over the named mode",
       _sent["request"]["dateRanges"][1]["startDate"], "2026-06-01")
 

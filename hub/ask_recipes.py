@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hub.ask_smarthub import ADMINS, STAFF, TOOLS, allowed_tools
+from hub.ask_smarthub import STAFF, TOOLS, allowed_tools
 from hub.periods import DEFAULT_PERIOD, PERIODS
 
 # Every page a chip can appear on. A placement the templates do not know is a

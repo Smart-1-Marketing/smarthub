@@ -69,8 +69,7 @@ from werkzeug.test import Client                                    # noqa: E402
 
 import wsgi                                                         # noqa: E402
 from hub import auth                                                # noqa: E402
-from modules.reports import app as reports_app                      # noqa: E402
-from modules.reports import client_view, store                      # noqa: E402
+from modules.reports import store                                   # noqa: E402
 
 _reports_testdb.reset(store)
 
