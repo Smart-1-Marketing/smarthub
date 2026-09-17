@@ -76,6 +76,7 @@ NOT_MEASURABLE = {
     "ttd": ("the MyReports file is the pull's own input, so re-reading it proves the parser "
             "and nothing else, and a partner token can call no other figure"),
     "suite": "Smart 1 Suite rows are outcomes, not delivery; there is no spend to reconcile",
+    "callrail": "CallRail rows are phone calls, not delivery; there is no spend to reconcile",
 }
 
 CENT = Decimal("0.01")

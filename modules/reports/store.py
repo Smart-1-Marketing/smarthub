@@ -57,10 +57,12 @@ log = logging.getLogger(__name__)
 # Every platform a fact row may name. A row naming anything else is refused
 # at the store rather than filed under a spelling no report will ever ask
 # for -- "Google" and "google" and "google_ads" would be three platforms with
-# one third of the spend each. "suite" is Smart 1 Suite's own campaigns.
+# one third of the spend each. "suite" is Smart 1 Suite's own campaigns;
+# "callrail" is call tracking -- outcomes (phone calls by source), never
+# delivery, and read the way suite rows are (docs/claude/79).
 PLATFORMS = ("ttd", "google", "bing", "linkedin", "tiktok", "audiogo",
              "stackadapt", "meta", "groundtruth", "x", "amazon_sa",
-             "amazon_dsp", "suite")
+             "amazon_dsp", "suite", "callrail")
 
 # What each platform is called on a screen. The key is what the syncs write.
 PLATFORM_LABELS = {
@@ -68,7 +70,7 @@ PLATFORM_LABELS = {
     "linkedin": "LinkedIn", "tiktok": "TikTok", "audiogo": "AudioGO",
     "stackadapt": "StackAdapt", "meta": "Meta", "groundtruth": "GroundTruth",
     "x": "X", "amazon_sa": "Amazon Sponsored Ads", "amazon_dsp": "Amazon DSP",
-    "suite": "Smart 1 Suite",
+    "suite": "Smart 1 Suite", "callrail": "CallRail",
 }
 
 # Where a fact row came from. A CSV somebody uploaded and a nightly API pull
@@ -81,6 +83,14 @@ SOURCES = ("windsor", "native", "csv")
 # the rename hint, so the person who can rename it in the platform sees the
 # exact form.
 RENAME_SHAPE = "S1M | <ClientKey> | <Product> | <anything>"
+
+
+# Platforms whose rows are OUTCOMES rather than delivery: no spend, no
+# impressions, no clicks, and never a bar beside the media products on a
+# client's page, a table row, an investment line or a platform column on
+# the cost report. Suite carries leads and bookings; CallRail carries phone
+# calls by source. Each draws its own tile and nothing else.
+OUTCOME_PLATFORMS = ("suite", "callrail")
 
 
 def platform_label(platform: str) -> str:

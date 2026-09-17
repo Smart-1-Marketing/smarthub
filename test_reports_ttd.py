@@ -499,7 +499,7 @@ check("the job returns the shape the panel reads",
       sorted(out), ["automapped", "errors", "pending", "platforms", "rows", "skipped"])
 check("...with every unconfigured platform skipped cleanly on this deployment's state",
       sorted(out["skipped"]),
-      ["amazon_dsp", "audiogo", "bing", "google", "groundtruth", "stackadapt", "ttd"])
+      ["amazon_dsp", "audiogo", "bing", "callrail", "google", "groundtruth", "stackadapt", "ttd"])
 check("...and no errors", out["errors"], {})
 check("...and the automap ran", out["automapped"] >= 0)
 

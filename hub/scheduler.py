@@ -77,7 +77,7 @@ SWEEP_MIN_AGE_HOURS = 12
 EASTERN = ZoneInfo("America/New_York")
 
 # The native reporting pulls a person can start from the Reports index.
-NATIVE_PLATFORMS = ("ttd", "google", "stackadapt", "audiogo", "bing", "groundtruth", "amazon_dsp")
+NATIVE_PLATFORMS = ("ttd", "google", "stackadapt", "audiogo", "bing", "groundtruth", "amazon_dsp", "callrail")
 REFRESH_STALE_MINUTES = 45
 
 
@@ -1240,7 +1240,7 @@ def job_reports_normalize(app) -> dict:
 def job_reports_native_pull(app, *, completed_platforms=(), platforms=None,
                             actor: str = "scheduler") -> dict:
     """Pull the Trade Desk, Google Ads, StackAdapt, AudioGo, Microsoft Ads,
-    GroundTruth and Amazon DSP from their own APIs, then automap.
+    GroundTruth, Amazon DSP and CallRail from their own APIs, then automap.
 
     ``platforms`` narrows the run to those named -- the Reports index's
     Refresh button for one platform -- and ``actor`` is who pressed it, on
@@ -1260,15 +1260,16 @@ def job_reports_native_pull(app, *, completed_platforms=(), platforms=None,
     ``/reports/``, never a traceback here; so is not configured for
     StackAdapt and AudioGo until their keys are set, so is Microsoft Ads
     until somebody presses Connect on /tools/ads/settings, so is GroundTruth
-    until its API origin is named beside the key, and so is Amazon DSP until
-    an admin on the DSP entity presses Connect there too.
+    until its API origin is named beside the key, so is CallRail until its
+    origin is named beside its key, and so is Amazon DSP until an admin on
+    the DSP entity presses Connect there too.
 
     Safe to run late, skip and repeat: every row is an upsert by key, so a
     day read twice is the same spend.
     """
     try:
-        from modules.reports import (amazon_dsp, audiogo, automap, bing, google_ads_perf,
-                                     groundtruth, stackadapt, ttd)
+        from modules.reports import (amazon_dsp, audiogo, automap, bing, callrail,
+                                     google_ads_perf, groundtruth, stackadapt, ttd)
     except Exception as exc:                            # noqa: BLE001
         return {"skipped": f"unavailable ({type(exc).__name__})"}
     out: dict = {"platforms": {}, "rows": 0, "errors": {}, "skipped": [], "pending": []}
@@ -1284,7 +1285,10 @@ def job_reports_native_pull(app, *, completed_platforms=(), platforms=None,
                          # other pull and the carrying still happens: a report the
                          # entity is still preparing is collected next tick rather
                          # than paid for again.
-                         ("amazon_dsp", amazon_dsp.pull)):
+                         ("amazon_dsp", amazon_dsp.pull),
+                         # Call tracking: outcomes, not media, read last so a
+                         # slow account list never delays a spend feed.
+                         ("callrail", callrail.pull)):
             if platforms and name not in platforms:
                 continue
             if name in completed_platforms:

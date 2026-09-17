@@ -320,6 +320,40 @@ def check_groundtruth() -> Check:
                  "The pull's last outcome is on /reports/.", 0)
 
 
+def check_callrail() -> Check:
+    """Off, the origin owed, configured and never pulled, the last pull's
+    own error, or ok -- the GroundTruth reading for call tracking, and
+    never probed on a page load."""
+    try:
+        from modules.reports import callrail
+        st = callrail.status()
+    except Exception as exc:                            # noqa: BLE001
+        return Check("callrail", "CallRail", "error",
+                     f"The reports module could not be read ({type(exc).__name__}).", 0)
+    if st["missing"] == [callrail.BASE_ENV]:
+        return Check("callrail", "CallRail", "warn",
+                     "CALLRAIL_API_KEY is set and CALLRAIL_API_BASE is not; the key is sent "
+                     "nowhere until the API origin is named.", 0,
+                     fix="Set CALLRAIL_API_BASE in the Render dashboard, then confirm the "
+                         "field map on /reports/callrail-check.")
+    if st["missing"]:
+        names = " / ".join(st["missing"])
+        return Check("callrail", "CallRail", "off",
+                     f"Not configured — {names} unset; the reports module cannot pull CallRail.", 0,
+                     False, f"Set {names} in the Render dashboard.")
+    if st.get("last_error"):
+        return Check("callrail", "CallRail", "warn",
+                     f"Configured; the last pull said: {st['last_error'][:200]}", 0,
+                     fix="Open /reports/callrail-check and correct callrail_map.py.")
+    if not st.get("last_pull"):
+        return Check("callrail", "CallRail", "warn",
+                     "Configured; nothing has been pulled yet. The field map is a placeholder until "
+                     "it is confirmed.", 0, fix="Open /reports/callrail-check.")
+    return Check("callrail", "CallRail", "ok",
+                 f"Configured; the last pull at {st['last_pull']} wrote {st.get('last_rows') or 0} rows. "
+                 "The pull's last outcome is on /reports/.", 0)
+
+
 def check_youtube() -> Check:
     key = settings.youtube_key or settings.google_places_key
     if not key:
@@ -1006,7 +1040,7 @@ CHECKS = [
     check_google_token_store,
     check_public_base_url,
     check_openai, check_cloudinary,
-    check_brandfetch, check_places, check_youtube, check_microsoft_ads, check_groundtruth, check_amazon_dsp, check_insites,
+    check_brandfetch, check_places, check_youtube, check_microsoft_ads, check_groundtruth, check_amazon_dsp, check_callrail, check_insites,
     check_removebg, check_pexels,
     check_pixabay, check_unsplash, check_google_fonts, check_ghl,
     check_ghl_app, check_knack, check_quickbooks, check_google_oauth,

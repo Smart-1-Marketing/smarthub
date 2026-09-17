@@ -218,7 +218,7 @@ def _health_by_platform() -> dict:
 NATIVE_PULLS = (("ttd", "ttd"), ("google", "google_ads_perf"),
                 ("stackadapt", "stackadapt"), ("audiogo", "audiogo"),
                 ("bing", "bing"), ("groundtruth", "groundtruth"),
-                ("amazon_dsp", "amazon_dsp"))
+                ("amazon_dsp", "amazon_dsp"), ("callrail", "callrail"))
 
 
 def _refresh_note() -> dict:
@@ -591,6 +591,22 @@ def groundtruth_check():
                            subnav=provider_fields.nav("groundtruth"),
                            unread=_unread("groundtruth", chk),
                            documented=provider_fields.DOCUMENTED["groundtruth"])
+
+
+@app.route("/callrail-check")
+def callrail_check():
+    """What CallRail's calls endpoint actually answers, against what
+    callrail_map.py expects -- the groundtruth-check pattern for call
+    tracking. Lists the accounts the key sees, reads one page of
+    yesterday's calls for the first, and prints the raw keys with the
+    caller's own details masked. Calls nothing while CALLRAIL_API_BASE is
+    unset: the key is never sent to a host nobody has confirmed."""
+    from . import callrail, provider_fields
+    chk = callrail.check()
+    return render_template("reports_callrail_check.html", chk=chk,
+                           subnav=provider_fields.nav("callrail"),
+                           unread=_unread("callrail", chk),
+                           documented=provider_fields.DOCUMENTED["callrail"])
 
 
 @app.route("/amazon-check")

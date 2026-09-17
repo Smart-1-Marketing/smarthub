@@ -167,6 +167,14 @@ services:
         sync: false
       - key: GROUND_TRUTH_API_BASE
         sync: false
+      # The native CallRail pull: the key, and the API origin a person has
+      # to name before anything is called; the field map is a placeholder
+      # corrected from /reports/callrail-check. CALLRAIL_ACCOUNT_ID pins
+      # one account where the key sees several.
+      - key: CALLRAIL_API_KEY
+        sync: false
+      - key: CALLRAIL_API_BASE
+        sync: false
       # The native Amazon DSP pull: the Login with Amazon application, the
       # DSP entity the agency's seat is, and the region the entity lives in.
       # Connect on /tools/ads/settings -- as an admin on the entity -- keeps

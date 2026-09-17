@@ -1,0 +1,83 @@
+{% extends "_reports_base.html" %}
+{% block title %}CallRail check · Reports{% endblock %}
+{% block heading %}CallRail check{% endblock %}
+{% block lede %}What CallRail's calls endpoint actually answers, against the names
+  <span class="mono">modules/reports/callrail_map.py</span> expects. Every name in that
+  file is a transcription from a reference this environment cannot read, so it is a
+  placeholder until a row here shows it; this page lists the accounts the key sees, calls
+  the configured endpoint for one page of yesterday's calls, and prints the raw JSON keys
+  that came back so the real ones can be pasted in. A caller's own details are masked.{% endblock %}
+
+{% block body %}
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>The call as configured {{ help_dot('reports.callrail.check') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">{% if chk.configured %}<span class="s1d-pill ok">configured</span>{% else %}<span class="s1d-pill warn">not configured</span>{% endif %}</span></div>
+  {% if chk.error %}<div class="notice err">{{ chk.error }}</div>{% endif %}
+  {% if not chk.request.base_set %}
+  <div class="notice">Nothing was called: <span class="mono">CALLRAIL_API_BASE</span> is unset and the key is
+    never sent to a host nobody has confirmed. The origin printed below is the documented guess, not an answer.</div>
+  {% endif %}
+  <div class="s1d-kv"><b>Accounts</b>
+    <span class="mono">{{ chk.accounts_request.method }} {{ chk.accounts_request.url }}</span></div>
+  <div class="s1d-kv"><b>Calls</b>
+    <span class="mono">{{ chk.request.method }} {{ chk.request.url }}
+      {% for k, v in chk.request.params.items() %}<br>&nbsp;&nbsp;{{ k }}={{ v }}{% endfor %}</span></div>
+  <div class="s1d-kv"><b>Auth header</b>
+    <span class="mono">{{ chk.request.auth_header }}: {{ chk.map.auth_format.replace('{key}', '[CALLRAIL_API_KEY]') }}</span></div>
+  <div class="s1d-kv"><b>Rows expected under</b><span class="mono">{{ chk.map.rows_path or '(the body itself)' }}</span></div>
+  <div class="s1d-kv"><b>Account read</b>
+    <span>{% if chk.pinned %}<span class="mono">{{ chk.pinned }}</span> <span class="s1d-muted">pinned by CALLRAIL_ACCOUNT_ID</span>
+      {% else %}<span class="s1d-muted">every account the key sees; the check page reads the first</span>{% endif %}</span></div>
+  <p class="s1d-hint">Set <span class="mono">CALLRAIL_API_KEY</span> and <span class="mono">CALLRAIL_API_BASE</span>
+    on the service. The paths, header, parameter and field names can be overridden by environment variable
+    (<span class="mono">CALLRAIL_CALLS_PATH</span>, <span class="mono">CALLRAIL_AUTH_FORMAT</span>,
+    <span class="mono">CALLRAIL_PARAM_START</span>, <span class="mono">CALLRAIL_FIELD_DATE</span> ...)
+    while a correction is tried; the settled answer belongs in <span class="mono">callrail_map.py</span>.</p>
+</div>
+
+<div class="s1d-grid">
+  <div class="s1d-card">
+    <div class="s1d-cardhead"><h2>Field map expected</h2>
+      <span class="s1d-muted">{% if chk.resolves %}{% if chk.resolves.resolved %}<span class="s1d-pill ok">Resolved</span>{% else %}<span class="s1d-pill bad">Does not resolve</span>{% endif %}{% else %}<span class="s1d-muted">not checked</span>{% endif %}</span></div>
+    <div class="s1d-scroll">
+    <table class="s1d-t">
+      <thead><tr><th>Fact column</th><th>Response field</th></tr></thead>
+      <tbody>
+      {% for k, v in chk.map.fields.items() %}
+        <tr><td>{{ k }}</td><td class="mono">{{ v or '(not reported)' }}
+          {% if chk.resolves and v in chk.resolves.missing %}<span class="s1d-pill bad">missing</span>{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <p class="s1d-hint">A call is an outcome: the company is the account, the source is the campaign,
+      and the counts land in extras under their own names to draw the client's <em>Phone calls</em> tile.
+      Nothing here is ever folded into conversions, and outbound calls are counted and left out.</p>
+    {% if chk.resolves and chk.resolves.why %}<p class="s1d-hint">{{ chk.resolves.why }}</p>{% endif %}
+  </div>
+
+  <div class="s1d-card">
+    <div class="s1d-cardhead"><h2>What came back for {{ chk.day }}</h2>
+      <span class="s1d-muted">{% if chk.answer %}{{ chk.answer.rows }} call{{ '' if chk.answer.rows == 1 else 's' }} on the first page{% if chk.answer.total_pages and chk.answer.total_pages > 1 %} of {{ chk.answer.total_pages }}{% endif %}{% else %}nothing read{% endif %}</span></div>
+    {% if chk.accounts is not none %}
+      <div class="s1d-kv"><b>Accounts the key sees</b>
+        <span>{% if chk.accounts %}{% for a in chk.accounts %}<span class="mono">{{ a.id }}</span>{% if a.name %} {{ a.name }}{% endif %}{% if not loop.last %}<br>{% endif %}{% endfor %}
+          {% else %}<span class="s1d-muted">none</span>{% endif %}</span></div>
+    {% endif %}
+    {% if chk.answer %}
+      <div class="s1d-kv"><b>Top-level keys</b><span class="mono">{{ chk.answer.top_level|join(', ') or '(none)' }}</span></div>
+      <div class="s1d-kv"><b>Row keys</b><span class="mono">{{ chk.answer.row_keys|join(', ') or '(no rows found under rows_path)' }}</span></div>
+      {% if chk.answer.sample %}
+      <div class="s1d-kv"><b>First row</b><span class="mono">{% for k, v in chk.answer.sample.items() %}{{ k }} = {{ v }}<br>{% endfor %}</span></div>
+      <p class="s1d-hint">Values about the caller (phone numbers, names, recordings, notes) read <b>[masked]</b>: the key names are what this page is for.</p>
+      {% endif %}
+    {% else %}
+      <p class="empty">{% if chk.configured %}The endpoint did not answer with something readable; the error above says what happened.{% else %}Set the key and the origin first.{% endif %}</p>
+    {% endif %}
+  </div>
+</div>
+
+{% with unread=unread, documented=documented %}
+  {% include "_reports_unread_fields.html" %}
+{% endwith %}
+{% endblock %}

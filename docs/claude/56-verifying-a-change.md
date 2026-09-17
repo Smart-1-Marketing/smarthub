@@ -751,6 +751,12 @@ python3 test_reports_groundtruth.py # the GroundTruth pull, whose key arrived
                                    #   person confirms, the key sent nowhere
                                    #   until the origin is named, visits under
                                    #   their own name and on the client's page
+python3 test_reports_callrail.py   # the CallRail pull: call tracking as
+                                   #   outcomes, placeholders a person
+                                   #   confirms, the key sent nowhere until
+                                   #   the origin is named, calls by source
+                                   #   under their own name and a Phone
+                                   #   calls tile on the client's page
 python3 test_reports_amazon_dsp.py # the native Amazon DSP pull and the
                                    #   connection behind it: five claims told
                                    #   apart rather than one "connected", one

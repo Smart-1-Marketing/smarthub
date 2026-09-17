@@ -65,15 +65,18 @@ PLATFORM_LABELS = {
     "amazon_sa": "Amazon Ads",
     "amazon_dsp": "Streaming TV (Amazon)",
     "suite": "Smart 1 Suite",
+    "callrail": "Call Tracking",
 }
 
 # Which platforms report a completion, and what a completion is there.
 COMPLETION = {"ttd": "video", "stackadapt": "video", "amazon_dsp": "video", "audiogo": "audio"}
 
 # Which platforms report no conversion at all -- read off their own field
-# maps: groundtruth_map.py and audiogo_map.py both carry ``"conversions":
-# None``, and the Amazon DSP pull writes none on purpose (an Amazon purchase
-# is a storefront metric and rides in extras under its own name).
+# maps: groundtruth_map.py, audiogo_map.py and callrail_map.py all carry
+# ``"conversions": None`` (a phone call is filed under its own name, never
+# as a conversion), and the Amazon DSP pull writes none on purpose (an
+# Amazon purchase is a storefront metric and rides in extras under its own
+# name).
 #
 # The fact table cannot hold the difference. ``conversions`` defaults to zero
 # and there is no "not reported", so a platform that reports none files a
@@ -93,7 +96,7 @@ COMPLETION = {"ttd": "video", "stackadapt": "video", "amazon_dsp": "video", "aud
 # test_reports_public.py holds this set against each platform's own
 # declaration, so a map that starts carrying conversions fails there rather
 # than quietly printing dashes over real figures.
-NO_CONVERSIONS = {"amazon_dsp", "audiogo", "groundtruth"}
+NO_CONVERSIONS = {"amazon_dsp", "audiogo", "groundtruth", "callrail"}
 
 
 def _reports_conversions(f: dict) -> bool:
@@ -313,10 +316,11 @@ def build(link, period: str, today: date | None = None) -> dict:
     camp: dict[tuple, dict] = {}
     # Smart 1 Suite rows are OUTCOMES (leads, bookings), not delivery: they
     # feed the leads tile and never draw a zero-impression bar, a table row
-    # or an investment line.
+    # or an investment line. CallRail rows (phone calls by source) are the
+    # same kind of thing and feed the calls tile the same way.
     suite_leads = sum(int(f["leads"] or 0) for f in facts if f["platform"] == "suite")
     for f in facts:
-        if f["platform"] == "suite":
+        if f["platform"] in store.OUTCOME_PLATFORMS:
             continue
         product, _set = _product_of(f, labels)
         p = prod.setdefault(product, {"impressions": 0, "clicks": 0, "conversions": Decimal(0),
@@ -414,6 +418,15 @@ def build(link, period: str, today: date | None = None) -> dict:
         visits = sum(int(f["extras"].get("visits") or 0) for f in visited)
         tiles.append({"key": "visits", "label": "Store visits", "value": visits,
                       "display": compact(visits)})
+    # Phone calls: what a call-tracking row is, carried in extras under its
+    # own name by the CallRail pull. Gated on a row that actually carries a
+    # count, the visits tile's own rule, and never a conversion.
+    called = [f for f in facts if f["platform"] == "callrail"
+              and isinstance(f.get("extras"), dict) and f["extras"].get("calls") is not None]
+    if called:
+        calls = sum(int(f["extras"].get("calls") or 0) for f in called)
+        tiles.append({"key": "calls", "label": "Phone calls", "value": calls,
+                      "display": compact(calls)})
     if "suite" in period_platforms:
         tiles.append({"key": "leads", "label": "Leads & bookings", "value": suite_leads,
                       "display": compact(suite_leads)})

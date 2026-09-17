@@ -325,6 +325,11 @@ class Settings:
     # spelling set on Render -- GROUND_TRUTH_API, underscore and all -- and
     # no GROUNDTRUTH_API_KEY twin: ALIASES is only spellings in use.
     groundtruth_key: str = field(default_factory=lambda: _s("GROUND_TRUTH_API"))
+    # CallRail, for the reports module's native call-tracking pull
+    # (modules/reports/callrail.py reads it at call time through _s()).
+    # One spelling, CALLRAIL_API_KEY, and no CALLRAIL_KEY twin: ALIASES is
+    # only spellings in use.
+    callrail_key: str = field(default_factory=lambda: _s("CALLRAIL_API_KEY"))
     # Amazon Ads, for Smart 1 Ads' connection and the reports module's native
     # Amazon DSP pull (modules/ads_builder/amazon_ads.py reads these at call
     # time through _s()). Exactly the spellings set on Render: AMAZON_ADS_ is
@@ -719,6 +724,10 @@ class Settings:
                 "GROUND_TRUTH_API — the reports module's native pull of geofencing campaigns. The API "
                 "origin (GROUND_TRUTH_API_BASE) and the field map are confirmed from /reports/groundtruth-check; "
                 "the key is sent nowhere until the origin is set."),
+            row("CallRail", bool(self.callrail_key), False,
+                "CALLRAIL_API_KEY — the reports module's native pull of a client's phone calls by "
+                "source. The API origin (CALLRAIL_API_BASE) and the field map are confirmed from "
+                "/reports/callrail-check; the key is sent nowhere until the origin is set."),
             row("Amazon Ads", bool(self.amazon_ads_client_id and self.amazon_ads_client_secret
                                     and self.amazon_dsp_entity_id), False,
                 "AMAZON_ADS_CLIENT_ID / AMAZON_ADS_CLIENT_SECRET / AMAZON_DSP_ENTITY_ID — Smart 1 Ads "

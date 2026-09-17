@@ -59,6 +59,7 @@ PRODUCTS: tuple[str, ...] = (
     "Website",
     "Creative",
     "Smart 1 Suite",
+    "Call Tracking",
 )
 
 # Rate-card category -> product. Every media category on hub/rate_card.py
@@ -104,6 +105,7 @@ DEFAULT_PRODUCT_FOR_PLATFORM: dict[str, str] = {
     "amazon_sa": "Amazon Ads",
     "amazon_dsp": "Streaming TV",
     "suite": "Smart 1 Suite",
+    "callrail": "Call Tracking",
 }
 
 # What a Google Ads campaign is filed under from the channel type Google

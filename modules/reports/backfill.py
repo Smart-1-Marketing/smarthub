@@ -60,6 +60,7 @@ PULLS = {
     "audiogo": ("audiogo", "today_days"),
     "bing": ("bing", "today_days"),
     "groundtruth": ("groundtruth", "today_days"),
+    "callrail": ("callrail", "today_days"),
     "ttd": ("ttd", "window"),
 }
 NOT_WIRED = {
