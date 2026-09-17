@@ -109,6 +109,12 @@ def get_client():
     return jsonify(ok=True, client=store.public_client(name), configuration=yt.status(), csrf=csrf())
 
 
+@bp.post("/api/optimization")
+def optimization():
+    from .optimization import scan
+    return jsonify(ok=True, **scan(name_from(body())))
+
+
 @bp.post("/api/channels")
 def add_channel():
     data = body()

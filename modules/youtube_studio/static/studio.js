@@ -10,6 +10,8 @@
   $('channelUrl').value=new URLSearchParams(location.search).get('channel')||'';
   let messageVersion=0;
   function message(text,error=false){messageVersion++;$('ytMessage').textContent=text;$('ytMessage').className=error?'error':'';}
+  function fmt(v){return v==null?'Unavailable':new Intl.NumberFormat().format(v);}
+  function runningLabel(channel){return !channel.analytics_available?'Unknown':channel.running_now?'Recent activity':'No recent views';}
   async function api(path,data,form=false){
     const options=data?{method:'POST',headers:{'X-YouTube-CSRF':csrf},body:data}:{};
     if(data&&!form){options.headers['Content-Type']='application/json';options.body=JSON.stringify({client,...data});}
@@ -48,6 +50,7 @@
     if(current.channels.length===1)$('draftChannel').value=current.channels[0].id;
     $('channelList').innerHTML=current.channels.length?current.channels.map(c=>`<article class="yt-card" data-channel="${esc(c.id)}"><div class="yt-channel-head"><div><h2>${esc(c.title)}<span class="yt-badge ${c.connected?'connected':''}">${c.connection_error?'Reconnect required':c.connected?'Connected for management':'Linked · owner access needed'}</span></h2><a href="${esc(c.url)}" target="_blank" rel="noopener">Open channel ↗</a></div></div><p class="yt-muted">${c.statistics?`${esc(c.statistics.hiddenSubscriberCount?'Subscribers hidden':(c.statistics.subscriberCount??'Unavailable')+' subscribers')} · ${esc(c.statistics.videoCount??'Unavailable')} videos · ${esc(c.statistics.viewCount??'Unavailable')} views`:'Public statistics have not been loaded.'}${c.refreshed_at?' · Refreshed '+esc(new Date(c.refreshed_at*1000).toLocaleString()):''}</p><div class="yt-actions"><button data-action="connect">Create access link</button><button data-action="refresh" class="secondary">Refresh & review</button>${c.connected?'<button data-action="analytics" class="secondary">28-day results</button><button data-action="playlist" class="secondary">Create playlist</button><button data-action="disconnect" class="secondary">Disconnect Hub access</button>':''}</div>${c.review?`<p class="yt-muted">${esc(c.review.note)}</p>${c.review.findings.length?c.review.findings.map(f=>`<div class="yt-review"><b>${esc(f.title)}</b><p>${esc(f.detail)}</p></div>`).join(''):'<p>No issues were found by the limited metadata checks.</p>'}`:''}<details><summary>Recent videos (${(c.videos||[]).length})</summary>${(c.videos||[]).map(v=>`<div class="yt-row"><a href="${esc(v.url)}" target="_blank" rel="noopener">${esc(v.title)}</a><p class="yt-muted">${esc(v.statistics?.viewCount??'Unavailable')} views</p>${c.connected?`<button data-action="improve" data-video="${esc(v.id)}" class="secondary">Improve video details</button><button data-action="thumbnail" data-video="${esc(v.id)}" class="secondary">Add thumbnail</button><button data-action="captions" data-video="${esc(v.id)}" class="secondary">Add captions</button>`:''}</div>`).join('')}</details></article>`).join(''):'<article class="yt-card"><h2>No channel linked yet</h2><p>Add a public channel or create an owner access link to get started.</p></article>';
     renderDrafts();renderLaunch(current.launch);
+    $('optimizationOutput').textContent='Run a scan to compare the linked channels.';
   }
   function renderDrafts(){
     $('draftList').innerHTML=current.drafts.length?current.drafts.map(d=>`<article class="yt-card" data-draft="${esc(d.id)}"><h3>${esc(d.title)}<span class="yt-badge">${esc(d.status.replaceAll('_',' '))}</span></h3><p>${esc(d.description)}</p>${d.review_note?`<p class="yt-note">Review: ${esc(d.review_note)}</p>`:''}${d.video_url?`<p><a href="${esc(d.video_url)}" target="_blank" rel="noopener">Check video playback in YouTube ↗</a></p>`:''}${d.publish_at?`<p>Scheduled: ${esc(new Date(d.publish_at).toLocaleString())}</p>`:''}<div class="yt-actions">${['draft','changes_requested'].includes(d.status)?'<button data-draft-action="edit" class="secondary">Edit</button><button data-draft-action="review" class="secondary">Customer review link</button><button data-draft-action="approve">Approve details</button>':''}${d.status==='approved'?'<label>Finished video (up to 256 MB)<input type="file" accept="video/mp4,video/quicktime,video/webm" data-file></label><button data-draft-action="upload">Upload privately</button>':''}${['uploading','upload_uncertain'].includes(d.status)?'<button data-draft-action="status">Check upload status</button>':''}${['uploaded','publishing'].includes(d.status)?'<button data-draft-action="publish">Publish now</button><label>Or schedule (your local time)<input type="datetime-local" data-schedule></label><button data-draft-action="schedule" class="secondary">Schedule</button>':''}</div></article>`).join(''):'<p>No drafts saved for this client.</p>';
@@ -63,6 +66,26 @@
   $('searchForm').onsubmit=e=>{e.preventDefault();run(e.submitter,async()=>{needClient();const data=await api('search',{query:$('searchQuery').value});$('searchResults').innerHTML=data.channels.map(c=>`<div class="yt-row"><b>${esc(c.title)}</b><p>${esc(c.description)}</p><a href="${esc(c.url)}" target="_blank" rel="noopener">Check channel ↗</a> <button data-add="${esc(c.id)}">Add to client</button></div>`).join('')||'<p>No channels found.</p>';message('Check the channel identity before adding it.');});};
   $('searchResults').onclick=e=>{const b=e.target.closest('[data-add]');if(b)run(b,async()=>{await api('channels',{url:b.dataset.add});await load();});};
   $('connectNew').onclick=e=>run(e.currentTarget,()=>invite());
+  async function refreshOptimization(){
+    const panel=$('optimizationOutput');
+    if(!panel||!current)return;
+    if(!current.channels.length){
+      panel.innerHTML='<p>No linked channels yet for this client.</p>';
+      return;
+    }
+    const scanClient=client; const state=await api('optimization',{}); if(client!==scanClient)return;
+    if(!Array.isArray(state.channels)){
+      panel.innerHTML='<p>Could not load optimization stats.</p>';
+      return;
+    }
+    if(!state.channels.length){
+      panel.innerHTML='<p>No channels were available for optimization.</p>';
+      return;
+    }
+    const selected=state.selected_channel_id||'';
+    panel.innerHTML=`<h3>Accounts and stats</h3><p>Seven-day window ends two days ago (UTC). Analytics may be delayed; activity does not confirm live advertising.</p><div class="yt-table-wrap"><table><thead><tr><th>Channel</th><th>Activity</th><th>Recent 7d views</th><th>Recent watch (mins)</th><th>Net subs (7d)</th><th>Latest activity</th><th>Choose</th></tr></thead><tbody>${state.channels.map(c=>`<tr class="${c.id===selected?'yt-selected':''}"><td><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.title)}</a></td><td><span class="yt-badge ${c.running_now?'yt-badge-running':'yt-badge-idle'}">${runningLabel(c)}</span></td><td>${fmt(c.views_last_7d)}</td><td>${fmt(c.watch_minutes_last_7d)}</td><td>${fmt(c.subscribers_net_last_7d)}</td><td>${esc(c.latest_activity_day||'Unavailable')}${c.running_note?`<div class="yt-muted">${esc(c.running_note)}</div>`:''}</td><td>${c.connected?`<button type="button" class="secondary" data-use-channel="${esc(c.id)}">Use this channel</button>`:'<span class="yt-muted">Connect first</span>'}</td></tr>`).join('')}</tbody></table></div>${state.ai_recommendation||state.recommendation?`<article class="yt-note"><h3>${state.ai_enabled?'AI recommendation':'Activity-based recommendation (AI unavailable)'}</h3><p>${esc((state.ai_recommendation||state.recommendation).reason||'Pick a channel to focus optimization work.')}</p>${(state.ai_recommendation||state.recommendation).next_steps?.length?`<ol>${(state.ai_recommendation||state.recommendation).next_steps.slice(0,3).map(s=>`<li>${esc(s)}</li>`).join('')}</ol>`:''}</article>`:''}`;
+    const rec=state.selected_channel_id; if(rec&&!$('draftId').value)$('draftChannel').value=rec;
+  }
   $('channelList').onclick=e=>{const b=e.target.closest('[data-action]');if(!b)return;const cid=b.closest('[data-channel]').dataset.channel;run(b,async()=>{
     if(b.dataset.action==='connect')return invite(cid);
     if(b.dataset.action==='disconnect'){if(!confirm('Remove Smart Hub’s saved access to this channel? The channel and its videos remain on YouTube.'))return;await api('disconnect',{channel_id:cid});await load();return;}
@@ -100,6 +123,8 @@
   });};
   function renderLaunch(plan){if(!plan?.about)return;$('launchServices').value=plan.services||'';$('launchAudience').value=plan.audience||'';$('launchWebsite').value=plan.website||'';$('launchPlan').innerHTML=`<h3>About the channel</h3><div class="yt-copy">${esc(plan.about)}</div><h3>Suggested playlists</h3><ul>${plan.playlists.map(p=>`<li>${esc(p)}</li>`).join('')}</ul><h3>First month</h3>${plan.calendar.map(w=>`<div class="yt-row"><b>Week ${esc(w.week)}: ${esc(w.topic)}</b><p>${esc(w.brief)}</p></div>`).join('')}<h3>Launch checklist</h3><ol>${plan.checklist.map(i=>`<li>${esc(i)}</li>`).join('')}</ol><a href="https://www.youtube.com/create_channel" target="_blank" rel="noopener">Create the channel in YouTube ↗</a>`;}
   $('launchForm').onsubmit=e=>{e.preventDefault();run(e.submitter,async()=>{needClient();const d=await api('launch',{services:$('launchServices').value,audience:$('launchAudience').value,website:$('launchWebsite').value});renderLaunch(d.plan);message('Launch plan saved to this client.');});};
+  $('optimizationOutput').addEventListener('click',e=>{const button=e.target.closest('[data-use-channel]');if(!button||!current||!button.dataset.useChannel)return;$('draftChannel').value=button.dataset.useChannel;tab('content');message('Channel selected for optimization.');});
+  $('optimizationRun').onclick=e=>run(e.currentTarget,async()=>{needClient();await refreshOptimization();message('Optimization scan complete.');});
   $('loadOpportunities').onclick=e=>run(e.currentTarget,async()=>{const d=await api('opportunities');$('opportunityList').innerHTML=d.opportunities.map(o=>`<div class="yt-row"><a href="/tools/youtube/?client=${encodeURIComponent(o.client)}">${esc(o.client)}</a><p>${esc(o.action)} · ${esc(o.channel)}</p></div>`).join('')||'<p>No saved opportunities yet. Connect and review client channels to populate this list.</p>';message('Opportunity queue refreshed.');});
   if($('clientName').value)run(null,async()=>{await load();message('Client opened.');});
 })();

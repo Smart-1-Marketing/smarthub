@@ -187,6 +187,8 @@ check("Google Ads is not offered as a tickbox", 'value="ads"' not in html)
 qa_inactive = composed.get("/tools/google-access/qa-inactive/")
 check("a live tool under this prefix is not swallowed by the catch-all",
       qa_inactive.status_code == 200, qa_inactive.status_code)
+check("the inactive QA route serves its own screen",
+      "Inactive GA" in qa_inactive.get_data(as_text=True))
 stale_path = composed.get("/tools/google-access/retired-link/")
 check("a genuinely stale Google Access path goes to the tool home",
       stale_path.status_code in (301, 302), stale_path.status_code)
