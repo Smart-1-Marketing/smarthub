@@ -162,7 +162,7 @@ def index():
         binding=store.binding(),
         markups=[m for m in store.markups()
                  if m["markup"] is not None or m["cpm"] is not None],
-        budgets=len(store.budget_lines(limit=1000)),
+        budgets=store.budget_line_count(),
         clients=store.clients_with_campaigns(),
         native=_native_status(),
         rate_card=products.rate_card_products(),
@@ -719,6 +719,7 @@ def markup_save():
 def budgets():
     limit = clamp_int(request.args.get("limit"), 200, 1, 1000)
     return render_template("reports_budgets.html", rows=store.budget_lines(limit=limit),
+                           total=store.budget_line_count(),
                            platforms=[(p, store.platform_label(p)) for p in store.PLATFORMS],
                            error=request.args.get("error", ""),
                            saved=request.args.get("saved", ""))

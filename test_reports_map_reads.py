@@ -1,9 +1,13 @@
-"""How the campaign map is read: by client, by campaign key, and never by
+"""How the reports store is read: by client, by campaign key, and never by
 sweeping a capped global list.
 
     python3 test_reports_map_reads.py
 
 No pytest, no new dependencies, a throwaway SQLite reports database.
+
+One defect class, held in one place: a capped global read filtered in
+Python. It hit the campaign map and the budget book the same way, and the
+guard against it is the same guard.
 
 Every mapping read used to go through ``store.mapped_campaigns(limit=N)``,
 which orders by ``mapped_at`` descending and truncates. Filtering that
@@ -28,10 +32,16 @@ What it holds:
     dedupes, and ignores a malformed key rather than throwing the batch;
   * ``pending_mappings`` surfaces the OLDEST waiting item -- a queue whose
     oldest items fall off it is a queue nobody can finish;
+  * the budget book has the same shape and a worse consequence: a line
+    filtered out of a capped ``budget_lines()`` is not wrong on the pacing
+    board, it is ABSENT from it, and a line nobody sees is a line nobody
+    paces. ``budget_lines_for``, ``all_budget_lines`` and
+    ``budget_line_count`` answer it, and a count is counted in SQL rather
+    than ``len()``-ed over a capped read;
   * the guard: no client-scoped or by-key reader may reach
-    ``mapped_campaigns`` at all. ``mapped_campaigns`` stays, bounded, for
-    the one screen that wants recent activity; every reader that filters
-    is asserted here to raise if it touches it.
+    ``mapped_campaigns`` or ``budget_lines`` at all. Both stay, bounded,
+    for the screens that page; every reader that filters is asserted here
+    to go through the uncapped readings instead.
 """
 import os
 import shutil
@@ -219,25 +229,96 @@ check("pending_count agrees with the queue a person can actually reach",
       (store.pending_count(), len(store.pending_mappings())), (1, 1))
 
 
+# ------------------------------------------------------- the budget book
+section("The budget book: same shape, and the line goes ABSENT rather than wrong")
+
+# The oldest client's line is filed FIRST, then a dozen newer ones.
+L_OLD = store.add_budget_line(client=OLD, client_name="Oldest Co", product="Streaming TV",
+                              monthly_budget="3000", sold_amount="4500", owner="Erik",
+                              flight_start="2026-09-01", flight_end="2026-12-31")
+for i in range(FILLER):
+    store.add_budget_line(client=f"d:bfiller{i}.test", client_name=f"B filler {i}",
+                          product="Paid Search", monthly_budget="100")
+L_PAUSED = store.add_budget_line(client=OLD, client_name="Oldest Co", product="Paid Search",
+                                 monthly_budget="500", status="paused")
+_db = store.SessionLocal()
+try:
+    _base = datetime(2026, 2, 1, 9, 0, 0)
+    for _i, _b in enumerate(_db.query(store.BudgetLine)
+                              .order_by(store.BudgetLine.id.asc()).all()):
+        _b.created_at = _base + timedelta(minutes=_i)
+    _db.commit()
+finally:
+    _db.close()
+
+capped_b = store.budget_lines(limit=CAP)
+check("a capped global read of the book returns exactly the cap", len(capped_b), CAP)
+check("...and the oldest client's line is not in it",
+      L_OLD.id in {b["id"] for b in capped_b}, False)
+check("budget_lines_for returns it anyway, however old",
+      sorted(b["id"] for b in store.budget_lines_for(OLD)), sorted([L_OLD.id, L_PAUSED.id]))
+check("...and active_only leaves the paused one out",
+      [b["id"] for b in store.budget_lines_for(OLD, active_only=True)], [L_OLD.id])
+check("a string argument is one client",
+      [b["client"] for b in store.budget_lines_for(OLD, active_only=True)], [OLD])
+check("no keys is no rows, not every row", store.budget_lines_for([]), [])
+check("all_budget_lines is the whole book, uncapped",
+      len(store.all_budget_lines()), FILLER + 2)
+check("...and active_only drops the paused line and nothing else",
+      len(store.all_budget_lines(active_only=True)), FILLER + 1)
+check("the count is counted in SQL, not len()-ed over a capped read",
+      (store.budget_line_count(), store.budget_line_count(active_only=True)),
+      (FILLER + 2, FILLER + 1))
+check("...so it disagrees with the capped read, which is the whole point",
+      store.budget_line_count() > len(store.budget_lines(limit=CAP)))
+
+# A row written before the status column existed reads active: nothing else
+# could have written a status then. active_only must honor that or it drops
+# every line filed before that migration.
+_db = store.SessionLocal()
+try:
+    _b = _db.get(store.BudgetLine, L_PAUSED.id)
+    _b.status = None
+    _db.commit()
+finally:
+    _db.close()
+check("a line predating the status column counts as active",
+      L_PAUSED.id in {b["id"] for b in store.all_budget_lines(active_only=True)})
+check("...through budget_lines_for too",
+      sorted(b["id"] for b in store.budget_lines_for(OLD, active_only=True)),
+      sorted([L_OLD.id, L_PAUSED.id]))
+_db = store.SessionLocal()
+try:
+    _b = _db.get(store.BudgetLine, L_PAUSED.id)
+    _b.status = "paused"
+    _db.commit()
+finally:
+    _db.close()
+
+
 # ------------------------------------------------------------- the guard
 section("The guard: no filtering reader may reach the capped global list")
 
 _real_mapped_campaigns = store.mapped_campaigns
+_real_budget_lines = store.budget_lines
 _reached: list[str] = []
 
 
-def _spy(*a, **kw):
-    """Counts rather than raises. pacing._overlay_pending catches every
-    exception on purpose -- a board that cannot count the pending ones
-    still draws the pacing -- so a guard that raises would be swallowed
-    there and the test would pass on the broken code."""
-    _reached.append("mapped_campaigns")
-    return _real_mapped_campaigns(*a, **kw)
+def _spy(name, real):
+    """Counts rather than raises. pacing._overlay_pending and the cost
+    report both catch every exception on purpose -- a board that cannot
+    count the pending ones still draws the pacing -- so a guard that raised
+    would be swallowed there and the test would pass on the broken code."""
+    def _wrapped(*a, **kw):
+        _reached.append(name)
+        return real(*a, **kw)
+    return _wrapped
 
 
 def guarded(label, fn):
     _reached.clear()
-    store.mapped_campaigns = _spy
+    store.mapped_campaigns = _spy("mapped_campaigns", _real_mapped_campaigns)
+    store.budget_lines = _spy("budget_lines", _real_budget_lines)
     try:
         fn()
     except Exception as exc:                            # noqa: BLE001 - report it as itself
@@ -245,13 +326,10 @@ def guarded(label, fn):
         return
     finally:
         store.mapped_campaigns = _real_mapped_campaigns
-    check(label, "reached mapped_campaigns" if _reached else "no capped read",
+        store.budget_lines = _real_budget_lines
+    check(label, f"reached {', '.join(sorted(set(_reached)))}" if _reached else "no capped read",
           "no capped read")
 
-
-store.add_budget_line(client=OLD, client_name="Oldest Co", product="Streaming TV",
-                      monthly_budget="3000", sold_amount="4500", owner="Erik",
-                      flight_start="2026-09-01", flight_end="2026-12-31")
 
 _pacing_rows = []
 guarded("pacing.compute reads each client's mappings by client",
@@ -262,9 +340,15 @@ guarded("client_card.summary reads by client",
         lambda: client_card.summary(["Oldest Co"], today=TODAY))
 guarded("normalize's sync log reads by campaign key",
         lambda: normalize._log_clients({("ttd", "old", "c-old")}, 1, 5, "scheduler"))
+guarded("the cost report reads the whole book uncapped",
+        lambda: pacing.cost(today=TODAY))
+guarded("client_card's key index reads the whole book uncapped",
+        lambda: client_card._filed())
 
 check("mapped_campaigns is still there, bounded, for the recent-activity screen",
       len(store.mapped_campaigns(limit=3)), 3)
+check("...and budget_lines, bounded, for the page that pages",
+      len(store.budget_lines(limit=3)), 3)
 
 
 # --------------------------------------------------- what the board prints

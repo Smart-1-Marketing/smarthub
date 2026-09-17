@@ -1232,3 +1232,33 @@ spy** and asserts no filtering reader reaches it. A spy rather than a raise
 because `pacing._overlay_pending` catches every exception on purpose — a guard
 that raised would be swallowed there and the test would pass on the broken
 code.
+
+**The same cap sat on the budget book, where the consequence is absence
+rather than a wrong number.** `store.budget_lines(limit=N)` orders by
+`created_at` descending and truncates, and `pacing.compute`,
+`client_card.summary`, `client_card._filed`, `v2_tools.client_performance`,
+`budget_lines_for` and `budget_lines_named` all filtered its result in Python.
+A budget line is what *puts* a row on the pacing board, so a truncated line
+does not pace wrongly — it is **not on the board at all**, and a line nobody
+sees is a line nobody paces. Reproduced: with the cap reached, the oldest
+client's sold, funded, spending Streaming TV line vanished from
+`pacing.compute` entirely while every newer filler line stayed.
+
+Two counts went with it. `/reports` printed
+`len(store.budget_lines(limit=1000))` in the "Budget lines" tile, so past 1000
+the tile would have read `1000` forever; `/reports/budgets` printed
+`rows|length` as its heading, which past the page size is the *page size*
+printed as the book. Both are the house rule — never print a figure this Hub
+did not measure — and both now go through `store.budget_line_count()`, counted
+in SQL, with the budgets page saying "Showing the newest N" when it is showing
+fewer than the total.
+
+`store.budget_lines_for(clients, active_only=)` filters in the database for one
+key or many, `all_budget_lines(active_only=)` is the uncapped read for the four
+callers that genuinely need every line, and `budget_lines(limit=N)` stays for
+the page that pages. `_active()` writes the active filter once, and it treats a
+**NULL** status as active: a row written before that column existed is active
+because nothing else could have written a status then, and `status == 'active'`
+alone would have dropped every line filed before that migration — a second
+silent-absence bug inside the fix for the first. `test_reports_map_reads.py`
+asserts that case directly.

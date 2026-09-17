@@ -222,8 +222,12 @@ def compute(today: date | None = None, client: str | None = None) -> list[dict]:
     client's lines -- the staff client page's reading, so that page and
     the board cannot disagree about a line."""
     today = today or date.today()
-    lines = [b for b in store.budget_lines(limit=5000) if (b.get("status") or "active") == "active"
-             and (client is None or b["client"] == client)]
+    # Filtered in the database, uncapped. A global read capped at N and
+    # filtered here drops the OLDEST lines first, so a sold, funded, spending
+    # line of the longest-standing client is not wrong on this board -- it is
+    # ABSENT from it, and a line nobody sees is a line nobody paces.
+    lines = (store.budget_lines_for(client, active_only=True) if client is not None
+             else store.all_budget_lines(active_only=True))
     if not lines:
         return []
     month_start = today.replace(day=1)
@@ -464,7 +468,7 @@ def cost(month: str | None = None, today: date | None = None) -> dict:
     days_in_month = (rng["month_end"] - rng["start"]).days + 1
     days_elapsed = (rng["end"] - rng["start"]).days + 1
     try:
-        lines = store.budget_lines(limit=5000)
+        lines = store.all_budget_lines()
         seen_clients = store.clients_with_campaigns()
     except Exception as exc:                        # noqa: BLE001 - the store refused
         return _cost_unmeasured(rng, today, f"the reports database could not be read "

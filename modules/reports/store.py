@@ -1049,8 +1049,46 @@ def facts_for(client: str, start: date, end: date) -> list[dict]:
         db.close()
 
 
-def budget_lines_for(client: str) -> list[dict]:
-    return [b for b in budget_lines(limit=5000) if b["client"] == client]
+def budget_lines_for(clients, *, active_only: bool = False) -> list[dict]:
+    """Every budget line filed under these client keys, filtered IN THE
+    DATABASE. One key or many.
+
+    ``budget_lines()`` takes a global limit and orders by ``created_at``
+    descending, so filtering its result by client drops that client's OLDEST
+    lines once the book passes the cap -- and the oldest line of the
+    longest-standing client is the one somebody has been pacing for a year.
+    On the pacing board that line does not go wrong, it goes ABSENT: a sold,
+    funded, spending line simply is not on the board, and a line nobody can
+    see is a line nobody paces. Reproduced in ``test_reports_map_reads.py``,
+    which holds this whole defect class.
+    """
+    keys = [clients] if isinstance(clients, str) else list(clients or [])
+    keys = [_text(k, 200) for k in keys if _text(k, 200)]
+    if not keys:
+        return []
+    return _budget_rows(lambda q: _active(q, active_only).filter(BudgetLine.client.in_(keys)))
+
+
+def all_budget_lines(*, active_only: bool = False) -> list[dict]:
+    """The whole book, uncapped -- for the readings that genuinely need every
+    line and would be wrong about one client if they got most of them: the
+    pacing board, the cost report, the client-key index, the name dedupe.
+
+    Bounded by the number of lines sold, which is a number a person writes
+    one at a time; ``budget_line_count()`` is what a screen should print.
+    """
+    return _budget_rows(lambda q: _active(q, active_only))
+
+
+def budget_line_count(*, active_only: bool = False) -> int:
+    """Counted in SQL. A ``len()`` over a capped read is a count that stops
+    at the cap and goes on being printed as the total."""
+    db = SessionLocal()
+    try:
+        q = db.query(func.count()).select_from(BudgetLine)
+        return int(_active(q, active_only).scalar() or 0)
+    finally:
+        db.close()
 
 
 def _same_name(a: str, b: str) -> bool:
@@ -1091,7 +1129,7 @@ def budget_lines_named(name: str) -> list[dict]:
     name = _text(name, 300)
     if not name:
         return []
-    return [b for b in budget_lines(limit=5000) if _same_name(b.get("client_name") or "", name)]
+    return [b for b in all_budget_lines() if _same_name(b.get("client_name") or "", name)]
 
 
 def _map_row(db, m: "CampaignMap") -> dict:
@@ -1812,32 +1850,57 @@ def add_budget_line(*, client: str, product: str, monthly_budget,
         db.close()
 
 
+def _budget_line_row(b: "BudgetLine") -> dict:
+    """One BudgetLine as the dict every screen reads it as."""
+    source = b.source_json if isinstance(b.source_json, dict) else {}
+    return {
+        "id": b.id, "client": b.client, "client_name": b.client_name or "",
+        "product": b.product, "platform": b.platform or "",
+        "platform_label": platform_label(b.platform) if b.platform else "",
+        "monthly_budget": b.monthly_budget,
+        "flight_start": b.flight_start.isoformat() if b.flight_start else "",
+        "flight_end": b.flight_end.isoformat() if b.flight_end else "",
+        "notes": b.notes or "", "created_by": b.created_by or "",
+        "created_at": iso(b.created_at),
+        "manual": bool(source.get("manual")),
+        "sold_amount": b.sold_amount,
+        "owner": b.owner or "",
+        # A row written before the column existed is active: nothing else
+        # could have written a status then.
+        "status": b.status or "active",
+    }
+
+
+def _active(q, active_only: bool):
+    """The active filter, written once. A row predating the status column is
+    active -- so NULL counts, and ``status == 'active'`` alone would drop
+    every line filed before that migration."""
+    if not active_only:
+        return q
+    return q.filter(or_(BudgetLine.status == "active", BudgetLine.status.is_(None)))
+
+
+def _budget_rows(shape) -> list[dict]:
+    db = SessionLocal()
+    try:
+        q = shape(db.query(BudgetLine))
+        rows = q.order_by(BudgetLine.created_at.desc(), BudgetLine.id.desc()).all()
+        return [_budget_line_row(b) for b in rows]
+    finally:
+        db.close()
+
+
 def budget_lines(limit: int = 500) -> list[dict]:
+    """The newest ``limit`` lines across every client -- a BOUNDED read for a
+    screen that pages. Never filter this by client and never ``len()`` it:
+    use ``budget_lines_for``, ``all_budget_lines`` and ``budget_line_count``,
+    none of which can truncate one client's oldest lines away."""
     db = SessionLocal()
     try:
         rows = (db.query(BudgetLine)
                   .order_by(BudgetLine.created_at.desc(), BudgetLine.id.desc())
                   .limit(max(1, int(limit))).all())
-        out = []
-        for b in rows:
-            source = b.source_json if isinstance(b.source_json, dict) else {}
-            out.append({
-                "id": b.id, "client": b.client, "client_name": b.client_name or "",
-                "product": b.product, "platform": b.platform or "",
-                "platform_label": platform_label(b.platform) if b.platform else "",
-                "monthly_budget": b.monthly_budget,
-                "flight_start": b.flight_start.isoformat() if b.flight_start else "",
-                "flight_end": b.flight_end.isoformat() if b.flight_end else "",
-                "notes": b.notes or "", "created_by": b.created_by or "",
-                "created_at": iso(b.created_at),
-                "manual": bool(source.get("manual")),
-                "sold_amount": b.sold_amount,
-                "owner": b.owner or "",
-                # A row written before the column existed is active: nothing
-                # else could have written a status then.
-                "status": b.status or "active",
-            })
-        return out
+        return [_budget_line_row(b) for b in rows]
     finally:
         db.close()
 
