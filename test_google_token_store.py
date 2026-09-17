@@ -175,20 +175,23 @@ class TheImport(unittest.TestCase):
         deployment whose TOKEN_ENCRYPTION_KEY has been rotated must still be
         able to move its rows, because the ciphertext is opaque to the copy."""
         _legacy_file()
-        # The MODULE attribute, not the environment variable. `_fernet()`
-        # reads TOKEN_ENCRYPTION_KEY, which is bound at import -- so setting
-        # the environment here rotates nothing and the check passes over a
-        # copy that decrypts every token, which is what it is written to
-        # catch. Found by breaking the code on purpose and watching this go
-        # on passing.
-        was = gf.TOKEN_ENCRYPTION_KEY
+        # The ENVIRONMENT now, not a module attribute. This used to set
+        # `gf.TOKEN_ENCRYPTION_KEY` and carried a comment explaining why: the
+        # module bound that key at import, so setting the environment rotated
+        # nothing and this check passed over a copy that decrypted every
+        # token. That trap is gone -- `_fernet()` reads hub/keyring.py, which
+        # reads the environment every time -- so the mechanism that was
+        # correct then is the one that silently stops testing anything now.
+        # Found the same way the original was: by breaking the code on purpose
+        # and watching this go on passing.
+        was = os.environ.get("TOKEN_ENCRYPTION_KEY", "")
         try:
-            gf.TOKEN_ENCRYPTION_KEY = Fernet.generate_key().decode()
+            os.environ["TOKEN_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
             self.assertRaises(Exception, gf._fernet().decrypt,
                               Fernet(was.encode()).encrypt(SECRET))
             out = gf.import_legacy()
         finally:
-            gf.TOKEN_ENCRYPTION_KEY = was
+            os.environ["TOKEN_ENCRYPTION_KEY"] = was
         self.assertTrue(out["ran"], out)
         self.assertEqual(out["counts"]["google_accounts"], 1)
         # ...and the rows are readable again once the real key is back.

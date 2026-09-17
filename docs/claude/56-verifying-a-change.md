@@ -925,6 +925,16 @@ which is the only reason it read as fine: **"main is green" was not protecting
 production**, because production was not waiting for it.
 
 The dashboard switch is now *After CI checks pass* — the Render API reports
+**And until 17 September 2026 nothing built the image that deploys.** The gate
+installs `requirements.txt` onto an Ubuntu runner with `setup-python`; the
+service runs the `Dockerfile` — different base, apt packages, Node 20, three
+`npm ci` runs, two TypeScript builds. A grep for `docker` across every workflow
+found only comments about it. There is a path-filtered `image` job now that
+builds it and imports `wsgi` inside it, and `test_ci_gate.py` refuses a
+Dockerfile whose Python version differs from the one CI tests on — which is
+what made the open `3.12 -> 3.14` base bump unassessable. Written up in
+`docs/claude/72`.
+
 `autoDeployTrigger: checksPass` on smart1-hub as of 16 September 2026, checked
 against the live service rather than against `render.yaml`, which is the whole
 point of the paragraph below. So green main protects production again, at the
