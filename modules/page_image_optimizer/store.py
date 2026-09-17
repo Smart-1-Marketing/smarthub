@@ -13,7 +13,7 @@ import shutil
 import threading
 import time
 
-from . import settings
+from . import bytes_store, settings
 from hub import jsonstore
 
 _LOCK = threading.Lock()
@@ -81,6 +81,22 @@ def save_job(job):
 # --------------------------------------------------------------------------- #
 
 def put_bytes(job_id, key, data):
+    """The database first, the disk only if it will not answer.
+
+    These bytes were the last thing in the repo written to the Render disk
+    with no copy anywhere else. The disk is shared by the two gunicorn workers
+    and local to one INSTANCE, so a scan on one instance and a save routed to
+    another answered "The optimized file expired before saving" about a file
+    that had not expired. bytes_store.py carries the whole reasoning.
+
+    The disk write stays as the fallback rather than being deleted. A render
+    that cost a download and real CPU is not thrown away because a backend
+    would not answer -- Fan Radio's rule -- and a per-instance copy is exactly
+    the behaviour this replaces, so a database outage leaves this tool no
+    worse than it was.
+    """
+    if bytes_store.put(job_id, key, data):
+        return key
     path = os.path.join(_job_dir(job_id), key)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as fh:
@@ -89,8 +105,18 @@ def put_bytes(job_id, key, data):
 
 
 def get_bytes(job_id, key):
+    """The database first, then the disk.
+
+    Both halves are needed for the length of one TTL after a deploy: a batch
+    scanned by the previous release has its bytes on the disk and nowhere
+    else, and reading only the table would expire it early -- which is the
+    same message this change exists to stop people seeing.
+    """
     if not _valid_id(job_id) or ".." in key or key.startswith("/"):
         return None
+    found = bytes_store.get(job_id, key)
+    if found is not None:
+        return found
     try:
         with open(os.path.join(_job_dir(job_id), key), "rb") as fh:
             return fh.read()
@@ -100,11 +126,19 @@ def get_bytes(job_id, key):
 
 def drop_job(job_id):
     if _valid_id(job_id):
+        bytes_store.drop(job_id)
         shutil.rmtree(_job_dir(job_id), ignore_errors=True)
 
 
 def sweep():
-    """Delete anything older than the TTL. Cheap, so it runs on every scan."""
+    """Delete anything older than the TTL. Cheap, so it runs on every scan.
+
+    Both stores, because for one TTL after a deploy both hold rows: the table
+    is one indexed DELETE, and the directory walk stays for what the previous
+    release left. Neither raises -- a cleanup that stops a scan is worse than
+    the bytes it was cleaning.
+    """
+    bytes_store.sweep(settings.PAGE_IMAGES_TTL_MINUTES)
     cutoff = time.time() - settings.PAGE_IMAGES_TTL_MINUTES * 60
     try:
         entries = os.listdir(DATA_DIR)

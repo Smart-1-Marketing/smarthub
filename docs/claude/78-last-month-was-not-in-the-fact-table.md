@@ -50,7 +50,7 @@ turn), and pulls one more window for every platform whose `nightly` flag is
 on and which is not complete and has not run that day — `last_day` in the
 ledger, the run's own day, is what "once a night" is counted in. Outside the
 window it says what is waiting. It is on the background lane
-(`docs/claude/75`): a window is a full pull's worth of API calls.
+(`docs/claude/77`): a window is a full pull's worth of API calls.
 
 The History card on the Reports index has, per platform, the oldest day on
 file from any source, how far back the platform's own API has been read, the

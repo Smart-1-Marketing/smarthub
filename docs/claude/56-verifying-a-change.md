@@ -105,6 +105,16 @@ python3 test_io_delivery_lock.py   # the reservation that keeps a duplicate
                                    #   is asked for with a try-lock rather than
                                    #   waited on, so a broken one fails in a
                                    #   second instead of hanging the job
+python3 test_page_image_bytes.py   # the optimizer's scratch bytes, in the database
+                                   #   rather than on one instance: the assertion is
+                                   #   that bytes written against one data directory
+                                   #   read back against a different one, which is a
+                                   #   second instance in the only form a test has it
+python3 test_disk_free_restart.py  # the acceptance criterion as a gate: two real
+                                   #   interpreters, a brand new empty HUB_DATA_DIR
+                                   #   each, one database between them -- so a store
+                                   #   that only works because its rows are still in
+                                   #   a module cache fails here
 python3 test_storage_fallback.py   # what the shared uploader hands back with no
                                    #   Cloudinary: the bytes are kept, but the
                                    #   URL is empty rather than the /hub/assets
@@ -556,7 +566,14 @@ python3 test_commercial_audio.py   # generated sound effects and music: a publis
                                    #   retry that cannot re-spend on either worker, a
                                    #   length derived or not measured, a generation
                                    #   counted apart from a character of speech, and
-                                   #   an effect capped to the shot it sits on
+                                   #   an effect capped to the shot it sits on;
+                                   #   plus the narration's own length: the read
+                                   #   pace actually SENT rather than divided into
+                                   #   an estimate, the take measured off the MP3's
+                                   #   byte count instead of words over 150, and
+                                   #   voice_fits judging that length where one
+                                   #   exists -- the render cuts an over-long read
+                                   #   off at the end, which is where the CTA is
 python3 test_commercial_library.py # what a spot is versus how it is made, the
                                    #   twelve archetypes and what each one needs
 python3 test_commercial_compliance.py # which published rules a spot engages, whose
@@ -586,7 +603,10 @@ python3 test_commercial_wizard.py  # the seven steps, the batch an approval open
                                    #   the client join, the spec check,
                                    #   the QR destination and who owns the scan; the :06,
                                    #   shots inside beats with their grammar, the published
-                                   #   thresholds and whose each is, and the Amazon warning
+                                   #   thresholds and whose each is, and the Amazon warning;
+                                   #   plus the Voice step's fit route, read-only and
+                                   #   surviving a reload, offering the re-read pace
+                                   #   from the one shared radio_spec function
 python3 test_commercial_explainer.py # the bubbles, the per-screen tours, and a
                                    #   walkthrough that drives the page it is on
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file

@@ -80,15 +80,17 @@ WANT = {
     "Coming up": "overview",
 
     "Ad performance": "overview",
-    "Landing pages": "overview",
-    "Google listing": "overview",
-    "YouTube channel": "overview",
-    "Email campaigns": "overview",
+    # Overview is the one-screen summary now; the presence cards, the landing
+    # pages and the audience live with their kin.
+    "Landing pages": "website",
+    "Google listing": "google",
+    "YouTube channel": "social",
+    "Email campaigns": "social",
     "Smart 1 Suite Account": "overview",
     "Pipeline & leads": "overview",
     "Proposals": "overview",
     "Client Notes": "overview",
-    "Target audience": "overview",
+    "Target audience": "creative",
     "Invoices": "billing",
     "Website record": "website",
     "Site Health & Audits": "website",
@@ -395,6 +397,52 @@ check("the primary contact's phone is a tel: link", 'href="tel:' in REC)
 check("the email contact line lives in the Client Info strip, not above the health strip",
       'id="c360EmailInline"' in REC and 'id="c360EmailSummary"' not in REC
       and "function paintEmailLine()" in REC)
+
+# ------------------------------------------------------------------------
+section("7. The bigger improvements: a slim Overview, rail badges, Ends, score, latest note")
+ov = [t for t, k in WANT.items() if k == "overview"]
+check("Overview holds eight cards, not thirteen", len(ov), 8)
+counts_driver = """
+const esc=s=>String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
+const c360RefreshButton=()=>'';
+""" + WARN_SRC + """
+console.log(JSON.stringify(c360WarningCounts([
+  {level:'warn', section:'overview', title:'a'},
+  {level:'bad', section:'billing', title:'b'},
+  {level:'warn', section:'billing', title:'c'},
+  {level:'warn', href:'/seo/x#blogs', title:'goes elsewhere'},
+  {level:'warn', go:'work', title:'d'}],
+  [{level:'warn', section:'overview', title:'No contact on file'}])));
+"""
+cr = subprocess.run(["node", "-"], input=counts_driver, capture_output=True, text=True)
+check("the badge counts run on their own", cr.returncode, 0)
+counts = json.loads(cr.stdout or "{}") if cr.returncode == 0 else {}
+check("findings are counted per rail section, local ones included",
+      counts.get("overview", {}).get("n"), 2)
+check("a section's badge takes the worst level there",
+      counts.get("billing"), {"n": 2, "level": "bad"})
+check("a finding that links to another record counts against no section",
+      "undefined" not in counts and len(counts) == 3)
+check("a `go` key counts like a section", counts.get("work", {}).get("n"), 1)
+check("the rail draws the badges and redraws them when the strip answers",
+      "function paintRailBadges()" in REC and REC.count("paintRailBadges();") >= 2
+      and ".c360-rail .rl .rlb" in REC)
+check("Products & IOs has an Ends column",
+      "<th>Ends</th>" in REC and "const endCell=p=>{" in REC and 'colspan="5"' in REC)
+import hub.record_health as _rh
+m = re.search(r"const C360_ENDING_SOON_DAYS=(\d+);", REC)
+check("...and its renewal window is the health strip's own",
+      int(m.group(1)) if m else None, _rh.ENDING_SOON_DAYS)
+check("both of Knack's date spellings are read",
+      "^(\\d{4})-(\\d{2})-(\\d{2})" in REC and "^(\\d{1,2})\\/(\\d{1,2})\\/(\\d{4})" in REC)
+check("the site score sits beside the screenshots and opens the audit",
+      "c360-score" in REC and "Site score" in REC and "a.href=d.scan_url" in REC)
+SF = (ROOT / "hub" / "scan_facts.py").read_text(encoding="utf-8")
+check("...and the screenshots route carries the score whenever there is a scan",
+      '"score": score,' in SF and '"tier": str(row.get("tier") or ""),' in SF)
+check("the latest note is pinned under the header and opens the notes card",
+      'id="c360LatestNote"' in REC and "c360-latest-note" in REC
+      and "showC360Section('overview'); const c=document.getElementById('c-notes')" in REC)
 check("and the page no longer defines the disclosure renderer",
       "function renderClientIssues" in REC, False)
 check("nor fetches the route that fed it",

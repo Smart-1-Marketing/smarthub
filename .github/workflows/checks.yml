@@ -472,6 +472,33 @@ jobs:
         if: matrix.group == 2
         run: python test_jsonstore.py
 
+      - name: The page optimizer's bytes cross the instance boundary
+        if: matrix.group == 2
+        # The last store on the Render disk with no copy elsewhere. Run twice
+        # because the assertion that matters -- bytes written against one data
+        # directory are readable against a different one -- is only meaningful
+        # against the backend production restores from, and the SQLite run
+        # keeps a checkout with no Postgres honest.
+        env:
+          PAGE_IMAGE_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          python test_page_image_bytes.py
+          env -u PAGE_IMAGE_TEST_DATABASE_URL python test_page_image_bytes.py
+
+      - name: Nothing is lost across two restarts
+        if: matrix.group == 2
+        # The acceptance criterion for taking this service off the Render
+        # disk, as a gate rather than an inference from four suites. Two real
+        # interpreters, a brand new empty HUB_DATA_DIR each time, one database
+        # between them. Run twice because the two backends fail differently:
+        # the SQLite file lives outside both data directories, and Postgres is
+        # what production actually restores from.
+        env:
+          DISK_FREE_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          python test_disk_free_restart.py
+          env -u DISK_FREE_TEST_DATABASE_URL python test_disk_free_restart.py
+
       - name: The shared uploader with no Cloudinary
         if: matrix.group == 2
         # This job has no credentials by design, so it is already running the
@@ -2762,6 +2789,8 @@ jobs:
       # now, and the step holds that it is the SAME function answering: a
       # second copy of the ceiling is how the two tools would start giving one
       # read two rates, which is the state their length menus were already in.
+      # The Commercial Builder asks the same function in `reread` mode --
+      # test_commercial_audio.py and test_commercial_wizard.py hold that half.
       - name: Radio Ad Creator — beds composed, the mix measured off the file
         if: matrix.group == 6
         run: python3 test_radio_ads.py
