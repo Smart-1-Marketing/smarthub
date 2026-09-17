@@ -381,9 +381,13 @@ node test_google_inactive_qa_bulk_ui.js
                                    #   window on the log saying it is one; and
                                    #   Needs Review offering Skip on the rows a
                                    #   skip means something for and no other;
-                                   #   and the bulk check collecting a site per
+                                   #   the bulk check collecting a site per
                                    #   container first, checking only the ones
-                                   #   given an address and naming the blanks
+                                   #   given an address and naming the blanks;
+                                   #   and a per-section filter deciding what a
+                                   #   bulk action touches -- a ticked row it
+                                   #   hides leaves the selection rather than
+                                   #   being deleted out of sight
 python3 test_analytics_ids.py      # two names for one property are not a
                                    #   disagreement: the measurement id Knack
                                    #   holds against the property id Google
