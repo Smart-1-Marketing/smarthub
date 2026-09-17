@@ -452,6 +452,16 @@ jobs:
         if: matrix.group == 2
         run: python test_jsonstore.py
 
+      - name: The shared uploader with no Cloudinary
+        if: matrix.group == 2
+        # This job has no credentials by design, so it is already running the
+        # branch under test: settings.cloudinary_ready is False here exactly as
+        # it is on a checkout that was never given the variable. That branch
+        # returned a /hub/assets/... URL nothing has ever served, and the test
+        # catches it by asking the booted app to route whatever put() hands
+        # back -- which is why this step needs no environment of its own.
+        run: python test_storage_fallback.py
+
       - name: Cross-instance locking tests
         if: matrix.group == 2
         # The lock that stops working the day the service stops having one
