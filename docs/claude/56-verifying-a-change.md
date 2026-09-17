@@ -105,6 +105,11 @@ python3 test_io_delivery_lock.py   # the reservation that keeps a duplicate
                                    #   is asked for with a try-lock rather than
                                    #   waited on, so a broken one fails in a
                                    #   second instead of hanging the job
+python3 test_page_image_bytes.py   # the optimizer's scratch bytes, in the database
+                                   #   rather than on one instance: the assertion is
+                                   #   that bytes written against one data directory
+                                   #   read back against a different one, which is a
+                                   #   second instance in the only form a test has it
 python3 test_disk_free_restart.py  # the acceptance criterion as a gate: two real
                                    #   interpreters, a brand new empty HUB_DATA_DIR
                                    #   each, one database between them -- so a store

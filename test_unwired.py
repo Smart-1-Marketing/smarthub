@@ -124,7 +124,6 @@ ALLOW = {
     # A store that can write but not delete is a store whose next caller
     # writes the delete itself, somewhere else, differently.
     "modules/ads_builder/store.py:latest_share": "share store: the newest live row",
-    "modules/page_image_optimizer/store.py:drop_job": "job store: the delete",
     "modules/proposal_builder/store.py:save_proposal":
         "the retired builder's archive is read-only today; its writer is kept "
         "beside the reader rather than half a store being left behind",
