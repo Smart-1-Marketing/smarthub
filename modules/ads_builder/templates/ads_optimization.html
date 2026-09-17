@@ -89,6 +89,31 @@
 {% block content %}
 <div id="toast" style="display:none"></div>
 
+{# Ask SmartHub reads what THIS sweep already recorded -- it re-analyses
+   nothing, so the chip and the page below it cannot disagree about an
+   account. The URL is built by /assets/ask-recipes.js and is root-absolute,
+   because a relative one resolves under this module's mount and 404s. #}
+{% if ask_chips %}
+<div class="ask-recipes">
+  <span class="ask-recipes-h">Ask SmartHub</span>
+  {% for c in ask_chips %}
+    <a class="ask-recipe-chip" data-recipe="{{ c.key }}"
+       {% if c.client %}data-client="{{ c.client }}"{% endif %}
+       data-period="{{ c.period }}" data-placement="{{ placement }}"
+       title="{{ c.question }}">{{ c.title }}</a>
+  {% endfor %}
+</div>
+<style>
+.ask-recipes{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 14px}
+.ask-recipes-h{font-size:10px;font-weight:700;letter-spacing:.09em;
+  text-transform:uppercase;color:#94a3b8}
+.ask-recipe-chip{border:1px solid #cbd5e1;background:#fff;color:#334155;
+  border-radius:999px;padding:7px 12px;font-size:12px;cursor:pointer;text-decoration:none}
+.ask-recipe-chip:hover{border-color:#1769aa;color:#1769aa}
+</style>
+<script defer src="/assets/ask-recipes.js?v=recipes-1"></script>
+{% endif %}
+
 {% if not status.deploy_ready %}
   <div class="note n-warn">
     <b>Optimization needs the Google Ads connection</b>

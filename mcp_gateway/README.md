@@ -33,11 +33,66 @@ The server uses the current stable `mcp` Python SDK v2 line and supports the SDK
 - `get_client_ga4_summary`
 - `get_client_proposals`
 - `get_client_insertion_orders`
+- `get_client_performance`
+- `get_client_ads_findings`
 
 V2 client-specific tools resolve through SmartHub's canonical identity layer.
 GA4 reports can run only against a property already mapped to that client in
 the durable Google index; an unknown or ambiguous property is refused. Google
 login/token material and internal Suite delivery identifiers are never returned.
+
+### Periods
+
+`get_client_performance` and `get_client_ga4_summary` take a **named** period
+rather than dates: `last_7`, `last_14`, `last_30`, `last_90`, `this_month`,
+`last_month`, `this_quarter`, `last_quarter`, `this_year`, `last_year`, or
+`custom` with ISO `start_date`/`end_date`. `hub/periods.py` resolves the name,
+so no caller -- and no model -- computes a date. Every window is complete days
+(today is excluded) and every result echoes the window it read, with a human
+label, so an answer can say which days it is about. `compare` is
+`previous_period` (the default, always the same number of days),
+`same_period_last_year`, or `none`. An unknown period is refused by name with
+the list of working ones; it is never rounded to the nearest sensible guess.
+
+### `get_client_performance`
+
+One client's campaign table, per-platform and account totals, period-over-period
+deltas, the pacing board's own rows and the prorated margin, from the
+`modules/reports` fact table. Optional exact-match `platform` or `product`
+filter; an unknown value is refused with the vocabulary that would work.
+
+Only **confirmed** campaign mappings reach a figure -- `store.facts_for`'s rule
+for every reader in the Hub -- and pending ones are counted and named in
+`pending_campaigns` so an answer can say what is not in the total. Quarantined
+days in the window are reported. A ratio with no denominator is `null`, never
+`0` and never infinity. `roas` is `null` with a note naming the platform,
+because no sync writes a conversion value today and one computed from
+conversion counts as though they were dollars is a figure this Hub did not
+measure.
+
+The `pacing` block is `pacing.compute(client=)` passed through field for field.
+It is not recomputed here: two readings of one question drift the day either is
+edited, which is the failure `client_view.pacing` records about its own first
+draft.
+
+### `get_client_ads_findings`
+
+What the twice-daily `modules/ads_builder` sweep already recorded for a
+client's Google Ads account -- findings, when it last scanned, and whether that
+reading is current. Account state comes from `hub/ads_status.py`, the same
+function the dashboard card uses. Nothing is re-analysed. `platform="bing"`
+answers *not built*, because an empty finding list from a sweep that never ran
+reads as a clean account.
+
+### Flags
+
+`get_client_performance` and `get_client_ga4_summary` carry a `flags` list and
+the `thresholds` those flags were judged against. The rules live in
+`modules/reports/flags.py` and are computed in Python, never by a model: a
+model asked to judge a significant drop judges differently on two runs of one
+question. Each flag carries a plain-English `text` for a caller to quote
+verbatim. A caller may explain *why* a flag fired; it may not change *whether*
+one did, and it must not add flags of its own.
 
 ## Ask SmartHub
 
@@ -47,6 +102,17 @@ server-side planner can select only from the V2 allowlist above. Account roles
 are re-read on every request; QuickBooks reads are limited to admins, demo mode
 is blocked from spending AI credits, and every question plus underlying tool
 call is written to the activity log.
+
+`hub/ask_recipes.py` is the library of questions the Hub is good at -- the
+chips on `/ask-smarthub`, the dashboard, the reporting hub, Client 360, the
+pacing board and the optimization page. A recipe is a question template, the
+tools that question is about, and rendering guidance for the answer. It is a
+**hint**, never a second allowlist: the planner's catalog is unchanged, the
+recipe's tools ride in the payload as a suggestion, and every planned call is
+re-validated against the caller's role exactly as for a typed question. The
+rendering guidance is appended to the answer prompt and never to the planner's.
+A recipe whose roles cannot reach its own tools fails at import. The recipe key
+is written to the activity row as `recipe=`.
 
 Resources:
 
