@@ -356,6 +356,45 @@ check("the QuickBooks contact can be pulled from the strip",
       "/api/client/profile/qb-sync" in REC)
 check("the creative table's third column has room between its controls",
       'class="c360-cre-acts"' in REC)
+
+# ------------------------------------------------------------------------
+section("6. The quick wins: no alert boxes, no page reloads, real buttons")
+check("no browser alert() box is left on the record", "alert(" in REC, False)
+check("the one page reload left is the Refresh button's fallback with no client",
+      REC.count("location.reload()"), 1)
+na = REC.find("/* ---- c360 notices (lifted")
+nb = REC.find("/* ---- end c360 notices ----")
+NOTICE_SRC = REC[na:nb] if 0 < na < nb else ""
+check("the notice block is marked for lifting", bool(NOTICE_SRC))
+notice_driver = """
+const esc=s=>String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
+""" + NOTICE_SRC + """
+console.log(JSON.stringify({
+  err: c360NoticeHtml('That did not save.'),
+  ok: c360NoticeHtml('Brand guide sent.', 'ok'),
+  escaped: c360NoticeHtml('<b>x</b>'),
+}));
+"""
+notice_run = subprocess.run(["node", "-"], input=notice_driver, capture_output=True, text=True)
+check("the notice block runs on its own", notice_run.returncode, 0)
+nt = json.loads(notice_run.stdout or "{}") if notice_run.returncode == 0 else {}
+check("a failure is an alert-role error card", 'c360-toast err' in nt.get("err", "") and 'role="alert"' in nt.get("err", ""))
+check("a success is a status card", 'c360-toast ok' in nt.get("ok", "") and 'role="status"' in nt.get("ok", ""))
+check("the text is escaped", "&lt;b&gt;x&lt;/b&gt;" in nt.get("escaped", ""))
+check("every notice can be dismissed", 'class="tclose"' in nt.get("err", ""))
+check("QuickBooks attach and detach re-run the Invoices card, not the page",
+      "function loadQbCard()" in REC and REC.count("loadQbCard();") >= 3)
+# An anchor with a pointer cursor and no href cannot be reached from the
+# keyboard. Every control that was one is a button now.
+stray = [m for m in re.findall(r'<a class="(?:gbtn|open-link|btn-primary)[^"]*"([^>]*)>', REC)
+         if "href=" not in m and "c-client-links-open" not in m]
+check("no link-styled control is left without an href", len(stray), 0)
+check("the button forms keep the shared styling",
+      "button.gbtn,button.open-link,button.btn-primary{font-family:inherit;cursor:pointer}" in REC)
+check("the primary contact's phone is a tel: link", 'href="tel:' in REC)
+check("the email contact line lives in the Client Info strip, not above the health strip",
+      'id="c360EmailInline"' in REC and 'id="c360EmailSummary"' not in REC
+      and "function paintEmailLine()" in REC)
 check("and the page no longer defines the disclosure renderer",
       "function renderClientIssues" in REC, False)
 check("nor fetches the route that fed it",

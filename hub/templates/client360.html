@@ -138,6 +138,23 @@ button.c360-nba{width:100%;text-align:left;cursor:pointer;font-family:inherit}
 /* The creative table's third column holds two controls; give them room. */
 .c360-cre-acts{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}
 .c360-cre-acts .gbtn{white-space:nowrap;margin:0}
+/* Inline notices replace the browser's c360Notice() boxes: a failed save or a
+   completed action is said in a corner card that never blocks the page. */
+#c360Toasts{position:fixed;right:16px;bottom:16px;z-index:100003;display:flex;flex-direction:column;gap:8px;max-width:min(420px,calc(100vw - 32px))}
+.c360-toast{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:10px;border:1px solid #dbe4f0;
+  background:#fff;color:#1e293b;font:13px 'Segoe UI',system-ui,sans-serif;box-shadow:0 12px 30px rgba(15,23,42,.18);line-height:1.4}
+.c360-toast.err{border-color:#fecaca;background:#fef2f2;color:#9c2b25}
+.c360-toast.ok{border-color:#bbf7d0;background:#f0fdf4;color:#0a6b3c}
+.c360-toast.info{border-color:#fde68a;background:#fffbeb;color:#7a5b00}
+.c360-toast .tx{flex:1;min-width:0;overflow-wrap:anywhere}
+.c360-toast .tclose{border:0;background:none;color:inherit;font-size:16px;line-height:1;cursor:pointer;padding:0 2px;opacity:.7}
+.c360-toast .tclose:hover{opacity:1}
+/* Controls that used to be anchors with a pointer cursor and no href are
+   buttons now, reachable from the keyboard; the class still styles them. */
+button.gbtn,button.open-link,button.btn-primary{font-family:inherit;cursor:pointer}
+button.gbtn{line-height:normal}
+button.open-link{background:none;border:0;padding:0}
+button.gbtn:disabled,button.open-link:disabled{opacity:.6;cursor:default}
 .c360-industry-edit{display:none;gap:6px;align-items:center;flex-wrap:wrap}
 .c360-industry-edit.on{display:inline-flex}
 .c360-industry-edit select,.c360-industry-edit input{padding:5px 8px;border:1px solid #cbd5e1;border-radius:7px;font:12.5px inherit}
@@ -235,6 +252,29 @@ window.fetch=function(...args){
 /* A source that answered with an error gets said once, with the fix beside
    it: the Refresh button re-runs the record (run()), the same thing a page
    reload does without losing the section that was open. */
+/* ---- c360 notices (lifted and driven in node by test_client360_layout.py) ---- */
+/* One place every "that did not save" and "sent" goes. `kind` is err (the
+   default: most of these are a save that failed), ok, or info. An error
+   stays until closed or 12 seconds; the rest go on their own after 6.
+   Returns the markup so the test can drive it without a browser. */
+function c360NoticeHtml(text, kind){
+  const k=(kind==='ok'||kind==='info')?kind:'err';
+  return '<div class="c360-toast '+k+'" role="'+(k==='err'?'alert':'status')+'">'
+    +'<span class="tx">'+esc(text)+'</span>'
+    +'<button type="button" class="tclose" aria-label="Dismiss" onclick="this.parentNode.remove()">&times;</button></div>';
+}
+function c360Notice(text, kind){
+  if(typeof document==='undefined') return;
+  let host=document.getElementById('c360Toasts');
+  if(!host){ host=document.createElement('div'); host.id='c360Toasts'; document.body.appendChild(host); }
+  const wrap=document.createElement('div');
+  wrap.innerHTML=c360NoticeHtml(text, kind);
+  const el=wrap.firstChild;
+  host.appendChild(el);
+  while(host.children.length>4) host.firstChild.remove();
+  setTimeout(()=>{ if(el.parentNode) el.remove(); }, (kind==='ok'||kind==='info')?6000:12000);
+}
+/* ---- end c360 notices ---- */
 function c360RefreshButton(){
   return '<button type="button" class="c360-refresh" onclick="c360Refresh()">&#8635; Refresh</button>';
 }
@@ -499,13 +539,35 @@ function pick(i){
 }
 
 
+/* The linked email contact used to be its own gray sentence above the
+   health strip, saying much of what the Client Info strip says. It is one
+   item in that strip now: the line is kept on the window so whichever of
+   the two fetches lands second paints it. */
+function paintEmailLine(){
+  var el=document.getElementById('c360EmailInline'); if(!el) return;
+  var line=window.__c360emailLine;
+  if(!line){ el.innerHTML=''; return; }
+  var body=line.href
+    ? '<a href="'+esc(line.href)+'" title="'+esc(line.title||'')+'" style="color:inherit">'+esc(line.text)+'</a>'
+    : '<span title="'+esc(line.title||'')+'">'+esc(line.text)+'</span>';
+  el.innerHTML='<span class="muted" style="margin:0 2px">·</span><span class="'+(line.warn?'':'muted')+'">&#9993; '+body+'</span>';
+}
 function loadClientEmailSummary(client,generation,domain){
+  window.__c360emailLine=null;
+  var href='/client-email?client='+encodeURIComponent(client)+'&domain='+encodeURIComponent(domain||'');
   fetch('/api/client-email/state?client='+encodeURIComponent(client)+'&domain='+encodeURIComponent(domain||'')).then(function(r){if(!r.ok)throw Error('Email contact could not be loaded.');return r.json();}).then(function(b){
-    if(generation!==c360Generation)return;var box=document.getElementById('c360EmailSummary');if(!box)return;
-    if(b.error){box.textContent='Client email: '+b.error;return;}
-    box.textContent=b.linked?'Email contact: '+b.contact.name+' · '+b.contact.email+' · '+b.messages.length+' recent emails available.':'No email contact linked yet. Use Email client & history to select the client’s contact in Smart 1’s GHL account.';
-    if(b.linked&&b.messages.length){var recent=document.createElement('p');recent.textContent='Latest: '+b.messages[0].subject+' · '+b.messages[0].at+' · '+b.messages[0].status;box.appendChild(recent);}
-  }).catch(function(e){if(generation===c360Generation){var box=document.getElementById('c360EmailSummary');if(box)box.textContent=e.message;}});
+    if(generation!==c360Generation)return;
+    if(b.error){window.__c360emailLine={text:'Client email: '+b.error,title:'',href:href}; paintEmailLine(); return;}
+    if(b.linked){
+      var latest=(b.messages&&b.messages.length)?('Latest: '+b.messages[0].subject+' · '+b.messages[0].at+' · '+b.messages[0].status):'No recent emails.';
+      window.__c360emailLine={text:b.contact.name+' · '+b.messages.length+' recent email'+(b.messages.length===1?'':'s'),
+        title:b.contact.email+'. '+latest+' Opens Email client & history.',href:href};
+    }else{
+      window.__c360emailLine={text:'No email contact linked — pick one in Email client & history',
+        title:'Select the client’s contact in Smart 1’s GHL account.',href:href,warn:true};
+    }
+    paintEmailLine();
+  }).catch(function(e){if(generation===c360Generation){window.__c360emailLine={text:e.message,title:'',href:href}; paintEmailLine();}});
 }
 
 function render(g,q){
@@ -584,7 +646,6 @@ function render(g,q){
 
   let html=head
     +'<div id="c360NextAction" hidden></div>'
-    +'<div id="c360EmailSummary" role="status" style="margin:12px 0">Loading linked email contact…</div>'
     +'<div class="c360-health" id="c360Health" hidden></div>'
     +'<div class="c360-work" data-s1-workspace="1">'
     +'<nav class="c360-rail" id="c360Rail" aria-label="Record sections"></nav>'
@@ -597,9 +658,9 @@ function render(g,q){
   window.__c360prods=g.products||[];
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Products &amp; IOs {{ help_dot('hub.client360.products') if help_dot is defined else '' }}</h3>
     <div class="right" style="display:flex;gap:10px">
-      <a class="open-link" id="c-ad-copy" style="cursor:pointer;color:#b45309">&#9997; Ad copy</a>
-      <a class="open-link" id="c-camp-change" style="cursor:pointer;color:#b45309">&#9998; Campaign change</a>
-      <a class="open-link" id="c-camp-support" style="cursor:pointer;color:#b45309">&#128736; Campaign support</a>
+      <button type="button" class="open-link" id="c-ad-copy" style="color:#b45309">&#9997; Ad copy</button>
+      <button type="button" class="open-link" id="c-camp-change" style="color:#b45309">&#9998; Campaign change</button>
+      <button type="button" class="open-link" id="c-camp-support" style="color:#b45309">&#128736; Campaign support</button>
       <a class="open-link" href="${clientsLink}">Open in Clients →</a></div></div><div class="card-b flush">`;
   // Knack's own Product # (field_2640), beside the name rather than in a
   // column of its own: this card is half the grid, and the number is only
@@ -763,7 +824,7 @@ function render(g,q){
   html+='</div></div>';
 
   // ---------- Social Media + Tracked links (one row, two columns) ----------
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web">Social</span><h3>Social Media</h3><a class="open-link" id="c-social-save" style="cursor:pointer">Save →</a></div><div class="card-b" id="c-social"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web">Social</span><h3>Social Media</h3><button type="button" class="open-link" id="c-social-save">Save →</button></div><div class="card-b" id="c-social"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
   /* Tracked links sits beside Social Media because the two answer the same
      question — where this client's traffic is being sent from — and a rep
      reading the profile URLs is the one who wants the tagged link. It used to
@@ -791,7 +852,7 @@ function render(g,q){
     <div class="card-b" id="c-social-ideas"><div class="empty">Loading ideas… <span class="spin"></span></div></div></div>`;
 
   // ---------- Traffic Summary (GA4: last month vs previous) ----------
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span><a class="open-link" id="c-traffic-ask" style="cursor:pointer;display:none">✨ Ask AI about this data</a></div><div class="card-b"><div id="c-traffic-range" style="margin-bottom:14px"></div><div id="c-traffic-askbox" style="display:none;margin-bottom:14px"></div><div id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div></div>`;
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span><button type="button" class="open-link" id="c-traffic-ask" style="display:none">✨ Ask AI about this data</button></div><div class="card-b"><div id="c-traffic-range" style="margin-bottom:14px"></div><div id="c-traffic-askbox" style="display:none;margin-bottom:14px"></div><div id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div></div>`;
 
   // ---------- Smart 1 Suite Account + Proposals (one row, two columns) ----------
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Smart 1 Suite Account</h3><a class="open-link" href="/suite/">Open in Suite →</a></div><div class="card-b" id="c-ghl"><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
@@ -802,7 +863,7 @@ function render(g,q){
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-ghl">Suite</span><h3>Pipeline &amp; leads</h3><a class="open-link" id="c-pipeline-open" href="/suite/" style="display:none">Open their pipeline →</a></div><div class="card-b" id="c-pipeline"><div class="empty">Reading their pipeline… <span class="spin"></span></div></div></div>`;
   html+=`<div class="card c360-proposals-card" data-demo="proposals-card"><div class="card-h"><span class="src-tag src-ghl">Sales</span><h3>Proposals {{ help_dot('hub.client360.proposals') if help_dot is defined else '' }}</h3>
     <div class="right" style="display:flex;gap:10px;align-items:center">
-      <a class="open-link" id="c-props-upload" style="cursor:pointer">&#8679; Upload proposal</a>
+      <button type="button" class="open-link" id="c-props-upload">&#8679; Upload proposal</button>
       <a class="open-link" id="c-props-new" href="/sales/proposals/">+ New proposal</a>
     </div></div>
     <div class="card-b">
@@ -813,8 +874,8 @@ function render(g,q){
   // ---------- QuickBooks: invoices for this client ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web" style="background:#e8f5e9;color:#1b5e20">QuickBooks</span><h3>Invoices</h3>
     <div class="right" style="display:flex;gap:10px;align-items:center">
-      <a class="open-link" id="c-qb-acct" style="cursor:pointer;color:#b45309">⚑ Accounting issue</a>
-      <a class="open-link" id="c-qb-attach" style="cursor:pointer">Search &amp; attach customer</a>
+      <button type="button" class="open-link" id="c-qb-acct" style="color:#b45309">⚑ Accounting issue</button>
+      <button type="button" class="open-link" id="c-qb-attach">Search &amp; attach customer</button>
       <a class="open-link" href="https://app.qbo.intuit.com" target="_blank" rel="noopener">Open QuickBooks →</a>
     </div></div>
     <div class="card-b"><div id="c-qb-attachbox" style="display:none;margin-bottom:10px"></div><div id="c-qb"><div class="empty">Searching… <span class="spin"></span></div></div></div></div>`;
@@ -909,7 +970,7 @@ function render(g,q){
 
   // ---------- Website record (moved to the bottom) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-web">Website</span><h3>Website record</h3>
-    <div class="right" style="display:flex;gap:10px"><a class="open-link" id="c-web-attach" style="cursor:pointer">+ Attach website record</a>
+    <div class="right" style="display:flex;gap:10px"><button type="button" class="open-link" id="c-web-attach">+ Attach website record</button>
     <a class="open-link" href="${clientsLink}">Open in Websites →</a></div></div>
     <div class="card-b"><div id="c-web-attachbox" style="display:none;margin-bottom:10px"></div>`;
   // Which source these came from, exactly as the products card says it. A
@@ -939,7 +1000,7 @@ function render(g,q){
         </select> <span class="web-hosted-msg muted" style="font-size:11px"></span></dd>
         <dt>Status</dt><dd><span class="pill ${String(w.status||'').toLowerCase()==='active'?'ok':'neutral'}">${esc(w.status||'—')}</span></dd>
         <dt>H&amp;M</dt><dd>${w.hmMonthly?money(w.hmMonthly)+' / mo':'—'}</dd>
-        <dt>GA4</dt><dd>${w.ga?esc(w.ga):'<span class="muted">none</span> <a class="gbtn ga-lookup" style="cursor:pointer;font-size:11.5px">Search &amp; attach →</a>'}</dd>
+        <dt>GA4</dt><dd>${w.ga?esc(w.ga):'<span class="muted">none</span> <button type="button" class="gbtn ga-lookup" style="font-size:11.5px">Search &amp; attach →</button>'}</dd>
         ${w.gtm?`<dt>GTM</dt><dd>${esc(w.gtm)}</dd>`:''}
       </dl>`;
       const links=[];
@@ -948,7 +1009,7 @@ function render(g,q){
       if(gaId)links.push(['GA4 Tools','/google/ga-tools?q='+encodeURIComponent(gaId)]);
       if(gtmId)links.push(['GTM Tools','/google/gtm-tools?q='+encodeURIComponent(gtmId)]);
       if(links.length)html+=gbtns(links);
-      html+=`<div style="margin-top:6px"><a class="gbtn web-ticket" data-site="${esc(w.name||'')}" data-domain="${esc(w.domain||'')}" style="cursor:pointer;color:#b45309">&#127915; + Web ticket</a></div>`;
+      html+=`<div style="margin-top:6px"><button type="button" class="gbtn web-ticket" data-site="${esc(w.name||'')}" data-domain="${esc(w.domain||'')}" style="color:#b45309">&#127915; + Web ticket</button></div>`;
       html+='</div>';                      // end of the site's own column
       // The domain record itself, straight off the Knack website registry:
       // when the site went live, what status the client is in, whether we
@@ -984,7 +1045,7 @@ function render(g,q){
   }
 
   // ---------- Web Tickets (Smart 1 Team) + Notes ----------
-  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Web Tickets</h3><a class="open-link" id="c-tickets-new" style="cursor:pointer">+ New web ticket</a></div><div class="card-b" id="c-tickets"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
+  html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-knack">Smart 1 Team</span><h3>Web Tickets</h3><button type="button" class="open-link" id="c-tickets-new">+ New web ticket</button></div><div class="card-b" id="c-tickets"><div class="empty">Loading… <span class="spin"></span></div></div></div>`;
 
   html+='</div></div>';               // close the staging grid and its wrapper
   $('results').innerHTML=html;
@@ -1116,9 +1177,9 @@ function render(g,q){
           +`</div>
           <div class="suite-actions"><a class="gbtn" href="/suite/?manage=${encodeURIComponent(lid)}&name=${encodeURIComponent(l.name||'')}">Manage account →</a>`
           +(r
-            ? (!r.primary&&multi?`<a class="gbtn suite-primary" data-id="${esc(lid)}" style="cursor:pointer">make primary</a>`:'')
-              +`<a class="gbtn suite-det" data-id="${esc(lid)}" style="cursor:pointer;color:#94a3b8">remove</a>`
-            : `<a class="gbtn suite-att" data-i="${i}" style="cursor:pointer">${recorded.length?'Attach another location':'Attach'}</a>`)
+            ? (!r.primary&&multi?`<button type="button" class="gbtn suite-primary" data-id="${esc(lid)}">make primary</button>`:'')
+              +`<button type="button" class="gbtn suite-det" data-id="${esc(lid)}" style="color:#94a3b8">remove</button>`
+            : `<button type="button" class="gbtn suite-att" data-i="${i}">${recorded.length?'Attach another location':'Attach'}</button>`)
           +'</div>'
           +`<div class="suite-meta">${esc(l.city||'—')}${l.email?' · '+esc(l.email):''}</div></div>`;}).join('')+'</div>';
     document.querySelectorAll('.suite-att').forEach(btn=>{
@@ -1126,7 +1187,7 @@ function render(g,q){
         const l=res[parseInt(btn.dataset.i,10)];
         fetch('/api/suite/link',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({client:name,location_id:l.id||l._id})})
-          .then(r=>r.json()).then(d=>{ if(d.ok===false){alert(d.detail||'That could not be attached.');return;}
+          .then(r=>r.json()).then(d=>{ if(d.ok===false){c360Notice(d.detail||'That could not be attached.');return;}
             loadSuiteAccount(); });
       };
     });
@@ -1134,7 +1195,7 @@ function render(g,q){
       btn.onclick=()=>{
         fetch('/api/suite/primary',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({client:name,location_id:btn.dataset.id})})
-          .then(r=>r.json()).then(d=>{ if(d.ok===false){alert(d.detail||'That could not be set.');return;}
+          .then(r=>r.json()).then(d=>{ if(d.ok===false){c360Notice(d.detail||'That could not be set.');return;}
             loadSuiteAccount(); });
       };
     });
@@ -1142,7 +1203,7 @@ function render(g,q){
       btn.onclick=()=>{
         fetch('/api/suite/unlink',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({client:name,location_id:btn.dataset.id})})
-          .then(r=>r.json()).then(d=>{ if(d.ok===false){alert(d.detail||'That could not be removed.');return;}
+          .then(r=>r.json()).then(d=>{ if(d.ok===false){c360Notice(d.detail||'That could not be removed.');return;}
             loadSuiteAccount(); });
       };
     });
@@ -1242,7 +1303,7 @@ function render(g,q){
             + (p.kind==='link'? ''
                : '<a class="gbtn to-io" href="/tools/io/?from_proposal='+encodeURIComponent(p.id || p.filename || '')
                  +'&amp;client='+encodeURIComponent(p.member || name)+'" target="_blank" rel="noopener" title="Read this proposal and start an insertion order from it">To IO</a> ')
-            + '<a class="gbtn up-del" style="cursor:pointer;color:#b91c1c" title="Remove from the client record">Delete</a>'
+            + '<button type="button" class="gbtn up-del" style="color:#b91c1c" title="Remove from the client record">Delete</button>'
             + '</td></tr>';
         }).join('')
       + '</tbody></table>';
@@ -1258,7 +1319,7 @@ function render(g,q){
         fetch('/api/client/proposals/update',{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({client:pclient,id:pid,date_sent:this.value})})
           .then(function(r){return r.json();})
-          .then(function(d){ if(d.error) alert(d.error); else { UPLOADED=d.proposals||[]; renderProposals(); } });
+          .then(function(d){ if(d.error) c360Notice(d.error); else { UPLOADED=d.proposals||[]; renderProposals(); } });
       };
       tr.querySelector('.up-del').onclick = function(){
         if(!confirm('Remove this proposal from the client record?')) return;
@@ -1293,11 +1354,11 @@ function render(g,q){
       .then(function(r){ return r.json(); })
       .then(function(d){
         if(!d.ok){ btn.disabled=false; btn.textContent='Reopen as a quote';
-                   alert(d.error||'Import failed.'); return; }
+                   c360Notice(d.error||'Import failed.'); return; }
         location.href = '/sales/builder/?quote=' + encodeURIComponent(d.quote.id);
       })
       .catch(function(e){ btn.disabled=false; btn.textContent='Reopen as a quote';
-                          alert('Import failed: '+e); });
+                          c360Notice('Import failed: '+e); });
   };
 
   fetch('/api/client/proposals?client='+encodeURIComponent(name))
@@ -1325,9 +1386,9 @@ function render(g,q){
   if(actsHost) actsHost.innerHTML =
       '<span id="c-img-counter" class="muted" style="font-size:11.5px"></span>'
     + '<a class="open-link" href="'+galleryHref+'">Open gallery →</a>'
-    + '<a class="open-link" id="c-img-uplink" style="cursor:pointer">&#128279; Client upload link</a>'
+    + '<button type="button" class="open-link" id="c-img-uplink">&#128279; Client upload link</button>'
     + '<a class="open-link" href="'+optimizeHref+'">Optimize images →</a>'
-    + '<a class="open-link" id="c-img-add" style="cursor:pointer">+ Add more images</a>';
+    + '<button type="button" class="open-link" id="c-img-add">+ Add more images</button>';
 
   /* The link a client uploads their own photographs through.
      Client Image Uploads has always been able to hand one out, and getting it
@@ -1444,9 +1505,9 @@ function render(g,q){
                 <div style="margin-top:6px;display:flex;gap:9px;align-items:center">
                   <a class="open-link" style="font-size:11px" href="${esc(imgBase)}api/gallery/download?id=${encodeURIComponent(r.id)}"
                      title="Download this file, named ${esc(r.filename)}">&#8681; Download</a>
-                  <a class="open-link img-del" style="font-size:11px;color:#dc2626;cursor:pointer"
+                  <button type="button" class="open-link img-del" style="font-size:11px;color:#dc2626"
                      data-del="${esc(r.id)}" data-name="${esc(r.filename)}"
-                     title="Delete this image from the client gallery and the archive. This cannot be undone.">&#128465; Delete</a>
+                     title="Delete this image from the client gallery and the archive. This cannot be undone.">&#128465; Delete</button>
                 </div>
               </div></div>`).join('')
           + '</div>'
@@ -1477,10 +1538,10 @@ function render(g,q){
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({id:id, delete:true})})
           .then(r=>r.json()).then(function(res){
-            if(res && res.error){ alert(res.error); a.innerHTML='&#128465; Delete'; return; }
+            if(res && res.error){ c360Notice(res.error); a.innerHTML='&#128465; Delete'; return; }
             window.loadClientImages();
           }).catch(function(){
-            alert("That image couldn't be deleted.");
+            c360Notice("That image couldn't be deleted.");
             a.innerHTML='&#128465; Delete';
           });
       };
@@ -1949,6 +2010,10 @@ function render(g,q){
      whole group in one call: each member's attached customers, a name search
      where a member has none, deduplicated by customer id. Ungrouped clients
      take the path they always have. */
+  /* Named, so attaching or detaching a customer re-runs this card alone
+     rather than reloading the page and losing the section you were in. */
+  function loadQbCard(){
+  $('c-qb').innerHTML='<div class="empty">Searching… <span class="spin"></span></div>';
   if((window.__c360group||{}).grouped){
     const others=(window.__c360group.others||[]).map(m=>m.name).filter(Boolean);
     const gnote='<div class="muted" style="font-size:12px;margin-bottom:4px">Reading invoices across the group: <b>'
@@ -1956,7 +2021,8 @@ function render(g,q){
     fetch('/api/qb/invoices?client='+encodeURIComponent(name))
       .then(r=>r.json()).then(d=>renderQb(d,gnote))
       .catch(()=>{$('c-qb').innerHTML='<div class="empty">QuickBooks lookup unavailable.</div>'});
-  } else
+    return;
+  }
   fetch('/api/client/links?name='+encodeURIComponent(name)).then(r=>r.json()).then(la=>{
     let qbAtt=((la||{}).attached||{}).qb||[];
     if(!Array.isArray(qbAtt)) qbAtt=[qbAtt];
@@ -1969,9 +2035,11 @@ function render(g,q){
       if(det)det.onclick=e=>{e.preventDefault();
         if(!confirm('Remove all attached QuickBooks customers from this client?'))return;
         fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({client:name,kind:'qb',data:null})}).then(()=>location.reload());};
+          body:JSON.stringify({client:name,kind:'qb',data:null})}).then(()=>{ c360Notice('QuickBooks customers un-attached.','ok'); loadQbCard(); });};
     });
   }).catch(()=>{$('c-qb').innerHTML='<div class="empty">QuickBooks lookup unavailable.</div>'});
+  }
+  loadQbCard();
 
   // QB: search & attach customer
   const qbAttachLink=document.getElementById('c-qb-attach');
@@ -1981,7 +2049,7 @@ function render(g,q){
     box.style.display='block';
     box.innerHTML=`<div style="display:flex;gap:8px;max-width:520px">
       <input id="qbq" placeholder="Search QuickBooks customers…" value="${esc(term)}" style="flex:1;padding:8px 11px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
-      <a class="gbtn" id="qbgo" style="cursor:pointer">Search</a></div><div id="qbres" style="margin-top:8px"></div>`;
+      <button type="button" class="gbtn" id="qbgo">Search</button></div><div id="qbres" style="margin-top:8px"></div>`;
     const go=()=>{
       const q=document.getElementById('qbq').value.trim(); if(!q)return;
       document.getElementById('qbres').innerHTML='<div class="empty">Searching… <span class="spin"></span></div>';
@@ -1992,13 +2060,13 @@ function render(g,q){
         document.getElementById('qbres').innerHTML=items.map((c,i)=>`
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fff">
             <span><b>${esc(c.name)}</b> <span class="muted" style="font-size:11.5px">${c.customer_since_label?'since '+esc(c.customer_since_label):''}</span></span>
-            <a class="gbtn qb-att" data-i="${i}" style="cursor:pointer">Attach →</a></div>`).join('');
+            <button type="button" class="gbtn qb-att" data-i="${i}">Attach →</button></div>`).join('');
         document.querySelectorAll('.qb-att').forEach(btn=>{
           btn.onclick=()=>{
             const c=items[parseInt(btn.dataset.i,10)];
             fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
               body:JSON.stringify({client:name,kind:'qb',data:{id:c.id,name:c.name}})})
-              .then(r=>r.json()).then(()=>location.reload());   // attach re-runs the card
+              .then(r=>r.json()).then(()=>{ document.getElementById('c-qb-attachbox').style.display='none'; c360Notice('Attached '+c.name+'.','ok'); loadQbCard(); });   // attach re-runs the card
           };
         });
       });
@@ -2081,8 +2149,8 @@ function render(g,q){
       if(f.key==='registrar'&&!f.value&&d.registrar&&d.registrar.value){
         extra=`<div class="muted" style="font-size:11px;margin-top:3px">WHOIS on this domain says
           <b>${esc(d.registrar.value)}</b>${d.registrar.expires?' · expires '+esc(d.registrar.expires):''}
-          <a class="gbtn wk-use" data-for="${id}" data-val="${esc(d.registrar.value)}"
-             style="cursor:pointer;font-size:11px;margin-left:4px">use it</a></div>`;
+          <button type="button" class="gbtn wk-use" data-for="${id}" data-val="${esc(d.registrar.value)}"
+             style="font-size:11px;margin-left:4px">use it</button></div>`;
       }
       if(f.known===false){
         extra+='<div class="muted" style="font-size:11px;color:#b45309;margin-top:3px">'+
@@ -2100,7 +2168,7 @@ function render(g,q){
       <div class="wk-hidden-note muted" style="font-size:11px;margin:2px 0 6px"></div>
       ${renewalBlock(d.renewal)}
       <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-        <a class="gbtn wk-save" style="cursor:pointer"${d.writable?'':' hidden'}>Save</a>
+        <button type="button" class="gbtn wk-save"${d.writable?'':' hidden'}>Save</button>
         <span class="wk-msg muted" style="font-size:11.5px">${d.writable?'':esc(d.note||'')}</span></div></div>`;
     // "Did we buy the domain?" is the question the rest of this panel hangs
     // off. When the answer is no, the purchase date, the renewal date and the
@@ -2236,7 +2304,7 @@ function render(g,q){
     box.style.display='block';
     box.innerHTML=`<div style="display:flex;gap:8px;max-width:520px">
       <input id="webq" placeholder="Search website records by name or domain…" style="flex:1;padding:8px 11px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
-      <a class="gbtn" id="webgo" style="cursor:pointer">Search</a></div><div id="webres" style="margin-top:8px"></div>`;
+      <button type="button" class="gbtn" id="webgo">Search</button></div><div id="webres" style="margin-top:8px"></div>`;
     const go=()=>{
       const q=document.getElementById('webq').value.trim(); if(!q)return;
       document.getElementById('webres').innerHTML='<div class="empty">Searching… <span class="spin"></span></div>';
@@ -2246,13 +2314,13 @@ function render(g,q){
         document.getElementById('webres').innerHTML=items.map((w,i)=>`
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fff">
             <span><b>${esc(w.name||w.domain)}</b> <span class="muted" style="font-size:11.5px">${esc(w.domain||'')} · ${esc(w.platform||'')}</span></span>
-            <a class="gbtn web-att" data-i="${i}" style="cursor:pointer">Attach →</a></div>`).join('');
+            <button type="button" class="gbtn web-att" data-i="${i}">Attach →</button></div>`).join('');
         document.querySelectorAll('.web-att').forEach(btn=>{
           btn.onclick=()=>{
             const w=items[parseInt(btn.dataset.i,10)];
             fetch('/api/client/links',{method:'POST',headers:{'Content-Type':'application/json'},
               body:JSON.stringify({client:name,kind:'website',data:{name:w.name,domain:w.domain}})})
-              .then(r=>r.json()).then(()=>location.reload());   // re-search shows the record
+              .then(r=>r.json()).then(()=>c360Refresh());   // re-run the record; the section stays
           };
         });
       });
@@ -2294,7 +2362,7 @@ function render(g,q){
     const bits=[];
     if(prim.name)bits.push('<b>'+esc(prim.name)+'</b>');
     else if(sug.name){bits.push(offer('<b>'+esc(sug.name)+'</b>'));offered.push('name');}
-    if(prim.phone)bits.push('&#128222; '+esc(prim.phone));
+    if(prim.phone)bits.push('&#128222; <a href="tel:'+esc(String(prim.phone).replace(/[^0-9+]/g,''))+'">'+esc(prim.phone)+'</a>');
     else if(sug.phone){bits.push('&#128222; '+offer(esc(sug.phone)));offered.push('phone');}
     if(prim.email)bits.push('<a href="mailto:'+esc(prim.email)+'">'+esc(prim.email)+'</a>');
     else if(sug.email){bits.push(offer('<a href="mailto:'+esc(sug.email)+'">'+esc(sug.email)+'</a>'));offered.push('email');}
@@ -2309,17 +2377,19 @@ function render(g,q){
       const tag=c.role?' <span class="muted" style="font-size:11px">('+esc(roleLabel(c.role))+')</span>':'';
       bits.push('<span class="muted" title="'+esc([c.email,c.phone].filter(Boolean).join(' · '))+'">+ '+who+tag+'</span>');
     });
-    const qbBtn='<a class="gbtn" id="profQb" style="cursor:pointer" title="Files the billing contact on the attached QuickBooks customer under Accounting. The same pass runs every Sunday at 2pm Eastern.">&#8681; QuickBooks contact</a>';
+    const qbBtn='<button type="button" class="gbtn" id="profQb" title="Files the billing contact on the attached QuickBooks customer under Accounting. The same pass runs every Sunday at 2pm Eastern.">&#8681; QuickBooks contact</button>';
     const keep=offered.length
-      ? '<a class="gbtn" id="profKeep" style="cursor:pointer" title="Writes '
-        +esc(offered.join(', '))+' onto this client record">Save these details</a>' : '';
+      ? '<button type="button" class="gbtn" id="profKeep" title="Writes '
+        +esc(offered.join(', '))+' onto this client record">Save these details</button>' : '';
     const warn=hasContact?'':'<span class="c360-contact-warn">&#9888; No contact on file — add a name and email'
-      +' <a class="gbtn" id="profAddFirst" style="cursor:pointer">Add contact</a></span>';
+      +' <button type="button" class="gbtn" id="profAddFirst">Add contact</button></span>';
     $('c-profile').innerHTML=`<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:13px">
       ${warn}${warn&&bits.length?'<span class="muted" style="margin:0 2px">·</span>':''}${bits.join('<span class="muted" style="margin:0 2px">·</span>')}
+      <span id="c360EmailInline"></span>
       <span style="margin-left:auto;display:flex;gap:8px;align-items:center">${keep}${qbBtn}
-      <a class="gbtn" id="profEdit" style="cursor:pointer">&#9998; Edit info</a></span></div>`;
+      <button type="button" class="gbtn" id="profEdit">&#9998; Edit info</button></span></div>`;
     document.getElementById('profEdit').onclick=openProfileModal;
+    paintEmailLine();
     const addFirst=document.getElementById('profAddFirst');
     if(addFirst) addFirst.onclick=openProfileModal;
     const qbGo=document.getElementById('profQb');
@@ -2338,8 +2408,8 @@ function render(g,q){
             +(r.skipped?r.skipped+' skipped (no name, email or phone in QuickBooks). ':'')
             +(!r.added&&!r.updated&&!r.skipped?'Already on file — nothing to add.':'')
             +(r.errors&&r.errors.length?' '+r.errors.join(' '):'');
-          alert(msg);
-        }).catch(()=>{ qbGo.textContent='\u2B07 QuickBooks contact'; alert('QuickBooks could not be read.'); });
+          c360Notice(msg, (d.error||(r.errors&&r.errors.length&&!r.ok))?'err':'ok');
+        }).catch(()=>{ qbGo.textContent='\u2B07 QuickBooks contact'; c360Notice('QuickBooks could not be read.'); });
     };
     const keepBtn=document.getElementById('profKeep');
     if(keepBtn)keepBtn.onclick=()=>{
@@ -2347,17 +2417,17 @@ function render(g,q){
       fetch('/api/client/profile',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify(profileWith(sug))})
         .then(r=>r.json()).then(d=>{
-          if(d.error){keepBtn.textContent='Save these details';alert(d.error);return;}
+          if(d.error){keepBtn.textContent='Save these details';c360Notice(d.error);return;}
           clientSuggested={values:{}};
           renderProfile(d.profile);
         }).catch(()=>{keepBtn.textContent='Save these details';
-          alert('Those details could not be saved.');});
+          c360Notice('Those details could not be saved.');});
     };
     // notes card
     const notes=p.notes||[];
     $('c-notes').innerHTML=`<div style="display:flex;gap:8px;margin-bottom:12px">
       <input id="noteInput" placeholder="Add a note about this client…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
-      <a class="gbtn" id="noteAdd" style="cursor:pointer">Add note</a></div>`
+      <button type="button" class="gbtn" id="noteAdd">Add note</button></div>`
       +(notes.length?notes.slice(0,8).map(n=>`<div style="padding:8px 0;border-bottom:1px solid var(--line-soft)">
         <span class="muted" style="font-size:11.5px">${esc(n.time)} · <b>${esc(n.author)}</b></span>${memberTag(n.member)}
         <div style="font-size:13px;margin-top:2px">${esc(n.text)}</div></div>`).join('')
@@ -2433,7 +2503,7 @@ function render(g,q){
       <div style="padding:16px 18px;overflow-y:auto">
         <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:8px">Contacts</div>
         <div id="profContacts">${contacts.map(contactRow).join('')}</div>
-        <a class="gbtn" id="profAddContact" style="cursor:pointer">+ Add contact</a>
+        <button type="button" class="gbtn" id="profAddContact">+ Add contact</button>
         <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-top:16px">
           <div><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:6px">Address</div>
             <input id="profAddr" style="width:100%;box-sizing:border-box" value="${esc(p.address||'')}" placeholder="Street, city, state, zip"></div>
@@ -2444,7 +2514,7 @@ function render(g,q){
       </div>
       <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center;padding:12px 18px;border-top:1px solid var(--line)">
         <span id="profMsg" class="muted" style="font-size:12px"></span>
-        <a class="btn-primary" id="profSave" style="padding:9px 18px;font-size:13px;cursor:pointer;text-decoration:none">Save</a></div></div>`;
+        <button type="button" class="btn-primary" id="profSave" style="padding:9px 18px;font-size:13px;cursor:pointer;text-decoration:none">Save</button></div></div>`;
     m.querySelectorAll('input').forEach(i=>{if(!i.style.padding)i.style.cssText+='padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit';});
     document.body.appendChild(m);
     m.onclick=e=>{if(e.target===m)m.remove();};
@@ -2523,10 +2593,10 @@ function render(g,q){
     return '<div class="c-tickets-match" style="margin-top:10px;padding-top:10px;border-top:1px solid #eee">'
       +(chips?'<div style="margin-bottom:6px"><span class="muted" style="font-size:12px">Also linked as: </span>'+chips+'</div>':'')
       +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
-      +'<a class="open-link" id="c-tickets-suggest" style="cursor:pointer">Find a close match</a>'
+      +'<button type="button" class="open-link" id="c-tickets-suggest">Find a close match</button>'
       +'<span class="muted" style="font-size:12px">or</span>'
       +'<input id="c-tickets-q" type="text" placeholder="Search tickets by name…" style="font-size:12px;padding:4px 6px;border:1px solid #ccd;border-radius:4px;min-width:180px">'
-      +'<a class="open-link" id="c-tickets-search-go" style="cursor:pointer">Search</a>'
+      +'<button type="button" class="open-link" id="c-tickets-search-go">Search</button>'
       +'</div><div id="c-tickets-results"></div></div>';
   }
   function renderTicketCandidates(list, withScore){
@@ -2537,23 +2607,23 @@ function render(g,q){
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f2f2f2">'
       +'<div><b>'+esc(c.org)+'</b>'+(withScore?' <span class="muted" style="font-size:12px">'+Math.round(c.score*100)+'% match</span>':'')
       +'<div class="muted" style="font-size:12px">'+c.count+' ticket'+(c.count===1?'':'s')+(c.title?' — '+esc(c.title):'')+'</div></div>'
-      +'<a class="open-link tick-link" data-org="'+esc(c.org)+'" style="cursor:pointer;white-space:nowrap">Link</a></div>'
+      +'<button type="button" class="open-link tick-link" data-org="'+esc(c.org)+'" style="white-space:nowrap">Link</button></div>'
     ).join('')+'</div>';
     box.querySelectorAll('.tick-link').forEach(el=>{el.onclick=()=>linkOrg(el.dataset.org)});
   }
   function linkOrg(org){
     fetch('/api/client/tickets/link',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({name:name,org:org})}).then(r=>r.json()).then(d=>{
-        if(!d.ok){alert(d.error||'Could not link that.');return}
+        if(!d.ok){c360Notice(d.error||'Could not link that.');return}
         loadTickets();
-      }).catch(()=>alert('Could not link that.'));
+      }).catch(()=>c360Notice('Could not link that.'));
   }
   function unlinkOrg(org){
     fetch('/api/client/tickets/unlink',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({name:name,org:org})}).then(r=>r.json()).then(d=>{
-        if(!d.ok){alert(d.error||'Could not unlink that.');return}
+        if(!d.ok){c360Notice(d.error||'Could not unlink that.');return}
         loadTickets();
-      }).catch(()=>alert('Could not unlink that.'));
+      }).catch(()=>c360Notice('Could not unlink that.'));
   }
   function wireTicketMatch(){
     const sug=$('c-tickets-suggest');
@@ -2596,13 +2666,13 @@ function render(g,q){
             <td class="muted">${esc(t.website)}</td>
             <td>${t.status?'<span class="pill neutral">'+esc(t.status)+'</span>':''}${sh.developer?'<div class="muted" style="font-size:12px">'+esc(sh.developer)+'</div>':''}</td>
             <td class="muted">${esc(t.date)}</td>
-            <td><a class="open-link tick-edit" data-i="${i}" style="cursor:pointer">Manage</a></td></tr>`;
+            <td><button type="button" class="open-link tick-edit" data-i="${i}" >Manage</button></td></tr>`;
           }).join('')+'</tbody></table>'
           +(ts.length>5?'<div class="muted" style="font-size:12px;padding-top:6px">'+(ts.length-5)+' more in Smart 1 Team</div>':'')
           +matchToolsHtml(d.linked);
         document.querySelectorAll('.tick-edit').forEach(el=>{
           el.onclick=()=>{
-            if(!window.WebTicket){alert('The ticket form failed to load. Reload the page and try again.');return}
+            if(!window.WebTicket){c360Notice('The ticket form failed to load. Reload the page and try again.');return}
             window.WebTicket.manage({ticket:shown[Number(el.dataset.i)],client:name,
               sites:(g.websites||[]).map(w=>w.domain||w.url||'').filter(Boolean),
               user:user_name,onsaved:loadTickets});
@@ -2614,7 +2684,7 @@ function render(g,q){
   loadTickets();
   function openTicketModal(site,domain){
     if(!window.WebTicket){
-      alert('The ticket form failed to load. Reload the page and try again.');
+      c360Notice('The ticket form failed to load. Reload the page and try again.');
       return;
     }
     window.WebTicket.open({client:name,site:site,domain:domain,
@@ -2635,7 +2705,7 @@ function render(g,q){
   // name matching several clients stays switchable inside the form.
   function openCampaignModal(kind){
     if(!window.CampaignRequest){
-      alert('The request form failed to load. Reload the page and try again.');
+      c360Notice('The request form failed to load. Reload the page and try again.');
       return;
     }
     window.CampaignRequest.open({
@@ -2659,7 +2729,7 @@ function render(g,q){
   const adCopyBtn=document.getElementById('c-ad-copy');
   if(adCopyBtn)adCopyBtn.onclick=()=>{
     if(!window.AdCopyRequest){
-      alert('The request form failed to load. Reload the page and try again.');
+      c360Notice('The request form failed to load. Reload the page and try again.');
       return;
     }
     window.AdCopyRequest.open({client:name,user:user_name,
@@ -3153,7 +3223,7 @@ function showTrafficAttach(clientName){
   $('c-traffic').innerHTML=`<div class="empty">No Analytics property found for this client — search your connected Google accounts and attach one. It will be used everywhere this client appears going forward.<br><br>
     <div style="display:flex;gap:8px;max-width:520px;margin:0 auto">
       <input id="ta-q" placeholder="Search by client name or domain…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit" value="${esc(clientName)}">
-      <a class="gbtn" id="ta-go" style="cursor:pointer">Search</a>
+      <button type="button" class="gbtn" id="ta-go">Search</button>
     </div><div id="ta-res" style="max-width:520px;margin:10px auto 0;text-align:left"></div></div>`;
   const go=()=>{
     const q=$('ta-q').value.trim(); if(!q)return;
@@ -3165,7 +3235,7 @@ function showTrafficAttach(clientName){
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;background:#fff">
           <div><b>${esc(x.name||x.resource_id)}</b> <span class="muted" style="font-size:11.5px">${esc(x.resource_id)}</span>
           <div class="muted" style="font-size:11px">${esc(x.google_login)} · ${esc(x.account_name||'')}</div></div>
-          <a class="gbtn ta-attach" data-i="${i}" style="cursor:pointer">Attach →</a>
+          <button type="button" class="gbtn ta-attach" data-i="${i}">Attach →</button>
         </div>`).join('');
       document.querySelectorAll('.ta-attach').forEach(btn=>{
         btn.onclick=()=>{
@@ -3334,7 +3404,7 @@ function addMoreImages(name, web0){
   function fail(msg){
     box.innerHTML = '<div style="color:#b45309">'+esc(msg||'The gallery could not be opened.')+'</div>'
       + '<div style="margin-top:7px"><a class="gbtn" href="'+BASE+'/">Open Client Assets →</a> '
-      + '<a class="open-link" id="c-addimg-close" style="cursor:pointer;margin-left:8px">Close</a></div>';
+      + '<button type="button" class="open-link" id="c-addimg-close" style="margin-left:8px">Close</button></div>';
     document.getElementById('c-addimg-close').onclick = function(){ box.remove(); };
   }
 
@@ -3367,7 +3437,7 @@ function addMoreImages(name, web0){
       + '<input id="c-addimg-folder-new" hidden placeholder="New folder name, e.g. Logos" maxlength="200" '
       + 'style="padding:7px 9px;border:1px solid var(--line);border-radius:7px;font:12.5px inherit;min-width:220px">'
       + '<button class="gbtn" id="c-addimg-open" type="button">Choose files…</button>'
-      + '<a class="open-link" id="c-addimg-close" style="cursor:pointer">Close</a>'
+      + '<button type="button" class="open-link" id="c-addimg-close">Close</button>'
       + '</div>'
       + '<div class="muted" id="c-addimg-state" style="margin-top:6px">From your computer, Google Drive, Dropbox or a link. '
       + 'Originals are kept as uploaded; a web-ready SEO copy of each image is made in the background.</div>'
@@ -3454,7 +3524,7 @@ function clientUploadLink(name, web0){
         + 'Creating one gives you a link they can send photos, logos and PDFs through; '
         + 'everything they upload lands in this client\u2019s gallery.</div>'
         + '<div style="margin-top:8px"><a class="gbtn" id="c-uplink-make" href="#">Create the upload link</a> '
-        + '<a class="open-link" id="c-uplink-close" style="cursor:pointer;margin-left:8px">Not now</a></div>';
+        + '<button type="button" class="open-link" id="c-uplink-close" style="margin-left:8px">Not now</button></div>';
       document.getElementById('c-uplink-make').onclick = function(e){
         e.preventDefault();
         box.innerHTML = '<span class="muted">Creating\u2026</span>';
@@ -3725,12 +3795,12 @@ function saveLogosToGallery(){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({name:window.CURRENT_CLIENT||'', domain:window.__c360domain||''})})
     .then(function(r){return r.json();}).then(function(d){
-      if(d && d.error){ alert(d.error); }
-      else if(d && d.summary){ alert(d.summary); }
+      if(d && d.error){ c360Notice(d.error); }
+      else if(d && d.summary){ c360Notice(d.summary,'ok'); }
       loadBrand(window.CURRENT_CLIENT||'');
       if(window.loadClientImages) window.loadClientImages();
     }).catch(function(){
-      alert('The logo could not be saved to the gallery.');
+      c360Notice('The logo could not be saved to the gallery.');
       loadBrand(window.CURRENT_CLIENT||'');
     });
 }
@@ -3744,9 +3814,9 @@ function setBrandPick(field, value){
     body:JSON.stringify({name:window.CURRENT_CLIENT||'', domain:window.__c360domain||'',
                          field:field, value:value})})
     .then(function(r){return r.json();}).then(function(d){
-      if(!d.ok){ alert(d.error||'That could not be confirmed.'); return; }
+      if(!d.ok){ c360Notice(d.error||'That could not be confirmed.'); return; }
       loadBrand(window.CURRENT_CLIENT||'');
-    }).catch(function(){ alert('That could not be confirmed.'); });
+    }).catch(function(){ c360Notice('That could not be confirmed.'); });
 }
 
 function pushBrand(){
@@ -3755,7 +3825,7 @@ function pushBrand(){
   fetch('/api/client/brand/push-to-suite',{method:'POST',credentials:'same-origin',
     headers:{'Content-Type':'application/json'},body:JSON.stringify({name:CURRENT_CLIENT})})
    .then(r=>r.json()).then(d=>{
-     if(d.error){alert(d.error);return;}
+     if(d.error){c360Notice(d.error);return;}
      if(d.delivered){
        // Replace the button rather than leaving it pressable — pressing it
        // again would silently overwrite the guide already in Suite. The
@@ -3766,17 +3836,17 @@ function pushBrand(){
        if(acts) acts.innerHTML='<span class="pill ok"'
          + (d.pushed_at?' title="Pushed '+esc(d.pushed_at)+'"':'')
          + '>Brand Guide setup in Suite</span>';
-       alert('Brand guide sent to Smart 1 Suite.');
+       c360Notice('Brand guide sent to Smart 1 Suite.','ok');
      } else if(d.reason==='not_configured'){
-       alert('No GHL_BRAND_WEBHOOK_URL set, so nothing was sent. '+
+       c360Notice('No GHL_BRAND_WEBHOOK_URL set, so nothing was sent. '+
              'The payload is ready in the response.');
      } else {
        // Suite refused it, or could not be reached. Reporting either as a
        // missing variable sends somebody to set one that is already set.
-       alert((d.note||'The brand guide could not be delivered.')+
+       c360Notice((d.note||'The brand guide could not be delivered.')+
              ' Nothing was recorded, so you can try again.');
      }
-   }).catch(()=>alert('Could not send the brand guide.'));
+   }).catch(()=>c360Notice('Could not send the brand guide.'));
 }
 
 // ------------------------------------------------------------- work log card
@@ -3840,7 +3910,7 @@ function loadClientLinks(name){
     var items=(d.links||[]).map(x=>'<li><b>'+esc(x.kind||'Proof')+'</b> · <a href="'+esc(x.url)+'" target="_blank" rel="noopener">'+esc(x.label)+' →</a></li>').join('')||'<li class="muted">No client links yet. Add a proof below or create an upload gallery.</li>';
     box.innerHTML='<p class="muted" style="font-size:12px;margin-top:0">Navigation-free Smart 1 Marketing page to send the client.</p><div style="display:flex;gap:7px;flex-wrap:wrap"><input readonly value="'+esc(d.url)+'" id="c-client-links-url" style="flex:1;min-width:230px;padding:7px"><button class="gbtn" id="c-client-links-copy">Copy page link</button></div><ul>'+items+'</ul><details><summary>Add a client-safe proof link</summary><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px"><input id="c-proof-label" placeholder="Proof label"><input id="c-proof-url" placeholder="https://…" style="flex:1"><button class="gbtn" id="c-proof-add">Add</button></div></details>';
     document.getElementById('c-client-links-copy').onclick=function(){copyToClipboard(d.url,this,'c-client-links-url');};
-    document.getElementById('c-proof-add').onclick=function(){fetch('/api/client/client-links',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,label:document.getElementById('c-proof-label').value,url:document.getElementById('c-proof-url').value})}).then(r=>r.json()).then(x=>x.ok?loadClientLinks(name):alert(x.error||'Could not add that link.'));};
+    document.getElementById('c-proof-add').onclick=function(){fetch('/api/client/client-links',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,label:document.getElementById('c-proof-label').value,url:document.getElementById('c-proof-url').value})}).then(r=>r.json()).then(x=>x.ok?loadClientLinks(name):c360Notice(x.error||'Could not add that link.'));};
   }).catch(function(){box.innerHTML='<div class="empty">Client links could not be loaded.</div>';});
 }
 
@@ -4022,7 +4092,7 @@ function loadForms(name){
 
 function clientRequest(kind){
   var name = CURRENT_CLIENT || '';
-  if(!name){ alert('Open a client first.'); return; }
+  if(!name){ c360Notice('Open a client first.'); return; }
   if(kind === 'ticket'){
     window.open('/tools/tickets/?client=' + encodeURIComponent(name) + '&new=1', '_blank');
     return;
@@ -4032,10 +4102,10 @@ function clientRequest(kind){
   if(!subject) return;
   post('/api/client/campaign-request', {kind: kind, client: name, subject: subject})
     .then(function(d){
-      alert(d.error ? d.error : (label + ' submitted for ' + name + '.'));
+      c360Notice(d.error ? d.error : (label + ' submitted for ' + name + '.'), d.error?'err':'ok');
       if(!d.error && window.loadWorkLog) loadWorkLog(name);
     })
-    .catch(function(){ alert('That did not go through.'); });
+    .catch(function(){ c360Notice('That did not go through.'); });
 }
 
 function ioStart(mode){
@@ -4044,7 +4114,7 @@ function ioStart(mode){
      through it, with our values pre-entered and marked with where they came
      from. */
   var name = CURRENT_CLIENT || '';
-  if(!name){ alert('Open a client first.'); return; }
+  if(!name){ c360Notice('Open a client first.'); return; }
   if(mode === 'proposal'){
     window.open('/tools/io/?client=' + encodeURIComponent(name) + '&from=proposal', '_blank');
     return;
@@ -4054,7 +4124,7 @@ function ioStart(mode){
           {credentials:'same-origin'})
       .then(function(r){ return r.json(); })
       .then(function(d){
-        if(d.error){ alert(d.error); return; }
+        if(d.error){ c360Notice(d.error); return; }
         if(!confirm('Renew IO ' + d.renewing_io + '?\n\n' +
                     d.products.length + ' product(s), $' + d.previous_monthly +
                     '/month last term (' + d.previous_start + ' to ' + d.previous_end + ').\n\n' +
@@ -4062,7 +4132,7 @@ function ioStart(mode){
         window.open('/tools/io/?client=' + encodeURIComponent(name) +
                     '&mode=renewal&io=' + encodeURIComponent(d.renewing_io), '_blank');
       })
-      .catch(function(){ alert('Could not read the previous IO.'); });
+      .catch(function(){ c360Notice('Could not read the previous IO.'); });
     return;
   }
   window.open('/tools/io/?client=' + encodeURIComponent(name) + '&mode=new', '_blank');
@@ -4147,7 +4217,7 @@ function renderGroupBanner(info){
     +(info.is_parent?'':' — you are viewing a member of that group')+'.</span>'
     +'<span class="muted">Also showing: '+(others.length?others.map(m=>esc(m.name)).join(', ')
         :'nothing else yet')+'</span>'
-    +'<a class="gbtn" style="cursor:pointer;margin-left:auto" onclick="openGroupModal()">Manage group</a>'
+    +'<button type="button" class="gbtn" style="margin-left:auto" onclick="openGroupModal()">Manage group</button>'
     /* Named, not dropped. A member with nothing on file has to be visible as
        that, or "grouped" quietly means "grouped with a record we found no
        products, sites or creative for" and the page looks complete. */
@@ -4197,10 +4267,10 @@ function renderRoles(d){
     ? ''
     : '<select id="c-owner-pick" style="padding:4px 7px;'
       +'border:1px solid #cbd5e1;border-radius:7px;font-size:12.5px">'+opts+'</select>'
-      +'<a class="gbtn" id="c-owner-save" style="cursor:pointer">Assign</a>'
+      +'<button type="button" class="gbtn" id="c-owner-save">Assign</button>'
       +(a.rule&&a.source!=='rule'
-        ? '<a class="gbtn" id="c-owner-follow" style="cursor:pointer">Follow the '
-          +'partner rule</a>' : '');
+        ? '<button type="button" class="gbtn" id="c-owner-follow">Follow the '
+          +'partner rule</button>' : '');
   var sales=String((typeof window!=='undefined'&&window.__c360sales)||d.salesperson||'').trim();
 
   var cs=d.client_success||{};
@@ -4239,7 +4309,7 @@ function renderRoles(d){
     +(followChips||'<span class="muted">none yet</span>')
     +'<select id="c-follow-pick" style="padding:4px 7px;border:1px solid #cbd5e1;'
     +'border-radius:7px;font-size:12.5px">'+followOpts+'</select>'
-    +'<a class="gbtn" id="c-follow-add" style="cursor:pointer">Add follower</a>'
+    +'<button type="button" class="gbtn" id="c-follow-add">Add follower</button>'
     +'</div>'
     +(d.partner_error?'<div style="font-size:12px;color:#7a5b00">Partner: '
         +esc(d.partner_error)+'</div>':'')
@@ -4266,7 +4336,7 @@ function renderRoles(d){
       })
       .catch(function(err){
         follow.textContent='Follow the partner rule';
-        alert((err&&err.message)||'That did not save.');
+        c360Notice((err&&err.message)||'That did not save.');
       });
   };
   var save=document.getElementById('c-owner-save');
@@ -4287,7 +4357,7 @@ function renderRoles(d){
          rather than appearing to save. */
       .catch(function(err){
         save.textContent='Save';
-        alert((err&&err.message)||'That did not save. If this page is inside '
+        c360Notice((err&&err.message)||'That did not save. If this page is inside '
           +'Smart 1 Suite, changes have to be made in the Hub itself.');
       });
   };
@@ -4307,7 +4377,7 @@ function renderRoles(d){
       })
       .catch(function(err){
         followAdd.textContent='Add follower';
-        alert((err&&err.message)||'That did not save. If this page is inside '
+        c360Notice((err&&err.message)||'That did not save. If this page is inside '
           +'Smart 1 Suite, changes have to be made in the Hub itself.');
       });
   };
@@ -4323,7 +4393,7 @@ function renderRoles(d){
           loadOwner(window.CURRENT_CLIENT||'');
         })
         .catch(function(err){
-          alert((err&&err.message)||'That did not save.');
+          c360Notice((err&&err.message)||'That did not save.');
         });
     };
   });
@@ -4369,7 +4439,7 @@ window.S1GroupLabel=function(btn){
 
 window.openGroupModal=function(){
   const name=window.CURRENT_CLIENT||'';
-  if(!name){ alert('Search for a client first.'); return; }
+  if(!name){ c360Notice('Search for a client first.'); return; }
   let m=document.getElementById('grpModal');
   if(m) m.remove();
   m=document.createElement('div');
@@ -4411,8 +4481,8 @@ function grpRender(info){
         ? '<span class="pill ok" title="Every IO and invoice for the group is filed here">Parent — holds the billing</span>'
         : '<span class="pill neutral">Member</span>')
       +(mem.url?'<span class="muted" style="font-size:11.5px">'+esc(mem.url)+'</span>':'')
-      +'<a class="gbtn grp-del" data-n="'+esc(mem.name)+'" data-u="'+esc(mem.url||'')+'" data-role="'+esc(mem.role)+'"'
-      +' style="cursor:pointer;color:#b91c1c;margin-left:auto">Remove</a></div>').join('');
+      +'<button type="button" class="gbtn grp-del" data-n="'+esc(mem.name)+'" data-u="'+esc(mem.url||'')+'" data-role="'+esc(mem.role)+'"'
+      +' style="color:#b91c1c;margin-left:auto">Remove</button></div>').join('');
     h+='<p class="muted" style="font-size:12px;margin:10px 0 18px">'
       +'Products &amp; IOs, creative, notes, work, proposals and invoices are read across '
       +'every record above, wherever you open the group from. Rows keep the name of the '
@@ -4428,7 +4498,7 @@ function grpRender(info){
     +'color:#64748b;margin-bottom:8px">Attach another company</div>'
     +'<div style="display:flex;gap:8px"><input id="grpQ" placeholder="Company name or domain…" '
     +'style="flex:1;padding:8px 11px;border:1px solid var(--line);border-radius:8px;font:13px inherit">'
-    +'<a class="gbtn" id="grpGo" style="cursor:pointer">Search</a></div>'
+    +'<button type="button" class="gbtn" id="grpGo">Search</button></div>'
     +'<div id="grpRes" style="margin-top:10px"></div>'
     +'<div id="grpMsg" style="margin-top:10px"></div>';
   body.innerHTML=h;
@@ -4447,7 +4517,8 @@ function grpRender(info){
         credentials:'same-origin',body:JSON.stringify({client:a.dataset.n,url:a.dataset.u})})
         .then(r=>r.json()).then(d=>{
           if(d.error){document.getElementById('grpMsg').innerHTML='<div class="pill err">'+esc(d.error)+'</div>';return}
-          location.reload();   // every card on the page is now reading a different set
+          const gm=document.getElementById('grpModal'); if(gm) gm.remove();
+          c360Refresh();   // every card on the page is now reading a different set
         });
     };
   });
@@ -4467,7 +4538,7 @@ function grpRender(info){
           +'<b>'+esc(c.name)+'</b>'
           +'<span class="muted" style="font-size:11.5px">'+esc(c.domain||c.url||'no URL on file')
           +(c.product_count?' · '+c.product_count+' IOs':'')+'</span>'
-          +'<a class="gbtn grp-add" data-i="'+i+'" style="cursor:pointer;margin-left:auto">Attach →</a></div>').join('');
+          +'<button type="button" class="gbtn grp-add" data-i="'+i+'" style="margin-left:auto">Attach →</button></div>').join('');
         res.querySelectorAll('.grp-add').forEach(btn=>{
           btn.onclick=()=>{
             const c=rows[parseInt(btn.dataset.i,10)];
@@ -4491,7 +4562,8 @@ function grpRender(info){
                     '<div class="pill err" style="white-space:normal;display:block;padding:8px 12px">'+esc(d2.error)+'</div>';
                   return;
                 }
-                location.reload();   // the whole record now reads across both
+                const gm=document.getElementById('grpModal'); if(gm) gm.remove();
+                c360Refresh();   // the whole record now reads across both
               });
           };
         });
@@ -4604,7 +4676,7 @@ function findAudience360(){
 function keepAudience360(){
   var ticked=(AUD360.rows||[]).filter(function(r){return r.accepted;})
     .map(function(r){return r.name;});
-  if(!ticked.length){alert('Tick the segments that fit first — nothing was saved.');return;}
+  if(!ticked.length){c360Notice('Tick the segments that fit first — nothing was saved.');return;}
   var current=((window.__aud360||{}).audiences)||[];
   postAudience360({name:window.CURRENT_CLIENT||'',audiences:current.concat(ticked),
                    target:AUD360.target||'',source:AUD360.source||''});
@@ -4627,10 +4699,10 @@ function postAudience360(body){
     headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
    .then(function(r){return r.json();})
    .then(function(d){
-     if(d&&d.ok){AUD360.rows=null;if(d.note)alert(d.note);renderAudience(d.audience);}
-     else alert((d&&d.error)||'The save did not happen.');
+     if(d&&d.ok){AUD360.rows=null;if(d.note)c360Notice(d.note,'info');renderAudience(d.audience);}
+     else c360Notice((d&&d.error)||'The save did not happen.');
    })
-   .catch(function(){alert('The save did not happen — the Hub could not be reached.');});
+   .catch(function(){c360Notice('The save did not happen — the Hub could not be reached.');});
 }
 
 function loadBrand(name){
@@ -4651,12 +4723,12 @@ function lookupBrand(){
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({name:window.CURRENT_CLIENT||'', domain:window.__c360domain||''})})
     .then(r=>r.json()).then(function(d){
-      if(d && d.error){ alert(d.error); loadBrand(window.CURRENT_CLIENT||''); return; }
+      if(d && d.error){ c360Notice(d.error); loadBrand(window.CURRENT_CLIENT||''); return; }
       renderBrand(d);
       /* A lookup that found nothing is an answer, not a failure — and the
          reason matters: a refused key and a business nobody has published
          are different things to do next. */
-      if(d && !d.found && d.note) alert(d.note);
+      if(d && !d.found && d.note) c360Notice(d.note,'info');
       /* A lookup we paid for files the logo into the gallery on the way past
          — hub/brand_lookup.lookup(). Said out loud for the same reason the
          button above says it. */
@@ -4664,7 +4736,7 @@ function lookupBrand(){
       /* The logo IS a client image, so the images card redraws with it. */
       if(window.loadClientImages) window.loadClientImages();
     }).catch(function(){
-      alert('The brand lookup could not be run.');
+      c360Notice('The brand lookup could not be run.');
       loadBrand(window.CURRENT_CLIENT||'');
     });
 }
@@ -4968,11 +5040,11 @@ function saveIndustry(name, btn){
     body:JSON.stringify(body)})
     .then(function(r){return r.json();})
     .then(function(j){
-      if(j&&j.error){ alert(j.error); btn.textContent='Save'; return; }
+      if(j&&j.error){ c360Notice(j.error); btn.textContent='Save'; return; }
       loadIndustry(name);
       if(window.__c360reloadProfile) window.__c360reloadProfile();
     })
-    .catch(function(){ btn.textContent='Save'; alert('That category could not be saved.'); });
+    .catch(function(){ btn.textContent='Save'; c360Notice('That category could not be saved.'); });
 }
 
 /* The scan's desktop and mobile captures beside the client's name. Each
