@@ -11,6 +11,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { ProjectStore } from '../src/projects';
 
 export const E2E_REQUEST = 'AD-E2E-000001';
 
@@ -21,6 +22,14 @@ export function seedCampaign(outDir: string, requestId = E2E_REQUEST): string {
   sample.requestId = requestId;
   const file = path.join(outDir, 'campaigns', `${requestId}.json`);
   fs.writeFileSync(file, JSON.stringify({ campaign: sample, platforms: ['google', 'meta'], notes: [] }, null, 2));
+  // And the project record every build made through intake has: approvals,
+  // the review sheet, the proof and the projects list all hang off it, and
+  // a campaign file alone reaches none of them.
+  const store = new ProjectStore(outDir);
+  if (!store.byRequest(requestId)) {
+    store.create({ projectName: `${sample.brand?.name ?? 'Sample'} — browser test`, client: sample.brand?.name ?? 'Sample',
+      domain: sample.brand?.domain ?? '', campaignName: sample.campaignName ?? 'Browser test', requestId, brand: sample.brand });
+  }
   return file;
 }
 

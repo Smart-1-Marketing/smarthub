@@ -2414,6 +2414,55 @@ def test_a_preset_starts_a_build_from_the_hub():
         link._api = real
 
 
+def test_the_fourth_round_failure_paths():
+    """Bulletproof means the failure paths: a proof link replayed by a script
+    meets a ceiling, a body that is not JSON is a 400, a sign-out or a dead
+    renderer is named on the build screen, a blocked autosave retries itself,
+    a failed preview retries once, and the nightly walk goes past the build
+    screen."""
+    screen = BUILD_HTML.read_text()
+    said = strip_comments(screen)
+    auth = (MODULE / "src" / "auth.ts").read_text()
+    server = (MODULE / "src" / "server.ts").read_text()
+    workflow_ts = (MODULE / "src" / "workflow.ts").read_text()
+    seed = (MODULE / "tests-browser" / "seed.ts").read_text()
+    e2e = (MODULE / "tests-browser" / "build.e2e.ts").read_text()
+    nightly = (ROOT / ".github" / "workflows" / "nightly-browser.yml").read_text()
+
+    # The public proof routes have a ceiling, shared across tokens.
+    check("a proof token is one budget, not one per link", "export function budgetKey" in auth and "'/client-proof/:token'" in auth or ":token" in auth)
+    check("the note, decision and old proof routes are budgeted",
+          "'POST /client-proof/:token/comment'" in auth and "'POST /client-proof/:token/decision'" in auth
+          and "'POST /api/proof/:id/approve'" in auth)
+    check("the limiter reads the normalized key", "const budgeted = budgetKey(route);" in auth)
+
+    # A body that is not JSON is the caller's mistake.
+    check("malformed JSON is a 400, not a crash", "err instanceof SyntaxError" in server and "not valid JSON" in server)
+
+    # The proof page says what happened to a note without a dialog.
+    check("a note that did not send is said inline", "notsent" in workflow_ts and "alert(" not in workflow_ts)
+
+    # The build screen names the two outages the proxy disguises.
+    check("every API answer is read once for the link's state", "function noteLink" in said and "window.fetch = function (input, init)" in said)
+    check("a login redirect is a sign-out, with the way back", "sign-in has ended" in said and "/login?next=" in said)
+    check("an HTML 5xx is the renderer down, with what happens to the edits",
+          "not answering right now" in said and "saving retries by itself" in said)
+    check("the notice clears on a good answer to a request started after it went up",
+          "if (linkState && startedAt > linkRaisedAt) noteLink('');" in said)
+
+    # Saving and previewing recover on their own.
+    check("a blocked autosave retries itself at a widening interval", "autoRetryIn = Math.min(60000" in said and "autoRetryAt && Date.now() >= autoRetryAt" in said)
+    check("but not after a conflict, which a person has to settle", "conflict || linkState === 'out'" in said)
+    check("a failed preview retries once, quietly", "previewRetried = true;" in said and "previewRetrying = true; preview();" in said)
+    check("and then offers a button", "Try the preview again" in said and "data-retry" in said)
+
+    # The browser test plays both outages and walks further at night.
+    check("the browser test plays a dead renderer and a sign-out", "outage = 'down';" in e2e and "outage = 'out';" in e2e and "setRequestInterception(true)" in e2e)
+    check("the seeded campaign has a project record", "store.create(" in seed and "byRequest(requestId)" in seed)
+    check("the longer walk reaches the contact sheet and the projects list", "E2E_FULL" in e2e and "Contact sheet ready" in e2e and "tr[data-request] .chealth" in e2e)
+    check("and the nightly run asks for it", "E2E_FULL: '1'" in nightly)
+
+
 def main():
     print(__doc__.strip().splitlines()[0])
     print()
