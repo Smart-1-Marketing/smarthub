@@ -21,6 +21,10 @@ What it holds:
   * the auto-mapper resolves a client by exact key, then exact name, files a
     CampaignMap with mapped_by="auto", writes the activity row, and never
     overwrites a mapping a person made;
+  * a name without the mark is read for a likeness to a client: whole name,
+    domain label or near spelling; filed (as a proposal, rule fuzzy_v1)
+    only on a clear best, shown beside the queue row otherwise, never
+    under a client somebody refused;
   * the scheduler job is registered and returns the shape the panel reads.
 """
 import json
@@ -275,7 +279,13 @@ g = mapped.get(("google", "g-1"))
 check("...under the client's Hub key", g and g["client"], "d:acme.com")
 check("...with the product from the name", g and g["product"], "Paid Search")
 check("...marked auto with the rule", g and (g["mapped_by"], g["auto_rule"]), ("auto", "name_v1"))
-check("the SIM near-miss stays unmapped", ("google", "g-2") not in mapped)
+# The SIM near-miss is not read as the S1M shape (the parser test above),
+# but its name plainly carries Acme Plumbing's, so the likeness pass files
+# it -- as a proposal, marked as filed by likeness, never as name_v1.
+g2 = mapped.get(("google", "g-2"))
+check("the SIM near-miss is filed by likeness, not read as the mark",
+      g2 and (g2["client"], g2["auto_rule"], g2["pending"]), ("d:acme.com", "fuzzy_v1+name_product", True))
+check("...counted apart on the run", am["suggested"], 1)
 b = mapped.get(("bing", "b-1"))
 check("the human mapping survived, unchanged",
       b and (b["client"], b["mapped_by"], b["auto_rule"]), ("n:buckeye-lake-winery", "Todd", ""))
@@ -345,6 +355,107 @@ check("...and nothing is reported as unresolved on the strength of it", am4["unr
 check("...and the campaign stays unmapped for the next run",
       ("x", "x-2") not in {(m["platform"], m["campaign_id"]) for m in store.mapped_campaigns(limit=200)})
 
+# ------------------------------------------------------- likeness
+section("Filing by likeness of the name")
+
+FUZZ = CLIENTS + [
+    {"name": "Acme Roofing", "slug": "acme-roofing", "url": "https://acmeroofing.com",
+     "domain": "acmeroofing.com", "key": "d:acmeroofing.com"},
+    {"name": "AB", "slug": "ab", "url": "", "domain": "", "key": "n:ab"},
+]
+sug = lambda n, **k: [(h["name"], h["pct"]) for h in automap.suggest_clients(n, rows=FUZZ, **k)]
+check("the client's name in the campaign name is a whole match",
+      sug("Acme Plumbing - Search - Brand")[0], ("Acme Plumbing", 100))
+check("...whatever the separators and case", sug("acme_plumbing|PMAX|2026")[0], ("Acme Plumbing", 100))
+check("...and with a legal suffix on the client's side", sug("Buckeye Lake Winery LLC retargeting")[0],
+      ("Buckeye Lake Winery", 100))
+check("the name run together is the name", sug("acmeplumbing-search")[0], ("Acme Plumbing", 100))
+check("the domain label is next best", sug("acmeroofing 2026 leads")[0], ("Acme Roofing", 100))
+check("a near spelling scores by likeness",
+      sug("Acme Plumbng | Search")[0][0] == "Acme Plumbing" and 90 <= sug("Acme Plumbng | Search")[0][1] < 100)
+check("a shared first word is a lead for both, and equal",
+      sug("Acme | Search"), [("Acme Plumbing", 75), ("Acme Roofing", 75)])
+check("a two-letter client is a lead at most", sug("AB test")[0], ("AB", 75))
+check("a name like nobody's suggests nobody", sug("Random Campaign 12"), [])
+check("a blank name suggests nobody", sug(""), [])
+check("the refused client is left out", sug("Acme Plumbing | Search", exclude="d:acme.com")[0][0], "Acme Roofing")
+check("suggestions are capped", len(automap.suggest_clients("Acme Plumbing Roofing", rows=FUZZ, limit=1)), 1)
+
+dec = lambda n: (automap.decide(automap.suggest_clients(n, rows=FUZZ)) or {}).get("name")
+check("a whole name with nobody close is filed", dec("Acme Plumbing - Search"), "Acme Plumbing")
+check("two clients alike is filed under neither", dec("Acme | Search"), None)
+check("a lead is not a filing", dec("AB test"), None)
+check("nothing is nothing", dec("Random Campaign 12"), None)
+check("a near spelling under the bar is shown, not filed",
+      sug("Buckeye Winery - Search")[0][0] == "Buckeye Lake Winery" and dec("Buckeye Winery - Search") is None)
+check("the file bar is above the show bar", automap.FUZZY_FILE_SCORE > automap.FUZZY_SHOW_SCORE)
+
+check("a catalog product named whole in the name is read", automap.product_from_name("Acme | Streaming TV | Q4"), "Streaming TV")
+check("...case apart", automap.product_from_name("acme paid search brand"), "Paid Search")
+check("a word that is not a catalog name is not a product", automap.product_from_name("Acme | Search"), "")
+
+# Through run(): the likeness pass files the clear one, leaves the
+# ambiguous one with the queue, and never touches a refusal.
+_all_clients = clients_registry.all_clients
+clients_registry.all_clients = lambda refresh=False: FUZZ
+store.upsert_rows([
+    {"platform": "meta", "account_id": "act_f", "campaign_id": "f-clear",
+     "campaign_name": "Acme Roofing - Leads - Streaming TV",
+     "date": TODAY - timedelta(days=1), "spend": 5, "impressions": 50, "clicks": 1, "source": "csv"},
+    {"platform": "meta", "account_id": "act_f", "campaign_id": "f-ambig",
+     "campaign_name": "Acme - Leads",
+     "date": TODAY - timedelta(days=1), "spend": 5, "impressions": 50, "clicks": 1, "source": "csv"},
+    {"platform": "meta", "account_id": "act_f", "campaign_id": "f-none",
+     "campaign_name": "Spring promo 2026",
+     "date": TODAY - timedelta(days=1), "spend": 5, "impressions": 50, "clicks": 1, "source": "csv"},
+])
+am5 = automap.run(actor="test")
+filed = {(m["platform"], m["campaign_id"]): m for m in store.mapped_campaigns(limit=200)}
+clear = filed.get(("meta", "f-clear"))
+check("the clear likeness is filed as a proposal", clear and (clear["client"], clear["mapped_by"], clear["pending"]),
+      ("d:acmeroofing.com", "auto", True))
+check("...with the product the name carries", clear and (clear["product"], clear["auto_rule"]),
+      ("Streaming TV", "fuzzy_v1+name_product"))
+check("the ambiguous one is left for the queue", ("meta", "f-ambig") not in filed)
+check("...and counted as ambiguous", am5["ambiguous"], 1)
+check("the one like nobody is left too", ("meta", "f-none") not in filed)
+check("the run counts the likeness filings", am5["suggested"], 1)
+entries = list(reversed(audit.read(limit=2000)))
+by_like = [e for e in entries if e.get("action") == "campaign_automapped" and e.get("campaign_id") == "f-clear"]
+check("the activity row says it was filed by likeness, and how alike",
+      bool(by_like) and "by likeness (100%" in by_like[0]["detail"] and by_like[0].get("client") == "Acme Roofing")
+
+# Refused, it is not filed again under that client from that name, and the
+# queue no longer suggests that client for it.
+store.refuse_mapping("meta", "act_f", "f-clear", by="Todd")
+am6 = automap.run(actor="test")
+check("a refused likeness filing stays refused", ("meta", "f-clear") not in
+      {(m["platform"], m["campaign_id"]) for m in store.mapped_campaigns(limit=200)})
+check("...and is counted as refused", am6["refused"] >= 1)
+queue = store.unmapped_campaigns(days=30, limit=100)
+pending = store.pending_mappings()
+annotated = automap.annotate(queue, pending)
+check("annotate() answers with no error", annotated, {"error": ""})
+q = {r["campaign_id"]: r for r in queue}
+check("the queue's ambiguous row carries both leads",
+      [c["name"] for c in q["f-ambig"]["suggestions"]], ["Acme Plumbing", "Acme Roofing"])
+check("the refused row does not suggest the refused client",
+      [c["name"] for c in q["f-clear"]["suggestions"]], ["Acme Plumbing"])
+check("a row like nobody carries an empty list, not a missing key", q["f-none"]["suggestions"], [])
+pend = {m["campaign_id"]: m for m in pending}
+check("a pending likeness filing says why", pend["g-2"]["match"] and pend["g-2"]["match"]["pct"], 100)
+check("...and a pending S1M filing carries no likeness", pend.get("t-typo", {}).get("match"), None)
+
+# A registry that cannot be read: nothing suggested, nothing filed, named.
+clients_registry.all_clients = _boom
+am7 = automap.run(actor="test")
+check("the likeness pass stops on an unreadable registry, naming it", "knack is down" in (am7.get("registry_error") or ""))
+check("...and files nothing", am7["mapped"], 0)
+ann = automap.annotate(queue)
+check("annotate() names the unreadable registry", "knack is down" in ann["error"])
+check("...and every row still has its (empty) list", all(r["suggestions"] == [] for r in queue))
+clients_registry.all_clients = _all_clients
+
 # A table that synced and is then gone is a finding on the watermark; one
 # that never synced (linkedin, above) still records nothing.
 with store.engine.begin() as conn:
@@ -411,6 +522,49 @@ check("...and every platform's verdict",
 check("...naming ttd's missing columns", T["spend"] in page)
 check("...with no script on it", "<script" not in page.split("s1d-page")[-1].split("</body>")[0]
       or page.count("<script") <= 1)
+
+# ---------------------------------------------------- one page per provider
+section("One page per provider under the overview")
+
+from modules.reports import provider_fields                          # noqa: E402
+
+check("the overview carries the providers submenu, the overview marked",
+      's1d-subnav' in page and 'class="on"' in page and "/reports/provider-check/audiogo" in page)
+check("the submenu lists every platform but suite, native pulls first",
+      [i["key"] for i in provider_fields.nav("")][1:],
+      list(provider_fields.NATIVE) + [p for p in provider_map.PLATFORM_SOURCES
+                                      if p not in provider_fields.NATIVE])
+for plat in provider_fields.ORDER:
+    r = c.get(f"/provider-check/{plat}")
+    body = r.get_data(as_text=True)
+    check(f"/provider-check/{plat} renders with the map, the unread box and the Render list",
+          (r.status_code, "Field map expected" in body, 'id="unread-fields"' in body,
+           "What has to be true on Render" in body), (200, True, True, True))
+r = c.get("/provider-check/nope")
+check("an unknown provider is a 404 with the submenu on it, not a 500",
+      (r.status_code, 's1d-subnav' in r.get_data(as_text=True)), (404, True))
+# The Windsor half is measured against the schema: Google's table is
+# present here, Meta's is absent.
+pf = provider_fields.unread_table_columns("google", tables)
+check("a present table's unread columns are measured, not transcribed",
+      (pf["present"], all(col not in provider_map.required_columns(provider_map.PLATFORM_SOURCES["google"])
+                          for col in pf["unread"])), (True, True))
+check("an absent table reads as not measured", provider_fields.unread_table_columns("meta", {})["present"], False)
+check("the AudioGo map on the page is the map audiogo_map.py reads",
+      [r["field"] for r in provider_fields.field_map("audiogo")["rows"]],
+      list(__import__("modules.reports.audiogo_map", fromlist=["config"]).config()["fields"].values()))
+check("Microsoft's request asks for two columns nothing reads, and the page says which",
+      provider_fields.field_map("bing")["requested_unread"], ["AccountNumber", "CampaignStatus"])
+check("answered-and-not-read is the row keys minus what the map names, dotted paths by their root",
+      provider_fields.unread_from_answer("stackadapt", ["campaign", "granularity", "metrics", "ctr"]), ["ctr"])
+check("every native pull names what has to be true on Render, required rows first",
+      all(provider_fields.ENV[p] and provider_fields.ENV[p][0]["required"] for p in provider_fields.NATIVE))
+check("every documented list names its source",
+      all(provider_fields.DOCUMENTED[p]["source"] and provider_fields.DOCUMENTED[p]["fields"]
+          for p in provider_fields.NATIVE))
+from hub import help as hub_help                                     # noqa: E402
+check("the help bubbles the pages guard are registered",
+      all(hub_help.get(k) is not None for k in ("reports.provider.page", "reports.provider.unread")))
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{_passed} passed, {_failed} failed")

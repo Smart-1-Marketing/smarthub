@@ -9,6 +9,7 @@
   {% elif saved == 'pushed' %}The link is on the client's Smart 1 Suite contact.
   {% elif saved == 'campaign' %}Campaign saved. The client's page picks it up at once.
   {% elif saved == 'confirmed' %}Confirmed. The campaign is on the client's page from now.
+  {% elif saved == 'moved' %}Moved. The campaign is filed under the client you picked, confirmed by your press, and off this page.
   {% elif saved == 'refused' %}Refused. The campaign is back on the <a href="/reports/unmapped">unmapped queue</a>, and the auto-mapper will not file it here from that name again.
   {% else %}Settings saved. The page picks them up at once.{% endif %}
 {% endblock %}
@@ -176,6 +177,20 @@
                   <button type="submit" class="s1d-btn sec small">Not theirs</button>
                 </form>
               </span>
+              <form method="post" action="{{ request.script_root }}/unmapped" class="btnrow move" style="margin-top:4px">
+                <input type="hidden" name="platform" value="{{ m.platform }}">
+                <input type="hidden" name="account_id" value="{{ m.account_id }}">
+                <input type="hidden" name="campaign_id" value="{{ m.campaign_id }}">
+                <input type="hidden" name="campaign_name" value="{{ m.campaign_name }}">
+                <input type="hidden" name="product" value="{{ m.product }}">
+                <input type="hidden" name="back" value="client"><input type="hidden" name="client" value="{{ client }}">
+                <span class="picker" style="min-width:180px">
+                  <input type="text" name="client_name" placeholder="Move to another client…" autocomplete="off" required aria-label="Move to client" style="width:100%">
+                  <input type="hidden" name="client_key" value="">
+                  <div class="picker-list"></div>
+                </span>
+                <button type="submit" class="s1d-btn sec small">Move</button>
+              </form>
             {% elif m.auto_rule %}<br><span class="s1d-muted">confirmed by {{ m.confirmed_by }}</span>{% endif %}</td></tr>
       {% endfor %}
       </tbody>
@@ -326,6 +341,7 @@
 {% endblock %}
 
 {% block script %}
+{% include "_reports_picker.html" %}
 <script>
   Array.prototype.forEach.call(document.querySelectorAll("time[datetime]"), function (t) {
     var d = new Date(t.getAttribute("datetime"));

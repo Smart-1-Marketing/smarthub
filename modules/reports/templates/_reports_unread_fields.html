@@ -1,0 +1,46 @@
+{# The box every provider page carries: what the platform offers that no
+   reader here asks for. Two lists, kept apart because they are two kinds of
+   claim -- one measured on this deployment, one transcribed from a document.
+   Expects `unread` ({measured, keys}) or none, `documented` ({source, fields,
+   why}) or none, and optionally `requested_unread` (names a request asks the
+   platform for and then does not read) and `table` ({present, unread}) for
+   Windsor's raw table. #}
+<div class="s1d-card" id="unread-fields">
+  <div class="s1d-cardhead"><h2>API fields not used {{ help_dot('reports.provider.unread') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">what the platform offers that no reader here asks for</span></div>
+
+  {% if unread is defined and unread %}
+  <div class="s1d-kv"><b>Answered and not read</b>
+    <span>{% if unread.measured %}{% if unread.names %}<span class="mono">{{ unread.names|join(', ') }}</span>
+      <span class="s1d-muted">&mdash; on the row the endpoint returned, and named by no line of the map.</span>
+      {% else %}<span class="s1d-pill ok">none</span> <span class="s1d-muted">every key on the returned row is read.</span>{% endif %}
+      {% else %}<span class="s1d-muted">not measured: no row has come back yet, so there is nothing to compare the map against.</span>{% endif %}</span></div>
+  {% endif %}
+
+  {% if requested_unread is defined and requested_unread %}
+  <div class="s1d-kv"><b>Asked for and not read</b>
+    <span><span class="mono">{{ requested_unread|join(', ') }}</span>
+      <span class="s1d-muted">&mdash; on the request the pull sends, and read by nothing after the answer lands.</span></span></div>
+  {% endif %}
+
+  {% if table is defined and table %}
+  <div class="s1d-kv"><b>On Windsor's table and not read</b>
+    <span>{% if table.present %}{% if table.unread %}<span class="mono">{{ table.unread|join(', ') }}</span>
+      {% else %}<span class="s1d-pill ok">none</span> <span class="s1d-muted">every column on the raw table is named by the map.</span>{% endif %}
+      {% else %}<span class="s1d-muted">not measured: the raw table is not in the schema yet.</span>{% endif %}</span></div>
+  {% endif %}
+
+  {% if documented %}
+  <div class="s1d-kv"><b>Documented and not read</b>
+    <span>
+      <ul style="margin:0 0 6px;padding-left:18px">
+        {% for f in documented.fields %}<li class="mono">{{ f }}</li>{% endfor %}
+      </ul>
+      <span class="s1d-muted">Transcribed from {{ documented.source }}. A name here is what the document says, not what an endpoint answered.</span>
+    </span></div>
+  {% if documented.why %}<p class="s1d-hint">{{ documented.why }}</p>{% endif %}
+  {% else %}
+  <p class="s1d-hint">No reference has been transcribed for this platform: it arrives through the
+    managed provider's table, and the columns Windsor writes are the whole of what it offers here.</p>
+  {% endif %}
+</div>

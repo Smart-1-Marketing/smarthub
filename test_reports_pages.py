@@ -115,7 +115,7 @@ for rule in reports_app.app.url_map.iter_rules():
 check("the module serves the staff screens, the picker's search and the client's page",
       sorted({p for p, _ in ROUTES}),
       sorted(["/", "/unmapped", "/unmapped/confirm", "/unmapped/refuse",
-              "/markup", "/budgets", "/budgets/1", "/provider-check", "/provider-check/confirm",
+              "/markup", "/budgets", "/budgets/1", "/provider-check", "/provider-check/x", "/provider-check/confirm",
               "/provider-check/withdraw", "/audiogo-check", "/groundtruth-check", "/amazon-check",
               "/quarantine", "/quarantine/decide",
               "/reconcile", "/reconcile/run",
@@ -175,6 +175,30 @@ check("...and the rename hint",
       "S1M | &lt;ClientKey&gt; | &lt;Product&gt; | &lt;anything&gt;" in body)
 check("...and the picker script once", body.count("s1reports:client") >= 1)
 
+# The likeness beside each row: the registry stub knows Acme Co, and the
+# Google campaign is named like nobody.
+from hub import clients_registry as _reg                                 # noqa: E402
+_reg_all = _reg.all_clients
+_reg.all_clients = lambda refresh=False: [
+    {"name": "Acme Co", "slug": "acme-co", "url": "https://acme.com", "domain": "acme.com", "key": "d:acme.com"},
+    {"name": "Zeta Dental", "slug": "zeta-dental", "url": "", "domain": "", "key": "n:zeta-dental"},
+]
+store.upsert_rows([{"platform": "ttd", "account_id": "t-1", "campaign_id": "t-acme",
+                    "campaign_name": "Acme Co | CTV | Q4", "date": "2026-09-01", "spend": "10",
+                    "impressions": 100, "clicks": 1, "source": "csv"}])
+body = staff.get("/reports/unmapped").get_data(as_text=True)
+check("a row named like a client opens its picker on that client",
+      'value="Acme Co"' in body and 'name="client_key" value="d:acme.com"' in body)
+check("...with the likeness said in words", "the campaign name contains the client" in body)
+check("...as a chip that can be changed", 'data-key="d:acme.com"' in body and "Looks like:" in body)
+check("a row named like nobody says so", "No client's name looks like this one." in body)
+check("...and opens on nobody", body.count('name="client_key" value=""') >= 2)
+_reg.all_clients = lambda refresh=False: (_ for _ in ()).throw(RuntimeError("knack down"))
+body = staff.get("/reports/unmapped").get_data(as_text=True)
+check("an unreadable registry is said on the page, not an empty likeness",
+      "Suggestions not available" in body and "No client's name looks like" not in body)
+_reg.all_clients = _reg_all
+
 r = staff.get("/reports/markup")
 body = r.get_data(as_text=True)
 check("the markup page renders", r.status_code, 200)
@@ -204,7 +228,9 @@ r = staff.post("/reports/unmapped", data={
 body = r.get_data(as_text=True)
 check("mapping a campaign lands back on the queue", r.status_code, 200)
 check("...saying it is filed", "m-1 is filed" in body)
-check("...and the campaign has left the list", body.count('name="client_name"'), 1)
+# Two pickers left: the Google campaign and the Trade Desk one the likeness
+# check above added.
+check("...and the campaign has left the list", body.count('name="client_name"'), 2)
 check("...and is on the recently-mapped list", "Acme Co" in body and "d:acme.com" in body)
 check("the store agrees", store.mapped_campaigns()[0]["client"], "d:acme.com")
 
@@ -225,6 +251,56 @@ r = staff.post("/reports/unmapped", data={
 check("a mapping with no client is refused with a reason",
       "Pick a client first" in r.get_data(as_text=True))
 check("...and nothing was written", len(store.mapped_campaigns()), 1)
+
+# Move: a proposal the auto-mapper filed under the wrong client is filed
+# under the right one by the same press, confirmed by the person's press,
+# from the queue and from the client's page alike.
+store.map_campaign("ttd", "t-1", "t-acme", client="n:zeta-dental", client_name="Zeta Dental",
+                   product="Streaming TV", mapped_by="auto", auto_rule="fuzzy_v1+name_product",
+                   campaign_name="Acme Co | CTV | Q4")
+body = staff.get("/reports/unmapped").get_data(as_text=True)
+check("a pending row offers Move", 'placeholder="Move to another client…"' in body)
+check("...and says it was filed by likeness", "by likeness" in body)
+r = staff.post("/reports/unmapped", data={
+    "platform": "ttd", "account_id": "t-1", "campaign_id": "t-acme",
+    "campaign_name": "Acme Co | CTV | Q4", "client_name": "Acme Co", "client_key": "d:acme.com",
+    "product": "Streaming TV"}, follow_redirects=True)
+body = r.get_data(as_text=True)
+check("moving it lands back on the queue saying so", r.status_code == 200 and "Moved." in body)
+moved = store.campaign_map("ttd", "t-1", "t-acme")
+check("...filed under the picked client, confirmed by the press",
+      (moved["client"], moved["mapped_by"], moved["pending"], moved["product"]),
+      ("d:acme.com", "Todd", False, "Streaming TV"))
+entries = list(reversed(_audit.read(limit=2000)))
+mv = [e for e in entries if e.get("module") == "reports" and e["type"] == "campaign_mapped"
+      and e.get("campaign_id") == "t-acme"]
+check("...and the activity row says where it came from",
+      bool(mv) and "moved from Zeta Dental, which the auto-mapper had proposed" in mv[0]["detail"])
+store.map_campaign("ttd", "t-1", "t-acme", client="n:zeta-dental", client_name="Zeta Dental",
+                   product="Streaming TV", mapped_by="auto", auto_rule="fuzzy_v1",
+                   campaign_name="Acme Co | CTV | Q4")
+body = staff.get("/reports/client/n:zeta-dental").get_data(as_text=True)
+check("the client's page offers Move on a pending row", 'placeholder="Move to another client…"' in body)
+check("...with the picker script", "s1reports:client" in body)
+r = staff.post("/reports/unmapped", data={
+    "platform": "ttd", "account_id": "t-1", "campaign_id": "t-acme",
+    "campaign_name": "Acme Co | CTV | Q4", "client_name": "Acme Co", "client_key": "d:acme.com",
+    "product": "Streaming TV", "back": "client", "client": "n:zeta-dental"})
+check("moving from the client's page goes back to that page",
+      r.status_code == 302 and r.headers["Location"].endswith("/reports/client/n:zeta-dental?saved=moved"))
+check("...and the campaign is off it", store.campaign_map("ttd", "t-1", "t-acme")["client"], "d:acme.com")
+# Out of the book again, so the counts the checks below expect are the
+# ones the fixture at the top seeded.
+store.refuse_mapping("ttd", "t-1", "t-acme", by="Todd")
+_db = store.SessionLocal()
+try:
+    _db.query(store.AdPerfDaily).filter(store.AdPerfDaily.campaign_id == "t-acme").delete()
+    _db.query(store.MapRefusal).filter(store.MapRefusal.campaign_id == "t-acme").delete()
+    _db.commit()
+finally:
+    _db.close()
+check("(cleared for the checks below)",
+      (store.campaign_map("ttd", "t-1", "t-acme"), store.unmapped_count()), (None, 1))
 
 r = staff.post("/reports/markup", data={"markup_google": "15", "cpm_google": "12.5",
                                         "markup_meta": "10"}, follow_redirects=True)

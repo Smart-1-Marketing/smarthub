@@ -185,6 +185,7 @@ HUB_PAGES = [
     # database, and the client page takes a Hub key in the path -- a sweep of
     # mount roots lands on /reports/ alone and reports these green unasked.
     "/reports/provider-check",
+    "/reports/provider-check/audiogo",
     "/reports/client/n:pagecheck-client",
 ]
 

@@ -187,6 +187,72 @@ check("no PUBLIC_BASE_URL is a callback with nowhere to come back to, named",
       (bing_ads.redirect_uri(), "PUBLIC_BASE_URL" in bing_ads.connection_status(None)["missing"]), ("", True))
 os.environ["PUBLIC_BASE_URL"] = "https://smart1.agency"
 
+# The spellings Render actually carries: the app registration under
+# MICROSOFT_ADS_CLIENT_ID / MICROSOFT_ADS_CLIENT_SECRET beside the BING_AD_
+# pair. The day this was found the card reported the pair missing with
+# both plainly set, and Connect could not start.
+os.environ.pop("BING_AD_CLIENT_ID"); os.environ.pop("BING_AD_CLIENT_SECRET")
+cs = bing_ads.connection_status(None)
+check("with neither spelling set the pair is missing under the name the card prints",
+      cs["missing"], ["BING_AD_CLIENT_ID", "BING_AD_CLIENT_SECRET"])
+check("...and each block names the other spelling as read too",
+      all("MICROSOFT_ADS_" in b["why"] for b in cs["blocks"]))
+os.environ["MICROSOFT_ADS_CLIENT_ID"] = "ms-client-id"
+os.environ["MICROSOFT_ADS_CLIENT_SECRET"] = "ms-secret-value-000000"
+cs = bing_ads.connection_status(None)
+check("MICROSOFT_ADS_CLIENT_ID / _SECRET configure the connection", (cs["configured"], cs["missing"]), (True, []))
+check("...and the consent carries that client id", "client_id=ms-client-id" in bing_ads.build_auth_url("s"))
+check("...and the secret under that spelling never leaves", "ms-secret-value-000000" not in bing_ads._redact("ms-secret-value-000000 leaked"))
+from hub import config as _cfg                                       # noqa: E402
+check("hub/config.py resolves the same pair", (_cfg._alias("bing_client_id"), _cfg._alias("bing_client_secret")),
+      ("ms-client-id", "ms-secret-value-000000"))
+os.environ["BING_AD_CLIENT_ID"] = "app-client-id"; os.environ["BING_AD_CLIENT_SECRET"] = SECRET
+check("...with the BING_AD_ spelling first when both are set", bing_ads.cfg()["client_id"], "app-client-id")
+rep_rows = {r["setting"]: r for r in _cfg.settings.env_report()}
+check("...and /diagnostics' env report says which spelling answered and which was ignored",
+      (rep_rows["bing_client_id"]["resolved"], rep_rows["bing_client_id"].get("ignored")),
+      ("BING_AD_CLIENT_ID", ["MICROSOFT_ADS_CLIENT_ID"]))
+os.environ.pop("MICROSOFT_ADS_CLIENT_ID"); os.environ.pop("MICROSOFT_ADS_CLIENT_SECRET")
+
+# The tenant: /common/ unless MICROSOFT_ADS_TENANT narrows it, and never
+# a pasted URL inside the identity host's path.
+check("no tenant is /common/", (bing_ads.tenant(), bing_ads.auth_url()), ("common", bing_ads.AUTH_URL))
+os.environ["MICROSOFT_ADS_TENANT"] = "0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b"
+check("a tenant id goes into both identity endpoints",
+      (bing_ads.auth_url(), bing_ads.token_url()),
+      ("https://login.microsoftonline.com/0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b/oauth2/v2.0/authorize",
+       "https://login.microsoftonline.com/0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b/oauth2/v2.0/token"))
+check("...and the consent URL is built on it", bing_ads.build_auth_url("s").startswith(bing_ads.auth_url() + "?"))
+check("...reported on the connection", bing_ads.connection_status(None)["tenant"], "0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b")
+os.environ["MICROSOFT_ADS_TENANT"] = "https://login.microsoftonline.com/common"
+check("a pasted URL is not a tenant and falls back to /common/", bing_ads.tenant(), "common")
+os.environ.pop("MICROSOFT_ADS_TENANT")
+
+# The pinned redirect URI: sent exactly when it is this Hub's callback,
+# refused by name when it is some other page.
+PIN = "https://smart1-hub.onrender.com/tools/ads/oauth/bing/callback"
+os.environ["MICROSOFT_ADS_REDIRECT_URI"] = f'"{PIN}"'
+cs = bing_ads.connection_status(None)
+check("MICROSOFT_ADS_REDIRECT_URI pins the callback, Render's quotes stripped",
+      (bing_ads.redirect_uri(), cs["redirect_uri_source"], cs["configured"]), (PIN, "MICROSOFT_ADS_REDIRECT_URI", True))
+check("...and the consent sends exactly it",
+      parse_qs(urlsplit(bing_ads.build_auth_url("s")).query)["redirect_uri"], [PIN])
+row = next(r for r in orx.rows("https://smart1.agency/") if r["key"] == "bing_ads")
+check("...and the panel prints the same string, naming the pin as its source",
+      (row["source"], row["uris"]), ("MICROSOFT_ADS_REDIRECT_URI", [PIN]))
+os.environ["MICROSOFT_ADS_REDIRECT_URI"] = "https://smart1-hub.onrender.com/tools/ads/oauth/callback"
+cs = bing_ads.connection_status(None)
+check("a pin at another page's path is refused by name, not sent",
+      (cs["configured"], "/tools/ads/oauth/bing/callback" in cs["redirect_uri_problem"],
+       cs["missing"], [b["name"] for b in cs["blocks"]]),
+      (False, True, [], ["MICROSOFT_ADS_REDIRECT_URI"]))
+check("...the code builds nothing from it", bing_ads.redirect_uri(), "https://smart1.agency/tools/ads/oauth/bing/callback")
+check("...the pull says so", "MICROSOFT_ADS_REDIRECT_URI" in bing.pull()["error"])
+check("/diagnostics reads it as an error naming the variable",
+      (diagnostics.check_microsoft_ads().state, "MICROSOFT_ADS_REDIRECT_URI" in diagnostics.check_microsoft_ads().detail),
+      ("error", True))
+os.environ.pop("MICROSOFT_ADS_REDIRECT_URI")
+
 
 # --------------------------------------------------------- the token
 section("The refresh token: environment first, settings table second, never out")
@@ -577,13 +643,28 @@ for f in ("env.example", "render.yaml"):
     # A variable, not a sentence: both files EXPLAIN that there is no twin.
     check(f"...and no BING_ADS_ twin", re.search(r"^\s*(- key: )?BING_ADS_", text, re.M) is None)
 cfg_src = (ROOT / "hub" / "config.py").read_text(encoding="utf-8")
-check("hub/config.py reads every one under exactly that name",
-      all(f'_s("{n}")' in cfg_src for n in bing_ads.REQUIRED + ("BING_MANAGER_ACCOUNT_NUMBER",)))
-check("...and invents no alias for them", "BING" not in cfg_src[cfg_src.index("ALIASES: dict"):cfg_src.index("\n}\n", cfg_src.index("ALIASES: dict"))])
 from hub import config as hub_config                                 # noqa: E402
+check("hub/config.py reads the single-spelling names under exactly that name",
+      all(f'_s("{n}")' in cfg_src for n in ("BING_AD_DEVELOPER_TOKEN", "BING_MANAGER_ACCOUNT_ID",
+                                             "BING_MANAGER_ACCOUNT_NUMBER", "MICROSOFT_ADS_TENANT",
+                                             "MICROSOFT_ADS_REDIRECT_URI")))
+# The app registration is the one pair with two spellings in use on Render,
+# and ALIASES names exactly those two -- no BING_ADS_ twin, no third guess.
+check("...and the app registration under exactly the two spellings in use",
+      (hub_config.ALIASES.get("bing_client_id"), hub_config.ALIASES.get("bing_client_secret")),
+      (("BING_AD_CLIENT_ID", "MICROSOFT_ADS_CLIENT_ID"), ("BING_AD_CLIENT_SECRET", "MICROSOFT_ADS_CLIENT_SECRET")))
+_alias_block = cfg_src[cfg_src.index("ALIASES: dict"):cfg_src.index("\n}\n", cfg_src.index("ALIASES: dict"))]
+check("...and no other Bing name in ALIASES",
+      [ln for ln in _alias_block.splitlines() if "BING" in ln and "BING_AD_CLIENT_" not in ln and not ln.strip().startswith("#")], [])
+check("...which the client reads through the same rows",
+      {k: v[0] for k, v in bing_ads.ALIAS_KEYS.items()}, {"BING_AD_CLIENT_ID": "bing_client_id", "BING_AD_CLIENT_SECRET": "bing_client_secret"})
+for f in ("env.example", "render.yaml"):
+    check(f"{f} documents the second spelling and the two optional settings",
+          all(n in (ROOT / f).read_text(encoding="utf-8") for n in
+              ("MICROSOFT_ADS_CLIENT_ID", "MICROSOFT_ADS_CLIENT_SECRET", "MICROSOFT_ADS_REDIRECT_URI", "MICROSOFT_ADS_TENANT")))
 rep = {r["name"]: r for r in hub_config.settings.status()}
-check("/status has a Microsoft Ads row naming all four", "Microsoft Ads" in rep
-      and all(n in rep["Microsoft Ads"]["note"] for n in bing_ads.REQUIRED))
+check("/status has a Microsoft Ads row naming all four, and the second spelling", "Microsoft Ads" in rep
+      and all(n in rep["Microsoft Ads"]["note"] for n in bing_ads.REQUIRED + ("MICROSOFT_ADS_CLIENT_ID",)))
 from hub import help as hub_help                                     # noqa: E402
 check("the settings card's bubble is registered", "ads_builder.settings.bing" in {h.key for h in hub_help.REGISTRY})
 
@@ -645,6 +726,10 @@ try:
     check("a state mismatch is refused", (r.status_code, "state mismatch" in r.get_data(as_text=True).lower()), (400, True))
     r = client.get("/oauth/bing/callback?error=access_denied", environ_base=ENV)
     check("a cancelled consent is refused in words", (r.status_code, "cancelled" in r.get_data(as_text=True)), (400, True))
+    r = client.get("/oauth/bing/callback", environ_base=ENV)
+    html = r.get_data(as_text=True)
+    check("the callback opened with no code says where sign-in starts, and what a mismatch looks like",
+          (r.status_code, "Connect Microsoft Ads" in html, "redirect URI" in html, EXCHANGED), (400, True, True, ["auth-code-1"]))
 finally:
     bing_ads.exchange_code = _real_exchange
 
@@ -662,6 +747,20 @@ check("Connect refuses by name until the variables are set",
 html = client.get("/settings", environ_base=ENV).get_data(as_text=True)
 check("...and the card names what is missing rather than offering the button",
       "BING_AD_CLIENT_ID" in html and "Connect Microsoft Ads" not in html)
+os.environ["BING_AD_CLIENT_ID"] = "app-client-id"
+os.environ["MICROSOFT_ADS_REDIRECT_URI"] = "https://smart1-hub.onrender.com/auth/microsoft/callback"
+r = client.get("/connect/bing", environ_base=ENV)
+check("Connect refuses a pinned redirect at a page this Hub does not answer, by name",
+      (r.status_code, "MICROSOFT_ADS_REDIRECT_URI" in r.get_data(as_text=True)), (400, True))
+html = client.get("/settings", environ_base=ENV).get_data(as_text=True)
+check("...and the card says so rather than offering the button",
+      "MICROSOFT_ADS_REDIRECT_URI points somewhere" in html and "Connect Microsoft Ads" not in html)
+os.environ["MICROSOFT_ADS_REDIRECT_URI"] = "https://smart1-hub.onrender.com/tools/ads/oauth/bing/callback"
+html = client.get("/settings", environ_base=ENV).get_data(as_text=True)
+check("...and a pin at the right path is printed as the URI in use, with no finding",
+      "smart1-hub.onrender.com/tools/ads/oauth/bing/callback" in html
+      and "from MICROSOFT_ADS_REDIRECT_URI" in html and "points somewhere" not in html)
+os.environ.pop("MICROSOFT_ADS_REDIRECT_URI")
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{_passed} passed, {_failed} failed")

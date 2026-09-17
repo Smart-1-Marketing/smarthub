@@ -57,7 +57,13 @@ import os
 
 # The API. GROUND_TRUTH_API_BASE is the origin and has to be SET; this
 # default is printed on the check page and never called (see above).
-DEFAULT_BASE = "https://api.groundtruth.com"          # PLACEHOLDER, never called
+# The origin the Public API's own examples call (api-docs.groundtruth.com,
+# read September 17, 2026 from the search index: the request examples are
+# curl against https://api-public.groundtruth.com with Content-Type:
+# application/json). Printed on the check page as the likeliest spelling
+# and STILL never called until GROUND_TRUTH_API_BASE is set to it: the rule
+# above is about who confirms the host, not about how good the guess is.
+DEFAULT_BASE = "https://api-public.groundtruth.com"   # a documented origin, never called unset
 REPORT_PATH = "/v1/reports/campaigns/timeseries"      # PLACEHOLDER
 METHOD = "GET"                                        # PLACEHOLDER (GET with query params)
 
