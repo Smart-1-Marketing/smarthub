@@ -340,8 +340,7 @@ def compare(ours: dict, their: dict) -> dict:
 def _held_in(platform: str, start: date, end: date) -> int:
     try:
         from . import quarantine
-        return sum(1 for h in quarantine.held(limit=5000)
-                   if h["platform"] == platform and h["date"] and start.isoformat() <= h["date"] <= end.isoformat())
+        return quarantine.held_count(platform, start, end)
     except Exception:                                   # noqa: BLE001
         return 0
 

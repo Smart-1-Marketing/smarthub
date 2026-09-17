@@ -38,10 +38,14 @@ What it holds:
     paces. ``budget_lines_for``, ``all_budget_lines`` and
     ``budget_line_count`` answer it, and a count is counted in SQL rather
     than ``len()``-ed over a capped read;
+  * the quarantine queue is the third: ``held()`` orders by date descending,
+    so a filter or a count over it drops the days that have been missing
+    from a client's page the LONGEST. ``held_for_keys`` and ``held_count``
+    answer it;
   * the guard: no client-scoped or by-key reader may reach
-    ``mapped_campaigns`` or ``budget_lines`` at all. Both stay, bounded,
-    for the screens that page; every reader that filters is asserted here
-    to go through the uncapped readings instead.
+    ``mapped_campaigns``, ``budget_lines`` or ``held`` at all. All three
+    stay, bounded, for the screens that page; every reader that filters is
+    asserted here to go through the uncapped readings instead.
 """
 import os
 import shutil
@@ -81,7 +85,7 @@ def section(title):
     print(f"\n{title}\n{'-' * len(title)}")
 
 
-from modules.reports import client_card, normalize, pacing, store     # noqa: E402
+from modules.reports import client_card, normalize, pacing, reconcile, store  # noqa: E402
 _reports_testdb.reset(store)
 
 TODAY = date(2026, 9, 20)
@@ -296,11 +300,58 @@ finally:
     _db.close()
 
 
+# --------------------------------------------------------- the quarantine
+section("The quarantine queue: the days missing longest are the ones a cap drops")
+
+from modules.reports import quarantine                              # noqa: E402
+
+# Rows that cannot be true, on the oldest client's confirmed campaign and on
+# a filler's. held() orders by date descending, so the OLDEST held day -- the
+# one that has been missing from a client's page longest -- falls off first.
+_db = store.SessionLocal()
+try:
+    for _i in range(FILLER):
+        _db.add(store.Quarantine(platform="google", account_id="qf", campaign_id=f"q{_i}",
+                                 date=date(2026, 9, 2 + _i), rule="spike", reason="test",
+                                 row_json={}, fingerprint=f"f{_i}", status="held"))
+    _db.add(store.Quarantine(platform="ttd", account_id="old", campaign_id="c-old",
+                             date=date(2026, 1, 3), rule="spike", reason="test",
+                             row_json={}, fingerprint="fold", status="held"))
+    _db.commit()
+finally:
+    _db.close()
+
+capped_h = quarantine.held(limit=CAP)
+check("a capped held read returns exactly the cap", len(capped_h), CAP)
+check("...and the oldest held day is not in it",
+      ("ttd", "c-old") in {(h["platform"], h["campaign_id"]) for h in capped_h}, False)
+check("held_for_client finds it anyway -- filtered in the database",
+      [(h["platform"], h["campaign_id"], h["date"]) for h in quarantine.held_for_client(OLD)],
+      [("ttd", "c-old", "2026-01-03")])
+check("held_for_keys ignores a malformed key rather than throwing the batch",
+      len(quarantine.held_for_keys([("ttd", "old", "c-old"), None, ("ttd",)])), 1)
+check("...and a key repeated is a row returned once",
+      len(quarantine.held_for_keys([("ttd", "old", "c-old")] * 3)), 1)
+check("no keys is no rows, not every row", quarantine.held_for_keys([]), [])
+check("held_count counts in SQL, over the whole book",
+      quarantine.held_count(), FILLER + 1)
+check("...narrowed to one platform", quarantine.held_count("ttd"), 1)
+check("...and to a date range, inclusive at both ends",
+      (quarantine.held_count("ttd", date(2026, 1, 3), date(2026, 1, 3)),
+       quarantine.held_count("ttd", date(2026, 1, 4), date(2026, 9, 30))),
+      (1, 0))
+check("...so it disagrees with a sum over the capped read, which is the point",
+      quarantine.held_count() > len(quarantine.held(limit=CAP)))
+check("counts() and held_count() agree about the book",
+      quarantine.counts()["held"], quarantine.held_count())
+
+
 # ------------------------------------------------------------- the guard
 section("The guard: no filtering reader may reach the capped global list")
 
 _real_mapped_campaigns = store.mapped_campaigns
 _real_budget_lines = store.budget_lines
+_real_held = quarantine.held
 _reached: list[str] = []
 
 
@@ -319,6 +370,7 @@ def guarded(label, fn):
     _reached.clear()
     store.mapped_campaigns = _spy("mapped_campaigns", _real_mapped_campaigns)
     store.budget_lines = _spy("budget_lines", _real_budget_lines)
+    quarantine.held = _spy("held", _real_held)
     try:
         fn()
     except Exception as exc:                            # noqa: BLE001 - report it as itself
@@ -327,6 +379,7 @@ def guarded(label, fn):
     finally:
         store.mapped_campaigns = _real_mapped_campaigns
         store.budget_lines = _real_budget_lines
+        quarantine.held = _real_held
     check(label, f"reached {', '.join(sorted(set(_reached)))}" if _reached else "no capped read",
           "no capped read")
 
@@ -344,11 +397,17 @@ guarded("the cost report reads the whole book uncapped",
         lambda: pacing.cost(today=TODAY))
 guarded("client_card's key index reads the whole book uncapped",
         lambda: client_card._filed())
+guarded("the held-days reading for a client filters in the database",
+        lambda: quarantine.held_for_client(OLD))
+guarded("the reconcile screen's held count is counted in SQL",
+        lambda: reconcile._held_in("ttd", date(2026, 1, 1), date(2026, 1, 31)))
 
 check("mapped_campaigns is still there, bounded, for the recent-activity screen",
       len(store.mapped_campaigns(limit=3)), 3)
 check("...and budget_lines, bounded, for the page that pages",
       len(store.budget_lines(limit=3)), 3)
+check("...and held, bounded, for the queue screen",
+      len(quarantine.held(limit=3)), 3)
 
 
 # --------------------------------------------------- what the board prints

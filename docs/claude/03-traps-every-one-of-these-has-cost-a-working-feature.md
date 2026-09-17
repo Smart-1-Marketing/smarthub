@@ -1262,3 +1262,20 @@ because nothing else could have written a status then, and `status == 'active'`
 alone would have dropped every line filed before that migration — a second
 silent-absence bug inside the fix for the first. `test_reports_map_reads.py`
 asserts that case directly.
+
+**And a third time on the quarantine queue, where the cap drops the days that
+have been missing longest.** `quarantine.held(limit=N)` orders by `date`
+descending, so `held_for_client` — "the days missing from their page, which is
+the thing the staff page should say" — kept the members of a capped list and
+under-reported exactly the oldest ones. Its default limit was **500**, not
+5000. `reconcile._held_in` was worse in kind: `sum(1 for h in held(limit=5000)
+if ...)`, a count over a capped read, printed beside a platform's own monthly
+total on the reconcile screen — the one place an under-count reads as
+*agreement* rather than as a gap. `held_for_keys(keys)` filters in the
+database and `held_count(platform, start, end)` counts in SQL; `held(limit=N)`
+stays for the queue screen with the same docstring warning.
+
+Three tables, three screens, one shape. If you are about to write
+`[x for x in some_read(limit=N) if ...]` or `len(some_read(limit=N))`, the
+question is not whether N is big enough — it is whether the database can do the
+filtering or the counting, and it nearly always can.
