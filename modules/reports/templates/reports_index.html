@@ -91,6 +91,38 @@
   {% endfor %}
 </div>
 
+<div class="s1d-card" id="history">
+  <div class="s1d-cardhead"><h2>History</h2>
+    <span class="s1d-muted">The pulls read a trailing window, so the table starts the day the first pull ran. Each press reaches thirty days further back from the oldest day the platform's own API has been read to; nightly keeps going, one window a night after the 3 AM pull, until the platform has nothing older and the row says complete.</span>
+    <form method="post" action="/reports/backfill/all" style="display:inline"><button type="submit" class="s1d-btn small">Pull 30 more days for all</button></form>
+    <form method="post" action="/reports/backfill/all/nightly" style="display:inline"><input type="hidden" name="on" value="1"><button type="submit" class="s1d-btn small">Nightly on for all</button></form>
+    <form method="post" action="/reports/backfill/all/nightly" style="display:inline"><input type="hidden" name="on" value="0"><button type="submit" class="s1d-btn small">Nightly off for all</button></form></div>
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr><th>Platform</th><th>Oldest day on file</th><th>Own API read back to</th><th>Next window</th><th>State</th><th>Last run</th><th>Nightly</th><th></th></tr></thead>
+    <tbody>
+    {% for h in history %}
+      <tr>
+        <td>{{ h.label }} <span class="s1d-muted mono">{{ h.platform }}</span></td>
+        <td>{{ h.oldest_any or '—' }}</td>
+        <td>{{ h.reached or '—' }}</td>
+        <td>{% if h.supported %}{{ h.next_start }} to {{ h.next_end }}{% else %}—{% endif %}</td>
+        <td><span class="s1d-pill {{ 'ok' if h.state == 'complete' else 'bad' if h.state in ('error', 'stalled') else 'warn' if h.state in ('running', 'pending', 'partial') else '' }}" title="{{ h.why_not or h.last_error or h.pending.note or '' }}">{{ h.state_label }}</span>
+          {% if h.state == 'complete' %}<span class="s1d-muted">nothing before {{ h.reached }}</span>
+          {% elif h.state == 'pending' %}<span class="s1d-muted">{{ h.pending.note }}</span>
+          {% elif h.state == 'error' %}<span class="s1d-muted">{{ h.last_error }}</span>
+          {% elif h.state == 'stalled' %}<span class="s1d-muted">never finished; a redeploy ends a run mid-way. Press again.</span>
+          {% elif not h.supported %}<span class="s1d-muted">{{ h.why_not }}</span>{% endif %}</td>
+        <td>{% if h.last_run_at %}<time datetime="{{ h.last_run_at }}">{{ h.last_run_at|replace('T', ' ')|truncate(16, true, '') }}</time>{% if h.last_rows is not none %} <span class="s1d-muted">{{ '{:,}'.format(h.last_rows) }} rows{% if h.actor %} by {{ h.actor }}{% endif %}</span>{% endif %}{% else %}<span class="s1d-muted">never</span>{% endif %}</td>
+        <td>{% if h.supported %}<form method="post" action="/reports/backfill/{{ h.platform }}/nightly" style="display:inline"><input type="hidden" name="on" value="{{ '0' if h.nightly else '1' }}"><button type="submit" class="s1d-btn small">{{ 'On, turn off' if h.nightly else 'Off, turn on' }}</button></form>{% else %}—{% endif %}</td>
+        <td>{% if h.supported %}<form method="post" action="/reports/backfill/{{ h.platform }}" style="display:inline"><button type="submit" class="s1d-btn small"{% if h.running %} disabled{% endif %}>Pull 30 more days</button></form>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
 <div class="s1d-card">
   <div class="s1d-cardhead"><h2>Upload a CSV {{ help_dot('reports.index.upload') if help_dot is defined else '' }}</h2>
     <span class="s1d-muted">A platform's own export, for a platform with no feed connected or a month a feed missed.</span></div>

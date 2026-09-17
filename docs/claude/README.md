@@ -61,7 +61,7 @@ say "above" or "below" mean earlier or later files in this list.
 | [`52-microsoft-advertising-one-consent-and-the-reports-module-pul.md`](52-microsoft-advertising-one-consent-and-the-reports-module-pul.md) | Microsoft Advertising: one consent, and the reports module pulls | 148 |
 | [`53-groundtruth-the-key-arrived-before-the-document.md`](53-groundtruth-the-key-arrived-before-the-document.md) | GroundTruth: the key arrived before the document | 84 |
 | [`54-one-industry-taxonomy-resolved-and-written-down.md`](54-one-industry-taxonomy-resolved-and-written-down.md) | One industry taxonomy, resolved and written down | 33 |
-| [`56-verifying-a-change.md`](56-verifying-a-change.md) | Verifying a change | 1090 |
+| [`56-verifying-a-change.md`](56-verifying-a-change.md) | Verifying a change | 1093 |
 | [`57-smartforecast-moved-to-the-hub-database.md`](57-smartforecast-moved-to-the-hub-database.md) | SmartForecast moved to the Hub database, and what the move found | 133 |
 | [`58-the-check-that-reported-no-json-on-the-disk.md`](58-the-check-that-reported-no-json-on-the-disk.md) | The check that reported no JSON on the disk | 181 |
 | [`59-leads-in-a-table-not-a-file-on-one-instance.md`](59-leads-in-a-table-not-a-file-on-one-instance.md) | Leads in a table, not a file on one instance | 136 |
@@ -81,3 +81,4 @@ say "above" or "below" mean earlier or later files in this list.
 | [`73-one-page-per-provider-and-the-fields-left-on-the-table.md`](73-one-page-per-provider-and-the-fields-left-on-the-table.md) | One page per provider, and the fields left on the table | 88 |
 | [`74-every-link-that-works-without-a-hub-login.md`](74-every-link-that-works-without-a-hub-login.md) | Every link that works without a Hub login | 153 |
 | [`75-a-half-hour-job-on-the-shared-thread-stalled-every-job-behind-it.md`](75-a-half-hour-job-on-the-shared-thread-stalled-every-job-behind-it.md) | A half-hour job on the shared thread stalled every job behind it | 64 |
+| [`76-last-month-was-not-in-the-fact-table.md`](76-last-month-was-not-in-the-fact-table.md) | Last month was not in the fact table | 72 |

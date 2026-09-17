@@ -68,7 +68,7 @@ _app = None
 
 # Jobs that take minutes rather than seconds: each runs on its own thread so
 # the loop keeps ticking (see "The background lane" above).
-BACKGROUND_JOBS = frozenset({"google_index", "reports_native"})
+BACKGROUND_JOBS = frozenset({"google_index", "reports_native", "reports_backfill"})
 _background: dict[str, threading.Thread] = {}
 
 # The Google sweep's hours, Eastern, and how fresh an index is left alone.
@@ -1289,6 +1289,78 @@ def job_reports_native_pull(app, *, completed_platforms=(), platforms=None,
     return out
 
 
+# The history backfill's hours, Eastern: after the 3 AM pull, before the day.
+BACKFILL_WINDOW_HOURS = (4, 8)
+
+
+def job_reports_backfill(app, *, platforms=None, actor: str = "scheduler",
+                         force: bool = False) -> dict:
+    """Thirty more days of history for the platforms set to nightly, until
+    each has nothing older (``modules/reports/backfill.py``).
+
+    Checked hourly and run once a night in BACKFILL_WINDOW_HOURS, after the
+    3 AM pull has had its turn; outside the window it says so. ``force``
+    with ``platforms`` is the button: those platforms, now, whatever the
+    hour and whatever the nightly flag says. On the background lane, since
+    a window is a full pull's worth of API calls per platform.
+    """
+    try:
+        from modules.reports import backfill
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        if force:
+            out = {"platforms": {}, "rows": 0, "errors": {}, "complete": []}
+            for platform in (platforms or []):
+                res = backfill.run_platform(platform, actor=actor)
+                out["platforms"][platform] = res
+                out["rows"] += res["rows"]
+                if res["error"]:
+                    out["errors"][platform] = res["error"]
+                if res["complete"]:
+                    out["complete"].append(platform)
+            return out
+        due = backfill.due_nightly()
+        if not due:
+            return {"skipped": "nothing set to nightly is still incomplete"}
+        hour = _eastern_hour()
+        if not (BACKFILL_WINDOW_HOURS[0] <= hour < BACKFILL_WINDOW_HOURS[1]):
+            return {"skipped": (f"{len(due)} platform(s) wait for the overnight window "
+                                f"({BACKFILL_WINDOW_HOURS[0]}-{BACKFILL_WINDOW_HOURS[1]} AM Eastern)"),
+                    "due": due}
+        return backfill.run_nightly(actor=actor)
+
+
+def backfill_now(platforms, actor: str = "") -> dict:
+    """The Reports index's history button: those platforms, now, on the
+    lane. ``{"started", "note", "platforms"}``; refused while a history
+    pull is running here, and the ledger refuses per platform on the other
+    worker."""
+    try:
+        from modules.reports import backfill
+    except Exception as exc:                            # noqa: BLE001
+        return {"started": False, "platforms": [], "note": f"unavailable ({type(exc).__name__})"}
+    wanted = [p for p in (platforms or []) if p in backfill.PULLS]
+    refused = [p for p in (platforms or []) if p in backfill.NOT_WIRED]
+    if not wanted:
+        return {"started": False, "platforms": [],
+                "note": (backfill.NOT_WIRED[refused[0]] if refused else
+                         "No such platform. One of: " + ", ".join(backfill.PULLS) + ", or all.")}
+    if running("reports_backfill"):
+        return {"started": False, "platforms": wanted,
+                "note": "A history pull is running on this worker right now; not started again."}
+    started = _start_background(
+        "reports_backfill",
+        functools.partial(_run_job, app_for_jobs(), "reports_backfill",
+                          platforms=wanted, actor=actor or "button", force=True))
+    if not started:
+        return {"started": False, "platforms": wanted,
+                "note": "A history pull is running on this worker right now; not started again."}
+    return {"started": True, "platforms": wanted,
+            "note": "Pulling thirty more days for " + ", ".join(wanted)
+                    + " in the background; reload in a minute."}
+
+
 def job_reports_pacing(app) -> dict:
     """Snapshot every sold line's pacing, hourly, after the pulls.
 
@@ -1502,6 +1574,9 @@ JOBS = {
     "reports_native":    (1440, job_reports_native_pull,
                           "Pull the Trade Desk, Google Ads, StackAdapt and AudioGo from their "
                           "own APIs at 3 AM Eastern, with retries for incomplete runs (native wins)."),
+    "reports_backfill":  (60, job_reports_backfill,
+                          "Thirty more days of history for the platforms set to nightly, overnight "
+                          "(4-8 AM Eastern), until each has nothing older."),
     "reports_pacing":    (60, job_reports_pacing,
                           "Snapshot every sold line's pacing against its budget (the board reads this)."),
     "reports_reconcile": (1440, job_reports_reconcile,

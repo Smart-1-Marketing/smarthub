@@ -166,7 +166,7 @@ os.environ["TTD_PARTNER_ID"] = "partner-x"
 os.environ["TTD_API_BASE"] = "https://sandbox.example.test/v3/"
 
 calls = []
-STATE = {"schedule": None, "fail_download": False, "templates": []}
+STATE = {"schedule": None, "fail_download": False, "templates": [], "history": {}}
 
 
 class _Resp:
@@ -194,13 +194,26 @@ def fake_http(method, url, *, headers, body=None, timeout=60):
     if path == ttd.TEMPLATE_QUERY:
         return _Resp(200, {"Result": list(STATE["templates"])})
     if path == ttd.SCHEDULE_QUERY:
-        found = [STATE["schedule"]] if STATE["schedule"] else []
-        return _Resp(200, {"Result": found})
+        found = ([STATE["schedule"]] if STATE["schedule"] else []) + list(STATE["history"].values())
+        needle = body.get("NameContains") or ""
+        return _Resp(200, {"Result": [f for f in found if needle in f["ReportScheduleName"]]})
     if path == ttd.SCHEDULE_CREATE:
+        if body.get("ReportFrequency") == "Once":
+            sched = {"ReportScheduleId": 900 + len(STATE["history"]), **body}
+            STATE["history"][body["ReportScheduleName"]] = sched
+            return _Resp(200, sched)
         STATE["schedule"] = {"ReportScheduleId": 777, "ReportScheduleName": body["ReportScheduleName"],
                              "ReportTemplateId": body["ReportTemplateId"],
                              "AdvertiserFilters": list(body.get("AdvertiserFilters") or [])}
         return _Resp(200, STATE["schedule"])
+    if path == ttd.EXECUTION_QUERY and body["ReportScheduleIds"][0] >= 900:
+        sched = next(s for s in STATE["history"].values() if s["ReportScheduleId"] == body["ReportScheduleIds"][0])
+        if not sched.get("ran"):
+            return _Resp(200, {"Result": [{"ReportExecutionId": 1, "ReportScheduleId": sched["ReportScheduleId"],
+                                           "ReportExecutionState": "Pending", "ReportDeliveries": []}]})
+        return _Resp(200, {"Result": [{"ReportExecutionId": 2, "ReportScheduleId": sched["ReportScheduleId"],
+                                       "ReportExecutionState": "Complete", "ReportEndDateExclusive": sched["ReportEndDateExclusive"],
+                                       "ReportDeliveries": [{"DownloadURL": "https://files.example.test/history.csv"}]}]})
     if path == ttd.EXECUTION_QUERY:
         return _Resp(200, {"Result": [
             {"ReportExecutionId": 1, "ReportScheduleId": body["ReportScheduleIds"][0],
@@ -215,6 +228,10 @@ def fake_http(method, url, *, headers, body=None, timeout=60):
     if url.startswith("https://files.example.test/"):
         if STATE["fail_download"]:
             return _Resp(403, text=f"denied for {TOKEN}")
+        if url.endswith("history.csv"):
+            return _Resp(200, text=("Date,Advertiser ID,Advertiser,Campaign ID,Campaign,Advertiser Cost (USD),Impressions,Clicks\n"
+                                    "2026-07-20,adv1,Acme Roofing,c1,S1M | acme | CTV | fall,12.00,1200,3\n"
+                                    "2026-07-21,adv1,Acme Roofing,c1,S1M | acme | CTV | fall,13.00,1300,4\n"))
         return _Resp(200, text=CSV)
     return _Resp(404, {"Message": "no such path"})
 
@@ -347,6 +364,42 @@ check("...while google is not skipped for it", not out["google"].get("native"))
 st = ttd.status()
 check("the status line reports the pull",
       st["line"].startswith("Trade Desk: connected, 150 advertisers, last pull 20"), note=st["line"])
+
+# ---------------------------------------------------- a history window
+section("A history window: a one-off schedule, pending until its file lands")
+
+calls.clear()
+w0, w1 = date(2026, 7, 18), date(2026, 8, 16)
+res = ttd.pull_window(w0, w1)
+check("the first call schedules a one-off report for the window and is pending",
+      (res["ok"], res["pending"], res["rows"]), (False, True, 0), note=res)
+created = [c for c in calls if c["url"].endswith(ttd.SCHEDULE_CREATE)]
+check("...once, CSV, Custom range over the window, partner-wide",
+      (len(created), created[0]["body"]["ReportFrequency"], created[0]["body"]["ReportDateRange"],
+       created[0]["body"]["ReportStartDateInclusive"], created[0]["body"]["ReportEndDateExclusive"],
+       "AdvertiserFilters" in created[0]["body"]),
+      (1, "Once", "Custom", "2026-07-18", "2026-08-17", False))
+check("...on the daily schedule's template", created[0]["body"]["ReportTemplateId"], STATE["schedule"]["ReportTemplateId"])
+check("...named for the window", created[0]["body"]["ReportScheduleName"], ttd.history_schedule_name(w0, w1))
+calls.clear()
+res = ttd.pull_window(w0, w1)
+check("a second call finds it and is still pending while the platform runs it",
+      (res["pending"], not [c for c in calls if c["url"].endswith(ttd.SCHEDULE_CREATE)]), (True, True))
+next(iter(STATE["history"].values()))["ran"] = True
+calls.clear()
+res = ttd.pull_window(w0, w1)
+check("once the run is complete the file lands", (res["ok"], res["pending"], res["rows"]), (True, False, 2), note=res)
+check("...asking for executions over the window",
+      [(c["body"]["ExecutionSpansStartDate"][:10], c["body"]["ExecutionSpansEndDate"][:10])
+       for c in calls if c["url"].endswith(ttd.EXECUTION_QUERY)], [("2026-07-18", "2026-08-18")])
+db = store.SessionLocal()
+try:
+    landed = db.get(store.AdPerfDaily, ("ttd", "adv1", "c1", date(2026, 7, 20)))
+    landed = (float(landed.spend), landed.source) if landed else None
+finally:
+    db.close()
+check("...as native rows in the fact table", landed, (12.0, "native"))
+check("...and the nightly watermark was not stamped by it", store.sync_status()["ttd"]["rows"], 3)
 
 # ------------------------------------------------- the Refresh button
 section("The Reports index's Refresh button runs the pull in the background")
