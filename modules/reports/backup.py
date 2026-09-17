@@ -47,7 +47,7 @@ import io
 import json
 import logging
 import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import extract, func, inspect as sa_inspect
@@ -401,7 +401,10 @@ def status() -> dict:
             age_hours = round((_now() - when).total_seconds() / 3600, 1)
             stale = age_hours > STALE_HOURS
         except ValueError:
-            pass
+            # A finish time that does not parse is a manifest this code did
+            # not write: no age to report, and stale is the safe reading.
+            age_hours = None
+            stale = True
     running = bool(started and not finished)
     if running:
         try:
@@ -410,7 +413,7 @@ def status() -> dict:
                 since = since.replace(tzinfo=timezone.utc)
             running = (_now() - since).total_seconds() < 3600
         except ValueError:
-            running = False
+            running = False                 # an unparseable start is not a run
     files = list(data["facts"].values()) + list(data["tables"].values())
     return {
         "root": root(),

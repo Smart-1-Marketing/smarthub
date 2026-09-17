@@ -130,9 +130,9 @@ check("a run with nothing changed writes nothing", (res["written"], res["files"]
 store.upsert_rows([_row("google", date(2026, 9, 2), "c2", spend="9.99")], screen=False)
 res = backup.run(offsite=False)
 check("a changed row rewrites exactly its month", res["written"], 1)
-check("...and the file carries the new figure",
-      [r["spend"] for r in backup._unpack(open(os.path.join(root, "facts", "google", "2026-09.jsonl.gz"), "rb").read())
-       if r["campaign_id"] == "c2"], ["9.99"])
+with open(os.path.join(root, "facts", "google", "2026-09.jsonl.gz"), "rb") as fh:
+    _sept = backup._unpack(fh.read())
+check("...and the file carries the new figure", [r["spend"] for r in _sept if r["campaign_id"] == "c2"], ["9.99"])
 
 # ------------------------------------------------------------ off-site
 section("An off-site copy is counted, and its URL kept")
