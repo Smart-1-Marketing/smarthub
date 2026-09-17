@@ -7927,10 +7927,59 @@ def create_hub_app() -> Flask:
         else:
             add("Ghostscript / qPDF", "error", "Missing gs/qpdf — PDF optimizer will fail (Docker image installs these).")
 
-        # --- persistent disk ---
-        add("Persistent disk", "ok" if os.path.isdir("/var/data") else "warn",
-            "/var/data mounted — audit log & tokens survive deploys." if os.path.isdir("/var/data")
-            else "/var/data not mounted — audit log and Google tokens are ephemeral.")
+        # --- where the stores actually live ---
+        # This row used to read "/var/data mounted — audit log & tokens survive
+        # deploys", and both halves stopped being true: the audit log moved to
+        # Postgres, and so did the Google tokens, the leads, the forecasts, the
+        # delivery receipts and the check-reconciliation state. Left as it was,
+        # the day the disk is detached this row would turn amber and announce
+        # that the activity log and Google logins are ephemeral -- a false
+        # alarm on the most-watched screen, at the exact moment somebody is
+        # looking for damage.
+        #
+        # So it asks the question whose answer would now cost something. The
+        # disk being mounted is a fact about the machine; the DATABASE
+        # answering is what decides whether anything written today survives.
+        #
+        # Deliberately NOT the binary scan. jsonstore.disk_binary_writers()
+        # takes ~3.7s -- it walks every .py in the repo -- and this endpoint is
+        # the one people refresh. /api/db/structure and /api/integrity already
+        # own that question and render it on /diagnostics; a second copy here
+        # would be slow AND would be the two-panels-disagreeing trap the
+        # structure panel's own comments record.
+        # `_root` rather than "is /var/data mounted", because those two come
+        # apart in the case that matters most: pointing HUB_DATA_DIR off the
+        # disk is how the disk gets retired safely -- the service runs exactly
+        # as it would disk-free while the disk stays mounted and untouched, so
+        # the change is reversible. In that state the disk IS mounted and holds
+        # nothing, and a row that said "the mounted disk holds the mirror"
+        # would be describing an empty directory.
+        try:
+            from . import jsonstore as _js
+            _mirrored = _js.available()
+            _root = _js.data_root()
+        except Exception:                                   # noqa: BLE001
+            _mirrored, _root = False, "(could not be resolved)"
+        _on_disk = str(_root).startswith("/var/data")
+        _where = f"in use is {_root}"
+        if _mirrored:
+            add("Where the stores live", "ok",
+                "In the database: the activity log, leads, Google tokens, "
+                f"forecasts, delivery receipts and check reconciliation. The "
+                f"data directory {_where}"
+                + ("" if _on_disk else " — not the mounted disk, which this "
+                                       "service no longer depends on")
+                + ". It holds a JSON mirror of the database, restored from it "
+                  "when a file is missing, so losing the directory costs "
+                  "nothing on its own. What is still disk-only is on "
+                  "/diagnostics.")
+        else:
+            add("Where the stores live", "warn",
+                "The database is not answering, so JSON written now exists "
+                f"only in {_root} on this one instance and is outside the "
+                "backup. Check DATABASE_URL. This is the row that matters — "
+                "not whether /var/data is mounted, which no longer decides "
+                "whether anything survives.")
 
         return jsonify({"checks": checks})
 
