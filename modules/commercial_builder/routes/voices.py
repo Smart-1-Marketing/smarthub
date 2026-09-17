@@ -43,9 +43,6 @@ HOUSEKEEPING_ROUTES = {
     "cast_voices": "ranks the account's voices against what the script needs "
                    "and returns a shortlist. Nothing is chosen and nothing "
                    "is stored.",
-    "voiceover_fit": "reports whether the saved narration fits the spot. It "
-                     "reads what is already on the project, makes nothing and "
-                     "spends nothing.",
     "generate_scene_voiceover": "auditions one scene so a rep can hear the "
                                 "voice before committing to a read. The take "
                                 "is returned and never stored — the full "
@@ -198,6 +195,11 @@ def voiceover_fit(project_id):
     The arithmetic is `generation.voice_speed_suggestion()`, which asks
     `hub/radio_spec.speed_suggestion()` — the one both radio builders ask.
     Nothing is decided here.
+
+    Deliberately not in `HOUSEKEEPING_ROUTES`: that list exempts *write*
+    routes that record nothing on purpose, and an entry naming something that
+    is not one goes on exempting whatever is written at that name next —
+    which is what `test_write_attribution.py` reports. A GET is outside it.
     """
     project = CommercialProject.query.get_or_404(project_id)
     from .. import generation
