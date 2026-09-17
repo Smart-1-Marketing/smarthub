@@ -488,7 +488,7 @@ def job_backup_json(app) -> dict:
 
 
 # name -> (every N minutes, function, human description)
-def job_refresh_google_index(app, force: bool = False) -> dict:
+def job_refresh_google_index(app, *, force: bool = False) -> dict:
     """Rebuild the Google account index — the one place the sweep happens.
 
     This job is why the sweep is affordable at all. It runs under the leader
