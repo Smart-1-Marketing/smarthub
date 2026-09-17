@@ -72,6 +72,11 @@ python3 test_google_token_store.py # the OAuth refresh tokens off their SQLite
                                    #   _fernet(); ids preserved because an alert
                                    #   points at a report; and the sequences moved
                                    #   with them, which counting alone misses
+python3 test_io_delivery_lock.py   # the reservation that keeps a duplicate
+                                   #   opportunity out of Smart 1 Suite: the lock
+                                   #   is asked for with a try-lock rather than
+                                   #   waited on, so a broken one fails in a
+                                   #   second instead of hanging the job
 python3 test_check_reconciliation.py # matching and the QBO payment payload, and
                                    #   where the state lives: the QuickBooks
                                    #   tokens, payer aliases, records and audit
