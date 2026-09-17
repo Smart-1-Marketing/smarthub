@@ -22,6 +22,10 @@
 //     would outlive gunicorn's --timeout and be killed mid-flight.
 //   * Delete asks for the count it is about to delete, and refuses to send
 //     anything at all until that is typed correctly.
+//   * A per-section filter, and the rule it has to hold on a screen with a
+//     Delete on it: what the filter hides, a bulk action does not touch. A
+//     ticked row the filter removes leaves the selection, select-all takes
+//     only what is shown, and a press posts only visible ticked rows.
 //   * Needs Review offers Skip on the rows a skip means something for, and
 //     not on a connected login that needs reconnecting — neither on the row
 //     nor in the bulk press, which posts only what it can skip and says what
@@ -353,6 +357,85 @@ function bulkBarState(s, sec) {
   const unskipPost = s.requests.find(r => r.url.includes('unskip/bulk'));
   assert.equal(unskipPost.body.rows[0].resource, 's1');
 
+  // --- Filters: what you see is what you act on -----------------------------
+  // The rule the filter has to hold on a screen with a Delete on it. A ticked
+  // row the filter hides must leave the selection, not sit there invisibly
+  // waiting to be deleted with the rest.
+  s = setup();
+  render(s, payload([
+    {...row('GA4', 'p1'), account: 'Acme Plumbing', name: 'Acme site'},
+    {...row('GTM', 'c1'), account: 'Acme Plumbing', name: 'Acme container'},
+    {...row('GA4', 'p2'), account: 'Zenith Dental', name: 'Zenith site'},
+  ], [{...row('GTM', 'r1'), account: 'Acme Plumbing', name: 'Acme review'}], []));
+  assert.equal(s.$('#shownInactive').textContent, '',
+    'an unfiltered section does not repeat a count the tile above already gives');
+
+  s.$('#filterInactive').value = 'zenith';
+  s.$('#filterInactive').oninput();
+  assert.match(s.$('#inactiveBody').innerHTML, /Zenith site/);
+  assert.doesNotMatch(s.$('#inactiveBody').innerHTML, /Acme site/);
+  assert.equal(s.$('#shownInactive').textContent, 'showing 1 of 3');
+  assert.equal(s.$('#shownReview').textContent, '',
+    'filtering one section leaves the others alone');
+  assert.match(s.$('#reviewBody').innerHTML, /Acme review/);
+
+  // Select-all takes the visible rows, not the section.
+  const allF = s.$('#allInactive'); allF.checked = true; allF.onchange();
+  assert.equal(s.$('#cntInactive').textContent, 1,
+    'select-all under a filter takes only what is shown');
+
+  // Widening the filter to include more rows leaves the earlier tick alone.
+  s.$('#filterInactive').value = 'acme';
+  s.$('#filterInactive').oninput();
+  assert.equal(s.$('#cntInactive').textContent, 0,
+    'a ticked row the filter hides leaves the selection rather than staying picked invisibly');
+  assert.equal(s.$('#shownInactive').textContent, 'showing 2 of 3');
+
+  // Tick under the filter, then clear it: the ticks that are still visible stay.
+  pick(s, 'inactive', ['GA4:adops@example.com:p1', 'GTM:adops@example.com:c1']);
+  assert.equal(s.$('#cntInactive').textContent, 2);
+  s.$('#filterInactive').value = '';
+  s.$('#filterInactive').oninput();
+  assert.equal(s.$('#cntInactive').textContent, 2,
+    'clearing a filter keeps ticks on rows that were visible throughout');
+  assert.equal(s.$('#shownInactive').textContent, '');
+
+  // And a bulk press posts only what was visible and ticked.
+  s.$('#filterInactive').value = 'zenith';
+  s.$('#filterInactive').oninput();
+  assert.equal(s.$('#cntInactive').textContent, 0);
+  pick(s, 'inactive', ['GA4:adops@example.com:p2']);
+  s.$('#bulkInactiveSkip').onclick();
+  await s.$('#bulkSkipForm')._handlers.submit({preventDefault() {}});
+  const filteredSkip = s.requests.find(r => r.url.includes('skip/bulk'));
+  assert.deepEqual(filteredSkip.body.rows.map(r => r.resource), ['p2'],
+    'the hidden rows are not posted, even though they were ticked earlier');
+
+  // A filter matching nothing says so, distinct from an empty section.
+  s = setup();
+  render(s, payload([row('GA4', 'p1')], [], []));
+  s.$('#filterInactive').value = 'nothing matches this';
+  s.$('#filterInactive').oninput();
+  assert.match(s.$('#inactiveBody').innerHTML, /Nothing in this section matches that filter/);
+  s = setup();
+  render(s, payload([], [], []));
+  assert.match(s.$('#inactiveBody').innerHTML, /No inactive GA4 properties/,
+    'an empty section still says it is empty, not that a filter hid everything');
+
+  // The filter reads the whole row, not just its name.
+  s = setup();
+  render(s, payload([
+    {...row('GTM', 'c9'), name: 'Nondescript', public_id: 'GTM-FINDME'},
+    {...row('GA4', 'p9'), name: 'Other', reason: 'No events in 60 days'},
+  ], [], []));
+  s.$('#filterInactive').value = 'gtm-findme';
+  s.$('#filterInactive').oninput();
+  assert.equal(s.$('#shownInactive').textContent, 'showing 1 of 2');
+  s.$('#filterInactive').value = 'no events';
+  s.$('#filterInactive').oninput();
+  assert.match(s.$('#inactiveBody').innerHTML, /Other/,
+    'the reason is searchable too');
+
   // --- Needs Review can skip, and only what a skip means something for ------
   s = setup();
   const loginRow = {kind: 'Google', login: 'adops@example.com', account: 'Connected login',
@@ -475,5 +558,5 @@ function bulkBarState(s, sec) {
   assert.equal(s.$('#cntReview').textContent, 0,
     '...and is not silently selected in the one it arrived in');
 
-  console.log('19 bulk-action, review-skip, url-collection and history UI scenarios passed');
+  console.log('25 bulk-action, filter, review-skip, url-collection and history UI scenarios passed');
 })().catch(e => { console.error(e); process.exitCode = 1; });
