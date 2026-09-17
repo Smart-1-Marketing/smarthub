@@ -275,6 +275,13 @@ python3 test_wordpress_publish.py  # the other publishing path: a credential
                                    #   category matched exactly or created, and
                                    #   two pages wanting two alts on one image
                                    #   named rather than last-one-wins
+python3 test_keyring.py            # the keys that open a sealed value: a value
+                                   #   sealed under the OLD key still opens once
+                                   #   the new one leads, a new seal uses the
+                                   #   newest so the old can be dropped, a blob
+                                   #   nothing opens is an error and never an
+                                   #   empty value, and no answer carries key
+                                   #   material
 python3 test_site_login.py         # the client's own website login, sealed:
                                    #   the plaintext leaves the SEO record and
                                    #   the assertion is on the bytes on the

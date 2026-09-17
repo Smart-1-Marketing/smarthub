@@ -1098,6 +1098,73 @@ def _credential_strings(node, path="") -> list[str]:
     return out
 
 
+# Files allowed their own Fernet, with the reason. `hub/keyring.py` IS the key
+# ring, so it is not drift; check_reconciliation reads its own
+# CHECK_RECONCILIATION_ENCRYPTION_KEY rather than the shared one, which is a
+# deliberate separation and not a sixth copy of the same key.
+KEYRING_EXEMPT = {
+    "hub/keyring.py": "this is the key ring",
+    "modules/check_reconciliation/app.py":
+        "seals under its own CHECK_RECONCILIATION_ENCRYPTION_KEY, deliberately "
+        "separate from the shared one",
+}
+
+
+def check_own_fernet() -> list[dict]:
+    """A module building its own single-key Fernet instead of the key ring.
+
+    Seven files in this repo each wrote `Fernet(key)`, six of them over the
+    same `TOKEN_ENCRYPTION_KEY`. Every one takes exactly one key, which is the
+    part that matters: **it made that variable unrotatable.** Changing it --
+    after a leak or a staff departure, which is exactly when it must change --
+    locked out every client's WordPress application password, every client's
+    own website login, the GoHighLevel tokens and the Google tokens at the
+    same moment, with no way back but re-consenting and re-entering each one
+    by hand.
+
+    `hub/keyring.py` takes an ordered list through `MultiFernet`: the newest
+    seals, any of them opens. This lists what has not moved across yet, so the
+    remainder is a visible, shrinking number rather than something everybody
+    means to get to.
+
+    Low severity, and deliberately so: a module here works exactly as it always
+    has. What it cannot do is survive a key rotation, and the rotation is the
+    event nobody schedules.
+    """
+    out = []
+    for rel, src in _sources():
+        if rel in SELF or rel in KEYRING_EXEMPT:
+            continue
+        # A test builds a key to make a fixture -- it seals nothing that
+        # outlives the run, and a rotation cannot cost it anything. Reported
+        # here it would be noise, and noise is how a low-severity check stops
+        # being read.
+        if os.path.basename(rel).startswith("test_"):
+            continue
+        if not re.search(r"\bFernet\s*\(", src):
+            continue
+        # A file that already reads the ring is fine even if it names Fernet
+        # in prose -- prose is not a call site, which this repo has paid for
+        # before.
+        if "keyring" in src and not re.search(r"^\s*(from|import).*fernet",
+                                              src, re.I | re.M):
+            continue
+        out.append({
+            "file": rel, "module": _module_of(rel),
+            "detail": f"{_module_of(rel)} builds its own Fernet rather than "
+                      f"reading hub/keyring.py. That is a single key, so "
+                      f"rotating TOKEN_ENCRYPTION_KEY makes everything it has "
+                      f"sealed unreadable at once, with no way back but "
+                      f"re-entering each credential by hand.",
+            "fix": "Seal and open through hub/keyring.py — keyring.seal() and "
+                   "keyring.unseal(), which take an ordered list of keys so "
+                   "the newest seals and any of them opens. hub/cms_credentials.py "
+                   "and hub/ghl_oauth.py are the worked examples; the stored "
+                   "shape does not change, so nothing needs migrating.",
+        })
+    return out
+
+
 def check_plaintext_credentials() -> list[dict]:
     """A credential sitting in a durable store as a readable string.
 
@@ -1747,6 +1814,10 @@ CHECKS = [
     # already shipped, for as long as the file sits there.
     ("plaintext_credentials", "A credential stored as readable text", "high",
      check_plaintext_credentials),
+    # Low for the reason the backup checks are: a module listed here works
+    # exactly as it always has. What it cannot do is survive a key rotation.
+    ("own_fernet", "A module sealing with its own single key", "low",
+     check_own_fernet),
     ("stale_sqlite_exemptions", "Disk-SQLite exemption names a missing file",
      "medium", check_stale_sqlite_exemptions),
     ("disk_binary", "Bytes on the disk with no copy anywhere else", "medium",

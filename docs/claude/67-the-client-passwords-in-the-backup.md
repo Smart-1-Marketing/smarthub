@@ -182,3 +182,55 @@ There are two honest answers and this change deliberately picks neither:
   nobody reads looks like.
 
 Collecting it and never showing it is the one answer that has no case for it.
+
+## Postscript: the key that protected all of it could not be changed
+
+Sealing the site login made `TOKEN_ENCRYPTION_KEY` the thing standing between
+a database backup and every client credential in it. Which raised the question
+nobody had asked: what happens when that key has to change?
+
+Seven files in this repo each wrote their own `Fernet(key)` —
+`cms_credentials`, `ghl_oauth`, `google_finder`, `skills360`,
+`youtube_studio`, `check_reconciliation`, and the SEO store reading through
+the first. Six read the same variable. Every one takes **exactly one key**.
+
+So rotating it — after a leak, a staff departure, an accidental commit, which
+is precisely when it must be rotated — would simultaneously lock out every
+client's WordPress application password, every client's own website login, the
+GoHighLevel OAuth tokens and the Google OAuth tokens behind Google Finder. The
+recovery is per module, per record, by hand: re-consent every Google account,
+ask every client for their password again. `hub/cms_credentials.py` states the
+remedy in its own error text — "Save the application password again" — honest
+about the state and silent about its scale.
+
+The key protecting everything was the key nobody could ever change.
+
+`hub/keyring.py` is `MultiFernet`, which ships with `cryptography` and is
+therefore no new dependency: an ordered list where **the newest key seals and
+any key opens**. A rotation becomes three ordinary deploys — put the new key in
+front, let the stores re-seal, drop the old one — and at no point is a
+credential unreadable.
+
+Two details worth keeping:
+
+- **`TOKEN_ENCRYPTION_KEY` is kept, never replaced, when `TOKEN_ENCRYPTION_KEYS`
+  is set.** A deployment part-way through a rotation has the new key in the
+  list and everything on disk still sealed under the old singular. Dropping it
+  because somebody set the new variable would cause the outage the module
+  exists to prevent.
+- **One unusable key beside one good one still seals.** Refusing would put
+  credentials in the clear over a typo in a variable nobody is using yet. The
+  bad one is counted and named as ignored.
+
+`check_own_fernet` lists what has not moved across, at low severity for the
+reason the backup checks give: a module there works exactly as it always has.
+What it cannot do is survive a rotation, and the rotation is the event nobody
+schedules. Three remain — `google_finder`, `skills360`, `youtube_studio` — so
+the number is visible and shrinking rather than forgotten.
+
+`hub/ghl_oauth.py` gained something else on the way past. Its `_load()`
+returned `None` when the key could not open the token, and `status()` rendered
+that as *"Not authorized yet — connect once as the agency owner"* — sending an
+agency owner to re-consent to a marketplace app that was installed and fine,
+over an encryption key nobody mentioned. That is `connected_accounts_result()`'s
+failure, in this repo, today. It now says which of the two it is.
