@@ -76,10 +76,18 @@
 
 <div class="s1d-card">
   <div class="s1d-cardhead"><h2>Native pulls</h2>
-    <span class="s1d-muted">Nightly at 3 AM Eastern, with retries for incomplete runs. Google and StackAdapt refresh the recent 30-day window. Native rows win over the provider's for the same campaign-day.</span></div>
+    <span class="s1d-muted">Nightly at 3 AM Eastern, with retries for incomplete runs. Google and StackAdapt refresh the recent 30-day window. Native rows win over the provider's for the same campaign-day.</span>
+    <form method="post" action="/reports/refresh/all" style="display:inline" id="refresh-all">
+      <button type="submit" class="s1d-btn small"{% if refresh.running %} disabled{% endif %}>Refresh all now</button>
+    </form></div>
+  {% if refresh.started_at %}
+  <div class="s1d-kv"><b><span class="s1d-pill {{ 'warn' if refresh.running else ('bad' if refresh.stalled or refresh.ok is false else 'ok') }}">{{ 'refreshing' if refresh.running else ('stalled' if refresh.stalled else ('refreshed' if refresh.ok else 'failed')) }}</span></b>
+    <span>Manual refresh of {{ refresh.platforms|join(', ') }} started {{ refresh.started_at|replace('T', ' ')|truncate(16, true, '') }} by {{ refresh.actor or 'the scheduler' }}{% if refresh.running %}; running now, reload in a minute.{% elif refresh.stalled %}; never finished -- a redeploy ends a run mid-way. Press refresh again.{% else %}; finished {{ (refresh.finished_at or '')|replace('T', ' ')|truncate(16, true, '') }}, {{ refresh.result.rows if refresh.result else 0 }} rows{% if refresh.error %} <span class="s1d-muted">{{ refresh.error }}</span>{% endif %}{% endif %}</span></div>
+  {% endif %}
   {% for n in native %}
   <div class="s1d-kv"><b><span class="s1d-pill {{ 'ok' if n.connected else 'warn' }}">{{ 'connected' if n.connected else 'not connected' }}</span></b>
-    <span>{{ n.line }}{% if n.missing %} <span class="s1d-muted">Set {{ n.missing|join(', ') }} on the service.</span>{% endif %}{% if n.check_page %} <a href="{{ n.check_page }}">{{ n.check_label or (n.label ~ ' check') }}</a> &middot;{% endif %} <a href="/reports/provider-check/{{ n.platform }}">Field map</a></span></div>
+    <span>{{ n.line }}{% if n.missing %} <span class="s1d-muted">Set {{ n.missing|join(', ') }} on the service.</span>{% endif %}{% if n.check_page %} <a href="{{ n.check_page }}">{{ n.check_label or (n.label ~ ' check') }}</a> &middot;{% endif %} <a href="/reports/provider-check/{{ n.platform }}">Field map</a>
+      {% if n.connected %}<form method="post" action="/reports/refresh/{{ n.platform }}" style="display:inline;margin-left:8px"><button type="submit" class="s1d-btn small"{% if refresh.running %} disabled{% endif %}>Refresh now</button></form>{% endif %}</span></div>
   {% endfor %}
 </div>
 

@@ -80,3 +80,4 @@ say "above" or "below" mean earlier or later files in this list.
 | [`72-nothing-built-the-image-that-deploys.md`](72-nothing-built-the-image-that-deploys.md) | Nothing built the image that deploys | 103 |
 | [`73-one-page-per-provider-and-the-fields-left-on-the-table.md`](73-one-page-per-provider-and-the-fields-left-on-the-table.md) | One page per provider, and the fields left on the table | 88 |
 | [`74-every-link-that-works-without-a-hub-login.md`](74-every-link-that-works-without-a-hub-login.md) | Every link that works without a Hub login | 153 |
+| [`75-a-half-hour-job-on-the-shared-thread-stalled-every-job-behind-it.md`](75-a-half-hour-job-on-the-shared-thread-stalled-every-job-behind-it.md) | A half-hour job on the shared thread stalled every job behind it | 64 |

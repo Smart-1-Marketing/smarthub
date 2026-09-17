@@ -26,13 +26,30 @@ Jobs are plain functions returning a short dict summary. They must be safe to
 run late, safe to skip, and safe to run twice — the leader lock makes double
 runs unlikely, not impossible (a worker can lose and regain leadership across
 a restart mid-job). Anything that must never double-run needs its own guard.
+
+## The background lane
+
+The loop runs its jobs one after another on one thread, which is right for
+jobs that take seconds and wrong for the two that take minutes: the Google
+sweep is thirty minutes of rate-limited Tag Manager calls, and on the day it
+was measured every job queued behind it — the reports pull among them — waited
+the whole half hour, on every pass, and a redeploy mid-sweep threw the pass
+away and started the wait again. ``BACKGROUND_JOBS`` names the long ones. The
+loop starts each on its own thread and moves on; a start while the last run is
+still going is refused, so a job never overlaps itself; ``status()`` shows it
+as running; ``run_now`` returns at once for them rather than holding a request
+open for half an hour. A Render deploy still ends a run mid-way — the thread
+dies with the worker — which is why every job is written to be safe to run
+again, and why the Google sweep is gated to overnight rather than "every boot".
 """
 from __future__ import annotations
 
+import functools
 import os
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 _LOCK_KEY = 918_273_645          # arbitrary, must be stable across deploys
 _thread: threading.Thread | None = None
@@ -44,9 +61,65 @@ _state_lock = threading.Lock()
 
 TICK_SECONDS = 60
 
+# The app the jobs run under, stashed by start(): a refresh started from a
+# request (the Reports index button) runs the same job the loop does, under
+# the same app context, on whichever worker served the click.
+_app = None
+
+# Jobs that take minutes rather than seconds: each runs on its own thread so
+# the loop keeps ticking (see "The background lane" above).
+BACKGROUND_JOBS = frozenset({"google_index", "reports_native"})
+_background: dict[str, threading.Thread] = {}
+
+# The Google sweep's hours, Eastern, and how fresh an index is left alone.
+SWEEP_WINDOW_HOURS = (1, 6)
+SWEEP_MIN_AGE_HOURS = 12
+EASTERN = ZoneInfo("America/New_York")
+
+# The native reporting pulls a person can start from the Reports index.
+NATIVE_PLATFORMS = ("ttd", "google", "stackadapt", "audiogo", "bing", "groundtruth", "amazon_dsp")
+REFRESH_STALE_MINUTES = 45
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _eastern_hour() -> int:
+    """The hour in New York, the one the sweep window is stated in. A
+    function so the test can set the clock."""
+    return datetime.now(EASTERN).hour
+
+
+def app_for_jobs():
+    """The app a job runs under: the one start() was given, else a bare Flask
+    app so a job started before the scheduler (local, tests) still has an
+    application context."""
+    if _app is not None:
+        return _app
+    from flask import Flask
+    return Flask("s1hub-jobs")
+
+
+def running(name: str) -> bool:
+    """Whether ``name`` is on its background thread right now, in this process."""
+    t = _background.get(name)
+    return bool(t is not None and t.is_alive())
+
+
+def _start_background(name: str, target) -> bool:
+    """Run ``target`` on a thread named for the job. False, and nothing
+    started, while the job's last run is still going: a job never overlaps
+    itself, whatever pressed the button."""
+    with _state_lock:
+        if running(name):
+            return False
+        t = threading.Thread(target=target, name=f"s1hub-job-{name}", daemon=True)
+        _background[name] = t
+        prev = _state.get(name) or {}
+        _state[name] = {**prev, "running_since": _now().isoformat(timespec="seconds")}
+    t.start()
+    return True
 
 
 def enabled() -> bool:
@@ -415,7 +488,7 @@ def job_backup_json(app) -> dict:
 
 
 # name -> (every N minutes, function, human description)
-def job_refresh_google_index(app) -> dict:
+def job_refresh_google_index(app, force: bool = False) -> dict:
     """Rebuild the Google account index — the one place the sweep happens.
 
     This job is why the sweep is affordable at all. It runs under the leader
@@ -425,36 +498,41 @@ def job_refresh_google_index(app) -> dict:
     no page ever pays for the sweep — Client 360 and the tool lookups read the
     stored index, which is a dictionary scan.
 
-    Three hours, offset from the Knack pull so the two are not competing for
-    the same worker: a property created this morning is findable this
-    afternoon. Eight sweeps a day is not free, and the figure is worth having
-    rather than assuming — this login carries 180 Tag Manager accounts, so a
-    clean sweep is a little over 180 requests and eight of them are ~1,500
-    against a daily project quota of 10,000. The margin is in the retries: at
-    two and a half requests per account, which is what a fixed pace was
-    costing, the same eight sweeps are ~3,600.
+    Once a night, in the SWEEP_WINDOW_HOURS window (Eastern), on a job the
+    loop checks hourly. It was every three hours, and the sweep it runs was
+    measured at twenty-eight to thirty-six minutes on this login's accounts
+    (the audit log carries the timings: 1,650 to 2,140 seconds a run), which
+    on the shared thread stalled every job behind it for that long, eight
+    times a day. A property created this morning is findable tomorrow; the
+    Run now button on Diagnostics (``force=True``) sweeps immediately for
+    the day that cannot wait.
+
+    A deploy restarts the loop with every job due, and it used to re-run
+    this one however recently it had finished. Now a restart never sweeps
+    at midday: outside the window the job says so and returns, and inside
+    it an index younger than SWEEP_MIN_AGE_HOURS is left alone. The one
+    exception is an index that has never been built, which is built at once
+    whatever the hour — Client 360 reads it.
     """
     try:
         from hub import google_index
     except Exception as exc:                            # noqa: BLE001
         return {"skipped": f"google_index unavailable ({type(exc).__name__})"}
 
-    # Every job starts due, so a redeploy re-ran this one however recently it
-    # had finished — and this one is 180 rate-limited Tag Manager calls and
-    # seven minutes. On a day of three deploys that is three extra sweeps of
-    # the same accounts, each one hammering the per-user limit the last had
-    # just annoyed, for no information the index did not already hold. Half
-    # the interval: a genuine three-hourly tick always clears it, a restart
-    # minutes after a good sweep never does, and the skip is reported with
-    # the age rather than passed off as a run.
-    every, _fn, _desc = JOBS["google_index"]
-    min_age = every * 60 * 0.5
-    if not google_index.due_for_refresh(min_age):
+    if not force:
         age = google_index.age_seconds()
-        return {"skipped": (f"The index was rebuilt {round((age or 0) / 60)} "
-                            f"minutes ago; the sweep is expensive and nothing "
-                            f"is due yet."),
-                "age_seconds": round(age or 0)}
+        if age is not None:
+            hours = round(age / 3600, 1)
+            if age < SWEEP_MIN_AGE_HOURS * 3600:
+                return {"skipped": (f"The index was rebuilt {hours} hours ago; the sweep "
+                                    f"is expensive and nothing is due yet."),
+                        "age_seconds": round(age)}
+            local_hour = _eastern_hour()
+            if not (SWEEP_WINDOW_HOURS[0] <= local_hour < SWEEP_WINDOW_HOURS[1]):
+                return {"skipped": (f"The sweep runs overnight ({SWEEP_WINDOW_HOURS[0]}-"
+                                    f"{SWEEP_WINDOW_HOURS[1]} AM Eastern); the index is "
+                                    f"{hours} hours old. Run now sweeps immediately."),
+                        "age_seconds": round(age)}
     try:
         return google_index.build(force=True)
     except Exception as exc:                            # noqa: BLE001
@@ -1133,9 +1211,14 @@ def job_reports_normalize(app) -> dict:
             "automapped": (res.get("automap") or {}).get("mapped", 0)}
 
 
-def job_reports_native_pull(app, *, completed_platforms=()) -> dict:
+def job_reports_native_pull(app, *, completed_platforms=(), platforms=None,
+                            actor: str = "scheduler") -> dict:
     """Pull the Trade Desk, Google Ads, StackAdapt, AudioGo, Microsoft Ads,
     GroundTruth and Amazon DSP from their own APIs, then automap.
+
+    ``platforms`` narrows the run to those named -- the Reports index's
+    Refresh button for one platform -- and ``actor`` is who pressed it, on
+    the automap's activity rows. The nightly run passes neither.
 
     The provider normalize (above) reads a copy of these figures a day late;
     this reads them from the platforms themselves, nightly at 3 AM Eastern, and the
@@ -1176,6 +1259,8 @@ def job_reports_native_pull(app, *, completed_platforms=()) -> dict:
                          # entity is still preparing is collected next tick rather
                          # than paid for again.
                          ("amazon_dsp", amazon_dsp.pull)):
+            if platforms and name not in platforms:
+                continue
             if name in completed_platforms:
                 out['platforms'][name] = {'ok': True, 'rows': 0, 'already_refreshed': True}
                 continue
@@ -1197,7 +1282,7 @@ def job_reports_native_pull(app, *, completed_platforms=()) -> dict:
             elif res.get("error"):
                 out["errors"][name] = res["error"]
         try:
-            out["automapped"] = (automap.run(actor="scheduler") or {}).get("mapped", 0)
+            out["automapped"] = (automap.run(actor=actor) or {}).get("mapped", 0)
         except Exception as exc:                        # noqa: BLE001
             out["automapped"] = 0
             out["errors"]["automap"] = f"{type(exc).__name__}: {exc}"[:300]
@@ -1364,8 +1449,9 @@ JOBS = {
                           "Re-pull IO products and campaigns from Knack."),
     "invoice_links":     (480, job_refresh_invoice_links,
                           "Refresh public QuickBooks invoice links (3x daily)."),
-    "google_index":      (180, job_refresh_google_index,
-                          "Re-sweep Google and re-join every account to a client."),
+    "google_index":      (60, job_refresh_google_index,
+                          "Re-sweep Google and re-join every account to a client, overnight "
+                          "(1-6 AM Eastern, checked hourly); Run now sweeps immediately."),
     "purchased_domains": (60, job_refresh_purchased_domains,
                           "Re-pull the purchased-domain registry once a night."),
     "places_snapshot":   (60, job_places_snapshot,
@@ -1476,18 +1562,29 @@ def _loop(app) -> None:
         _heartbeat()
         for name, (every, _fn, _desc) in JOBS.items():
             if name == 'reports_native':
-                from . import report_schedule
-                report_schedule.run_due(lambda done: _run_job(app, name, completed_platforms=done))
+                # The 3 AM Eastern ledger decides whether it is due; the pull
+                # itself is minutes of API calls, so it runs on its own thread.
+                _start_background(name, functools.partial(_nightly_reports, app))
                 continue
             if now >= due[name]:
-                _run_job(app, name)
+                if name in BACKGROUND_JOBS:
+                    _start_background(name, functools.partial(_run_job, app, name))
+                else:
+                    _run_job(app, name)
                 due[name] = now + every * 60
         time.sleep(TICK_SECONDS)
 
 
+def _nightly_reports(app) -> None:
+    from . import report_schedule
+    report_schedule.run_due(
+        lambda done: _run_job(app, "reports_native", completed_platforms=done))
+
+
 def start(app) -> bool:
     """Start the scheduler thread. Safe to call more than once."""
-    global _thread, _started
+    global _thread, _started, _app
+    _app = app
     if _started or not enabled():
         return False
     _started = True
@@ -1608,6 +1705,14 @@ def status(app=None) -> dict:
                "fails": 0, "last_ok": None,
                **runs.get(name, {"last_run": None, "ok": None})}
         row["overdue"], row["overdue_by"] = _overdue(row, every, visible)
+        # On its own thread right now, in this process. A job that is
+        # running is not overdue, however long its last run is ago.
+        row["background"] = name in BACKGROUND_JOBS
+        row["running"] = running(name)
+        if not row["running"]:
+            row.pop("running_since", None)
+        else:
+            row["overdue"], row["overdue_by"] = None, None
         jobs.append(row)
 
     return {
@@ -1634,9 +1739,122 @@ def status(app=None) -> dict:
 
 
 def run_now(name: str, app) -> dict:
-    """Run one job immediately, for the button in Diagnostics."""
+    """Run one job immediately, for the button in Diagnostics.
+
+    A background job is started on its thread and this returns at once with
+    ``started`` and a ``note`` -- the Google sweep is half an hour, and a
+    request held open for it is a request that times out. The sweep is
+    forced past its overnight gate: the button is the "today, not tonight"
+    case. A job already running is not started again, and the note says
+    since when."""
     if name not in JOBS:
         return {"error": "No such job."}
+    if name in BACKGROUND_JOBS:
+        kwargs = {"force": True} if name == "google_index" else {}
+        started = _start_background(name, functools.partial(_run_job, app, name, **kwargs))
+        with _state_lock:
+            row = dict(_state.get(name, {}))
+        row["started"] = started
+        row["running"] = True
+        row["note"] = ("Started in the background; Last run on this panel updates when it "
+                       "finishes." if started else
+                       "Already running since " + str(row.get("running_since") or "a moment ago")
+                       + "; not started again.")
+        return row
     _run_job(app, name)
     with _state_lock:
         return _state.get(name, {})
+
+
+# ---------------------------------------------------------------------------
+# The Reports index's Refresh button
+# ---------------------------------------------------------------------------
+
+def _refresh_note_path() -> str:
+    from . import jsonstore
+    return os.path.join(jsonstore.data_dir("reports"), "refresh.json")
+
+
+def refresh_note() -> dict:
+    """The last manual refresh: ``{started_at, actor, platforms, finished_at,
+    ok, error, result}`` plus ``running`` -- started, not finished, and
+    younger than REFRESH_STALE_MINUTES. On the shared disk rather than in
+    ``_state`` so the worker that did not serve the click still says so, and
+    so a refresh the deploy killed reads as stalled at its start time rather
+    than as running for ever."""
+    try:
+        from . import jsonstore
+        note = jsonstore.read_json(_refresh_note_path(), default={}) or {}
+    except Exception:                                   # noqa: BLE001
+        note = {}
+    if not isinstance(note, dict):
+        note = {}
+    note["running"] = False
+    started = str(note.get("started_at") or "")
+    if started and not note.get("finished_at"):
+        try:
+            since = datetime.fromisoformat(started)
+            if since.tzinfo is None:
+                since = since.replace(tzinfo=timezone.utc)
+            age = (_now() - since).total_seconds() / 60
+            note["running"] = age < REFRESH_STALE_MINUTES
+            note["stalled"] = not note["running"]
+        except ValueError:
+            pass
+    return note
+
+
+def _write_refresh_note(note: dict) -> None:
+    try:
+        from . import jsonstore
+        jsonstore.write_json(_refresh_note_path(), note, durable=False)
+    except Exception:                                   # noqa: BLE001 - a note is not the pull
+        pass
+
+
+def refresh_native(platforms, actor: str = "") -> dict:
+    """Run the native reporting pull for ``platforms`` now, on a thread, for
+    the Reports index button. ``{"started", "note", "platforms"}``.
+
+    The same job the loop runs at 3 AM, under the same app, narrowed to the
+    platforms asked for; the automap runs after it as it does nightly. The
+    3 AM ledger is not touched: a person refreshing at noon does not stand
+    in for the night's run. Refused, saying since when, while a refresh is
+    still going -- this process's thread or the note another worker wrote."""
+    wanted = [p for p in (platforms or []) if p in NATIVE_PLATFORMS]
+    if not wanted:
+        return {"started": False, "platforms": [],
+                "note": "No such platform. One of: " + ", ".join(NATIVE_PLATFORMS) + ", or all."}
+    note = refresh_note()
+    if note.get("running") or running("reports_native"):
+        return {"started": False, "platforms": wanted,
+                "note": (f"A refresh started {note.get('started_at') or 'a moment ago'} "
+                         f"by {note.get('actor') or 'the scheduler'} is still running; "
+                         "not started again.")}
+    started_at = _now().isoformat(timespec="seconds")
+    _write_refresh_note({"started_at": started_at, "actor": actor or "", "platforms": wanted,
+                         "finished_at": "", "ok": None, "error": "", "result": {}})
+
+    def _go() -> None:
+        run = _run_job(app_for_jobs(), "reports_native", platforms=wanted, actor=actor or "refresh")
+        result = run.get("result") or {}
+        errors = result.get("errors") or {}
+        _write_refresh_note({
+            "started_at": started_at, "actor": actor or "", "platforms": wanted,
+            "finished_at": _now().isoformat(timespec="seconds"),
+            "ok": bool(run.get("ok")) and not errors,
+            "error": run.get("error") or "; ".join(f"{k}: {v}" for k, v in errors.items())[:500],
+            "result": {"rows": result.get("rows", 0),
+                       "platforms": {k: {"ok": v.get("ok"), "rows": v.get("rows", 0),
+                                         "error": str(v.get("error") or "")[:200]}
+                                     for k, v in (result.get("platforms") or {}).items()},
+                       "skipped": result.get("skipped", []),
+                       "automapped": result.get("automapped", 0)},
+        })
+
+    started = _start_background("reports_native", _go)
+    if not started:
+        return {"started": False, "platforms": wanted,
+                "note": "The nightly pull is running on this worker right now; not started again."}
+    return {"started": True, "platforms": wanted,
+            "note": "Refreshing " + ", ".join(wanted) + " in the background; reload in a minute."}

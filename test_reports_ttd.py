@@ -348,6 +348,39 @@ st = ttd.status()
 check("the status line reports the pull",
       st["line"].startswith("Trade Desk: connected, 150 advertisers, last pull 20"), note=st["line"])
 
+# ------------------------------------------------- the Refresh button
+section("The Reports index's Refresh button runs the pull in the background")
+
+from werkzeug.test import Client as _Client                          # noqa: E402
+from hub import auth as _auth, scheduler as _sched                   # noqa: E402
+from modules.reports import app as _reports_app                      # noqa: E402
+
+# environ_base: the AuthGuard that names the signed-in user wraps the whole
+# Hub, not this module's app, so the test says who clicked the way it does.
+_c = _Client(_reports_app.app)
+_c.set_cookie(_auth.COOKIE_NAME, _auth.issue_cookie_value("Todd"), domain="localhost")
+calls.clear()
+r = _c.post("/refresh/ttd", environ_base={"s1hub.user": "Todd"})
+_loc = r.headers.get("Location", "")
+check("the click answers at once with a redirect to the index", (r.status_code, _loc.startswith("/")), (302, True), note=_loc)
+check("...saying the refresh started", "saved=" in _loc and "Refreshing" in _loc, note=_loc)
+t = _sched._background.get("reports_native")                         # noqa: SLF001
+if t is not None:
+    t.join(20)
+note = _sched.refresh_note()
+check("the note on the disk says who refreshed what, and that it finished",
+      (note.get("actor"), note.get("platforms"), bool(note.get("finished_at")), note.get("running")),
+      ("Todd", ["ttd"], True, False), note=note)
+check("...with the Trade Desk's rows", note["result"]["platforms"]["ttd"]["rows"], 3, note=note)
+check("...and only the platform asked for was pulled", list(note["result"]["platforms"]), ["ttd"])
+check("the pull went to the platform", any(c["url"].endswith(ttd.EXECUTION_QUERY) for c in calls))
+check("...and the token still never left the module", TOKEN not in json.dumps(note))
+r = _c.post("/refresh/nope")
+check("an unknown platform is a 404", r.status_code, 404)
+page = _c.get("/").get_data(as_text=True)
+check("the index shows the refresh line", "Manual refresh of ttd" in page and "refreshed" in page)
+check("...and a Refresh button beside the connected pull", 'action="/reports/refresh/ttd"' in page and "Refresh all now" in page)
+
 # Refusals never carry the token.
 STATE["fail_download"] = True
 res = ttd.pull()

@@ -38,7 +38,7 @@ from datetime import date as _date, timedelta as _timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from flask import (Flask, Response, jsonify, redirect, render_template,
+from flask import (Flask, Response, abort, jsonify, redirect, render_template,
                    request, url_for)
 
 from hub.webargs import clamp_int
@@ -165,6 +165,7 @@ def index():
         budgets=store.budget_line_count(),
         clients=store.clients_with_campaigns(),
         native=_native_status(),
+        refresh=_refresh_note(),
         rate_card=products.rate_card_products(),
         health=_health_by_platform(),
         provider=_provider_gate(),
@@ -217,6 +218,41 @@ NATIVE_PULLS = (("ttd", "ttd"), ("google", "google_ads_perf"),
                 ("stackadapt", "stackadapt"), ("audiogo", "audiogo"),
                 ("bing", "bing"), ("groundtruth", "groundtruth"),
                 ("amazon_dsp", "amazon_dsp"))
+
+
+def _refresh_note() -> dict:
+    """The last manual refresh, from hub.scheduler's note -- {} when the Hub
+    cannot be imported, and the index renders without the line."""
+    try:
+        from hub import scheduler
+        return scheduler.refresh_note()
+    except Exception:                      # noqa: BLE001
+        return {}
+
+
+@app.route("/refresh/<platform>", methods=["POST"])
+def refresh_native(platform: str):
+    """Pull one platform, or all of them, from its own API now. A POST,
+    because it spends API calls, and a background one: the pull is minutes
+    of platform requests and the click returns at once. The nightly job is
+    what runs, narrowed to the platform asked for, so the button cannot
+    disagree with 3 AM about what a pull is."""
+    from urllib.parse import quote
+    names = ([p for p, _m in NATIVE_PULLS] if platform == "all"
+             else [p for p, _m in NATIVE_PULLS if p == platform])
+    if not names:
+        abort(404)
+    try:
+        from hub import scheduler
+        res = scheduler.refresh_native(names, actor=actor_name())
+    except Exception as exc:                   # noqa: BLE001
+        app.logger.exception("reports: refresh could not start")
+        return redirect(url_for("index") + "?error="
+                        + quote(f"The refresh could not start ({type(exc).__name__})."))
+    _log("reports_refresh", detail=("started " if res["started"] else "refused: ")
+         + (", ".join(res["platforms"]) if res["started"] else res["note"]))
+    key = "saved" if res["started"] else "error"
+    return redirect(url_for("index") + f"?{key}=" + quote(res["note"]))
 
 
 def _native_status() -> list[dict]:

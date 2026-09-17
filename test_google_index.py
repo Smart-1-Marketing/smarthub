@@ -835,10 +835,23 @@ try:
           "rebuilt" in res.get("skipped", ""), True)
     gi.jsonstore.write_json(gi._path(), dict(gi.load(),
                                              built_at="2020-01-01T00:00:00+00:00"))
+    # The sweep is overnight now (hub/scheduler.py SWEEP_WINDOW_HOURS): an
+    # aged-out index at 2 PM Eastern waits for the window and says so, and
+    # the same index at 3 AM is swept.
+    _real_hour = _sched._eastern_hour
+    _sched._eastern_hour = lambda: 14
+    res = _sched.job_refresh_google_index(None)
+    check("...an aged-out index at 2 PM waits for the overnight window",
+          _swept == [] and "overnight" in res.get("skipped", ""), True)
+    _sched._eastern_hour = lambda: 3
     _sched.job_refresh_google_index(None)
-    check("...and sweeps when the index really has aged out", _swept, [True])
+    check("...and sweeps when the index really has aged out, overnight", _swept, [True])
+    _sched._eastern_hour = lambda: 14
+    _sched.job_refresh_google_index(None, force=True)
+    check("...and Run now (force) sweeps whatever the hour", _swept, [True, True])
 finally:
     gi.build = _real_build
+    _sched._eastern_hour = _real_hour
 
 section("A search never sweeps Google live — it reads the shared index")
 
