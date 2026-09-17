@@ -271,3 +271,50 @@ was missing was what happens when one of them is wrong.
   03:00* into *connected, 0 advertisers, last pull now* -- about a feed that
   had read seven the night before and had not been asked since. The counts and
   the stamp are kept for any run that landed nothing.
+
+**A name without the mark is read for a likeness, and the likeness is
+shown before it is trusted (September 17, 2026).** Most campaigns were
+named before the `S1M` shape existed, and the unmapped queue held them
+with the client's name plainly in the campaign name and nobody to type
+it. `automap.suggest_clients()` scores every registry client against a
+campaign name -- the client's name contained whole (or run together),
+the client's domain label, a near spelling by `difflib`, or one
+distinctive word of the name as a lead -- and the queue's picker **opens
+on the likeliest client** with the rest a click away and the reason in
+words, so Map is one press and a wrong guess is one click to change.
+`decide()` names the one the hourly run files, and only on a clear best:
+`FUZZY_FILE_SCORE` or better with the runner-up `FUZZY_MARGIN` behind,
+so `Acme | Search` against Acme Plumbing and Acme Roofing files nobody
+and shows both. What it files is `auto_rule="fuzzy_v1"`, a proposal like
+`name_v1`'s -- pending, on no page until confirmed, refusable with the
+same memory, and the refused client is never suggested for that name
+again. The product is read only where a catalog name is in the campaign
+name whole (`fuzzy_v1+name_product`); `search` on a Meta campaign is not
+Paid Search. **Move** is the third press beside Confirm and Not theirs,
+on the queue and the client's staff page: the same `POST /unmapped` a
+person maps with, which replaces the proposal and is confirmed by the
+making, and the activity row says where it came from. The
+`hub/client_key.py` rule -- never guess silently -- holds: nothing this
+pass does reaches a figure without a person's press, and every screen
+that shows a likeness shows the percentage and why.
+
+**The ad account is evidence before the name is.** Most platforms seat
+one client per account, so once a person has confirmed one campaign on
+an account as a client's, a new campaign there is theirs until somebody
+says otherwise. `store.account_evidence()` reads the book per (platform,
+account): the clients with confirmed campaigns there, the ones with only
+proposals, and the ones a filing was refused under. `automap.account_suggestion()`
+files on it (`account_v1`) only when exactly one client has confirmed
+campaigns on the account and no refusal names that client there --
+**pending proposals are not evidence**, so one wrong filing cannot become
+an account's worth, and a mixed account (an agency seat, a reseller)
+says nothing. Where the pull carries the platform's own name for the
+account (StackAdapt's and Amazon DSP's advertiser, Microsoft's account
+name, AudioGO's and GroundTruth's organization) it is read for a likeness
+too, under `account_name_v1`, since it is the client's own name more
+often than the campaign's is. `suggest_for_row()` merges the three
+readings and `decide()` reads the merged list, so an account that says one
+client and a name that says another are two clients at the top and file
+neither: the run counts it as `conflicted`, and the queue shows both with
+the account's reason under the account id. Every filing is still a
+proposal, confirmable, refusable and movable like the rest.

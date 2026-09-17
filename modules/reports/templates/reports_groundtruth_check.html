@@ -63,4 +63,8 @@
     {% endif %}
   </div>
 </div>
+
+{% with unread=unread, documented=documented %}
+  {% include "_reports_unread_fields.html" %}
+{% endwith %}
 {% endblock %}

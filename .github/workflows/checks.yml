@@ -2883,6 +2883,11 @@ jobs:
       - name: The client work log's horizon
         if: matrix.group == 6
         run: python3 test_client_work_log.py
+      # Four rounds of finding this defect by hand. The repo looks for it now:
+      # a count over a capped read, or a by-key search of one.
+      - name: A capped read counted, or searched by key
+        if: matrix.group == 6
+        run: python3 test_capped_reads.py
       # Declared and never wired is the failure this repo has paid for most
       # often -- an ">>> INTEGRATION POINT <<<" naming three writers that have
       # never existed, `storage.manifest()` feeding an audit nobody built,

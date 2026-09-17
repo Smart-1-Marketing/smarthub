@@ -380,6 +380,28 @@ def _decision(ranked: list[dict]) -> tuple[str, dict | None, float]:
     return "unmatched", first, margin
 
 
+def decide(ranked: list[dict]) -> tuple[str, dict | None, float]:
+    """The Hub's one answer to "is this the same company", for any caller.
+
+    `ranked` is candidates sorted best first, each `{"score", "evidence"}`
+    where score comes from `name_score()` and evidence names what else
+    agreed -- a domain, an email domain, an exactly normalised name.
+    Returns `("auto" | "review" | "unmatched", best, margin)`.
+
+    Public because it was not: Ask SmartHub had grown its own scorer and its
+    own pair of thresholds (0.90 with a 0.10 margin, no corroboration
+    required) which *looked* like the ones above and were computed on a
+    different scale, so the two disagreed about the same two names while
+    appearing to apply the same rule. A second opinion about identity is the
+    finding `hub/client_key.py` was written to close, one layer up.
+
+    The bands themselves are unchanged, and deliberately cautious: a name
+    alone has to be near-certain, a 0.90 needs something else to agree, and
+    the band below that is a question for a person rather than a guess.
+    """
+    return _decision(ranked)
+
+
 def _alias_record(obs: dict, hit: dict, margin: float, method: str) -> dict:
     return {
         "alias": obs["name"],

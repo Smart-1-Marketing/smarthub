@@ -195,6 +195,12 @@
       It {{ bing.manager_id_problem }}
     </div>
   {% endif %}
+  {% if bing.redirect_uri_problem %}
+    <div class="note n-bad">
+      <b>MICROSOFT_ADS_REDIRECT_URI points somewhere this Hub does not answer</b>
+      It {{ bing.redirect_uri_problem }}
+    </div>
+  {% endif %}
 
   {% if bing.connected and bing.refresh_token_source.startswith('hub database') %}
     <div class="note n-warn">
@@ -212,10 +218,14 @@
   </p>
 
   <div class="hint">
-    Redirect URI in use: <span class="mono brk">{{ bing.redirect_uri or 'not set — PUBLIC_BASE_URL is empty' }}</span><br>
+    Redirect URI in use: <span class="mono brk">{{ bing.redirect_uri or 'not set — PUBLIC_BASE_URL is empty' }}</span>
+    <span style="color:#64748b">(from {{ bing.redirect_uri_source }})</span><br>
     Register it, character for character, under the app registration&rsquo;s <b>Authentication → Redirect URIs</b>
-    in the Azure portal, on a registration that allows <b>personal Microsoft accounts as well as
-    organizational ones</b> — a Microsoft Advertising login is as often one as the other.
+    in the Azure portal. Sign-in goes through the <span class="mono">/{{ bing.tenant }}/</span> endpoint:
+    {% if bing.tenant == 'common' %}personal Microsoft accounts as well as organizational ones, which is what
+    the registration has to allow — a Microsoft Advertising login is as often one as the other.
+    A registration limited to one directory needs its tenant id in <span class="mono">MICROSOFT_ADS_TENANT</span>.
+    {% else %}set by <span class="mono">MICROSOFT_ADS_TENANT</span>, so only that directory&rsquo;s accounts can sign in.{% endif %}
   </div>
 </div>
 {% endif %}
@@ -382,8 +392,10 @@
       <tr><td class="mono">GOOGLE_ADS_REDIRECT_URI</td><td>Hub URL + <span class="mono">{{ mount }}/oauth/callback</span></td></tr>
       <tr><td class="mono">GOOGLE_ADS_REFRESH_TOKEN</td><td>Shown once after you connect — paste it back to pin it</td></tr>
       <tr><td class="mono">GOOGLE_ADS_API_VERSION</td><td>Optional. Defaults to <span class="mono">{{ status.api_version }}</span></td></tr>
-      <tr><td class="mono">BING_AD_CLIENT_ID</td><td>Azure portal → App registrations → your app (personal + work accounts)</td></tr>
-      <tr><td class="mono">BING_AD_CLIENT_SECRET</td><td>Same registration → Certificates &amp; secrets</td></tr>
+      <tr><td class="mono">BING_AD_CLIENT_ID</td><td>Azure portal → App registrations → your app (personal + work accounts). <span class="mono">MICROSOFT_ADS_CLIENT_ID</span> is read for it too</td></tr>
+      <tr><td class="mono">BING_AD_CLIENT_SECRET</td><td>Same registration → Certificates &amp; secrets — the secret&rsquo;s <b>value</b>, not its id. <span class="mono">MICROSOFT_ADS_CLIENT_SECRET</span> is read for it too</td></tr>
+      <tr><td class="mono">MICROSOFT_ADS_REDIRECT_URI</td><td>Optional. Pins the callback to the exact string registered in Azure; must end in <span class="mono">{{ mount }}/oauth/bing/callback</span></td></tr>
+      <tr><td class="mono">MICROSOFT_ADS_TENANT</td><td>Optional. Tenant id for a single-directory registration; unset means <span class="mono">common</span></td></tr>
       <tr><td class="mono">BING_AD_DEVELOPER_TOKEN</td><td>Microsoft Advertising manager account → Tools → Developer token</td></tr>
       <tr><td class="mono">BING_MANAGER_ACCOUNT_ID</td><td>The manager&rsquo;s customer <b>id</b>, digits only</td></tr>
       <tr><td class="mono">BING_MANAGER_ACCOUNT_NUMBER</td><td>The account <b>number</b> beside it (letters and digits); shown, never sent</td></tr>

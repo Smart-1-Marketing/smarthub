@@ -95,7 +95,7 @@ def for_client(name: str, url: str = "", base: str = "") -> dict:
         table = ideas.weight_table(name, url)
         answered = [r for r in table if r["answered"]]
         out["ideas"] = {
-            "pending": len(ideas.pending(name, url, limit=50)),
+            "pending": ideas.pending_count(name, url),
             "answered": sum(r["answered"] for r in table),
             "liked": [r["label"] for r in sorted(
                 answered, key=lambda r: -r["weight"])[:3]],
