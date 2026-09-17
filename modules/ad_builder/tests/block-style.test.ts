@@ -236,13 +236,32 @@ test('the button can be nudged, and cannot be nudged off the canvas', () => {
   assert.equal((off as any).cta.y, 0);
 });
 
-test('only the button moves; type is still placed by the layout', () => {
-  // Moving a block of copy is a layout decision, and layouts are chosen by
-  // picking a family. Accepting x/y here would be a control that quietly
-  // dismantles that.
+test('type moves up and down but never across; only the button moves on both axes', () => {
+  // Where a line sits across the canvas is a layout decision, and layouts
+  // are chosen by picking a family -- so x on a text block is refused. Up
+  // and down is every block's: "move the headline down a bit" is the note
+  // people write most after "nudge the logo", and it had nowhere to go.
   const out = applyBlockStyles(layout(), { headline: { x: 5, y: 5 } as any });
-  assert.equal((out as any).headline.x, 20, 'untouched');
-  assert.equal((out as any).headline.y, 30, 'untouched');
+  assert.equal((out as any).headline.x, 20, 'across is untouched');
+  assert.equal((out as any).headline.y, 5, 'up and down is honored');
+  // And clamped to the canvas like the button, so a held arrow cannot walk
+  // a line off the bottom.
+  const low = applyBlockStyles(layout(), { headline: { y: 9999 } });
+  const box = (layout() as any).headline;
+  assert.equal((low as any).headline.y, (layout() as any).canvas.h - box.h);
+});
+
+test('a chosen text color is drawn over a photo, and says so to the composer', () => {
+  // The composer replaces a template's ink over a photo with whichever of
+  // light/dark survives the overlay. A colour somebody CHOSE must not be
+  // replaced -- that was the control that worked on a flat layout and did
+  // nothing on the next size, with the panel showing the colour it was not
+  // drawing. keepColorOnBg is the flag svg.ts already honours.
+  const out = applyBlockStyles(layout(), { headline: { color: '#ABCDEF' } });
+  assert.equal((out as any).headline.color, '#ABCDEF');
+  assert.equal((out as any).headline.keepColorOnBg, true);
+  const plain = applyBlockStyles(layout(), { headline: { size: 40 } });
+  assert.equal((plain as any).headline.keepColorOnBg, undefined, 'only a chosen color sets it');
 });
 
 test('the panel behind the copy takes a fill and an opacity', () => {

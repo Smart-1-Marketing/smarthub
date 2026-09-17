@@ -697,3 +697,82 @@ again, and `tests/carry.test.ts` drives the rule itself — both halves confirme
 red against the real defect first, and one assertion in the first draft could
 not fail at all, because it checked that type stayed above `MIN_TYPE` and
 `applyBlockStyles` guarantees exactly that.
+
+**The operator's list, September 2026: what each item turned out to be.**
+Todd sent one message with seventeen things wrong with the build screen, and
+most of them were one of three underlying defects rather than seventeen.
+
+*"I can't change the text color on any size after the first one"* was
+`svg.ts`: over a full-bleed photo the composer replaced every block's ink
+with whichever of light/dark survives the overlay, including an ink somebody
+had chosen. The first size tuned was usually a flat layout (the colour took)
+and the next a photo (it did not), with the panel showing the colour it was
+not drawing. `applyBlockStyles` now marks a chosen ink `keepColorOnBg`, the
+flag the composer already honoured for templates; the automatic ink stays
+for blocks nobody coloured, and the contrast check still says when a chosen
+one does not read.
+
+*"Changing layouts after the first image does not work"* was that
+`layoutFamily` is per concept, so changing it on the 728x90 changed the
+300x250 somebody had just finished. `layoutBySize` names a family for one
+canvas, `registry.familyFor()` is the one reading, and every render path,
+the fingerprint and the validator ask it. The carry reads the departure
+against the authored size's own family (`carry.styleFor()` pairs the two
+templates); `test_display_ads.py` sweeps `render.ts` for any path still
+reading `getTemplate(concept.layoutFamily)`.
+
+*"The checks should be in plain English... use AI"* is `plain-checks.ts`,
+two layers on purpose. `explainFinding()` is deterministic and always there:
+it knows every check and turns "below 4.5:1 — headline 2.1:1" into "The
+headline is hard to read against what is behind it" plus the control that
+fixes it, with an `apply` the screen can do and undo where the fix is one
+setting. `adviseFindings()` hands that reading to the model as a floor and
+asks for the sentence a senior designer would say about THIS ad, in a
+vocabulary of four change shapes the screen can perform -- anything else is
+dropped rather than passed on as a button that does nothing, and the model
+may reword a finding but never add one. It runs on a press and on the way to
+the next size ("would you like to see what this would look like?" -- Yes
+shows it and waits for keep or undo, No saves and continues), never per
+keystroke, because it is billed. With no key the panel is the deterministic
+reading and says so.
+
+The rest were what they said. Type is capped at 200px rather than 96 (the
+old cap trimmed a story headline silently). Every line of type moves up and
+down (`y` on every block; `x` stays the button's, because across is the
+layout's decision). Arrow pads share one moving speed, slow/medium/fast at
+1/5/10px, medium by default; the background pad takes fractions under the
+same names because its offset is a fraction of the picture's overflow. A
+colour well waits for **Use**, and **Use and save** keeps the hex on
+`brand.savedColors` once, as a chip on every colour control. There is an
+undo stack of campaign snapshots, coalesced for typing. Suggest crop renders
+the suggestion from a copy of the campaign before Use it. Animation is
+refused for Meta in `animationSupport` by platform name and not only by
+format list, so a Meta config that grows `gif` still refuses, and the rail
+wears a blue M on every size Meta buys. The left column is six accordions in
+the operator's order -- Layout, Copy, Background, Type/Fonts, Text Boxes,
+Logo -- one open at a time, and the "Advanced: Layout" fold that a
+MutationObserver used to wrap around the layout cards after every redraw is
+gone. The five buttons that stood in the toolbar and again under Save now
+stand once, in an always-visible action row with a description each: Render,
+Animate, Save as preset, Duplicate as the next concept, then the blue Next.
+The brief is a form on the overview page for staff (`POST
+/api/campaign/<id>/brief` lands it on the submission, the campaign file and
+the project, through `saveCampaignDocument` so an approved size cannot be
+moved by it, and drops the cached landing analysis when the page changes).
+Logos pull from the client's gallery through `/_hub/logos`, which opens on a
+folder called "logos" when there is one. A dark logo on a dark backdrop gets
+a white or black version made from the primary (`makeMono`, the shape
+untouched) rather than a palette move, and the logo-contrast check suggests
+which.
+
+**Google Fonts, and the fifteen that cannot be drawn.** The registry is the
+Google families a brand is likely to use, vendored through `@fontsource`, and
+`fonts.ts` probes every file at load because opentype.js cannot parse every
+Google family: Roboto, Inter, DM Sans, Nunito, Oswald, Rubik, Source Sans 3,
+Archivo, Lora, Merriweather, Karla, Mulish, Nunito Sans, Roboto Condensed and
+Roboto Slab all carry a GSUB chained-context lookup (type 6, format 2) it does
+not implement and throw on the first glyph -- the DejaVu failure the file
+already recorded, fifteen times over. A family that throws is left off rather
+than offered and swapped for Poppins mid-render; `tests/fonts-google.test.ts`
+asserts the named ones are absent and every offered weight draws. The probe
+costs about 350ms once, on first use, and keeps nothing parsed.
