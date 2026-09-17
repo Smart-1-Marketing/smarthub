@@ -312,7 +312,9 @@ def report_sweep(actor: str = "scheduler", limit: int = MAX_ACCOUNTS_PER_RUN) ->
     if not due:
         return {"ok": True, "due": 0, "sent": 0,
                 "skipped": "no account has a recurring report switched on"}
-    known = {a["customer_id"]: a for a in store.deployed_accounts(limit=500)}
+    # Uncapped, and keyed. A due report whose account fell past a cap used
+    # to take the `or {...}` below and go out with a BLANK client name.
+    known = {a["customer_id"]: a for a in store.deployed_accounts()}
     allowance, headroom = _headroom()
     per_account = _cost_per_account()
     sent = failed = quota_skipped = 0
@@ -365,9 +367,11 @@ def account_panel(limit: int = 100) -> dict:
     has never had one, which is a different thing from an account with nothing
     wrong with it.
     """
-    runs = {r["customer_id"]: r for r in store.latest_optimization_runs(limit=limit)}
+    runs = {r["customer_id"]: r for r in store.latest_optimization_runs()}
     rows = []
-    for account in store.deployed_accounts(limit=limit * 5)[:limit]:
+    # `limit` pages the accounts. It used to be spent on proposals with a x5
+    # fudge to survive the dedupe, which is a page size nobody could predict.
+    for account in store.deployed_accounts(limit=limit):
         rows.append({**account,
                      "last_run": runs.get(account["customer_id"]),
                      "auto_apply": store.auto_apply_settings(account["customer_id"]),

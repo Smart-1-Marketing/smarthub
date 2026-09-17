@@ -200,8 +200,18 @@ def inbox():
              'display_ads': ('Display', '/tools/display-ads/projects')}
     events = {'spot_recorded', 'project.render', 'render_submitted',
               'ads_job_tracked', 'ai_video_ready', 'spokesperson_ready', 'render_failed'}
-    for row in audit.tail(limit=2000):
-        if row.get('actor') != who['name'][:60] or row.get('module') not in names or row.get('type') not in events:
+    # Narrowed to this person IN THE QUERY, and checked again here. The query
+    # is about completeness: reading the newest 2000 rows Hub-wide and keeping
+    # theirs is a few hours of a busy day, so somebody's own renders scrolled
+    # out of their own inbox and it reported nothing to show. 400 of their OWN
+    # rows is far more than the 30 items below.
+    # The actor comparison stays because it is about something else -- this is
+    # one person's inbox and another person's work must never appear in it,
+    # which is not a thing to hold in one place only. test_help_center.py
+    # hands this loop three actors' rows and asserts one comes out.
+    me = who['name'][:60]
+    for row in audit.tail(limit=400, actor=me):
+        if row.get('actor') != me or row.get('module') not in names or row.get('type') not in events:
             continue
         label, url = names[row['module']]
         kind = row['type']
