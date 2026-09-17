@@ -74,3 +74,4 @@ say "above" or "below" mean earlier or later files in this list.
 | [`66-the-stores-that-were-not-json.md`](66-the-stores-that-were-not-json.md) | The stores that were not JSON | 135 |
 | [`67-the-client-passwords-in-the-backup.md`](67-the-client-passwords-in-the-backup.md) | The client passwords in the backup | 125 |
 | [`68-the-upload-url-that-nothing-ever-served.md`](68-the-upload-url-that-nothing-ever-served.md) | The upload URL that nothing ever served | 110 |
+| [`69-the-third-question-bytes-on-the-disk.md`](69-the-third-question-bytes-on-the-disk.md) | The third question: bytes on the disk | 120 |

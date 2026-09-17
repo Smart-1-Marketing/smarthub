@@ -1431,6 +1431,186 @@ DISK_SQLITE_EXEMPT: dict[str, str] = {
 }
 
 
+DISK_BINARY_EXEMPT: dict[str, str] = {
+    # ---- the shared uploader itself ----
+    "hub/storage.py":
+        "the disk fallback reached only when Cloudinary is unconfigured. It is "
+        "the one write here that hands back NO url, deliberately (#693), and "
+        "local_assets() counts what is sitting in it on /diagnostics -- so it "
+        "is already the reported thing rather than a hidden one",
+
+    # ---- a scratch file that never outlives the call ----
+    # Not "small" or "temporary" as an adjective: each of these writes inside a
+    # tempfile context manager that deletes the directory on exit, so there is
+    # nothing on the data disk after the function returns.
+    "hub/image_compress.py":
+        "both writes are inside tempfile.TemporaryDirectory(), handing bytes to "
+        "pngquant and back; nothing survives the call",
+    "modules/pdf_optimizer/app.py":
+        "writes into tempfile.mkdtemp(prefix='smart1_pdf_') so Ghostscript has a "
+        "path to read; nothing survives the request",
+    "modules/commercial_builder/services/finished_video.py":
+        "streams the finished video into tempfile.TemporaryDirectory("
+        "prefix='cb-inspect-') to inspect it; nothing survives the inspection",
+
+    # ---- a cache, and rebuildable from something else that is kept ----
+    "modules/bg_remover/app.py":
+        "_cache_put(), keyed by the source digest. Losing it costs one repeat "
+        "cutout of an image the caller still has; the cutout itself goes to "
+        "Cloudinary",
+    "modules/gpt_ads/app.py":
+        "_cache_image(), and _image_bytes() falls back to re-fetching from the "
+        "stored URL when it is missing -- the pack's image is in Cloudinary and "
+        "this is a local copy of it",
+
+    # ---- Cloudinary first, disk only when the upload could not happen ----
+    # These are NOT the hub/storage.py defect. Each one tries Cloudinary, keeps
+    # the bytes locally only when that fails or is unconfigured, and returns a
+    # URL its own module serves -- so the fallback is reachable rather than
+    # decorative. What they still are is per-instance, which is why each names
+    # the route that would have to follow the bytes if this service ever runs
+    # more than one instance.
+    "hub/proposals.py":
+        "Cloudinary first; the disk copy is served by /api/client/proposals/"
+        "file/<name> and is reached only with no Cloudinary URL",
+    "modules/hvac/app.py":
+        "Cloudinary first; the disk copy is served from /static/reports/ and is "
+        "reached only when the upload raised",
+    "modules/restaurant/app.py":
+        "Cloudinary first; the disk copy is served from /static/reports/ and is "
+        "reached only when the upload raised",
+    "modules/landing_ads/app.py":
+        "Cloudinary first; the disk copy is served by this module's own "
+        "/file/<name> route and is reached only with no Cloudinary URL",
+    "modules/radio_promo/app.py":
+        "Cloudinary first; the disk copy is served by this module's own "
+        "/file/<name> route and is reached only when the upload raised",
+    "modules/fan_radio/store.py":
+        "_write_local(), reached only when the Cloudinary upload raised, because "
+        "a render that cost money is never thrown away over a failed upload",
+    "modules/image_creator/projects.py":
+        "the preview. Cloudinary first; the disk copy is served by this module's "
+        "own /api/projects/<id>/preview route",
+    "modules/msa/app.py":
+        "_store_pdf(), which its own docstring calls the convenience copy -- "
+        "Cloudinary holds the durable one, and /pdf/<token> says so when the "
+        "local file is gone",
+
+    # ---- a branch with no caller ----
+    "modules/commercial_builder/services/elevenlabs_service.py":
+        "the out_path= branch of generate_voiceover(), and no caller passes "
+        "out_path: both take audio_bytes and send it to Cloudinary. Listed "
+        "rather than deleted here because deleting a parameter is a change to "
+        "that module, not to this check",
+}
+
+
+def disk_binary_writers(root=None) -> list[dict]:
+    """Every source file that writes BYTES to a path on the disk.
+
+    The third question, after ``unmirrored_json_writers()`` and
+    ``disk_sqlite_stores()``. Those two ask what JSON and what databases are on
+    a disk outside the backup; between them they still could not see a module
+    that writes a .webp, a .pdf or an .mp3, which is most of what this suite
+    produces.
+
+    That gap is not hypothetical. Both stores ``docs/claude/66`` is about were
+    found by somebody grepping, and the binary list was hand-written three
+    times while this was being scoped and was wrong all three times -- it
+    missed ``hub/proposals.py``, ``modules/hvac``, ``modules/landing_ads``,
+    ``modules/radio_promo`` and ``modules/restaurant``. A list a person
+    maintains is a list that is already stale.
+
+    Read by AST rather than by substring, for the reason
+    ``_writes_json_to_disk`` gives about its own prose: ``open(`` and the
+    string ``"wb"`` both appear in the comments around here.
+
+    What counts is the spelling that reaches a file: ``open(path, "wb")``,
+    ``Path.open("wb")`` and ``Path.write_bytes()``. Deliberately NOT ``.save()``
+    -- that is Werkzeug's upload spelling, no call site in this repo uses it
+    for an upload, and counting every ``.save(`` would report the thirty-odd
+    ``store.save(project)`` calls that are JSON going through the mirror. That
+    is the same trade ``_writes_json_to_disk`` makes about ``json.dumps``:
+    thirty findings nobody can act on is the same as none, one screen later.
+    """
+    import ast
+    import pathlib
+
+    base = pathlib.Path(root) if root else pathlib.Path(__file__).resolve().parent.parent
+    out: list[dict] = []
+    for p in sorted(base.rglob("*.py")):
+        if any(x in p.parts for x in SCAN_SKIP_DIRS):
+            continue
+        rel = p.relative_to(base).as_posix()
+        if _disk_binary_exempt_reason(rel):
+            continue
+        try:
+            tree = ast.parse(p.read_text(encoding="utf-8", errors="ignore"))
+        except (OSError, SyntaxError):
+            continue
+        hit = _binary_write_line(tree)
+        if hit:
+            line, how = hit
+            out.append({"file": rel, "module": _module_of(rel),
+                        "line": line, "how": how})
+    return out
+
+
+def _binary_write_line(tree) -> tuple[int, str] | None:
+    """The first binary write in this tree, as (line, how), or None."""
+    import ast
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        if isinstance(fn, ast.Attribute) and fn.attr == "write_bytes":
+            return (node.lineno, "write_bytes()")
+        # `open(p, "wb")` and pathlib's `p.open("wb")` are the same write.
+        if not ((isinstance(fn, ast.Name) and fn.id == "open")
+                or (isinstance(fn, ast.Attribute) and fn.attr == "open")):
+            continue
+        for arg in node.args:
+            if not (isinstance(arg, ast.Constant) and isinstance(arg.value, str)):
+                continue
+            mode = arg.value
+            # "b" alone is not enough: "rb" is a read, and a check that
+            # reported every file this suite opens for reading would be noise.
+            if "b" in mode and any(c in mode for c in "wax"):
+                return (node.lineno, f'open(..., "{mode}")')
+    return None
+
+
+def _disk_binary_exempt_reason(rel: str) -> str | None:
+    """Why this file is not counted, or None if it is.
+
+    A third function rather than a shared one, for the reason
+    ``_disk_sqlite_exempt_reason`` gives: a file rightly excused from one of
+    these checks is not thereby excused from the others, and the three exempt
+    for genuinely different reasons.
+    """
+    if rel in DISK_BINARY_EXEMPT:
+        return DISK_BINARY_EXEMPT[rel]
+    if rel.startswith("tools/") or "/scripts/" in rel or rel.startswith("scripts/"):
+        return "repo tooling; holds no state on the data disk"
+    name = rel.rsplit("/", 1)[-1]
+    if name.startswith("test_") or name.endswith("_test.py"):
+        return "test; writes to a temporary directory"
+    return None
+
+
+def stale_binary_exemptions(root=None) -> list[str]:
+    """``DISK_BINARY_EXEMPT`` entries pointing at a file that is no longer there.
+
+    For the reason ``stale_exemptions()`` gives: an exemption that outlives its
+    file is a claim nobody can check, and the next file to take that path
+    inherits an excuse written about different code.
+    """
+    import pathlib
+    base = pathlib.Path(root) if root else pathlib.Path(__file__).resolve().parent.parent
+    return sorted(rel for rel in DISK_BINARY_EXEMPT
+                  if not (base / rel).exists())
+
+
 def disk_sqlite_stores(root=None) -> list[dict]:
     """Every source file that opens a SQLite database directly on the disk.
 
