@@ -1108,6 +1108,70 @@ def check_stale_sqlite_exemptions() -> list[dict]:
     } for rel in jsonstore.stale_sqlite_exemptions(ROOT)]
 
 
+def check_disk_binary_stores() -> list[dict]:
+    """Modules that write bytes to the data disk with nothing else holding them.
+
+    The third question on this page, and the one the other two could not
+    reach. The JSON check asks what JSON is written without a mirror; the
+    SQLite check asks what opens a database. Neither can see a module that
+    writes a .webp, a .pdf or an .mp3 — which is most of what this suite
+    actually produces for a client.
+
+    The exemptions carry the weight here, because almost every binary write in
+    this repo is already fine and says why: a scratch file inside a tempfile
+    context, a cache rebuildable from a URL that is kept, or a Cloudinary-first
+    write whose disk copy is reached only when the upload could not happen and
+    is served by a route that module owns. What is left after those is a store
+    with no second copy anywhere.
+
+    Not a defect on its own, for the reason both checks above give: a module
+    listed here works exactly as it always has, right up until the disk is
+    recreated — or until this service runs more than one instance, which a
+    disk currently prevents and is the point of removing it.
+    """
+    from . import jsonstore
+    out = []
+    for hit in jsonstore.disk_binary_writers(ROOT):
+        rel, mod = hit["file"], hit["module"]
+        if rel in SELF:
+            continue
+        out.append({
+            "file": rel, "module": mod, "line": hit["line"],
+            "detail": f"{mod} writes bytes to the persistent disk with "
+                      f"{hit['how']}, and nothing else holds a copy. The disk "
+                      f"is outside the database backup, does not survive being "
+                      f"recreated, and is local to one instance — so these "
+                      f"bytes are unreachable from any other instance and "
+                      f"unrecoverable if the disk goes. Neither the "
+                      f"unbacked-JSON check nor the disk-SQLite check can see "
+                      f"this: it is neither.",
+            "fix": "Send the bytes through hub/storage.py, which puts them in "
+                   "Cloudinary and is what this repo uses for binary. Where "
+                   "they are genuinely rebuildable or never outlive the "
+                   "request, say so in jsonstore.DISK_BINARY_EXEMPT with a "
+                   "reason that names what losing them would cost.",
+        })
+    return out
+
+
+def check_stale_binary_exemptions() -> list[dict]:
+    """Exemptions from the check above that no longer name a real file.
+
+    The reason its two siblings give: a path left in after its file is deleted
+    goes on covering whatever is written there next, and the audit stays green
+    while doing it.
+    """
+    from . import jsonstore
+    return [{
+        "file": rel, "module": "hub",
+        "detail": f"hub/jsonstore.py exempts {rel} from the disk-binary "
+                  f"check, and that path no longer exists. The entry now "
+                  f"covers anything written there next.",
+        "fix": "Drop the entry from jsonstore.DISK_BINARY_EXEMPT, or point it "
+               "at the path the code moved to.",
+    } for rel in jsonstore.stale_binary_exemptions(ROOT)]
+
+
 def check_stale_json_exemptions() -> list[dict]:
     """Exemptions from the check above that no longer name a real file.
 
@@ -1555,6 +1619,10 @@ CHECKS = [
      check_disk_sqlite_stores),
     ("stale_sqlite_exemptions", "Disk-SQLite exemption names a missing file",
      "medium", check_stale_sqlite_exemptions),
+    ("disk_binary", "Bytes on the disk with no copy anywhere else", "medium",
+     check_disk_binary_stores),
+    ("stale_binary_exemptions", "Disk-binary exemption names a missing file",
+     "medium", check_stale_binary_exemptions),
     ("creative_medium_drift", "Creative gate lost a rate-card product", "high",
      check_creative_medium_drift),
     ("creative_spec_disagreement", "Creative gate and spec kit disagree", "high",

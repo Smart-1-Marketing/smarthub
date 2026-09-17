@@ -23,7 +23,12 @@ python3 tools/claudedocs.py        # the docs/claude index matches the directory
                                    #   typed, and no two files at one number
 python3 test_jsonstore.py          # the mirror restores, one answer on who is outside
                                    #   it, and which database it mirrors into being a
-                                   #   setting rather than a latch on the first write
+                                   #   setting rather than a latch on the first write.
+                                   #   Also the three questions about the disk -- what
+                                   #   JSON has no mirror, what opens a database, and
+                                   #   what writes bytes -- each cross-checked against
+                                   #   a cruder second reading so an empty answer
+                                   #   cannot mean the scan broke
 python3 test_jsonstore_locking.py  # two real processes with two real data roots:
                                    #   a flock each instance takes on its own disk
                                    #   serialises nothing, and the read half of a
