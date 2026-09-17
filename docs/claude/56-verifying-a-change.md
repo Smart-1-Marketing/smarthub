@@ -835,6 +835,29 @@ something got pushed past exactly that.
   the filenames in the source and counting what the shell actually iterates
   are different questions, and only the second is the answer.
 
+### The build screen is clicked every night, through the Hub
+
+`.github/workflows/nightly-browser.yml` runs `modules/ad_builder`'s browser
+test on a schedule with the whole path in front of it: the renderer on
+loopback, gunicorn serving `wsgi:application` with `AD_BUILDER_URL` pointed
+at it, a sign-in through `/login`, then the same clicks on
+`/tools/display-ads/build`. Every pull request runs the test against the
+renderer alone; this is the run that catches the proxy, the base-path shim
+and HubBar breaking the screen between them. Run it by hand with
+`workflow_dispatch`, or locally:
+
+```bash
+cd modules/ad_builder
+E2E_BASE_URL=http://127.0.0.1:5055/tools/display-ads E2E_HUB_PASSWORD=... \
+  E2E_REQUEST=AD-E2E-000001 npm run test:browser
+```
+
+A second job in the same file drives a staging Hub when the repository
+variables `STAGING_HUB_URL` and `STAGING_E2E_REQUEST` and the secret
+`STAGING_HUB_PASSWORD` are set. The test edits the campaign it opens, so
+that campaign is one kept for the purpose, and the job is never pointed at
+production.
+
 ### The MCP gateway's tests are not in the sweep above
 
 `mcp_gateway/` has its own tests and its own workflow

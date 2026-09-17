@@ -14,6 +14,17 @@
  * the Playwright and Chrome locations a dev box or CI runner usually has are
  * tried. With none found the test is skipped BY NAME rather than passed, so
  * a green run without a browser reads as "not run" and not "fine".
+ *
+ * Two ways to run it. With nothing set it starts its own renderer against a
+ * copy of the sample campaign, which is what every pull request does. With
+ * `E2E_BASE_URL` set (the build screen's base, e.g.
+ * `https://staging.example/tools/display-ads`) it drives THAT screen instead:
+ * `E2E_HUB_PASSWORD` signs in at the Hub's /login first, `E2E_REQUEST` names
+ * the campaign to open, and `E2E_TOKEN` is the renderer's own token for a
+ * renderer reached without a Hub in front. That is the nightly run: the same
+ * clicks, through the Hub's login, proxy and base-path shim, against a
+ * campaign kept for the purpose (the test moves a line and saves a colour on
+ * it).
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,11 +33,35 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import puppeteer, { type Browser, type Page } from 'puppeteer-core';
+import { seedCampaign, E2E_REQUEST } from './seed';
 
 const ROOT = path.resolve(__dirname, '..');
 const PORT = 3000 + Math.floor(Math.random() * 2000);
 const TOKEN = 'e2e-token-e2e-token-1234';
-const REQUEST = 'AD-E2E-000001';
+const REQUEST = E2E_REQUEST;
+
+/** A live screen to drive instead of a renderer started here. */
+const REMOTE = (process.env.E2E_BASE_URL || '').replace(/\/$/, '');
+const REMOTE_REQUEST = process.env.E2E_REQUEST || REQUEST;
+const REMOTE_TOKEN = process.env.E2E_TOKEN || '';
+const HUB_PASSWORD = process.env.E2E_HUB_PASSWORD || '';
+
+/** Sign in at the Hub in front of the screen, when there is one. */
+async function hubLogin(page: Page, base: string): Promise<void> {
+  if (!HUB_PASSWORD) return;
+  const origin = new URL(base).origin;
+  await page.goto(`${origin}/login`, { waitUntil: 'networkidle0', timeout: 60_000 });
+  await page.waitForSelector('#password', { timeout: 30_000 });
+  // The form asks for an email as well and the browser will not submit
+  // without one; the shared password signs in whatever the email says.
+  if (await page.$('#email')) await page.type('#email', process.env.E2E_HUB_EMAIL || 'nightly@smart1.test');
+  await page.type('#password', HUB_PASSWORD);
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'networkidle0', timeout: 60_000 }),
+    page.click('#login-form button[type=submit], #login-form [type=submit]'),
+  ]);
+  assert.doesNotMatch(page.url(), /\/login/, `still on the login page after signing in: ${page.url()}`);
+}
 
 function findBrowser(): string | null {
   const candidates = [
@@ -61,11 +96,7 @@ function globChrome(dir: string): string[] {
 }
 
 async function startServer(outDir: string): Promise<ChildProcess> {
-  fs.mkdirSync(path.join(outDir, 'campaigns'), { recursive: true });
-  const sample = JSON.parse(fs.readFileSync(path.join(ROOT, 'campaigns', 'bella-vista-catering.json'), 'utf8'));
-  sample.requestId = REQUEST;
-  fs.writeFileSync(path.join(outDir, 'campaigns', `${REQUEST}.json`),
-    JSON.stringify({ campaign: sample, platforms: ['google', 'meta'], notes: [] }, null, 2));
+  seedCampaign(outDir);
   const child = spawn(process.execPath, [path.join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs'), path.join(ROOT, 'src', 'server.ts')], {
     cwd: ROOT,
     env: { ...process.env, ADMIN_TOKEN: TOKEN, OUTPUT_DIR: outDir, PORT: String(PORT), HOST: '127.0.0.1', NODE_ENV: 'test' },
@@ -91,9 +122,12 @@ const executable = findBrowser();
 
 test('the build screen can be worked from start to the next size', { skip: executable ? false : 'no Chromium found (set PUPPETEER_EXECUTABLE_PATH)' }, async (t) => {
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adb-e2e-'));
-  const server = await startServer(outDir);
+  const server = REMOTE ? null : await startServer(outDir);
   let browser: Browser | null = null;
-  t.after(async () => { try { await browser?.close(); } catch { /* gone */ } server.kill(); });
+  t.after(async () => { try { await browser?.close(); } catch { /* gone */ } server?.kill(); });
+  const base = REMOTE || `http://127.0.0.1:${PORT}`;
+  const request = REMOTE ? REMOTE_REQUEST : REQUEST;
+  const token = REMOTE ? REMOTE_TOKEN : TOKEN;
 
   browser = await puppeteer.launch({ executablePath: executable!, headless: true, args: ['--no-sandbox', '--disable-gpu'] });
   const page: Page = await browser.newPage();
@@ -115,7 +149,9 @@ test('the build screen can be worked from start to the next size', { skip: execu
     if (r.status() >= 500 && !/\/api\/diagnostics/.test(r.url())) problems.push(`${r.status()} ${r.url()}`);
   });
 
-  await page.goto(`http://127.0.0.1:${PORT}/build?request=${REQUEST}&token=${TOKEN}`, { waitUntil: 'networkidle0', timeout: 90_000 });
+  await hubLogin(page, base);
+  await page.goto(`${base}/build?request=${encodeURIComponent(request)}${token ? '&token=' + encodeURIComponent(token) : ''}`,
+    { waitUntil: 'networkidle0', timeout: 90_000 });
 
   // The first preview lands and the six sections are there, in order.
   await page.waitForFunction(() => !!(document.getElementById('preview') as HTMLImageElement)?.src, { timeout: 90_000 });
@@ -177,6 +213,39 @@ test('the build screen can be worked from start to the next size', { skip: execu
   const speed = await page.$eval('[data-pad="headline"] ~ .speed [data-sp="fast"], .speed [data-sp="fast"]', (b) => b.getAttribute('aria-pressed'));
   assert.equal(speed, 'true', 'the speed stays lit');
 
+  // The arrow keys move the same line: focus the pad and press. The number
+  // box only redraws with the panel, so the evidence is the preview, which
+  // every nudge invalidates and redraws.
+  const settled = () => {
+    const img = document.getElementById('preview') as HTMLImageElement;
+    return !!img.src && !document.getElementById('canvas')!.classList.contains('busy');
+  };
+  await page.waitForFunction(settled, { timeout: 60_000 });
+  const beforeKey = await page.$eval('#preview', (img) => (img as HTMLImageElement).src);
+  await page.focus('[data-pad="headline"] [data-nudge="down"]');
+  await page.keyboard.press('ArrowDown');
+  await page.waitForFunction((was) => {
+    const img = document.getElementById('preview') as HTMLImageElement;
+    return !!img.src && img.src !== was && !document.getElementById('canvas')!.classList.contains('busy');
+  }, { timeout: 60_000 }, beforeKey);
+
+  // Hold to see before: the chip shows once the picture differs from the
+  // one this size opened with, and holding it swaps the picture back.
+  await page.waitForFunction(() => {
+    const b = document.getElementById('beforeBtn') as HTMLElement;
+    return b && b.style.display !== 'none' && !document.getElementById('canvas')!.classList.contains('busy');
+  }, { timeout: 60_000 });
+  const now = await page.$eval('#preview', (img) => (img as HTMLImageElement).src);
+  const chip = (await page.$('#beforeBtn'))!;
+  const box = (await chip.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForFunction((was) => (document.getElementById('preview') as HTMLImageElement).src !== was, { timeout: 10_000 }, now);
+  assert.equal(await page.$eval('#beforeBtn', (b) => b.getAttribute('aria-pressed')), 'true');
+  await page.mouse.up();
+  await page.waitForFunction((was) => (document.getElementById('preview') as HTMLImageElement).src === was, { timeout: 10_000 }, now);
+
+
   // Switching size saves and goes: no dialog.
   const sizes = await page.$$eval('#rail [data-size]', (els) => els.map((e) => (e as HTMLElement).dataset.size));
   assert.ok(sizes.length >= 2, `the rail lists sizes: ${sizes.join(', ')}`);
@@ -208,6 +277,17 @@ test('the build screen can be worked from start to the next size', { skip: execu
 
   // The Done button is under the checks.
   await page.waitForSelector('#doneSize', { timeout: 60_000 });
+
+  // This size is carried from the first, so Text Boxes offers to make it the
+  // one the rest follow -- and asks before doing so. Cancel leaves it alone.
+  await page.waitForSelector('#adoptLook', { timeout: 20_000 });
+  await page.click('#adoptLook');
+  await page.waitForFunction(() => /Use this size.s look on every size\?/.test(document.querySelector('.ask')?.textContent || ''), { timeout: 60_000 });
+  for (const b of await page.$$('.ask button')) {
+    if (/^Cancel$/.test(await b.evaluate((el) => (el.textContent || '').trim()))) { await b.click(); break; }
+  }
+  await page.waitForFunction(() => !document.querySelector('.ask'), { timeout: 10_000 });
+  assert.ok(await page.$('#adoptLook'), 'cancelling keeps the offer');
 
   assert.deepEqual(problems, [], 'no page errors, console errors or server errors');
 });

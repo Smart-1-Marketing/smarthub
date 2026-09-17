@@ -83,6 +83,20 @@ export function latestReview(out: string, projectId: string): Review | null {
   const rows=fs.readdirSync(dir).flatMap(id=>{try{return [readReview(out,id,projectId)];}catch{return [];}});
   return rows.sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0]||null;
 }
+/** The latest review of every project, read once for a list view rather than
+ *  once per row: the reviews directory holds every project's sheets together. */
+export function latestReviews(out: string): Map<string, Review> {
+  const dir=path.join(out,'reviews'); const byProject=new Map<string, Review>();
+  if(!fs.existsSync(dir))return byProject;
+  for(const id of fs.readdirSync(dir)){
+    let r: Review; try{r=JSON.parse(fs.readFileSync(reviewFile(out,id),'utf8'));}catch{continue;}
+    if(!r.projectId)continue;
+    if(r.status==='building' && active.get(r.projectId)!==r.id) r={...r,status:'failed',error:'Review interrupted. Build a new contact sheet.'};
+    const have=byProject.get(r.projectId);
+    if(!have || r.createdAt>have.createdAt) byProject.set(r.projectId,r);
+  }
+  return byProject;
+}
 export function recoverReviews(out:string,root:string,store:ProjectStore) {
   const dir=path.join(out,'reviews');if(!fs.existsSync(dir))return;
   for(const id of fs.readdirSync(dir))try{

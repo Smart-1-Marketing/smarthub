@@ -22,11 +22,11 @@ import { enqueue, getJob, listJobs, startWorkerLoop, recoverJobs, startWatchdog 
 import { renderPreview, renderAnimatedPreview, renderOne } from './render';
 import { CampaignConflict, campaignRevision, artworkFingerprint, readCampaign, saveCampaignDocument } from './campaign-state';
 import { captureVersion, versions, changes, comparisonVersions, resolveVersion } from './history';
-import { beginReview, readReview, approveReview, fileUrl, latestReview, recoverReviews } from './review-set';
+import { beginReview, readReview, approveReview, fileUrl, latestReview, latestReviews, recoverReviews } from './review-set';
 import { copySmokeTest } from './ai-health';
 import { buildCampaign, type Submission } from './intake';
 import { loadPlatforms, loadTemplates, acceptPlatforms, renderableSizes } from './registry';
-import { carryFor, needsReview, styleFor } from './carry';
+import { adoptLook, carryFor, needsReview, styleFor } from './carry';
 import { withPlain, adviseFindings } from './plain-checks';
 import { makeMono } from './logo-tools';
 import { logoInkLuminance } from './qa';
@@ -43,7 +43,8 @@ import { renderDiagnostics } from './diagnostics-page';
 import { scheduleSweep, sweep } from './retention';
 import { deliverProject, latestManifest } from './deliver';
 import { renderProof } from './proof';
-import { clientProofs, createClientProof, getClientProof, recordProofSent, decideClientProof, proofDownload, clientProofHtml, recoverProofDeliveries } from './workflow';
+import { clientProofs, clientProofsByProject, commentOnClientProof, createClientProof, getClientProof, recordProofSent, decideClientProof, proofDownload, clientProofHtml, recoverProofDeliveries } from './workflow';
+import { campaignHealth } from './health';
 import { suggestCopy, critiqueCopy } from './copy-approval';
 import { searchPixabay, generateHero } from './imagery';
 import { reworkLogo } from './logo-tools';
@@ -385,6 +386,7 @@ const server = http.createServer(async (req, res) => {
     route === 'POST /api/logo/apply' ||
     route === 'POST /api/logo/mono' ||
     route === 'POST /api/qa/advise' ||
+    route === 'POST /api/concept/adopt-look' ||
     route === 'POST /api/palette/variants' ||
     // Uploads into our own Cloudinary account. Staff only, for the reason the
     // route itself gives at length.
@@ -878,7 +880,7 @@ const server = http.createServer(async (req, res) => {
     // Overview ad images must be publicly viewable via their /files paths —
     // covered below by the renders exemption added to the admin gate.
 
-    const frozenProof = url.pathname.match(/^\/client-proof\/([a-f0-9-]{36})(?:\/(decision|download))?$/);
+    const frozenProof = url.pathname.match(/^\/client-proof\/([a-f0-9-]{36})(?:\/(decision|download|comment))?$/);
     if (frozenProof) {
       const [, token, action] = frozenProof;
       if(req.method==='GET' && !action) {
@@ -894,6 +896,13 @@ const server = http.createServer(async (req, res) => {
         const body=JSON.parse(await readBody(req,10_000));
         const result=decideClientProof(OUT,ROOT,projects,token,body);
         return json(res,200,{status:result.status,download:result.download});
+      }
+      // A note on one ad, from the client, while the proof is still open. Not
+      // a decision: the proof stays where it is.
+      if(req.method==='POST' && action==='comment') {
+        const body=JSON.parse(await readBody(req,10_000));
+        const note=commentOnClientProof(OUT,projects,token,body);
+        return json(res,201,note);
       }
       return json(res,405,{error:'Unsupported proof action.'});
     }
@@ -913,7 +922,7 @@ const server = http.createServer(async (req, res) => {
         const next=latest?.status==='changes-requested'?'Smart 1: update the requested sizes':latest?.status==='sent'?'Client: review the emailed proof':latest?.status==='complete'?'Complete: approved files are ready':'Smart 1: review the sizes and send a proof';
         return json(res,200,{projectId:project.projectId,requestId:project.requestId,client:project.client,domain:project.domain,campaign:project.projectName,next,
           events:[{at:project.createdAt,label:'Draft created'},...project.notes.map(note=>({at:note.match(/^\[([^\]]+)\]/)?.[1]||project.updatedAt,label:note.replace(/^\[[^\]]+\]\s*/, '')}))],
-          proofs:proofs.map(p=>({token:p.token,reviewId:p.reviewId,revision:p.revision,createdAt:p.createdAt,status:p.status,sentAt:p.sentAt,decisionAt:p.decisionAt,notes:p.notes,size:p.size,download:p.download,proofUrl:'/client-proof/'+p.token}))});
+          proofs:proofs.map(p=>({token:p.token,reviewId:p.reviewId,revision:p.revision,version:p.version,createdAt:p.createdAt,status:p.status,sentAt:p.sentAt,decisionAt:p.decisionAt,notes:p.notes,size:p.size,download:p.download,comments:p.comments??[],proofUrl:'/client-proof/'+p.token}))});
       }
       return json(res,405,{error:'Unsupported workflow action.'});
     }
@@ -1215,6 +1224,24 @@ const server = http.createServer(async (req, res) => {
         families: [...loadTemplates().keys()],
       });
       return json(res, 200, advice);
+    }
+
+    /* "Use this size's look on every size." The carry is resolved here, on the
+       campaign the screen is holding, rather than mirrored in the browser --
+       the second reading of carry.ts CLAUDE.md counts the cost of. Nothing is
+       written: the screen applies the answer to its own copy and saves as it
+       saves everything else, so Undo takes it back. */
+    if (route === 'POST /api/concept/adopt-look') {
+      const body = JSON.parse(await readBody(req, 2_000_000)) as {
+        campaign?: Campaign; conceptId?: string; size?: string; sizes?: string[];
+      };
+      const concepts = body.campaign?.concepts;
+      const concept = Array.isArray(concepts) ? concepts.find((c) => c.conceptId === body.conceptId) : undefined;
+      if (!concept) return json(res, 400, { error: 'The campaign on screen has no such concept.' });
+      const size = String(body.size ?? '');
+      if (!/^\d+x\d+$/.test(size)) return json(res, 400, { error: 'A size is required.' });
+      const sizes = (Array.isArray(body.sizes) ? body.sizes : []).map(String).filter((x) => /^\d+x\d+$/.test(x)) as SizeKey[];
+      return json(res, 200, adoptLook(concept, size as SizeKey, sizes.length ? sizes : [size as SizeKey]));
     }
 
     /* ------------------------------------------------------ logo tone
@@ -2221,15 +2248,24 @@ const server = http.createServer(async (req, res) => {
 
     if (route === 'GET /api/projects') {
       const q = url.searchParams;
+      const found = projects.search({
+        q: q.get('q') ?? undefined,
+        client: q.get('client') ?? undefined,
+        status: (q.get('status') as any) ?? undefined,
+        from: q.get('from') ?? undefined,
+        to: q.get('to') ?? undefined,
+        limit: Number(q.get('limit') ?? 100),
+      });
+      // One line of health per row: approvals against the latest review's
+      // verdicts, and where the client proof stands. The reviews and proofs
+      // directories are read once each, not once per project.
+      const reviews = latestReviews(OUT);
+      const proofsBy = clientProofsByProject(OUT);
       return json(res, 200, {
-        projects: projects.search({
-          q: q.get('q') ?? undefined,
-          client: q.get('client') ?? undefined,
-          status: (q.get('status') as any) ?? undefined,
-          from: q.get('from') ?? undefined,
-          to: q.get('to') ?? undefined,
-          limit: Number(q.get('limit') ?? 100),
-        }),
+        projects: found.map((p) => ({
+          ...p,
+          health: campaignHealth(p, reviews.get(p.projectId) ?? null, proofsBy.get(p.projectId) ?? []),
+        })),
       });
     }
 
