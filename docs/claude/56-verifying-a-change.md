@@ -105,6 +105,11 @@ python3 test_io_delivery_lock.py   # the reservation that keeps a duplicate
                                    #   is asked for with a try-lock rather than
                                    #   waited on, so a broken one fails in a
                                    #   second instead of hanging the job
+python3 test_disk_free_restart.py  # the acceptance criterion as a gate: two real
+                                   #   interpreters, a brand new empty HUB_DATA_DIR
+                                   #   each, one database between them -- so a store
+                                   #   that only works because its rows are still in
+                                   #   a module cache fails here
 python3 test_storage_fallback.py   # what the shared uploader hands back with no
                                    #   Cloudinary: the bytes are kept, but the
                                    #   URL is empty rather than the /hub/assets

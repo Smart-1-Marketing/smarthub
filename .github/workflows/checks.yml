@@ -472,6 +472,20 @@ jobs:
         if: matrix.group == 2
         run: python test_jsonstore.py
 
+      - name: Nothing is lost across two restarts
+        if: matrix.group == 2
+        # The acceptance criterion for taking this service off the Render
+        # disk, as a gate rather than an inference from four suites. Two real
+        # interpreters, a brand new empty HUB_DATA_DIR each time, one database
+        # between them. Run twice because the two backends fail differently:
+        # the SQLite file lives outside both data directories, and Postgres is
+        # what production actually restores from.
+        env:
+          DISK_FREE_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          python test_disk_free_restart.py
+          env -u DISK_FREE_TEST_DATABASE_URL python test_disk_free_restart.py
+
       - name: The shared uploader with no Cloudinary
         if: matrix.group == 2
         # This job has no credentials by design, so it is already running the
