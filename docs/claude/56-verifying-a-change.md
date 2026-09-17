@@ -28,7 +28,11 @@ python3 test_jsonstore.py          # the mirror restores, one answer on who is o
                                    #   JSON has no mirror, what opens a database, and
                                    #   what writes bytes -- each cross-checked against
                                    #   a cruder second reading so an empty answer
-                                   #   cannot mean the scan broke
+                                   #   cannot mean the scan broke; and the opposite
+                                   #   question about those same files -- a credential
+                                   #   sitting in a mirrored store as a readable
+                                   #   string, which every other check here passed
+                                   #   while it was true
 python3 test_jsonstore_locking.py  # two real processes with two real data roots:
                                    #   a flock each instance takes on its own disk
                                    #   serialises nothing, and the read half of a
