@@ -89,7 +89,7 @@
 import type { CreativeConcept, SizeKey, TemplateSpec } from './types';
 import type { BlockStyle, LogoStyle, SizeStyle, StyleOverrides } from './block-style';
 import { MIN_TYPE, STYLEABLE } from './block-style';
-import { templateFor } from './registry';
+import { familyFor, templateFor } from './registry';
 
 export interface Frame { w: number; h: number }
 
@@ -410,4 +410,77 @@ export function carryFor(concept: CreativeConcept, size: SizeKey): CarryReport {
 export function needsReview(report: CarryReport): boolean {
   return report.carried && !report.corrected &&
          (report.strained.length > 0 || report.dropped.length > 0);
+}
+
+/* ------------------------------------------------------------- adopt */
+
+/** What "use this size's look on every size" would do, before it is done. */
+export interface AdoptReport {
+  /** The overrides the concept should carry afterwards: this size's resolved
+   *  style, authored for this size. Absent when there is nothing to carry. */
+  styleOverrides?: StyleOverrides;
+  layoutFamily: string;
+  layoutBySize?: Record<string, string>;
+  /** Sizes whose own hand corrections are replaced by this size's look. */
+  droppedCorrections: SizeKey[];
+  /** Sizes whose own layout pick is replaced by this size's family. */
+  droppedLayouts: SizeKey[];
+  /** True when this size's family becomes the set's. False when it is kept
+   *  per size because the family does not draw every size in the set. */
+  layoutApplied: boolean;
+  /** Sizes this size's family cannot draw, when it was not applied. */
+  layoutMissing: SizeKey[];
+}
+
+/**
+ * Make the size on screen the one the rest of the set is carried from.
+ *
+ * The carry already answers "what does this size look like" for every size
+ * (`styleFor`), and that answer is in the size's own pixels -- which is
+ * exactly what an authored style is. So adopting a look is that answer,
+ * marked as authored here, with every other size's own correction dropped:
+ * a correction that survived would keep outranking the look just chosen on
+ * the one size somebody had already tuned, which is the copy-scope rule.
+ *
+ * The layout comes with it when it can. A family this size chose for itself
+ * becomes the set's family only when it draws every size in the set;
+ * otherwise the rail would lose the sizes it cannot draw, so the family
+ * stays per size and the report says which sizes kept it out.
+ */
+export function adoptLook(concept: CreativeConcept, size: SizeKey, setSizes: SizeKey[]): AdoptReport {
+  const overrides = concept.styleOverrides;
+  const resolved = styleFor(concept, size);
+  const bySize = overrides?.bySize ?? {};
+  const droppedCorrections = (Object.keys(bySize) as SizeKey[])
+    .filter((s) => s !== size && bySize[s] && Object.keys(bySize[s] as object).length > 0);
+
+  let styleOverrides: StyleOverrides | undefined;
+  if (resolved) {
+    const { authoredFor: _a, bySize: _b, ...rest } = resolved as StyleOverrides & { authoredFor?: SizeKey; bySize?: unknown };
+    const styled = Object.keys(rest).filter((k) => rest[k as keyof typeof rest] && Object.keys(rest[k as keyof typeof rest] as object).length);
+    if (styled.length) styleOverrides = { ...(rest as StyleOverrides), authoredFor: size };
+  }
+
+  const picks = concept.layoutBySize ?? {};
+  const own = familyFor(concept, size);
+  const droppedLayouts = (Object.keys(picks) as SizeKey[]).filter((s) => s !== size && picks[s] !== concept.layoutFamily);
+  let layoutFamily = concept.layoutFamily;
+  let layoutBySize: Record<string, string> | undefined;
+  let layoutApplied = true;
+  let layoutMissing: SizeKey[] = [];
+  if (own !== concept.layoutFamily) {
+    const drawn = Object.keys(templateFor(concept, size).sizes);
+    layoutMissing = setSizes.filter((s) => !drawn.includes(s));
+    if (layoutMissing.length) {
+      layoutApplied = false;
+      layoutBySize = { [size]: own };
+    } else {
+      layoutFamily = own;
+    }
+  }
+  return {
+    styleOverrides, layoutFamily, layoutBySize,
+    droppedCorrections, droppedLayouts,
+    layoutApplied, layoutMissing,
+  };
 }

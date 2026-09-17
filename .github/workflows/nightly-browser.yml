@@ -1,0 +1,145 @@
+name: Nightly browser test
+
+# The Display Ad Builder's build screen, clicked through the Hub every night.
+#
+# Every pull request already runs tests-browser/build.e2e.ts against the
+# renderer on its own. That misses the path a person actually takes: the
+# Hub's login, its proxy adding the admin token, the base-path shim rewriting
+# every fetch under /tools/display-ads, and HubBar injecting the sidebar into
+# the page. Each of those has broken the screen on its own before while every
+# test in the repo stayed green. So the first job boots BOTH processes the
+# way the container does, signs in through the real login form and runs the
+# same clicks. It needs no secrets.
+#
+# The second job runs the same test against a live Hub, when one is named.
+# There is no staging service today (render.yaml declares smart1-hub alone),
+# so it is gated on repository variables and does nothing until they exist:
+#
+#   STAGING_HUB_URL       variable  https://staging.example  (no path)
+#   STAGING_E2E_REQUEST   variable  the request id of a campaign kept for
+#                                   the test; it moves a line and saves a
+#                                   colour on it every night
+#   STAGING_HUB_PASSWORD  secret    that Hub's shared password
+#
+# Never point it at production: the test edits the campaign it opens.
+on:
+  schedule:
+    - cron: '0 9 * * *'   # 09:00 UTC, before the working day on the East Coast
+  workflow_dispatch:
+
+jobs:
+  through-the-hub:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NIGHTLY_TOKEN: nightly-e2e-token-not-for-production
+      NIGHTLY_PASSWORD: nightly-not-a-real-password
+      OUT: /tmp/nightly-renderer
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            modules/ad_builder/package-lock.json
+            modules/hf_render_service/package-lock.json
+
+      - name: Install the Hub
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install the renderer
+        working-directory: modules/ad_builder
+        run: npm ci
+
+      # The render service's npm ci downloads a Chrome; the browser test
+      # borrows it rather than downloading a second one. Same arrangement as
+      # checks.yml.
+      - name: Install the render service, for its Chrome
+        working-directory: modules/hf_render_service
+        run: npm ci
+
+      - name: Seed a campaign and start the renderer
+        working-directory: modules/ad_builder
+        run: |
+          mkdir -p "$OUT"
+          npx tsx tests-browser/seed.ts "$OUT" AD-E2E-000001
+          ADMIN_TOKEN="$NIGHTLY_TOKEN" OUTPUT_DIR="$OUT" PORT=8791 HOST=127.0.0.1 NODE_ENV=test \
+            nohup npx tsx src/server.ts > /tmp/renderer.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8791/healthz > /dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8791/healthz
+
+      - name: Start the Hub in front of it
+        env:
+          DATABASE_URL: sqlite:////tmp/nightly-hub.db
+          PANEL_PASSWORD: nightly-not-a-real-password
+          SECRET_KEY: nightly-not-a-real-secret
+          ADBUILDER_ADMIN_TOKEN: nightly-e2e-token-not-for-production
+          AD_BUILDER_URL: http://127.0.0.1:8791
+          PORT: '5055'
+        run: |
+          nohup gunicorn wsgi:application --bind 127.0.0.1:5055 --workers 1 \
+            --worker-class gthread --threads 4 --timeout 180 > /tmp/hub.log 2>&1 &
+          for i in $(seq 1 90); do
+            curl -fsS http://127.0.0.1:5055/health > /dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:5055/health
+
+      - name: Click through the build screen, signed in at the Hub
+        working-directory: modules/ad_builder
+        env:
+          E2E_BASE_URL: http://127.0.0.1:5055/tools/display-ads
+          E2E_HUB_PASSWORD: nightly-not-a-real-password
+          E2E_REQUEST: AD-E2E-000001
+        run: |
+          export PUPPETEER_EXECUTABLE_PATH="$(cd ../hf_render_service && node -e "console.log(require('puppeteer').executablePath())")"
+          echo "browser: $PUPPETEER_EXECUTABLE_PATH"
+          npm run test:browser
+
+      - name: What the two processes said
+        if: failure()
+        run: |
+          echo "== renderer"; tail -n 120 /tmp/renderer.log || true
+          echo "== hub"; tail -n 120 /tmp/hub.log || true
+
+  staging:
+    # Repository variables are readable in a job-level condition; secrets are
+    # not, which is why the URL and request id are variables and only the
+    # password is a secret.
+    if: ${{ vars.STAGING_HUB_URL != '' && vars.STAGING_E2E_REQUEST != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            modules/ad_builder/package-lock.json
+            modules/hf_render_service/package-lock.json
+      - name: Install the renderer's test dependencies
+        working-directory: modules/ad_builder
+        run: npm ci
+      - name: Install the render service, for its Chrome
+        working-directory: modules/hf_render_service
+        run: npm ci
+      - name: Click through the build screen on the staging Hub
+        working-directory: modules/ad_builder
+        env:
+          E2E_BASE_URL: ${{ vars.STAGING_HUB_URL }}/tools/display-ads
+          E2E_REQUEST: ${{ vars.STAGING_E2E_REQUEST }}
+          E2E_HUB_PASSWORD: ${{ secrets.STAGING_HUB_PASSWORD }}
+        run: |
+          export PUPPETEER_EXECUTABLE_PATH="$(cd ../hf_render_service && node -e "console.log(require('puppeteer').executablePath())")"
+          npm run test:browser
