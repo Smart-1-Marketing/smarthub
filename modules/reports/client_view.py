@@ -70,6 +70,44 @@ PLATFORM_LABELS = {
 # Which platforms report a completion, and what a completion is there.
 COMPLETION = {"ttd": "video", "stackadapt": "video", "amazon_dsp": "video", "audiogo": "audio"}
 
+# Which platforms report no conversion at all -- read off their own field
+# maps: groundtruth_map.py and audiogo_map.py both carry ``"conversions":
+# None``, and the Amazon DSP pull writes none on purpose (an Amazon purchase
+# is a storefront metric and rides in extras under its own name).
+#
+# The fact table cannot hold the difference. ``conversions`` defaults to zero
+# and there is no "not reported", so a platform that reports none files a
+# nought that is indistinguishable, on a client's page, from a campaign that
+# genuinely converted nobody. This file already refuses that reading twice --
+# the completes tile is gated on a platform that serves completions, the
+# visits tile on a row that actually carries a visit -- and this is the third
+# place it applies: the Product detail table, which is the one screen the
+# number reaches.
+# Declared, not observed, and the difference matters. flags.py answers a
+# neighbouring question -- did this platform report any conversion in THIS
+# window -- which is right for "spent with no conversions" and wrong here: a
+# Paid Search campaign that genuinely converted nobody this month must still
+# print its nought, because that nought is the finding. What is refused is
+# only a metric the feed never carries.
+#
+# test_reports_public.py holds this set against each platform's own
+# declaration, so a map that starts carrying conversions fails there rather
+# than quietly printing dashes over real figures.
+NO_CONVERSIONS = {"amazon_dsp", "audiogo", "groundtruth"}
+
+
+def _reports_conversions(f: dict) -> bool:
+    """Whether this row's conversions figure is a measurement.
+
+    A non-zero figure always is, whatever the platform: a provider table that
+    does carry conversions for one of these must not be hidden by a rule
+    about what the native pull writes. What is refused is only the zero that
+    cannot be told apart from silence.
+    """
+    if f["platform"] not in NO_CONVERSIONS:
+        return True
+    return bool(f["conversions"])
+
 
 def _completion_kind(f: dict) -> str | None:
     """``video`` / ``audio`` / None for one fact row.
@@ -282,10 +320,11 @@ def build(link, period: str, today: date | None = None) -> dict:
             continue
         product, _set = _product_of(f, labels)
         p = prod.setdefault(product, {"impressions": 0, "clicks": 0, "conversions": Decimal(0),
-                                      "completes": 0, "kinds": set()})
+                                      "completes": 0, "kinds": set(), "conv_reported": False})
         p["impressions"] += f["impressions"]
         p["clicks"] += f["clicks"]
         p["conversions"] += f["conversions"]
+        p["conv_reported"] = p["conv_reported"] or _reports_conversions(f)
         kind = _completion_kind(f)
         if kind:
             p["completes"] += int(f["completes"] or 0)
@@ -297,12 +336,13 @@ def build(link, period: str, today: date | None = None) -> dict:
         name = f.get("display_name") or f["campaign_name"] or f["campaign_id"]
         c = camp.setdefault(key, {"product": product, "campaign": name, "impressions": 0,
                                   "clicks": 0, "conversions": Decimal(0), "completes": 0,
-                                  "kind": kind})
+                                  "kind": kind, "conv_reported": False})
         if c["kind"] is None and kind:
             c["kind"] = kind
         c["impressions"] += f["impressions"]
         c["clicks"] += f["clicks"]
         c["conversions"] += f["conversions"]
+        c["conv_reported"] = c["conv_reported"] or _reports_conversions(f)
         c["completes"] += int(f["completes"] or 0)
         if f.get("display_name"):
             c["campaign"] = f["display_name"]
@@ -313,7 +353,7 @@ def build(link, period: str, today: date | None = None) -> dict:
         row = {"product": product, "label": product,
                "impressions": t["impressions"], "clicks": t["clicks"],
                "ctr": ctr(t["clicks"], t["impressions"]),
-               "conversions": int(t["conversions"]),
+               "conversions": int(t["conversions"]) if t["conv_reported"] else None,
                "completes": t["completes"] if t["kinds"] else None,
                "completion_kind": ("audio" if t["kinds"] == {"audio"} else "video")
                if t["kinds"] else None}
@@ -386,7 +426,7 @@ def build(link, period: str, today: date | None = None) -> dict:
         table.append({"product": c["product"], "label": c["product"],
                       "campaign": c["campaign"], "impressions": c["impressions"],
                       "clicks": c["clicks"], "ctr": ctr(c["clicks"], c["impressions"]),
-                      "conversions": int(c["conversions"]),
+                      "conversions": int(c["conversions"]) if c["conv_reported"] else None,
                       "completes": c["completes"] if c["kind"] else None})
 
     synced = _safe("synced", store.last_synced_at, None)

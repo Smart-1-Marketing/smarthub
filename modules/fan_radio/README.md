@@ -180,6 +180,9 @@ Turn the link off, or issue a new one — the old link dies immediately.
 7. **Send it to the client** — headline, intro, optional CTA button, link on.
    The client hears the **finished mix** where there is one and the raw read
    where there is not, and the page says which.
+8. **File it in the Suite** — once the client has approved, one press puts the
+   audio, the script and who signed it off on their opportunity in Smart 1
+   Suite. Pressing again revises that opportunity rather than opening a second.
 
 ## Word budgets
 
@@ -235,7 +238,8 @@ this — time compression is how a :32 read makes a :30 log. So the panel offers
 the rate:
 
 * **`hub/radio_spec.speed_suggestion()` works it out**, not the page — same
-  rule as the dB pair. `vo ÷ (slot − lead-in)`, rounded **up** to the
+  rule as the dB pair, and the Radio Ad Creator asks the same function, so
+  neither tool can come to its own answer about how fast is too fast. `vo ÷ (slot − lead-in)`, rounded **up** to the
   hundredth so the mix lands at or inside the slot rather than one rounding
   short of it. The bed's 0.3s lead-in is taken off the runway where there is a
   bed and not where there isn't.
@@ -261,6 +265,45 @@ Findings **stop a mix being filed**; filing one anyway needs a reason and is
 recorded against a name. Nothing here refuses a *render*: a check that refuses
 the correct thing is a check somebody switches off, and switching this one off
 would cost the call-to-action check with it.
+
+## Sending it to the Suite
+
+What the **client approved** goes to their opportunity in Smart 1 Suite: the
+audio, the script, and who signed it off. One press on the Review step.
+
+This goes through **`hub/suite_opportunity.push_proposal`**, not a webhook of
+its own. The Radio Ad Creator posts its own payload to
+`GHL_OPPORTUNITY_WEBHOOK_URL`, and that is deliberately not what this copies —
+`modules/commercial_builder/routes/suite.py` faced the same choice and wrote
+the answer down: `hub/ghl_contacts.py` is "one token, one location id and one
+contact write path for the whole Hub", and a second raw webhook would be a
+third answer to *how do we reach GoHighLevel*. A third tool posting its own
+would be the fourth. The shared function also finds the contact and refuses to
+invent one, so "no Suite contact for this client yet" is a thing a rep fixes
+from the same panel rather than a failure.
+
+Four things are held back, each named on the panel rather than left to be
+discovered:
+
+* **A spot the client has not approved.** The share page's Approve is the
+  gate; what goes to the CRM is what the client signed off, not what we thought
+  was ready.
+* **A bed chosen with no saved mix.** The review page falls back to the raw
+  read on purpose, so a client has something to hear while a bed is composed.
+  Delivery must not: sending the naked read as the final file delivers a
+  commercial nobody made.
+* **A read the script has moved past.** `audio_stale` means the words changed
+  after the recording.
+* **Audio with no address a salesperson could open.** A Cloudinary render is
+  already absolute; a local one is absolutized against `PUBLIC_BASE_URL`, and
+  with that unset the spot is held rather than filed with a URL that resolves
+  to nothing.
+
+A **spec spot is refused** — an opportunity for a business that has not asked
+for one pollutes the pipeline. Pressing again **revises** the same opportunity
+rather than opening a second, and a refusal is **recorded as a refusal**:
+"nobody has pushed this", "Suite refused it" and "Suite has it" are three
+states, and collapsing the middle one makes the button read as never pressed.
 
 ## Config
 
@@ -297,6 +340,7 @@ Suite's PDF links 403.
 | `voices.py` | ~270 | ElevenLabs transport and render; casting is hub/voice_casting |
 | `speech.py` | ~120 | Written copy → spoken copy |
 | `store.py` | ~380 | Projects, versions, share tokens, feedback, audio assets |
+| `suite.py` | ~230 | What may be filed in Smart 1 Suite, and the note on the opportunity |
 | `script_presets.py` | 1 | Re-export of `hub/radio_presets.py`, the shared reusable-read library |
 | `templates/index.html` | ~1240 | The builder |
 | `templates/share.html` | ~340 | What the client sees |
@@ -314,8 +358,8 @@ the next fix to any of them now lands once.
 
 ## What is still only in the Radio Ad Creator
 
-Written down rather than left to be discovered as gaps. The first three are
-decisions; the last is an open one.
+Written down rather than left to be discovered as gaps. Every one of these is
+now a decision; nothing on this list is open.
 
 * **Voice cloning** makes a voice out of somebody's recordings, which is a
   consent question, and one place to answer it is the right number.
@@ -324,13 +368,10 @@ decisions; the last is an open one.
   single-slot tool writes a second version. A Fan Radio project already holds
   every daypart and length as its own spot, so the capability is the data
   model here rather than a button.
-* **The GoHighLevel opportunity push**, and the staff *approve spot* that
-  gates it. This one is **not** a decision anybody has recorded — it is a
-  difference nobody has closed. Fan Radio's finished work reaches the client
-  through the share link and an optional `FAN_RADIO_NOTIFY_URL` ping, and it
-  appears on the client's 360 record and in their asset home either way, but
-  no Fan Radio spot has ever become an opportunity in the Suite the way a
-  Radio Ad Creator spot does. Closing it means porting three things together
-  — the staff approval, `_file_client_audio`, and the webhook that refuses a
-  spec spot — and deciding whether a football spot should open a pipeline
-  record at all. Worth an answer rather than an assumption.
+* **The staff *approve spot* press.** Fan Radio files what the **client**
+  approved on the share page instead, which is the stronger record of the two
+  — it carries their name and the time. A staff gate in front of it would be
+  a second, weaker one.
+* **The raw `GHL_OPPORTUNITY_WEBHOOK_URL` post.** Fan Radio reaches the Suite
+  through `hub/suite_opportunity.push_proposal`, the Hub's one contact write
+  path — see *Sending it to the Suite* above.

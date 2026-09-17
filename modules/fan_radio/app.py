@@ -34,8 +34,14 @@ import requests
 from flask import (Flask, Response, jsonify, render_template, request,
                    send_file)
 
-from . import ai, catalog, phrases, qc, speech, store, voices, script_presets, delivery
+from . import (ai, catalog, phrases, qc, speech, store, suite, voices,
+               script_presets, delivery)
 from hub import radio_share, voice_casting
+
+try:
+    from hub import suite_opportunity
+except Exception:                                            # noqa: BLE001
+    suite_opportunity = None
 
 try:
     from hub import radio_spec
@@ -1616,6 +1622,106 @@ def api_mix(pid, sid):
 # =====================================================================
 def share_url(project: dict) -> str:
     return radio_share.share_url(MOUNT, (project.get("share") or {}).get("token"))
+
+
+@app.route("/api/projects/<pid>/suite")
+def api_suite_state(pid):
+    """What the Suite holds for this project, and whether there is anything to send.
+
+    Four answers rather than two, for the reason the Commercial Builder's own
+    Suite route gives: the Suite not being configured, nothing approved yet, a
+    push Suite refused and a job already filed send somebody to four different
+    places, and only one of them is a button to press.
+    """
+    project = store.load(pid)
+    if not project:
+        return fail("No project with that id.", 404)
+    rows = suite.units(project, MOUNT)
+    held = suite.blockers(project, rows)
+    ready = bool(suite_opportunity and suite_opportunity.configured())
+    problems = ([] if ready else
+                (suite_opportunity.status()["problems"] if suite_opportunity
+                 else ["Smart 1 Suite is not available in this build."]))
+    return jsonify({
+        "ok": True,
+        "configured": ready,
+        "problems": problems,
+        "blockers": held,
+        "spots": rows,
+        "delivery": suite.record(project),
+        # Only a button where there is genuinely something to press. A control
+        # that can only ever refuse is one people learn to skip past.
+        "can_push": bool(ready and rows["ready"] and not held),
+    })
+
+
+@app.route("/api/projects/<pid>/suite", methods=["POST"])
+def api_suite_push(pid):
+    """File the approved spots as one Smart 1 Suite opportunity.
+
+    Through `hub/suite_opportunity.push_proposal` rather than a webhook of its
+    own: `hub/ghl_contacts.py` is the Hub's one contact write path, and the
+    Radio Ad Creator's raw `GHL_OPPORTUNITY_WEBHOOK_URL` post is the older of
+    the two answers. A third copy here is what
+    `modules/commercial_builder/routes/suite.py` declined to write, in as many
+    words, and this follows it.
+    """
+    project = store.load(pid)
+    if not project:
+        return fail("No project with that id.", 404)
+    if suite_opportunity is None:
+        return fail("Smart 1 Suite isn't available in this build.", 503)
+    rows = suite.units(project, MOUNT)
+    held = suite.blockers(project, rows)
+    if held:
+        return fail(" ".join(held), 422, spots=rows)
+    if rate_limited("suite", 20, 300):
+        return fail("That's a lot of pushes at once — give it a minute.", 429)
+
+    previous = suite.record(project)
+    result = suite_opportunity.push_proposal(
+        client=project.get("client") or "",
+        title=f"{project.get('company') or project.get('client')} — Fan Radio",
+        contact=(request.get_json(silent=True) or {}).get("contact") or {},
+        website=project.get("home_url") or "",
+        # The opportunity already opened for this job, so a second press
+        # revises it rather than opening a second one on the same pipeline.
+        opportunity_id=previous.get("opportunity_id") or "",
+        note_lines=suite.note_lines(project, rows["ready"]),
+        source="Smart 1 Hub — Fan Radio")
+
+    # Written whether or not Suite took it. "Nobody has pushed this", "we
+    # pushed it and Suite refused" and "Suite has it" are three states, and the
+    # middle one is the one somebody has to act on.
+    contact = result.get("contact") or {}
+    project["suite"] = {
+        "ok": bool(result.get("ok")),
+        "opportunity_id": (result.get("opportunity_id")
+                           or previous.get("opportunity_id") or ""),
+        "contact_id": contact.get("id") or previous.get("contact_id") or "",
+        "contact_name": (contact.get("name") or contact.get("email")
+                         or previous.get("contact_name") or ""),
+        "spots": len(rows["ready"]),
+        "pushed_by": actor_name(),
+        "pushed_at": store.now(),
+        "reason": "" if result.get("ok") else (result.get("reason") or ""),
+        "needs_contact": bool(result.get("needs_contact")),
+    }
+    store.save(project)
+    _log("suite_push", project=pid, client=project.get("client") or "",
+         ok=bool(result.get("ok")), spots=len(rows["ready"]))
+
+    if not result.get("ok"):
+        # The three-shape answer is kept: a missing contact is a thing a rep
+        # can fix from the same screen, and flattening it into "Suite said no"
+        # is what makes it look like an outage.
+        return fail(result.get("reason") or "Smart 1 Suite refused the push.",
+                    422 if result.get("needs_contact") else 502,
+                    needs_contact=bool(result.get("needs_contact")),
+                    suggest=result.get("suggest") or {},
+                    delivery=project["suite"])
+    return jsonify({"ok": True, "delivery": project["suite"],
+                    "spots": rows, "created": bool(result.get("created"))})
 
 
 @app.route("/api/projects/<pid>/share", methods=["POST"])

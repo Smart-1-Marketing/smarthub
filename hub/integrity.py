@@ -915,6 +915,64 @@ def check_unbacked_json() -> list[dict]:
     return out
 
 
+def check_disk_sqlite_stores() -> list[dict]:
+    """Modules that open their own SQLite database on the data disk.
+
+    The same risk as the check above and invisible to it: that one asks what
+    JSON is written without a mirror, and a SQLite file is not JSON. So for as
+    long as this page asked only the JSON question, a whole database on the
+    disk was outside every check on it. Two were --
+    ``modules/google_finder/app.py`` holding Google OAuth refresh tokens, and
+    ``modules/io_builder/submission_attempts.py`` holding the receipts that
+    stop a retried Suite delivery creating a second opportunity against a real
+    insertion order -- and both were found by a person grepping rather than by
+    anything here.
+
+    Not a defect on its own, for the reason the JSON check gives: a module
+    listed here works exactly as it always has, right up until the disk is
+    recreated.
+    """
+    from . import jsonstore
+    out = []
+    for hit in jsonstore.disk_sqlite_stores(ROOT):
+        rel, mod = hit["file"], hit["module"]
+        if rel in SELF:
+            continue
+        out.append({
+            "file": rel, "module": mod, "line": hit["line"],
+            "detail": f"{mod} opens a SQLite database directly on the "
+                      f"persistent disk. The disk is outside the database "
+                      f"backup and does not survive being recreated, so "
+                      f"whatever those tables hold is unrecoverable — and the "
+                      f"unbacked-JSON check cannot see it, because a SQLite "
+                      f"file is not JSON.",
+            "fix": "Move the tables onto the shared engine in "
+                   "hub/extensions.py, which is the Postgres everything else "
+                   "is backed up with. modules/smartforecast/db.py is the "
+                   "worked example: a sqlite3-shaped API over that engine, so "
+                   "the module's SQL stays the SQL it had.",
+        })
+    return out
+
+
+def check_stale_sqlite_exemptions() -> list[dict]:
+    """Exemptions from the check above that no longer name a real file.
+
+    The reason ``check_stale_json_exemptions`` gives, for the second list: a
+    path left in after its file is deleted goes on covering whatever is
+    written there next, and the audit stays green while doing it.
+    """
+    from . import jsonstore
+    return [{
+        "file": rel, "module": "hub",
+        "detail": f"hub/jsonstore.py exempts {rel} from the disk-SQLite "
+                  f"check, and that path no longer exists. The entry now "
+                  f"covers anything written there next.",
+        "fix": "Drop the entry from jsonstore.DISK_SQLITE_EXEMPT, or point it "
+               "at the path the code moved to.",
+    } for rel in jsonstore.stale_sqlite_exemptions(ROOT)]
+
+
 def check_stale_json_exemptions() -> list[dict]:
     """Exemptions from the check above that no longer name a real file.
 
@@ -1356,6 +1414,10 @@ CHECKS = [
     ("unbacked_json", "JSON on the disk with no backup", "medium", check_unbacked_json),
     ("stale_json_exemptions", "Unbacked-JSON exemption names a missing file",
      "medium", check_stale_json_exemptions),
+    ("disk_sqlite", "A SQLite database on the disk with no backup", "medium",
+     check_disk_sqlite_stores),
+    ("stale_sqlite_exemptions", "Disk-SQLite exemption names a missing file",
+     "medium", check_stale_sqlite_exemptions),
     ("creative_medium_drift", "Creative gate lost a rate-card product", "high",
      check_creative_medium_drift),
     ("creative_spec_disagreement", "Creative gate and spec kit disagree", "high",

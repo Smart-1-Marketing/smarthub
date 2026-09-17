@@ -400,21 +400,31 @@ print("\nis it actually on the page")
 
 
 class Page:
-    """The client's own site, answering an unauthenticated GET."""
+    """The client's own site, answering through `hub/outbound.py`.
+
+    Stubbed at `outbound.fetch` rather than at `requests.get`, because that is
+    the seam now: every outbound fetch in this module goes through the guard,
+    and a test that reached past it would assert about a code path nothing
+    takes.
+    """
 
     def __init__(self, body="", status=200, ctype="text/html; charset=UTF-8",
-                 raises=False):
-        self.body, self.status, self.ctype, self.raises = body, status, ctype, raises
+                 refused=""):
         self.headers = {"Content-Type": ctype}
         self.text = body
+        self.content = body.encode("utf-8")
         self.status_code = status
-        self.sent_auth = None
+        self.truncated = False
+        self.refused = refused
+        self.sent_headers = None
+        self.url = ""
 
-    def __call__(self, url, headers=None, timeout=None, allow_redirects=None):
-        self.sent_auth = (headers or {}).get("Authorization")
-        if self.raises:
-            raise wordpress.requests.RequestException("boom")
-        return self
+    def __call__(self, url, **kw):
+        self.url = url
+        self.sent_headers = kw.get("headers")
+        if self.refused:
+            return None, self.refused
+        return self, ""
 
 
 def rendered(block):
@@ -432,16 +442,16 @@ def rendered(block):
             + body + "\n</script>\n</head><body>x</body></html>")
 
 
-_real_get = wordpress.requests.get
+_real_fetch = wordpress.outbound.fetch
 URL = "https://schematest.example/roofing/"
 
 
 def verify_against(page):
-    wordpress.requests.get = page
+    wordpress.outbound.fetch = page
     try:
         return wordpress.verify_schema(CLIENT, [URL])["results"][0]
     finally:
-        wordpress.requests.get = _real_get
+        wordpress.outbound.fetch = _real_fetch
 
 
 row = verify_against(Page(rendered(BLOCK)))
@@ -450,7 +460,9 @@ check("a page carrying our block, unchanged, is live", row["verdict"] == "live",
 page = Page(rendered(BLOCK))
 verify_against(page)
 check("and it was fetched the way a visitor gets it, signed out",
-      page.sent_auth is None, page.sent_auth)
+      "Authorization" not in (page.sent_headers or {}), page.sent_headers)
+check("it went through the guard rather than straight to requests",
+      page.url == URL, page.url)
 
 row = verify_against(Page(rendered({"@context": "https://schema.org",
                                     "@graph": [{"@type": "Other"}]})))
@@ -490,7 +502,7 @@ row = verify_against(Page("", status=500))
 check("a page that errored is not a page with no block",
       row["verdict"] == "not_measured", row)
 
-row = verify_against(Page(raises=True))
+row = verify_against(Page(refused="Could not reach that address (Timeout)."))
 check("a site we could not reach is not measured",
       row["verdict"] == "not_measured", row)
 
@@ -498,7 +510,13 @@ row = verify_against(Page("{}", ctype="application/json"))
 check("an address that did not serve a page is not measured",
       row["verdict"] == "not_measured", row)
 
-wordpress.requests.get = _real_get
+row = verify_against(Page(refused="'x' resolves to 127.0.0.1, which is inside "
+                                  "our own network rather than on the public "
+                                  "internet."))
+check("an address inside our own network is refused rather than fetched",
+      row["verdict"] == "not_measured" and "our own network" in row["note"], row)
+
+wordpress.outbound.fetch = _real_fetch
 out = wordpress.verify_schema(CLIENT, ["https://schematest.example/nope/"])
 check("a URL with no saved schema has nothing to compare against",
       out["results"][0]["verdict"] == "not_measured", out["results"][0])

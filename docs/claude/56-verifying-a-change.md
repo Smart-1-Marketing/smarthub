@@ -247,6 +247,21 @@ python3 test_wordpress_publish.py  # the other publishing path: a credential
                                    #   category matched exactly or created, and
                                    #   two pages wanting two alts on one image
                                    #   named rather than last-one-wins
+python3 test_site_login.py         # the client's own website login, sealed:
+                                   #   the plaintext leaves the SEO record and
+                                   #   the assertion is on the bytes on the
+                                   #   disk, it moves exactly once, a
+                                   #   deployment with no TOKEN_ENCRYPTION_KEY
+                                   #   refuses to move plaintext into an
+                                   #   identical file, and a rotated key reads
+                                   #   as "cannot be read" rather than as no
+                                   #   login on file
+python3 test_outbound.py           # what this Hub may fetch: the check is
+                                   #   on the resolved address rather than the
+                                   #   hostname, every redirect hop is
+                                   #   re-checked, unresolvable is refused
+                                   #   rather than allowed, and the body is
+                                   #   capped on the bytes actually read
 python3 test_wordpress_schema.py   # the other half of that: one meta key
                                    #   spelled the same in Python and in PHP,
                                    #   a write read back because a 200 is not
@@ -380,9 +395,13 @@ node test_google_inactive_qa_bulk_ui.js
                                    #   window on the log saying it is one; and
                                    #   Needs Review offering Skip on the rows a
                                    #   skip means something for and no other;
-                                   #   and the bulk check collecting a site per
+                                   #   the bulk check collecting a site per
                                    #   container first, checking only the ones
-                                   #   given an address and naming the blanks
+                                   #   given an address and naming the blanks;
+                                   #   and a per-section filter deciding what a
+                                   #   bulk action touches -- a ticked row it
+                                   #   hides leaves the selection rather than
+                                   #   being deleted out of sight
 python3 test_analytics_ids.py      # two names for one property are not a
                                    #   disagreement: the measurement id Knack
                                    #   holds against the property id Google
@@ -425,7 +444,10 @@ python3 test_radio_ads.py          # the Radio Ad Creator's second half: a bed
                                    #   gets an over-long UPLOADED read back
                                    #   inside its slot, its 1.15x ceiling, and
                                    #   the rate being recorded on the mix rather
-                                   #   than inferred later
+                                   #   than inferred later -- asserted in both
+                                   #   builders, and asserted as the SAME
+                                   #   function answering rather than two that
+                                   #   agree today
 python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
                                    #   and the :60 that were unbuildable, the
                                    #   cost note said at pick time rather than
@@ -434,6 +456,18 @@ python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
                                    #   named script panel run on the copy --
                                    #   where certainty rather than severity
                                    #   decides what may refuse a billed record
+python3 test_fan_radio_suite.py    # Fan Radio's finished work reaching Smart 1
+                                   #   Suite -- the last recorded-nowhere
+                                   #   difference between the two builders.
+                                   #   Through hub/suite_opportunity, not a
+                                   #   third GHL webhook (asserted off the AST,
+                                   #   because the module explains the old hook
+                                   #   in prose); what the CLIENT approved on
+                                   #   the share page rather than a staff
+                                   #   press; never the naked read behind an
+                                   #   unrendered mix; never a URL nobody can
+                                   #   open; and a second press revising one
+                                   #   opportunity rather than opening two
 python3 test_radio_presets.py      # the reusable-read library: one store both
                                    #   builders offer rather than a second copy
                                    #   in each, the {business} placeholder
@@ -668,6 +702,11 @@ python3 test_reports_exec_summary.py # the summary on a client's dashboard: staf
                                    #   generate it, staff read it, staff save it, and
                                    #   the client's page renders it and can reach no
                                    #   AI call at all
+python3 test_reports_map_reads.py  # how the campaign map is read: by client, by
+                                   #   campaign key, and never by sweeping a capped
+                                   #   global list. Reproduces the truncation itself,
+                                   #   and guards every filtering reader against
+                                   #   reaching mapped_campaigns() again
                                    #   (checks.yml runs all of these a second time
                                    #   against Postgres, through _reports_testdb.py)
 python3 test_periods.py            # the named reporting windows, so no model writes a

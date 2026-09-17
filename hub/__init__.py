@@ -4446,15 +4446,53 @@ def create_hub_app() -> Flask:
         if not client:
             return jsonify({"error": "client is required."}), 400
         store = seo.load_store(client)
+        # First, before anything reads or rewrites `setup`: any plaintext this
+        # record still carries from before the change below is sealed and
+        # dropped, so saving the form is a second way out of it and not just
+        # the page read. It writes the store itself, hence ahead of the edits.
+        seo.seal_site_login(client, store)
         setup = store.setdefault("setup", {})
-        for k in ("access_method", "access_url", "login", "password",
+        # `password` is not in this list, and its absence is the point. It is
+        # the client's own login to their own website, and writing it here put
+        # it in `data/seo/<client>.json` in plain text -- and, through
+        # hub/jsonstore.py, verbatim into Postgres and every database backup.
+        # It goes to hub/cms_credentials.py instead, sealed, below.
+        for k in ("access_method", "access_url", "login",
                   "webmaster_status", "blogs_enabled", "blogs_per_month",
                   "blogs_frequency", "completed", "skipped_steps", "notes"):
             if k in body:
                 setup[k] = body[k]
+        # Belt and braces: a record the seal above could not move (no key on
+        # this deployment) keeps its plaintext, but nothing may add a new one.
+        if "password" in setup and "password" in body:
+            setup.pop("password", None)
         seo.save_store(client, store)
+
+        # After the SEO record is saved, never before. A credential store that
+        # cannot be written must not also cost the rep the setup answers they
+        # just typed -- the password field is one of eleven on that form.
+        login_saved = {}
+        if "password" in body or "login" in body:
+            try:
+                from . import cms_credentials
+                login_saved = cms_credentials.save_site_login(
+                    client,
+                    login=body.get("login", setup.get("login") or ""),
+                    password=body.get("password") or "",
+                    access_method=setup.get("access_method") or "",
+                    access_url=setup.get("access_url") or "",
+                    actor=current_user())
+            except Exception as exc:                      # noqa: BLE001
+                login_saved = {"error": f"The site login could not be stored: {exc}"}
         audit.log("seo", "seo_setup_saved", actor=current_user(), client=client)
-        return jsonify({"ok": True})
+        out = {"ok": True}
+        # Reported, not swallowed. "Saved" on a form where the password did not
+        # store is the shape this repo has paid for before.
+        if login_saved.get("error"):
+            out["site_login_error"] = login_saved["error"]
+        if login_saved.get("state"):
+            out["site_login"] = login_saved["state"]
+        return jsonify(out)
 
     @app.route("/api/seo/pages")
     def api_seo_pages():

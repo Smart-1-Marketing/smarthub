@@ -61,13 +61,36 @@ vm.runInContext('function dbGain(db){return Math.pow(10,db/20);}'+functionText('
  await context.buildMix('thirty');
  assert.ok(gains.includes(Math.pow(10,-25/20)),'Radio Ad Creator uses selected bed gain');
  assert.ok(gains.includes(Math.pow(10,-32/20)),'Radio Ad Creator uses selected ducked gain');
+
+ // The same over-long uploaded read, in the other builder, answered by the
+ // same shared rule. A 33s read on a :30 renders 33s; at 1.12x it is 29.5s,
+ // which the slot's own floor rounds back up to exactly :30.
+ Object.assign(context,{decodeRef:async ref=>({duration:ref.startsWith('vo:')?33:40})});
+ lengths.length=0; rates.length=0;
+ const promoLong=await context.buildMix('thirty');
+ assert.equal(lengths.at(-1),Math.round(33*44100),'an over-long read renders over its slot here too');
+ assert.equal(rates[0],1,'and at its own pace, because nothing was approved');
+ assert.equal(promoLong.voSeconds,33,'the read its own length is reported back for the suggestion');
+ lengths.length=0; rates.length=0;
+ const promoFitted=await context.buildMix('thirty',1.12);
+ assert.equal(lengths.at(-1),Math.round(30*44100),'played faster, the mix lands on the slot');
+ assert.equal(rates[0],1.12,'the approved rate reaches the voice source itself');
+ assert.equal(rates[1],1,'and not the bed');
+ assert.equal(promoFitted.speed,1.12,'the render reports the rate it was made at');
+ lengths.length=0; rates.length=0;
+ await context.buildMix('thirty',0.8);
+ assert.equal(rates[0],1,'a rate below 1 is ignored — a mix is never short of its slot');
+ Object.assign(context,{decodeRef:async ref=>({duration:ref.startsWith('vo:')?28:33})});
  const share=fs.readFileSync('modules/radio_promo/templates/share.html','utf8');
  context.AUDIO_BASE='/tools/radio-promo/';
  vm.runInContext(share.slice(share.indexOf('  function audioSrc('),share.indexOf('  function render(')),context);
  assert.equal(context.audioSrc('/tools/radio-promo/file/sample.mp3'),'/tools/radio-promo/file/sample.mp3');
  assert.equal(context.audioSrc('file/sample.mp3'),'/tools/radio-promo/file/sample.mp3');
- Object.assign(context,{mixRevision:0,RENDERED:{},slotName:()=>":30",say(){},buildMix:async()=>{context.mixRevision++;return {buffer:{},note:''};}});
- vm.runInContext(promo.slice(promo.indexOf('async function makeMix('),promo.indexOf('async function fileMix(')),context);
+ Object.assign(context,{mixRevision:0,RENDERED:{},slotName:()=>":30",say(){},P:{id:'test',spots:[]},
+   buildMix:async()=>{context.mixRevision++;return {buffer:{},note:''};}});
+ // From APPROVED rather than makeMix: the approved-rate bookkeeping sits just
+ // above makeMix and the function does not run without it.
+ vm.runInContext(promo.slice(promo.indexOf('const APPROVED = {}'),promo.indexOf('async function fileMix(')),context);
  await context.makeMix('thirty');
  assert.equal(Object.keys(context.RENDERED).length,0,'an in-flight mix is discarded when its inputs change');
  Object.assign(context,{P:{id:'test'},QCC:{},FormData:class {append(){}},URL:{revokeObjectURL(){}},

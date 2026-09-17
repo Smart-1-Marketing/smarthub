@@ -1261,6 +1261,109 @@ check("...and the mix filed before it is untouched",
       fr_store.get_spot(fr_store.load(FRID), SID)["mix"]["speed"], 1.0)
 
 
+section("The Radio Ad Creator answers the same read the same way")
+# =====================================================================
+# The whole point of `hub/radio_spec` is that the second builder does not get a
+# second answer. Both tools now hand an over-long uploaded read to the same
+# `speed_suggestion()`, so what is asserted here is the reading rather than the
+# resemblance -- a local copy with today's ceiling in it would pass every
+# behavioural check below and fail the identity one, which is exactly the state
+# the two tools were already in before the lengths moved.
+
+# Put a known read on the slot so the numbers below are the read's, not a
+# leftover's. `provider` is what the upload route sets and the render route
+# does not, and it is the whole basis of which advice a slot gets.
+_rp_row = rp_store.get(PID)
+_rp_spots = [dict(sp) for sp in (_rp_row.get("spots") or [])]
+for _sp in _rp_spots:
+    if _sp["slot"] == "thirty":
+        _sp.update(provider="upload", audio_url="audio/their-own-read.mp3",
+                   measured_seconds=None, measured=False)
+rp_store.update(PID, {"spots": _rp_spots})
+
+
+def _rp_speed(**payload):
+    return client.post(f"/api/projects/{PID}/speed",
+                       json={"slot": "thirty", **payload})
+
+
+_rp = _rp_speed(vo_seconds=31.8, mixed_seconds=32.1).get_json()
+check("the Radio Ad Creator answers with a rate for an uploaded read",
+      (_rp["uploaded"], _rp["suggestion"]["speed"]), (True, 1.08))
+check("and the slot it answered for comes back with it", _rp["slot"], "thirty")
+# The identity check. Fan Radio asked the same question of the same read two
+# sections ago and got 1.08 with a 0.3s lead-in taken off the runway; a second
+# copy of the arithmetic is how the two would start disagreeing.
+check("both builders give the same read the same rate, from the one module",
+      _rp["suggestion"]["speed"],
+      radio_spec.speed_suggestion(vo_seconds=31.8, mixed_seconds=32.1,
+                                  target_seconds=30,
+                                  lead_in_ms=radio_spec.MIX_LEAD_IN_MS)["speed"])
+check("...and the same refusal past the ceiling",
+      _rp_speed(vo_seconds=40.0, mixed_seconds=40.3).get_json()["suggestion"]["comfort"],
+      "too_far")
+check("a slot nobody sells is refused rather than answered",
+      client.post(f"/api/projects/{PID}/speed",
+                  json={"slot": "ninety", "vo_seconds": 31.8}).status_code, 400)
+
+# A read this tool recorded has a re-record to ask for, and asking for it is
+# the better answer -- the booth's own speed control makes a fresh read at the
+# right pace, where time compression only makes the finished one shorter.
+for _sp in _rp_spots:
+    if _sp["slot"] == "thirty":
+        _sp.pop("provider", None)
+rp_store.update(PID, {"spots": _rp_spots})
+_rp_rec = _rp_speed(vo_seconds=31.8, mixed_seconds=32.1).get_json()
+check("a read recorded here is sent to the booth rather than to the rate",
+      (_rp_rec["uploaded"], "booth" in _rp_rec["alternative"]), (False, True))
+check("...and the rate is still worked out, so the panel can say how far over",
+      _rp_rec["suggestion"]["over_seconds"], 2.1)
+for _sp in _rp_spots:
+    if _sp["slot"] == "thirty":
+        _sp["provider"] = "upload"
+rp_store.update(PID, {"spots": _rp_spots})
+
+# Filing it. The rate is recorded on the mix and in the project's own version
+# history -- a commercial going out at a pace the record cannot name is the
+# thing this whole disclosure exists to stop.
+_rp_filed = file_mix(30.0, speed="1.08")
+check("a mix filed at an approved rate records the rate",
+      (_rp_filed.status_code, _rp_filed.get_json()["mix"]["speed"]), (200, 1.08))
+check("and what it cost in pitch, beside it",
+      _rp_filed.get_json()["mix"]["speed_semitones"], 1.33)
+check("the stored check says the same thing the panel did",
+      "time-compressed to 1.08x" in [
+          c["detail"] for c in _rp_filed.get_json()["qc"]["checks"]
+          if c["id"] == "length_match"][0], True)
+check("the version history carries it too",
+      [v for v in rp_store.get(PID)["versions"]
+       if v.get("kind") == "mix"][-1]["payload"]["speed"], 1.08)
+check("a mix filed at its own pace records 1.0 rather than nothing",
+      file_mix(30.0).get_json()["mix"]["speed"], 1.0)
+_rp_bad = file_mix(30.0, speed="1.6")
+check("a rate past the ceiling is refused at the door",
+      (_rp_bad.status_code, "1.15x" in (_rp_bad.get_json().get("error") or "")),
+      (400, True))
+check("...and the mix filed before it is untouched",
+      rp_store.get(PID)["mixes"]["thirty"]["speed"], 1.0)
+
+# And it is reachable from the page. A route with no button on it is the
+# failure this repo keeps having to undo.
+_rp_page = client.get("/").get_data(as_text=True)
+check("the builder asks the server for the rate rather than working one out",
+      ("/speed'" in _rp_page and "speed_suggestion" not in _rp_page), True)
+check("the offer, the approval and the undo are all on the panel",
+      ("approveSpeed(" in _rp_page and "resetSpeed(" in _rp_page
+       and "speedPanel(" in _rp_page), True)
+check("the approved rate reaches the voice source, not the bed",
+      "voSrc.playbackRate.value = playRate" in _rp_page, True)
+check("it rides along when the mix is filed",
+      "fd.append('speed'" in _rp_page, True)
+check("and it is held against the read it was approved for",
+      ("function readKey(" in _rp_page and "a.read === readKey(slot)" in _rp_page),
+      True)
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 if _failed:
     sys.exit(1)

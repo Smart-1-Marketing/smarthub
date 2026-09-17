@@ -98,11 +98,13 @@ ladder with the rung it stopped at.
   thousand times too big means the field is wrong, not the divisor.
 * **Purchases are not conversions.** `totalPurchases` and
   `totalDetailPageViews` land in `extras` under their own names and nothing
-  writes either into `conversions`. What that does *not* do is stop a client
-  page printing *Conversions 0* for this platform: the fact table's column
-  defaults to zero and cannot say "not reported", which is the state AudioGo
-  and GroundTruth are already in. Suppressing the tile is one change to the
-  client view for every such platform, and it has not been made.
+  writes either into `conversions`. The fact table's column still defaults to
+  zero and cannot say "not reported", so the *reading* end refuses it:
+  `client_view.NO_CONVERSIONS` names the platforms whose feeds report no
+  conversion at all (this one, AudioGo, GroundTruth), and the Product detail
+  table prints a dash rather than a nought for their rows, on the page and in
+  the PDF. A figure a provider really did report is never hidden; only the
+  zero that cannot be told apart from silence.
 * `completes` only on rows where `videoComplete` is above zero.
 * Fourteen-day lookback, because DSP attribution restates.
 * Reconcile's month figure is a re-read of the same feed, labeled

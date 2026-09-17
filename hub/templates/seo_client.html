@@ -686,6 +686,7 @@
           <input id="su_login" placeholder="Login">
           <input id="su_pass" type="text" placeholder="Password">
         </div>
+        <div id="su_passState" class="seoc-passstate" style="display:none"></div>
         <label class="seoc-skip"><input type="checkbox" data-skip="access"> Skip this step for later</label>
       </div>
       <div class="seoc-step">
@@ -786,6 +787,9 @@
 .seoc-2col{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .seoc-skip{font-size:12px;color:#64748b;display:flex;gap:6px;align-items:center}
 .seoc-skip input{width:auto}
+.seoc-passstate{font-size:12px;color:#475569;background:#f8fafc;border-left:3px solid #cbd5e1;border-radius:6px;padding:7px 9px}
+.seoc-passstate.warn{color:#92400e;background:#fffbeb;border-left-color:#f59e0b}
+.seoc-passstate.bad{color:#991b1b;background:#fef2f2;border-left-color:#dc2626}
 .seoc-wmhelp{font-size:12.5px;color:#475569;background:#f8fafc;border-radius:8px;padding:10px}
 .seoc-blogbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
 .seoc-pubbar{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px 12px}
@@ -3364,6 +3368,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     if(su.login) $('su_login').value=su.login;
     else if(isS1) $('su_login').value='Smart 1 Logins';
     if(d.setup_has_password) $('su_pass').placeholder='(saved — leave blank to keep)';
+    showPassState(d.site_login||{}, !!d.setup_has_password);
     if(su.webmaster_status) $('su_wm').value=su.webmaster_status;
     if(su.blogs_enabled) $('su_blogs').value=su.blogs_enabled;
     if(su.blogs_per_month) $('su_blogn').value=su.blogs_per_month;
@@ -3380,6 +3385,33 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       if(!$('su_login').value) $('su_login').value='Smart 1 Logins';
     }
   };
+  /* What is on file, in the words hub/cms_credentials.py keeps apart. The
+     third state is why this row exists: a login sealed under a key this
+     deployment no longer has reads as "cannot be read", never as "none on
+     file" -- reporting it as absent is what sends somebody to ask a client
+     for their password again when the one stored was fine. */
+  function showPassState(st, anyPassword){
+    var el=$('su_passState'); if(!el) return;
+    var enc=st.encryption||{};
+    var msg='', cls='seoc-passstate';
+    if(st.has_password && st.error){ msg=st.error; cls+=' bad'; }
+    else if(st.has_password && !st.sealed){
+      msg='On file, but stored in the clear: '+(enc.note||'TOKEN_ENCRYPTION_KEY is not set on this deployment.');
+      cls+=' warn';
+    }
+    else if(st.has_password){
+      msg='On file and encrypted'+(st.saved_at?' — saved '+st.saved_at:'')+
+          (st.saved_by?' by '+st.saved_by:'')+'. It is never shown here.';
+    }
+    else if(anyPassword){
+      msg='On file on the older SEO record, unencrypted. '+(enc.note||'')+
+          ' It moves here once a key is set.';
+      cls+=' warn';
+    }
+    else if(!enc.configured && enc.note){ msg=enc.note; cls+=' warn'; }
+    else { msg='No website login on file for this client.'; }
+    el.className=cls; el.textContent=msg; el.style.display='block';
+  }
   function toggleBlogDetail(){$('blogDetail').style.display=$('su_blogs').value==='yes'?'grid':'none';}
   function toggleWmHelp(){$('wmHelp').style.display=$('su_wm').value==='setup'?'block':'none';}
   $('su_blogs').onchange=toggleBlogDetail;
@@ -3401,7 +3433,11 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
     if($('su_pass').value.trim()) body.password=$('su_pass').value.trim();
     /* setup body assembled above */
     post('/api/seo/setup',body).then(function(d){
-      $('setupMsg').textContent=d.error?d.error:(body.completed?'Saved — setup complete.':'Saved — skipped steps can be finished later.');
+      var note=d.error||d.site_login_error||
+        (body.completed?'Saved — setup complete.':'Saved — skipped steps can be finished later.');
+      $('setupMsg').textContent=note;
+      if(d.site_login) showPassState(d.site_login, false);
+      if(d.site_login_error) return;   /* the answers stored, the password did not */
       if(!d.error){
         if(body.blogs_enabled==='yes'){
           detail=detail||{}; detail.setup=detail.setup||{};

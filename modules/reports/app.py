@@ -162,7 +162,7 @@ def index():
         binding=store.binding(),
         markups=[m for m in store.markups()
                  if m["markup"] is not None or m["cpm"] is not None],
-        budgets=len(store.budget_lines(limit=1000)),
+        budgets=store.budget_line_count(),
         clients=store.clients_with_campaigns(),
         native=_native_status(),
         rate_card=products.rate_card_products(),
@@ -370,12 +370,11 @@ def quarantine_decide():
     if row["status"] == "accepted":
         # The accepted row may be a confirmed campaign's, and the client's
         # page holds its answer for a quarter of an hour per worker.
-        for m in store.mapped_campaigns(limit=5000):
-            if (m["platform"], m["account_id"], m["campaign_id"]) == \
-                    (row["platform"], row["account_id"], row["campaign_id"]):
-                link = store.link_for_client(m["client"])
-                if link:
-                    client_view.forget(link.token)
+        m = store.campaign_map(row["platform"], row["account_id"], row["campaign_id"])
+        if m is not None:
+            link = store.link_for_client(m["client"])
+            if link:
+                client_view.forget(link.token)
     return redirect(back + f"?saved={row['status']}")
 
 
@@ -433,11 +432,10 @@ def upload_csv():
     # A written row may be a confirmed campaign's, and the client's page
     # holds its answer for a quarter of an hour per worker.
     touched = {(r["platform"], r["account_id"], r["campaign_id"]) for r in parsed["rows"]}
-    for m in store.mapped_campaigns(limit=5000):
-        if (m["platform"], m["account_id"], m["campaign_id"]) in touched:
-            link = store.link_for_client(m["client"])
-            if link:
-                client_view.forget(link.token)
+    for m in store.campaign_maps_by_key(touched):
+        link = store.link_for_client(m["client"])
+        if link:
+            client_view.forget(link.token)
     held = int(report.get("quarantined") or 0)
     _log("csv_uploaded", platform=platform, filename=name, rows=written,
          quarantined=held, skipped=int(parsed["skipped"]), size=len(data),
@@ -721,6 +719,7 @@ def markup_save():
 def budgets():
     limit = clamp_int(request.args.get("limit"), 200, 1, 1000)
     return render_template("reports_budgets.html", rows=store.budget_lines(limit=limit),
+                           total=store.budget_line_count(),
                            platforms=[(p, store.platform_label(p)) for p in store.PLATFORMS],
                            error=request.args.get("error", ""),
                            saved=request.args.get("saved", ""))

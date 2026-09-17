@@ -55,6 +55,107 @@ def save_store(client: str, data: dict):
         jsonstore.write_json(path, data, indent=1)
 
 
+# ------------------------------------------- the client's own website login
+# `setup.password` is the client's real login to their own website, typed into
+# the Client Setup modal, and until this it was written into
+# `data/seo/<client>.json` as a plain string. That store goes through
+# `hub/jsonstore.py`, so every one of them was mirrored verbatim into Postgres
+# and into every database backup taken since -- the whole book of client site
+# passwords, in the clear, in a file anybody with a backup could read.
+#
+# It moves to `hub/cms_credentials.py`, which was written about this exact
+# value: same Fernet sealing, same three states, same one file per client. The
+# SEO record keeps everything else in `setup` and loses only the password.
+#
+# Two things this deliberately does not do. It does not report the password
+# back to any screen -- nothing in the Hub ever did, and sealing it is not the
+# moment to start. And it does not delete the plaintext on a deployment that
+# cannot seal: `cms_credentials.adopt_plaintext_site_login()` refuses there, so
+# the value stays where it is rather than being moved to an identical file and
+# called an improvement.
+
+def seal_site_login(client: str, store: dict) -> bool:
+    """Move this client's plaintext `setup.password` into the sealed store.
+
+    Returns whether it wrote. Runs at most once per client: the plaintext is
+    dropped from `setup` in the same save, so the next call finds nothing.
+
+    Never raises. This is reached from a page read, and a client's SEO page
+    failing to open because a credential store could not be written would be a
+    worse outcome than the plaintext surviving one more day.
+    """
+    try:
+        setup = store.get("setup") or {}
+        if not setup.get("password"):
+            return False
+        from . import cms_credentials
+        if not cms_credentials.adopt_plaintext_site_login(client, setup):
+            return False
+        setup.pop("password", None)
+        save_store(client, store)
+        return True
+    except Exception:                                     # noqa: BLE001
+        return False
+
+
+def _site_login_state(client: str) -> dict:
+    """What the Client Setup panel may know about the stored login.
+
+    A subset that never carries the password, and never raises: the panel is
+    one row on a page that has a dozen other reasons to be open. The three
+    states `hub/cms_credentials.py` keeps apart survive the trip -- in
+    particular "sealed under a key this deployment no longer has", which must
+    never reach a screen as "no login on file".
+    """
+    try:
+        from . import cms_credentials
+        return cms_credentials.site_login_state(client)
+    except Exception:                                     # noqa: BLE001
+        return {"has_password": False, "login": "", "sealed": False,
+                "readable": False,
+                "error": "The credential store could not be read.",
+                "saved_by": "", "saved_at": "", "encryption": {}}
+
+
+def seal_all_site_logins() -> dict:
+    """The same move, for every client, including those nobody opens.
+
+    Sealing on the client page alone would leave the plaintext in place for
+    every client whose SEO page happens not to be visited, which is most of
+    them -- and those records are in the backup all the same. This is bounded
+    by the number of SEO stores on the disk, reads nothing over the network,
+    and finds nothing to do from the second pass onward.
+
+    Keyed on the **name** inside each store, never on the filename: the file is
+    named for `slugify(client)` and `hub/cms_credentials.py` keys on the name,
+    so a store with no name recorded is counted and skipped rather than filed
+    under a slug that would never be found again.
+    """
+    out = {"checked": 0, "sealed": 0, "unnamed": 0, "left": 0}
+    try:
+        base = _store_base()
+        names = sorted(f for f in os.listdir(base) if f.endswith(".json"))
+    except Exception:                                     # noqa: BLE001
+        return out
+    for fname in names:
+        try:
+            store = jsonstore.read_json(os.path.join(base, fname), default={}) or {}
+        except Exception:                                 # noqa: BLE001
+            continue
+        if not (store.get("setup") or {}).get("password"):
+            continue
+        out["checked"] += 1
+        name = str(store.get("client") or "").strip()
+        if not name:
+            out["unnamed"] += 1
+            continue
+        if seal_site_login(name, store):
+            out["sealed"] += 1
+        else:
+            out["left"] += 1
+    return out
+
+
 # -------------------------------------------------- attached accounts
 # A client can hold MULTIPLE attachments of each kind (two GA properties, two
 # QuickBooks customers, several website records…), and the same resource can
@@ -1320,11 +1421,22 @@ def client_detail(client: str, full: bool = False) -> dict:
         })
     apply_website_overrides(client, webs)
     store = load_store(client)
+    # Before anything reads `setup`: on the first open after this shipped the
+    # plaintext moves out of the store, and the dict below must describe what
+    # is on the disk afterwards rather than what was there on the way in.
+    seal_site_login(client, store)
+    site_login = _site_login_state(client)
     pages = store.get("pages", {})
     base.update({
         "websites": webs,
+        # `password` is still filtered out of `setup` here and not only sealed
+        # on the way past: a store written before this change, on a deployment
+        # with no key to seal it with, still carries one, and the filter is
+        # what keeps it off the wire in the meantime.
         "setup": {k: v for k, v in store.get("setup", {}).items() if k != "password"},
-        "setup_has_password": bool(store.get("setup", {}).get("password")),
+        "setup_has_password": bool(store.get("setup", {}).get("password")
+                                   or site_login.get("has_password")),
+        "site_login": site_login,
         "business_info": master_business_info(client, store),
         "questions": store.get("questions", []),
         "answers": store.get("answers", {}),

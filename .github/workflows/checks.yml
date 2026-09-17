@@ -1723,6 +1723,41 @@ jobs:
             echo "test_wordpress_publish.py not on this branch — nothing to run."
           fi
 
+      - name: The client's own website login, sealed
+        if: matrix.group == 4
+        # `setup.password` on the SEO record is a client's real login to their
+        # real website, and it was stored as a plain string -- so, through
+        # hub/jsonstore.py, mirrored verbatim into Postgres and every database
+        # backup. What is asserted is the bytes on the disk rather than the API
+        # answer: that the plaintext leaves the SEO record, that it moves
+        # exactly once, that a deployment with no TOKEN_ENCRYPTION_KEY refuses
+        # to "migrate" plaintext into an identical file, and that a rotated key
+        # reads as "cannot be read" and never as "no login on file". Guarded
+        # like the steps around it so this workflow stays mergeable on a branch
+        # that predates the file.
+        run: |
+          if [ -f test_site_login.py ]; then
+            python test_site_login.py
+          else
+            echo "test_site_login.py not on this branch — nothing to run."
+          fi
+
+      - name: What this Hub may fetch, and how
+        if: matrix.group == 4
+        # One reading of the SSRF guard. The rule existed twice before this --
+        # in the ad builder's TypeScript and in modules/restaurant -- and in
+        # neither place hub/ could reach it, so hub/wordpress.py shipped six
+        # outbound fetches with none. What is asserted is the half a hostname
+        # denylist misses: the check is on the RESOLVED address, and every
+        # redirect hop is re-checked. Guarded like the steps around it so this
+        # workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_outbound.py ]; then
+            python test_outbound.py
+          else
+            echo "test_outbound.py not on this branch — nothing to run."
+          fi
+
       - name: Page schema, and the plugin that makes it writable
         if: matrix.group == 4
         # The other half of the WordPress story: the meta key and the REST
@@ -2652,7 +2687,10 @@ jobs:
       # costs in pitch, refuses past 1.15x -- "speed it up" is not an answer to
       # a read five seconds too long -- and records the approved rate on the
       # mix, because a mix that only fits because it was sped up otherwise
-      # reads exactly like one that landed on the clock.
+      # reads exactly like one that landed on the clock. Both builders do it
+      # now, and the step holds that it is the SAME function answering: a
+      # second copy of the ceiling is how the two tools would start giving one
+      # read two rates, which is the state their length menus were already in.
       - name: Radio Ad Creator — beds composed, the mix measured off the file
         if: matrix.group == 6
         run: python3 test_radio_ads.py
@@ -2703,6 +2741,24 @@ jobs:
       - name: Radio reusable reads — one library, both tools, reachable
         if: matrix.group == 6
         run: python3 test_radio_presets.py
+
+      # The last difference between the two radio builders nobody had recorded
+      # a decision about: an approved Radio Ad Creator spot could be filed as
+      # the client's Suite opportunity and a finished Fan Radio spot could not,
+      # so it reached the CRM only if somebody pasted a link in by hand. It
+      # goes through hub/suite_opportunity.push_proposal rather than a webhook
+      # of its own -- hub/ghl_contacts.py is the Hub's one contact write path,
+      # and commercial_builder/routes/suite.py wrote down its refusal to add a
+      # second; this would have been the fourth. Asserted off the AST, because
+      # the module explains in prose why it does not post to the old hook and
+      # a substring search reports that explanation as the defect. What may be
+      # filed is what the CLIENT approved on the share page -- a stronger
+      # record than the staff press the other tool gates on -- never the naked
+      # read behind an unrendered mix, and never with a URL a salesperson
+      # cannot open.
+      - name: Fan Radio to the Suite — the client's approval, one write path
+        if: matrix.group == 6
+        run: python3 test_fan_radio_suite.py
 
       # The sample campaigns both radio builders open empty without. Two
       # things about the seeder are worth holding to an assertion. It must not
@@ -3843,6 +3899,9 @@ jobs:
       - name: The client dashboard executive summary
         if: matrix.group == 8
         run: python3 test_reports_exec_summary.py
+      - name: How the campaign map is read
+        if: matrix.group == 8
+        run: python3 test_reports_map_reads.py
       - name: The reports tests against Postgres
         if: matrix.group == 8
         env:
@@ -3855,7 +3914,8 @@ jobs:
                    test_reports_confirmations.py test_reports_quarantine.py \
                    test_reports_reconcile.py test_reports_bing.py test_reports_groundtruth.py \
                    test_reports_amazon_dsp.py \
-                   test_v2_performance.py test_reports_exec_summary.py; do
+                   test_v2_performance.py test_reports_exec_summary.py \
+                   test_reports_map_reads.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1
           done
 
