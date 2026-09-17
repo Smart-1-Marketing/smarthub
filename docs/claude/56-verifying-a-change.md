@@ -13,6 +13,10 @@ python tools/pagecheck.py          # the page the browser actually receives
 python tools/menucheck.py          # every link the menu emits, and the anchors it aims at
 python tools/integritycheck.py     # known defect patterns
 python tools/spellcheck.py         # American English in everything a person reads
+python3 tools/claudedocs.py        # the docs/claude index matches the directory:
+                                   #   every file indexed, the title its own heading
+                                   #   gives, the line count measured rather than
+                                   #   typed, and no two files at one number
 python3 test_jsonstore.py          # the mirror restores, one answer on who is outside
                                    #   it, and which database it mirrors into being a
                                    #   setting rather than a latch on the first write
@@ -612,6 +616,11 @@ python3 test_knack_websites_source.py # websites live where Knack answers, the
 python3 test_spelling.py           # the spelling check still bites, its exemptions
                                    #   still name real files, and it reads the one
                                    #   module that is not Python
+python3 test_claude_docs_index.py  # ...and the docs index check still bites: it
+                                   #   runs against a clean repo, so every failure
+                                   #   path -- a duplicate number, a file with no
+                                   #   heading, a count that drifted -- is driven
+                                   #   against a throwaway tree instead
 python3 test_client_prefill.py     # one client reader: what a form is offered,
                                    #   what it is never offered, and what a
                                    #   model is told about the client

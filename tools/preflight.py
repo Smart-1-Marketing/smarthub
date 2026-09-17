@@ -61,6 +61,7 @@ SWEEP = [
     ("menucheck", [sys.executable, "tools/menucheck.py"]),
     ("integritycheck", [sys.executable, "tools/integritycheck.py"]),
     ("spellcheck", [sys.executable, "tools/spellcheck.py"]),
+    ("claude docs index", [sys.executable, "tools/claudedocs.py"]),
     ("ci gate", [sys.executable, "test_ci_gate.py"]),
 ]
 

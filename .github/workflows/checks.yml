@@ -2439,6 +2439,23 @@ jobs:
       # renders, the link resolves, the English is correct. This is green, so
       # a new "colour" is a failing build rather than something a client finds
       # on a proposal.
+      - name: The docs/claude index matches the directory
+        if: matrix.group == 5
+        # CLAUDE.md tells every session to open that index before editing a
+        # module, and its line counts were typed once and never revisited --
+        # five of sixty-seven were wrong, 56-verifying-a-change.md by 309
+        # lines. Generated from the directory now, so a drifted row is a
+        # failing build rather than something nobody notices.
+        run: python3 tools/claudedocs.py
+
+      # ...and that the check above can actually fail. It runs against a clean
+      # repo, so none of its failure paths is ever taken there -- a duplicate
+      # number, a file with no heading, a count that has drifted. Each one is
+      # driven against a throwaway tree here.
+      - name: The docs index check still bites
+        if: matrix.group == 5
+        run: python3 test_claude_docs_index.py
+
       - name: American English in the copy
         if: matrix.group == 5
         run: python tools/spellcheck.py
