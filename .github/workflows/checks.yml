@@ -2863,6 +2863,12 @@ jobs:
       - name: Readings in hub/ that have to be complete
         if: matrix.group == 6
         run: python3 test_hub_capped_reads.py
+      # The work log may not say "nothing has ever been made for this client"
+      # off a read that stopped at a window -- and on the health strip that
+      # sentence quietly replaces a churn warning nobody then chases.
+      - name: The client work log's horizon
+        if: matrix.group == 6
+        run: python3 test_client_work_log.py
       # Declared and never wired is the failure this repo has paid for most
       # often -- an ">>> INTEGRATION POINT <<<" naming three writers that have
       # never existed, `storage.manifest()` feeding an audit nobody built,

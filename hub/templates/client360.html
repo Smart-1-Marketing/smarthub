@@ -3618,14 +3618,41 @@ function pushBrand(){
    ending on the 31st read as the 30th. */
 function fmtDate(v){ return v ? S1Date.fmt(v, '') : ''; }
 
+/* `Nothing recorded yet` is a claim about the whole history, and work_log()
+   can only make it when it reached the end of the activity log -- which it
+   reports as `complete`. Short of that the honest sentence names how far back
+   it looked, because a long-standing client whose last deliverable predates
+   the window would otherwise read as one nobody has ever made anything for. */
+function workHorizon(d){ return d && d.horizon ? String(d.horizon).slice(0,10) : ''; }
+
 function renderWork(d){
   const el=document.getElementById('c-work'); if(!el) return;
   const sum=document.getElementById('c-work-sum');
-  if(!d || !d.count){
-    el.innerHTML='<div class="empty">Nothing recorded yet. Work shows here as tools log it.</div>';
+  if(sum) sum.innerHTML='';
+  if(d && d.error){
+    el.innerHTML='<div class="empty">The activity log could not be read, so this is not measured.</div>';
     return;
   }
-  if(sum) sum.innerHTML='<span class="muted" style="font-size:12px">'+d.count+' item'+(d.count===1?'':'s')+'</span>';
+  if(!d || !d.count){
+    if(d && d.complete===false){
+      const since=workHorizon(d);
+      el.innerHTML='<div class="empty">Nothing logged for this client'+
+        (since?' back to '+esc(since):'')+'. The activity log goes further back '+
+        'than this read reached, so this is not "nothing has ever been made".</div>';
+    } else {
+      el.innerHTML='<div class="empty">Nothing recorded yet. Work shows here as tools log it.</div>';
+    }
+    return;
+  }
+  if(sum){
+    let line=d.count+' item'+(d.count===1?'':'s');
+    if(d.more) line='showing '+d.shown+' of '+d.count;
+    if(d.complete===false){
+      const since=workHorizon(d);
+      if(since) line+=' · back to '+esc(since);
+    }
+    sum.innerHTML='<span class="muted" style="font-size:12px">'+line+'</span>';
+  }
   el.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:13px">'+
     d.items.map(i=>`<tr>
       <td style="padding:6px 8px;border-bottom:1px solid #f1f5f9;white-space:nowrap;color:#94a3b8">
