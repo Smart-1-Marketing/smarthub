@@ -3,7 +3,9 @@ import hashlib
 import os
 import secrets
 import time
-from cryptography.fernet import Fernet, InvalidToken
+# InvalidToken only: the key ring builds the cipher now, and MultiFernet
+# raises the same exception, so decrypt() below is unchanged.
+from cryptography.fernet import InvalidToken
 from hub import jsonstore
 
 
@@ -38,13 +40,26 @@ def client(data, name):
 
 
 def cipher():
-    key = os.environ.get("TOKEN_ENCRYPTION_KEY", "")
-    if not key:
-        raise ValueError("Token encryption is not configured. Ask your Hub administrator to finish setup.")
-    try:
-        return Fernet(key.encode())
-    except (ValueError, TypeError) as exc:
-        raise ValueError("Token encryption configuration is invalid.") from exc
+    """The key ring, and this module still REFUSES to run without one.
+
+    `hub/keyring.py` degrades to storing in the clear and saying so, which is
+    right for a panel that must still render and wrong here: these are OAuth
+    credentials, and writing one unencrypted is worse than refusing. So both
+    raises below stay exactly as they were.
+
+    What changes is which keys can open a token. `MultiFernet` carries the
+    same `.encrypt()` / `.decrypt()` interface, so `encrypt()` and `decrypt()`
+    below are untouched -- they gain "the previous key still opens this",
+    which is the difference between rotating TOKEN_ENCRYPTION_KEY and every
+    connected channel needing to be reconnected by hand.
+    """
+    from hub import keyring
+    ring = keyring.ring()
+    if ring is None:
+        if not keyring.key_values():
+            raise ValueError("Token encryption is not configured. Ask your Hub administrator to finish setup.")
+        raise ValueError("Token encryption configuration is invalid.")
+    return ring
 
 
 def encrypt(value):
