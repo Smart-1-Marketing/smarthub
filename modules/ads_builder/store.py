@@ -13,7 +13,7 @@ import secrets
 from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, Integer, String, Text, func, select
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import aliased, declarative_base
 
 from hub.extensions import create_all_metadata, session_factory, shared_engine
 
@@ -509,7 +509,39 @@ def update_campaign(public_id, campaign: dict) -> dict | None:
 
 
 # ------------------------------------------------- live account monitoring
-def deployed_accounts(limit=500) -> list:
+def _deployed_rows() -> list:
+    """The three columns an account reading needs, newest-updated first.
+
+    Queried straight off the table rather than through ``list_proposals()``,
+    for two reasons. It deserialises the whole campaign blob per proposal to
+    build a dict this throws all but three fields of; and it takes a limit on
+    PROPOSALS, so past that cap the oldest-updated deployed proposal is not in
+    the answer -- and with two proposals per client, a cap of 500 proposals is
+    a cap of roughly 250 accounts, reached at half the number anybody would
+    guess from reading the call.
+
+    Not narrowed to one customer id in SQL, deliberately: nothing normalises
+    ``google_customer_id`` on the way in, so the column holds "123-456-7890"
+    and "1234567890" for the same account and only the digits are comparable.
+    A ``WHERE`` on the raw value would answer "no such account" about one
+    stored in the other spelling, which is the same silence this reading is
+    being fixed for. The digits are compared in Python, over three columns of
+    the deployed proposals alone.
+    """
+    with SessionLocal() as s:
+        return list(s.execute(
+            select(Proposal.google_customer_id, Proposal.client_name,
+                   Proposal.public_id)
+            .where(Proposal.status == "DEPLOYED")
+            .order_by(Proposal.updated_at.desc(), Proposal.id.desc())).all())
+
+
+def _account_row(cid: str, client_name: str, public_id: str) -> dict:
+    return {"customer_id": cid, "client_name": client_name or "",
+            "proposal_id": public_id or ""}
+
+
+def deployed_accounts(limit: int | None = None) -> list:
     """Every live Google Ads account this Hub deployed, once each.
 
     "Live" is a DEPLOYED proposal carrying a customer id, which is the only
@@ -518,19 +550,44 @@ def deployed_accounts(limit=500) -> list:
     one client are one account to scan and scanning it twice spends the daily
     operation budget to learn the same thing.
 
-    The client name is whichever proposal touched the account most recently —
-    ``list_proposals`` orders on ``updated_at``, so a client renamed on a later
+    The client name is whichever proposal touched the account most recently --
+    the query orders on ``updated_at``, so a client renamed on a later
     proposal wins, which is the answer somebody reading a scan wants.
+
+    ``limit`` is a PAGE for a screen that pages, counted in ACCOUNTS after the
+    dedupe, and it is left unset by every reading that needs the book whole --
+    the twice-daily sweep, the dashboard count, the report run. It used to
+    default to 500 proposals, which silently dropped the longest-standing
+    account from all three: unscanned by the sweep, uncounted on a tile whose
+    own comment worries about reading "as a clean book", and posted a
+    scheduled report with a BLANK client name, because every by-key caller
+    fell back to ``{"client_name": ""}`` when the sweep did not carry it.
     """
     seen: dict[str, dict] = {}
-    for row in list_proposals(limit=limit, status="DEPLOYED"):
-        cid = "".join(ch for ch in str(row.get("google_customer_id") or "") if ch.isdigit())
+    for cid_raw, client_name, public_id in _deployed_rows():
+        cid = "".join(ch for ch in str(cid_raw or "") if ch.isdigit())
         if not cid or cid in seen:
             continue
-        seen[cid] = {"customer_id": cid,
-                     "client_name": row.get("client_name") or "",
-                     "proposal_id": row.get("id") or ""}
+        seen[cid] = _account_row(cid, client_name, public_id)
+        if limit is not None and len(seen) >= max(1, int(limit)):
+            break
     return list(seen.values())
+
+
+def deployed_account(customer_id) -> dict | None:
+    """One live account by its customer id, or None.
+
+    Filtered in the query. Three callers used to sweep a capped
+    ``deployed_accounts()`` looking for exactly this, and each of them read a
+    miss as "an account we know nothing about" rather than as "past the cap".
+    """
+    want = "".join(ch for ch in str(customer_id or "") if ch.isdigit())
+    if not want:
+        return None
+    for cid_raw, client_name, public_id in _deployed_rows():
+        if "".join(ch for ch in str(cid_raw or "") if ch.isdigit()) == want:
+            return _account_row(want, client_name, public_id)
+    return None
 
 
 def record_optimization_run(customer_id, *, client_name="", date_range="",
@@ -565,22 +622,37 @@ def latest_optimization_run(customer_id, *, with_result=False) -> dict | None:
         return row.as_dict(with_result=with_result) if row else None
 
 
-def latest_optimization_runs(limit=100) -> list:
-    """The newest run per account, for the panel that opens before anyone scans."""
-    out: dict[str, dict] = {}
+def latest_optimization_runs(limit: int | None = None) -> list:
+    """The newest run per account -- one row each, chosen in the database.
+
+    It used to read the newest ``limit * 10`` RUNS and dedupe them down, which
+    answers correctly only while every account scans at about the same rate.
+    It does not: a handful of busy accounts fill those rows, and the newest run
+    of a quiet one falls past the end. The panel then reads that account as
+    never scanned -- which `hub/ads_status.py` renders as its own state,
+    distinct from "scanned and clean" -- so the account that has gone longest
+    without a scan is exactly the one reported as never having had one. The
+    multiplier hid how few accounts it really covered.
+
+    ``ROW_NUMBER() OVER (PARTITION BY customer_id ...)`` picks one row per
+    account in SQL, so the answer is one run per account however lopsided the
+    scanning has been. ``limit`` pages the ACCOUNTS and is left unset by the
+    readings that need them all.
+    """
+    ranked = (select(OptimizationRun,
+                     func.row_number().over(
+                         partition_by=OptimizationRun.customer_id,
+                         order_by=(OptimizationRun.scanned_at.desc(),
+                                   OptimizationRun.id.desc())).label("rn"))
+              .where(OptimizationRun.customer_id != "")
+              .subquery())
+    entity = aliased(OptimizationRun, ranked)
+    query = (select(entity).where(ranked.c.rn == 1)
+             .order_by(ranked.c.scanned_at.desc(), ranked.c.id.desc()))
+    if limit is not None:
+        query = query.limit(max(1, int(limit)))
     with SessionLocal() as s:
-        rows = s.scalars(
-            select(OptimizationRun)
-            .order_by(OptimizationRun.scanned_at.desc(), OptimizationRun.id.desc())
-            .limit(max(1, int(limit)) * 10)
-        ).all()
-    for row in rows:
-        cid = row.customer_id or ""
-        if cid and cid not in out:
-            out[cid] = row.as_dict()
-        if len(out) >= limit:
-            break
-    return list(out.values())
+        return [row.as_dict() for row in s.scalars(query).all()]
 
 
 # ---------------------------------------------------------- auto-apply
