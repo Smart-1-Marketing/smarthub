@@ -245,6 +245,39 @@ check("a scan-resolved industry lands on the profile category too",
       and industry.display_label(client6) == "Legal")
 
 
+# ---------------------------------------------------------------------------
+section("An alias with its own word: a winery reads Winery, files under restaurant")
+check('alias_label("Buckeye Lake Winery Inc") == "Winery"',
+      industry.alias_label("Buckeye Lake Winery Inc") == "Winery")
+check('alias_label("Acme HVAC") == ""', industry.alias_label("Acme HVAC") == "")
+client7 = "Fixture Buckeye Lake Winery Inc Xyz"
+_fresh_client(client7)
+with mock.patch("hub.scan_facts.latest_report", return_value=({}, {}, "no scan")):
+    res7 = industry.resolve_industry(client=client7)
+check("the name tier resolves restaurant, carrying the alias's label",
+      res7["key"] == "restaurant" and res7.get("label") == "Winery", res7)
+industry.write_industry(client7, res7)
+check("the record reads Winery on both screens without a manual pick",
+      industry.display_label(client7) == "Winery"
+      and seo.get_profile(client7)["category"] == "Winery")
+check("and the Image Picker's key is still the taxonomy's",
+      industry._stored_industry(client7).get("key") == "restaurant")        # noqa: SLF001
+check("a manual pick of a canonical key clears the alias wording",
+      industry.set_manual(client7, "tourism", actor="todd")
+      and industry.display_label(client7) == "Tourism")
+
+section("A general reading is asked again every night")
+client8 = "Fixture Nothing Yet Xyz"
+_fresh_client(client8)
+with mock.patch("hub.scan_facts.latest_report", return_value=({}, {}, "no scan")):
+    industry.write_industry(client8, industry.resolve_industry(client=client8))
+check("stored as general today", industry._stored_industry(client8).get("key") == "general")  # noqa: SLF001
+check("...and due for a resweep tomorrow, not in 30 days",
+      industry.due_for_resweep(client8) is True)
+check("a real reading from today is not due",
+      industry.due_for_resweep(client7) is False)
+
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

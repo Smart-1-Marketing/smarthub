@@ -162,20 +162,44 @@ def industry(key: str | None) -> dict | None:
 # started. "Roofing Contractor" must resolve to home_services, never hvac.
 # ---------------------------------------------------------------------------
 
+# Aliases whose own word is what a person would call the business. The
+# taxonomy files a winery under Restaurant -- right for the Image Picker's
+# curated photos, wrong as the word on the client's record -- so a match on
+# one of these carries its own display label, and the record reads "Winery"
+# rather than "Restaurant" without anybody having to type it in.
+ALIAS_LABELS = {
+    "winery": "Winery", "vineyard": "Vineyard", "distillery": "Distillery",
+    "brewery": "Brewery",
+}
+
+
+def alias_label(text: str | None) -> str:
+    """The display label the matched alias carries, or ""."""
+    return ALIAS_LABELS.get(_match(text)[2], "")
+
+
 def resolve(text: str | None) -> tuple[str, str]:
     """(key, subtype) for a piece of free text, or ("general", "")."""
+    key, subtype, _alias = _match(text)
+    return key, subtype
+
+
+def _match(text: str | None) -> tuple[str, str, str]:
+    """(key, subtype, alias) -- the alias is the word that decided the key,
+    or "" when the text named the key or label outright."""
     if not text:
-        return "general", ""
+        return "general", "", ""
     t = str(text).strip().lower()
     if not t:
-        return "general", ""
+        return "general", "", ""
 
     t = LEGACY_MAP.get(t, t)
     for ind in INDUSTRIES:
         if t == ind["key"] or t == ind["label"].lower():
-            return ind["key"], ""
+            return ind["key"], "", ""
 
     best: tuple[int, int, str] | None = None   # (position, -len, key)
+    best_alias = ""
     for ind in INDUSTRIES:
         for alias in ind["aliases"]:
             m = re.search(r"\b" + re.escape(alias) + r"\b", t)
@@ -183,9 +207,9 @@ def resolve(text: str | None) -> tuple[str, str]:
                 continue
             candidate = (m.start(), -len(alias), ind["key"])
             if best is None or candidate < best:
-                best = candidate
+                best, best_alias = candidate, alias
     if not best:
-        return "general", ""
+        return "general", "", ""
 
     key = best[2]
     subtype = ""
@@ -200,7 +224,7 @@ def resolve(text: str | None) -> tuple[str, str]:
                 sub_best = candidate
     if sub_best:
         subtype = sub_best[2]
-    return key, subtype
+    return key, subtype, best_alias
 
 
 def _now() -> str:
@@ -277,11 +301,12 @@ def resolve_industry(client: str, domain: str = "", hint: str = "", **_kw) -> di
         text = str(text or "").strip()
         if not text:
             return None
-        key, subtype = resolve(text)
+        key, subtype, alias = _match(text)
         if key == "general":
             return None
         return {"key": key, "subtype": subtype, "source": source,
-                "confidence": _TIER_CONFIDENCE[source], "evidence": text}
+                "confidence": _TIER_CONFIDENCE[source], "evidence": text,
+                "label": ALIAS_LABELS.get(alias, "")}
 
     primary = _scan_field(report, "meta.primary_industry") or hint
     got = _try(primary, "scan_primary")
@@ -435,7 +460,8 @@ def write_industry(client: str, result: dict, actor: str = "") -> bool:
 
     return _write(client, key, result.get("subtype", ""), source,
                   _TIER_CONFIDENCE.get(source, result.get("confidence") or 0.0),
-                  result.get("evidence", ""), actor, cur_key)
+                  result.get("evidence", ""), actor, cur_key,
+                  custom_label=str(result.get("label") or ""))
 
 
 _STALE_DAYS = 30
@@ -491,6 +517,13 @@ def due_for_resweep(client: str) -> bool:
         return True
     if stored.get("source") == "manual":
         return False
+    # "General" at confidence 0 is not a reading, it is the absence of one:
+    # a record left there is asked again every night rather than held for
+    # a month, so a scan that lands, or an alias added to the table, reaches
+    # the record the next morning. Read from the wire, this is why Buckeye
+    # Lake Winery went on saying General Business after "winery" was added.
+    if stored.get("key") == "general":
+        return True
     at = str(stored.get("resolved_at") or "")
     if not at:
         return True
