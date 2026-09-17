@@ -47,7 +47,6 @@ import { clientProofs, createClientProof, getClientProof, recordProofSent, decid
 import { suggestCopy, critiqueCopy } from './copy-approval';
 import { searchPixabay, generateHero } from './imagery';
 import { reworkLogo } from './logo-tools';
-import { templateFor } from './registry';
 import { resolveAsset } from './assets';
 import { fitImageToBudget } from './image-budget';
 import { suggestCrop } from './smart-crop';

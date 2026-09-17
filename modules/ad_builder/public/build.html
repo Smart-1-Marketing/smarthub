@@ -1844,7 +1844,6 @@
   var BG_SPEEDS = { slow: 0.03, medium: 0.12, fast: 0.25 };
   function nudgeStep() { return SPEEDS[state.speed] || SPEEDS.medium; }
   function bgStep() { return BG_SPEEDS[state.speed] || BG_SPEEDS.medium; }
-  var NUDGE = SPEEDS.medium;   // the number the help bubbles quote
 
   function speedControl() {
     return '<div class="speed" data-speed><span>Moving speed</span>' +
@@ -2031,7 +2030,6 @@
     var touched = Object.keys(lg).length > 0;
     var scale = typeof lg.scale === 'number' ? lg.scale : 1;
     var box = layoutLogoBox();
-    var logos = state.doc.campaign.brand.logos || {};
     var tone = c.logoTone || 'auto';
     return '<details class="blockstyle" data-acc="logo"' + (openPanel('logo') ? ' open' : '') + '>' +
       '<summary>Logo' + dotIf(touched) + '</summary>' +
