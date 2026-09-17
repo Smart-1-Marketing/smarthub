@@ -114,7 +114,7 @@ for rule in reports_app.app.url_map.iter_rules():
     ROUTES.append((path, methods))
 check("the module serves the staff screens, the picker's search and the client's page",
       sorted({p for p, _ in ROUTES}),
-      sorted(["/", "/unmapped", "/unmapped/confirm", "/unmapped/refuse",
+      sorted(["/", "/unmapped", "/unmapped/alias/forget", "/unmapped/confirm", "/unmapped/refuse",
               "/markup", "/budgets", "/budgets/1", "/provider-check", "/provider-check/x", "/provider-check/confirm",
               "/provider-check/withdraw", "/audiogo-check", "/groundtruth-check", "/amazon-check",
               "/quarantine", "/quarantine/decide",
@@ -289,6 +289,37 @@ r = staff.post("/reports/unmapped", data={
 check("moving from the client's page goes back to that page",
       r.status_code == 302 and r.headers["Location"].endswith("/reports/client/n:zeta-dental?saved=moved"))
 check("...and the campaign is off it", store.campaign_map("ttd", "t-1", "t-acme")["client"], "d:acme.com")
+# Mapping and moving t-acme taught nothing: its name carried the client's
+# own name. A campaign whose name calls the client something else does.
+store.upsert_rows([{"platform": "ttd", "account_id": "t-9", "campaign_id": "t-nick",
+                    "campaign_name": "ACO - Search - 2026", "date": "2026-09-02", "spend": "3",
+                    "impressions": 30, "clicks": 1, "source": "csv"}])
+check("nothing was learned from a name that carried the client's own name", store.campaign_aliases(), [])
+r = staff.post("/reports/unmapped", data={
+    "platform": "ttd", "account_id": "t-9", "campaign_id": "t-nick",
+    "campaign_name": "ACO - Search - 2026", "client_name": "Acme Co", "client_key": "d:acme.com",
+    "product": "Paid Search"}, follow_redirects=True)
+body = r.get_data(as_text=True)
+_al = store.campaign_aliases()
+check("mapping a campaign by hand teaches what it calls the client",
+      [(a["alias"], a["client"], a["count"], a["learned_by"]) for a in _al], [("aco", "d:acme.com", 1, "Todd")])
+check("...and the queue lists it, as a suggestion until taught again",
+      "1 learned name" in body and "<b>aco</b>" in body and "suggests only" in body)
+r = staff.post("/reports/unmapped/alias/forget", data={"alias": "aco", "client": "d:acme.com",
+                                                        "client_name": "Acme Co"}, follow_redirects=True)
+check("Forget drops it", r.status_code == 200 and "Forgotten." in r.get_data(as_text=True)
+      and store.campaign_aliases() == [])
+check("forgetting an alias not on file says so",
+      "not on file" in staff.post("/reports/unmapped/alias/forget", data={"alias": "zzz", "client": "d:acme.com"},
+                                  follow_redirects=True).get_data(as_text=True))
+_db = store.SessionLocal()
+try:
+    _db.query(store.CampaignMap).filter(store.CampaignMap.campaign_id == "t-nick").delete(synchronize_session=False)
+    _db.query(store.AdPerfDaily).filter(store.AdPerfDaily.campaign_id == "t-nick").delete(synchronize_session=False)
+    _db.commit()
+finally:
+    _db.close()
+
 # The account is Acme Co's now (one confirmed campaign on it), so a new
 # campaign on the same account opens on Acme Co with the account's reason.
 store.upsert_rows([{"platform": "ttd", "account_id": "t-1", "campaign_id": "t-next",

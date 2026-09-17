@@ -1084,6 +1084,15 @@ REGISTRY: list[Help] = [
        "the auto-mapper filing that name under that client again -- a "
        "renamed campaign is read afresh. Move files it under the client "
        "you pick instead, confirmed by your press."),
+    _h("reports.unmapped.aliases", "What the campaigns call a client",
+       "A registry name is not always the name in the platform. Every "
+       "mapping, confirmation or move a person makes teaches the campaign "
+       "name's distinctive words -- the client's own words and the ad-ops "
+       "words left out -- as a name for that client. Taught once it is a "
+       "suggestion the picker opens on; taught twice it files, waiting for "
+       "confirmation like every other filing. Taught for two clients it "
+       "is a lead for each and files neither. Not theirs forgets what that "
+       "campaign's name taught, and Forget here drops one by hand."),
     _h("reports.markup.columns", "Markup or fixed CPM, never both",
        "Markup is a percentage on the platform's cost: 15 bills $100 of "
        "spend as $115. A fixed CPM bills impressions at that rate and ignores "

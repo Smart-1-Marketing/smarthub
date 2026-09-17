@@ -6,6 +6,7 @@
 {% block saved_text %}{% if saved == 'confirmed' %}Confirmed. The campaign is on the client's page from now.
   {% elif saved == 'refused' %}Refused. The campaign is back on the unmapped list below, and the auto-mapper will not file it under that client from that name again.
   {% elif saved == 'moved' %}Moved. The campaign is filed under the client you picked, confirmed by your press, and on their page from now.
+  {% elif saved == 'forgotten' %}Forgotten. The auto-mapper will not read that name as that client's again unless somebody teaches it again.
   {% else %}Campaign {{ saved }} is filed. It leaves this list on the next load.{% endif %}{% endblock %}
 
 {% block style %}
@@ -169,6 +170,45 @@
     <span class="mono">{{ shape }}</span>. A campaign named that way is filed
     without anybody opening this page, and waits above for a confirmation.
     Pick a client on a row and the hint fills in that client's key.</p>
+</div>
+
+<div class="s1d-card" id="aliases">
+  <div class="s1d-cardhead">
+    <h2>{{ aliases|length }} learned name{{ '' if aliases|length == 1 else 's' }} {{ help_dot('reports.unmapped.aliases') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">What the campaigns call a client, taught by every mapping a person makes.</span>
+  </div>
+  {% if aliases %}
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr><th>Campaigns say</th><th>Client</th><th>Taught</th><th>Learned from</th><th>By</th><th></th></tr></thead>
+    <tbody>
+    {% for a in aliases %}
+      <tr>
+        <td><b>{{ a.alias }}</b></td>
+        <td><a href="/reports/client/{{ a.client }}">{{ a.client_name }}</a></td>
+        <td>{{ a.count }} time{{ '' if a.count == 1 else 's' }}{% if a.count < alias_file_count %} <span class="s1d-pill warn" title="Taught once: a suggestion until a second campaign teaches it">suggests only</span>{% else %} <span class="s1d-pill ok">files</span>{% endif %}</td>
+        <td class="s1d-muted">{{ a.learned_from }}</td>
+        <td>{{ a.learned_by or '—' }} <span class="s1d-muted"><time datetime="{{ a.learned_at }}">{{ a.learned_at }}</time></span></td>
+        <td>
+          <form class="decide" method="post" action="/reports/unmapped/alias/forget">
+            <input type="hidden" name="alias" value="{{ a.alias }}">
+            <input type="hidden" name="client" value="{{ a.client }}">
+            <input type="hidden" name="client_name" value="{{ a.client_name }}">
+            <button type="submit" class="s1d-btn sec small">Forget</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+    <div class="empty">Nothing learned yet. Map, confirm or move a campaign whose name calls the client something the registry does not, and the name is learned here.</div>
+  {% endif %}
+  <p class="s1d-hint">A mapping a person makes teaches the campaign name's distinctive words &mdash; the client's own
+    words and the ad-ops words left out &mdash; as a name for that client. Taught once it is a suggestion the picker
+    opens on; taught {{ alias_file_count }} times it files, waiting for confirmation like every other filing. A name taught
+    for two clients is a lead for each and files neither. Not theirs forgets what that campaign's name taught.</p>
 </div>
 
 <div class="s1d-card">

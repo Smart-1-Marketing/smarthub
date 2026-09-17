@@ -30,6 +30,11 @@ What it holds:
     account and a refusal on the account file nothing; the platform's own
     account name is read for a likeness (account_name_v1); an account
     saying one client and a name another files neither;
+  * what the campaigns call a client is learned from every filing a person
+    makes (alias_phrase: the name's words with the client's own and the
+    noise out); taught once it suggests, taught twice it files (alias_v1),
+    taught for two clients it leads for each and files neither, and a
+    refusal forgets it;
   * the scheduler job is registered and returns the shape the panel reads.
 """
 import json
@@ -549,6 +554,77 @@ am9 = automap.run(actor="test")
 check("refused, the account no longer files under that client",
       ("meta", "r-2") not in {(m["platform"], m["campaign_id"]) for m in store.mapped_campaigns(limit=300)}
       and am9["by_rule"].get("account_v1", 0) == 0)
+
+# ------------------------------------------------------- the aliases
+section("Learned names")
+
+ap = automap.alias_phrase
+check("the campaign's distinctive words, the client's own and the noise out",
+      ap("BLW - Search - 2026", "Buckeye Lake Winery"), "blw")
+check("a name that carries the client's name teaches nothing", ap("Buckeye Lake Winery | CTV", "Buckeye Lake Winery"), "")
+check("only noise teaches nothing", ap("Spring promo 2026 - Retargeting", "Acme Roofing"), "")
+check("the S1M mark and a catalog product are noise", ap("S1M | ACR | Paid Search | x", "Acme Roofing"), "acr")
+check("a vendor word is noise", ap("NXT StackAdapt Display", "Next Level Auto"), "nxt")
+check("a long leftover is a description, not a name",
+      ap("The Big Blue Barn Farm Store Q4", "Acme Roofing"), "")
+check("a bare number is never a name", ap("2026 - Search", "Acme Roofing"), "")
+
+clients_registry.all_clients = lambda refresh=False: FUZZ
+check("nothing is learned yet", store.campaign_aliases(), [])
+check("a name that says nothing distinctive teaches nothing",
+      automap.learn("Acme Roofing - Leads", client="d:acmeroofing.com", client_name="Acme Roofing", by="Todd"), None)
+taught = automap.learn("ACR - Leads - Q4", client="d:acmeroofing.com", client_name="Acme Roofing", by="Todd")
+check("a person's filing teaches the alias", taught and (taught["alias"], taught["count"], taught["learned_by"]),
+      ("acr", 1, "Todd"))
+store.upsert_rows([
+    {"platform": "google", "account_id": "g-al", "campaign_id": "al-1", "campaign_name": "ACR | Search | Brand",
+     "date": TODAY - timedelta(days=1), "spend": 5, "impressions": 50, "clicks": 1, "source": "csv"},
+])
+idx = automap.build_index(FUZZ, store.campaign_aliases())
+hits = automap.suggest_clients("ACR | Search | Brand", index=idx)
+check("taught once, the alias is a suggestion", [(h["name"], h["pct"], h["rule"]) for h in hits],
+      [("Acme Roofing", 85, "alias_v1")])
+check("...not a filing", automap.decide(hits), None)
+am10 = automap.run(actor="test")
+check("the run leaves it for the queue", ("google", "al-1") not in
+      {(m["platform"], m["campaign_id"]) for m in store.mapped_campaigns(limit=300)})
+automap.learn("ACR - Display - Q3", client="d:acmeroofing.com", client_name="Acme Roofing", by="Todd")
+check("taught twice, the count says so", store.campaign_aliases()[0]["count"], 2)
+am11 = automap.run(actor="test")
+al1 = {(m["platform"], m["campaign_id"]): m for m in store.mapped_campaigns(limit=300)}.get(("google", "al-1"))
+check("taught twice, the alias files (Search alone is not a catalog product, so the platform default)",
+      al1 and (al1["client"], al1["auto_rule"], al1["pending"]),
+      ("d:acmeroofing.com", "alias_v1+default_product", True))
+check("...counted under its rule", am11["by_rule"].get("alias_v1"), 1)
+entries = list(reversed(audit.read(limit=3000)))
+by_al = [e for e in entries if e.get("action") == "campaign_automapped" and e.get("campaign_id") == "al-1"]
+check("the activity row says a learned name decided",
+      bool(by_al) and "by a learned name (100%: 'acr' was mapped to them 2 times before)" in by_al[0]["detail"])
+
+# The same alias taught for a second client is a question.
+automap.learn("ACR - Social", client="d:acme.com", client_name="Acme Plumbing", by="Todd")
+idx = automap.build_index(FUZZ, store.campaign_aliases())
+hits = automap.suggest_clients("ACR | Video", index=idx)
+check("taught for two clients, it is a lead for each",
+      sorted((h["name"], h["pct"]) for h in hits), [("Acme Plumbing", 75), ("Acme Roofing", 75)])
+check("...and files neither", automap.decide(hits), None)
+check("...saying so", all("and also to" in h["why"] for h in hits))
+
+# Refusing a filing forgets what its name taught for that client.
+store.refuse_mapping("google", "g-al", "al-1", by="Todd")
+check("the store's forget drops one row", automap.forget("ACR | Search | Brand", client="d:acmeroofing.com",
+                                                          client_name="Acme Roofing"))
+check("...and the other client's lesson stands", [(a["alias"], a["client"]) for a in store.campaign_aliases()],
+      [("acr", "d:acme.com")])
+check("forgetting what was never taught is False", automap.forget("ZZZ - Search", client="d:acme.com"), False)
+_real_session = store.SessionLocal
+def _no_db():
+    raise RuntimeError("down")
+store.SessionLocal = _no_db
+try:
+    check("an unreadable store is an empty book of aliases, not an error", store.campaign_aliases(), [])
+finally:
+    store.SessionLocal = _real_session
 
 # A registry that cannot be read: nothing suggested, nothing filed, named.
 clients_registry.all_clients = _boom

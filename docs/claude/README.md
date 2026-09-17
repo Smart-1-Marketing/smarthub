@@ -55,7 +55,7 @@ say "above" or "below" mean earlier or later files in this list.
 | [`46-one-description-of-what-a-record-page-looks-like.md`](46-one-description-of-what-a-record-page-looks-like.md) | One description of what a record page looks like | 221 |
 | [`47-declared-and-never-wired.md`](47-declared-and-never-wired.md) | Declared and never wired | 96 |
 | [`48-a-review-nobody-wrote-down-is-a-review-nobody-can-point-at.md`](48-a-review-nobody-wrote-down-is-a-review-nobody-can-point-at.md) | A review nobody wrote down is a review nobody can point at | 102 |
-| [`49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md`](49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md) | What the ad-report syncs propose, and the person who stands behind each | 320 |
+| [`49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md`](49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md) | What the ad-report syncs propose, and the person who stands behind each | 340 |
 | [`50-a-clients-google-listing-read-live-rather-than-remembered-fr.md`](50-a-clients-google-listing-read-live-rather-than-remembered-fr.md) | A client's Google listing, read live rather than remembered from the scan | 87 |
 | [`51-a-clients-youtube-channel-read-live-on-the-same-key.md`](51-a-clients-youtube-channel-read-live-on-the-same-key.md) | A client's YouTube channel, read live, on the same key | 80 |
 | [`52-microsoft-advertising-one-consent-and-the-reports-module-pul.md`](52-microsoft-advertising-one-consent-and-the-reports-module-pul.md) | Microsoft Advertising: one consent, and the reports module pulls | 148 |
