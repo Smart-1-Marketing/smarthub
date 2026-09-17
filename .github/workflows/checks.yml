@@ -1713,6 +1713,25 @@ jobs:
             echo "test_wordpress_publish.py not on this branch — nothing to run."
           fi
 
+      - name: The client's own website login, sealed
+        if: matrix.group == 4
+        # `setup.password` on the SEO record is a client's real login to their
+        # real website, and it was stored as a plain string -- so, through
+        # hub/jsonstore.py, mirrored verbatim into Postgres and every database
+        # backup. What is asserted is the bytes on the disk rather than the API
+        # answer: that the plaintext leaves the SEO record, that it moves
+        # exactly once, that a deployment with no TOKEN_ENCRYPTION_KEY refuses
+        # to "migrate" plaintext into an identical file, and that a rotated key
+        # reads as "cannot be read" and never as "no login on file". Guarded
+        # like the steps around it so this workflow stays mergeable on a branch
+        # that predates the file.
+        run: |
+          if [ -f test_site_login.py ]; then
+            python test_site_login.py
+          else
+            echo "test_site_login.py not on this branch — nothing to run."
+          fi
+
       - name: What this Hub may fetch, and how
         if: matrix.group == 4
         # One reading of the SSRF guard. The rule existed twice before this --

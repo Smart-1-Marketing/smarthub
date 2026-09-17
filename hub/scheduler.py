@@ -279,6 +279,31 @@ def job_refresh_knack_products(app) -> dict:
     return knack_products.refresh()
 
 
+def job_seal_site_logins(app) -> dict:
+    """Seal any client website login still sitting in an SEO record as text.
+
+    `setup.password` on `data/seo/<client>.json` is the client's own login to
+    their own website, and it was written there as a plain string. Sealing it
+    when somebody opens that client's SEO page covers the clients people look
+    at; this covers the rest, which are in the database backup all the same and
+    are most of them.
+
+    Local disk only -- no network, no model, no provider. It is bounded by the
+    number of SEO stores and finds nothing to do from the second pass on,
+    because each record loses its plaintext key in the same save. On a
+    deployment with no TOKEN_ENCRYPTION_KEY it seals nothing on purpose and
+    says so, rather than moving plaintext into a second plaintext file and
+    reporting a number.
+    """
+    from hub import seo
+    with app.app_context():
+        out = seo.seal_all_site_logins()
+    if out.get("checked") and not out.get("sealed"):
+        out["note"] = ("Nothing could be sealed — check that "
+                       "TOKEN_ENCRYPTION_KEY is set on this service.")
+    return out
+
+
 def job_backup_json(app) -> dict:
     """Mirror the durable JSON on the disk into the database.
 
@@ -1188,6 +1213,11 @@ JOBS = {
                            "Approved or Converted in the Proposal Builder."),
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
+    # Ahead of nothing in particular and cheap: it reads this Hub's own disk
+    # and, once every record is sealed, does no work at all.
+    "site_logins":       (720, job_seal_site_logins,
+                          "Seal any client website login still stored as plain "
+                          "text on an SEO record."),
     "clear_stuck_scans": (15, job_clear_stuck_scans,
                           "Resolve or error scans running past 30 minutes."),
     "rotate_audit_log":  (720, job_rotate_audit_log,
