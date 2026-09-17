@@ -78,3 +78,4 @@ say "above" or "below" mean earlier or later files in this list.
 | [`70-client-360s-header-said-the-same-thing-twice.md`](70-client-360s-header-said-the-same-thing-twice.md) | Client 360's header said the same thing twice, and nothing about who to call | 71 |
 | [`71-a-clients-asset-home-has-five-folders-and-the-uploads-get-a-web-ready-copy.md`](71-a-clients-asset-home-has-five-folders-and-the-uploads-get-a-web-ready-copy.md) | A client's asset home has five folders, and the uploads get a web-ready copy | 162 |
 | [`72-nothing-built-the-image-that-deploys.md`](72-nothing-built-the-image-that-deploys.md) | Nothing built the image that deploys | 103 |
+| [`73-one-page-per-provider-and-the-fields-left-on-the-table.md`](73-one-page-per-provider-and-the-fields-left-on-the-table.md) | One page per provider, and the fields left on the table | 88 |

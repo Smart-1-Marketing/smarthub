@@ -523,6 +523,49 @@ check("...naming ttd's missing columns", T["spend"] in page)
 check("...with no script on it", "<script" not in page.split("s1d-page")[-1].split("</body>")[0]
       or page.count("<script") <= 1)
 
+# ---------------------------------------------------- one page per provider
+section("One page per provider under the overview")
+
+from modules.reports import provider_fields                          # noqa: E402
+
+check("the overview carries the providers submenu, the overview marked",
+      's1d-subnav' in page and 'class="on"' in page and "/reports/provider-check/audiogo" in page)
+check("the submenu lists every platform but suite, native pulls first",
+      [i["key"] for i in provider_fields.nav("")][1:],
+      list(provider_fields.NATIVE) + [p for p in provider_map.PLATFORM_SOURCES
+                                      if p not in provider_fields.NATIVE])
+for plat in provider_fields.ORDER:
+    r = c.get(f"/provider-check/{plat}")
+    body = r.get_data(as_text=True)
+    check(f"/provider-check/{plat} renders with the map, the unread box and the Render list",
+          (r.status_code, "Field map expected" in body, 'id="unread-fields"' in body,
+           "What has to be true on Render" in body), (200, True, True, True))
+r = c.get("/provider-check/nope")
+check("an unknown provider is a 404 with the submenu on it, not a 500",
+      (r.status_code, 's1d-subnav' in r.get_data(as_text=True)), (404, True))
+# The Windsor half is measured against the schema: Google's table is
+# present here, Meta's is absent.
+pf = provider_fields.unread_table_columns("google", tables)
+check("a present table's unread columns are measured, not transcribed",
+      (pf["present"], all(col not in provider_map.required_columns(provider_map.PLATFORM_SOURCES["google"])
+                          for col in pf["unread"])), (True, True))
+check("an absent table reads as not measured", provider_fields.unread_table_columns("meta", {})["present"], False)
+check("the AudioGo map on the page is the map audiogo_map.py reads",
+      [r["field"] for r in provider_fields.field_map("audiogo")["rows"]],
+      list(__import__("modules.reports.audiogo_map", fromlist=["config"]).config()["fields"].values()))
+check("Microsoft's request asks for two columns nothing reads, and the page says which",
+      provider_fields.field_map("bing")["requested_unread"], ["AccountNumber", "CampaignStatus"])
+check("answered-and-not-read is the row keys minus what the map names, dotted paths by their root",
+      provider_fields.unread_from_answer("stackadapt", ["campaign", "granularity", "metrics", "ctr"]), ["ctr"])
+check("every native pull names what has to be true on Render, required rows first",
+      all(provider_fields.ENV[p] and provider_fields.ENV[p][0]["required"] for p in provider_fields.NATIVE))
+check("every documented list names its source",
+      all(provider_fields.DOCUMENTED[p]["source"] and provider_fields.DOCUMENTED[p]["fields"]
+          for p in provider_fields.NATIVE))
+from hub import help as hub_help                                     # noqa: E402
+check("the help bubbles the pages guard are registered",
+      all(hub_help.get(k) is not None for k in ("reports.provider.page", "reports.provider.unread")))
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

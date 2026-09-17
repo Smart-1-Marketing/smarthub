@@ -52,11 +52,20 @@
       <a class="s1d-btn sec" href="/reports/cost">Cost</a>
       <a class="s1d-btn sec" href="/reports/markup">Markup</a>
       <a class="s1d-btn sec" href="/reports/provider-check">Provider check</a>
-      <a class="s1d-btn sec" href="/reports/audiogo-check">AudioGo check</a>
-      <a class="s1d-btn sec" href="/reports/groundtruth-check">GroundTruth check</a>
-      <a class="s1d-btn sec" href="/reports/amazon-check">Amazon check</a>
     </div>
   </div>
+
+  {% if subnav %}
+  {# The providers, one page each, under the provider check: the overview
+     first, then the native pulls, then the platforms that arrive only
+     through the managed provider's tables. A page that passes no subnav
+     shows none -- the strip belongs to the provider check, not to every
+     Reports screen. #}
+  <nav class="s1d-subnav" aria-label="Providers">
+    {% for item in subnav %}<a href="{{ item.href }}" class="{{ 'on' if item.on else '' }}"
+      {% if item.key and not item.native %}title="Arrives through the managed provider's table only; no native pull"{% endif %}>{{ item.label }}</a>{% endfor %}
+  </nav>
+  {% endif %}
 
   {% if error %}<div class="notice err">{{ error }}</div>{% endif %}
   {% if saved %}<div class="notice ok">{% block saved_text %}Saved.{% endblock %}</div>{% endif %}

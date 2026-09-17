@@ -228,9 +228,11 @@ def _native_status() -> list[dict]:
         try:
             import importlib
             m = importlib.import_module(f"modules.reports.{mod}")
-            out.append({"platform": label, **m.status()})
+            from . import provider_fields
+            out.append({"platform": label, "label": store.platform_label(label),
+                        "check_label": provider_fields.CHECK_LABELS.get(label), **m.status()})
         except Exception as exc:               # noqa: BLE001
-            out.append({"platform": label, "connected": False,
+            out.append({"platform": label, "label": store.platform_label(label), "connected": False,
                         "line": f"{label}: status could not be read ({type(exc).__name__})"})
     return out
 
@@ -252,11 +254,34 @@ def provider_check():
     # taken against real values, never against plausible names.
     samples = {s["platform"]: normalize.sample_row(s["platform"])
                for s in sources if s["status"] == "resolved"}
+    from . import provider_fields
     return render_template(
         "reports_provider_check.html",
         schema=provider_map.schema(), tables=tables,
-        sources=sources, samples=samples,
+        sources=sources, samples=samples, subnav=provider_fields.nav(""),
         error=request.args.get("error", ""), saved=request.args.get("saved", ""))
+
+
+@app.route("/provider-check/<platform>")
+def provider_page(platform: str):
+    """One provider: the field map its pull expects, what the platform
+    documents that the pull does not read, and what has to be true on
+    Render for it to run. Drawn from provider_fields.py, which reads the
+    map off the module that does the pull; the live check page, where one
+    exists, is linked rather than repeated. An unknown platform is a 404
+    with the submenu on it, not a 500."""
+    from . import normalize, provider_fields
+    platform = (platform or "").strip().lower()
+    try:
+        tables = normalize.schema_tables()
+    except Exception:                      # noqa: BLE001 - the page must render without the schema
+        tables = {}
+    pg = provider_fields.page(platform, tables)
+    if pg is None:
+        return render_template("reports_provider_page.html", pg=None, subnav=provider_fields.nav(""),
+                               unknown=platform, error="", saved=""), 404
+    return render_template("reports_provider_page.html", pg=pg, subnav=pg["nav"], unknown="",
+                           error=request.args.get("error", ""), saved=request.args.get("saved", ""))
 
 
 @app.route("/provider-check/confirm", methods=["POST"])
@@ -456,8 +481,11 @@ def audiogo_check():
     audiogo_map.py expects -- the same pattern as provider-check. Calls the
     endpoint for yesterday and prints the raw JSON keys (the key itself
     never reaches a body) so the real names can be pasted into the map."""
-    from . import audiogo
-    return render_template("reports_audiogo_check.html", chk=audiogo.check())
+    from . import audiogo, provider_fields
+    chk = audiogo.check()
+    return render_template("reports_audiogo_check.html", chk=chk,
+                           subnav=provider_fields.nav("audiogo"),
+                           unread=_unread("audiogo", chk), documented=provider_fields.DOCUMENTED["audiogo"])
 
 
 @app.route("/groundtruth-check")
@@ -467,8 +495,12 @@ def groundtruth_check():
     platform whose documentation the Hub's own environment cannot reach.
     Calls nothing while GROUND_TRUTH_API_BASE is unset: the key is never
     sent to a host nobody has confirmed."""
-    from . import groundtruth
-    return render_template("reports_groundtruth_check.html", chk=groundtruth.check())
+    from . import groundtruth, provider_fields
+    chk = groundtruth.check()
+    return render_template("reports_groundtruth_check.html", chk=chk,
+                           subnav=provider_fields.nav("groundtruth"),
+                           unread=_unread("groundtruth", chk),
+                           documented=provider_fields.DOCUMENTED["groundtruth"])
 
 
 @app.route("/amazon-check")
@@ -480,8 +512,28 @@ def amazon_check():
     refusal, and calls nothing at all while the connection is unconfigured
     or unconsented: a credential is not sent to find out whether it is set.
     """
-    from . import amazon_dsp
-    return render_template("reports_amazon_check.html", chk=amazon_dsp.check())
+    from . import amazon_dsp, provider_fields
+    chk = amazon_dsp.check()
+    return render_template("reports_amazon_check.html", chk=chk,
+                           subnav=provider_fields.nav("amazon_dsp"),
+                           unread=_unread("amazon_dsp", chk),
+                           documented=provider_fields.DOCUMENTED["amazon_dsp"])
+
+
+def _unread(platform: str, chk: dict) -> dict:
+    """Answered and not read, for a live check page: the row keys the
+    endpoint returned that the map does not name. ``measured`` is False
+    until a row has come back, and the box says so rather than printing an
+    empty list as a clean bill."""
+    from . import provider_fields
+    keys = []
+    answer = chk.get("answer") if isinstance(chk, dict) else None
+    if isinstance(answer, dict):
+        keys = list(answer.get("row_keys") or [])
+    elif isinstance(chk.get("sample"), dict):        # the Amazon page carries one raw row
+        keys = list(chk["sample"].keys())
+    # "names", not "keys": a dict key called keys is shadowed by dict.keys in Jinja.
+    return {"measured": bool(keys), "names": provider_fields.unread_from_answer(platform, keys)}
 
 
 # ---------------------------------------------------------------- mapping
