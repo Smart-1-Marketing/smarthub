@@ -8549,6 +8549,9 @@ def create_hub_app() -> Flask:
             errors.log_exception("hub", _dv_exc)
         except Exception:  # noqa: BLE001
             pass
+    # Reporting shares this app and the guarded table creation below.
+    from .reporting_routes import register_reporting
+    register_reporting(app)
 
     # Imported for its side effect: the Presence model has to exist before the
     # create_all() below or `hub_presence` is never created, and every read of

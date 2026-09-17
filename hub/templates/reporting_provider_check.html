@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Reporting Providers · Smart 1 Hub{% endblock %}
+{% block content %}
+<div style="max-width:1150px;margin:24px auto;padding:16px">
+<a href="/diagnostics">← Diagnostics</a>
+<h1>Reporting providers</h1>
+<h2>The Trade Desk</h2>
+<p>{% if health.configured %}Configuration present. A successful sync verifies access.{% else %}Setup needed: {{ health.missing|join(', ') }}.{% endif %}</p>
+<p>Latest reporting date: {{ health.latest_metric_date or 'No data yet' }}{% if health.stale %} · Data needs refreshing{% endif %}.</p>
+<p>Sync discovers advertisers, campaigns, ad groups and creatives, then imports the configured daily CSV export. The export must have one row per day, campaign, ad group, creative and currency.</p>
+<button type="button" id="report-sync">Sync Now</button>
+<p id="report-message" role="status" aria-live="polite"></p>
+<h2>Stored data</h2>
+<dl>{% for name, count in health.counts.items() %}<dt>{{ name|replace('_', ' ')|title }}</dt><dd>{{ count }}</dd>{% endfor %}</dl>
+<h2>Advertiser matching</h2>
+<p>{{ health.unmapped_accounts|length }} unmapped accounts. Choose a SmartHub client to attach reporting. Name matches are suggestions and require saving.</p>
+{% if registry_error %}<p>{{ registry_error }}</p>{% endif %}
+<div style="overflow-x:auto"><table cellpadding="10"><thead><tr><th scope="col">Advertiser</th><th scope="col">Current client</th><th scope="col">Assign client</th></tr></thead><tbody>
+{% for account in health.accounts %}
+<tr><td>{{ account.account_name }} ({{ account.external_account_id }})</td><td>{{ account.client_id or 'Unmapped' }}</td><td>
+<select aria-label="Client for {{ account.account_name }}" id="client-{{ account.id }}"><option value="">Unmapped</option>
+{% for client in clients %}<option value="{{ client.name }}" {% if client.name == account.client_id or (not account.client_id and client.name|lower == account.account_name|lower) %}selected{% endif %}>{{ client.name }}</option>{% endfor %}</select>
+<button type="button" data-account="{{ account.id }}">Save mapping</button></td></tr>
+{% else %}<tr><td colspan="3">No advertisers discovered yet.</td></tr>{% endfor %}
+</tbody></table></div>
+<h2>Unmapped products</h2>
+<p>{{ health.unmapped_metric_rows }} daily rows have no recognized product. Unknown formats are retained for review.</p>
+<ul>{% for item in health.unmapped_products %}<li>{{ item.line_item_name }}: {{ item.classification or 'No media classification supplied' }}</li>{% else %}<li>No unmapped ad groups.</li>{% endfor %}</ul>
+<h2>All stored dates · totals by currency</h2>
+<p>CTR = clicks ÷ impressions × 100; CPM = spend ÷ impressions × 1,000; completion rate = completions ÷ starts × 100. A missing denominator displays “—”.</p>
+<table cellpadding="10"><thead><tr><th>Currency</th><th>Impressions</th><th>Clicks</th><th>Spend</th><th>CTR %</th><th>CPM</th><th>Completion %</th></tr></thead><tbody>
+{% for row in health.totals %}<tr>{% for field in ['currency','impressions','clicks','spend','ctr','cpm','completion_rate'] %}<td>{{ row[field] if row[field] is not none else '—' }}</td>{% endfor %}</tr>{% endfor %}
+</tbody></table>
+<h2>Recent syncs</h2>
+<table cellpadding="10"><thead><tr><th>Started</th><th>Status</th><th>Daily rows written</th><th>Details</th></tr></thead><tbody>
+{% for run in health.runs %}<tr><td>{{ run.started_at }}</td><td>{{ run.status }}</td><td>{{ run.rows_written }}</td><td>{{ run.error or '' }}</td></tr>{% else %}<tr><td colspan="4">No syncs yet.</td></tr>{% endfor %}
+</tbody></table>
+<h2>Recent errors</h2><ul>{% for error in health.errors %}<li>Run {{ error.sync_run_id }}{% if error.row_number %}, row {{ error.row_number }}{% endif %}: {{ error.message }}</li>{% else %}<li>No errors recorded.</li>{% endfor %}</ul>
+</div>
+<script src="/assets/reporting.js" defer></script>
+{% endblock %}
