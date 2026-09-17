@@ -122,6 +122,17 @@ def not_configured_line() -> str:
     return "not configured: " + (", ".join(miss) if miss else "BING_AD_*") + " unset"
 
 
+def _problem_line(st: dict) -> str:
+    """The one sentence for a connection that is set but cannot be used:
+    a manager id that is not one, or a pinned callback at a page this Hub
+    does not answer. "" when neither applies."""
+    if st.get("manager_id_problem"):
+        return "not configured: BING_MANAGER_ACCOUNT_ID " + st["manager_id_problem"]
+    if st.get("redirect_uri_problem"):
+        return "not configured: MICROSOFT_ADS_REDIRECT_URI " + st["redirect_uri_problem"]
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
@@ -343,7 +354,7 @@ def pull(days: int = DAYS, today: date | None = None, sleep=None, clock=None,
     out["environment"] = st.get("environment") or ""
     if not st["configured"]:
         out["error"] = not_configured_line() if st["missing"] else (
-            "not configured: BING_MANAGER_ACCOUNT_ID " + st["manager_id_problem"])
+            _problem_line(st) or not_configured_line())
         return out
     if not st["connected"]:
         out["error"] = NOT_CONNECTED
@@ -400,8 +411,8 @@ def status() -> dict:
         elif remembered.get("pending"):
             line += f" -- {remembered.get('error') or 'report still preparing'}"
     elif not st.get("configured"):
-        if st.get("manager_id_problem"):
-            line = "Microsoft Ads: not configured: BING_MANAGER_ACCOUNT_ID " + st["manager_id_problem"]
+        if _problem_line(st):
+            line = "Microsoft Ads: " + _problem_line(st)
         else:
             line = "Microsoft Ads: " + not_configured_line()
     else:

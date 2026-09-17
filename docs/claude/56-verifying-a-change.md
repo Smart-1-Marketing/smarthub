@@ -453,6 +453,12 @@ python3 test_activity_logging.py   # every module's work is attributable: an
                                    #   import is not a call, a module's own
                                    #   log() wrapper is resolved, and the
                                    #   remainder is declared with its reason
+python3 test_capped_reads.py       # the integrity check that finds a capped read
+                                   #   COUNTED or searched BY KEY -- the defect
+                                   #   class docs/claude/03 names, found by hand
+                                   #   four times before the repo looked for it.
+                                   #   Holds the four shapes that have shipped
+                                   #   and the things that look like them
 python3 test_client_work_log.py    # the client work log's horizon: narrowed to
                                    #   the 47 work modules in the query, a count
                                    #   that describes the client rather than the

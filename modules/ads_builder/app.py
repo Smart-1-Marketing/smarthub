@@ -114,7 +114,7 @@ def _generation_error(exc: GenerationError):
 @app.context_processor
 def _inject():
     try:
-        open_count = len([p for p in store.list_proposals() if p["status"] in store.OPEN_STATUSES])
+        open_count = store.open_proposal_count()
     except Exception:  # noqa: BLE001 — a template must never 500 over a badge count
         open_count = 0
     return {
@@ -608,12 +608,17 @@ def api_disconnect():
 @app.get("/connect/bing")
 def oauth_connect_bing():
     status = bing_ads.connection_status(store)
-    if status["missing"] or status["manager_id_problem"]:
-        why = ", ".join(status["missing"]) if status["missing"] else (
-            "BING_MANAGER_ACCOUNT_ID " + status["manager_id_problem"])
+    if status["missing"] or status["manager_id_problem"] or status["redirect_uri_problem"]:
+        if status["missing"]:
+            why = "these are set: " + ", ".join(status["missing"])
+        elif status["manager_id_problem"]:
+            why = "BING_MANAGER_ACCOUNT_ID is a customer id: it " + status["manager_id_problem"]
+        else:
+            why = (bing_ads.REDIRECT_PIN_VAR + " is a callback this Hub answers: it "
+                   + status["redirect_uri_problem"])
         return render_template(
             "ads_error.html",
-            error="Microsoft sign-in cannot start until these are set: " + why,
+            error="Microsoft sign-in cannot start until " + why,
         ), 400
     state = secrets.token_hex(16)
     resp = make_response(redirect(bing_ads.build_auth_url(state)))
@@ -632,8 +637,17 @@ def oauth_bing_callback():
         return render_template("ads_error.html",
                                error=f"Microsoft sign-in was cancelled: {error}"), 400
     if not code:
-        return render_template("ads_error.html",
-                               error="Microsoft did not return an authorization code."), 400
+        # Reached with no code and no error: this page was opened directly
+        # (pasted from the panel, or a bookmark) rather than at the end of
+        # a Microsoft sign-in. Say where the sign-in starts, because the
+        # bare sentence read as Microsoft failing when nothing was sent.
+        return render_template(
+            "ads_error.html",
+            error="Microsoft did not return an authorization code. This page is where "
+                  "Microsoft sends the browser at the end of sign-in, not where it starts: "
+                  "open Settings and press Connect Microsoft Ads. If you did come from a "
+                  "Microsoft sign-in, the redirect URI it was given does not match this page.",
+        ), 400
 
     expected = request.cookies.get("s1ads_bing_oauth_state")
     if expected and state != expected:

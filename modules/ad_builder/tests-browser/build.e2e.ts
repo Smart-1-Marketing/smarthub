@@ -160,9 +160,18 @@ test('the build screen can be worked from start to the next size', { skip: execu
   const steps = await page.$$eval('.steps [data-step]', (els) => els.length);
   assert.equal(steps, 6, 'the start-here strip lists the six steps');
 
-  // Opening one section closes the rest.
+  // Opening one section closes the rest. The click sets `open` on the copy
+  // section synchronously; the closing of the others happens in the page's
+  // `toggle` handler, which the browser dispatches as a separate task -- so
+  // a count taken the instant `copy` reads open can still see two, and did,
+  // once in CI on an untouched page. Wait for the handler's outcome, the
+  // way every other step here waits for the page to settle.
   await page.click('[data-nav="copy"] > summary');
-  await page.waitForFunction(() => (document.querySelector('[data-nav="copy"]') as HTMLDetailsElement).open);
+  await page.waitForFunction(() => {
+    const els = Array.from(document.querySelectorAll('[data-nav]')) as HTMLDetailsElement[];
+    return els.filter((e) => e.open).length === 1
+      && (document.querySelector('[data-nav="copy"]') as HTMLDetailsElement).open;
+  }, { timeout: 10_000 });
   const openCount = await page.$$eval('[data-nav]', (els) => els.filter((e) => (e as HTMLDetailsElement).open).length);
   assert.equal(openCount, 1, 'one section open at a time');
 

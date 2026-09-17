@@ -1066,17 +1066,24 @@ REGISTRY: list[Help] = [
        "had run."),
     _h("reports.unmapped.hint", "Map it here, or rename it there",
        "Spend on a campaign nobody has filed under a client reaches no "
-       "client report. Pick the client on the row, or rename the campaign "
-       "in the platform to the shape shown and the auto-mapper files it on "
-       "the next sync without anybody opening this page."),
+       "client report. The picker opens on the client the campaign name "
+       "looks like -- its name or domain in the campaign name, or a near "
+       "spelling -- with the others a click away; check it, change it if "
+       "it is wrong, press Map. Or rename the campaign in the platform to "
+       "the shape shown and the auto-mapper files it on the next sync "
+       "without anybody opening this page."),
     _h("reports.unmapped.pending", "A filing from a name is a proposal",
-       "The auto-mapper files a campaign under the client its name says, "
-       "and a name is somebody's typing in somebody else's platform. So the "
+       "The auto-mapper files a campaign under the client the evidence says -- "
+       "the S1M shape in its name, an ad account whose confirmed campaigns "
+       "are all one client's, or a campaign or account name plainly one "
+       "client's and nobody else's. "
+       "A name is somebody's typing in somebody else's platform, so the "
        "filing waits here: nothing from the campaign reaches the client's "
        "page, PDF or data until Confirm is pressed. Not theirs deletes the "
        "proposal, sends the campaign back to the unmapped list, and stops "
        "the auto-mapper filing that name under that client again -- a "
-       "renamed campaign is read afresh."),
+       "renamed campaign is read afresh. Move files it under the client "
+       "you pick instead, confirmed by your press."),
     _h("reports.markup.columns", "Markup or fixed CPM, never both",
        "Markup is a percentage on the platform's cost: 15 bills $100 of "
        "spend as $115. A fixed CPM bills impressions at that rate and ignores "
@@ -1202,6 +1209,24 @@ REGISTRY: list[Help] = [
        "spend as it would be filed after the divisor, and pressed Confirm. "
        "The confirmation is against the map as it stood: change a column or "
        "the divisor and it reads as superseded until somebody looks again."),
+    _h("reports.provider.page", "One page per provider, read off the pull",
+       "The field map here is read from the module that does the pull -- "
+       "audiogo_map.py, amazon_dsp.py's FIELD_MAP, the StackAdapt query, the "
+       "Google GAQL, the CSV alias tables -- so a correction there is a "
+       "correction here. 'Placeholder until confirmed' means no live answer "
+       "has been compared to the map yet; the live check page, where one "
+       "exists, is where that comparison is made. The Render list is what "
+       "has to be true, never what is missing: nothing here can read the "
+       "service's environment or the env group linked to it."),
+    _h("reports.provider.unread", "Two kinds of not read",
+       "Answered and not read is measured: the keys an endpoint returned on "
+       "a row that no line of the map names, or the columns on Windsor's "
+       "raw table the map does not read. Documented and not read is a "
+       "transcription from the platform's own reference, named per block, "
+       "and it is what the document says rather than what an endpoint "
+       "answered. A field in either list is not lost by accident: the note "
+       "under the box says why the pull leaves it, so the next person does "
+       "not add one the module refused on purpose."),
     _h("reports.provider.status", "Resolved, table missing, or columns missing",
        "The column names in provider_map.py are placeholders until the "
        "first sync lands. A platform resolves when its table is in the "
@@ -1631,7 +1656,8 @@ REGISTRY: list[Help] = [
        "does. Nothing here manages a Bing campaign: what the connection "
        "buys is the native pull on /reports/, nightly at 3 AM Eastern, for every "
        "advertiser account under the manager. The four variables are read "
-       "under exactly the names set on Render, and a customer id that is "
+       "under exactly the names set on Render (the app registration under "
+       "either its BING_AD_ or MICROSOFT_ADS_ spelling), and a customer id that is "
        "not digits is refused here by name \u2014 the API answers a wrong id "
        "with the same bare failure as a bad token."),
     _h("ads_builder.settings.amazon", "One consent, given by the entity admin",

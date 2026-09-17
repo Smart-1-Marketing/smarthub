@@ -1463,6 +1463,21 @@ DISK_BINARY_EXEMPT: dict[str, str] = {
         "stored URL when it is missing -- the pack's image is in Cloudinary and "
         "this is a local copy of it",
 
+    "modules/page_image_optimizer/store.py":
+        "put_bytes(), the optimized .webp and its .preview, written between "
+        "the scan that produced them and the save that keeps them. Cloudinary "
+        "holds the durable copy: save reads these back and hands them to "
+        "archive.upload(), which is the smart1-seo-images folder. They are "
+        "swept on a 45-minute TTL (PAGE_IMAGES_TTL_MINUTES) and the save path "
+        "already answers their absence with \"The optimized file expired "
+        "before saving\", so losing them costs one re-scan of a page the "
+        "caller still has the URL of -- never a saved image. Uploading them "
+        "on the way in would put every scanned image into Cloudinary "
+        "including the ones nobody keeps. What is per-instance is the job "
+        "directory itself: a scan on one instance and a save on another reads "
+        "as that same expiry message, which is why the two workers this "
+        "service runs share a disk rather than a dict",
+
     # ---- Cloudinary first, disk only when the upload could not happen ----
     # These are NOT the hub/storage.py defect. Each one tries Cloudinary, keeps
     # the bytes locally only when that fails or is unconfigured, and returns a
