@@ -1360,12 +1360,48 @@ underneath, and no caller may print absence as a fact. An error is never
 `complete` — failing to read the log and reaching its end must not collapse
 into one answer.
 
-What is still not done: `hub_activity` has `module`, `type` and `actor` columns
-but **no `client`**, so this remains a window rather than a query for one
-client. Adding that column needs a backfill of up to `MAX_ROWS` rows, and a
-half-backfilled column is the same silent truncation with a new boundary — rows
-written before it would read as "no client". Do it with a batched backfill and
-a reader that knows where the backfill has reached, or not at all.
+**That column exists now**, and the condition this paragraph set is what it
+was built to satisfy.
+
+`hub_activity.client` holds `audit.client_key()` of whichever of
+`audit.CLIENT_KEYS` named the client, written on every insert. `work_log()`
+queries it, so one client's history is a question with an answer rather than a
+window — it reads *their* rows, all of them, however old, without touching
+anybody else's. On a fresh table the work log answers in **one row read**
+instead of six thousand.
+
+The boundary is handled by making the column say three things rather than two:
+
+| value | means |
+| --- | --- |
+| `NULL` | nobody has looked at this row yet |
+| `""` | looked at, names no client |
+| `"acmetyre"` | this client's row |
+
+Collapsing the first two is exactly the silent truncation the column exists to
+end, so they are kept apart everywhere — including for a payload that will not
+parse, which still gets `""`, because one unreadable row must not hold every
+reader in the incomplete branch for ever.
+
+That makes the table **self-describing**: `backfill_state()` derives where the
+backfill has reached from the data, rather than a watermark in another store —
+a watermark is a second reading of one fact, and the two drift the first time a
+run is interrupted. `job_backfill_activity_clients` fills one batch of 5000 a
+run, newest first, and no-ops for ever once done.
+
+Until it finishes, a client whose rows sit below the boundary reads as
+**not-yet-answerable**, never as a client nothing was ever made for:
+`complete` requires *both* that the read reached the end of the matching rows
+*and* that the backfill has covered the table, and an unmeasurable backfill
+counts as not done. Because #711 had already taught every reader to handle
+`complete`/`horizon`, none of them needed changing — the health pill, the
+prospect card, the 360 work card and Ask SmartHub all did the right thing with
+the new boundary for free.
+
+`test_activity_client_column.py` asserts the ALTER against a table built
+without the column and populated with legacy rows — the only part of this that
+touches a table with production data in it, so it is proven rather than
+reasoned about.
 
 `audit.read()/tail()` now narrow by **actor** in the query, which is what fixed
 `hub/help_center`'s personal inbox: it filtered the newest 2000 rows HUB-WIDE
