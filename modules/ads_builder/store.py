@@ -412,6 +412,23 @@ def list_proposals(limit=200, status=None) -> list:
         return [r.as_dict() for r in s.scalars(query.limit(limit)).all()]
 
 
+def open_proposal_count() -> int:
+    """How many proposals are waiting on somebody, counted in SQL.
+
+    The Approval hub badge. It used to be
+    ``len([p for p in list_proposals() if p["status"] in OPEN_STATUSES])``,
+    which counts the open ones among the newest 200 proposals OF ANY STATUS --
+    so once the book passes 200 rows an open DRAFT older than that is not in
+    the list and not in the badge. A badge that undercounts is worse than no
+    badge: it says the queue is empty when somebody is waiting on us, and
+    nobody opens a page whose pill reads nothing.
+    """
+    with SessionLocal() as s:
+        return int(s.scalar(
+            select(func.count()).select_from(Proposal)
+            .where(Proposal.status.in_(OPEN_STATUSES))) or 0)
+
+
 def get_proposal(public_id) -> dict | None:
     with SessionLocal() as s:
         row = s.scalar(select(Proposal).where(Proposal.public_id == public_id))

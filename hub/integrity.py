@@ -525,6 +525,201 @@ def check_bare_except_pass() -> list[dict]:
 
 
 
+# A `limit` a caller may pass to say "all of them". Written down here so the
+# check and the code it reads agree about what uncapped looks like.
+CAPPED_READ_EXEMPT = {
+    # ("path.py", line-anchoring call name): why the bound is correct.
+    ("modules/social_planner/ideas.py", "for_client"):
+        "pending_count() passes limit=None, which is the uncapped path.",
+}
+
+
+def _capped_reads(trees: dict) -> dict:
+    """``{module rel: {name: limit default}}`` for every function that takes a
+    `limit` AND applies it. A parameter nothing slices with is not a cap."""
+    out: dict = {}
+    for rel, tree in trees.items():
+        for n in ast.walk(tree):
+            if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if "limit" not in [a.arg for a in n.args.args + n.args.kwonlyargs]:
+                continue
+            body = ast.unparse(n)
+            if not (".limit(" in body or "[:limit]" in body or "[:max(" in body
+                    or "[:clamp_int(" in body):
+                continue
+            args, default = n.args, "?"
+            allargs = args.args + args.kwonlyargs
+            defaults = ([None] * (len(args.args) - len(args.defaults))
+                        + list(args.defaults) + list(args.kw_defaults))
+            for a, d in zip(allargs, defaults):
+                if a.arg == "limit":
+                    default = d.value if isinstance(d, ast.Constant) else "?"
+            out.setdefault(rel, {})[n.name] = default
+    return out
+
+
+def _module_rel(dotted: str, rel: str, trees: dict):
+    """A dotted import to a repo-relative path, or None."""
+    for c in (dotted.replace(".", "/") + ".py",
+              dotted.replace(".", "/") + "/__init__.py"):
+        if c in trees:
+            return c
+    tail = dotted.split(".")[-1]
+    here = "/".join(rel.split("/")[:-1])
+    for c in (f"{here}/{tail}.py", f"{here}/{tail}/__init__.py"):
+        if c in trees:
+            return c
+    hits = [r for r in trees if r.endswith(f"/{tail}.py") or r == f"{tail}.py"]
+    return hits[0] if len(hits) == 1 else None
+
+
+def check_capped_read_misuse() -> list[dict]:
+    """A bounded read that is COUNTED, or searched for one particular row.
+
+    The defect class docs/claude/03 calls "a capped global read filtered in
+    Python", found by hand four times across `modules/reports`, the Ads
+    Builder and `hub/`. Every instance had the same shape and a different
+    disguise -- a cap spent on the wrong noun, a cap behind a `* 10`
+    multiplier, a cap the callee silently clamped tighter than the caller
+    asked for, a cap under a check whose whole job was catching silence.
+
+    Two questions, each narrow enough to have had no false positives once the
+    names resolved, and both empty on the day this went in:
+
+    1. **a count over a capped read** -- `len()` or `sum()` over a function
+       that stops at `limit`. The count stops there too and goes on being
+       printed as the total: the Ads Builder's Approval hub badge counted the
+       open proposals among the newest 200 OF ANY STATUS, so an open draft
+       older than that said the queue was empty while somebody waited on us.
+    2. **a by-key search or index over a capped read** -- `next(... if ...)`
+       or a dict comprehension keyed off one. Past the cap it answers "no such
+       row" about a row that exists, and every caller reads that as a fact.
+
+    **Resolved, not name-matched.** A first pass keyed on the bare function
+    name and reported five findings that were two different functions sharing
+    one name -- `hub/proposals.list_proposals(client)` takes no limit at all
+    and collided with `ads_builder.store.list_proposals(limit=200)`. Prose is
+    not a call site, for the sixth time in this file, and neither is a name.
+
+    **`limit=None` is the uncapped path**, whether it is the default or
+    written at the call site, because that is how a reader says "all of them"
+    out loud. **`limit=floor + 1` against a `>= floor` comparison** is the
+    bounded-threshold idiom and is correct: it stops at one more row than it
+    needs to decide.
+    """
+    trees: dict = {}
+    for rel, src in _sources():
+        try:
+            trees[rel] = ast.parse(src)
+        except SyntaxError:
+            continue
+    return capped_read_findings(trees)
+
+
+def capped_read_findings(trees: dict) -> list[dict]:
+    """The findings for a ``{rel: tree}`` map. Split out from the check so it
+    can be driven over a handful of synthetic modules -- a sweep that cannot
+    be shown to find one is a sweep asserting about nothing."""
+    capped = _capped_reads(trees)
+    # A test that counts a capped read is ASSERTING the cap, which is the
+    # opposite of this defect -- test_reports_map_reads.py reproduces every
+    # one of these on purpose rather than asserting it from the source. Read
+    # them for the definitions, never report them as call sites.
+    trees = {rel: t for rel, t in trees.items()
+             if not rel.split("/")[-1].startswith("test_")}
+    if not capped:
+        return []
+
+    out = []
+    for rel, tree in trees.items():
+        direct, aliases = {}, {}
+        for n in ast.walk(tree):
+            if isinstance(n, ast.ImportFrom) and n.module and not n.level:
+                m = _module_rel(n.module, rel, trees)
+                for a in n.names:
+                    if m:
+                        direct[a.asname or a.name] = m
+                    aliases[a.asname or a.name] = _module_rel(
+                        f"{n.module}.{a.name}", rel, trees) or m
+            elif isinstance(n, ast.ImportFrom) and n.level:
+                here = "/".join(rel.split("/")[:-1]).replace("/", ".")
+                for a in n.names:
+                    base = f"{n.module}.{a.name}" if n.module else a.name
+                    aliases[a.asname or a.name] = _module_rel(
+                        f"{here}.{base}", rel, trees)
+            elif isinstance(n, ast.Import):
+                for a in n.names:
+                    aliases[a.asname or a.name.split(".")[0]] = _module_rel(
+                        a.name, rel, trees)
+
+        def target(call):
+            f = call.func
+            if isinstance(f, ast.Name):
+                for where in (rel, direct.get(f.id)):
+                    if where and f.id in capped.get(where, {}):
+                        return where, f.id, capped[where][f.id]
+            elif isinstance(f, ast.Attribute) and isinstance(f.value, ast.Name):
+                where = aliases.get(f.value.id)
+                if where and f.attr in capped.get(where, {}):
+                    return where, f.attr, capped[where][f.attr]
+            return None
+
+        def note(call, lineno, shape, fix):
+            hit = target(call)
+            if not hit:
+                return
+            where, name, default = hit
+            if (rel, name) in CAPPED_READ_EXEMPT or (where, name) in CAPPED_READ_EXEMPT:
+                return
+            passed = None
+            for kw in call.keywords:
+                if kw.arg == "limit":
+                    passed = kw.value
+            if isinstance(passed, ast.Constant) and passed.value is None:
+                return                              # the uncapped path, said out loud
+            if passed is None and default is None:
+                return                              # uncapped by default
+            if isinstance(passed, ast.BinOp) and isinstance(passed.op, ast.Add):
+                return                              # the floor + 1 threshold idiom
+            out.append({
+                "file": rel, "line": lineno,
+                "detail": f"{shape} {name}() stops at a limit "
+                          f"(defined in {where}), so this answer stops there too "
+                          f"and reads as though nothing more exists.",
+                "fix": fix,
+            })
+
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+                if n.func.id in ("len", "sum") and n.args:
+                    a = n.args[0]
+                    if isinstance(a, ast.Call):
+                        note(a, n.lineno, "This counts", COUNT_FIX)
+                    if isinstance(a, (ast.GeneratorExp, ast.ListComp)):
+                        for g in a.generators:
+                            if isinstance(g.iter, ast.Call):
+                                note(g.iter, n.lineno, "This counts", COUNT_FIX)
+                if (n.func.id == "next" and n.args
+                        and isinstance(n.args[0], (ast.GeneratorExp, ast.ListComp))):
+                    for g in n.args[0].generators:
+                        if isinstance(g.iter, ast.Call) and g.ifs:
+                            note(g.iter, n.lineno, "This searches", KEY_FIX)
+            if isinstance(n, ast.DictComp):
+                for g in n.generators:
+                    if isinstance(g.iter, ast.Call):
+                        note(g.iter, n.lineno, "This indexes", KEY_FIX)
+    return out
+
+
+COUNT_FIX = ("Count it in the store -- a COUNT in SQL, or a read that takes "
+             "limit=None. modules/reports/store.budget_line_count() and "
+             "ads_builder.store.open_proposal_count() are the worked examples.")
+KEY_FIX = ("Look it up by its key in the store rather than sweeping a page of "
+           "rows. modules/reports/store.campaign_map() and "
+           "ads_builder.store.deployed_account() are the worked examples.")
+
+
 def check_shadowed_routes() -> list[dict]:
     """Hub routes hidden behind a mounted module's prefix.
 
@@ -1785,6 +1980,12 @@ CHECKS = [
      "A triaged module's write route logs nothing", "medium",
      check_write_route_attribution),
     ("unclamped_limits", "Unclamped query limits", "medium", check_unclamped_limits),
+    # Medium: it is the wrong FIGURE rather than a broken page, which is the
+    # kind this repo has paid most for -- four rounds of finding these by
+    # hand, each one a number on a screen that read as measured. It went in
+    # with two findings, both fixed in the same change, so it starts empty.
+    ("capped_read_misuse", "A capped read counted, or searched by key",
+     "medium", check_capped_read_misuse),
     ("shadowed_routes", "Routes hidden behind a mount", "high", check_shadowed_routes),
     # High: the model imports, the table is created, and every reader of it
     # 500s or rolls back at the first read. It went in at zero, with the one

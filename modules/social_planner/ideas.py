@@ -159,13 +159,30 @@ def weight_table(client: str, url: str = "") -> list[dict]:
 # Ideas
 # =====================================================================
 def for_client(client: str, url: str = "", *, responses=None,
-               limit: int = 200) -> list[dict]:
+               limit: int | None = 200) -> list[dict]:
+    """This client's ideas, newest first. ``limit=None`` is all of them --
+    what a COUNT needs, because a count taken off a capped read stops at the
+    cap and goes on being printed as the total."""
     rows = [r for r in _read(IDEAS_FILE, "ideas") if _mine(r, client, url)]
     if responses:
         wanted = set(responses)
         rows = [r for r in rows if str(r.get("client_response") or "pending") in wanted]
     rows.sort(key=lambda r: r.get("created_at") or "", reverse=True)
-    return rows[:limit]
+    return rows if limit is None else rows[:limit]
+
+
+def pending_count(client: str, url: str = "") -> int:
+    """How many ideas this client has not answered, all of them.
+
+    Client 360's social card printed ``len(pending(..., limit=50))``, which is
+    a count that stops at 50 -- and `pending()` reads through `for_client()`,
+    which stopped at 200 first, so a client with a real backlog could not be
+    counted at all. The `answered` figure beside it on the same card is a sum
+    over the whole table, so the two numbers were measured differently with
+    nothing saying so, and the one that capped is the one that tells a rep to
+    send the link.
+    """
+    return len(for_client(client, url, responses=("pending",), limit=None))
 
 
 def pending(client: str, url: str = "", limit: int = 20) -> list[dict]:

@@ -1371,3 +1371,43 @@ a reader that knows where the backfill has reached, or not at all.
 `hub/help_center`'s personal inbox: it filtered the newest 2000 rows HUB-WIDE
 by actor, and on a busy day 2000 rows is a few hours, so somebody's own renders
 scrolled out of their own inbox while it reported nothing to show.
+
+
+**The repo looks for this class now, so nobody has to sweep for it by eye
+again.** `hub/integrity.check_capped_read_misuse()` — reported on
+`/api/integrity`, run by `tools/integritycheck.py` and therefore by every
+pull request — asks the two questions that catch every instance above:
+
+1. **a count over a capped read**: `len()` or `sum()` over a function that
+   stops at `limit`. The count stops there and goes on being printed as the
+   total.
+2. **a by-key search or index over one**: `next(… if …)` or a dict
+   comprehension keyed off it. Past the cap it answers "no such row" about a
+   row that exists, and every caller reads that as a fact.
+
+It went in with **two findings, both fixed in the same change**, so it starts
+empty. Both were counts on screen. The Ads Builder's **Approval hub badge**
+counted the open proposals among the newest 200 proposals *of any status*, so
+once the book passed 200 rows an open draft older than that made the pill read
+lower — a badge that undercounts says the queue is empty while somebody waits
+on us, and nobody opens a page whose pill reads nothing. Client 360's **social
+card** printed `len(ideas.pending(…, limit=50))`, double-capped because
+`for_client()` stopped at 200 first; the `answered` figure beside it on the
+same card is a sum over the whole table, so two numbers on one card were
+measured differently with nothing saying so, and the one that capped is the one
+that tells a rep to send the link.
+
+Three things look like the defect and are not, and the check knows all three:
+a `limit` that is `None` (by default or written at the call site) is the
+uncapped path; `limit=floor + 1` against a `>= floor` comparison is the
+bounded-threshold idiom, correct because it stops at one row more than it needs
+to decide; and a test counting a capped read is *asserting* the cap, which is
+the opposite of the defect.
+
+**It resolves calls rather than matching names.** A first pass keyed on the
+bare function name and reported five findings that were two different functions
+sharing one — `hub/proposals.list_proposals(client)` takes no limit at all and
+collided with `ads_builder.store.list_proposals(limit=200)`. Prose is not a
+call site, and neither is a name. `test_capped_reads.py` holds each of the four
+shapes that have actually shipped and each of the look-alikes, so the sweep can
+be shown to find one rather than asserting about nothing.
