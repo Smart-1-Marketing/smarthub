@@ -412,3 +412,20 @@ test('a button pulse is exempt -- every frame says the same thing by design', ()
   );
   assert.deepEqual(findings, []);
 });
+
+test('Meta is refused in its own words, whatever its format list says', () => {
+  // Meta converts an uploaded GIF to a video and serves that, so the frame
+  // timing and loop count this module verifies are thrown away. The config
+  // already lists no gif on any Meta size; the operator's rule -- animate
+  // never applies to Meta sizes -- is stated in code as well, so a Meta
+  // config edited to list gif next year still refuses.
+  for (const size of ['1080x1080', '1200x628', '1080x1350', '1080x1920'] as SizeKey[]) {
+    const s = animationSupport('meta', size);
+    assert.equal(s.supported, false, size);
+    assert.match(s.reason ?? '', /Meta/);
+    assert.match(s.reason ?? '', /never takes an animated image/);
+    assert.match(s.reason ?? '', /ships as the still ad/);
+  }
+  // And the ordinary refusal is unchanged where it is Google's image asset.
+  assert.match(animationSupport('google', '1200x628' as SizeKey).reason ?? '', /ships as the static ad/);
+});

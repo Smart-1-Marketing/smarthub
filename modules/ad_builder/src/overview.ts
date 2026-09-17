@@ -24,6 +24,73 @@ export interface OverviewData {
   publicUrl: string;
   proofUrl: string;
   downloadUrl?: string;
+  /** Draw the brief as a form. Staff only; the write behind it is gated
+   *  regardless, this decides whether the controls are shown. */
+  editable?: boolean;
+}
+
+/** The brief's editable fields, in the order the form shows them. */
+const BRIEF_FIELDS: Array<[key: string, label: string, kind: 'text' | 'textarea' | 'url']> = [
+  ['campaignName', 'Campaign', 'text'],
+  ['promoting', 'Promoting', 'textarea'],
+  ['objective', 'Objective', 'text'],
+  ['benefit', 'Primary benefit', 'text'],
+  ['offer', 'Offer', 'text'],
+  ['cta', 'Call to action', 'text'],
+  ['audience', 'Audience', 'text'],
+  ['geography', 'Geography', 'text'],
+  ['landingPage', 'Landing page', 'url'],
+  ['notes', 'Notes', 'textarea'],
+];
+
+/**
+ * The brief as a form, for going back and changing what was asked for.
+ *
+ * It used to be printed and never written: an offer typed wrong on the intake
+ * form stayed wrong on every draft the copywriter made from it, and the only
+ * fix was a new campaign. The form posts to /api/campaign/<id>/brief, which
+ * lands the change on every record that carries the brief.
+ */
+function briefForm(d: OverviewData): string {
+  const src: Record<string, unknown> = {
+    campaignName: d.project?.campaignName, landingPage: d.project?.landingPage,
+    promoting: d.campaign?.promoting, objective: d.campaign?.objective,
+    benefit: d.campaign?.benefit, offer: d.campaign?.offer, cta: d.campaign?.cta,
+    audience: d.campaign?.audience, geography: d.campaign?.geography,
+    ...(d.submission ?? {}),
+  };
+  const rows = BRIEF_FIELDS.map(([key, label, kind]) => {
+    const v = esc(src[key] ?? '');
+    const control = kind === 'textarea'
+      ? `<textarea name="${key}" rows="2">${v}</textarea>`
+      : `<input name="${key}" type="${kind === 'url' ? 'url' : 'text'}" value="${v}">`;
+    return `<label><span>${esc(label)}</span>${control}</label>`;
+  }).join('');
+  return `<section id="brief"><h2>The brief</h2>
+    <p class="sub">What was asked for. Change anything here and the build screen, the copy drafts and the proof read the new version.</p>
+    <form id="briefForm">${rows}
+      <div class="briefacts"><button type="submit">Save the brief</button><span id="briefNote" role="status" aria-live="polite"></span></div>
+    </form></section>
+  <script>
+  (function () {
+    var form = document.getElementById('briefForm'), note = document.getElementById('briefNote');
+    if (!form) return;
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var body = {};
+      Array.prototype.forEach.call(form.querySelectorAll('[name]'), function (el) { body[el.name] = el.value; });
+      note.textContent = 'Saving\u2026';
+      fetch('/api/campaign/${esc(d.requestId)}/brief', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
+      }).then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
+        .then(function (res) {
+          note.textContent = res.ok ? 'Saved. The build screen reads the new brief the next time it opens.'
+                                    : (res.b.error || 'That did not save.');
+        })
+        .catch(function () { note.textContent = 'That did not save. Try again.'; });
+    });
+  })();
+  </script>`;
 }
 
 const LABELS: Record<string, string> = {
@@ -102,6 +169,13 @@ export function renderOverview(d: OverviewData): string {
   figcaption { font:600 12px/1.4 ui-monospace,monospace; color:var(--ink2); margin-bottom:6px; }
   img { display:block; border:1px solid var(--line); border-radius:6px; height:auto; }
   footer { color:var(--ink2); font-size:13px; margin-top:26px; }
+  #briefForm { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px 18px; }
+  #briefForm label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:var(--ink2); }
+  #briefForm input, #briefForm textarea { font:inherit; color:var(--ink); padding:8px 10px; border:1px solid var(--line); border-radius:6px; width:100%; }
+  #briefForm textarea { min-height:58px; resize:vertical; }
+  .briefacts { grid-column:1 / -1; display:flex; gap:12px; align-items:center; }
+  .briefacts button { font:inherit; font-weight:600; background:var(--signal); color:#fff; border:0; border-radius:8px; padding:10px 18px; cursor:pointer; }
+  #briefNote { font-size:13px; color:var(--ink2); }
 </style></head><body><div class="wrap">
   <header>
     <div>
@@ -115,9 +189,9 @@ export function renderOverview(d: OverviewData): string {
     </div>
   </header>
 
-  <section><h2>Campaign information</h2>
+  ${d.editable ? briefForm(d) : `<section><h2>Campaign information</h2>
     <table>${info.map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>
-  </section>
+  </section>`}
 
   <section><h2>Brand details</h2>
     ${brand.length ? `<table>${brand.map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>` : '<p class="sub">No brand record on file.</p>'}

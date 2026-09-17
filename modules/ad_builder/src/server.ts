@@ -26,7 +26,9 @@ import { beginReview, readReview, approveReview, fileUrl, latestReview, recoverR
 import { copySmokeTest } from './ai-health';
 import { buildCampaign, type Submission } from './intake';
 import { loadPlatforms, loadTemplates, acceptPlatforms, renderableSizes } from './registry';
-import { carriedInto, needsReview, styleForSize } from './carry';
+import { carryFor, needsReview, styleFor } from './carry';
+import { withPlain, adviseFindings } from './plain-checks';
+import { makeMono } from './logo-tools';
 import { logoInkLuminance } from './qa';
 import { reverseLogoOnPanel } from './svg';
 import { paletteVariants } from './palette';
@@ -45,6 +47,7 @@ import { clientProofs, createClientProof, getClientProof, recordProofSent, decid
 import { suggestCopy, critiqueCopy } from './copy-approval';
 import { searchPixabay, generateHero } from './imagery';
 import { reworkLogo } from './logo-tools';
+import { templateFor } from './registry';
 import { resolveAsset } from './assets';
 import { fitImageToBudget } from './image-budget';
 import { suggestCrop } from './smart-crop';
@@ -56,7 +59,7 @@ import {
   animationSupport,
   type AnimationSpec,
 } from './animation';
-import { listFamilies } from './fonts';
+import { listFamilies, knownGoogleFamilies } from './fonts';
 import sharp from 'sharp';
 import { notify } from './notify';
 import { discoverBrand, normalizeDomain } from './brandfetch';
@@ -381,6 +384,8 @@ const server = http.createServer(async (req, res) => {
     route === 'POST /api/background/apply' ||
     route === 'POST /api/background/suggest-crop' ||
     route === 'POST /api/logo/apply' ||
+    route === 'POST /api/logo/mono' ||
+    route === 'POST /api/qa/advise' ||
     route === 'POST /api/palette/variants' ||
     // Uploads into our own Cloudinary account. Staff only, for the reason the
     // route itself gives at length.
@@ -856,6 +861,10 @@ const server = http.createServer(async (req, res) => {
         brandCacheRecord: brandRec, ads,
         publicUrl: PUBLIC_URL, proofUrl: `/proof/${requestId}`,
         downloadUrl: delivered?.zipUrl,
+        // The brief is editable by staff and printed for everyone else. The
+        // write itself is behind the admin gate regardless; this only decides
+        // whether the form is drawn.
+        editable: checkAuth(req, url).ok,
       };
       if (ovMatch[2]) {
         const pdf = await renderOverviewPdf(data as any);
@@ -1180,6 +1189,82 @@ const server = http.createServer(async (req, res) => {
     // when it is dark on their dark brand colour the palette is what has to
     // move. QA has always said the logo is invisible; this is what can be
     // done about it.
+    /* ---------------------------------------------------------- advice
+       The checks, explained for this ad by the model.
+
+       The preview already attaches a deterministic plain reading to every
+       finding, so this is never needed to read the panel. It is the second,
+       better sentence -- written against the actual copy, the type sizes the
+       composer fitted and the palette -- and the one concrete change the
+       screen offers to show before it saves and moves on. Billed, so it is
+       asked for on a press and on the way to the next size rather than on
+       every keystroke; and it may reword a finding but never add one. */
+    if (route === 'POST /api/qa/advise') {
+      const body = JSON.parse(await readBody(req, 300_000)) as {
+        findings?: QaFinding[]; size?: string; platform?: string;
+        copy?: Record<string, string>; fontSizes?: Record<string, number>;
+        brandColors?: Record<string, string>; layoutFamily?: string;
+        backgroundImage?: boolean;
+      };
+      const findings = Array.isArray(body.findings) ? body.findings.slice(0, 24) : [];
+      const advice = await adviseFindings({
+        findings,
+        size: body.size, platform: body.platform,
+        copy: body.copy, fontSizes: body.fontSizes,
+        brandColors: body.brandColors, layoutFamily: body.layoutFamily,
+        backgroundImage: !!body.backgroundImage,
+        families: [...loadTemplates().keys()],
+      });
+      return json(res, 200, advice);
+    }
+
+    /* ------------------------------------------------------ logo tone
+       A white or black version of the mark, made from the primary.
+
+       A dark logo on a dark photo has no palette fix and the mark is the one
+       asset nobody may recolour by hand -- but a one-colour version is the
+       industry's own answer, and every brand guide carries one. The shape is
+       untouched; every opaque pixel is painted the tone and the alpha kept.
+       Only the campaign's own prepared logo is read: the file is named by
+       the saved build or by the path /api/logo/apply just handed back, never
+       by a URL, so this cannot become a relay. */
+    if (route === 'POST /api/logo/mono') {
+      const cors = corsHeaders(req.headers.origin);
+      const body = JSON.parse(await readBody(req, 20_000)) as
+        { requestId?: string; tone?: string; logo?: string };
+      const requestId = String(body.requestId ?? '').trim();
+      const tone = body.tone === 'black' ? 'black' : body.tone === 'white' ? 'white' : null;
+      if (!requestId) return json(res, 400, { error: 'Which campaign?' }, cors);
+      if (!tone) return json(res, 400, { error: 'Which tone: white or black?' }, cors);
+      // The logo this build draws: what the screen holds (an unsaved
+      // replacement) or, failing that, the saved campaign's.
+      let source = String(body.logo ?? '').trim();
+      if (!source) {
+        const file = path.join(OUT, 'campaigns', `${requestId}.json`);
+        if (fs.existsSync(file)) {
+          try { source = String(JSON.parse(fs.readFileSync(file, 'utf8'))?.campaign?.brand?.logos?.primary ?? ''); }
+          catch { source = ''; }
+        }
+      }
+      if (!source) return json(res, 404, { error: 'This build has no logo to make a version of.' }, cors);
+      // A path this service wrote (under OUT) or ships (under ROOT), and
+      // nothing else -- `..` is refused outright.
+      const abs = path.isAbsolute(source) ? path.resolve(source) : path.resolve(ROOT, source);
+      const inside = [path.resolve(OUT) + path.sep, path.resolve(ROOT) + path.sep]
+        .some((root) => abs.startsWith(root));
+      if (!inside || source.includes('..') || !fs.existsSync(abs)) {
+        return json(res, 404, { error: 'That logo is not on disk here. Replace the logo and try again.' }, cors);
+      }
+      try {
+        const cacheDir = path.join(OUT, 'cache', requestId, 'logo-tone-' + Date.now().toString(36));
+        const made = await makeMono(abs, path.join(cacheDir, `logo-${tone}.png`), tone);
+        const fitted = await fitImageToBudget(made, path.join(cacheDir, `logo-${tone}-final.png`), { keepAlpha: true });
+        return json(res, 200, { ok: true, tone, path: fitted.file }, cors);
+      } catch (e: any) {
+        return json(res, 502, { error: `That version could not be made (${e?.message ?? e}).` }, cors);
+      }
+    }
+
     if (route === 'POST /api/palette/variants') {
       const body = JSON.parse(await readBody(req, 500_000)) as {
         campaign?: any; conceptId?: string; size?: string; observed?: any;
@@ -2336,7 +2421,12 @@ const server = http.createServer(async (req, res) => {
       // list rather than a text box: an unknown name falls back to Montserrat
       // predictably, which means a free-text control can show one family while
       // the ad renders another.
-      return json(res, 200, { templates, fonts: listFamilies(), platformSizes });
+      return json(res, 200, {
+        templates, fonts: listFamilies(), platformSizes,
+        // Families the build knows and could not load, so a screen can say
+        // "Lato is not installed here" rather than the list being shorter.
+        fontsMissing: knownGoogleFamilies().filter((f) => !listFamilies().includes(f)),
+      });
     }
 
     if (route === 'GET /api/campaigns') {
@@ -2370,6 +2460,74 @@ const server = http.createServer(async (req, res) => {
           return wa !== wb ? wa - wb : b.updated.localeCompare(a.updated);
         });
       return json(res, 200, { campaigns });
+    }
+
+    /* ----------------------------------------------------------- the brief
+       Editing what was asked for, after the fact.
+
+       The brief -- what is being promoted, the objective, the offer, the
+       audience, the landing page -- was written once on the intake form and
+       could never be corrected: the overview page printed it and nothing
+       wrote it back. A wrong offer in the brief then reached every draft the
+       copywriter produced from it. This is the write. It lands on all three
+       records that carry the brief (the intake submission, the campaign file
+       and the project) so no screen goes on printing the old one, and it goes
+       through saveCampaignDocument so an approved size is not quietly moved.
+       A changed landing page drops the cached analysis, or the copy would go
+       on being drafted from the page that was replaced. */
+    const briefMatch = url.pathname.match(/^\/api\/campaign\/([\w-]+)\/brief$/);
+    if (briefMatch && req.method === 'POST') {
+      const requestId = briefMatch[1];
+      const body = JSON.parse(await readBody(req, 50_000)) as Record<string, unknown>;
+      const FIELDS = ['campaignName', 'promoting', 'objective', 'benefit', 'offer', 'cta',
+                      'audience', 'geography', 'landingPage', 'notes'] as const;
+      const patch: Record<string, string> = {};
+      for (const k of FIELDS) {
+        if (typeof body[k] === 'string') patch[k] = String(body[k]).trim().slice(0, 2000);
+      }
+      if (!Object.keys(patch).length) return json(res, 400, { error: 'Nothing to change.' });
+      if (patch.landingPage && !/^https?:\/\//i.test(patch.landingPage)) patch.landingPage = 'https://' + patch.landingPage;
+      if (patch.campaignName === '') return json(res, 400, { error: 'The campaign needs a name.' });
+
+      const campFile = path.join(OUT, 'campaigns', `${requestId}.json`);
+      const reqFile = path.join(OUT, 'requests', `${requestId}.json`);
+      const project = projects.byRequest(requestId);
+      if (!fs.existsSync(campFile) && !project) return json(res, 404, { error: 'Unknown campaign' });
+
+      const changed: string[] = [];
+      if (fs.existsSync(campFile)) {
+        const doc = readCampaign(campFile);
+        const camp = doc.campaign as unknown as Record<string, unknown>;
+        for (const k of ['campaignName', 'promoting', 'objective', 'benefit', 'offer', 'cta', 'audience', 'geography']) {
+          if (k in patch) camp[k] = patch[k];
+        }
+        try {
+          saveCampaignDocument(campFile, doc, campaignRevision(readCampaign(campFile)), project, ROOT);
+          changed.push('campaign');
+        } catch (e: any) {
+          if (e instanceof CampaignConflict) return json(res, 409, { error: e.message });
+          throw e;
+        }
+      }
+      if (fs.existsSync(reqFile)) {
+        try {
+          const rec = JSON.parse(fs.readFileSync(reqFile, 'utf8'));
+          Object.assign(rec, patch);
+          if ('landingPage' in patch) delete rec.landingAnalysis;
+          fs.writeFileSync(reqFile, JSON.stringify(rec, null, 2));
+          changed.push('request');
+        } catch { /* the campaign and project carry it either way */ }
+      }
+      if (project) {
+        if (patch.campaignName) project.campaignName = patch.campaignName;
+        if ('landingPage' in patch && patch.landingPage !== project.landingPage) {
+          project.landingPage = patch.landingPage || undefined;
+          delete project.landingAnalysis;
+        }
+        projects.save(project);
+        changed.push('project');
+      }
+      return json(res, 200, { ok: true, requestId, changed, brief: patch });
     }
 
     const campMatch = url.pathname.match(/^\/api\/campaign\/([\w-]+)$/);
@@ -2453,7 +2611,12 @@ const server = http.createServer(async (req, res) => {
           // A size is offered when ANY platform on this buy takes an animation
           // there. Where they disagree the reason names the ones that do not,
           // rather than the size vanishing from a set it half belongs to.
-          const per = platforms.map((p) => ({ platform: p, ...animationSupport(p, size as SizeKey) }));
+          // Meta's refusal first where a size is Meta's: "Meta never takes
+          // an animated image" is the reason a person needs, and "Google
+          // does not run a 1080x1080" is merely also true.
+          const per = platforms
+            .slice().sort((a, b) => (b === 'meta' ? 1 : 0) - (a === 'meta' ? 1 : 0))
+            .map((p) => ({ platform: p, ...animationSupport(p, size as SizeKey) }));
           const yes = per.filter((x) => x.supported);
           return {
             size,
@@ -2769,21 +2932,32 @@ const server = http.createServer(async (req, res) => {
           size: (body.size ?? '300x250') as any,
           assetRoot: ROOT,
         });
+        const size = (body.size ?? '300x250') as SizeKey;
+        const copy = { ...(concept.copy?.default ?? {}), ...(concept.copy?.[size] ?? {}) };
         return json(res, 200, {
           image: `data:image/png;base64,${out.png.toString('base64')}`,
           width: out.width,
           height: out.height,
           status: out.status,
           wordCount: out.wordCount,
-          qa: out.qa.filter((f) => f.status !== 'pass'),
+          // Each finding carries its plain reading (plain-checks.ts) beside
+          // the measured one, so the panel never has to print a ratio.
+          qa: withPlain(out.qa.filter((f) => f.status !== 'pass'), {
+            size, fontSizes: out.fontSizes, copy,
+            backgroundImage: !!concept.backgroundImage,
+            families: [...loadTemplates().keys()],
+          }),
+          // The type size each block fitted at, so advice can say "try 48px"
+          // from the number the composer used rather than a guess.
+          fontSizes: out.fontSizes,
+          // Which family drew this size: the set's, or this size's own pick.
+          layoutFamily: out.layoutFamily,
           // What this size actually renders with, and where it came from. The
           // panel draws these rather than resolving the carry itself: a second
           // reading of that rule in the browser is the mirror CLAUDE.md counts
           // the cost of twice, and it would drift the day either half moved.
-          carry: carriedInto(concept.styleOverrides, getTemplate(concept.layoutFamily),
-                             (body.size ?? '300x250') as any),
-          style: styleForSize(concept.styleOverrides, getTemplate(concept.layoutFamily),
-                              (body.size ?? '300x250') as any) ?? {},
+          carry: carryFor(concept, size),
+          style: styleFor(concept, size) ?? {},
         });
       } catch (e: any) {
         return json(res, 422, { error: e?.message ?? 'Preview failed' });
@@ -2821,7 +2995,7 @@ const server = http.createServer(async (req, res) => {
       const report: Record<string, unknown> = {};
       const review: string[] = [];
       for (const size of sizes) {
-        const c = carriedInto(concept.styleOverrides, template, size as any);
+        const c = carryFor(concept, size as any);
         report[size] = c;
         if (needsReview(c)) review.push(size);
       }

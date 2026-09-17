@@ -244,7 +244,8 @@
   .locked button { margin-top: 8px; }
   .col.left.lock input, .col.left.lock textarea, .col.left.lock select,
   .col.left.lock .bgmode, .col.left.lock .famcard, .col.left.lock .bsclear,
-  .col.left.lock .inkchip, .col.left.lock .bgpos button {
+  .col.left.lock .inkchip, .col.left.lock .bgpos button, .col.left.lock .pad button,
+  .col.left.lock .speed button, .col.left.lock .cpbtn, .col.left.lock .logotile {
     pointer-events: none; opacity: .5;
   }
   .col.left.lock .locked, .col.left.lock .locked button { pointer-events: auto; opacity: 1; }
@@ -577,6 +578,90 @@
   .empty { padding: 40px 22px; color: var(--ink-2); text-align: center; }
   .empty h2 { font-size: 15px; margin: 0 0 6px; color: var(--ink); }
 
+  /* The left column is six sections and one is open at a time.
+
+     Layout, Copy, Background, Type/Fonts, Text Boxes, Logo -- the order the
+     work happens in. It was a scroll of every control at once, with the
+     layout cards wrapped in a fold called "Advanced" that nobody found. A
+     section is a <details>; opening one closes the rest, the way the text
+     box panels inside Text Boxes already behave. */
+  .nav { border-bottom: 1px solid var(--line); padding: 0; }
+  .nav > summary { cursor: pointer; list-style: none; display: flex; align-items: center;
+    gap: 8px; padding: 13px 18px; font-size: 11.5px; letter-spacing: .13em;
+    text-transform: uppercase; color: var(--ink); font-weight: 700; user-select: none; }
+  .nav > summary::-webkit-details-marker { display: none; }
+  .nav > summary::before { content: '\25B8'; font-size: 10px; color: var(--ink-2);
+    transition: transform .15s ease; flex: none; }
+  .nav[open] > summary::before { transform: rotate(90deg); }
+  .nav > summary:hover { background: var(--panel-2); }
+  .nav[open] > summary { background: var(--panel-2); border-bottom: 1px solid var(--line); }
+  .nav > .navbody { padding: 14px 18px 16px; }
+  .nav > summary .navsub { margin-left: auto; font-size: 10.5px; letter-spacing: 0;
+    text-transform: none; font-weight: 500; color: var(--ink-2); }
+
+  /* How far an arrow moves a thing. Three speeds, one of them lit. */
+  .speed { display: inline-flex; gap: 4px; align-items: center; margin: 0 0 7px 8px;
+    vertical-align: top; }
+  .speed span { font-size: 10.5px; color: var(--ink-2); margin-right: 2px; }
+  .speed button { font: inherit; font-size: 10.5px; padding: 3px 8px; border-radius: 20px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink-2); cursor: pointer; }
+  .speed button[aria-pressed="true"] { background: var(--signal); color: #fff;
+    border-color: var(--signal); font-weight: 600; }
+  .padrow { display: flex; align-items: flex-start; flex-wrap: wrap; }
+  .pad.vert { grid-template-columns: 30px; }
+
+  /* The blue M: a size Meta buys. */
+  .mm { display: inline-flex; align-items: center; justify-content: center; width: 17px;
+    height: 17px; border-radius: 50%; background: #1877F2; color: #fff; font-size: 10px;
+    font-weight: 700; margin-left: 6px; flex: none; font-family: -apple-system, sans-serif; }
+
+  /* The action row: every step after Save, with what each one does under
+     it. It sits under the workflow rail rather than in the toolbar, because
+     five bare buttons across the top and the same five described further
+     down was the same job in two places. */
+  .acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch; padding: 10px 16px;
+    background: var(--panel); border-bottom: 1px solid var(--line); }
+  .acts .nsbtn, .acts .btn.primary { text-align: left; display: flex; flex-direction: column;
+    gap: 2px; max-width: 15rem; padding: 8px 11px; border-radius: 7px; font: inherit; cursor: pointer; }
+  .acts .btn.primary { margin-left: auto; }
+  .acts .btn.primary b { font-size: 12.5px; }
+  .acts .btn.primary span { font-size: 11px; line-height: 1.3; color: #0B1220; opacity: .8; }
+  .acts .nsbtn[disabled] { opacity: .5; cursor: not-allowed; }
+
+  /* A picked color waits for Use. */
+  .colorpick { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin: 3px 0 4px; }
+  .colorpick .cpbtn { font: inherit; font-size: 10.5px; padding: 3px 8px; border-radius: 5px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+  .colorpick .cpbtn:hover { border-color: var(--signal); color: var(--signal); }
+  .colorpick .cpbtn.primary { background: var(--signal); border-color: var(--signal);
+    color: #0B1220; font-weight: 600; }
+  .colorpick .cpbtn[disabled] { opacity: .45; cursor: default; }
+  .inkchip.saved { border-radius: 50%; }
+
+  /* Undo and redo, in the toolbar next to Save. */
+  .undo { display: inline-flex; gap: 4px; }
+  .undo .btn { padding: 8px 10px; }
+
+  /* Checks, in words. The heading is the problem, the body is what to do. */
+  .qa li .qt { display: block; font-family: inherit; font-size: 12.5px; color: var(--ink);
+    font-weight: 600; margin-bottom: 2px; }
+  .qa li .qw { display: block; color: var(--ink-2); font-size: 12px; }
+  .qa li .qh { display: block; color: var(--ink); font-size: 12px; margin-top: 3px; }
+  .qa li .qm { display: block; font-family: "IBM Plex Mono", monospace; font-size: 10.5px;
+    color: var(--ink-2); margin-top: 4px; opacity: .8; }
+  .qa .qasum { font-size: 12px; color: var(--ink-2); margin: -4px 0 8px; line-height: 1.4; }
+  .qa .qatools { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .try { margin: 6px 6px 0 0; }
+
+  /* A logo picked from the gallery. */
+  .logogrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+  .logotile { padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: #fff;
+    cursor: pointer; font: inherit; }
+  .logotile img { width: 100%; height: 48px; object-fit: contain; display: block; }
+  .logotile span { display: block; font-size: 10px; color: #333; margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .logotile:hover { border-color: var(--signal); }
+
   @media (max-width: 1100px) {
     .bench { grid-template-columns: 280px 1fr; }
     .bench, body.s1hub-collapsed .bench {
@@ -638,6 +723,8 @@
     label says.
   -->
   <button class="btn" id="save">Save now</button>
+  <!-- Every change on this screen can be taken back, one at a time. -->
+  <span class="undo"><button class="btn" id="undo" disabled title="Undo the last change">&#8630; Undo</button><button class="btn" id="redo" disabled title="Put the change back">&#8631; Redo</button></span>
   <span class="hint" id="saveHint" role="status" aria-live="polite">Changes save automatically.</span>
   <a class="btn" id="clientEmailLink" style="display:none">Email client in GHL</a>
   <a class="btn" id="proofLink" href="#" target="_blank" style="display:none">Open proof</a>
@@ -647,28 +734,10 @@
        anything to; before a render there is nothing to put in it. -->
   <a class="btn" id="attachClient" href="#" style="display:none">Attach to client…</a>
   <div id="deliveries" style="display:none;margin-top:10px;font-size:13px"></div>
-  <!-- "Render all sizes" said what it did and not what it was for, so nobody
-       knew whether they needed it. The title says the rest: the preview is one
-       size and lives in the browser, and this is what writes the actual files
-       every other step reads. It now asks what to do rather than assuming, so
-       the label is the question rather than one of its answers. -->
-  <button class="btn primary" id="reviewSet">Next: review all sizes</button>
-  <button class="btn" id="renderAll" style="display:none"
-    title="Build the finished files for this set. The preview is a live sketch; these are what the proof, the delivery ZIP and the client gallery all read.">Render…</button>
-  <!-- Saved, so it acts on the build that is written down. A preset cut from
-       an unsaved build would capture the previous version and every ad made
-       from it afterwards would carry it -- the same reason Render and Attach
-       wait for a save. -->
-  <!-- Motion is offered only once there is a saved static design to put it on,
-       which is both the honest gate and the operator's own rule: an animation
-       is built FROM the still ad, and asking about it during the first build
-       would slow down the eight sizes that get made every time to serve the
-       one that occasionally moves. Same gate as Render, for the same reason --
-       it acts on the saved build and not on what is on screen. -->
-  <button class="btn" id="animate" style="display:none"
-    title="Add motion to this set — up to three slides of changing text, or a pulsing button. Built from the saved static design and delivered beside it.">Animate…</button>
-  <button class="btn" id="savePreset" style="display:none"
-    title="Keep this client's brand, layout and design as a starting point, so the next ad for them is a form fill rather than a rebuild.">Save as preset…</button>
+  <!-- Render, Animate, Save as preset and Review used to stand here too, and
+       again further down with a description each. Same five jobs in two
+       places. They live in the action row under the workflow rail now, in the
+       order the work happens, each saying what it is for. -->
 </div>
 
 <div class="workflow" aria-label="Display ad workflow">
@@ -683,6 +752,37 @@
   <div class="nsmsg" id="nsMsg"></div>
   <div class="nsacts" id="nsActs"></div>
   <button type="button" class="nsclose" id="nsClose" aria-label="Dismiss">&times;</button>
+</div>
+
+<!-- The steps after Save, in the order they happen, each with what it does
+     under the label. Always on screen: a person following along should not
+     have to remember which button was where.
+
+     Save is the only thing offered until a build has been written down;
+     Render appears once there is a saved build to render, Animate and the
+     preset the same, because every one of these acts on the SERVER's copy.
+     "Render all sizes" said what it did and not what it was for, so nobody
+     knew whether they needed it; the description says the rest. -->
+<div class="acts" id="actionRow" aria-label="What to do next">
+  <button type="button" class="nsbtn" id="renderAll" style="display:none"
+    title="Build the finished files for this set. The preview is a live sketch; these are what the proof, the delivery ZIP and the client gallery all read.">
+    <b>Render…</b><span>Build the finished files, file them onto the client, or package what is already built.</span></button>
+  <!-- Motion is offered only once there is a saved static design to put it on:
+       an animation is built FROM the still ad. Never for a Meta size -- Meta
+       converts a GIF to a video -- and the panel says so by name. -->
+  <button type="button" class="nsbtn" id="animate" style="display:none"
+    title="Add motion to this set — up to three slides of changing text, or a pulsing button. Built from the saved static design and delivered beside it.">
+    <b>Animate…</b><span>Add motion to the Google banner sizes: changing text or a pulsing button. Meta sizes always stay still.</span></button>
+  <!-- Saved, so it acts on the build that is written down. A preset cut from
+       an unsaved build would capture the previous version and every ad made
+       from it afterwards would carry it -- the same reason Render waits. -->
+  <button type="button" class="nsbtn" id="savePreset" style="display:none"
+    title="Keep this client's brand, layout and design as a starting point, so the next ad for them is a form fill rather than a rebuild.">
+    <b>Save as preset…</b><span>Keep this brand, layout and design as a starting point for the next ad.</span></button>
+  <button type="button" class="nsbtn" id="cloneConcept" style="display:none">
+    <b>Duplicate as the next concept</b><span>A fresh copy on its own number, named Concept B — then C, then D. Change the picture, the words or the layout on the copy and leave this one alone.</span></button>
+  <button type="button" class="btn primary" id="reviewSet">
+    <b>Next: review all sizes</b><span>Build every size, check them side by side, and approve the ones that are ready.</span></button>
 </div>
 
 <div class="bench" id="bench">
@@ -751,6 +851,21 @@
     copyScope: {},
     /** Approvals for the loaded project, as [{conceptId, platform, size}]. */
     approvals: [],
+    /** The last preview's findings and fitted type sizes, for the advice
+     *  layer: what to say on the way to the next size, and the number to
+     *  suggest from. */
+    lastQa: [],
+    lastFontSizes: {},
+    /** How far one press of an arrow moves a thing: slow, medium or fast.
+     *  One setting for every pad, remembered for the session. */
+    speed: 'medium',
+    /** Whether a layout pick applies to this size or the whole set. */
+    layoutScope: 'all',
+    /** A color picked in a well and not yet used, keyed by block:prop. */
+    pendingColor: {},
+    /** Undo and redo: JSON snapshots of the campaign, oldest first. */
+    undo: [],
+    redo: [],
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -838,6 +953,88 @@
     var cs = state.doc.campaign.concepts;
     return cs.filter(function (c) { return c.conceptId === state.conceptId; })[0] || cs[0];
   }
+
+  /* The family that draws this size: the set's, or this size's own pick.
+     Same rule as registry.familyFor() on the server -- a per-size family
+     that does not draw the size falls back to the set's. */
+  function familyFor(size) {
+    var c = concept(); if (!c) return null;
+    var pick = c.layoutBySize && c.layoutBySize[size || state.size];
+    if (pick && pick !== c.layoutFamily) {
+      var t = state.templates.filter(function (x) { return x.id === pick; })[0];
+      if (t && t.sizes.indexOf(size || state.size) >= 0) return pick;
+    }
+    return c.layoutFamily;
+  }
+  function templateFor(size) {
+    var id = familyFor(size);
+    return state.templates.filter(function (x) { return x.id === id; })[0] || null;
+  }
+
+  /* A size Meta buys. Drawn with a blue M in the rail, and never animated. */
+  function isMetaSize(size) {
+    var m = state.platformSizes && state.platformSizes.meta;
+    return !!m && m.indexOf(size) >= 0;
+  }
+
+  /* --------------------------------------------------------------- undo
+     Every change on this screen can be taken back. A snapshot of the
+     campaign is kept before each change; typing coalesces, so one word is
+     one undo rather than nine. Not persisted: undo is about this sitting. */
+  var UNDO_LIMIT = 60, lastRememberAt = 0, lastRememberKey = '';
+  function remember(key) {
+    if (!state.doc) return;
+    var now = Date.now();
+    var same = key && key === lastRememberKey && now - lastRememberAt < 1200;
+    lastRememberAt = now; lastRememberKey = key || '';
+    if (same) return;
+    var snap = JSON.stringify(state.doc.campaign);
+    if (state.undo.length && state.undo[state.undo.length - 1] === snap) return;
+    state.undo.push(snap);
+    if (state.undo.length > UNDO_LIMIT) state.undo.shift();
+    state.redo = [];
+    refreshUndo();
+  }
+  function restoreSnapshot(snap) {
+    state.doc.campaign = JSON.parse(snap);
+    var c = concept();
+    if (!c) return;
+    state.conceptId = c.conceptId;
+    var rail = railSizes();
+    if (rail.length && rail.indexOf(state.size) < 0) state.size = rail[0];
+    state.dirty = true;
+    state.resolvedStyle = null; state.resolvedFor = null;
+    drawControls(); drawRail(); preview(); refreshCarry();
+  }
+  function undo() {
+    if (!state.undo.length) return;
+    var now = JSON.stringify(state.doc.campaign);
+    var snap = state.undo.pop();
+    if (snap === now && state.undo.length) snap = state.undo.pop();
+    state.redo.push(now);
+    restoreSnapshot(snap);
+    refreshUndo();
+  }
+  function redo() {
+    if (!state.redo.length) return;
+    state.undo.push(JSON.stringify(state.doc.campaign));
+    restoreSnapshot(state.redo.pop());
+    refreshUndo();
+  }
+  function refreshUndo() {
+    var u = $('undo'), r = $('redo');
+    if (u) u.disabled = !state.undo.length;
+    if (r) r.disabled = !state.redo.length;
+  }
+  $('undo').addEventListener('click', undo);
+  $('redo').addEventListener('click', redo);
+  document.addEventListener('keydown', function (e) {
+    if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+    var t = e.target && e.target.tagName;
+    if (t === 'INPUT' || t === 'TEXTAREA') return;   // the field's own undo
+    e.preventDefault();
+    if (e.shiftKey) redo(); else undo();
+  });
   /* Copy is stored as a default plus per-size overrides. The editor always
      shows the effective value for the size on screen, and writes to the
      override for that size — editing the 320x50 must not rewrite the 300x600. */
@@ -866,6 +1063,7 @@
 
   function setCopy(field, value) {
     var c = concept(); if (!c) return;
+    remember('copy:' + field);
     if (scopeOf(field) === 'all') {
       if (!c.copy['default']) c.copy['default'] = {};
       c.copy['default'][field] = value;
@@ -889,7 +1087,7 @@
      point was exactly that on every layout in the tool until this release --
      so the field says so instead. */
   function drawnBlocks() {
-    var t = state.templates.filter(function (x) { return x.id === concept().layoutFamily; })[0];
+    var t = templateFor(state.size);
     var b = t && t.blocks && t.blocks[state.size];
     // An older server does not send `blocks`. Say nothing rather than
     // labeling every field as missing.
@@ -904,7 +1102,7 @@
   /* Sizes in this family whose layout does draw a block, so "not here" can
      name where it is instead of only where it is not. */
   function sizesDrawing(field) {
-    var t = state.templates.filter(function (x) { return x.id === concept().layoutFamily; })[0];
+    var t = templateFor(state.size);
     if (!t || !t.blocks) return [];
     return (t.sizes || []).filter(function (sz) {
       return (t.blocks[sz] || []).indexOf(field) >= 0;
@@ -981,6 +1179,44 @@
     return '<div class="palette-note">' + parts.join(' \u00b7 ') + '</div>';
   }
 
+  /* Which of the six sections is open. One at a time, remembered across the
+     redraws every edit triggers. Layout first because it is the first thing
+     decided; after a size change the open section stays open. */
+  var openNav = 'layout';
+
+  function navSection(id, title, sub, body) {
+    return '<details class="nav" data-nav="' + id + '"' + (openNav === id ? ' open' : '') + '>' +
+      '<summary>' + esc(title) + (sub ? '<span class="navsub">' + sub + '</span>' : '') + '</summary>' +
+      '<div class="navbody">' + body + '</div></details>';
+  }
+
+  function wireNav() {
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-nav]'), function (el) {
+      el.addEventListener('toggle', function () {
+        if (!el.open) { if (openNav === el.dataset.nav) openNav = null; return; }
+        openNav = el.dataset.nav;
+        Array.prototype.forEach.call($('controls').querySelectorAll('[data-nav]'),
+          function (other) { if (other !== el) other.open = false; });
+      });
+    });
+  }
+
+  /* The brand's faces, as a list of what the renderer actually has.
+
+     A text box here let somebody type "Lato" into a build that had three
+     families installed, and the ad rendered in Poppins while the panel said
+     Lato. The renderer carries the Google families now (src/fonts.ts) and
+     this offers exactly that list. A saved value that is not on it is kept
+     and marked, rather than silently swapped for the first option. */
+  function fontSelect(role, current) {
+    var have = state.fonts || [];
+    var known = have.indexOf(current) >= 0;
+    return '<select id="' + role + '-font" data-font="' + role + '">' +
+      (current && !known ? opt(current, current + ' (not installed here — renders as Poppins)', current) : '') +
+      have.map(function (f) { return opt(f, f, current); }).join('') +
+      '</select>';
+  }
+
   function drawControls() {
     var c = concept();
     if (!c) { $('controls').innerHTML = ''; return; }
@@ -991,7 +1227,7 @@
       ['offer', 'Offer', 'text'],
       ['cta', 'Call to action', 'text'],
       ['trust', 'Proof point', 'text',
-       'One line of evidence that this business is safe to call \u2014 years in ' +
+       'One line of evidence that this business is safe to call — years in ' +
        'business, review score, license, guarantee. e.g. "Serving Riverside ' +
        'since 1998" or "4.9 stars, 300+ reviews".']
     ].map(function (f) {
@@ -1013,114 +1249,140 @@
           'appear on this ad. ' +
           (elsewhere.length
             ? 'It does draw at ' + esc(elsewhere.join(', ')) + '.'
-            : 'No size in this layout family draws it \u2014 try another layout.') +
+            : 'No size in this layout family draws it — try another layout.') +
           '</div>';
       }
       return '<div class="field"><label for="copy-' + key + '">' + f[1] + hint + '</label>' + absent + input +
         scopeControl(key) + '</div>';
     }).join('');
 
-    $('controls').innerHTML =
-      lockedBanner() +
-      '<div class="group"><h3>Copy for ' + esc(state.size) +
-        help('Each field asks, the first time you change it, whether the edit ' +
-             'is for this size or for every size in the set. The answer stays ' +
-             'under the field as a toggle, so it can be changed after.') +
-        '</h3>' +
-        /* The five fields, drafted from the client's own page.
+    /* Layout first: it decides where every line can live. A pick applies to
+       the whole set or to this size alone -- the toggle under the cards says
+       which, and stays visible the way the copy scope does. */
+    var layoutBody =
+      '<p class="group-note">Choose the structure that best supports this message.' +
+        help('A layout is a family of hand-drawn designs, one per size. Pick it ' +
+             'for every size, or for just ' + state.size + ' when this size ' +
+             'needs a different arrangement from the rest.') + '</p>' +
+      '<div class="scope" style="margin:0 0 9px" data-layoutscope>' +
+        '<span>Applies to</span>' +
+        '<button type="button" data-lscope="all" aria-pressed="' + (state.layoutScope === 'all') + '">Every size</button>' +
+        '<button type="button" data-lscope="size" aria-pressed="' + (state.layoutScope === 'size') + '">' + esc(state.size) + ' only</button>' +
+      '</div>' +
+      '<div class="famgrid" id="famGrid">' + familyCards() + '</div>' +
+      '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="famNote"></div>';
 
-           The tool has read that page since the day intake was built -- the
-           analysis sits on the project record -- and nothing on this screen
-           had ever asked for it, so an operator opened a set of empty boxes
-           and wrote the ad from what they could remember about the business.
-           One press fills all five from what the page actually says.
+    var copyBody =
+      /* The five fields, drafted from the client's own page.
 
-           It fills, it does not overwrite: a line somebody has typed is the
-           better source and is left alone. Emptying a field is how you ask
-           for it to be redrafted. */
-        '<div class="field" style="margin-bottom:12px">' +
-          '<button type="button" class="bsclear" id="draftCopy" style="width:100%">' +
-            'Draft the copy from their website</button>' +
-          help('Fetches ' + esc(state.landingPage || 'the campaign\u2019s landing page') +
-               ' and writes the headline, supporting line, offer, call to ' +
-               'action and proof point from what is on it. Fields you have ' +
-               'already filled in are left exactly as they are.', 'left') +
-          '<div id="draftNote" style="font-size:11.5px;color:var(--ink-2);margin-top:5px"></div>' +
-        '</div>' + fields + '</div>' +
-      /* Copy and layout are one decision: the words need a home before an
-         operator spends time sourcing a picture. Keeping the layout cards
-         immediately below the inputs also makes a quick message/layout pass
-         possible without scrolling through the image picker. */
-      '<div class="group"><h3>Layout</h3>' +
-        '<p class="group-note">Choose the structure that best supports this message.</p>' +
-        '<div class="famgrid" id="famGrid">' + familyCards() + '</div>' +
-        '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="famNote"></div></div>' +
-      '<div class="group"><h3>Background</h3>' +
+         The tool has read that page since the day intake was built -- the
+         analysis sits on the project record -- and nothing on this screen
+         had ever asked for it, so an operator opened a set of empty boxes
+         and wrote the ad from what they could remember about the business.
+         One press fills all five from what the page actually says.
+
+         It fills, it does not overwrite: a line somebody has typed is the
+         better source and is left alone. Emptying a field is how you ask
+         for it to be redrafted. */
+      '<div class="field" style="margin-bottom:12px">' +
+        '<button type="button" class="bsclear" id="draftCopy" style="width:100%">' +
+          'Draft the copy from their website</button>' +
+        help('Fetches ' + esc(state.landingPage || 'the campaign’s landing page') +
+             ' and writes the headline, supporting line, offer, call to ' +
+             'action and proof point from what is on it. Fields you have ' +
+             'already filled in are left exactly as they are.', 'left') +
+        '<div id="draftNote" style="font-size:11.5px;color:var(--ink-2);margin-top:5px"></div>' +
+      '</div>' + fields;
+
+    var backgroundBody =
+      '<div class="bgmodes">' +
+        '<button type="button" class="bgmode' + (!c.backgroundImage && c.hideHero ? ' on' : '') + '" data-bgmode="none">No image</button>' +
+        '<button type="button" class="bgmode' + (!c.backgroundImage && !c.hideHero ? ' on' : '') + '" data-bgmode="hero">Use original image</button>' +
+        '<button type="button" class="bgmode" data-bgmode="gallery">From their image gallery</button>' +
+        '<button type="button" class="bgmode" data-bgmode="upload">Upload a picture</button>' +
+      '</div>' +
+      '<details class="image-more"><summary>More image sources</summary>' +
         '<div class="bgmodes">' +
-          '<button type="button" class="bgmode' + (!concept().backgroundImage && concept().hideHero ? ' on' : '') + '" data-bgmode="none">No image</button>' +
-          '<button type="button" class="bgmode' + (!concept().backgroundImage && !concept().hideHero ? ' on' : '') + '" data-bgmode="hero">Use original image</button>' +
-          '<button type="button" class="bgmode" data-bgmode="gallery">From their image gallery</button>' +
-          '<button type="button" class="bgmode" data-bgmode="upload">Upload a picture</button>' +
+          '<button type="button" class="bgmode" data-bgmode="landing">From their landing page</button>' +
+          '<button type="button" class="bgmode" data-bgmode="stock">Suggested photos</button>' +
+          '<button type="button" class="bgmode" data-bgmode="ai">Have AI make one</button>' +
         '</div>' +
-        '<details class="image-more"><summary>More image sources</summary>' +
-          '<div class="bgmodes">' +
-            '<button type="button" class="bgmode" data-bgmode="landing">From their landing page</button>' +
-            '<button type="button" class="bgmode" data-bgmode="stock">Suggested photos</button>' +
-            '<button type="button" class="bgmode" data-bgmode="ai">Have AI make one</button>' +
-          '</div>' +
-        '</details>' +
-        '<div id="bgResults" class="bgresults"></div>' +
-        '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="bgNote">' +
-          (concept().backgroundImage
-            ? 'A photo background is applied to this concept.'
-            : concept().hideHero ? 'No image is shown. The layout uses its solid colors.'
-              : 'The layout uses its original hero image where it has an image slot.') +
-        '</div>' +
-        backgroundAdjust() +
-        '</div>' +
-      '<div class="group"><h3>Brand colors' +
+      '</details>' +
+      '<div id="bgResults" class="bgresults"></div>' +
+      '<div class="field" style="font-size:11.5px;color:var(--ink-2)" id="bgNote">' +
+        (c.backgroundImage
+          ? 'A photo background is applied to this concept.'
+          : c.hideHero ? 'No image is shown. The layout uses its solid colors.'
+            : 'The layout uses its original hero image where it has an image slot.') +
+      '</div>' +
+      backgroundAdjust();
+
+    /* Brand colors sit with the type: both are the brand's identity and both
+       are set once for the whole set. The swatches wait for Use, the way
+       every other picker on this screen does. */
+    var typeBody =
+      '<div class="bsname">Brand colors' +
         help('The five roles every layout resolves against. Changing one here ' +
-             'changes it on every size in the set.') + '</h3>' +
-        '<div id="siteBrand"></div><div class="swatches">' +
-        ['primary','secondary','accent','light','dark'].map(function (k) {
-          return '<div class="swatch"><input type="color" data-color="' + k + '" value="' + esc(b.colors[k]) + '"><span>' + k + '</span></div>';
-        }).join('') +
-        '</div>' + paletteProvenance() +
+             'changes it on every size in the set. Pick a color, then press ' +
+             'Use — or Use and save to keep it as a chip on every color ' +
+             'control.') + '</div>' +
+      '<div id="siteBrand"></div><div class="swatches">' +
+      ['primary','secondary','accent','light','dark'].map(function (k) {
+        var pend = state.pendingColor['brand:' + k];
+        return '<div class="swatch"><input type="color" data-color="' + k + '" value="' +
+          esc(pend || b.colors[k]) + '"' + (pend ? ' style="outline:2px solid var(--warn)"' : '') +
+          '><span>' + k + '</span></div>';
+      }).join('') +
       '</div>' +
-      '<div class="group"><h3>Type' +
-        help('Only families the renderer has installed will render. An unknown ' +
-             'name falls back to the default face and is flagged in the checks ' +
-             'on the right, rather than failing.') + '</h3>' +
-        '<div class="field"><label for="headline-font">Headline face</label><input id="headline-font" type="text" data-font="headline" value="' + esc(b.fonts.headline) + '"></div>' +
-        '<div class="field"><label for="body-font">Body face</label><input id="body-font" type="text" data-font="body" value="' + esc(b.fonts.body) + '"></div>' +
-        '<div id="siteType"></div>' +
+      '<div class="colorpick" id="brandPick" style="margin-top:6px' + (pendingBrand().length ? '' : ';display:none') + '">' +
+        '<button type="button" class="cpbtn primary" data-brandpick="use">Use</button>' +
+        '<button type="button" class="cpbtn" data-brandpick="save">Use and save</button>' +
+        '<button type="button" class="cpbtn" data-brandpick="drop">Cancel</button>' +
       '</div>' +
-      // This heading used to read "Text boxes for 300x250" and it was not
-      // true: these overrides live on the concept and every size renders
-      // from them. Saying which size they belonged to made a person set a
-      // type size to suit the leaderboard and shrink the skyscraper with it,
-      // with the panel insisting it had only touched one.
-      // The heading is the mode. On the size these adjustments were authored
-      // on, an edit reaches the whole set; on a size that was CARRIED into, it
-      // is a correction to that size alone -- and a control that quietly
-      // changes what it applies to, under a heading still saying "every size",
-      // is the silent mode switch the copy scope toggle exists to avoid one
-      // field over.
-      '<div class="group"><h3>' + (carriedHere()
+      paletteProvenance() +
+      '<div class="bsname" style="margin-top:14px">Type' +
+        help('Google Fonts, installed on the renderer. Only a family on this ' +
+             'list will render; anything else falls back to Poppins and is ' +
+             'flagged in the checks on the right.') + '</div>' +
+      '<div class="field"><label for="headline-font">Headline face</label>' + fontSelect('headline', b.fonts.headline) + '</div>' +
+      '<div class="field"><label for="body-font">Body face</label>' + fontSelect('body', b.fonts.body) + '</div>' +
+      '<div id="siteType"></div>';
+
+    // This heading used to read "Text boxes for 300x250" and it was not
+    // true: these overrides live on the concept and every size renders
+    // from them. Saying which size they belonged to made a person set a
+    // type size to suit the leaderboard and shrink the skyscraper with it,
+    // with the panel insisting it had only touched one.
+    // The sub-heading is the mode. On the size these adjustments were
+    // authored on, an edit reaches the whole set; on a size that was CARRIED
+    // into, it is a correction to that size alone -- and a control that
+    // quietly changes what it applies to, under a heading still saying
+    // "every size", is the silent mode switch the copy scope toggle exists
+    // to avoid one field over.
+    var textBody =
+      '<div class="bsname">' + (carriedHere()
         ? 'Text boxes \u2014 ' + esc(state.size) + ' only'
         : 'Text boxes \u2014 every size') +
         help(carriedHere()
           ? 'This size takes its adjustments from ' +
-            esc((concept().styleOverrides || {}).authoredFor) + ', carried across ' +
+            esc((c.styleOverrides || {}).authoredFor) + ', carried across ' +
             'in proportion. Changing anything here corrects THIS size and is ' +
             'carried nowhere else, so the rest of the set is left as it is. ' +
             '"Put it back" drops the correction and the carried value returns.'
           : 'Unlike the copy above, these apply to the whole set. "Layout" ' +
-            'means use the layout\u2019s own setting. Sizes are a ceiling \u2014 long ' +
+            'means use the layout’s own setting. Sizes are a ceiling — long ' +
             'copy still shrinks to fit. Width is where the line wraps, and is ' +
-            'capped at the edge of the ad.') + '</h3>' +
-        blockStyleControls() + panelControls() + logoStyleControls() +
-        '</div>';
+            'capped at the edge of the ad.') + '</div>' +
+      blockStyleControls() + panelControls();
+
+    $('controls').innerHTML =
+      lockedBanner() +
+      navSection('layout', 'Layout', esc(familyName(familyFor(state.size))), layoutBody) +
+      navSection('copy', 'Copy', 'for ' + esc(state.size), copyBody) +
+      navSection('background', 'Background', '', backgroundBody) +
+      navSection('type', 'Type/Fonts', '', typeBody) +
+      navSection('text', 'Text Boxes', carriedHere() ? esc(state.size) + ' only' : 'every size', textBody) +
+      navSection('logo', 'Logo', '', logoStyleControls());
 
     describeFamily();
     applyLock();
@@ -1131,6 +1393,7 @@
     };
 
     wireDraftCopy();
+    wireNav();
 
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-copy]'), function (el) {
       el.addEventListener('input', function () {
@@ -1160,18 +1423,38 @@
         }
       });
     });
-    Array.prototype.forEach.call($('controls').querySelectorAll('.bsclear'), function (el) {
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-lscope]'), function (el) {
+      el.addEventListener('click', function () {
+        state.layoutScope = el.dataset.lscope;
+        Array.prototype.forEach.call($('controls').querySelectorAll('[data-lscope]'), function (o) {
+          o.setAttribute('aria-pressed', o === el ? 'true' : 'false');
+        });
+        $('famGrid').innerHTML = familyCards();
+        wireFamilyCards();
+        describeFamily();
+      });
+    });
+    Array.prototype.forEach.call($('controls').querySelectorAll('.bsclear[data-style]'), function (el) {
       el.addEventListener('click', function () {
         setBlockStyle(el.dataset.style, el.dataset.prop, '');
         drawControls();
       });
     });
+    // A color well no longer applies on its own: the pick waits for Use, so
+    // trying three shades does not write three changes. Everything else in a
+    // text box panel applies as it is changed, as before.
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-style]:not(.bsclear)'), function (el) {
-      var ev = el.tagName === 'SELECT' || el.type === 'color' ? 'change' : 'input';
+      if (el.type === 'color') {
+        el.addEventListener('input', function () { stagePick(el.dataset.style + ':' + el.dataset.prop, el.value); });
+        return;
+      }
+      var ev = el.tagName === 'SELECT' ? 'change' : 'input';
       el.addEventListener(ev, function () {
         setBlockStyle(el.dataset.style, el.dataset.prop, el.value);
-        if (el.type === 'color') markInk(el.dataset.style, el.dataset.prop);
       });
+    });
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-cp]'), function (el) {
+      el.addEventListener('click', function () { usePick(el.dataset.cp, el.dataset.cpact); });
     });
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-ink]'), function (el) {
       el.addEventListener('click', function () {
@@ -1183,6 +1466,7 @@
     if (logoPicker) logoPicker.addEventListener('change', function () {
       replaceLogo(this.files && this.files[0]);
     });
+    wireLogoPanel();
     wireBackgroundAdjust();
     wireAccordion();
     wireNudgePads();
@@ -1190,25 +1474,17 @@
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-bgmode]'), function (el) {
       el.addEventListener('click', function () { chooseBackground(el.dataset.bgmode, el); });
     });
-    Array.prototype.forEach.call($('controls').querySelectorAll('[data-family]'), function (el) {
-      el.addEventListener('click', function () {
-        setFamily(el.dataset.family);
-      });
-    });
-    var legacyFamily = $('family');
-    if (legacyFamily) legacyFamily.addEventListener('change', function () {
-      concept().layoutFamily = this.value;
-      state.dirty = true;
-      describeFamily();
-      drawRail();
-      preview();
-    });
+    wireFamilyCards();
+    // The brand swatches: a pick is staged and outlined until Use is pressed.
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-color]'), function (el) {
       el.addEventListener('input', function () {
-        state.doc.campaign.brand.colors[el.dataset.color] = el.value.toUpperCase();
-        state.dirty = true;
-        schedule();
+        state.pendingColor['brand:' + el.dataset.color] = el.value.toUpperCase();
+        el.style.outline = '2px solid var(--warn)';
+        var row = $('brandPick'); if (row) row.style.display = '';
       });
+    });
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-brandpick]'), function (el) {
+      el.addEventListener('click', function () { useBrandPicks(el.dataset.brandpick); });
     });
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-hex]'), function (el) {
       el.addEventListener('click', function () {
@@ -1218,18 +1494,95 @@
         //
         // And it claims a copy only when copyText says one happened.
         copyText(hex).then(function (ok) {
-          el.title = ok ? hex + ' copied \u2014 paste it into a swatch'
-                        : hex + ' \u2014 could not copy, select and copy it by hand';
+          el.title = ok ? hex + ' copied — paste it into a swatch'
+                        : hex + ' — could not copy, select and copy it by hand';
         });
       });
     });
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-font]'), function (el) {
       el.addEventListener('change', function () {
+        remember('font:' + el.dataset.font);
         state.doc.campaign.brand.fonts[el.dataset.font] = el.value;
         state.dirty = true;
         preview();
       });
     });
+  }
+
+  function wireFamilyCards() {
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-family]'), function (el) {
+      el.addEventListener('click', function () {
+        setFamily(el.dataset.family);
+      });
+    });
+  }
+
+  function familyName(id) {
+    var t = state.templates.filter(function (x) { return x.id === id; })[0];
+    return t ? t.name : (id || '');
+  }
+
+  /* ------------------------------------------------- picked, then used
+     A color well used to write the moment it changed, so trying three
+     shades wrote three changes and a slip of the mouse recolored a headline.
+     A pick is staged now and outlined; Use applies it, Use and save applies
+     it AND keeps it on the brand as a chip every color control offers. */
+  function stagePick(key, hex) {
+    state.pendingColor[key] = String(hex || '').toUpperCase();
+    var row = $('controls').querySelector('[data-cprow="' + key + '"]');
+    if (row) {
+      Array.prototype.forEach.call(row.querySelectorAll('[data-cp]'), function (b) { b.disabled = false; });
+      var well = row.querySelector('input[type=color]');
+      if (well) well.style.outline = '2px solid var(--warn)';
+    }
+  }
+
+  function usePick(key, act) {
+    var hex = state.pendingColor[key];
+    var parts = key.split(':');
+    if (act === 'drop' || !hex) {
+      delete state.pendingColor[key];
+      drawControls();
+      return;
+    }
+    if (act === 'save') saveColor(hex);
+    delete state.pendingColor[key];
+    if (parts[0] === 'overlay') setOverlayColor(hex);
+    else { setBlockStyle(parts[0], parts[1], hex); drawControls(); }
+  }
+
+  function pendingBrand() {
+    return Object.keys(state.pendingColor).filter(function (k) { return k.indexOf('brand:') === 0; });
+  }
+
+  function useBrandPicks(act) {
+    var keys = pendingBrand();
+    if (act === 'drop' || !keys.length) {
+      keys.forEach(function (k) { delete state.pendingColor[k]; });
+      drawControls();
+      return;
+    }
+    remember('brand');
+    keys.forEach(function (k) {
+      var hex = state.pendingColor[k];
+      state.doc.campaign.brand.colors[k.slice(6)] = hex;
+      if (act === 'save') saveColor(hex);
+      delete state.pendingColor[k];
+    });
+    state.dirty = true;
+    drawControls();
+    schedule();
+  }
+
+  /* Kept on the brand, once. The same hex saved twice is one chip. */
+  function saveColor(hex) {
+    var b = state.doc.campaign.brand;
+    var v = String(hex || '').toUpperCase();
+    if (!/^#[0-9A-F]{6}$/.test(v)) return;
+    b.savedColors = b.savedColors || [];
+    if (b.savedColors.indexOf(v) >= 0) return;
+    b.savedColors.push(v);
+    state.dirty = true;
   }
 
   /* Repaint one color row in place rather than redrawing the whole column:
@@ -1482,8 +1835,26 @@
      Everything is clamped server-side in block-style.ts — a pad invites being
      held down, and the one thing it must not do is walk the logo off the
      canvas. */
-  var NUDGE = 4;               // px per press: fine enough to aim, coarse
-                               // enough that ten presses is a real move.
+  /* How far one press moves a thing. Three speeds, chosen once for every
+     pad: slow is one pixel for aiming, medium five, fast ten for crossing
+     a canvas. The background is placed as a fraction of its own overflow
+     rather than in pixels, so it takes its own three steps under the same
+     three names. Medium is the default. */
+  var SPEEDS = { slow: 1, medium: 5, fast: 10 };
+  var BG_SPEEDS = { slow: 0.03, medium: 0.12, fast: 0.25 };
+  function nudgeStep() { return SPEEDS[state.speed] || SPEEDS.medium; }
+  function bgStep() { return BG_SPEEDS[state.speed] || BG_SPEEDS.medium; }
+  var NUDGE = SPEEDS.medium;   // the number the help bubbles quote
+
+  function speedControl() {
+    return '<div class="speed" data-speed><span>Moving speed</span>' +
+      ['slow', 'medium', 'fast'].map(function (sp) {
+        return '<button type="button" data-sp="' + sp + '" aria-pressed="' +
+          (state.speed === sp ? 'true' : 'false') + '" title="' +
+          SPEEDS[sp] + (SPEEDS[sp] === 1 ? ' pixel' : ' pixels') + ' a press">' +
+          sp.charAt(0).toUpperCase() + sp.slice(1) + '</button>';
+      }).join('') + '</div>';
+  }
 
   /* Which style panel is open. One at a time, remembered across the redraws
      that every edit triggers -- a panel that closed itself on each keystroke
@@ -1518,8 +1889,8 @@
       step: function (dx, dy) {
         var lg = styleOf('logo');
         var base = layoutLogoBox() || { x: 0, y: 0 };
-        setBlockStyle('logo', 'x', (lg.x === undefined ? base.x : lg.x) + dx * NUDGE);
-        setBlockStyle('logo', 'y', (lg.y === undefined ? base.y : lg.y) + dy * NUDGE);
+        setBlockStyle('logo', 'x', (lg.x === undefined ? base.x : lg.x) + dx * nudgeStep());
+        setBlockStyle('logo', 'y', (lg.y === undefined ? base.y : lg.y) + dy * nudgeStep());
       },
       reset: function () {
         setBlockStyle('logo', 'x', '');
@@ -1531,8 +1902,8 @@
       step: function (dx, dy) {
         var st = styleOf('cta');
         var base = layoutBox('cta') || { x: 0, y: 0 };
-        setBlockStyle('cta', 'x', (st.x === undefined ? base.x : st.x) + dx * NUDGE);
-        setBlockStyle('cta', 'y', (st.y === undefined ? base.y : st.y) + dy * NUDGE);
+        setBlockStyle('cta', 'x', (st.x === undefined ? base.x : st.x) + dx * nudgeStep());
+        setBlockStyle('cta', 'y', (st.y === undefined ? base.y : st.y) + dy * nudgeStep());
       },
       reset: function () {
         setBlockStyle('cta', 'x', '');
@@ -1547,16 +1918,18 @@
       // do to the picture rather than by the number underneath.
       step: function (dx, dy) {
         var c = concept();
+        remember('bg:offset');
         var off = c.backgroundOffset || { x: 0, y: 0 };
         c.backgroundOffset = {
-          x: Math.max(-1, Math.min(1, (off.x || 0) + dx * 0.12)),
-          y: Math.max(-1, Math.min(1, (off.y || 0) + dy * 0.12)),
+          x: Math.max(-1, Math.min(1, (off.x || 0) + dx * bgStep())),
+          y: Math.max(-1, Math.min(1, (off.y || 0) + dy * bgStep())),
         };
         state.dirty = true;
         schedule();
       },
       reset: function () {
         var c = concept();
+        remember('bg:offset');
         delete c.backgroundOffset;
         delete c.backgroundPosition;
         state.dirty = true;
@@ -1565,7 +1938,33 @@
     },
   };
 
+  /* The four lines of type move up and down. Across is the layout's
+     decision -- the family is where a line sits -- but "move the headline
+     down a bit" is the note people write most after "nudge the logo", so
+     each gets a two-arrow pad writing the block's own y. */
+  ['headline', 'support', 'offer', 'trust'].forEach(function (key) {
+    PADS[key] = {
+      get: function () { return { y: styleOf(key).y }; },
+      step: function (dx, dy) {
+        var st = styleOf(key);
+        var base = layoutBox(key) || { y: 0 };
+        setBlockStyle(key, 'y', (st.y === undefined ? base.y : st.y) + dy * nudgeStep());
+      },
+      reset: function () { setBlockStyle(key, 'y', ''); },
+    };
+  });
+
   function wireNudgePads() {
+    // One speed for every pad. Pressing a speed lights it on all of them
+    // without a redraw, which would close the panel being worked in.
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-sp]'), function (btn) {
+      btn.addEventListener('click', function () {
+        state.speed = btn.dataset.sp;
+        Array.prototype.forEach.call($('controls').querySelectorAll('[data-sp]'), function (b) {
+          b.setAttribute('aria-pressed', b.dataset.sp === state.speed ? 'true' : 'false');
+        });
+      });
+    });
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-pad]'), function (pad) {
       var spec = PADS[pad.dataset.pad];
       if (!spec) return;
@@ -1584,22 +1983,32 @@
   /* The template's own box for a block at this size, so a nudge starts from
      where the layout put it rather than from zero. */
   function layoutBox(role) {
-    var t = state.templates.filter(function (x) { return x.id === concept().layoutFamily; })[0];
+    var t = templateFor(state.size);
     var boxes = t && t.boxes && t.boxes[state.size];
     return (boxes && boxes[role]) || null;
   }
 
-  function nudgePad(id, title) {
-    return '<div class="pad" data-pad="' + id + '" title="' + esc(title) + '">' +
-      '<span></span>' +
-      '<button type="button" data-nudge="up" aria-label="Move up">\u2191</button>' +
-      '<span></span>' +
-      '<button type="button" data-nudge="left" aria-label="Move left">\u2190</button>' +
-      '<button type="button" class="mid" data-nudge="reset" aria-label="Put it back">\u25CB</button>' +
-      '<button type="button" data-nudge="right" aria-label="Move right">\u2192</button>' +
-      '<span></span>' +
-      '<button type="button" data-nudge="down" aria-label="Move down">\u2193</button>' +
-      '<span></span></div>';
+  /* A pad and its speed, side by side. `axes` is 'xy' for the logo, the
+     button and the picture, and 'y' for a line of type, which only moves up
+     and down. */
+  function nudgePad(id, title, axes) {
+    var vertical = axes === 'y';
+    var pad = vertical
+      ? '<div class="pad vert" data-pad="' + id + '" title="' + esc(title) + '">' +
+          '<button type="button" data-nudge="up" aria-label="Move up">\u2191</button>' +
+          '<button type="button" class="mid" data-nudge="reset" aria-label="Put it back">\u25CB</button>' +
+          '<button type="button" data-nudge="down" aria-label="Move down">\u2193</button></div>'
+      : '<div class="pad" data-pad="' + id + '" title="' + esc(title) + '">' +
+          '<span></span>' +
+          '<button type="button" data-nudge="up" aria-label="Move up">\u2191</button>' +
+          '<span></span>' +
+          '<button type="button" data-nudge="left" aria-label="Move left">\u2190</button>' +
+          '<button type="button" class="mid" data-nudge="reset" aria-label="Put it back">\u25CB</button>' +
+          '<button type="button" data-nudge="right" aria-label="Move right">\u2192</button>' +
+          '<span></span>' +
+          '<button type="button" data-nudge="down" aria-label="Move down">\u2193</button>' +
+          '<span></span></div>';
+    return '<div class="padrow">' + pad + speedControl() + '</div>';
   }
 
   /* A dot on a collapsed header, so a panel that is carrying an override says
@@ -1618,14 +2027,17 @@
      rather than in a layout menu. */
   function logoStyleControls() {
     var lg = styleOf('logo');
+    var c = concept();
     var touched = Object.keys(lg).length > 0;
     var scale = typeof lg.scale === 'number' ? lg.scale : 1;
     var box = layoutLogoBox();
+    var logos = state.doc.campaign.brand.logos || {};
+    var tone = c.logoTone || 'auto';
     return '<details class="blockstyle" data-acc="logo"' + (openPanel('logo') ? ' open' : '') + '>' +
       '<summary>Logo' + dotIf(touched) + '</summary>' +
       '<label style="font-size:11px;color:var(--ink-2);display:block;margin-bottom:4px">' +
-        'Move it' + help('Each press shifts the logo ' + NUDGE + ' pixels. The circle ' +
-          'puts it back where the layout had it. It cannot be pushed off the ad.') +
+        'Move it' + help('Each press shifts the logo by the moving speed beside the arrows. ' +
+          'The circle puts it back where the layout had it. It cannot be pushed off the ad.') +
       '</label>' +
       nudgePad('logo', 'Move the logo') +
       '<div class="slider">' +
@@ -1643,7 +2055,22 @@
           opt('middle', 'Middle', lg.valign) + opt('bottom', 'Bottom', lg.valign) +
         '</select></label>' +
       '</div>' +
-      '<details class="advanced"><summary>Advanced \u2014 type the numbers</summary>' +
+      /* Which version of the mark. A dark logo on a dark photo has no
+         palette fix; a white or black one-color version is the industry's
+         own answer, made from the primary with the shape untouched. */
+      '<div class="bsname" style="margin-top:10px">Logo color' +
+        help('Full color draws the logo as supplied, switching to the reverse ' +
+             'version on a dark panel when the brand has one. White or black ' +
+             'makes a one-color version of the same mark for a background it ' +
+             'cannot be read on. The checks on the right say when that is.') + '</div>' +
+      '<div class="scope" data-logotone style="margin:0 0 8px">' +
+        ['auto', 'white', 'black'].map(function (t) {
+          return '<button type="button" data-tone="' + t + '" aria-pressed="' + (tone === t ? 'true' : 'false') + '">' +
+            (t === 'auto' ? 'Full color' : t === 'white' ? 'White' : 'Black') + '</button>';
+        }).join('') +
+      '</div>' +
+      '<div id="logoToneNote" style="font-size:11.5px;color:var(--ink-2);margin:-2px 0 8px"></div>' +
+      '<details class="advanced"><summary>Advanced — type the numbers</summary>' +
         '<div class="bsrow">' +
           '<label>Left<input type="number" step="1" placeholder="' + (box ? box.x : 'auto') +
             '" data-style="logo" data-prop="x" value="' + (lg.x === undefined ? '' : lg.x) + '"></label>' +
@@ -1662,13 +2089,18 @@
           'one does not. A number typed here wins over the slider.' +
         '</div>' +
       '</details>' +
-      '<div class="bsrow" style="grid-template-columns:1fr">' +
-        '<label>Replace the logo' +
-          help('A new logo applies to every size, and is remembered for this ' +
-               'client\u2019s future builds.') +
-          '<input type="file" id="logoFile"' +
+      '<div class="bsname" style="margin-top:12px">Replace the logo' +
+        help('A new logo applies to every size, and is remembered for this ' +
+             'client’s future builds. Pull one from the client’s gallery ' +
+             '— a folder called "logos" opens first when there is one — ' +
+             'or choose a file from this computer.') + '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">' +
+        '<button type="button" class="bsclear" id="logoFromGallery">Pull from image gallery</button>' +
+        '<label class="bsclear" style="display:inline-block;cursor:pointer">Choose file' +
+          '<input type="file" id="logoFile" style="display:none"' +
           ' accept="image/png,image/svg+xml,image/jpeg,image/webp"></label>' +
       '</div>' +
+      '<div id="logoGallery" class="bgresults"></div>' +
       '<div id="logoNote" style="font-size:11.5px;color:var(--ink-2);margin:2px 0 6px"></div>' +
       '<div id="logoFix"></div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
@@ -1679,6 +2111,104 @@
           'Put the logo back' +
         '</button>' +
       '</div></details>';
+  }
+
+  /* The tone buttons and the gallery picker. Separate from wireBackgroundAdjust
+     because they are the logo's, and a change to the background panel should
+     not have to know about them. */
+  function wireLogoPanel() {
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-tone]'), function (btn) {
+      btn.addEventListener('click', function () { setLogoTone(btn.dataset.tone); });
+    });
+    var pull = $('logoFromGallery');
+    if (pull) pull.addEventListener('click', showLogoGallery);
+  }
+
+  /* Full color, white or black. The one-color versions are made on the
+     renderer from the primary the first time they are asked for and kept on
+     the brand, so the second size that needs the white logo has it already. */
+  function setLogoTone(tone) {
+    var c = concept();
+    var brand = state.doc.campaign.brand;
+    var note = $('logoToneNote');
+    function land() {
+      remember('logo:tone');
+      if (tone === 'auto') delete c.logoTone; else c.logoTone = tone;
+      state.dirty = true;
+      Array.prototype.forEach.call($('controls').querySelectorAll('[data-tone]'), function (b) {
+        b.setAttribute('aria-pressed', b.dataset.tone === tone ? 'true' : 'false');
+      });
+      if (note) note.textContent = tone === 'auto'
+        ? 'Full-color logo.' : 'The ' + tone + ' logo is drawn on this concept.';
+      preview();
+    }
+    if (tone === 'auto' || (brand.logos && brand.logos[tone])) return Promise.resolve(land());
+    if (note) note.textContent = 'Making a ' + tone + ' version of the logo…';
+    return post('/api/logo/mono', {
+      requestId: state.requestId, tone: tone, logo: brand.logos && brand.logos.primary
+    }).then(function (d) {
+      if (!d || !d.ok || !d.path) throw new Error((d && d.error) || 'That version could not be made.');
+      brand.logos = brand.logos || {};
+      brand.logos[tone] = d.path;
+      land();
+    }).catch(function (e) {
+      if (note) note.textContent = (e && e.message) || 'That version could not be made.';
+    });
+  }
+
+  /* Logos already in the client's gallery, opened on the "logos" folder
+     when the gallery has one. The Hub answers; the renderer does not know
+     who our clients are. */
+  function showLogoGallery() {
+    var host = $('logoGallery');
+    var who = clientName();
+    if (!host) return;
+    if (!who) { host.innerHTML = '<span class="bgmsg">This build has no client on it yet, so there is no gallery to read.</span>'; return; }
+    waitIn(host, 'Reading ' + who + '’s gallery…', 'wait', function (t) { host.innerHTML = '<span class="bgmsg">' + esc(t) + '</span>'; });
+    fetch('/_hub/logos?client=' + encodeURIComponent(who))
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        host = $('logoGallery'); if (!host) return;
+        var all = d.logos || [];
+        if (!all.length) {
+          host.innerHTML = '<span class="bgmsg">' + esc(d.note || 'No logo in that gallery yet.') +
+            ' <a href="/tools/image-picker/gallery/for-client?name=' + encodeURIComponent(who) +
+            '" target="_blank" rel="noopener">Open the full gallery ↗</a></span>';
+          return;
+        }
+        var folders = (d.folders || []).map(function (f) { return f.folder; });
+        var current = d.default_folder || '';
+        function draw() {
+          var list = current ? all.filter(function (l) { return l.folder === current; }) : all;
+          host.innerHTML =
+            (folders.length > 1
+              ? '<div class="bsrow" style="margin-bottom:6px"><label>Folder<select id="logoFolder">' +
+                opt('', 'Everything that looks like a logo', current) +
+                folders.map(function (f) { return opt(f, f || '(no folder)', current); }).join('') +
+                '</select></label></div>'
+              : '') +
+            '<p class="bgmsg">' + (current ? 'From the “' + esc(current) + '” folder. ' : '') +
+              'Click one to use it on every size.</p>' +
+            '<div class="logogrid">' + list.map(function (l, i) {
+              return '<button type="button" class="logotile" data-logopick="' + i + '" title="' + esc(l.label || l.folder || '') + '">' +
+                '<img src="' + esc(l.thumb || l.url) + '" alt="" loading="lazy">' +
+                (l.label ? '<span>' + esc(l.label) + '</span>' : '') + '</button>';
+            }).join('') + '</div>';
+          var sel = $('logoFolder');
+          if (sel) sel.addEventListener('change', function () { current = this.value; draw(); });
+          Array.prototype.forEach.call(host.querySelectorAll('[data-logopick]'), function (el) {
+            el.addEventListener('click', function () {
+              var l = list[Number(el.dataset.logopick)];
+              applyLogoUrl(l.url, { secure_url: l.url, public_id: l.public_id });
+            });
+          });
+        }
+        draw();
+      })
+      .catch(function () {
+        host = $('logoGallery');
+        if (host) host.innerHTML = '<span class="bgmsg">That gallery could not be read.</span>';
+      });
   }
 
   /* The template's own logo box for this size, so Advanced shows what it is
@@ -1721,13 +2251,17 @@
         '<summary>' + esc(label) + dotIf(touched) + '</summary>' +
         (isButton
           ? '<label style="font-size:11px;color:var(--ink-2);display:block;margin-bottom:4px">' +
-              'Move it' + help('Each press shifts the button ' + NUDGE + ' pixels. The ' +
-                'circle puts it back where the layout had it.') +
+              'Move it' + help('Each press shifts the button by the moving speed beside ' +
+                'the arrows. The circle puts it back where the layout had it.') +
             '</label>' + nudgePad('cta', 'Move the button')
-          : '') +
+          : '<label style="font-size:11px;color:var(--ink-2);display:block;margin-bottom:4px">' +
+              'Move it up or down' + help('Each press shifts this line by the moving speed ' +
+                'beside the arrows. Across is the layout\u2019s decision \u2014 pick a ' +
+                'different layout for that. The circle puts it back.') +
+            '</label>' + nudgePad(key, 'Move the ' + label.toLowerCase(), 'y')) +
         '<div class="bsrow">' +
-          '<label>Size' +
-            '<input type="number" min="8" max="96" step="1" placeholder="auto"' +
+          '<label>Size' + help('Pixels at 1x, up to 200. Long copy still shrinks to fit.') +
+            '<input type="number" min="8" max="200" step="1" placeholder="auto"' +
             ' data-style="' + key + '" data-prop="size"' +
             ' value="' + (st.size || '') + '"></label>' +
           '<label>Width' +
@@ -1774,8 +2308,9 @@
           : '') +
         (concept().backgroundImage && !isButton && key !== 'offer'
           ? '<div style="font-size:11px;color:var(--ink-2);line-height:1.35">' +
-            'Over a photo background the renderer picks the ink that survives ' +
-            'the overlay, so a color set here is ignored on this concept.' +
+            'Over a photo the renderer picks a light or dark ink by itself until ' +
+            'you choose one here. A chosen color is drawn as chosen, and the ' +
+            'checks on the right say if it cannot be read.' +
             '</div>'
           : '') +
         '<button type="button" class="bsclear" style="margin-top:6px"' +
@@ -1794,26 +2329,48 @@
   var BRAND_ROLES = ['primary', 'secondary', 'accent', 'light', 'dark'];
 
   function colorControl(block, prop, label, current) {
-    var colors = (state.doc.campaign.brand.colors) || {};
+    var brand = state.doc.campaign.brand;
+    var colors = brand.colors || {};
+    var key = block + ':' + prop;
     var chips = BRAND_ROLES.map(function (role) {
       return '<button type="button" class="inkchip" title="Brand ' + role +
-        ' \u2014 ' + esc(colors[role] || '') + '"' +
+        ' — ' + esc(colors[role] || '') + '"' +
         ' style="background:' + esc(colors[role] || '#888') + '"' +
         ' data-ink="' + block + '" data-inkprop="' + prop + '" data-inkvalue="' + role + '"' +
         ' aria-pressed="' + (current === role ? 'true' : 'false') + '"></button>';
     }).join('');
+    // Colors somebody picked and asked to keep. Round, so a saved shade and
+    // a brand role never look like the same kind of thing.
+    var saved = (brand.savedColors || []).map(function (hex) {
+      return '<button type="button" class="inkchip saved" title="Saved ' + esc(hex) + '"' +
+        ' style="background:' + esc(hex) + '"' +
+        ' data-ink="' + block + '" data-inkprop="' + prop + '" data-inkvalue="' + esc(hex) + '"' +
+        ' aria-pressed="' + (String(current || '').toUpperCase() === hex ? 'true' : 'false') + '"></button>';
+    }).join('');
     // A hex the picker produced, or the resolved brand color so the well is
     // never showing a color the block is not using.
-    var swatch = (current && current.charAt(0) === '#')
+    var pending = state.pendingColor[key];
+    var swatch = pending || ((current && current.charAt(0) === '#')
       ? current
-      : (colors[current] || colors[block === 'cta' && prop === 'bg' ? 'accent' : 'dark'] || '#111111');
+      : (colors[current] || colors[block === 'cta' && prop === 'bg' ? 'accent' : 'dark'] || '#111111'));
     return '<div class="bsrow" style="flex-direction:column;align-items:stretch;gap:4px">' +
       '<label style="flex:none">' + esc(label) + '</label>' +
       '<div class="inkrow"><span class="inklabel">Brand</span>' + chips +
-        '<input type="color" style="width:34px;height:24px;padding:1px;flex:none"' +
-        ' data-style="' + block + '" data-prop="' + prop + '" value="' + esc(swatch) + '">' +
+        (saved ? '<span class="inklabel" style="margin-left:4px">Saved</span>' + saved : '') +
         '<button type="button" class="bsclear" style="padding:3px 8px;font-size:10.5px"' +
         ' data-style="' + block + '" data-prop="' + prop + '">Layout</button>' +
+      '</div>' +
+      /* The well waits for Use. A pick that applied itself on every change
+         wrote three edits for three tries, and the picker on the second size
+         then read as broken because its value was the resolved one. */
+      '<div class="colorpick" data-cprow="' + key + '"><span class="inklabel">Pick one</span>' +
+        '<input type="color" style="width:34px;height:24px;padding:1px;flex:none' +
+          (pending ? ';outline:2px solid var(--warn)' : '') + '"' +
+        ' data-style="' + block + '" data-prop="' + prop + '" value="' + esc(swatch) + '">' +
+        '<button type="button" class="cpbtn primary" data-cp="' + key + '" data-cpact="use"' +
+          (pending ? '' : ' disabled') + ' title="Apply the color in the well">Use</button>' +
+        '<button type="button" class="cpbtn" data-cp="' + key + '" data-cpact="save"' +
+          (pending ? '' : ' disabled') + ' title="Apply it and keep it as a chip on every color control">Use and save</button>' +
       '</div></div>';
   }
 
@@ -1877,6 +2434,7 @@
   }
 
   function setBlockStyle(block, prop, raw) {
+    remember('style:' + block + ':' + prop);
     var home = styleHome();
     if (!home[block]) home[block] = {};
     var st = home[block];
@@ -2001,10 +2559,22 @@
             ' aria-pressed="' + (wash.toUpperCase() === hex.toUpperCase() ? 'true' : 'false') +
             '"></button>';
         }).join('') +
-        '<input type="color" id="bgWash" style="width:34px;height:24px;padding:1px;flex:none"' +
-          ' value="' + esc(wash || '#0B1220') + '">' +
+        BRAND_ROLES.length && (state.doc.campaign.brand.savedColors || []).map(function (hex) {
+          return '<button type="button" class="inkchip saved" title="Saved ' + esc(hex) + '"' +
+            ' style="background:' + esc(hex) + '" data-overlay="' + esc(hex) + '"' +
+            ' aria-pressed="' + (wash.toUpperCase() === hex ? 'true' : 'false') + '"></button>';
+        }).join('') +
         '<button type="button" class="bsclear" id="bgWashClear"' +
           ' style="padding:3px 8px;font-size:10.5px">Auto</button>' +
+      '</div>' +
+      '<div class="colorpick" data-cprow="overlay:color"><span class="inklabel">Pick one</span>' +
+        '<input type="color" id="bgWash" style="width:34px;height:24px;padding:1px;flex:none' +
+          (state.pendingColor['overlay:color'] ? ';outline:2px solid var(--warn)' : '') + '"' +
+          ' value="' + esc(state.pendingColor['overlay:color'] || wash || '#0B1220') + '">' +
+        '<button type="button" class="cpbtn primary" data-cp="overlay:color" data-cpact="use"' +
+          (state.pendingColor['overlay:color'] ? '' : ' disabled') + '>Use</button>' +
+        '<button type="button" class="cpbtn" data-cp="overlay:color" data-cpact="save"' +
+          (state.pendingColor['overlay:color'] ? '' : ' disabled') + '>Use and save</button>' +
       '</div>' +
       '<div class="slider">' +
         '<label>Transparency <b id="bgOpacityLabel">' +
@@ -2070,9 +2640,7 @@
      photos rather than one ad in eight sizes. Falls back to the size on
      screen if the family's own list is not there yet. */
   function referenceCanvas() {
-    var t = (state.templates || []).filter(function (x) {
-      return x.id === concept().layoutFamily;
-    })[0];
+    var t = templateFor(state.size);
     var sizes = (t && t.sizes && t.sizes.length) ? t.sizes : [state.size];
     var best = null;
     sizes.forEach(function (sz) {
@@ -2096,17 +2664,41 @@
   function showSuggestion(d, ref) {
     var note = $('bgSuggestNote');
     if (!note) return;
+    var c = concept();
     note.innerHTML =
       'Cloudinary’s subject detection suggests a different crop — computed ' +
       'against ' + ref.w + '×' + ref.h + ', ' + Math.round(d.confidence * 100) +
-      '% confidence.<br>' +
+      '% confidence. Here is how ' + esc(state.size) + ' would look:' +
+      '<div id="bgSuggestPreview" style="margin:6px 0;min-height:40px"></div>' +
       '<button type="button" class="btn primary" id="bgSuggestUse"' +
         ' style="margin:6px 6px 0 0">Use it</button>' +
       '<button type="button" class="btn ghost" id="bgSuggestDismiss"' +
         ' style="margin-top:6px">Dismiss</button>';
+    /* Shown before it is used. The preview is rendered from a copy of the
+       campaign with the suggested crop on it, so nothing on the concept
+       moves until Use it is pressed -- and the operator sees the crop rather
+       than a confidence number. */
+    var stage = $('bgSuggestPreview');
+    waitIn(stage, 'Drawing the suggested crop…', 'wait', function (t) { stage.textContent = t; });
+    var trial = JSON.parse(JSON.stringify(state.doc.campaign));
+    var tc = trial.concepts.filter(function (x) { return x.conceptId === c.conceptId; })[0] || trial.concepts[0];
+    tc.backgroundOffset = { x: d.offset.x, y: d.offset.y };
+    tc.backgroundZoom = d.zoom;
+    delete tc.backgroundPosition;
+    post('/api/preview', { campaign: trial, conceptId: c.conceptId, size: state.size, platform: state.platform })
+      .then(function (r) {
+        var box = $('bgSuggestPreview'); if (!box) return;
+        box.innerHTML = r && r.image
+          ? '<img src="' + esc(r.image) + '" alt="Suggested crop" style="max-width:100%;height:auto;border:1px solid var(--line);border-radius:4px">'
+          : '<span class="bgmsg">' + esc((r && r.error) || 'The preview could not be drawn.') + '</span>';
+      })
+      .catch(function () {
+        var box = $('bgSuggestPreview');
+        if (box) box.innerHTML = '<span class="bgmsg">The preview could not be drawn.</span>';
+      });
     var use = $('bgSuggestUse');
     if (use) use.addEventListener('click', function () {
-      var c = concept();
+      remember('bg:offset');
       c.backgroundOffset = { x: d.offset.x, y: d.offset.y };
       c.backgroundZoom = d.zoom;
       delete c.backgroundPosition;
@@ -2152,6 +2744,7 @@
     var slider = $('bgOpacity');
     if (slider) slider.addEventListener('input', function () {
       var pct = Number(this.value);
+      remember('bg:opacity');
       concept().backgroundOverlay = pct / 100;
       state.dirty = true;
       var lbl = $('bgOpacityLabel');
@@ -2161,6 +2754,7 @@
     var zoom = $('bgZoom');
     if (zoom) zoom.addEventListener('input', function () {
       var pct = Number(this.value);
+      remember('bg:zoom');
       concept().backgroundZoom = pct / 100;
       state.dirty = true;
       var lbl = $('bgZoomLabel');
@@ -2173,6 +2767,7 @@
       if (!el) return;
       el.addEventListener('change', function () {
         var c = concept();
+        remember('bg:offset');
         var off = c.backgroundOffset || legacyOffset(c.backgroundPosition);
         var v = Math.max(-1, Math.min(1, Number(this.value) || 0));
         c.backgroundOffset = id === 'bgOffX' ? { x: v, y: off.y || 0 }
@@ -2185,7 +2780,7 @@
       el.addEventListener('click', function () { setOverlayColor(el.dataset.overlay); });
     });
     var picker = $('bgWash');
-    if (picker) picker.addEventListener('change', function () { setOverlayColor(this.value); });
+    if (picker) picker.addEventListener('input', function () { stagePick('overlay:color', this.value); });
     var clear = $('bgWashClear');
     if (clear) clear.addEventListener('click', function () { setOverlayColor(''); });
 
@@ -2266,6 +2861,7 @@
           var v = d.variants[Number(el.dataset.variant)];
           // The whole palette, not one role: applying part of it is how a set
           // ends up half in one scheme and half in another.
+          remember('palette');
           state.doc.campaign.brand.colors = v.colors;
           state.dirty = true;
           drawControls();
@@ -2457,6 +3053,7 @@
 
   function setOverlayColor(hex) {
     var c = concept();
+    remember('bg:overlay');
     if (hex) c.backgroundOverlayColor = hex.toUpperCase();
     else delete c.backgroundOverlayColor;
     // A strength has to exist before a color means anything, or the first
@@ -2546,6 +3143,7 @@
 
     if (mode === 'none' || mode === 'hero') {
       var c0 = concept();
+      remember('bg:mode');
       c0.hideHero = mode === 'none';
       delete c0.backgroundImage;
       delete c0.backgroundOverlay;
@@ -3168,21 +3766,40 @@
           });
       })
       .then(function (r) {
-        if (!r.d || !r.d.ok || !r.d.path) {
-          throw new Error(r.d && r.d.error || 'That logo could not be used.');
-        }
-        var brand = state.doc.campaign.brand;
-        brand.logos = brand.logos || {};
-        brand.logos.primary = r.d.path;
-        if (r.d.reverse) brand.logos.reverse = r.d.reverse;
-        state.dirty = true;
-        rememberLogo(r.up);
-        logoSay('New logo applied to every size. Save to keep it.');
-        preview();
+        landLogo(r.d, r.up);
       })
       .catch(function (e) {
         logoSay(e.message || 'That logo could not be used.');
       });
+  }
+
+  /* A logo that is already stored -- picked from the gallery -- skips the
+     upload and goes straight to the renderer to be prepared. */
+  function applyLogoUrl(url, up) {
+    logoSay('Preparing it — clearing the background and fitting the weight…');
+    post('/api/logo/apply', { requestId: state.requestId, url: url })
+      .then(function (d) { landLogo(d, up); })
+      .catch(function (e) { logoSay((e && e.message) || 'That logo could not be used.'); });
+  }
+
+  /* The prepared logo lands on the brand. The one-color versions made from
+     the previous mark are dropped: they were that logo's, not this one's. */
+  function landLogo(d, up) {
+    if (!d || !d.ok || !d.path) {
+      throw new Error((d && d.error) || 'That logo could not be used.');
+    }
+    remember('logo');
+    var brand = state.doc.campaign.brand;
+    brand.logos = brand.logos || {};
+    brand.logos.primary = d.path;
+    if (d.reverse) brand.logos.reverse = d.reverse;
+    delete brand.logos.white;
+    delete brand.logos.black;
+    state.dirty = true;
+    rememberLogo(up);
+    logoSay('New logo applied to every size. Save to keep it.');
+    var host = $('logoGallery'); if (host) host.innerHTML = '';
+    preview();
   }
 
   function logoSay(msg) {
@@ -3297,6 +3914,7 @@
           $('bgNote').textContent = d.error || 'That picture could not be used.';
           return;
         }
+        remember('bg:image');
         concept().backgroundImage = d.path;
         // The picked URL, kept alongside the local file the renderer draws
         // from. "Suggest crop" needs Cloudinary's own address for the
@@ -3366,12 +3984,15 @@
   }
 
   function familyCards() {
-    var current = concept().layoutFamily;
+    var current = familyFor(state.size);
+    var forThisSize = state.layoutScope === 'size';
     return state.templates.map(function (t) {
       var on = t.id === current;
       var missing = t.sizes.indexOf(state.size) < 0;
+      // For this size only, a family that does not draw it is not a choice.
+      var off = forThisSize && missing;
       return '<button type="button" class="famcard' + (on ? ' on' : '') + '"' +
-        ' data-family="' + esc(t.id) + '"' +
+        ' data-family="' + esc(t.id) + '"' + (off ? ' disabled style="opacity:.45"' : '') +
         ' aria-pressed="' + (on ? 'true' : 'false') + '"' +
         ' title="' + esc(t.description || '') + '">' +
         (wireSvg(t.wire) || '<div class="famnone">' + esc(t.id) + '</div>') +
@@ -3381,10 +4002,28 @@
     }).join('');
   }
 
+  /* A layout pick lands on the set or on this size, whichever the toggle
+     says. "Every size" also clears this size's own pick, or the pick would
+     keep winning over the family just chosen -- the copy scope rule. */
   function setFamily(id) {
-    if (!id || id === concept().layoutFamily) return;
-    concept().layoutFamily = id;
+    var c = concept();
+    if (!id) return;
+    if (state.layoutScope === 'size') {
+      if (id === familyFor(state.size)) return;
+      remember('layout:' + state.size);
+      c.layoutBySize = c.layoutBySize || {};
+      if (id === c.layoutFamily) delete c.layoutBySize[state.size];
+      else c.layoutBySize[state.size] = id;
+      if (!Object.keys(c.layoutBySize).length) delete c.layoutBySize;
+    } else {
+      if (id === c.layoutFamily && !(c.layoutBySize && c.layoutBySize[state.size])) return;
+      remember('layout');
+      c.layoutFamily = id;
+      if (c.layoutBySize) delete c.layoutBySize[state.size];
+      if (c.layoutBySize && !Object.keys(c.layoutBySize).length) delete c.layoutBySize;
+    }
     state.dirty = true;
+    state.resolvedStyle = null; state.resolvedFor = null;
     // Not every family draws every size. Staying on one the new family does
     // not have leaves the preview pane showing a 422 nobody asked for.
     var rail = railSizes();
@@ -3392,13 +4031,19 @@
     drawControls();          // repaint so the selected card is the lit one
     drawRail();              // the family decides which sizes exist
     preview();
+    refreshCarry();
   }
 
   function describeFamily() {
-    var t = state.templates.filter(function (x) { return x.id === concept().layoutFamily; })[0];
-    if (!t) return;
+    var t = templateFor(state.size);
+    var note = $('famNote');
+    if (!t || !note) return;
+    var c = concept();
+    var own = c.layoutBySize && c.layoutBySize[state.size] && c.layoutBySize[state.size] !== c.layoutFamily;
     var has = t.sizes.indexOf(state.size) >= 0;
-    $('famNote').innerHTML = esc(t.description) +
+    note.innerHTML = esc(t.description) +
+      (own ? '<br><b>' + esc(state.size) + ' uses ' + esc(t.name) + '; the rest of the set uses ' +
+             esc(familyName(c.layoutFamily)) + '.</b>' : '') +
       (has ? '' : '<br><b style="color:var(--warn)">No ' + esc(state.size) + ' layout in this family.</b>');
   }
 
@@ -3447,6 +4092,8 @@
         state.resolvedStyle = res.b.style || null;
         state.resolvedFor = res.b.style ? state.size : null;
         if (res.b.carry) state.carry[state.size] = res.b.carry;
+        state.lastQa = res.b.qa || [];
+        state.lastFontSizes = res.b.fontSizes || {};
         drawQa(res.b.qa);
         markRail();
       })
@@ -3478,7 +4125,12 @@
           (ok ? ' approved' : '') + '">' +
           '<button class="nm" data-size="' + esc(sz) + '" style="background:none;border:0;' +
             'color:inherit;font:inherit;cursor:pointer;padding:0;flex:1;text-align:left">' +
-            esc(sz) + '</button>' +
+            esc(sz) +
+            // The blue M: a size Meta buys. Said on the rail because it is
+            // the size that behaves differently -- never animated, held to
+            // Meta's text guideline -- and nothing else told you which.
+            (isMetaSize(sz) ? '<span class="mm" title="A Meta (Facebook and Instagram) size. Meta sizes are never animated.">M</span>' : '') +
+            '</button>' +
           '<span class="st" data-st="' + esc(sz) + '"></span>' +
           '<span class="cr" data-cr="' + esc(sz) + '"></span>' +
           '<button type="button" class="ok' + (ok ? ' on' : '') + '" data-approve="' + esc(sz) + '"' +
@@ -3529,12 +4181,53 @@
       saveCampaign()
         .then(function () {
           flashSaved();
-          showSize(size);
+          return adviseBeforeLeaving(size);
         })
         .catch(function () {
           showNextSteps('That did not save, so nothing has moved. Your edits ' +
                         'are still on screen.', true);
         });
+    });
+  }
+
+  /* Saved, and about to move on: the moment to say what the checks found on
+     the size being left, in words, with one change offered and shown before
+     it is kept.
+
+     "The headline is not big enough. I would make it 48px. Would you like to
+     see what that looks like?" -- Yes shows it and waits for a keep or an
+     undo; No saves and continues to the next size. Nothing to say, or no
+     model to say it, and the move happens as before. */
+  function adviseBeforeLeaving(next) {
+    var open = (state.lastQa || []).filter(function (f) { return f.status !== 'pass'; });
+    if (!open.length) return showSize(next);
+    showNextSteps('Saved. Checking ' + state.size + ' before moving on…');
+    return adviseOn(open).then(function (a) {
+      var lead = a && a.lead;
+      if (!lead || !lead.apply) {
+        if (a && a.summary) showNextSteps('Saved. ' + a.summary + ' Opening ' + next + '.');
+        return showSize(next);
+      }
+      return ask(
+        lead.title,
+        lead.what + ' ' + lead.how + ' Would you like to see what this would look like?',
+        [['Yes, show me', 'yes'], ['No, save and continue', 'no']],
+      ).then(function (choice) {
+        if (choice !== 'yes') return showSize(next);
+        return applySuggestion(lead.apply).then(function () {
+          showNextSteps('Tried: ' + (lead.applyLabel || lead.how) + '. Keep it, or put it back.');
+          $('nsActs').insertAdjacentHTML('afterbegin',
+            '<button type="button" class="nsbtn" id="adviceKeep"><b>Keep it and continue to ' + esc(next) + '</b>' +
+              '<span>Saves this change and opens the next size.</span></button>' +
+            '<button type="button" class="nsbtn" id="adviceUndo"><b>Undo</b>' +
+              '<span>Put it back the way it was and stay here.</span></button>');
+          $('adviceKeep').addEventListener('click', function () {
+            saveCampaign().then(function () { flashSaved(); showSize(next); $('nextStep').hidden = true; })
+              .catch(function () { showNextSteps('That did not save, so nothing has moved.', true); });
+          });
+          $('adviceUndo').addEventListener('click', function () { undo(); $('nextStep').hidden = true; });
+        });
+      });
     });
   }
 
@@ -3611,20 +4304,43 @@
       '</div>';
   }
 
-  function drawQa(list) {
+  function drawQa(list, advised) {
     var el = $('qa'); if (!el) return;
     list = (list || []).slice();
     (state.doc.notes || []).filter(function (note) {
       return /copy|model|openai/i.test(note) && /fell back|form answers|no .*key|fail|not configured|error/i.test(note);
     }).forEach(function (note) { list.push({ check: 'Copy needs review', status: 'warn', detail: note + ' Review the copy manually or use “Draft the copy from their website” to retry.' }); });
     if (!list || !list.length) { el.innerHTML = '<h3>Checks</h3><div class="clean">All checks pass.</div>'; return; }
-    el.innerHTML = '<h3>Checks</h3><ul>' + list.map(function (f, i) {
+    /* Words first, numbers behind a click. Each finding carries `plain` --
+       the problem, what it means and what to do -- written by the renderer
+       (plain-checks.ts) beside the measurement, and the measurement is what
+       a ratio-literate reader can still open. "Ask AI" asks the model for
+       the same list written for THIS ad, with one change it can show. */
+    el.innerHTML = '<h3>Checks</h3>' +
+      (advised && advised.summary ? '<div class="qasum">' + esc(advised.summary) + '</div>' : '') +
+      '<div class="qatools">' +
+        '<button type="button" class="fix" id="qaAdvise">' + (advised ? 'Ask AI again' : 'Ask AI what to do') + '</button>' +
+        '<button type="button" class="fix" id="qaNumbers" aria-pressed="false">Show the measurements</button>' +
+      '</div>' +
+      '<ul>' + list.map(function (f, i) {
+      var plain = f.plain || { title: f.check, what: f.detail, how: '' };
       var fixBtn = f.fix && f.fix.action === 'shorten'
-        ? '<button class="fix" data-fix="' + i + '">Shorten ' + esc(f.fix.role) +
+        ? '<button class="fix" data-fix="' + i + '">Shorten the ' + esc(plainRole(f.fix.role)) +
           (f.fix.maxWords ? ' to ' + f.fix.maxWords + ' words' : '') + '</button>'
         : '';
-      return '<li class="' + esc(f.status) + '"><b>' + esc(f.check) + '</b>' + esc(f.detail) + fixBtn + '</li>';
-    }).join('') + '</ul>';
+      var tryBtn = plain.apply
+        ? '<button class="fix try" data-try="' + i + '" title="Applied to the ad so you can see it. Undo puts it back.">' +
+          esc(plain.applyLabel || 'Try it') + '</button>'
+        : '';
+      return '<li class="' + esc(f.status) + '">' +
+        '<span class="qt">' + esc(plain.title) + '</span>' +
+        (plain.what ? '<span class="qw">' + esc(plain.what) + '</span>' : '') +
+        (plain.how ? '<span class="qh">' + esc(plain.how) + '</span>' : '') +
+        '<span class="qm" hidden>' + esc(f.check) + ': ' + esc(f.detail) + '</span>' +
+        tryBtn + fixBtn + '</li>';
+    }).join('') + '</ul>' +
+      (advised && advised.warnings && advised.warnings.length
+        ? '<div class="qasum">' + esc(advised.warnings.join(' ')) + '</div>' : '');
 
     Array.prototype.forEach.call(el.querySelectorAll('[data-fix]'), function (btn) {
       btn.addEventListener('click', function () {
@@ -3637,6 +4353,77 @@
         drawControls(); preview();
       });
     });
+    Array.prototype.forEach.call(el.querySelectorAll('[data-try]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var f = list[Number(btn.dataset.try)];
+        applySuggestion(f.plain.apply).then(function () {
+          showNextSteps('Tried: ' + (f.plain.applyLabel || 'the suggestion') + '. Undo in the toolbar puts it back.');
+        });
+      });
+    });
+    var numbers = $('qaNumbers');
+    if (numbers) numbers.addEventListener('click', function () {
+      var on = numbers.getAttribute('aria-pressed') !== 'true';
+      numbers.setAttribute('aria-pressed', on ? 'true' : 'false');
+      numbers.textContent = on ? 'Hide the measurements' : 'Show the measurements';
+      Array.prototype.forEach.call(el.querySelectorAll('.qm'), function (m) { m.hidden = !on; });
+    });
+    var advise = $('qaAdvise');
+    if (advise) advise.addEventListener('click', function () {
+      var mark = waitBtn(advise, 'Asking…', 'ai');
+      adviseOn(list).then(function (a) {
+        mark.done();
+        if (!a) return;
+        drawQa(a.items.length ? a.items : list, a);
+      });
+    });
+  }
+
+  function plainRole(role) {
+    return { headline: 'headline', support: 'supporting line', offer: 'offer',
+             trust: 'proof point', cta: 'button text' }[role] || role;
+  }
+
+  /* The model's reading of this size's findings. Billed, so asked for on a
+     press and on the way to the next size rather than on every preview. */
+  function adviseOn(list) {
+    var c = concept();
+    var copy = {};
+    ['headline', 'support', 'offer', 'cta', 'trust'].forEach(function (k) { copy[k] = effective(k); });
+    return post('/api/qa/advise', {
+      findings: (list || state.lastQa || []).filter(function (f) { return f.status !== 'pass'; }),
+      size: state.size, platform: state.platform,
+      copy: copy, fontSizes: state.lastFontSizes,
+      brandColors: state.doc.campaign.brand.colors,
+      layoutFamily: familyFor(state.size),
+      backgroundImage: !!c.backgroundImage,
+    }).catch(function () { return null; });
+  }
+
+  /* One change from the advice, made the way the panel would make it, so
+     Undo takes it back exactly. Returns once the preview has been asked for. */
+  function applySuggestion(apply) {
+    if (!apply) return Promise.resolve();
+    if (apply.kind === 'style') {
+      setBlockStyle(apply.block, apply.prop, apply.value);
+      drawControls();
+      return Promise.resolve();
+    }
+    if (apply.kind === 'copy') {
+      if (!scopeOf(apply.field)) state.copyScope[apply.field] = 'size';
+      setCopy(apply.field, apply.value);
+      drawControls(); preview();
+      return Promise.resolve();
+    }
+    if (apply.kind === 'logo-tone') return setLogoTone(apply.tone) || Promise.resolve();
+    if (apply.kind === 'layout') {
+      var was = state.layoutScope;
+      state.layoutScope = 'size';
+      setFamily(apply.family);
+      state.layoutScope = was;
+      return Promise.resolve();
+    }
+    return Promise.resolve();
   }
 
   /* ---------------------------------------------------------- stage view */
@@ -3881,17 +4668,10 @@
     $('nsMsg').textContent = message;
     $('nsMsg').className = 'nsmsg' + (isError ? ' bad' : '');
 
+    // Render and Duplicate live in the action row now, always on screen, so
+    // this bar only carries what is specific to the message.
     var acts = [];
     if (!isError) {
-      acts.push(['Render\u2026', 'render',
-                 'Build the finished files, file them onto the client, or ' +
-                 'package what is already built.']);
-      if (projectIdForCurrent()) {
-        acts.push(['Duplicate as the next concept', 'clone',
-                   'A fresh copy on its own number, named Concept B \u2014 then ' +
-                   'C, then D. Change the background, the words or the layout ' +
-                   'on the copy and leave this one alone.']);
-      }
       var proof = $('proofLink');
       if (proof && proof.style.display !== 'none' && proof.href && proof.href !== '#') {
         acts.push(['Open the client proof', 'proof', 'What the client sees.']);
@@ -3914,9 +4694,9 @@
     if (what !== 'clone') return;
 
     var pid = projectIdForCurrent();
-    if (!pid) { $('nsMsg').textContent = 'This build has no project record to copy.'; return; }
+    if (!pid) { showNextSteps('This build has no project record to copy.', true); return; }
     el.disabled = true;
-    $('nsMsg').textContent = 'Copying the set\u2026';
+    showNextSteps('Copying the set\u2026');
     // Save first: a duplicate of unsaved edits is a duplicate of the wrong ad.
     saveCampaign()
       .then(function () {
@@ -3943,6 +4723,14 @@
   }
 
   $('nsClose').addEventListener('click', function () { $('nextStep').hidden = true; });
+  $('cloneConcept').addEventListener('click', function () { runNextStep('clone', $('cloneConcept')); });
+
+  /* The label on an action-row button, leaving its description alone. */
+  function setLabel(btn, text) {
+    if (!btn) return;
+    var b = btn.querySelector('b');
+    if (b) b.textContent = text; else btn.textContent = text;
+  }
 
   /* "Render all sizes" said what it did and never what it produced: it went
      to "Queued a1b2c3" for two seconds and back, and whether anything had
@@ -4278,7 +5066,7 @@
 
   function startRender(sizes, alsoFile) {
     var btn = $('renderAll');
-    btn.disabled = true; btn.textContent = 'Rendering…';
+    btn.disabled = true; setLabel(btn, 'Rendering…');
     var count = sizes ? sizes.length : railSizes().length;
     saveCampaign()
       .then(function () {
@@ -4290,7 +5078,7 @@
       })
       .then(function (b) {
         if (b && b.error) throw new Error(b.error);
-        btn.disabled = false; btn.textContent = 'Render…';
+        btn.disabled = false; setLabel(btn, 'Render…');
         var left = unapprovedSizes();
         showNextSteps(
           'Building ' + count + ' finished file' + (count === 1 ? '' : 's') +
@@ -4306,7 +5094,7 @@
         if (b && b.jobId) followRender(b.jobId, count, alsoFile);
       })
       .catch(function (e) {
-        btn.disabled = false; btn.textContent = 'Render…';
+        btn.disabled = false; setLabel(btn, 'Render…');
         showNextSteps((e && e.message) || 'That render could not be started.', true);
       });
   }
@@ -4517,14 +5305,24 @@
 
     $('renderAll').style.display = '';
     $('renderAll').disabled = !state.doc;
-    $('renderAll').textContent = state.dirty ? 'Save and render…' : 'Render…';
+    setLabel($('renderAll'), state.dirty ? 'Save and render…' : 'Render…');
     // Same gate as Render: it reads the saved build, not what is on screen.
     var presetBtn = $('savePreset');
     if (presetBtn) { presetBtn.style.display = ''; presetBtn.disabled = !state.saved || state.dirty; presetBtn.title = state.dirty ? 'Save your changes before creating a preset.' : 'Reuse this saved design.'; }
     // Motion is built from the saved static design, so it appears at the same
-    // moment Render does and for the same reason.
+    // moment Render does and for the same reason. Never for a Meta-only buy:
+    // Meta converts a GIF to a video, so there is nothing to animate.
     var animBtn = $('animate');
-    if (animBtn) { animBtn.style.display = ''; animBtn.disabled = !state.saved || state.dirty; animBtn.title = state.dirty ? 'Save your changes before adding animation.' : 'Add animation to this saved design.'; }
+    var metaOnly = (state.platforms || []).length > 0 &&
+      (state.platforms || []).every(function (p) { return p === 'meta'; });
+    if (animBtn) {
+      animBtn.style.display = '';
+      animBtn.disabled = !state.saved || state.dirty || metaOnly;
+      animBtn.title = metaOnly ? 'This set is bought on Meta only, and Meta never runs an animated image.'
+        : state.dirty ? 'Save your changes before adding animation.' : 'Add animation to this saved design.';
+    }
+    var cloneBtn = $('cloneConcept');
+    if (cloneBtn) cloneBtn.style.display = pid ? '' : 'none';
     $('save').classList.remove('primary');
     $('renderAll').classList.remove('primary');
     $('saveHint').style.display = '';
@@ -4781,8 +5579,7 @@
    *  field for a block the layout does not draw is the proof-point mistake:
    *  typed in, saved, word-counted and rendered nowhere. */
   function animFields() {
-    var c = concept();
-    var t = (state.templates || []).filter(function (x) { return c && x.id === c.layoutFamily; })[0];
+    var t = templateFor(state.size);
     var drawn = (t && t.blocks && t.blocks[state.size]) || null;
     var all = ['headline', 'support', 'offer', 'trust', 'cta'];
     return drawn && drawn.length ? all.filter(function (r) { return drawn.indexOf(r) >= 0; }) : all;
@@ -5005,7 +5802,11 @@
 
     body.innerHTML =
       '<h4>' + esc(isText ? 'Animate the text' : 'Animate the button') + '</h4>' +
-      '<p>Previewing <b>' + esc(state.size) + '</b>. Change the size on the build screen ' +
+      '<p>Previewing <b>' + esc(state.size) + '</b>' +
+      (isMetaSize(state.size) && supported.length && supported.map(function (r) { return r.size; }).indexOf(state.size) < 0
+        ? ' \u2014 a Meta size, which is never animated, so pick a Google size on the rail to see the motion'
+        : '') +
+      '. Change the size on the build screen ' +
       'behind this panel to preview another one; what you build is the list below.</p>' +
       '<div class="anim-cols"><div>' + left + '</div>' +
       '<div><h5>Preview</h5><div class="anim-stage" id="animStage">' +
@@ -5377,16 +6178,9 @@
     }).catch(function (e) { showNextSteps(e.message, true); });
   });
   $('guidedReview').onclick = function () { $('reviewSet').click(); };
-  new MutationObserver(function () {
-    Array.from($('controls').children).forEach(function (group) {
-      if (!group.classList.contains('group') || group.tagName === 'DETAILS') return;
-      var heading = group.querySelector('h3');
-      if (!heading || !/^(Layout|Type)$/.test(heading.textContent.trim())) return;
-      var advanced = document.createElement('details'), summary = document.createElement('summary');
-      advanced.className = 'group'; summary.textContent = 'Advanced: ' + heading.textContent;
-      advanced.appendChild(summary); group.replaceWith(advanced); advanced.appendChild(group); heading.hidden = true;
-    });
-  }).observe($('controls'), { childList: true });
+  /* The layout cards used to be wrapped, after the fact, in a fold that
+     called them advanced. Layout is the first decision on the ad and is the
+     first section now; nothing rewrites the column once it is drawn. */
 
   function recoverEdits() {
     var request = state.requestId;

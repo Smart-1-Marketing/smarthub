@@ -11,9 +11,11 @@
  * of it. Two rules make that safe rather than a way to break the ad:
  *
  * **Only the properties a person is actually choosing.** For type that means
- * no x, no y, no height: moving a block of copy is a layout decision, and
- * layouts are chosen by picking a family. The logo is the deliberate
- * exception — see LogoStyle for why.
+ * no x and no height: where a line sits across the canvas is a layout
+ * decision, and layouts are chosen by picking a family. Up and down is
+ * allowed on every block, because "move the headline down a bit" is the note
+ * people write. The logo and the button may move on both axes — see
+ * LogoStyle for why.
  *
  * **Everything is clamped to the canvas.** A width that runs the text off the
  * edge is the one change that looks fine in the control panel and produces a
@@ -32,9 +34,15 @@ import type { HAlign, SizeKey, SizeLayout, TextBox, VAlign, Weight } from './typ
 export const STYLEABLE = ['headline', 'support', 'offer', 'cta', 'trust'] as const;
 export type StyleableBlock = (typeof STYLEABLE)[number];
 
-/** Type below this cannot be read in a banner; above it nothing fits. */
+/** Type below this cannot be read in a banner; above it nothing fits.
+ *
+ *  200 rather than the 96 it used to be: a 1080x1920 story headline set at
+ *  120px is an ordinary ask, and the old cap silently trimmed it to 96 while
+ *  the control went on showing the number that was typed. 200 is the
+ *  operator's own ceiling -- "no font should exceed 200 pixels" -- and
+ *  autofit still steps down from whatever is asked. */
 export const MIN_TYPE = 8;
-export const MAX_TYPE = 96;
+export const MAX_TYPE = 200;
 
 export interface BlockStyle {
   /** Largest type size in px at 1x. Autofit still steps down to fit. */
@@ -55,11 +63,15 @@ export interface BlockStyle {
    * client's palette when somebody corrects a swatch; a hex is what a colour
    * picker produces and so has to be accepted too.
    *
-   * Deliberately NOT applied over a full-bleed background photo. The composer
-   * forces an ink that survives the overlay there, and a chosen colour that
-   * the overlay swallows is the one change that looks right in the panel and
-   * ships an unreadable ad -- so on a photo background this is ignored and the
-   * panel says so rather than pretending.
+   * Applied over a full-bleed background photo too. It used to be dropped
+   * there -- the composer forces an ink that survives the overlay, and a
+   * chosen colour the overlay swallows ships an unreadable ad -- and the
+   * result was a control that worked on the first size somebody tuned (a
+   * flat-colour layout) and did nothing on the next (a photo), with the panel
+   * showing the colour it was not drawing. A colour somebody chose on purpose
+   * is drawn on purpose; the contrast check still measures it and says so
+   * when it does not read. The automatic ink stays for blocks nobody
+   * coloured.
    */
   color?: string;
   /** Block width in px at 1x — where the line wraps. */
@@ -68,14 +80,16 @@ export interface BlockStyle {
   /** CTA only: the button fill. */
   bg?: string;
   /**
-   * CTA only: where the button sits.
+   * Where the block sits.
    *
-   * Type is not movable — moving a block of copy is a layout decision, and
-   * layouts are chosen by picking a family — but the button is the same
-   * exception the logo is. "Nudge the button" and "centre the button" are
-   * both notes people write, and neither had anywhere to go: `align` set the
-   * label's alignment inside the button, which the templates already centre,
-   * so choosing Center appeared to do nothing at all.
+   * `x` is CTA only: across is a layout decision for a line of type, and
+   * layouts are chosen by picking a family. `y` is every block's, because
+   * "move the headline down a bit" is the note people write most after
+   * "nudge the logo", and it had nowhere to go. The button is the exception
+   * on both axes: "nudge the button" and "centre the button" are both notes
+   * people write, and neither had anywhere to go -- `align` set the label's
+   * alignment inside the button, which the templates already centre, so
+   * choosing Center appeared to do nothing at all.
    */
   x?: number;
   y?: number;
@@ -277,7 +291,9 @@ export function applyBlockStyles(
     }
 
     const ink = resolveStyleColor(style.color);
-    if (ink) { patched.color = ink; changed = true; }
+    // keepColorOnBg is what tells the composer this ink was CHOSEN, so it is
+    // drawn over a photo rather than replaced by the automatic one.
+    if (ink) { patched.color = ink; patched.keepColorOnBg = true; changed = true; }
 
     if (typeof style.lineHeight === 'number' && Number.isFinite(style.lineHeight)) {
       patched.lineHeight = clamp(style.lineHeight, 0.8, 2.5);
@@ -293,19 +309,22 @@ export function applyBlockStyles(
       changed = true;
     }
 
+    // Every block may be moved up and down. Clamped so a nudge cannot walk
+    // it off the canvas, which is the one thing an arrow pad invites.
+    if (typeof style.y === 'number' && Number.isFinite(style.y)) {
+      patched.y = clamp(Math.round(style.y), 0, Math.max(0, canvas.h - box.h));
+      changed = true;
+    }
+
     // Only the CTA has a fill; on anything else a background is not a thing
     // the composer draws, so accepting it would be a control that does nothing.
     if (key === 'cta') {
       const fill = resolveStyleColor(style.bg);
       if (fill) { patched.bg = fill; changed = true; }
-      // ...and only the CTA may be moved. Clamped so a nudge cannot walk the
-      // button off the canvas, which is the one thing an arrow pad invites.
+      // ...and only the CTA may be moved ACROSS: a line of type's x is its
+      // layout's decision, and layouts are chosen by picking a family.
       if (typeof style.x === 'number' && Number.isFinite(style.x)) {
         patched.x = clamp(Math.round(style.x), 0, Math.max(0, canvas.w - box.w));
-        changed = true;
-      }
-      if (typeof style.y === 'number' && Number.isFinite(style.y)) {
-        patched.y = clamp(Math.round(style.y), 0, Math.max(0, canvas.h - box.h));
         changed = true;
       }
     }
