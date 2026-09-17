@@ -1073,8 +1073,10 @@ REGISTRY: list[Help] = [
        "the shape shown and the auto-mapper files it on the next sync "
        "without anybody opening this page."),
     _h("reports.unmapped.pending", "A filing from a name is a proposal",
-       "The auto-mapper files a campaign under the client its name says -- "
-       "the S1M shape, or a name plainly one client's and nobody else's. "
+       "The auto-mapper files a campaign under the client the evidence says -- "
+       "the S1M shape in its name, an ad account whose confirmed campaigns "
+       "are all one client's, or a campaign or account name plainly one "
+       "client's and nobody else's. "
        "A name is somebody's typing in somebody else's platform, so the "
        "filing waits here: nothing from the campaign reaches the client's "
        "page, PDF or data until Confirm is pressed. Not theirs deletes the "

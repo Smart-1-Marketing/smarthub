@@ -297,3 +297,24 @@ making, and the activity row says where it came from. The
 `hub/client_key.py` rule -- never guess silently -- holds: nothing this
 pass does reaches a figure without a person's press, and every screen
 that shows a likeness shows the percentage and why.
+
+**The ad account is evidence before the name is.** Most platforms seat
+one client per account, so once a person has confirmed one campaign on
+an account as a client's, a new campaign there is theirs until somebody
+says otherwise. `store.account_evidence()` reads the book per (platform,
+account): the clients with confirmed campaigns there, the ones with only
+proposals, and the ones a filing was refused under. `automap.account_suggestion()`
+files on it (`account_v1`) only when exactly one client has confirmed
+campaigns on the account and no refusal names that client there --
+**pending proposals are not evidence**, so one wrong filing cannot become
+an account's worth, and a mixed account (an agency seat, a reseller)
+says nothing. Where the pull carries the platform's own name for the
+account (StackAdapt's and Amazon DSP's advertiser, Microsoft's account
+name, AudioGO's and GroundTruth's organization) it is read for a likeness
+too, under `account_name_v1`, since it is the client's own name more
+often than the campaign's is. `suggest_for_row()` merges the three
+readings and `decide()` reads the merged list, so an account that says one
+client and a name that says another are two clients at the top and file
+neither: the run counts it as `conflicted`, and the queue shows both with
+the account's reason under the account id. Every filing is still a
+proposal, confirmable, refusable and movable like the rest.

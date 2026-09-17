@@ -289,12 +289,24 @@ r = staff.post("/reports/unmapped", data={
 check("moving from the client's page goes back to that page",
       r.status_code == 302 and r.headers["Location"].endswith("/reports/client/n:zeta-dental?saved=moved"))
 check("...and the campaign is off it", store.campaign_map("ttd", "t-1", "t-acme")["client"], "d:acme.com")
+# The account is Acme Co's now (one confirmed campaign on it), so a new
+# campaign on the same account opens on Acme Co with the account's reason.
+store.upsert_rows([{"platform": "ttd", "account_id": "t-1", "campaign_id": "t-next",
+                    "campaign_name": "Holiday push", "date": "2026-09-02", "spend": "3",
+                    "impressions": 30, "clicks": 1, "source": "csv"}])
+_reg.all_clients = lambda refresh=False: [
+    {"name": "Acme Co", "slug": "acme-co", "url": "https://acme.com", "domain": "acme.com", "key": "d:acme.com"}]
+body = staff.get("/reports/unmapped").get_data(as_text=True)
+check("a new campaign on a client's account says so under the account id",
+      "1 other campaign on this ad account is confirmed as theirs (Acme Co)" in body)
+_reg.all_clients = _reg_all
+
 # Out of the book again, so the counts the checks below expect are the
 # ones the fixture at the top seeded.
 store.refuse_mapping("ttd", "t-1", "t-acme", by="Todd")
 _db = store.SessionLocal()
 try:
-    _db.query(store.AdPerfDaily).filter(store.AdPerfDaily.campaign_id == "t-acme").delete()
+    _db.query(store.AdPerfDaily).filter(store.AdPerfDaily.campaign_id.in_(["t-acme", "t-next"])).delete(synchronize_session=False)
     _db.query(store.MapRefusal).filter(store.MapRefusal.campaign_id == "t-acme").delete()
     _db.commit()
 finally:

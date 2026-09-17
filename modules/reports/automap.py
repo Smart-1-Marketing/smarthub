@@ -36,6 +36,20 @@ Rules, each a way to file spend under the wrong client:
   itself within the hour. A campaign is skipped while its name is the one
   it was refused under; renamed, it is read again.
 
+**An ad account that is one client's files the next campaign on it.**
+Most platforms seat one client per account -- a Google Ads customer, a
+Meta ad account, a StackAdapt advertiser -- so once a person has confirmed
+a campaign on an account as a client's, a new campaign on the same account
+is theirs until somebody says otherwise. ``store.account_evidence()`` is
+the book's reading per account and ``account_suggestion()`` files on it
+only when exactly one client has confirmed campaigns there and no filing
+under that client was refused on the account. Pending proposals are not
+evidence, so one wrong filing cannot become an account's worth; a mixed
+account (an agency seat) says nothing. The rule is ``account_v1``, and
+where the pull carries the platform's own name for the account (its
+advertiser or account name) that name is read for a likeness as well,
+under ``account_name_v1``.
+
 **A name that does not carry the mark is read for a likeness.** Most
 campaigns were named before the shape existed, and the unmapped queue held
 them with the client's name plainly in the campaign name and nobody to type
@@ -74,7 +88,18 @@ log = logging.getLogger(__name__)
 
 RULE = "name_v1"
 FUZZY_RULE = "fuzzy_v1"
+ACCOUNT_RULE = "account_v1"
+ACCOUNT_NAME_RULE = "account_name_v1"
 MAPPED_BY = store.AUTO_MAPPED_BY
+# The rules that file on evidence rather than the mark: what the queue
+# calls "by likeness" and shows the reason for.
+EVIDENCE_RULES = (FUZZY_RULE, ACCOUNT_RULE, ACCOUNT_NAME_RULE)
+
+# How many of an account's campaigns have to be confirmed as one client's,
+# with none confirmed as anybody else's and no refusal there, before a new
+# campaign on the account is filed as theirs. One: a person's own mapping
+# on the account is a statement about the account.
+ACCOUNT_MIN_CONFIRMED = 1
 
 # The likeness a campaign name has to bear to a client before the fuzzy
 # pass files a proposal on it, and how far behind the runner-up has to be.
@@ -305,9 +330,69 @@ def suggest_clients(name: str, *, rows: list[dict] | None = None,
         if cur is None or score > cur["score"]:
             best_by_key[cand["key"]] = {"key": cand["key"], "name": cand["name"],
                                         "score": score, "pct": int(round(score * 100)),
-                                        "why": why}
+                                        "why": why, "rule": FUZZY_RULE}
     out = sorted(best_by_key.values(), key=lambda c: (-c["score"], c["name"].lower()))
     return out[:max(1, int(limit))]
+
+
+def account_suggestion(row: dict, evidence: dict) -> dict | None:
+    """The client the campaign's ad account already belongs to, or None.
+
+    Exactly one client has confirmed campaigns on the account (at least
+    ACCOUNT_MIN_CONFIRMED of them), nobody else does, and no filing under
+    that client was refused on the account. Pending proposals are not
+    evidence. A mixed account -- an agency seat, a reseller filing several
+    clients through one login -- says nothing, and a refusal on the account
+    is a person saying it is not solely theirs."""
+    a = evidence.get((row.get("platform"), row.get("account_id")))
+    if not a:
+        return None
+    confirmed = {k: n for k, n in a["confirmed"].items() if n >= ACCOUNT_MIN_CONFIRMED}
+    if len(confirmed) != 1 or len(a["confirmed"]) != 1:
+        return None
+    key, n = next(iter(confirmed.items()))
+    if key in a["refused"]:
+        return None
+    return {"key": key, "name": a["names"].get(key, key), "score": 1.0, "pct": 100,
+            "why": (f"{n} other campaign{'s' if n != 1 else ''} on this ad account "
+                    f"{'are' if n != 1 else 'is'} confirmed as theirs"),
+            "rule": ACCOUNT_RULE}
+
+
+def _merge(*lists: list[dict], limit: int = FUZZY_LIMIT) -> list[dict]:
+    """One list, best score per client, best first."""
+    best: dict[str, dict] = {}
+    for hits in lists:
+        for h in hits or ():
+            cur = best.get(h["key"])
+            if cur is None or h["score"] > cur["score"]:
+                best[h["key"]] = h
+    return sorted(best.values(), key=lambda c: (-c["score"], c["name"].lower()))[:max(1, limit)]
+
+
+def suggest_for_row(row: dict, *, index: list[dict], evidence: dict,
+                    limit: int = FUZZY_LIMIT, exclude: str = "") -> list[dict]:
+    """Everything the book and the names say about one unmapped campaign,
+    merged: the account's confirmed campaigns, the campaign name's likeness
+    and the ad account's own name's likeness (the platform's advertiser or
+    account name, when the pull carries one). Each entry says which, in
+    ``rule`` and ``why``; ``decide()`` reads the merged list, so an account
+    that says one client and a name that says another are two clients at
+    the top and file neither."""
+    hits = []
+    acct = account_suggestion(row, evidence)
+    if acct and acct["key"] != exclude:
+        hits.append([acct])
+    hits.append(suggest_clients(row.get("campaign_name") or "", index=index,
+                                limit=limit, exclude=exclude))
+    account_name = (row.get("account_name") or "").strip()
+    if account_name:
+        by_name = suggest_clients(account_name, index=index, limit=limit, exclude=exclude)
+        for h in by_name:
+            h["rule"] = ACCOUNT_NAME_RULE
+            h["why"] = f"the ad account is named {account_name!r}: " + h["why"].replace("the campaign name", "it")
+        hits.append(by_name)
+    return _merge(*hits, limit=limit)
 
 
 def decide(suggestions: list[dict]) -> dict | None:
@@ -348,28 +433,28 @@ def annotate(rows: list[dict], pending: list[dict] | None = None,
         r["suggestions"] = []
     for m in pending or ():
         m["match"] = None
+        m["by_evidence"] = any(rule in (m.get("auto_rule") or "") for rule in EVIDENCE_RULES)
     try:
         index = build_index(_registry_rows())
     except RegistryUnavailable as exc:
         return {"error": str(exc)}
-    cache: dict[tuple, list[dict]] = {}
+    evidence = store.account_evidence()
 
-    def suggestions_for(name: str, exclude: str = "") -> list[dict]:
-        k = (name, exclude)
-        if k not in cache:
-            try:
-                cache[k] = suggest_clients(name, index=index, limit=limit, exclude=exclude)
-            except Exception as exc:       # noqa: BLE001 - one bad name is not the page
-                log.warning("reports automap: suggest failed for %r: %s", name, exc)
-                cache[k] = []
-        return cache[k]
+    def suggestions_for(row: dict, exclude: str = "") -> list[dict]:
+        try:
+            return suggest_for_row(row, index=index, evidence=evidence, limit=limit, exclude=exclude)
+        except Exception as exc:           # noqa: BLE001 - one bad row is not the page
+            log.warning("reports automap: suggest failed for %r: %s", row.get("campaign_name"), exc)
+            return []
 
     for r in rows:
         refused = (r.get("refused") or {}).get("client") or ""
-        r["suggestions"] = suggestions_for(r.get("campaign_name") or "", refused)
+        r["suggestions"] = suggestions_for(r, refused)
     for m in pending or ():
-        if FUZZY_RULE in (m.get("auto_rule") or ""):
-            hits = suggestions_for(m.get("campaign_name") or "")
+        if m["by_evidence"]:
+            # The proposal's own row is confirmed by nobody, so the account
+            # evidence the page recomputes here is the same the run saw.
+            hits = suggestions_for(m)
             m["match"] = next((h for h in hits if h["key"] == m.get("client")), None)
     return {"error": ""}
 
@@ -383,21 +468,24 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
     because those are the ones a rename typo produces and the unmapped
     queue is where somebody meets them; ``refused`` counts the campaigns
     left alone because a person refused this filing under this name. A
-    name that does not parse is read for a likeness (``suggest_clients``):
-    ``suggested`` counts the ones filed that way (they are in ``mapped``
-    too), ``ambiguous`` the ones that looked like a client but not clearly
-    enough, or like two. Every mapping counted in ``mapped`` is pending
+    name that does not parse is read for the evidence (``suggest_for_row``:
+    the ad account's confirmed campaigns, the campaign name's likeness, the
+    account's own name's likeness): ``suggested`` counts the ones filed that
+    way (they are in ``mapped`` too, and ``by_rule`` says under which rule),
+    ``ambiguous`` the ones that looked like a client but not clearly enough,
+    or like two, and ``conflicted`` the subset where the account said one
+    client and a name said another. Every mapping counted in ``mapped`` is pending
     confirmation.
     """
     out = {"mapped": 0, "unparsed": 0, "unresolved": [], "clients": {}, "refused": 0,
-           "suggested": 0, "ambiguous": 0}
+           "suggested": 0, "ambiguous": 0, "conflicted": 0, "by_rule": {}}
     try:
         from hub import audit as hub_audit
     except Exception:                      # noqa: BLE001 - standalone
         hub_audit = None
     cache: dict[str, tuple[str, str] | None] = {}
     index: list[dict] | None = None
-    likeness: dict[str, list[dict]] = {}
+    evidence: dict | None = None
     for row in store.unmapped_campaigns(days=3650, limit=limit):
         if row.get("refused"):
             out["refused"] += 1
@@ -409,13 +497,12 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
             # only on a clear best (decide()); alike on two clients, or not
             # alike enough, it stays for the queue, where the likeness is
             # shown beside it.
-            cname = row.get("campaign_name") or ""
             try:
                 if index is None:
                     index = build_index(_registry_rows())
-                if cname not in likeness:
-                    likeness[cname] = suggest_clients(cname, index=index)
-                hits = likeness[cname]
+                if evidence is None:
+                    evidence = store.account_evidence()
+                hits = suggest_for_row(row, index=index, evidence=evidence)
             except RegistryUnavailable as exc:
                 out["registry_error"] = str(exc)
                 break
@@ -423,6 +510,11 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
             if best is None:
                 if hits:
                     out["ambiguous"] += 1
+                    if any(h["rule"] == ACCOUNT_RULE for h in hits):
+                        # The account said one client and a name said
+                        # another, or the same client under two readings
+                        # that did not agree. A person's question.
+                        out["conflicted"] += 1
                 continue
             parsed = {"client": best["name"], "product": product_from_name(row.get("campaign_name") or ""),
                       "rest": "", "fuzzy": best}
@@ -443,7 +535,7 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
         key, name = hit
         from . import products as _products
         fuzzy = parsed.get("fuzzy")
-        product, rule = parsed["product"], (FUZZY_RULE if fuzzy else RULE)
+        product, rule = parsed["product"], (fuzzy["rule"] if fuzzy else RULE)
         base_rule = rule
         typed = product
         if product and _products.normalize(product) not in _products.PRODUCTS:
@@ -476,11 +568,12 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
         out["mapped"] += 1
         if fuzzy:
             out["suggested"] += 1
+            out["by_rule"][fuzzy["rule"]] = out["by_rule"].get(fuzzy["rule"], 0) + 1
         out["clients"][key] = name
         if hub_audit is not None:
             try:
-                how = (f"by likeness ({fuzzy['pct']}%: {fuzzy['why']})" if fuzzy
-                       else "from its name")
+                how = (f"by {'its ad account' if fuzzy['rule'] == ACCOUNT_RULE else 'likeness'} "
+                       f"({fuzzy['pct']}%: {fuzzy['why']})" if fuzzy else "from its name")
                 hub_audit.log("reports", "campaign_automapped", actor=actor,
                               client=name, client_key=key, action="campaign_automapped",
                               platform=row["platform"], campaign_id=row["campaign_id"],
