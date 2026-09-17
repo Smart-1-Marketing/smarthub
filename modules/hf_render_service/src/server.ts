@@ -1,17 +1,24 @@
 /**
- * hf-render-service — the whole of the HTTP surface `hub/hyperframes.py`
- * talks to. Node's built-in http rather than a framework, the way
- * `modules/ad_builder/src/server.ts` reasons about its own four routes:
- * this has four too, and every one of them is documented in
- * `hub/hyperframes.py`'s own module docstring as the wire contract this
- * file exists to satisfy exactly.
+ * hf-render-service — the whole of the HTTP surface this Hub talks to.
+ * Node's built-in http rather than a framework, the way
+ * `modules/ad_builder/src/server.ts` reasons about its own routes. Four of
+ * these five are the render/status/file/health contract `hub/hyperframes.py`
+ * documents in full as its own wire contract; `/resolve-image` is
+ * `hub/qa_tasks.py`'s, documented in `resolve.ts` and that module's own
+ * docstring, and it is deliberately not another render/status pair — a
+ * single synchronous call, because reading one page back is seconds rather
+ * than the minutes a video capture takes.
  *
  * Reached only from the Hub's own Python process, over loopback
  * (`docker-start.sh` binds this to 127.0.0.1 and never 0.0.0.0) — there is
  * no browser-facing surface here at all, unlike `ad_builder`'s proxy. No
  * token, no API key: "self-hosted, and there is nothing to authenticate to
  * a vendor" is `hub/hyperframes.py`'s own reasoning, and the loopback bind
- * is what makes that safe rather than a second thing to configure.
+ * is what makes that safe rather than a second thing to configure. That
+ * reasoning does not by itself cover `/resolve-image`, which navigates a
+ * URL the caller supplies rather than one of this service's own templates
+ * — `resolve.ts`'s host allowlist is the boundary that keeps it from
+ * being an open relay for whatever URL reaches this route.
  */
 
 import * as http from "node:http";
@@ -21,6 +28,7 @@ import { createJob, getJob, jobCount, Job } from "./jobs.js";
 import { enqueuePaintRender, enqueueVoxRender, outputFile, queueDepth, sweepOutput } from "./render.js";
 import { isKnownTemplate, TEMPLATE_NAMES } from "./templates.js";
 import { validatePaintParams, validateVoxParams } from "./validate.js";
+import { resolveImageUrl } from "./resolve.js";
 
 const PORT = parseInt(process.env.PORT || process.env.HF_RENDER_PORT || "8792", 10);
 const HOST = process.env.HOST || "127.0.0.1";
@@ -93,6 +101,24 @@ async function handleRender(req: http.IncomingMessage, res: http.ServerResponse,
   sendJson(res, 202, { jobId: job.id, status: job.status });
 }
 
+async function handleResolveImage(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const body = await readJsonBody(req);
+  if (body === undefined || typeof (body as any).url !== "string") {
+    sendJson(res, 400, { error: "Send a JSON body with a string \"url\" field." });
+    return;
+  }
+  // This is a synchronous read rather than a submit/poll job like a render:
+  // navigating one page and reading back an <img> is single-digit seconds,
+  // not the minutes a video capture takes, so the job machinery `render.ts`
+  // exists for would be ceremony this call does not need.
+  const result = await resolveImageUrl((body as any).url);
+  if ("error" in result) {
+    sendJson(res, 422, result);
+    return;
+  }
+  sendJson(res, 200, result);
+}
+
 function handleStatus(res: http.ServerResponse, jobId: string): void {
   const job = getJob(jobId);
   if (!job) {
@@ -135,6 +161,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === "POST" && parts[0] === "render" && parts.length === 2) {
       await handleRender(req, res, decodeURIComponent(parts[1]));
+      return;
+    }
+
+    if (req.method === "POST" && parts[0] === "resolve-image" && parts.length === 1) {
+      await handleResolveImage(req, res);
       return;
     }
 
