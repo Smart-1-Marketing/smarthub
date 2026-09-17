@@ -266,6 +266,16 @@ check("a manual pick of a canonical key clears the alias wording",
       industry.set_manual(client7, "tourism", actor="todd")
       and industry.display_label(client7) == "Tourism")
 
+section("The nightly job gets a turn on a deploy-heavy day")
+from hub import scheduler as _sched                                   # noqa: E402
+_order = list(_sched.JOBS)
+check("industry_resolve runs ahead of the slow provider sweeps",
+      _order.index("industry_resolve") < _order.index("knack_products")
+      and _order.index("industry_resolve") < _order.index("google_index"),
+      _order)
+check("...and after the lead retry, which is a person waiting",
+      _order.index("retry_leads") < _order.index("industry_resolve"))
+
 section("A general reading is asked again every night")
 client8 = "Fixture Nothing Yet Xyz"
 _fresh_client(client8)
