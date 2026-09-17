@@ -297,8 +297,10 @@ def _logger_bindings(tree) -> dict:
 # record a row belongs on, and a call site naming the client under any other
 # key writes a row that is kept, indexed, and then dropped on the way to the
 # record it was written for.
-CLIENT_KEYS = ("client", "client_name", "company", "business_name",
-               "tool_client")
+# Read from hub/audit.py rather than restated: the column is WRITTEN from
+# that list, so a key added here and not there would be a client the record
+# names and the column cannot find.
+CLIENT_KEYS = audit.CLIENT_KEYS
 
 
 def _log_call_sites(root=None) -> dict:
@@ -544,7 +546,16 @@ def stale_work_exemptions(root=None) -> list[str]:
 
 
 def _norm(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(name or "").lower())
+    """The client key, from hub/audit.py.
+
+    One function, not a second copy that happens to agree today. `audit`
+    writes this key into the `client` column on every row and the work log
+    queries the column by it; a normaliser here that drifted by one character
+    class would make the query answer "nothing filed" about rows it holds --
+    only for the clients whose names differ in punctuation, which is the
+    hardest kind of wrong to notice.
+    """
+    return audit.client_key(name)
 
 
 # ---------------------------------------------------------------------------
@@ -994,9 +1005,24 @@ def _work_row(e: dict):
 WORK_WINDOW = 6000
 
 
-def _work_entries(limit: int = WORK_WINDOW) -> dict:
+def _work_entries(limit: int = WORK_WINDOW, clients=None) -> dict:
     """The newest `limit` activity-log entries FROM THE WORK MODULES, with
     what the read actually reached. The one window both readings share.
+
+    ``clients`` narrows to a set of client keys IN THE QUERY, against
+    `hub_activity.client` -- the column `audit.client_key_of()` fills on every
+    write. That turns one client's work log from a window into a question with
+    an answer: their rows, all of them, however old, without reading anybody
+    else's. `work_index()` passes none because its question really is about
+    the whole book.
+
+    The column is BACKFILLED, so until that finishes there are rows nobody has
+    looked at and this must not claim them. `complete` therefore needs BOTH
+    halves: the read reached the end of the matching rows, AND the backfill
+    has covered the whole table. Short of either, `horizon` is the oldest
+    point the answer is good back to -- the oldest row reached, or the oldest
+    row the backfill has filled, whichever is younger, because that is the
+    furthest back this answer can honestly speak for.
 
     ``{"entries", "horizon", "scanned", "complete", "error"}``.
 
@@ -1020,9 +1046,11 @@ def _work_entries(limit: int = WORK_WINDOW) -> dict:
     """
     limit = max(1, int(limit))
     try:
-        entries = audit.tail(limit=limit, modules=tuple(WORK_KINDS))
+        entries = audit.tail(limit=limit, modules=tuple(WORK_KINDS),
+                             clients=tuple(clients) if clients else None)
     except Exception as exc:                            # noqa: BLE001
         return {"entries": [], "horizon": "", "scanned": 0, "complete": False,
+                "backfilled": False,
                 "error": f"The activity log could not be read ({type(exc).__name__})."}
     horizon = ""
     for e in entries:
@@ -1039,10 +1067,29 @@ def _work_entries(limit: int = WORK_WINDOW) -> dict:
                 error = "The activity log could not be read."
         except Exception:                               # noqa: BLE001
             pass
+
+    # A client-scoped read is only as complete as the column it queried. An
+    # unmeasurable backfill counts as not done: "we could not ask how far it
+    # got" and "it has finished" are different answers.
+    backfilled = True
+    if clients:
+        try:
+            state = audit.backfill_state()
+        except Exception:                               # noqa: BLE001
+            state = {"measured": False}
+        backfilled = bool(state.get("measured") and state.get("done"))
+        if not backfilled:
+            edge = str(state.get("horizon") or "")
+            if edge and (not horizon or edge > horizon):
+                # The backfill has not reached below `edge`, so whatever this
+                # read found underneath it is not evidence of absence there.
+                horizon = edge
     return {"entries": entries, "horizon": horizon, "scanned": len(entries),
+            "backfilled": backfilled,
             # An error is never "complete": we did not reach the end of the
             # log, we failed to read it, and those must not collapse.
-            "complete": len(entries) < limit and not error, "error": error}
+            "complete": len(entries) < limit and not error and backfilled,
+            "error": error}
 
 
 def work_index(limit: int = WORK_WINDOW) -> dict:
@@ -1092,7 +1139,11 @@ def work_log(client: str, limit: int = 60, also: list[str] | None = None) -> dic
         if n and n != want:
             extra[n] = str(other)
 
-    got = _work_entries()
+    # Narrowed to this client (and their group members) IN THE QUERY, against
+    # the `client` column. This used to read a window of the work modules and
+    # keep the rows whose payload named this client -- which is complete only
+    # while their work happens to fall inside it.
+    got = _work_entries(clients=[want] + list(extra))
     matched = []
     for e in got["entries"]:
         row = _work_row(e)
@@ -1126,7 +1177,8 @@ def work_log(client: str, limit: int = 60, also: list[str] | None = None) -> dic
         # for this client" and "nothing in the window I looked at" are
         # different sentences and only one of them is a churn signal.
         "horizon": got["horizon"], "scanned": got["scanned"],
-        "complete": got["complete"], "error": got["error"],
+        "complete": got["complete"], "backfilled": got.get("backfilled", True),
+        "error": got["error"],
         "note": "Assembled from the activity log. A tool that doesn't write "
                 "there won't appear — /api/integrity lists which ones those are.",
     }

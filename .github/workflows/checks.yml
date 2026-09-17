@@ -2650,6 +2650,13 @@ jobs:
         if: matrix.group == 5
         run: python3 test_reports_nightly.py
 
+      # Thirty days further back on request or nightly until nothing is
+      # older: the window, the ledger, pending Trade Desk files, the
+      # scheduler's overnight gate and the button on the lane.
+      - name: History for the fact table
+        if: matrix.group == 5
+        run: python3 test_reports_backfill.py
+
       # SmartForecast is a stateful public experience: verify lifecycle rules,
       # immutable history, public embeds, and Render disk recovery together.
       - name: GA4 unassigned traffic diagnostics and usage
@@ -2903,6 +2910,12 @@ jobs:
       - name: A capped read counted, or searched by key
         if: matrix.group == 6
         run: python3 test_capped_reads.py
+      # The column that turns one client's work log from a window into a
+      # question. Holds the migration on a live table and, above all, the
+      # boundary a half-finished backfill leaves.
+      - name: The activity log's client column and its backfill
+        if: matrix.group == 6
+        run: python3 test_activity_client_column.py
       # Declared and never wired is the failure this repo has paid for most
       # often -- an ">>> INTEGRATION POINT <<<" naming three writers that have
       # never existed, `storage.manifest()` feeding an audit nobody built,
@@ -4041,7 +4054,7 @@ jobs:
                    test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
                    test_reports_confirmations.py test_reports_quarantine.py \
                    test_reports_reconcile.py test_reports_bing.py test_reports_groundtruth.py \
-                   test_reports_amazon_dsp.py test_reports_callrail.py \
+                   test_reports_amazon_dsp.py test_reports_backfill.py test_reports_callrail.py \
                    test_v2_performance.py test_reports_exec_summary.py \
                    test_reports_map_reads.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1

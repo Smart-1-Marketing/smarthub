@@ -6,7 +6,7 @@ it -- Google Ads, Google Organic, a billboard number, Direct. Nothing here
 is delivery: no spend, no impressions, no clicks. A CallRail row in the
 fact table is an OUTCOME, the way a Smart 1 Suite row is, and the client's
 page draws it as its own tile, *Phone calls*, never as a bar beside the
-media products and never folded into ``conversions`` (``docs/claude/77``).
+media products and never folded into ``conversions`` (``docs/claude/79``).
 
 **The shape below is a transcription, not a live answer.** The public
 reference (apidocs.callrail.com, "API v3") is one of the hosts the Hub's

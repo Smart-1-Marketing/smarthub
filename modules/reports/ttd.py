@@ -346,10 +346,11 @@ def ensure_schedule() -> dict:
     return {**created, "template": template}
 
 
-def list_executions(schedule_id, days: int = RESTATE_DAYS) -> list[dict]:
+def list_executions(schedule_id, days: int = RESTATE_DAYS, *, since: str | None = None,
+                    until: str | None = None) -> list[dict]:
     c = cfg()
-    since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT00:00:00")
-    until = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT00:00:00")
+    since = since or (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT00:00:00")
+    until = until or (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%dT00:00:00")
     return _paged(EXECUTION_QUERY, {
         "PartnerIds": [c["partner_id"]],
         "ReportScheduleIds": [schedule_id],
@@ -451,6 +452,92 @@ def pull(days: int = RESTATE_DAYS) -> dict:
         out["error"] = _redact(f"{type(exc).__name__}: {exc}")
         store.record_sync("ttd", rows=0, error=out["error"], source="native")
     _remember({**out, "at": store.iso(store.now())})
+    return out
+
+
+# ---------------------------------------------------------------------------
+# History: one window, through a one-off schedule
+# ---------------------------------------------------------------------------
+
+def history_schedule_name(start: date, end: date) -> str:
+    return f"{SCHEDULE_NAME} history {start.isoformat()} to {end.isoformat()}"
+
+
+def history_schedule_body(template_id: str, start: date, end: date) -> dict:
+    """A one-off schedule for a fixed window: ``ReportDateRange`` Custom with
+    the window as ``ReportStartDateInclusive`` / ``ReportEndDateExclusive``,
+    ``ReportFrequency`` Once. Partner-wide like the daily one."""
+    c = cfg()
+    template_id = str(template_id or "").strip()
+    return {
+        "ReportScheduleName": history_schedule_name(start, end),
+        "ReportTemplateId": int(template_id) if template_id.isdigit() else template_id,
+        "ReportFileFormat": "CSV",
+        "ReportFrequency": "Once",
+        "ReportDateRange": "Custom",
+        "ReportStartDateInclusive": start.isoformat(),
+        "ReportEndDateExclusive": (end + timedelta(days=1)).isoformat(),
+        "ReportDateFormat": "Sortable",
+        "TimeZone": "UTC",
+        "PartnerId": c["partner_id"],
+    }
+
+
+def find_schedule_named(name: str) -> dict | None:
+    c = cfg()
+    rows = _paged(SCHEDULE_QUERY, {"PartnerId": c["partner_id"], "NameContains": name})
+    for r in rows:
+        if str(r.get("ReportScheduleName") or "").strip() == name:
+            return r
+    return None
+
+
+def pull_window(start: date, end: date) -> dict:
+    """One fixed window of history, for ``modules/reports/backfill.py``.
+
+    MyReports cannot answer a window on the spot: it runs a schedule and
+    delivers a file later. So the first call creates a one-off schedule for
+    the window and answers ``pending``; a later call finds the schedule,
+    reads its completed execution, lands the rows and answers ``ok`` with
+    the count. ``{"ok", "rows", "skipped", "pending", "error", "schedule"}``.
+    The nightly watermark is not stamped: history landing is not the
+    night's pull happening."""
+    out = {"ok": False, "rows": 0, "skipped": 0, "pending": False, "error": "",
+           "schedule": history_schedule_name(start, end)}
+    if not configured():
+        out["error"] = "not configured: " + ", ".join(missing()) + " unset"
+        return out
+    try:
+        found = find_schedule_named(out["schedule"])
+        if found is None:
+            daily = find_schedule()
+            template_id = str((daily or {}).get("ReportTemplateId") or "") or resolve_template()["id"]
+            created = request("POST", SCHEDULE_CREATE, history_schedule_body(template_id, start, end))
+            if not created.get("ReportScheduleId"):
+                raise TTDError("The Trade Desk accepted the history schedule without a ReportScheduleId")
+            out["pending"] = True
+            out["note"] = "history report scheduled; the file lands on the next run"
+            return out
+        executions = list_executions(found.get("ReportScheduleId"),
+                                     since=start.strftime("%Y-%m-%dT00:00:00"),
+                                     until=(end + timedelta(days=2)).strftime("%Y-%m-%dT00:00:00"))
+        newest = latest_complete(executions)
+        if newest is None:
+            out["pending"] = True
+            out["note"] = "history report scheduled, no completed run yet"
+            return out
+        url = next(d["DownloadURL"] for d in newest["ReportDeliveries"] if d.get("DownloadURL"))
+        parsed = ttd_myreports.parse(download(url))
+        if parsed["error"]:
+            raise TTDError(parsed["error"])
+        out["skipped"] = parsed["skipped"]
+        out["rows"] = store.upsert_rows(parsed["rows"]) if parsed["rows"] else 0
+        out["ok"] = True
+    except TTDError as exc:
+        out["error"] = _redact(str(exc))
+    except Exception as exc:                # noqa: BLE001 - one window, not the job
+        log.exception("reports: Trade Desk history pull failed")
+        out["error"] = _redact(f"{type(exc).__name__}: {exc}")
     return out
 
 

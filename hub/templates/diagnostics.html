@@ -867,10 +867,16 @@ function renderScheduler(d){
     // Overdue is as much a fault as a raised exception: the thing the job
     // refreshes is stale either way, and a green pill over a job that last
     // ran three days ago is the confident wrong answer.
-    var state = (j.ok===false || j.overdue) ? "error"
+    var state = j.running ? "warn"
+              : (j.ok===false || j.overdue) ? "error"
               : (j.visible===false ? "off" : (j.last_run ? "ok" : "off"));
     var when;
-    if(j.visible === false){
+    if(j.running){
+      // On its own thread right now (the Google sweep is half an hour). The
+      // loop is not waiting on it, and neither is the button below.
+      when = ' <em class="diag-fix"><b>Running</b> since '+esc(String(j.running_since||"").replace("T"," ").slice(0,16))+
+        (j.last_run ? '; last finished '+esc(j.last_run.replace("T"," ").slice(0,16)) : '')+'.</em>';
+    } else if(j.visible === false){
       when = ' <em class="diag-fix">Timings are on the worker that holds the lock.</em>';
     } else if(j.last_run){
       when = ' <em class="diag-fix">Last run '+esc(j.last_run.replace("T"," ").slice(0,16))+
@@ -892,7 +898,8 @@ function renderScheduler(d){
       '<span class="diag-detail">'+esc(j.description||"")+ when + streak +
       (j.error? ' <em class="diag-fix" style="color:#b42318">'+esc(j.error)+'</em>':'')+
       ' <button class="um-btn" style="margin:6px 0 0;padding:3px 9px;font-size:11.5px" '+
-      'onclick="runJob(\''+j.name+'\')">Run now</button>'+
+      (j.running ? 'disabled ' : '')+
+      'onclick="runJob(\''+j.name+'\')">'+(j.running ? 'Running\u2026' : 'Run now')+'</button>'+
       '</span></div>';
   }).join("");
 }
@@ -905,7 +912,7 @@ function fmtMins(m){
 function runJob(name){
   fetch("/api/scheduler/run/"+encodeURIComponent(name),{method:"POST",credentials:"same-origin"})
    .then(function(r){return r.json();}).then(function(d){
-     alert(d.error ? d.error : (name+": "+JSON.stringify(d.result||d)));
+     alert(d.error ? d.error : (name+": "+(d.note || JSON.stringify(d.result||d))));
      loadAll(true);
    }).catch(function(){ alert("Could not run that job."); });
 }

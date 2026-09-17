@@ -59,7 +59,7 @@ log = logging.getLogger(__name__)
 # for -- "Google" and "google" and "google_ads" would be three platforms with
 # one third of the spend each. "suite" is Smart 1 Suite's own campaigns;
 # "callrail" is call tracking -- outcomes (phone calls by source), never
-# delivery, and read the way suite rows are (docs/claude/77).
+# delivery, and read the way suite rows are (docs/claude/79).
 PLATFORMS = ("ttd", "google", "bing", "linkedin", "tiktok", "audiogo",
              "stackadapt", "meta", "groundtruth", "x", "amazon_sa",
              "amazon_dsp", "suite", "callrail")
@@ -834,6 +834,22 @@ def _write_values(values: list[dict]) -> int:
                             setattr(existing, k, val)
         db.commit()
         return len(values)
+    finally:
+        db.close()
+
+
+def oldest_dates(source: str | None = None) -> dict[str, date]:
+    """The earliest day on file per platform -- from every source, or from
+    one (``source="native"`` is how far back the platform's own API has
+    been read). {} when the table cannot be read."""
+    db = SessionLocal()
+    try:
+        q = db.query(AdPerfDaily.platform, func.min(AdPerfDaily.date))
+        if source:
+            q = q.filter(AdPerfDaily.source == source)
+        return {r[0]: r[1] for r in q.group_by(AdPerfDaily.platform).all() if r[1]}
+    except Exception:                  # noqa: BLE001 - a missing table is no history
+        return {}
     finally:
         db.close()
 

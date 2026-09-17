@@ -463,6 +463,14 @@ python3 test_activity_logging.py   # every module's work is attributable: an
                                    #   import is not a call, a module's own
                                    #   log() wrapper is resolved, and the
                                    #   remainder is declared with its reason
+python3 test_activity_client_column.py  # hub_activity.client: one key written by
+                                   #   the writer and queried by the reader, a
+                                   #   batched resumable backfill, the ALTER on
+                                   #   a table that predates the column, and the
+                                   #   boundary a half-finished backfill leaves
+                                   #   -- a client below it reads as
+                                   #   not-yet-answerable, never as one nothing
+                                   #   was ever made for
 python3 test_capped_reads.py       # the integrity check that finds a capped read
                                    #   COUNTED or searched BY KEY -- the defect
                                    #   class docs/claude/03 names, found by hand
@@ -757,6 +765,9 @@ python3 test_reports_amazon_dsp.py # the native Amazon DSP pull and the
                                    #   ticks, the pre-signed download fetched
                                    #   with no Authorization header on it, and
                                    #   purchases kept out of conversions
+python3 test_reports_backfill.py  # history: thirty days further back on request or
+                                   #   nightly until nothing is older; the ledger, a
+                                   #   pending Trade Desk file, and the button on the lane
 python3 test_reports_seo.py        # the organic search section for SEO clients
 python3 test_places.py             # a client's Google listing: proposed once,
                                    #   confirmed by a person, read once a night,
