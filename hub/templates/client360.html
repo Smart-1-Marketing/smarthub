@@ -18,6 +18,28 @@
   color:#1e293b;text-align:left}
 .c360-rail .rl:hover{background:#f4f6fa}
 .c360-rail .rl.on{background:#eff4ff;color:#1d4ed8}
+/* A count of open findings on the rail item, so you know where to look
+   before opening anything. The color is the worst finding there. */
+.c360-rail .rl .rlb{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:9px;
+  font:700 11px 'Segoe UI',system-ui,sans-serif;line-height:18px;text-align:center;color:#fff;background:#b45309}
+.c360-rail .rl .rlb.bad{background:#dc2626}
+.c360-rail .rl .rlb.info{background:#2563eb}
+/* The site score beside the scan's screenshots, one glance for the website. */
+.c360-score{display:inline-flex;flex-direction:column;justify-content:center;align-items:center;gap:1px;height:60px;padding:0 10px;
+  border:1px solid #dbe4f0;border-radius:8px;background:#fff;text-decoration:none;color:#1e293b;line-height:1.1}
+.c360-score .sn{font:700 18px 'Segoe UI',system-ui,sans-serif}
+.c360-score .sl{font:600 9.5px 'Segoe UI',system-ui,sans-serif;letter-spacing:.05em;text-transform:uppercase;color:#64748b}
+.c360-score.good .sn{color:#059669}.c360-score.mid .sn{color:#b45309}.c360-score.low .sn{color:#dc2626}
+.c360-score:hover{border-color:#1769aa}
+/* The latest note, pinned under the Smart 1 Internal row. */
+.c360-latest-note{display:flex;gap:8px;align-items:baseline;margin:-4px 0 12px;padding:7px 12px;border:1px dashed #dbe4f0;
+  border-radius:9px;background:#fffdf5;font-size:12.5px;color:#1e293b;cursor:pointer}
+.c360-latest-note:hover{border-color:#b45309}
+.c360-latest-note .ln{color:#64748b;white-space:nowrap}
+.c360-latest-note .lt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* A product that ends within the renewal window says so in its own row. */
+.c360-ends{white-space:nowrap}
+.c360-ends .pill{margin-left:4px}
 .c360-surface{min-width:0}
 /* The derived health strip. One pill per source, each a fact the stores
    hold; a source that could not be read is its own state (unread) and is
@@ -339,8 +361,39 @@ function renderC360WarningsHtml(queue, local){
     return '<li class="'+lvl+'"><span class="wdot"></span><span>'+inner+'</span></li>';
   }).join('')+'</ul>';
 }
+/* How many findings point at each rail section, and the worst of them --
+   what the rail's badges draw. A finding with an href goes to another
+   record (the SEO pills) and counts against no section here. */
+function c360WarningCounts(queue, local){
+  const out={};
+  const rank={bad:2,warn:1,info:0};
+  const all=(local||[]).concat(Array.isArray(queue)?queue:[]);
+  all.forEach(function(q){
+    if(!q||q.href) return;
+    const sec=q.section||q.go; if(!sec) return;
+    const lvl=(q.level==='bad'||q.level==='info')?q.level:'warn';
+    const cur=out[sec]||{n:0,level:'info'};
+    cur.n+=1;
+    if((rank[lvl]||0)>(rank[cur.level]||0)) cur.level=lvl;
+    out[sec]=cur;
+  });
+  return out;
+}
 /* ---- end c360 warnings ---- */
+function paintRailBadges(){
+  const rail=document.getElementById('c360Rail'); if(!rail) return;
+  const counts=c360WarningCounts(window.__c360queue, window.__c360localWarnings||[]);
+  rail.querySelectorAll('.rl').forEach(function(b){
+    const old=b.querySelector('.rlb'); if(old) old.remove();
+    const c=counts[b.dataset.sec]; if(!c) return;
+    const badge=document.createElement('span');
+    badge.className='rlb '+c.level; badge.textContent=String(c.n);
+    badge.title=c.n+' finding'+(c.n===1?'':'s')+' in this section';
+    b.appendChild(badge);
+  });
+}
 function renderC360Warnings(){
+  paintRailBadges();
   const el=document.getElementById('c360Warnings'); if(!el) return;
   el.innerHTML=renderC360WarningsHtml(window.__c360queue, window.__c360localWarnings||[]);
 }
@@ -408,15 +461,19 @@ const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href=
    twenty-two into the first section. */
 /* ---- c360 sections (lifted and driven in node by test_client360_layout.py) ---- */
 const C360_SECTIONS=[
-  {key:'overview', label:'Overview',          match:['products','orders we have sent','coming up','ad performance','landing pages','google listing','youtube channel','email campaigns','smart 1 suite','pipeline & leads','proposals','client notes','target audience']},
+  // Overview is the one-screen summary: what is sold, what is ending, what
+  // is proposed, the leads, the notes. The presence cards (Google listing,
+  // YouTube channel, email campaigns), the landing pages and the audience
+  // used to sit here too, thirteen cards deep, and live with their kin now.
+  {key:'overview', label:'Overview',          match:['products','orders we have sent','coming up','ad performance','smart 1 suite','pipeline & leads','proposals','client notes']},
   // Directly under Overview by request: the work on a client is the second
   // thing anybody opens the record for.
   {key:'work',     label:'Work & requests',   match:['work for this','web tickets','execution plan']},
   {key:'billing',  label:'Billing',           match:['invoices']},
-  {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
-  {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
-  {key:'creative', label:'Creative & brand',  match:['creative infor','client images','brand']},
-  {key:'social',   label:'Social & links',    match:['social media','social content','social suggestions','youtube','tracked links','form submissions','approvals & proof links']},
+  {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business','landing pages']},
+  {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary','google listing']},
+  {key:'creative', label:'Creative & brand',  match:['creative infor','client images','brand','target audience']},
+  {key:'social',   label:'Social & links',    match:['social media','social content','social suggestions','youtube channel','youtube','email campaigns','tracked links','form submissions','approvals & proof links']},
   // Skill-gated cards (modules/skills360). Drawn only for a client whose
   // skill is on; an empty section is the CSS fallback's nothing here.
   {key:'skills',   label:'Skills',            match:['ecommerce','email creator']},
@@ -500,6 +557,7 @@ function sectionize(){
     `<button type="button" class="rl" data-sec="${s.key}">${esc(s.label)}</button>`).join('')
     +'<button type="button" class="rl" data-sec="all" title="Every card on one page — the old layout">Everything</button>';
   rail.querySelectorAll('.rl').forEach(b=>{ b.onclick=()=>showC360Section(b.dataset.sec); });
+  paintRailBadges();
   // A refresh, a bookmarked #section, or a re-render after picking another
   // group member keeps its place.
   const want=(location.hash||'').replace(/^#/,'')||window.__c360sec||'overview';
@@ -626,6 +684,7 @@ function render(g,q){
   head+='<div id="c-owner"></div>';
   head+='<div id="c-group"></div>';
   head+='<div id="c-profile" style="margin:-6px 0 14px"></div>';
+  head+='<div id="c360LatestNote" hidden></div>';
   head+='<div id="c360-request-status" class="muted" role="status" style="margin:-6px 0 10px;font-size:12px;color:#b45309"></div>';
 
   /* Page actions. hub-accordion.js used to bolt these onto its
@@ -669,6 +728,30 @@ function render(g,q){
   // record. It is labeled, because the pill next to it is the IO number and
   // two bare #s side by side say nothing about which is which.
   const anyProdNum=(g.products||[]).some(p=>String(p.product_num||'').trim());
+  /* When a live product ends, and whether that is inside the renewal
+     window -- the same 21 days hub/record_health.py counts, so the row and
+     the strip cannot disagree. Knack's date arrives ISO from the live pull
+     and m/d/Y from the committed export; both are read. */
+  const C360_ENDING_SOON_DAYS=21;
+  const prodEnd=p=>{
+    const raw=String(p.end||'').trim(); if(!raw) return null;
+    let d=null, m;
+    if((m=raw.match(/^(\d{4})-(\d{2})-(\d{2})/))) d=new Date(+m[1],+m[2]-1,+m[3]);
+    else if((m=raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) d=new Date(+m[3],+m[1]-1,+m[2]);
+    if(!d||isNaN(d.getTime())) return null;
+    const today=new Date(); today.setHours(0,0,0,0);
+    return {date:d, days:Math.round((d-today)/86400000)};
+  };
+  const endCell=p=>{
+    const e=prodEnd(p);
+    if(!e) return '<td class="c360-ends muted">—</td>';
+    const live=String(p.status||'').toLowerCase()==='live';
+    const label=e.date.toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
+    let pill='';
+    if(live&&e.days<0) pill='<span class="pill err" title="Knack still calls this live">ended</span>';
+    else if(live&&e.days<=C360_ENDING_SOON_DAYS) pill='<span class="pill warn">'+(e.days===0?'today':'in '+e.days+'d')+'</span>';
+    return '<td class="c360-ends">'+esc(label)+pill+'</td>';
+  };
   const prodRow=p=>{
     const live=String(p.status||'').toLowerCase()==='live';
     const num=String(p.product_num||'').trim();
@@ -684,6 +767,7 @@ function render(g,q){
     return `<tr><td><b>${esc(p.product||'—')}</b>${numPill}${ioPill}${galleryLink}${memberTag(p.member)}</td>`
       + `<td class="muted" style="font-size:12.5px">${esc(p.campaign||'—')}</td>`
       + `<td><span class="pill ${live?'ok':'neutral'}">${esc(p.status||'—')}</span></td>`
+      + endCell(p)
       + `<td>${money(p.monthly)}</td></tr>`;
   };
   const liveProds=g.products.filter(p=>String(p.status||'').toLowerCase()==='live');
@@ -705,9 +789,9 @@ function render(g,q){
            ? ' &mdash; the committed export does not carry them.'
            : '.') + '</div>';
     }
-    html+='<table><thead><tr><th>Product</th><th>Campaign</th><th>Status</th><th>Monthly</th></tr></thead><tbody>';
+    html+='<table><thead><tr><th>Product</th><th>Campaign</th><th>Status</th><th>Ends</th><th>Monthly</th></tr></thead><tbody>';
     html+=liveProds.slice(0,15).map(prodRow).join('');
-    if(!liveProds.length)html+='<tr><td colspan="4" class="empty">No live products right now.</td></tr>';
+    if(!liveProds.length)html+='<tr><td colspan="5" class="empty">No live products right now.</td></tr>';
     html+='</tbody></table>';
     if(doneProds.length){
       html+=`<div style="padding:10px 14px;border-top:1px solid var(--line-soft)"><button class="btn-ghost" onclick="const el=document.getElementById('doneProds');const on=el.style.display==='none';el.style.display=on?'block':'none';this.textContent=on?'Hide completed / other (${doneProds.length})':'Show completed / other (${doneProds.length})'">Show completed / other (${doneProds.length})</button></div>`;
@@ -2423,8 +2507,22 @@ function render(g,q){
         }).catch(()=>{keepBtn.textContent='Save these details';
           c360Notice('Those details could not be saved.');});
     };
-    // notes card
+    // notes card, and the newest note pinned under the header so whoever
+    // opens the record next reads it without scrolling to the card.
     const notes=p.notes||[];
+    const pin=document.getElementById('c360LatestNote');
+    if(pin){
+      if(notes.length){
+        const n=notes[0];
+        pin.innerHTML='<div class="c360-latest-note" title="'+esc(n.text)+' — click for every note" role="button" tabindex="0">'
+          +'<span class="ln">&#128221; Latest note · '+esc(n.time)+' · <b>'+esc(n.author)+'</b>'+memberTag(n.member)+'</span>'
+          +'<span class="lt">'+esc(n.text)+'</span></div>';
+        pin.hidden=false;
+        const go=()=>{ showC360Section('overview'); const c=document.getElementById('c-notes'); if(c) c.scrollIntoView({block:'center',behavior:'smooth'}); };
+        pin.firstChild.onclick=go;
+        pin.firstChild.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); go(); } };
+      }else{ pin.hidden=true; pin.innerHTML=''; }
+    }
     $('c-notes').innerHTML=`<div style="display:flex;gap:8px;margin-bottom:12px">
       <input id="noteInput" placeholder="Add a note about this client…" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:8px;font:13px inherit">
       <button type="button" class="gbtn" id="noteAdd">Add note</button></div>`
@@ -5058,7 +5156,18 @@ function loadScreenshots(name){
   const gen=c360Generation;
   fetch('/api/client/screenshots?domain='+encodeURIComponent(domain),{credentials:'same-origin'})
     .then(r=>r.json()).then(d=>{
-      if(gen!==c360Generation||!d||!d.found) return;
+      if(gen!==c360Generation||!d) return;
+      /* The scan's score, one glance for the website: drawn whenever the
+         scan has one, screenshots or not, linking to the audit itself. */
+      const score=Number(d.score);
+      if(d.score!==null&&d.score!==undefined&&isFinite(score)){
+        const a=document.createElement('a');
+        a.className='c360-score '+(score>=80?'good':score>=60?'mid':'low');
+        a.href=d.scan_url||'#'; a.title='Site scan score'+(d.tier?' · tier '+d.tier:'')+(d.scanned_at?' · '+d.scanned_at:'')+'. Opens the audit.';
+        a.innerHTML='<span class="sn">'+esc(String(Math.round(score)))+'</span><span class="sl">Site score</span>';
+        box.appendChild(a); box.hidden=false;
+      }
+      if(!d.found) return;
       [['desktop','Desktop'],['mobile','Mobile']].forEach(([k,lab])=>{
         const url=safeExternalUrl(d[k]); if(!url) return;
         const b=document.createElement('button');

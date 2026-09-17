@@ -99,3 +99,26 @@ custom label and the profile sync.
   health strip; the detail rides in the tooltip and the text opens Email
   client & history.
 
+## The bigger ones, same day
+
+* **Overview is eight cards, not thirteen.** Products & IOs, Orders we
+  have sent, Coming up, Ad performance, Smart 1 Suite Account, Pipeline &
+  leads, Proposals, Client Notes. Landing pages went to Website & audits,
+  Google listing to Google & traffic, YouTube channel and Email campaigns
+  to Social & links, Target audience to Creative & brand. The layout test's
+  grouping table is the record of where each card lands.
+* **Rail badges.** `c360WarningCounts()` counts the health queue's and the
+  record's own findings per rail section, worst level winning, and
+  `paintRailBadges()` draws the count on the rail item, red for `bad`. A
+  finding with an `href` goes to another record and counts nowhere here.
+* **An Ends column on Products & IOs**, with the end date and an amber
+  pill inside the same 21-day window `hub/record_health.py` uses (a
+  constant the test holds equal to `ENDING_SOON_DAYS`), red when Knack
+  still calls an ended product live. Both of Knack's date spellings are
+  read, ISO from the live pull and m/d/Y from the committed export.
+* **The site score beside the screenshots**, from
+  `scan_facts.screenshots()`, which carries `score` and `tier` whenever
+  there is a scan, captures or not; it links to the audit.
+* **The latest note pinned under the Smart 1 Internal row**, one line with
+  the author and date, opening the notes card on a click.
+
