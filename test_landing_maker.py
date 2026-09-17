@@ -1204,7 +1204,17 @@ check("the route carries the visit flag too", "views_measured" in _j, True)
 check("and the rate flag", "conversion_measured" in _j, True)
 
 # ---- the card itself, lifted and driven in node ------------------------
-_REC = (Path(__file__).parent / "hub" / "templates" / "client360.html").read_text()
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    import importlib, os as _os, sys as _sys
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return importlib.import_module("hub.client360_assets").source_text()
+
+_REC = _c360_source()
 _a = _REC.find("/* ---- c360 landing pages (lifted")
 _b = _REC.find("/* ---- end c360 landing pages ----")
 _SRC = _REC[_a:_b] if 0 < _a < _b else ""

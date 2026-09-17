@@ -100,7 +100,17 @@ check("no idea id leaks a batch or slot it was never promoted to", all(r["promot
 # ------------------------------------------------------------------------
 section("2. The card and its wiring in the template")
 
-REC = (ROOT / "hub" / "templates" / "client360.html").read_text(encoding="utf-8")
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    import importlib, os as _os, sys as _sys
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return importlib.import_module("hub.client360_assets").source_text()
+
+REC = _c360_source()
 check("the card is emitted", 'id="c-social-ideas"' in REC and "<h3>Social suggestions</h3>" in REC, True)
 check("it sits right after Social content requests",
       REC.find('id="c-social-content"') < REC.find('id="c-social-ideas"'), True)

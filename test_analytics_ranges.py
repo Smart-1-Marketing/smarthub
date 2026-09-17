@@ -59,7 +59,17 @@ def head(title):
 JS = (ROOT / "hub" / "static" / "date-range.js").read_text(encoding="utf-8")
 ASK_JS = (ROOT / "hub" / "static" / "ask-analytics.js").read_text(encoding="utf-8")
 SEO = (ROOT / "hub" / "templates" / "seo_client.html").read_text(encoding="utf-8")
-C360 = (ROOT / "hub" / "templates" / "client360.html").read_text(encoding="utf-8")
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    import importlib, os as _os, sys as _sys
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return importlib.import_module("hub.client360_assets").source_text()
+
+C360 = _c360_source()
 GOOGLE = (ROOT / "modules" / "google_finder" / "app.py").read_text(encoding="utf-8")
 HELP = (ROOT / "hub" / "help_routes.py").read_text(encoding="utf-8")
 GUARDS = (ROOT / "test_blueprint_guards.py").read_text(encoding="utf-8")

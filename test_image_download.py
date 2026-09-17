@@ -403,8 +403,17 @@ check("its link still opens the original",
 check("the copy button still emits the original",
       'copy(\'<img src="\'+r.url+' in _gal)
 
-_c360 = open(os.path.join(ROOT, "hub/templates/client360.html"),
-             encoding="utf-8").read()
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    import importlib, os as _os, sys as _sys
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return importlib.import_module("hub.client360_assets").source_text()
+
+_c360 = _c360_source()
 check("the client record's tiles draw the preview",
       "esc(r.thumb||r.url)" in _c360 and "esc(item.thumb||item.url)" in _c360)
 
@@ -456,7 +465,8 @@ FULL_ASSET_ON_PURPOSE = {
         "the strip of what was just uploaded. That URL comes back from the "
         "Cloudinary widget in the browser and never passes through a row here, "
         "so previewing it would mean a copy of the rule in JavaScript",
-    ("hub/templates/client360.html", "Logo on their"): _LOGO,
+    # The brand card's renderer lives in the record's cards module now.
+    ("hub/static/client360-cards.js", "Logo on their"): _LOGO,
     ("modules/gpt_ads/templates/index.html", "esc(g.url)"):
         "the chosen 1:1 ad image, where the exact asset is the point",
     ("modules/landing_ads/templates/index.html", "max-width:300px"):
@@ -506,8 +516,14 @@ check("GPT Ads preview decoration never mutates saved originals",
       "thumb" not in _original["image"] and "thumb" not in _original["history"][0]["snapshot"]["image"])
 _BOUND = _re.compile(r"<img[^>]*\bsrc=[^>]*?(?:\.url|image_url|secure_url)")
 _found, _unexplained = set(), []
-for _dir in ("hub/templates", "modules"):
-    for _f in sorted(pathlib.Path(os.path.join(ROOT, _dir)).rglob("*.html")):
+# The Client 360 record's tiles are drawn from its script modules now
+# (hub/client360_assets.py), so the sweep walks those files too: a tile
+# that moved out of the template must not move out of this check.
+_files = [f for _dir in ("hub/templates", "modules")
+          for f in pathlib.Path(os.path.join(ROOT, _dir)).rglob("*.html")]
+_files += list(pathlib.Path(os.path.join(ROOT, "hub", "static")).glob("client360-*.js"))
+for _f in sorted(_files):
+    if True:
         _rel = _f.relative_to(ROOT).as_posix()
         for _line in _f.read_text(encoding="utf-8", errors="ignore").split("\n"):
             if not _BOUND.search(_line) or "thumb" in _line:

@@ -261,7 +261,17 @@ check("a not-comparable row does not make the card read as needing attention",
       "not_comparable" in _problems_line, False)
 check("while a real mismatch still does", "mismatch" in _problems_line, True)
 
-tpl = (ROOT / "hub" / "templates" / "client360.html").read_text()
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    import importlib, os as _os, sys as _sys
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return importlib.import_module("hub.client360_assets").source_text()
+
+tpl = _c360_source()
 check("the client record has a pill style for the state",
       "not_comparable:" in tpl, True)
 check("and it is not the red one mismatch uses",

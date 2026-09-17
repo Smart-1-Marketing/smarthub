@@ -341,6 +341,16 @@ with hub_app.app_context():
 
 # ---------------------------------------------------------------------------
 section("The pages")
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    import importlib, os as _os, sys as _sys
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return importlib.import_module("hub.client360_assets").source_text()
+
 with hub_app.app_context():
     resp = staff.get(f"/proposal-execution/run/{RUN_ID}/kickoff")
     body = resp.get_data(as_text=True)
@@ -365,7 +375,7 @@ with hub_app.app_context():
           "function statusTag" in tpl and "function planDone" in tpl and "progressLine(p)" in tpl)
     check("...and explains it", "help_dot('proposal_execution.plan.progress')" in tpl
           and any(h.key == "proposal_execution.plan.progress" for h in hub_help.REGISTRY))
-    check("Client 360 prints the past-due count beside the others", "pg.overdue" in _read("hub", "templates", "client360.html"))
+    check("Client 360 prints the past-due count beside the others", "pg.overdue" in _c360_source())
     check("the client page never draws the plan page's status vocabulary",
           not any(w in _read("hub", "templates", "proposal_needs.html") for w in ("status_label", "overdue", "landed_evidence")))
 

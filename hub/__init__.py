@@ -4088,9 +4088,12 @@ def create_hub_app() -> Flask:
         gate = _require_page()
         if gate:
             return gate
-        from . import ask_recipes
+        from . import ask_recipes, client360_assets
         return render_template("client360.html", user=current_user(), modules=MODULES,
                                active="c360", q=request.args.get("q", ""),
+                               # The record's script modules, stamped with a
+                               # content hash: hub/client360_assets.py.
+                               c360_v=client360_assets.version(),
                                # The client is chosen in the browser, so the
                                # chips are rendered there too: the recipes are
                                # handed over as data and askChips() fills in

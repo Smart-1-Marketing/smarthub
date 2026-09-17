@@ -332,7 +332,17 @@ check("the client link help says they can answer",
       "answer those questions" in getattr(hub_help.get("proposal_execution.plan.client_link"), "body", ""))
 check("the rep's press is on the page", "useClientAnswer(" in tmpl and "Use their answer" in tmpl)
 check("the summary line counts them", "client_answers_pending" in tmpl)
-check("Client 360 lists them as to-do", "client_answers_pending" in _read("hub", "templates", "client360.html"))
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    import importlib, os as _os, sys as _sys
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return importlib.import_module("hub.client360_assets").source_text()
+
+check("Client 360 lists them as to-do", "client_answers_pending" in _c360_source())
 check("the kickoff document prints them", "client_says" in _read("hub", "templates", "proposal_kickoff.html"))
 
 print(f"\n{PASS} passed, {FAIL} failed")

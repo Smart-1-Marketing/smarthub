@@ -54,7 +54,17 @@ def section(title):
     print(f"\n{title}\n{'-' * len(title)}")
 
 
-REC = (ROOT / "hub" / "templates" / "client360.html").read_text(encoding="utf-8")
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    import importlib, os as _os, sys as _sys
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return importlib.import_module("hub.client360_assets").source_text()
+
+REC = _c360_source()
 KNACK = (ROOT / "hub" / "knack_data.py").read_text(encoding="utf-8")
 
 # ------------------------------------------------------------------------
@@ -440,6 +450,30 @@ check("the site score sits beside the screenshots and opens the audit",
 SF = (ROOT / "hub" / "scan_facts.py").read_text(encoding="utf-8")
 check("...and the screenshots route carries the score whenever there is a scan",
       '"score": score,' in SF and '"tier": str(row.get("tier") or ""),' in SF)
+# ------------------------------------------------------------------------
+section("8. The record's JavaScript lives in files (hub/client360_assets.py)")
+from hub import client360_assets as _assets                             # noqa: E402
+TPL = (ROOT / "hub" / "templates" / "client360.html").read_text(encoding="utf-8")
+on_disk = sorted(p.name for p in (ROOT / "hub" / "static").glob("client360-*.js"))
+check("every module on disk is in the load-order list", on_disk, sorted(_assets.MODULES))
+for _m in _assets.MODULES:
+    check(f"the template loads {_m} with the content-hash cache-buster",
+          f'<script src="/assets/{_m}?v={{{{ c360_v }}}}"></script>' in TPL)
+    _src = (ROOT / "hub" / "static" / _m).read_text(encoding="utf-8")
+    check(f"...and {_m} carries no Jinja", "{{" not in _src and "{%" not in _src)
+    check(f"...and {_m} has no alert() box", "alert(" not in _src)
+_tag_order = [m for m in re.findall(r'<script src="/assets/(client360-[a-z]+\.js)', TPL)]
+check("the tags stand in the list's order", _tag_order, list(_assets.MODULES))
+check("the modules load before the record's own inline script",
+      TPL.find('/assets/client360-core.js') < TPL.find('<script>\nconst user_name='))
+check("only what needs Jinja stays inline: the constants, run, pick, render",
+      "function render(g,q){" in TPL and "async function run(){" in TPL
+      and "function renderRoles(d){" not in TPL and "function loadHealth(name){" not in TPL)
+check("the cache-buster is a content hash, ten characters",
+      re.fullmatch(r"[0-9a-f]{10}", _assets.version()) is not None)
+check("the route stamps it", "c360_v=client360_assets.version()" in
+      (ROOT / "hub" / "__init__.py").read_text(encoding="utf-8"))
+
 check("the latest note is pinned under the header and opens the notes card",
       'id="c360LatestNote"' in REC and "c360-latest-note" in REC
       and "showC360Section('overview'); const c=document.getElementById('c-notes')" in REC)

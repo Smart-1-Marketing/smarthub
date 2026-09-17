@@ -726,7 +726,17 @@ check("the catch-up sweep is scheduled",
 check("Drive read access is actually asked for at login",
       "auth/drive.readonly"
       in (ROOT / "modules" / "google_finder" / "app.py").read_text(), True)
-_c360 = (ROOT / "hub" / "templates" / "client360.html").read_text()
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    import importlib, os as _os, sys as _sys
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return importlib.import_module("hub.client360_assets").source_text()
+
+_c360 = _c360_source()
 check("Client 360 offers the library copy",
       "c.library_url" in _c360, True)
 check("and keeps the Drive original beside it",

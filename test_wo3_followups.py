@@ -320,7 +320,17 @@ check("the live preview's editable media-plan row draws the server row's own "
 section("Client 360: the launch-blocker button reads the same group key")
 # =====================================================================
 
-C360_HTML = (Path(ROOT) / "hub" / "templates" / "client360.html").read_text()
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    import importlib, os as _os, sys as _sys
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return importlib.import_module("hub.client360_assets").source_text()
+
+C360_HTML = _c360_source()
 check("Client 360 matches the group by key, never by the title string",
       "gp.key==='campaign_readiness'" in C360_HTML, True)
 check("the mount only appears once, inside that one group",
