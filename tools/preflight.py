@@ -26,8 +26,10 @@ sweep had just missed:
 
 * **A broken line-continuation inside a workflow's `run:` block is valid
   YAML.** It parses, the job starts, and it silently runs a shorter list of
-  files than it names. So the loops are executed with their commands stubbed
-  and the count is asserted.
+  files than it names. So the loops are executed with their commands stubbed,
+  and what they reach is compared against what they list. (A file DELETED from
+  the list is a different question -- ``test_ci_gate.py`` already answers it by
+  failing when a test file has no step at all.)
 
 Exit status is the number of failing checks, so ``&&`` works. Nothing here is
 new logic -- it runs the same tools CI runs, in the same order, and prints
@@ -37,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import time
@@ -48,9 +51,9 @@ ROOT = Path(__file__).resolve().parent.parent
 # node or a browser is here too: CI has them, and a local run that skips them
 # is a local run that cannot say the gate will pass.
 SWEEP = [
-    ("compile every module", [sys.executable, "-c",
-     "import ast,pathlib;[ast.parse(p.read_text(errors='ignore')) "
-     "for p in pathlib.Path('.').rglob('*.py') if '_attic' not in p.parts]"]),
+    ("compile every module", [sys.executable, "-c", (
+        "import ast,pathlib;[ast.parse(p.read_text(errors='ignore')) "
+        "for p in pathlib.Path('.').rglob('*.py') if '_attic' not in p.parts]")]),
     ("jscheck", [sys.executable, "tools/jscheck.py"]),
     ("checktemplates", [sys.executable, "tools/checktemplates.py"]),
     ("linkcheck", [sys.executable, "tools/linkcheck.py"]),
@@ -164,20 +167,26 @@ def workflow_loops() -> tuple[bool, str]:
                 run = step.get("run") or ""
                 if "for f in" not in run or "\n" not in run:
                     continue
-                named = len([w for w in run.split() if w.endswith(".py")])
+                listed = set()
+                for group in re.findall(r"for\s+\w+\s+in\s+(.*?);?\s*do", run, re.S):
+                    listed |= {w for w in group.split() if w.endswith(".py")}
+                if not listed:
+                    continue
                 stub = run.replace('python3 "$f"', 'echo "$f"')
                 stub = stub.replace("python3 $f", 'echo "$f"')
                 done = subprocess.run(["bash", "-c", stub], cwd=ROOT,
                                       capture_output=True, text=True, timeout=120)
-                ran = len([l for l in done.stdout.splitlines() if l.strip()])
                 if done.returncode != 0:
                     return False, f"{path.name}: the loop in {step.get('name')!r} will not run"
-                # The stub echoes each file twice where the loop body already
-                # echoes it, so compare on the set of names rather than lines.
-                seen = {w for w in done.stdout.split() if w.endswith(".py")}
-                if len(seen) < named // 2:
-                    return False, (f"{path.name}: {step.get('name')!r} names {named} "
-                                   f"files but iterates {len(seen)}")
+                # Both sides are sets of names, so this catches a file dropped
+                # from the MIDDLE of the list -- which any count-against-count
+                # comparison is blind to.
+                iterated = {w for w in done.stdout.split() if w.endswith(".py")}
+                missing = sorted(listed - iterated)
+                if missing:
+                    return False, (f"{path.name}: {step.get('name')!r} lists "
+                                   f"{len(listed)} files but never reaches "
+                                   + ", ".join(missing[:4]))
                 checked += 1
     return True, f"{checked} file loop(s) iterate every file they name"
 
