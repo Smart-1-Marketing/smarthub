@@ -74,7 +74,8 @@
           <div class="pace-track"><div class="pace-fill {{ r.band }}" style="width:{{ r.bar_pct }}%"></div></div>{% else %}—{% endif %}</td>
         <td><span class="band band-{{ r.band }}"><span class="ic" aria-hidden="true">{{ r.icon }}</span>{{ r.band_label }}</span>
           {% if r.alert %}<span class="alert" title="{{ r.trend_days }} days running">alert · {{ r.trend_days }}d</span>{% elif r.band != 'on' and r.trend_days > 1 %}<span class="s1d-muted" style="font-size:11px">{{ r.trend_days }}d</span>{% endif %}
-          {% if r.pending_campaigns %}<br><a class="s1d-muted" style="font-size:11px" href="/reports/unmapped#pending">{{ r.pending_campaigns }} campaign{{ '' if r.pending_campaigns == 1 else 's' }} waiting for confirmation</a>{% endif %}</td>
+          {% if r.pending_campaigns %}<br><a class="s1d-muted" style="font-size:11px" href="/reports/unmapped?client={{ r.client|urlencode }}#pending">{{ r.pending_campaigns }} campaign{{ '' if r.pending_campaigns == 1 else 's' }} waiting for confirmation</a>{% endif %}
+          {% if r.band == 'unmapped' and r.likely_campaigns %}<br><a class="s1d-muted" style="font-size:11px" href="/reports/unmapped?client={{ r.client|urlencode }}#queue">{{ r.likely_campaigns }} unmapped campaign{{ '' if r.likely_campaigns == 1 else 's' }} look{{ 's' if r.likely_campaigns == 1 else '' }} like theirs</a>{% endif %}</td>
         <td class="num">{% if r.projected_month_end is not none %}${{ '{:,.2f}'.format(r.projected_month_end) }}{% else %}—{% endif %}</td>
         <td class="num">{% if r.daily_needed is not none %}${{ '{:,.2f}'.format(r.daily_needed) }}{% else %}—{% endif %}</td>
         <td>{% if r.last_sync %}<time datetime="{{ r.last_sync }}">{{ r.last_sync }}</time>{% else %}<span class="s1d-muted">never</span>{% endif %}</td>
@@ -92,7 +93,8 @@
   <p class="s1d-hint">Budget (period) is the monthly media budget prorated to the part of this month the flight covers.
     Pace is spent over expected-to-date; under is below 0.90, over is past 1.10. Stalled is two completed days of zero spend mid-flight;
     unmapped is a sold line with no confirmed campaign filed against it &mdash; a campaign the auto-mapper filed from its name
-    paces nothing until somebody confirms it, and the row says how many are waiting. An alert needs the same off-pace band three days running.
+    paces nothing until somebody confirms it, and the row says how many are waiting &mdash; and how many unmapped campaigns
+    look like the client's, each a link to that client's queue. An alert needs the same off-pace band three days running.
     Projected is spent plus the last seven days' average times the days remaining. Raw media spend, staff only.</p>
 </div>
 {% endblock %}

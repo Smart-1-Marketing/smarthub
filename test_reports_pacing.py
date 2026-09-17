@@ -443,3 +443,22 @@ for f in ("modules/reports/pacing.py", "modules/reports/templates/reports_pacing
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
+
+
+
+# ------------------------------------------ the "look like theirs" overlay
+section("The board says how many unmapped campaigns look like each client's")
+
+from modules.reports import automap as _automap                       # noqa: E402
+_real_likely = _automap.likely_by_client
+_automap.likely_by_client = lambda refresh=False: {"d:acme.com": 3}
+_rows = [{"client": "d:acme.com", "band": "unmapped"}, {"client": "n:other", "band": "on"}]
+pacing._overlay_likely(_rows)
+check("a line's client with campaigns on the queue that look like theirs carries the count",
+      [r["likely_campaigns"] for r in _rows], [3, 0])
+def _boom_likely(refresh=False):
+    raise RuntimeError("registry down")
+_automap.likely_by_client = _boom_likely
+pacing._overlay_likely(_rows)
+check("a reading that cannot be made is None, not a nought", [r["likely_campaigns"] for r in _rows], [None, None])
+_automap.likely_by_client = _real_likely

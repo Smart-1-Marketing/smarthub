@@ -7,6 +7,7 @@
   {% elif saved == 'refused' %}Refused. The campaign is back on the unmapped list below, and the auto-mapper will not file it under that client from that name again.
   {% elif saved == 'moved' %}Moved. The campaign is filed under the client you picked, confirmed by your press, and on their page from now.
   {% elif saved == 'forgotten' %}Forgotten. The auto-mapper will not read that name as that client's again unless somebody teaches it again.
+  {% elif saved and saved.startswith('confirmed-') %}Confirmed {{ saved[10:] }} campaign{{ '' if saved[10:] == '1' else 's' }}. They are on their clients' pages from now.
   {% else %}Campaign {{ saved }} is filed. It leaves this list on the next load.{% endif %}{% endblock %}
 
 {% block style %}
@@ -26,23 +27,40 @@
   .looks button.best { font-weight: 600; }
   .looks button[aria-pressed=true] { background: #3730a3; color: #fff; border-color: #3730a3; }
   .why { display: block; font-size: 12px; color: var(--muted, #64748b); }
+  .bulk { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  .bulk .s1d-muted { font-size: 12px; }
+  .filter-note { margin: 0 0 10px; padding: 8px 12px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px; font-size: 13px; }
 {% endblock %}
 
 {% block body %}
+{% if client_filter %}
+<p class="filter-note">Showing <b>{{ client_filter_name }}</b>'s queue: {{ pending|length }} waiting for confirmation and
+  {{ rows|length }} unmapped campaign{{ '' if rows|length == 1 else 's' }} that look{{ 's' if rows|length == 1 else '' }} like theirs.
+  <a href="/reports/unmapped">Show every client</a> &middot; <a href="/reports/client/{{ client_filter }}">their page</a></p>
+{% endif %}
 <div class="s1d-card" id="pending">
   <div class="s1d-cardhead">
     <h2>{{ pending|length }} filed from the name, waiting for confirmation {{ help_dot('reports.unmapped.pending') if help_dot is defined else '' }}</h2>
     <span class="s1d-muted">Not on any client's page until somebody confirms.</span>
   </div>
   {% if pending %}
+  <form id="confirm-many" method="post" action="/reports/unmapped/confirm-many" class="bulk">
+    <input type="hidden" name="client" value="{{ client_filter }}">
+    <button type="button" class="s1d-btn sec small" id="tick-all">Tick all shown</button>
+    <button type="button" class="s1d-btn sec small" id="tick-sure">Tick the 100% ones</button>
+    <button type="button" class="s1d-btn sec small" id="tick-none">Untick</button>
+    <button type="submit" class="s1d-btn small" id="confirm-ticked" disabled>Confirm ticked (<span id="tick-count">0</span>)</button>
+    <span class="s1d-muted">Each ticked campaign is confirmed on its own activity row, as if pressed one by one. {{ help_dot('reports.unmapped.bulk') if help_dot is defined else '' }}</span>
+  </form>
   <div class="s1d-scroll">
   <table class="s1d-t">
     <thead><tr>
-      <th>Platform</th><th>Campaign</th><th>Filed under</th><th>Product</th><th>Shown to the client as</th><th>Filed</th><th>Decide, or move it</th>
+      <th></th><th>Platform</th><th>Campaign</th><th>Filed under</th><th>Product</th><th>Shown to the client as</th><th>Filed</th><th>Decide, or move it</th>
     </tr></thead>
     <tbody>
     {% for m in pending %}
       <tr>
+        <td><input type="checkbox" form="confirm-many" name="keys" value="{{ m.platform }}|{{ m.account_id }}|{{ m.campaign_id }}" aria-label="Tick to confirm {{ m.campaign_name or m.campaign_id }}" data-sure="{{ '1' if (not m.by_evidence) or (m.match and m.match.pct == 100) else '0' }}"></td>
         <td>{{ m.platform_label }}</td>
         <td><b>{{ m.campaign_name or '(unnamed)' }}</b><br><span class="s1d-muted mono">{{ m.campaign_id }}</span></td>
         <td><a href="/reports/client/{{ m.client }}">{{ m.client_name or m.client }}</a> <span class="s1d-muted mono">{{ m.client }}</span>
@@ -95,7 +113,7 @@
     confirmed by your press.</p>
 </div>
 
-<div class="s1d-card">
+<div class="s1d-card" id="queue">
   <div class="s1d-cardhead">
     <h2>{{ rows|length }} unmapped {{ help_dot('reports.unmapped.hint') if help_dot is defined else '' }}</h2>
     <span class="s1d-muted">Spend is the last {{ days }} days, biggest first.</span>
@@ -132,9 +150,10 @@
               <input type="hidden" name="client_key" value="{{ r.suggestions[0].key if r.suggestions else '' }}">
               <div class="picker-list"></div>
             </div>
-            <input type="text" name="product" class="product" list="s1-products" placeholder="Product" autocomplete="off" value="{{ r.default_product or defaults.get(r.platform, '') }}">
+            <input type="text" name="product" class="product" list="s1-products" placeholder="Product" autocomplete="off" value="{{ r.product_hint[0] or r.default_product or defaults.get(r.platform, '') }}"{% if r.product_hint[0] %} title="{{ r.product_hint[1] }}"{% endif %}>
             <button type="submit" class="s1d-btn small">Map</button>
           </form>
+          {% if r.product_hint[0] %}<span class="why">Product: {{ r.product_hint[1] }}; check it.</span>{% endif %}
           {% if r.suggestions %}
           <span class="looks">Looks like:
             {% for c in r.suggestions %}<button type="button" class="{{ 'best' if loop.first else '' }}" data-key="{{ c.key }}" data-name="{{ c.name }}" title="{{ c.why }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ c.name }} {{ c.pct }}%</button>{% endfor %}
@@ -158,7 +177,9 @@
   <datalist id="s1-products">{% for p in products %}<option value="{{ p }}"></option>{% endfor %}</datalist>
   <p class="s1d-hint">The product is what the client reads: two campaigns on two platforms
     filed under one product are one bar on their page. The box offers the Smart 1 catalog
-    and opens on the platform's default; anything else may be typed. A mapping with no
+    and opens on what the name says (a catalog name, or a word that means one product on
+    every platform: CTV, OTT, pre-roll, podcast, geofence, retargeting, PMax) else the
+    platform's default; anything else may be typed. A mapping with no
     product shows under a generic label and is flagged on the client's page.</p>
   <p class="s1d-hint">"Looks like" is what the book and the names say: the client the ad account's other campaigns
     are confirmed as, the client whose name the campaign name resembles &mdash; the client's name or domain in it, or
@@ -270,6 +291,27 @@
     name.dispatchEvent(new CustomEvent("s1reports:client", { bubbles: true,
       detail: { key: key.value, name: name.value } }));
   });
+  // Bulk confirmation: the tick boxes belong to the one form above the
+  // table (form=), so the per-row Confirm / Not theirs / Move forms stay
+  // their own. The submit button says how many are ticked and is disabled
+  // at none, so an empty press cannot happen.
+  (function () {
+    var form = document.getElementById("confirm-many");
+    if (!form) return;
+    var boxes = function () { return Array.prototype.slice.call(document.querySelectorAll('input[form="confirm-many"][name="keys"]')); };
+    var btn = document.getElementById("confirm-ticked"), count = document.getElementById("tick-count");
+    function refreshCount() {
+      var n = boxes().filter(function (b) { return b.checked; }).length;
+      count.textContent = String(n);
+      btn.disabled = n === 0;
+    }
+    function set(pred) { boxes().forEach(function (b) { b.checked = pred(b); }); refreshCount(); }
+    document.getElementById("tick-all").addEventListener("click", function () { set(function () { return true; }); });
+    document.getElementById("tick-sure").addEventListener("click", function () { set(function (b) { return b.getAttribute("data-sure") === "1"; }); });
+    document.getElementById("tick-none").addEventListener("click", function () { set(function () { return false; }); });
+    document.addEventListener("change", function (e) { if (e.target && e.target.name === "keys") refreshCount(); });
+    refreshCount();
+  })();
   // A row that opened on a suggestion shows the rename hint for that client.
   Array.prototype.forEach.call(document.querySelectorAll("form.map input[name=client_key]"), function (k) {
     if (!k.value) return;

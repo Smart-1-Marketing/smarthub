@@ -349,6 +349,7 @@ def board(band: str = "", platform: str = "", owner: str = "", client: str = "",
     counts = {b: sum(1 for r in rows if r["band"] == b) for b in BANDS}
     counts["alerts"] = sum(1 for r in rows if r["alert"])
     _overlay_pending(rows)
+    _overlay_likely(rows)
     shown = rows
     if band:
         shown = [r for r in shown if r["band"] == band]
@@ -393,6 +394,23 @@ def _overlay_pending(rows: list[dict]) -> None:
             continue
         r["pending_campaigns"] = sum(1 for m in pending
                                      if m["client"] == r["client"] and _matches(r, m))
+
+
+def _overlay_likely(rows: list[dict]) -> None:
+    """How many unmapped campaigns look like each line's client, from the
+    queue's likeness -- laid over the snapshot like the pending count, and
+    for the same reason. An unmapped line whose campaigns are sitting on
+    the queue under the client's own name is one press from paced, and
+    the board should say so and point at them. Never raises: a reading
+    that cannot be made is None, which the page draws as nothing rather
+    than as none."""
+    try:
+        from . import automap
+        likely = automap.likely_by_client()
+    except Exception:                                   # noqa: BLE001 - the store or registry refused
+        likely = None
+    for r in rows:
+        r["likely_campaigns"] = None if likely is None else likely.get(r["client"], 0)
 
 
 BOARD_COLUMNS = ("client", "product", "platforms", "owner", "monthly_budget", "sold_amount",

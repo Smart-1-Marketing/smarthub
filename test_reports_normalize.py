@@ -555,6 +555,42 @@ check("refused, the account no longer files under that client",
       ("meta", "r-2") not in {(m["platform"], m["campaign_id"]) for m in store.mapped_campaigns(limit=300)}
       and am9["by_rule"].get("account_v1", 0) == 0)
 
+# ------------------------------------------------- the product box hint
+section("What the name says the product is")
+
+ph = _products.product_hint
+check("a catalog name whole is the product", ph("Acme | Streaming TV | Q4"), ("Streaming TV", "the name says Streaming TV"))
+check("a synonym that means one product everywhere", ph("Acme CTV Q4")[0], "Streaming TV")
+check("...OTT too", ph("acme_ott_2026")[0], "Streaming TV")
+check("...pre-roll is online video", ph("Acme Pre-Roll")[0], "Online Video")
+check("...a podcast is streaming audio", ph("Acme Podcast Sponsorship")[0], "Streaming Audio")
+check("...PMax is paid search", ph("Acme PMax")[0], "Paid Search")
+check("search alone is not a hint: it is not the same product on every platform", ph("Acme | Search | Brand"), ("", ""))
+check("video alone is not a hint either", ph("Acme Video Q4"), ("", ""))
+check("a name that says nothing hints nothing", ph("Acme Brand"), ("", ""))
+check("the queue row carries the hint",
+      {r["campaign_id"]: r["product_hint"][0] for r in store.unmapped_campaigns(days=30, limit=100)}.get("f-ambig", "?"), "")
+
+# ------------------------------------------- the board's "look like theirs"
+section("How many unmapped campaigns look like each client's")
+
+automap.forget_likely()
+like = automap.likely_by_client()
+check("the reading counts the queue's likeness per client",
+      like.get("d:acme.com", 0) >= 1 and like.get("d:acmeroofing.com", 0) >= 1)
+_calls = {"n": 0}
+_real_annotate = automap.annotate
+def _counting(*a, **k):
+    _calls["n"] += 1
+    return _real_annotate(*a, **k)
+automap.annotate = _counting
+automap.likely_by_client()
+check("...held between reads rather than recomputed", _calls["n"], 0)
+automap.forget_likely()
+automap.likely_by_client()
+check("...and read afresh once a mapping changed the queue", _calls["n"], 1)
+automap.annotate = _real_annotate
+
 # ------------------------------------------------------- the aliases
 section("Learned names")
 

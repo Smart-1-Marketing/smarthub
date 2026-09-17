@@ -1596,6 +1596,7 @@ def unmapped_campaigns(days: int = 30, limit: int = 200) -> list[dict]:
                 "refused": None,
                 "channel_type": channel,
                 "default_product": _default_product(p, channel),
+                "product_hint": _product_hint(name or ""),
             }
     finally:
         db.close()
@@ -1622,6 +1623,16 @@ def _default_product(platform: str, channel: str = "") -> str:
         return _products.default_for(platform, channel)
     except Exception:                  # noqa: BLE001
         return ""
+
+
+def _product_hint(name: str) -> tuple[str, str]:
+    """``products.product_hint`` without a hard import at the top, for the
+    reason ``_default_product`` gives."""
+    try:
+        from . import products as _products
+        return _products.product_hint(name)
+    except Exception:                  # noqa: BLE001
+        return "", ""
 
 
 def unmapped_count() -> int:
