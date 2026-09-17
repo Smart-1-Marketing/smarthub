@@ -3978,3 +3978,8 @@ jobs:
         run: |
           python3 test_lsa_workspace.py
           python3 test_lsa_intake.py
+      - name: Trade Desk reporting tests
+        if: matrix.group == 8
+        run: |
+          python test_reporting.py
+          REPORTING_TEST_DATABASE_URL="$DATABASE_URL" python test_reporting.py

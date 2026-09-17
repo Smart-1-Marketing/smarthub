@@ -1024,3 +1024,8 @@ one that has been green is one a new finding actually interrupts.
 Then boot through `wsgi.application` (not just the hub app — that's how mount
 shadowing hides) and request the pages you touched. `/api/integrity` reports
 known defect patterns; `/login/health` diagnoses sign-in without a session.
+
+`python test_reporting.py` verifies canonical Trade Desk ingestion, replacement
+upserts, failure rollback, client mapping, currency separation, and admin guards.
+CI also runs it on the disposable PostgreSQL service via
+`REPORTING_TEST_DATABASE_URL`; never set that override to a production database.

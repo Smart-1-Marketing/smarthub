@@ -106,6 +106,7 @@ def _b(name: str, default: bool = False) -> bool:
 # spelling here is the whole fix — no call site changes.
 # ---------------------------------------------------------------------------
 ALIASES: dict[str, tuple[str, ...]] = {
+    "ttd_api_token": ("TTD_API_TOKEN", "TRADE_DESK_API", "TRADE_DESK_API_KEY", "TRADE_DESK_API_TOKEN", "TTD_API"),
     # The signed-session secret, and the one entry here with a bug behind it.
     # This file read SECRET_KEY / FLASK_SECRET_KEY; hub/auth.py and
     # hub/identity.py read SECRET_KEY / SESSION_SECRET. A deployment setting
@@ -194,6 +195,10 @@ def _cloudinary_url() -> str:
 
 @dataclass(frozen=True)
 class Settings:
+    # Reporting provider credentials are never exposed in health responses.
+    ttd_api_token: str = field(default_factory=lambda: _alias("ttd_api_token"), repr=False)
+    ttd_partner_id: str = field(default_factory=lambda: _s("TTD_PARTNER_ID"))
+    ttd_report_url: str = field(default_factory=lambda: _s("TTD_REPORT_URL"), repr=False)
     # ---- core ----
     secret_key: str = field(default_factory=lambda: _alias("secret_key"))
     panel_password: str = field(default_factory=lambda: _s("PANEL_PASSWORD"))
@@ -534,6 +539,7 @@ class Settings:
     # What each setting is for, in the words somebody standing in front of a
     # fresh deployment would use. env_report() prints these; nothing else does.
     LABELS = {
+        "ttd_api_token": "Trade Desk API token",
         "secret_key": "Signed sessions",
         "pexels_key": "Pexels stock",
         "pixabay_key": "Pixabay stock",
@@ -645,6 +651,10 @@ class Settings:
             return {"name": "Secret key", "state": rep["state"], "required": True,
                     "note": f"{spellings} — {rep['detail']}"}
         return [
+            row("Trade Desk canonical import", bool(self.ttd_api_token and self.ttd_partner_id and self.ttd_report_url), False,
+                f"{self.spellings('ttd_api_token')}, TTD_PARTNER_ID, TTD_REPORT_URL — "
+                "the Diagnostics reporting import needs a partner and completed daily CSV export; "
+                "without them it cannot import metrics. Check linked Render environment groups first."),
             # Read from hub/signing.py rather than described here. This row
             # said "sessions are not signed without it, so everyone is logged
             # out by every restart" -- a true account of the two call sites
