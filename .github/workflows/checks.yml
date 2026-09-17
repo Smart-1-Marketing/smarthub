@@ -154,8 +154,25 @@ jobs:
           python test_io_media_mix.py
           node test_io_media_mix.js
           python test_io_delivery.py
+          python test_io_delivery_lock.py
           python test_io_completion.py
           node test_io_recovery_ui.js
+
+      - name: IO delivery lock against Postgres
+        if: matrix.group == 1
+        # The reservation that keeps a duplicate opportunity out of Smart 1
+        # Suite. It was BEGIN IMMEDIATE on a SQLite file, which serialises the
+        # two workers sharing one file and says nothing about a second
+        # instance -- and the two halves of a zero-downtime deploy are two
+        # instances. The lock that spans them is a Postgres advisory lock, so
+        # a suite that only ever sees SQLite cannot see the thing that fixed
+        # it: the step above runs these two on SQLite, this one repeats them
+        # against the backend the lock actually lives in.
+        env:
+          IO_DELIVERY_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          python test_io_delivery.py
+          python test_io_delivery_lock.py
 
       # The PDF Optimizer is a wrapper around these two, and they were in the
       # Dockerfile and nowhere else -- so the compression the tool exists for

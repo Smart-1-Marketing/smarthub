@@ -8,9 +8,19 @@ from modules.io_builder.submission_attempts import protected_delivery
 
 tmp = tempfile.TemporaryDirectory(prefix="io_delivery_", ignore_cleanup_errors=True)
 os.environ["HUB_DATA_DIR"] = tmp.name
-os.environ["DATABASE_URL"] = "sqlite:///" + tmp.name + "/mirror.db"
+# The delivery lock is a Postgres advisory lock where one is answering and
+# BEGIN IMMEDIATE on the SQLite fallback, so this runs both ways in CI: a
+# suite that only ever sees SQLite cannot see the lock that spans instances.
+os.environ["DATABASE_URL"] = (os.environ.get("IO_DELIVERY_TEST_DATABASE_URL")
+                              or "sqlite:///" + tmp.name + "/mirror.db")
 os.environ["AUDIT_LOG_PATH"] = tmp.name + "/audit.jsonl"
-from hub import jsonstore  # warm imports before the timed concurrency assertions
+from hub import dbshim  # imported after the environment above, not before
+
+# A fresh temp directory is a fresh database on the SQLite fallback and is NOT
+# one on a shared Postgres: the order ids below are fixed, so a second run
+# finds the first run's receipt, replays it, and `send()` never executes --
+# which fails on `entered.wait(30)` rather than on anything it is testing.
+dbshim.drop_all_for_tests(("attempts", "receipts"))
 app = Flask(__name__)
 calls = []
 entered, release = Event(), Event()
