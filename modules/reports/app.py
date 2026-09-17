@@ -43,7 +43,7 @@ from flask import (Flask, Response, jsonify, redirect, render_template,
 
 from hub.webargs import clamp_int
 
-from . import client_pdf, client_view, organic, pacing, products, quarantine, reconcile, store, suite_email, youtube
+from . import automap, client_pdf, client_view, organic, pacing, products, quarantine, reconcile, store, suite_email, youtube
 
 try:                                   # the shared last-hop rule for a caller's address
     from hub import leads as hub_leads
@@ -497,10 +497,18 @@ def _resolve_client(name: str, key: str) -> tuple[str, str]:
 def unmapped():
     days = clamp_int(request.args.get("days"), 30, 1, 365)
     limit = clamp_int(request.args.get("limit"), 200, 1, 1000)
+    rows = store.unmapped_campaigns(days=days, limit=limit)
+    pending = store.pending_mappings()
+    # The likeness beside every row: the picker opens on the client the
+    # name looks like, and a pending row filed by likeness says why. Laid
+    # over at read time, never stored -- a registry that cannot be read
+    # leaves the lists empty and the page says so.
+    likeness = automap.annotate(rows, pending)
     return render_template(
         "reports_unmapped.html",
-        rows=store.unmapped_campaigns(days=days, limit=limit),
-        pending=store.pending_mappings(),
+        rows=rows, pending=pending,
+        likeness_error=likeness.get("error", ""),
+        file_pct=int(round(automap.FUZZY_FILE_SCORE * 100)),
         days=days, shape=store.RENAME_SHAPE,
         products=products.catalog(),
         defaults=products.DEFAULT_PRODUCT_FOR_PLATFORM,
@@ -512,11 +520,23 @@ def unmapped():
 
 @app.route("/unmapped", methods=["POST"])
 def map_campaign():
+    """File a campaign under a client, or move one: the same press on an
+    unmapped row and on a proposal the auto-mapper filed under the wrong
+    client (the queue's and the client page's Move to). A person's mapping
+    replaces the row and is confirmed by the making, so a moved proposal
+    is on the right client's page from now and the wrong client's never
+    had it."""
     f = request.form
+    back = _mapping_back(f)
     client_key, client_name = _resolve_client(f.get("client_name", ""),
                                               f.get("client_key", ""))
     if not client_name and not client_key:
-        return redirect(url_for("unmapped", error="Pick a client first."))
+        return redirect(back + "?error=Pick+a+client+first.")
+    try:
+        before = store.campaign_map(f.get("platform", ""), f.get("account_id", ""),
+                                    f.get("campaign_id", ""))
+    except ValueError:
+        before = None
     try:
         row = store.map_campaign(
             f.get("platform", ""), f.get("account_id", ""), f.get("campaign_id", ""),
@@ -525,15 +545,26 @@ def map_campaign():
             campaign_name=f.get("campaign_name", ""),
             display_name=f.get("display_name") or None)
     except ValueError as exc:
-        return redirect(url_for("unmapped", error=str(exc)))
+        return redirect(back + "?error=" + str(exc).replace(" ", "+"))
+    moved = before is not None and before.get("client") != row.client
     # client= so the mapping lands on that client's 360 activity.
     _log("campaign_mapped", client=client_name or client_key,
          client_key=row.client, platform=row.platform,
          campaign_id=row.campaign_id, product=row.product or None,
          detail=f"{store.platform_label(row.platform)} campaign "
                 f"{f.get('campaign_name') or row.campaign_id} mapped to "
-                f"{client_name or client_key}")
-    return redirect(url_for("unmapped", saved=row.campaign_id))
+                f"{client_name or client_key}"
+                + (f" (moved from {before.get('client_name') or before.get('client')}"
+                   f"{', which the auto-mapper had proposed' if before.get('pending') else ''})"
+                   if moved else ""))
+    if moved:
+        # The page that was showing the proposal is a page whose cache
+        # holds a campaign that is no longer theirs.
+        for token in [l.token for l in [store.link_for_client(before["client"])] if l]:
+            client_view.forget(token)
+    if f.get("back") == "client":
+        return redirect(back + "?saved=" + ("moved" if moved else "campaign"))
+    return redirect(url_for("unmapped", saved=("moved" if moved else row.campaign_id)))
 
 
 def _mapping_back(f) -> str:

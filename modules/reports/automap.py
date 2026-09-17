@@ -10,10 +10,10 @@ Rules, each a way to file spend under the wrong client:
 
 * **The first segment must be the literal ``S1M``**, case-insensitive and
   whitespace-tolerant, and there must be at least two segments -- the mark
-  and the client. ``SIM`` is not it -- a near-miss is left in the unmapped
-  queue for a person, because a parser that forgives a typo in the one
-  token that marks a name as ours will eventually read a campaign that was
-  never meant for it. A name with no product segment (or an empty one)
+  and the client. ``SIM`` is not it -- a near-miss is not read as the shape,
+  because a parser that forgives a typo in the one token that marks a name
+  as ours will eventually read a campaign that was never meant for it. (It
+  may still be filed by likeness, below, on the client's name alone.) A name with no product segment (or an empty one)
   files under the channel type the platform reports on the campaign where
   ``products.GOOGLE_CHANNEL_PRODUCTS`` maps it (a Google Ads VIDEO campaign
   is Online Video, not the platform's Paid Search default), else under
@@ -36,8 +36,24 @@ Rules, each a way to file spend under the wrong client:
   itself within the hour. A campaign is skipped while its name is the one
   it was refused under; renamed, it is read again.
 
+**A name that does not carry the mark is read for a likeness.** Most
+campaigns were named before the shape existed, and the unmapped queue held
+them with the client's name plainly in the campaign name and nobody to type
+it. ``suggest_clients()`` scores every registry client
+against the name -- the client's name contained whole, the client's domain
+label, or a near spelling (``difflib``) of the name -- and ``decide()``
+names the one to file only when the best likeness is at or above
+``FUZZY_FILE_SCORE`` **and** the runner-up is ``FUZZY_MARGIN`` behind it:
+``Acme Plumbing`` and ``Acme Roofing`` scoring alike on ``Acme | Search``
+files nobody, and the queue shows both for a person to pick. Filed, it is
+``auto_rule="fuzzy_v1"``, a proposal like every other auto filing, and it
+reaches no figure until confirmed; the queue shows the likeness beside
+every campaign it could not file so the picker opens on the likeliest
+client rather than empty, and any proposal can be moved to another client
+from the queue or the client's page without refusing it first.
+
 Every mapping it writes is ``mapped_by="auto"`` with ``auto_rule="name_v1"``
-on the row, so a report can tell a filed-by-name campaign from one a person
+(or ``"fuzzy_v1"``) on the row, so a report can tell a filed-by-name campaign from one a person
 chose, and an activity row under the client's name says it happened. **And
 it is a proposal**: the row carries no confirmation, ``store.facts_for()``
 does not read it, and the campaign reaches no figure on the client's page
@@ -48,6 +64,7 @@ screen reading as working.
 """
 from __future__ import annotations
 
+import difflib
 import logging
 import re
 
@@ -56,7 +73,34 @@ from . import store
 log = logging.getLogger(__name__)
 
 RULE = "name_v1"
+FUZZY_RULE = "fuzzy_v1"
 MAPPED_BY = store.AUTO_MAPPED_BY
+
+# The likeness a campaign name has to bear to a client before the fuzzy
+# pass files a proposal on it, and how far behind the runner-up has to be.
+# Both house numbers, written here rather than tuned in a settings screen:
+# below FUZZY_SHOW_SCORE a likeness is not even shown, between the two it
+# is a suggestion the queue's picker opens on, at FUZZY_FILE_SCORE with the
+# margin it is filed and waits for confirmation like a name_v1 filing.
+FUZZY_FILE_SCORE = 0.90
+FUZZY_SHOW_SCORE = 0.70
+FUZZY_MARGIN = 0.08
+FUZZY_LIMIT = 3
+
+# Score by kind of evidence. A whole name is a name; a domain label is the
+# next best thing; a near spelling is difflib's ratio; a distinctive word
+# of the client's name on its own is a lead and never a filing.
+_SCORE_NAME = 1.0
+_SCORE_DOMAIN = 0.95
+_SCORE_PARTIAL = 0.75
+_MIN_PARTIAL_CHARS = 4
+# A near spelling has to start the way the client's name does, this many
+# letters of one word: the gate in front of difflib.
+_PREFIX = 3
+
+# Separators campaign names are built from, made spaces before the words
+# are read: "Acme_Plumbing-Search|2026" is four words, not one.
+_SEP = re.compile(r"[|/\\_\-–—:;,.()\[\]{}+&#*\"'`~]+")
 
 _MARK = re.compile(r"^\s*s1m\s*$", re.IGNORECASE)
 
@@ -120,23 +164,240 @@ def resolve_client(token: str) -> tuple[str, str] | None:
     return None
 
 
+# ------------------------------------------------------------- likeness
+def _registry_rows() -> list[dict]:
+    """The client registry, or RegistryUnavailable -- the same distinction
+    resolve_client() draws, for the same reason."""
+    try:
+        from hub import clients_registry
+        return list(clients_registry.all_clients())
+    except Exception as exc:               # noqa: BLE001 - registry unavailable
+        log.warning("reports automap: client registry unreadable: %s", exc)
+        raise RegistryUnavailable(f"{type(exc).__name__}: {exc}"[:200]) from exc
+
+
+def _words(text: str) -> list[str]:
+    """A campaign name or a client name as the words that identify a
+    business: separators to spaces, then hub/client_key.normalise_name's
+    reading (lowercase, punctuation out, legal suffixes and filler dropped)."""
+    from hub.client_key import normalise_name
+    return normalise_name(_SEP.sub(" ", str(text or ""))).split()
+
+
+def _domain_label(row: dict) -> str:
+    """``acme`` from acme.com -- the part of a domain people put in a
+    campaign name -- or "" when the row has no domain or it is too short
+    to mean anything."""
+    from hub.client_context import canonical_domain
+    dom = canonical_domain(row.get("url") or row.get("domain") or "")
+    label = dom.split(".")[0] if dom else ""
+    return label if len(label) >= _MIN_PARTIAL_CHARS else ""
+
+
+def build_index(rows: list[dict]) -> list[dict]:
+    """The registry read once for many names: one entry per row the fuzzy
+    pass can score -- key, the name to file under (the canonical row's, not
+    an alias's), its words, and its domain label. Rows with no readable
+    name are skipped. ``run()`` and ``annotate()`` build it once and hand
+    it to ``suggest_clients()`` for every campaign; building it per name
+    was most of an hourly run."""
+    from hub import client_key as ck
+    label_by_key: dict[str, str] = {}
+    for r in rows:
+        name = (r.get("name") or "").strip()
+        key = r.get("key") or ck.client_key(name, r.get("url") or r.get("domain") or "")
+        if name and key and not r.get("is_alias") and key not in label_by_key:
+            label_by_key[key] = name
+    out = []
+    for r in rows:
+        name = (r.get("name") or "").strip()
+        key = r.get("key") or ck.client_key(name, r.get("url") or r.get("domain") or "")
+        words = _words(name)
+        if not (name and key and words):
+            continue
+        out.append({"key": key, "name": label_by_key.get(key, name), "alias": name,
+                    "words": words, "joined": "".join(words),
+                    "prefixes": {w[:_PREFIX] for w in words if len(w) >= _PREFIX},
+                    "domain_label": _domain_label(r)})
+    return out
+
+
+def _contains(haystack: list[str], needle: list[str]) -> bool:
+    n = len(needle)
+    return n > 0 and any(haystack[i:i + n] == needle for i in range(len(haystack) - n + 1))
+
+
+def _score(cand: dict, words: list[str], tokens: set[str], prefixes: set[str]) -> tuple[float, str]:
+    """How much ``words`` (a campaign name) looks like one client: the
+    score and the reason a person reads beside it. 0 when it does not."""
+    cw = cand["words"]
+    if len(cand["joined"]) < _MIN_PARTIAL_CHARS:
+        # "AB" as a client: two letters in a campaign name are a lead at
+        # most, whatever else the name says.
+        if _contains(words, cw):
+            return _SCORE_PARTIAL, "the campaign name carries the client's (short) name"
+        return 0.0, ""
+    if _contains(words, cw):
+        return _SCORE_NAME, "the campaign name contains the client's name"
+    if cand["joined"] in tokens:
+        return _SCORE_NAME, "the campaign name carries the client's name run together"
+    # The domain label, when it is more than one word of the name: "acme"
+    # off acme.com is one word of Acme Plumbing and of Acme Roofing both,
+    # and reads as the partial it is, below.
+    if cand["domain_label"] and cand["domain_label"] in tokens and cand["domain_label"] not in cw:
+        return _SCORE_DOMAIN, f"the campaign name carries the client's domain ({cand['domain_label']})"
+    target = " ".join(cw)
+    # A near spelling: the client's name against the run of the same
+    # number of words (give or take one) starting at each campaign word
+    # that begins the way one of the client's does. A spelling that differs
+    # in the first letters of every word is not near, and difflib over every
+    # window of every client for every name was most of an hourly run.
+    best = 0.0
+    n = len(cw)
+    starts = [i for i, w in enumerate(words) if w[:_PREFIX] in cand["prefixes"]]
+    if not starts:
+        return 0.0, ""
+    for size in {max(1, n - 1), n, n + 1}:
+        for i in starts:
+            window = " ".join(words[i:i + size])
+            if not window:
+                continue
+            sm = difflib.SequenceMatcher(None, window, target)
+            if sm.real_quick_ratio() < best or sm.quick_ratio() < best:
+                continue
+            ratio = sm.ratio()
+            if ratio > best:
+                best = ratio
+    if best >= FUZZY_SHOW_SCORE and best < _SCORE_NAME:
+        return round(best, 3), "the campaign name is a near spelling of the client's name"
+    # A distinctive word of the client's name, on its own: a lead. Never a
+    # filing -- "Acme" is Acme Plumbing and Acme Roofing both.
+    for w in cw:
+        if len(w) >= _MIN_PARTIAL_CHARS and w in tokens:
+            return _SCORE_PARTIAL, f"the campaign name carries part of the client's name ({w})"
+    return 0.0, ""
+
+
+def suggest_clients(name: str, *, rows: list[dict] | None = None,
+                    index: list[dict] | None = None,
+                    limit: int = FUZZY_LIMIT, exclude: str = "") -> list[dict]:
+    """The clients a campaign name looks like, best first, each
+    ``{"key", "name", "score", "pct", "why"}``; ``[]`` when nothing scores
+    ``FUZZY_SHOW_SCORE``. ``index`` is ``build_index()`` of the registry;
+    without it ``rows`` is indexed here, and without those the registry is
+    read (RegistryUnavailable when it cannot be). ``exclude`` drops one
+    key, the client a person already refused this campaign under. Never a
+    filing by itself: ``decide()`` says whether the best one is worth one."""
+    words = _words(name)
+    if not words:
+        return []
+    tokens = set(words)
+    prefixes = {w[:_PREFIX] for w in words if len(w) >= _PREFIX}
+    cands = index if index is not None else build_index(rows if rows is not None else _registry_rows())
+    best_by_key: dict[str, dict] = {}
+    for cand in cands:
+        if exclude and cand["key"] == exclude:
+            continue
+        score, why = _score(cand, words, tokens, prefixes)
+        if score < FUZZY_SHOW_SCORE:
+            continue
+        cur = best_by_key.get(cand["key"])
+        if cur is None or score > cur["score"]:
+            best_by_key[cand["key"]] = {"key": cand["key"], "name": cand["name"],
+                                        "score": score, "pct": int(round(score * 100)),
+                                        "why": why}
+    out = sorted(best_by_key.values(), key=lambda c: (-c["score"], c["name"].lower()))
+    return out[:max(1, int(limit))]
+
+
+def decide(suggestions: list[dict]) -> dict | None:
+    """The suggestion the fuzzy pass files, or None: the best one at or
+    above FUZZY_FILE_SCORE with the runner-up FUZZY_MARGIN behind it. Two
+    clients alike on a name is not a match; it is a question for the queue."""
+    if not suggestions:
+        return None
+    best = suggestions[0]
+    if best["score"] < FUZZY_FILE_SCORE:
+        return None
+    if len(suggestions) > 1 and best["score"] - suggestions[1]["score"] < FUZZY_MARGIN:
+        return None
+    return best
+
+
+def product_from_name(name: str) -> str:
+    """A catalog product named whole in the campaign name, else "". Only
+    the catalog's own names: "search" in a Meta campaign is not Paid
+    Search, and a guessed product draws a bar no budget line can pace."""
+    from . import products as _products
+    words = _words(name)
+    for known in _products.PRODUCTS:
+        kw = _words(known)
+        if kw and _contains(words, kw):
+            return known
+    return ""
+
+
+def annotate(rows: list[dict], pending: list[dict] | None = None,
+             *, limit: int = FUZZY_LIMIT) -> dict:
+    """Lay the likeness over the unmapped queue: ``row["suggestions"]`` on
+    every unmapped row (the refused client left out) and ``m["match"]`` on
+    every pending row the fuzzy pass filed, so the page can say why. Never
+    raises: a registry that cannot be read leaves every list empty and is
+    named in the returned ``{"error": ...}`` for the page to say so."""
+    for r in rows:
+        r["suggestions"] = []
+    for m in pending or ():
+        m["match"] = None
+    try:
+        index = build_index(_registry_rows())
+    except RegistryUnavailable as exc:
+        return {"error": str(exc)}
+    cache: dict[tuple, list[dict]] = {}
+
+    def suggestions_for(name: str, exclude: str = "") -> list[dict]:
+        k = (name, exclude)
+        if k not in cache:
+            try:
+                cache[k] = suggest_clients(name, index=index, limit=limit, exclude=exclude)
+            except Exception as exc:       # noqa: BLE001 - one bad name is not the page
+                log.warning("reports automap: suggest failed for %r: %s", name, exc)
+                cache[k] = []
+        return cache[k]
+
+    for r in rows:
+        refused = (r.get("refused") or {}).get("client") or ""
+        r["suggestions"] = suggestions_for(r.get("campaign_name") or "", refused)
+    for m in pending or ():
+        if FUZZY_RULE in (m.get("auto_rule") or ""):
+            hits = suggestions_for(m.get("campaign_name") or "")
+            m["match"] = next((h for h in hits if h["key"] == m.get("client")), None)
+    return {"error": ""}
+
+
 def run(actor: str = "scheduler", limit: int = 5000) -> dict:
     """File every unmapped campaign whose name parses and resolves.
 
     Returns ``{"mapped": n, "unparsed": n, "unresolved": [...], "clients":
-    {key: name}, "refused": n}``. ``unresolved`` names the client tokens that
-    parsed and matched nobody, because those are the ones a rename typo
-    produces and the unmapped queue is where somebody meets them;
-    ``refused`` counts the campaigns left alone because a person refused
-    this filing under this name. Every mapping counted in ``mapped`` is
-    pending confirmation.
+    {key: name}, "refused": n, "suggested": n, "ambiguous": n}``.
+    ``unresolved`` names the client tokens that parsed and matched nobody,
+    because those are the ones a rename typo produces and the unmapped
+    queue is where somebody meets them; ``refused`` counts the campaigns
+    left alone because a person refused this filing under this name. A
+    name that does not parse is read for a likeness (``suggest_clients``):
+    ``suggested`` counts the ones filed that way (they are in ``mapped``
+    too), ``ambiguous`` the ones that looked like a client but not clearly
+    enough, or like two. Every mapping counted in ``mapped`` is pending
+    confirmation.
     """
-    out = {"mapped": 0, "unparsed": 0, "unresolved": [], "clients": {}, "refused": 0}
+    out = {"mapped": 0, "unparsed": 0, "unresolved": [], "clients": {}, "refused": 0,
+           "suggested": 0, "ambiguous": 0}
     try:
         from hub import audit as hub_audit
     except Exception:                      # noqa: BLE001 - standalone
         hub_audit = None
     cache: dict[str, tuple[str, str] | None] = {}
+    index: list[dict] | None = None
+    likeness: dict[str, list[dict]] = {}
     for row in store.unmapped_campaigns(days=3650, limit=limit):
         if row.get("refused"):
             out["refused"] += 1
@@ -144,29 +405,55 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
         parsed = parse_name(row.get("campaign_name") or "")
         if not parsed:
             out["unparsed"] += 1
-            continue
-        token = parsed["client"]
-        if token.lower() not in cache:
+            # No mark on the name: read it for a likeness to a client. Filed
+            # only on a clear best (decide()); alike on two clients, or not
+            # alike enough, it stays for the queue, where the likeness is
+            # shown beside it.
+            cname = row.get("campaign_name") or ""
             try:
-                cache[token.lower()] = resolve_client(token)
+                if index is None:
+                    index = build_index(_registry_rows())
+                if cname not in likeness:
+                    likeness[cname] = suggest_clients(cname, index=index)
+                hits = likeness[cname]
             except RegistryUnavailable as exc:
                 out["registry_error"] = str(exc)
                 break
-        hit = cache[token.lower()]
-        if not hit:
-            if token not in out["unresolved"]:
-                out["unresolved"].append(token)
-            continue
+            best = decide(hits)
+            if best is None:
+                if hits:
+                    out["ambiguous"] += 1
+                continue
+            parsed = {"client": best["name"], "product": product_from_name(row.get("campaign_name") or ""),
+                      "rest": "", "fuzzy": best}
+            hit = (best["key"], best["name"])
+        else:
+            token = parsed["client"]
+            if token.lower() not in cache:
+                try:
+                    cache[token.lower()] = resolve_client(token)
+                except RegistryUnavailable as exc:
+                    out["registry_error"] = str(exc)
+                    break
+            hit = cache[token.lower()]
+            if not hit:
+                if token not in out["unresolved"]:
+                    out["unresolved"].append(token)
+                continue
         key, name = hit
         from . import products as _products
-        product, rule = parsed["product"], RULE
+        fuzzy = parsed.get("fuzzy")
+        product, rule = parsed["product"], (FUZZY_RULE if fuzzy else RULE)
+        base_rule = rule
         typed = product
         if product and _products.normalize(product) not in _products.PRODUCTS:
             # A segment naming no product in the catalog ("Strming TV") must
             # not become a product: it draws a bar on the client's page that
             # no budget line can ever pace. The platform default, and the
             # rule says the segment was not understood.
-            product, rule = "", RULE + "+unknown_product"
+            product, rule = "", base_rule + "+unknown_product"
+        if product and fuzzy:
+            rule = base_rule + "+name_product"
         if not product:
             # The channel type the platform reports on the campaign decides
             # before the platform default does: a Google Ads VIDEO campaign
@@ -174,8 +461,8 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
             # as search on the client's page. The rule says which answered.
             channel = row.get("channel_type") or ""
             product = _products.default_for(row["platform"], channel)
-            if rule == RULE:
-                rule = RULE + ("+channel_product"
+            if rule == base_rule:
+                rule = base_rule + ("+channel_product"
                                if _products.channel_decided(row["platform"], channel)
                                else "+default_product")
         try:
@@ -187,16 +474,20 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
             log.warning("reports automap: %s", exc)
             continue
         out["mapped"] += 1
+        if fuzzy:
+            out["suggested"] += 1
         out["clients"][key] = name
         if hub_audit is not None:
             try:
+                how = (f"by likeness ({fuzzy['pct']}%: {fuzzy['why']})" if fuzzy
+                       else "from its name")
                 hub_audit.log("reports", "campaign_automapped", actor=actor,
                               client=name, client_key=key, action="campaign_automapped",
                               platform=row["platform"], campaign_id=row["campaign_id"],
                               product=product, rule=rule,
                               detail=f"{store.platform_label(row['platform'])} campaign "
                                      f"{row.get('campaign_name') or row['campaign_id']} "
-                                     f"filed under {name} from its name, waiting for "
+                                     f"filed under {name} {how}, waiting for "
                                      f"confirmation on /reports/unmapped"
                                      + (f" (product segment {typed!r} is not in the catalog; "
                                         f"filed under {product or 'no product'})"

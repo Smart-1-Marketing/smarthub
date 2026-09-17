@@ -1061,17 +1061,22 @@ REGISTRY: list[Help] = [
        "had run."),
     _h("reports.unmapped.hint", "Map it here, or rename it there",
        "Spend on a campaign nobody has filed under a client reaches no "
-       "client report. Pick the client on the row, or rename the campaign "
-       "in the platform to the shape shown and the auto-mapper files it on "
-       "the next sync without anybody opening this page."),
+       "client report. The picker opens on the client the campaign name "
+       "looks like -- its name or domain in the campaign name, or a near "
+       "spelling -- with the others a click away; check it, change it if "
+       "it is wrong, press Map. Or rename the campaign in the platform to "
+       "the shape shown and the auto-mapper files it on the next sync "
+       "without anybody opening this page."),
     _h("reports.unmapped.pending", "A filing from a name is a proposal",
-       "The auto-mapper files a campaign under the client its name says, "
-       "and a name is somebody's typing in somebody else's platform. So the "
+       "The auto-mapper files a campaign under the client its name says -- "
+       "the S1M shape, or a name plainly one client's and nobody else's. "
+       "A name is somebody's typing in somebody else's platform, so the "
        "filing waits here: nothing from the campaign reaches the client's "
        "page, PDF or data until Confirm is pressed. Not theirs deletes the "
        "proposal, sends the campaign back to the unmapped list, and stops "
        "the auto-mapper filing that name under that client again -- a "
-       "renamed campaign is read afresh."),
+       "renamed campaign is read afresh. Move files it under the client "
+       "you pick instead, confirmed by your press."),
     _h("reports.markup.columns", "Markup or fixed CPM, never both",
        "Markup is a percentage on the platform's cost: 15 bills $100 of "
        "spend as $115. A fixed CPM bills impressions at that rate and ignores "
