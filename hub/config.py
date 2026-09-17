@@ -661,7 +661,8 @@ class Settings:
                 "PUBLIC_BASE_URL — blank means Insites never posts scan completions back, so scans hang on 'running'."),
             row("Cloudinary", self.cloudinary_ready, False,
                 "CLOUDINARY_URL, or CLOUDINARY_CLOUD_NAME + CLOUDINARY_API_KEY + "
-                "CLOUDINARY_API_SECRET — assets persist to local disk only."),
+                "CLOUDINARY_API_SECRET — assets are written to one instance's "
+                "local disk, outside the backup, and get no delivery URL."),
             row("OpenAI", self.openai_ready, False,
                 "OPENAI_API_KEY — AI naming, FAQ, schema and copy fall back to templates."),
             row("Pickaxe", self.pickaxe_ready, False,

@@ -112,10 +112,33 @@ def check_openai() -> Check:
 
 def check_cloudinary() -> Check:
     if not settings.cloudinary_ready:
+        # The count, not just the setting. "Cloudinary is off" is a
+        # configuration; "and 340 files are already sitting on this instance's
+        # disk" is what it has cost so far, and hub.storage.put() hands those
+        # back with no delivery URL, so nothing downstream links to them.
+        held = ""
+        try:
+            from hub import storage as _st
+            local = _st.local_assets()
+            if not local.get("measured"):
+                held = (" How many assets have already fallen back here is not "
+                        "measured — the local asset directory could not be read.")
+            elif local.get("files") or local.get("unreadable"):
+                held = (f" {local['files']} file(s), "
+                        f"{local['bytes'] // 1024} KB, are already on this "
+                        "instance's disk with no delivery URL.")
+                if local.get("unreadable"):
+                    # Said out loud rather than folded into the count: the
+                    # number above is a floor, not a total.
+                    held += (f" {local['unreadable']} more could not be read, "
+                             "so that is a minimum.")
+        except Exception:                   # noqa: BLE001 — a panel row, not a probe
+            held = " How much has fallen back here is not measured."
         return _off("cloudinary", "Cloudinary",
                     "CLOUDINARY_URL (or CLOUDINARY_CLOUD_NAME + CLOUDINARY_API_KEY "
                     "+ CLOUDINARY_API_SECRET)",
-                    "uploads go to local disk, which is wiped on every redeploy.")
+                    "uploads go to local disk, which is wiped on every redeploy, "
+                    "and hub.storage returns no URL for them." + held)
     def go():
         import cloudinary, cloudinary.api
         cloudinary.config(secure=True)

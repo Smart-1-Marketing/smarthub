@@ -77,6 +77,11 @@ python3 test_io_delivery_lock.py   # the reservation that keeps a duplicate
                                    #   is asked for with a try-lock rather than
                                    #   waited on, so a broken one fails in a
                                    #   second instead of hanging the job
+python3 test_storage_fallback.py   # what the shared uploader hands back with no
+                                   #   Cloudinary: the bytes are kept, but the
+                                   #   URL is empty rather than the /hub/assets
+                                   #   path nothing has ever served -- asserted
+                                   #   by asking the booted app to route it
 python3 test_check_reconciliation.py # matching and the QBO payment payload, and
                                    #   where the state lives: the QuickBooks
                                    #   tokens, payer aliases, records and audit
