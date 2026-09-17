@@ -27,6 +27,29 @@ key, in a header, to whoever answers at an address nobody confirmed, on a
 job that runs nightly with nobody watching. The check page prints the
 guess and says nothing was called.
 
+
+**Three things a review found, all of which read as a working map.** The key
+half of this file is the discipline that a placeholder must be *refused* until
+somebody confirms it; the failures were where that refusal did not happen.
+
+* `check_map()` skipped a REQUIRED field whose name had been **blanked**, and
+  `_dig(row, None)` answers the whole row. So an operator halfway through
+  correcting the map saw *resolved*, and the pull then filed the row's own
+  dict repr into `account_id` -- which is part of the fact key. The check page
+  was giving a green light to the one thing it exists to refuse. A required
+  field with no name is UNRESOLVED now, named by the fact column it leaves
+  unfilled since there is no response field to name.
+* `store.parse_date()` **raises** on a value it cannot read rather than
+  answering None, so the documented per-row skip was unreachable: one
+  `09/16/2026` among a thousand good rows threw out of the loop and discarded
+  the entire nightly pull. Guarded, it costs that row and counts it.
+* `GROUND_TRUTH_API_BASE` had no scheme check, so an `http://` origin sent
+  `Authorization: Bearer <key>` in clear, nightly, with nobody watching. An
+  origin that cannot carry a credential now counts as owed: the key goes
+  nowhere and the sentence says why rather than calling a variable somebody
+  can plainly see "unset". Loopback over http is allowed, because that is a
+  person testing against a stub on their own machine.
+
 **Visits are the figure the buy is bought for, and they never become
 conversions.** A geofencing campaign is sold on store visits -- the
 platform's own count of devices that saw the ad and were later observed at

@@ -6,7 +6,9 @@
 .asset-heading,.asset-actions,.asset-toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .asset-heading{justify-content:space-between;margin-bottom:20px}
 .asset-heading h1{margin:4px 0;font-size:30px}.asset-heading p{margin:6px 0;color:var(--ink-3)}
-.asset-sections{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0}
+.asset-sections{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:20px 0}
+.asset-optim{font-size:12.5px;color:var(--ink-3);margin:6px 0 0}
+.asset-seo{display:block;margin-top:6px;font-size:12px}
 .asset-section{padding:18px;text-align:left;background:white;border:1px solid var(--line);border-radius:12px;cursor:pointer;color:var(--ink);font:inherit}
 .asset-section[aria-pressed=true]{border:2px solid var(--brand,#1769aa);background:#f0f7ff}
 .asset-section strong{display:block;font-size:18px;margin-bottom:6px}.asset-section small{display:block;color:var(--ink-3);line-height:1.5}
@@ -50,6 +52,7 @@
     <button type="button" class="btn quiet" id="assetRefresh">Refresh</button>
   </div>
   <div id="assetStatus" class="asset-status" role="status" aria-live="polite">Loading client assets…</div>
+  <div id="assetOptim" class="asset-optim"></div>
   <div id="assetWarnings"></div>
   {% if client.id %}<div class="asset-actions"><button type="button" class="btn quiet" id="assetDownload" disabled>Download selected files</button><span id="assetSelection" class="hint"></span></div>{% endif %}
   <div class="asset-folders" id="assetFolders" aria-label="Folders"></div>
@@ -80,8 +83,10 @@
 (function(){
   'use strict';
   var boot=JSON.parse(document.getElementById('assetBoot').textContent);
-  var rows=[], section='', folder='', shown=60, loading=false, pendingRefresh=false, complete=false;
   var context=new URLSearchParams(location.search);
+  /* A section or folder in the query string lands the reader on it: Client
+     360's five tiles link here that way. */
+  var rows=[], section=(context.get('section')||''), folder=(context.get('folder')||''), shown=60, loading=false, pendingRefresh=false, complete=false;
   var filters=['io','product','tool'];
   function el(id){return document.getElementById(id);}
   function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
@@ -93,9 +98,10 @@
     if(t==='image')preview='<img loading="lazy" src="'+esc(r.thumb||r.url)+'" alt="">';
     if(t==='video')preview='<video controls preload="none" src="'+esc(r.url)+'"></video>';
     if(t==='audio')preview='<audio controls preload="none" src="'+esc(r.url)+'"></audio>';
+    var seo=r.optimized?'<a class="asset-seo" href="'+esc(r.optimized.url)+'" target="_blank" rel="noopener" title="'+esc(r.optimized.alt_text||'')+'">SEO copy: '+esc(r.optimized.seo_filename||'web-ready')+(r.optimized.bytes_after&&r.optimized.bytes_before?' ('+Math.round(r.optimized.bytes_after/1024)+' KB, was '+Math.round(r.optimized.bytes_before/1024)+' KB)':'')+'</a>':'';
     var suite=r.editable?'<p>Suite: '+esc({sent:'In Suite',pending:'Pending',error:'Could not send',skipped:'Not sent'}[r.ghl_status]||'Not sent')+'</p>':'';
     if(r.editable && (r.ghl_status==='pending'||r.ghl_status==='error'))suite+='<button type="button" class="btn quiet small" data-retry="'+r.id+'">Retry Suite copy</button>';
-    return '<article class="asset-card"><div class="asset-preview">'+preview+'</div><div class="asset-card-body">'+(r.editable?'<label class="hint"><input type="checkbox" data-select="'+r.id+'" aria-label="Select '+esc(r.filename||'file')+'"> Select file</label>':'')+'<h3>'+esc(r.filename||'Saved file')+'</h3><p>'+esc(r.folder)+'</p>'+(r.status?'<p>'+esc(r.status)+'</p>':'')+'<a href="'+esc(r.url)+'" target="_blank" rel="noopener">'+(t==='project'?'Open project':'Open file')+'</a><details><summary>Details</summary><p>'+esc(r.collection_label||r.provider)+'</p>'+(r.alt_text?'<p>'+esc(r.alt_text)+'</p>':'')+'<p>'+esc(r.created_at||'')+'</p>'+suite+(r.source_url?'<a href="'+esc(r.source_url)+'" target="_blank" rel="noopener">Original source</a>':'')+(r.editable?'<p><button type="button" class="btn quiet small" data-remove="'+r.id+'">Remove file</button></p>':'')+'</details></div></article>';
+    return '<article class="asset-card"><div class="asset-preview">'+preview+'</div><div class="asset-card-body">'+(r.editable?'<label class="hint"><input type="checkbox" data-select="'+r.id+'" aria-label="Select '+esc(r.filename||'file')+'"> Select file</label>':'')+'<h3>'+esc(r.filename||'Saved file')+'</h3><p>'+esc(r.folder)+'</p>'+(r.status?'<p>'+esc(r.status)+'</p>':'')+'<a href="'+esc(r.url)+'" target="_blank" rel="noopener">'+(t==='project'?'Open project':'Open file')+'</a>'+seo+'<details><summary>Details</summary><p>'+esc(r.collection_label||r.provider)+'</p>'+(r.alt_text?'<p>'+esc(r.alt_text)+'</p>':'')+'<p>'+esc(r.created_at||'')+'</p>'+suite+(r.source_url?'<a href="'+esc(r.source_url)+'" target="_blank" rel="noopener">Original source</a>':'')+(r.editable?'<p><button type="button" class="btn quiet small" data-remove="'+r.id+'">Remove file</button></p>':'')+'</details></div></article>';
   }
   function draw(){
     boot.sections.forEach(function(s){var count=rows.filter(function(r){return r.section===s.key;}).length;document.querySelector('[data-count="'+s.key+'"]').textContent=count+' items';document.querySelector('[data-section="'+s.key+'"]').setAttribute('aria-pressed',String(section===s.key));});
@@ -109,12 +115,20 @@
     updateSelection();
   }
   function message(text){el('assetMessages').textContent=text;}
+  /* "Not measured" is said, never drawn as everything done. */
+  function optimLine(o){
+    if(!o||!o.measured)return o&&o.error?'SEO copies: not measured.':'';
+    if(!o.total)return '';
+    if(o.pending)return 'SEO copies: '+o.done+' of '+o.total+' made'+(o.deferred?' — paused while the system is busy, resumes on its own':'')+'.';
+    return 'SEO copies: all '+o.done+' made'+(o.failed?', '+o.failed+' could not be':'')+'.';
+  }
   function load(){
     if(loading){pendingRefresh=true;return;}loading=true;el('assetRefresh').disabled=true;el('assetStatus').textContent='Loading files and projects…';
     var url='/tools/image-picker/api/master-gallery?'+(boot.id?'client_id='+boot.id:'name='+encodeURIComponent(boot.client));
     fetch(url,{credentials:'same-origin'}).then(function(r){if(!r.ok)throw Error('Client assets could not be loaded. Sign in again or retry.');return r.json();}).then(function(d){
       if(!d.ok)throw Error(d.error||'Client assets could not be loaded.');
       rows=(d.images||[]).concat(d.projects||[]);complete=d.complete;
+      el('assetOptim').textContent=optimLine(d.optimization||{});
       el('assetWarnings').innerHTML=(d.sources||[]).filter(function(s){return s.error;}).map(function(s){return '<p class="asset-warning">'+esc(s.label)+': '+esc(s.error)+'</p>';}).join('');
       el('assetSources').innerHTML=(d.sources||[]).map(function(s){return '<p>'+esc(s.label)+' — '+(s.error?'Unavailable':s.count+' records checked')+'</p>';}).join('');
       message('');draw();

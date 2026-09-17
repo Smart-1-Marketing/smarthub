@@ -17,7 +17,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import sharp from 'sharp';
-import { listFamilies, resolveFont } from './fonts';
+import { knownGoogleFamilies, listFamilies, resolveFont } from './fonts';
 import { getPlatform, loadPlatforms, loadTemplates } from './registry';
 import { CloudinaryService } from './cloudinary';
 import { configuredToken, tokenIsWeak, bucketCount } from './auth';
@@ -100,11 +100,22 @@ async function checkFonts(): Promise<Check[]> {
   const families = listFamilies();
   const out: Check[] = [];
 
+  // The list is probed at load and a family whose package is missing or
+  // whose files opentype.js cannot draw is left off silently -- so the
+  // screen's font picker would simply be shorter, and nobody would know
+  // until a client asked why Lato was not offered. Named here instead.
+  const missing = knownGoogleFamilies().filter((f) => !families.includes(f));
   out.push({
     id: 'fonts.registry', group: 'Fonts', label: 'Registered families',
-    level: families.length ? 'ok' : 'fail',
-    detail: families.join(', ') || 'none',
-    fix: families.length ? undefined : 'No fonts resolved. Check src/fonts.ts paths and that node_modules is present.',
+    level: !families.length || families.length < 3 ? 'fail' : missing.length ? 'warn' : 'ok',
+    detail: `${families.length} of ${knownGoogleFamilies().length} known families loaded` +
+      (missing.length ? ` — missing: ${missing.join(', ')}` : '') +
+      `. ${families.join(', ') || 'none'}`,
+    fix: !families.length
+      ? 'No fonts resolved. Check src/fonts.ts paths and that node_modules is present.'
+      : missing.length
+        ? 'Run npm ci in modules/ad_builder; a missing family means its @fontsource package is not installed or its files no longer parse.'
+        : undefined,
   });
 
   // A font that parses can still throw on glyph lookup, which is how the

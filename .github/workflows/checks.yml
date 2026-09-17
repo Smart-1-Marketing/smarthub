@@ -366,6 +366,19 @@ jobs:
         working-directory: modules/hf_render_service
         run: npm test
 
+      # The build screen, actually clicked. Every other guard on build.html
+      # reads it as text; this opens it in a real headless Chromium against a
+      # running renderer and walks the first minute of a build. It borrows
+      # the Chrome the render service's npm ci just downloaded rather than
+      # downloading a second one, which is why it runs after that step.
+      - name: Display ad renderer — browser test
+        if: matrix.group == 1
+        working-directory: modules/ad_builder
+        run: |
+          export PUPPETEER_EXECUTABLE_PATH="$(cd ../hf_render_service && node -e "console.log(require('puppeteer').executablePath())")"
+          echo "browser: $PUPPETEER_EXECUTABLE_PATH"
+          npm run test:browser
+
       - name: Display ad layout and build screen tests
         if: matrix.group == 1
         # This is NOT made redundant by the suite above, and the two do not
@@ -2850,6 +2863,12 @@ jobs:
       - name: Readings in hub/ that have to be complete
         if: matrix.group == 6
         run: python3 test_hub_capped_reads.py
+      # The work log may not say "nothing has ever been made for this client"
+      # off a read that stopped at a window -- and on the health strip that
+      # sentence quietly replaces a churn warning nobody then chases.
+      - name: The client work log's horizon
+        if: matrix.group == 6
+        run: python3 test_client_work_log.py
       # Declared and never wired is the failure this repo has paid for most
       # often -- an ">>> INTEGRATION POINT <<<" naming three writers that have
       # never existed, `storage.manifest()` feeding an audit nobody built,

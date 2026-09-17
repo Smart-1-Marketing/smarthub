@@ -544,11 +544,16 @@ REGISTRY: list[Help] = [
        "can see exactly what they were quoted.", step=3,
        selector="[data-tour='proposals']"),
     _h("hub.client360.images", "Client image library",
-       "Everything the SEO Image Pipeline has optimized for this client, plus "
-       "any logo on their brand record. Each tile downloads or deletes on the "
-       "spot — deleting removes the file from the client gallery and from the "
-       "pipeline's archive, and cannot be undone. The count is this client's, "
-       "not the whole archive's.", step=4,
+       "The client's asset home, folder by folder: Client Uploads, Creative, "
+       "Hub Projects, Logos and Internal are always offered, empty or not, "
+       "and any folder somebody named sits beneath them. Open gallery shows "
+       "everything; Client upload link hands the client a page to send files "
+       "through; Optimize images opens the SEO Image Pipeline for a batch; "
+       "Add more images files our own resources into a folder you choose. "
+       "Uploads keep their original and get a web-ready SEO copy in the "
+       "background — the counter in the card header says how far that has "
+       "got.", step=4, ask_only=True,
+       link="/client360", link_text="Open a client record",
        selector="[data-tour='client-images']"),
     _h("hub.client360.places", "Their Google listing, read last night",
        "The rating and review count Google Places answered for the listing "

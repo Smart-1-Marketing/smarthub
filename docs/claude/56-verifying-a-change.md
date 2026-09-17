@@ -388,7 +388,7 @@ python3 test_client_images.py      # every module that logs client work is one t
                                    #   card, the contact details offered into the strip,
                                    #   the display-ads work log, and the way back
 python3 test_client_uploads.py     # the client upload link, and the client an IO creates
-python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
+python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions, folders, the SEO copy sweep
 python3 test_image_creator.py      # the "Client gallery" chip reads the real shared
                                    #   gallery, searches it, and always offers the link
                                    #   to the full one
@@ -453,6 +453,12 @@ python3 test_activity_logging.py   # every module's work is attributable: an
                                    #   import is not a call, a module's own
                                    #   log() wrapper is resolved, and the
                                    #   remainder is declared with its reason
+python3 test_client_work_log.py    # the client work log's horizon: narrowed to
+                                   #   the 47 work modules in the query, a count
+                                   #   that describes the client rather than the
+                                   #   page, and no reader allowed to print
+                                   #   "nothing has ever been made" off a read
+                                   #   that stopped at a window
 python3 test_hub_capped_reads.py   # readings in hub/ that have to be COMPLETE
                                    #   and were a window: the image audit swept
                                    #   a fifth of the archive, "this module

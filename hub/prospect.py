@@ -399,6 +399,16 @@ def _work(lead: dict) -> dict:
     # activity log at all.
     found = work_log(company, limit=40) or {}
     rows = found.get("items") or []
+    if not rows and not found.get("complete", True):
+        # An empty answer from a read that did not reach the end of the log is
+        # not "nothing has been produced" -- and on a prospect card that
+        # sentence is what a rep repeats to the prospect.
+        since = str(found.get("horizon") or "")[:10]
+        return _section(measured=False,
+                        error=("nothing filed for this business back to " + since
+                               + ", and the log goes further back than this read "
+                                 "reached") if since else
+                              "the activity log could not be read back far enough")
     return _section(rows, measured=True, by_source=found.get("by_source") or {},
                     note=(found.get("note") or "") if rows else
                          "Nothing has been produced for this prospect yet.")

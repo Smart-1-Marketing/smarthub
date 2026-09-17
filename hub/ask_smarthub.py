@@ -336,10 +336,27 @@ def client_work(client_name: str = "", limit: int = 20) -> dict:
             # group is a billing relationship, not a rename.
             item["for_group_member"] = _clean(row.get("member"), 180)
         items.append(item)
-    return {"client": name, "measured": True, "count": log.get("count", len(items)),
-            "last_activity": _clean(log.get("last_activity"), 40),
-            "by_source": log.get("by_source") or {}, "items": items,
-            "note": _clean(log.get("note"), 300)}
+    # What the read reached rides along, because the house rule here is that
+    # this Hub never states a figure it did not measure. A count taken from a
+    # window that did not reach the end of the log is a count OF THAT WINDOW,
+    # and an empty one is not "we have never made anything for them" -- which
+    # is exactly the sentence a model would otherwise write.
+    out = {"client": name, "measured": True, "count": log.get("count", len(items)),
+           "last_activity": _clean(log.get("last_activity"), 40),
+           "by_source": log.get("by_source") or {}, "items": items,
+           "complete": bool(log.get("complete")),
+           "note": _clean(log.get("note"), 300)}
+    if not out["complete"]:
+        since = str(log.get("horizon") or "")[:10]
+        out["covers_back_to"] = since
+        out["count_is"] = ("everything logged back to " + since
+                           if since else "everything this read reached")
+        out["caution"] = ("The activity log goes further back than this read "
+                          "reached, so this is what was filed since "
+                          + (since or "the start of the window")
+                          + " and not the whole history. Do not say nothing "
+                            "has been made for this client.")
+    return out
 
 
 def client_launch_blockers(client_name: str = "") -> dict:

@@ -432,6 +432,56 @@ guide = "\n".join(p.read_text(encoding="utf-8") for p in
                   [ROOT / "CLAUDE.md", *sorted((ROOT / "docs" / "claude").glob("*.md"))])
 check("the guide has the section", "## GroundTruth: the key arrived before the document" in guide)
 
+# ------------------------------------------- what a review found afterwards
+section("The three that read as a working map")
+
+os.environ["GROUND_TRUTH_API"] = KEY
+os.environ["GROUND_TRUTH_API_BASE"] = "https://api.groundtruth.test"
+
+# A REQUIRED field whose name is blanked used to read as RESOLVED, and
+# _dig(row, None) answers the whole row -- so the check page gave a green
+# light to a map that then filed the row's own dict repr into account_id,
+# which is part of the fact key.
+ROW = {f["date"]: D1.isoformat(), f["account_id"]: "org-1", f["campaign_id"]: "gt-9",
+       f["campaign_name"]: "Geofence", f["spend"]: "5", f["impressions"]: 100,
+       f["clicks"]: 3, f["visits"]: 7}
+os.environ["GROUND_TRUTH_FIELD_ACCOUNT_ID"] = ""
+chk = groundtruth.check_map({"data": [dict(ROW)]})
+check("a required field with no name does not resolve", chk["resolved"], False)
+check("...and is named by the fact column it leaves unfilled",
+      any("account_id" in m for m in chk["missing"]))
+facts = groundtruth.to_facts({"data": [dict(ROW)]})
+check("...so the pull refuses rather than filing the row's own repr as the account",
+      (facts["rows"], "does not resolve" in facts["error"]), ([], True))
+os.environ.pop("GROUND_TRUTH_FIELD_ACCOUNT_ID")
+
+# store.parse_date RAISES rather than answering None, so the documented
+# per-row skip was unreachable: one US-style date discarded the whole pull.
+mixed = groundtruth.to_facts({"data": [
+    dict(ROW),
+    {**ROW, f["campaign_id"]: "gt-bad", f["date"]: "09/16/2026"},
+]})
+check("an unreadable day costs that row, not every row in the answer",
+      ([r["campaign_id"] for r in mixed["rows"]], mixed["skipped"]), (["gt-9"], 1))
+
+# The key travels in a header on a nightly unattended job, so the origin has
+# to be one that encrypts it.
+os.environ["GROUND_TRUTH_API_BASE"] = "http://api.groundtruth.test"
+check("an http origin is refused by name rather than sent the key",
+      (groundtruth.configured(), groundtruth.BASE_ENV in groundtruth.missing()), (False, True))
+check("...saying why, and never that a variable somebody can see is unset",
+      ("in clear" in groundtruth.not_configured_line(),
+       "GROUND_TRUTH_API_BASE unset" in groundtruth.not_configured_line()), (True, False))
+before = len(calls)
+res = groundtruth.pull(days=3, today=TODAY)
+check("...and the pull sends nothing at all to it", (res["ok"], len(calls)), (False, before))
+check("...carrying no key in what it says", KEY in json.dumps([res, groundtruth.status()], default=str), False)
+os.environ["GROUND_TRUTH_API_BASE"] = "http://localhost:8099"
+check("loopback over http is somebody testing against a stub, and is allowed",
+      groundtruth.configured(), True)
+os.environ["GROUND_TRUTH_API_BASE"] = "https://api.groundtruth.test"
+
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
