@@ -71,7 +71,7 @@ INDUSTRIES: list[dict[str, Any]] = [
         "rv", "camper", "campground"]),
     _ind("restaurant", "Restaurant", [
         "restaurant", "bar", "brewery", "cafe", "café", "catering", "pizza",
-        "grill", "tavern"]),
+        "grill", "tavern", "winery", "vineyard", "distillery"]),
     _ind("retail", "Retail", [
         "store", "boutique", "furniture", "jewelry", "mattress", "appliance"]),
     _ind("ecommerce", "Ecommerce", [
@@ -339,8 +339,40 @@ def _mirror_picker(client: str, canonical_key: str) -> None:
             pass
 
 
+def display_label(client: str, stored: dict | None = None) -> str:
+    """The one category string every screen shows for this client.
+
+    A person's own wording wins (`custom_label`, "Winery" on a record the
+    taxonomy can only file under Restaurant); otherwise the canonical label
+    of the stored key; otherwise, for a record the scan left on General,
+    whatever the profile's free-text category already said, so a typed
+    value from before this field existed is not silently replaced by
+    "General Business". Client 360's header pill and its Client Info strip
+    both read this, which is what keeps them the same string.
+    """
+    stored = _stored_industry(client) if stored is None else (stored or {})
+    custom = str(stored.get("custom_label") or "").strip()
+    if custom:
+        return custom
+    ind = industry(stored.get("key") or "")
+    if ind and ind["key"] != "general":
+        return ind["label"]
+    # A person who picked General Business on purpose gets General Business;
+    # only a record nobody has touched falls back to the typed field.
+    if stored.get("source") != "manual":
+        try:
+            from hub import seo
+            prof = (seo.load_store(client) or {}).get("profile") or {}
+            typed = str(prof.get("category") or "").strip()
+            if typed:
+                return typed
+        except Exception:                                    # noqa: BLE001
+            pass
+    return (ind or {}).get("label") or "General Business"
+
+
 def _write(client: str, key: str, subtype: str, source: str, confidence: float,
-           evidence: str, actor: str, previous: str) -> bool:
+           evidence: str, actor: str, previous: str, custom_label: str = "") -> bool:
     try:
         from hub import seo
         store = seo.load_store(client) or {}
@@ -348,7 +380,14 @@ def _write(client: str, key: str, subtype: str, source: str, confidence: float,
             "key": key, "subtype": subtype or "", "source": source,
             "confidence": confidence, "resolved_at": _now(),
             "evidence": evidence or "",
+            "custom_label": str(custom_label or "").strip()[:80],
         }
+        # The profile's category is the same fact in a second field, and
+        # Client 360 showed the two side by side disagreeing ("General
+        # Business" in the header, "Winery" in Client Info). Every write
+        # here -- a person's pick or the scan's answer -- lands on both.
+        prof = store.setdefault("profile", {})
+        prof["category"] = display_label(client, store["industry"])
         seo.save_store(client, store)
     except Exception:                                        # noqa: BLE001
         return False
@@ -528,14 +567,35 @@ def diagnostics_summary(limit: int = 500) -> dict:
             "disagree_count": len(disagree), "disagree_clients": disagree[:50]}
 
 
-def set_manual(client: str, key: str, subtype: str = "", actor: str = "") -> bool:
+def set_manual(client: str, key: str, subtype: str = "", actor: str = "",
+               custom_label: str = "") -> bool:
     """The override path -- a person's own pick, recorded with source
-    "manual" so no future re-resolve is ever allowed to move it."""
+    "manual" so no future re-resolve is ever allowed to move it.
+
+    `custom_label` is their own wording when the dropdown has no row for
+    it ("Winery"). With no `key` the label is resolved onto the nearest
+    canonical key by the same matching every other source gets, so the
+    Image Picker and every module keyed on the taxonomy still follow the
+    change; a label that matches nothing files under general and keeps
+    its wording. A label that is exactly a canonical name is that key,
+    with no custom wording kept.
+    """
     client = str(client or "").strip()
     if not client:
         return False
-    ind = industry(key)
+    custom = " ".join(str(custom_label or "").split())[:80]
+    ind = industry(key) if key else None
+    if custom:
+        by_label = next((i for i in INDUSTRIES
+                         if i["label"].lower() == custom.lower()), None)
+        if by_label:
+            ind, custom = by_label, ""
+        elif not ind:
+            rkey, rsub = resolve(custom)
+            ind = industry(rkey)
+            subtype = subtype or rsub
     canon = ind["key"] if ind else "general"
     stored = _stored_industry(client)
     previous = stored.get("key") or ""
-    return _write(client, canon, subtype or "", "manual", 1.0, "", actor, previous)
+    return _write(client, canon, subtype or "", "manual", 1.0, "", actor, previous,
+                  custom_label=custom)
