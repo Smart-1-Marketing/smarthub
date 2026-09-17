@@ -256,6 +256,31 @@ class MapRefusal(Base):
     refused_at = Column(DateTime(timezone=True), default=now)
 
 
+class CampaignAlias(Base):
+    """A name the campaigns call a client that the registry does not.
+
+    Learned from people, never typed: when somebody maps, confirms or moves
+    a campaign, the distinctive words of its name that are not the client's
+    own name and not ad-ops noise (``automap.alias_phrase``) are filed here
+    as a name for that client -- "blw" for Buckeye Lake Winery, "nxt" for
+    Next Level Auto. ``count`` is how many campaigns taught it; the
+    auto-mapper files on an alias only once it has been taught twice, and
+    an alias taught for two clients is a question, not an answer (the
+    suggester shows both as leads and files neither). Refusing a filing
+    that rested on an alias forgets the alias for that client, and the
+    unmapped queue lists every alias with a Forget button.
+    """
+    __tablename__ = "reports_campaign_aliases"
+
+    alias = Column(String(200), primary_key=True)
+    client = Column(String(200), primary_key=True)
+    client_name = Column(String(300), default="")
+    count = Column(Integer, default=1)
+    learned_from = Column(String(400), default="")
+    learned_by = Column(String(160), default="")
+    learned_at = Column(DateTime(timezone=True), default=now)
+
+
 class BudgetLine(Base):
     """What was sold: a monthly figure for one client and product, flighted."""
     __tablename__ = "reports_budget_lines"
@@ -1527,11 +1552,19 @@ def unmapped_campaigns(days: int = 30, limit: int = 200) -> list[dict]:
             # The channel type Google reports on the campaign, off its
             # newest row: what the queue's product box opens on and what
             # the auto-mapper files under when the name says no product.
-            channel = str((extras or {}).get("channel_type") or "") if isinstance(extras, dict) else ""
+            ex = extras if isinstance(extras, dict) else {}
+            channel = str(ex.get("channel_type") or "")
             out[key] = {
                 "platform": p, "platform_label": platform_label(p),
                 "account_id": a, "campaign_id": c,
                 "campaign_name": name or "",
+                # What the platform calls the account the campaign sits in
+                # (StackAdapt and Amazon DSP's advertiser, Microsoft's account
+                # name, AudioGO's and GroundTruth's organization), off the
+                # newest row: the auto-mapper reads it for a likeness too,
+                # since it is the client's own name more often than the
+                # campaign's is.
+                "account_name": str(ex.get("advertiser_name") or ex.get("account_name") or "").strip(),
                 "last_seen": when.isoformat() if when else None,
                 "spend_30d": recent.get(key, Decimal(0)),
                 "refused": None,
@@ -1718,6 +1751,118 @@ def refusals() -> dict[tuple, dict]:
         return {}
     finally:
         db.close()
+
+
+def learn_alias(alias: str, *, client: str, client_name: str = "", learned_from: str = "",
+                by: str = "") -> dict | None:
+    """Teach one alias for one client, or reinforce it. Returns the row as a
+    dict, or None for an empty alias. The caller derives the alias
+    (``automap.alias_phrase``); this is the store."""
+    alias = _text(alias, 200).strip().lower()
+    client = _text(client, 200)
+    if not (alias and client):
+        return None
+    db = SessionLocal()
+    try:
+        row = db.get(CampaignAlias, (alias, client))
+        if row is None:
+            row = CampaignAlias(alias=alias, client=client, count=0)
+            db.add(row)
+        row.count = int(row.count or 0) + 1
+        row.client_name = _text(client_name, 300) or row.client_name or ""
+        row.learned_from = _text(learned_from, 400) or row.learned_from or ""
+        row.learned_by = _text(by, 160) or row.learned_by or ""
+        row.learned_at = now()
+        db.commit()
+        return {"alias": row.alias, "client": row.client, "client_name": row.client_name or "",
+                "count": int(row.count), "learned_from": row.learned_from or "",
+                "learned_by": row.learned_by or "", "learned_at": iso(row.learned_at)}
+    finally:
+        db.close()
+
+
+def forget_alias(alias: str, client: str) -> bool:
+    """Drop one alias for one client. True when a row went."""
+    alias = _text(alias, 200).strip().lower()
+    db = SessionLocal()
+    try:
+        row = db.get(CampaignAlias, (alias, _text(client, 200)))
+        if row is None:
+            return False
+        db.delete(row)
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def campaign_aliases() -> list[dict]:
+    """Every learned alias, most taught first. Never raises past the
+    store: a table not there yet is an empty book."""
+    db = None
+    try:
+        db = SessionLocal()
+        rows = (db.query(CampaignAlias)
+                  .order_by(CampaignAlias.count.desc(), CampaignAlias.alias).all())
+        return [{"alias": r.alias, "client": r.client, "client_name": r.client_name or r.client,
+                 "count": int(r.count or 0), "learned_from": r.learned_from or "",
+                 "learned_by": r.learned_by or "", "learned_at": iso(r.learned_at)}
+                for r in rows]
+    except Exception:                  # noqa: BLE001 - no table yet, or no database
+        return []
+    finally:
+        if db is not None:
+            db.close()
+
+
+def account_evidence() -> dict[tuple, dict]:
+    """What the book already says about each ad account: per (platform,
+    account_id), the clients its CONFIRMED campaigns are filed under with a
+    count each, the clients with only pending proposals there, and the
+    clients somebody refused a filing under on that account.
+
+    The auto-mapper's account rule reads it: an account whose confirmed
+    campaigns all belong to one client is that client's account, and a new
+    campaign on it is theirs until a person says otherwise. Pending
+    proposals are not evidence -- a proposal resting on a proposal is how
+    one wrong filing becomes an account's worth -- and a refusal on the
+    account counts against the client it named. Never raises past the
+    store: a table not there yet is an empty book.
+    """
+    out: dict[tuple, dict] = {}
+
+    def acct(platform, account_id):
+        key = (platform, account_id)
+        if key not in out:
+            out[key] = {"confirmed": {}, "pending": {}, "refused": {}, "names": {}}
+        return out[key]
+
+    db = SessionLocal()
+    try:
+        rows = (db.query(CampaignMap.platform, CampaignMap.account_id, CampaignMap.client,
+                         func.max(CampaignMap.client_name), func.count(),
+                         func.count(CampaignMap.confirmed_at))
+                  .group_by(CampaignMap.platform, CampaignMap.account_id, CampaignMap.client)
+                  .all())
+        for platform, account_id, client, name, total, confirmed in rows:
+            a = acct(platform, account_id)
+            a["names"][client] = name or client
+            if int(confirmed or 0):
+                a["confirmed"][client] = int(confirmed)
+            if int(total or 0) - int(confirmed or 0):
+                a["pending"][client] = int(total) - int(confirmed or 0)
+        for r in db.query(MapRefusal.platform, MapRefusal.account_id, MapRefusal.client,
+                          MapRefusal.client_name, MapRefusal.refused_by).all():
+            platform, account_id, client, name, by = r
+            if client:
+                a = acct(platform, account_id)
+                a["refused"][client] = by or ""
+                a["names"].setdefault(client, name or client)
+    except Exception:                  # noqa: BLE001 - no table yet
+        return {}
+    finally:
+        db.close()
+    return out
 
 
 def pending_mappings(limit: int = 500) -> list[dict]:

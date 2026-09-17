@@ -1325,13 +1325,89 @@ And one that was **already right**, worth copying rather than fixing:
 `client_brand.work_index()` is a window too, and it says so — it returns
 `horizon` and `scanned` alongside its rows, and `hub/proposal_promises.py`
 reads them ("a month the log cannot answer for is not a miss"). A bounded read
-that reports its own bound is not this defect. `client_brand.work_log()` is the
-same window WITHOUT that reporting — it returns a bare `count` — and it cannot
-be narrowed the way the others were, because `hub_activity` has `module`,
-`type` and `actor` columns but no `client`. Giving it a horizon, or the column,
-is its own change.
+that reports its own bound is not this defect.
+
+**`client_brand.work_log()` was the same window WITHOUT that reporting**, and
+it is fixed now. It is worth reading as the fullest example of the class,
+because the cap was only half of it.
+
+*The window was the wrong shape.* It read the newest 6000 entries HUB-WIDE and
+kept the client's. But the log is mostly housekeeping — sign-ins, jsonstore
+mirrors, scheduler ticks — so 6000 rows of everything is a few hours of a busy
+day, while 6000 rows of the 47 modules in `WORK_KINDS` is months.
+`audit.read()/tail()` take `modules=` now and the narrowing happens in the
+query. Reading the wide window and keeping the narrow one is how a client whose
+last deliverable was in the spring came to read as though nothing had ever been
+made for them.
+
+*It claimed more than it had looked at.* Four readers turned that empty answer
+into a statement about the whole history: the Client 360 card said "Nothing
+recorded yet", `client_upcoming.last_activity()` returned `idle` ("nothing was
+ever logged"), the prospect card said "Nothing has been produced for this
+prospect yet", and Ask SmartHub handed a model `count: 0` as a measured figure.
+The health-strip one is the worst: `idle` silently *replaces* the 90-day churn
+warning that client had earned, so the account most at risk stops being chased.
+
+*`count` described the page.* It broke out of the walk at `limit`, so a client
+with 400 deliverables and a limit of 60 reported 60, and the `by_source`
+breakdown under it was the sources of whichever 60 came first.
+
+The shape of the fix is the general answer wherever a read genuinely cannot be
+narrowed to one row: **`complete` is what `horizon` alone cannot say.** Fewer
+entries than asked for means the read reached the end of the log, so an empty
+answer really is "nothing was ever filed". A full window means there is more
+underneath, and no caller may print absence as a fact. An error is never
+`complete` — failing to read the log and reaching its end must not collapse
+into one answer.
+
+What is still not done: `hub_activity` has `module`, `type` and `actor` columns
+but **no `client`**, so this remains a window rather than a query for one
+client. Adding that column needs a backfill of up to `MAX_ROWS` rows, and a
+half-backfilled column is the same silent truncation with a new boundary — rows
+written before it would read as "no client". Do it with a batched backfill and
+a reader that knows where the backfill has reached, or not at all.
 
 `audit.read()/tail()` now narrow by **actor** in the query, which is what fixed
 `hub/help_center`'s personal inbox: it filtered the newest 2000 rows HUB-WIDE
 by actor, and on a busy day 2000 rows is a few hours, so somebody's own renders
 scrolled out of their own inbox while it reported nothing to show.
+
+
+**The repo looks for this class now, so nobody has to sweep for it by eye
+again.** `hub/integrity.check_capped_read_misuse()` — reported on
+`/api/integrity`, run by `tools/integritycheck.py` and therefore by every
+pull request — asks the two questions that catch every instance above:
+
+1. **a count over a capped read**: `len()` or `sum()` over a function that
+   stops at `limit`. The count stops there and goes on being printed as the
+   total.
+2. **a by-key search or index over one**: `next(… if …)` or a dict
+   comprehension keyed off it. Past the cap it answers "no such row" about a
+   row that exists, and every caller reads that as a fact.
+
+It went in with **two findings, both fixed in the same change**, so it starts
+empty. Both were counts on screen. The Ads Builder's **Approval hub badge**
+counted the open proposals among the newest 200 proposals *of any status*, so
+once the book passed 200 rows an open draft older than that made the pill read
+lower — a badge that undercounts says the queue is empty while somebody waits
+on us, and nobody opens a page whose pill reads nothing. Client 360's **social
+card** printed `len(ideas.pending(…, limit=50))`, double-capped because
+`for_client()` stopped at 200 first; the `answered` figure beside it on the
+same card is a sum over the whole table, so two numbers on one card were
+measured differently with nothing saying so, and the one that capped is the one
+that tells a rep to send the link.
+
+Three things look like the defect and are not, and the check knows all three:
+a `limit` that is `None` (by default or written at the call site) is the
+uncapped path; `limit=floor + 1` against a `>= floor` comparison is the
+bounded-threshold idiom, correct because it stops at one row more than it needs
+to decide; and a test counting a capped read is *asserting* the cap, which is
+the opposite of the defect.
+
+**It resolves calls rather than matching names.** A first pass keyed on the
+bare function name and reported five findings that were two different functions
+sharing one — `hub/proposals.list_proposals(client)` takes no limit at all and
+collided with `ads_builder.store.list_proposals(limit=200)`. Prose is not a
+call site, and neither is a name. `test_capped_reads.py` holds each of the four
+shapes that have actually shipped and each of the look-alikes, so the sweep can
+be shown to find one rather than asserting about nothing.

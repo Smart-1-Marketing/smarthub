@@ -1,10 +1,17 @@
 """Where AudioGo's reporting endpoint is, and which response field is which.
 
-**Everything below is a PLACEHOLDER**, in the same sense as the column names
-in ``provider_map.py``: AudioGo's Reporting API is specified in a PDF that
-was requested and has not arrived, and the only public pages
-(``audiogo.com/how-to/audiogo-reporting-api`` and ``/integrations``) say
-that the spec exists and nothing about its shape. So ``audiogo.py`` is
+**Everything below but the auth header is a PLACEHOLDER**, in the same
+sense as the column names in ``provider_map.py``: AudioGo's Reporting API is
+specified in a PDF that was requested and has not arrived, and the public
+pages (``audiogo.com/how-to/audiogo-reporting-api``, ``/integrations``,
+``/faqs/api-reporting``, ``/how-to/dimensions-metrics-api``) say that the
+spec exists, that the key goes in an ``x-api-key`` header, that separate
+Dimensions and Metrics endpoints list what a report may ask for (metric
+names are camelCase -- ``demandAudioImp`` is impressions; dimensions such
+as ``geoCity`` and ``playerName``), that a synchronous report takes up to
+three dimensions, and nothing about the origin or the report path.
+``/reports/provider-check/audiogo`` carries all of it, with the Render
+list. So ``audiogo.py`` is
 config-driven and this file is the whole of the configuration -- the
 endpoint path, the header the key is sent under, the query parameter names
 for the date range, and the map from response field to fact-table column.
@@ -41,10 +48,13 @@ DEFAULT_BASE = "https://api.audiogo.com"          # PLACEHOLDER
 REPORT_PATH = "/v1/reports/campaigns/daily"       # PLACEHOLDER
 METHOD = "GET"                                    # PLACEHOLDER (GET with query params)
 
-# How the key is sent. PLACEHOLDER: a bearer token is the commonest shape
-# for a reporting API issued per account; "X-API-Key" is the other.
-AUTH_HEADER = "Authorization"                     # PLACEHOLDER
-AUTH_PREFIX = "Bearer "                           # PLACEHOLDER ("" for a bare key)
+# How the key is sent. NOT a placeholder: AudioGo's own FAQ
+# (audiogo.com/faqs/api-reporting) says "include your API key in the header
+# of your requests using the following format: x-api-key: your_api_key_here",
+# read September 17, 2026 from the search index -- the page itself sits
+# behind a host the Hub's environment cannot reach. A bare key, no prefix.
+AUTH_HEADER = "x-api-key"
+AUTH_PREFIX = ""                                  # a bare key; "Bearer " would be wrong here
 
 # Query parameter names for the date range (inclusive dates, YYYY-MM-DD).
 DATE_PARAMS = {"start": "start_date", "end": "end_date"}   # PLACEHOLDER

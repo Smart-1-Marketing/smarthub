@@ -991,35 +991,44 @@ def _work_row(e: dict):
     }
 
 
-def work_index(limit: int = 6000) -> dict:
-    """Every work row in the newest `limit` activity-log entries, bucketed by
-    normalized client name, read once for a page that asks about the whole
-    book -- `hub/proposal_promises.py` asks which month each client's promises
-    landed in, and one tail of the log per client is fifty reads of one file.
+WORK_WINDOW = 6000
 
-    `horizon` is the oldest entry the read reached. A month before it is one
-    the log cannot answer for -- rotated away, or older than the window -- and
-    a caller that read its absence as "nothing landed" would be reporting a
-    miss about a month nobody looked at. `error` names a log that could not
-    be read, which is a different answer from a log with nothing in it.
+
+def _work_entries(limit: int = WORK_WINDOW) -> dict:
+    """The newest `limit` activity-log entries FROM THE WORK MODULES, with
+    what the read actually reached. The one window both readings share.
+
+    ``{"entries", "horizon", "scanned", "complete", "error"}``.
+
+    Narrowed to ``WORK_KINDS`` in the query rather than walked and discarded.
+    That is not a speed tweak: the newest 6000 rows of everything this Hub
+    logs is a few hours of a busy day -- sign-ins, jsonstore mirrors and
+    scheduler ticks swamp it -- while the newest 6000 rows of the 47 modules
+    that make client work is months. Reading the wide window and keeping the
+    narrow one is how a client whose last deliverable was in the spring came
+    to read as though nothing had ever been made for them.
+
+    ``complete`` is the honest half, and it is what ``horizon`` alone cannot
+    say. Fewer entries than asked for means the read reached the end of the
+    log and nothing older exists: an empty answer then really is "nothing was
+    ever filed". A full `limit` means there is more underneath, so an empty
+    answer is "not within the window" and a caller must not print it as
+    "nothing". ``horizon`` is the oldest entry reached, which is how far back
+    that claim is good for.
+
     Never raises.
     """
+    limit = max(1, int(limit))
     try:
-        entries = audit.tail(limit=limit)
+        entries = audit.tail(limit=limit, modules=tuple(WORK_KINDS))
     except Exception as exc:                            # noqa: BLE001
-        return {"rows": {}, "horizon": "", "scanned": 0,
+        return {"entries": [], "horizon": "", "scanned": 0, "complete": False,
                 "error": f"The activity log could not be read ({type(exc).__name__})."}
-    by: dict[str, list] = {}
     horizon = ""
     for e in entries:
         when = str(e.get("time") or "")
         if when and (not horizon or when < horizon):
             horizon = when
-        got = _work_row(e)
-        if not got:
-            continue
-        norm, row = got
-        by.setdefault(norm, []).append(row)
     error = ""
     if not entries:
         # tail() answers [] for a file it could not open as well as for an
@@ -1030,7 +1039,36 @@ def work_index(limit: int = 6000) -> dict:
                 error = "The activity log could not be read."
         except Exception:                               # noqa: BLE001
             pass
-    return {"rows": by, "horizon": horizon, "scanned": len(entries), "error": error}
+    return {"entries": entries, "horizon": horizon, "scanned": len(entries),
+            # An error is never "complete": we did not reach the end of the
+            # log, we failed to read it, and those must not collapse.
+            "complete": len(entries) < limit and not error, "error": error}
+
+
+def work_index(limit: int = WORK_WINDOW) -> dict:
+    """Every work row in the work window, bucketed by normalized client name,
+    read once for a page that asks about the whole book --
+    `hub/proposal_promises.py` asks which month each client's promises landed
+    in, and one tail of the log per client is fifty reads of one file.
+
+    `horizon` is the oldest entry the read reached. A month before it is one
+    the log cannot answer for -- rotated away, or older than the window -- and
+    a caller that read its absence as "nothing landed" would be reporting a
+    miss about a month nobody looked at. `complete` says the read reached the
+    end of the log, so there is no such month. `error` names a log that could
+    not be read, which is a different answer from a log with nothing in it.
+    Never raises.
+    """
+    got = _work_entries(limit)
+    by: dict[str, list] = {}
+    for e in got["entries"]:
+        row = _work_row(e)
+        if not row:
+            continue
+        norm, built = row
+        by.setdefault(norm, []).append(built)
+    return {"rows": by, "horizon": got["horizon"], "scanned": got["scanned"],
+            "complete": got["complete"], "error": got["error"]}
 
 
 def work_log(client: str, limit: int = 60, also: list[str] | None = None) -> dict:
@@ -1053,29 +1091,42 @@ def work_log(client: str, limit: int = 60, also: list[str] | None = None) -> dic
         n = _norm(other)
         if n and n != want:
             extra[n] = str(other)
-    rows = []
-    for e in audit.tail(limit=6000):
-        got = _work_row(e)
-        if not got:
+
+    got = _work_entries()
+    matched = []
+    for e in got["entries"]:
+        row = _work_row(e)
+        if not row:
             continue
-        norm_named, row = got
+        norm_named, built = row
         if norm_named != want and norm_named not in extra:
             continue
         if norm_named != want:
-            row["member"] = extra[norm_named]
-        rows.append(row)
-        if len(rows) >= limit:
-            break
+            built["member"] = extra[norm_named]
+        matched.append(built)
 
+    # Every matching row is counted; `limit` slices what is SHOWN. It used to
+    # break out of the walk at `limit`, so `count` and `by_source` described
+    # the page rather than the client -- a client with 400 deliverables and a
+    # limit of 60 reported 60, and the breakdown under it was the sources of
+    # whichever 60 came first.
+    rows = matched[:max(1, int(limit))]
     by_source: dict[str, int] = {}
-    for r in rows:
+    for r in matched:
         by_source[r["source"]] = by_source.get(r["source"], 0) + 1
 
     return {
-        "client": client, "count": len(rows), "items": rows,
+        "client": client, "count": len(matched), "shown": len(rows), "items": rows,
+        "more": max(0, len(matched) - len(rows)),
         "group": sorted(extra.values()),
         "by_source": dict(sorted(by_source.items(), key=lambda kv: -kv[1])),
-        "last_activity": rows[0]["when"] if rows else None,
+        "last_activity": matched[0]["when"] if matched else None,
+        # What the read reached, in the shape work_index() already used.
+        # Without these an empty answer is unreadable: "nothing was ever made
+        # for this client" and "nothing in the window I looked at" are
+        # different sentences and only one of them is a churn signal.
+        "horizon": got["horizon"], "scanned": got["scanned"],
+        "complete": got["complete"], "error": got["error"],
         "note": "Assembled from the activity log. A tool that doesn't write "
                 "there won't appear — /api/integrity lists which ones those are.",
     }

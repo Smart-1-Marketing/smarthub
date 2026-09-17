@@ -228,6 +228,18 @@ ANSWERS.append(_Resp(200, GOOD))
 page = staff.get("/reports/audiogo-check").get_data(as_text=True)
 check("against a body it resolves, the page says so", 'class="s1d-pill ok">Resolved' in page)
 check("the index links the check page", "AudioGo check" in staff.get("/reports/").get_data(as_text=True))
+check("...and lists the keys the endpoint answered with that the map does not name",
+      'id="unread-fields"' in page and "Answered and not read" in page)
+ANSWERS.append(_Resp(200, {"meta": {"page": 1}, "data": [{"when": "2026-09-10", "id": "x", "spent": 3, "plays": 9}]}))
+page = staff.get("/reports/audiogo-check").get_data(as_text=True)
+seg = page[page.find("Answered and not read"):page.find("Answered and not read") + 400]
+check("...naming when, spent and plays as answered and not read", all(k in seg for k in ("when", "spent", "plays")))
+check("...beside the documented list, with its source named", "demandAudioImp" in page and "Transcribed from" in page)
+check("...and the providers submenu with AudioGO marked", 's1d-subnav' in page and 'class="on"' in page)
+check("the key goes in the x-api-key header AudioGo's FAQ documents, bare",
+      (audiogo_map.AUTH_HEADER, audiogo_map.AUTH_PREFIX), ("x-api-key", ""))
+check("...and the provider page carries the Render list naming AUDIOGO_API_BASE as owed from the spec",
+      "AUDIOGO_API_BASE" in staff.get("/reports/provider-check/audiogo").get_data(as_text=True))
 
 os.environ.pop("AUDIOGO_API_KEY")
 os.environ.pop("AUDIOGO_API_BASE")

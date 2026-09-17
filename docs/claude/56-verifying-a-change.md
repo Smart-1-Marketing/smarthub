@@ -388,7 +388,7 @@ python3 test_client_images.py      # every module that logs client work is one t
                                    #   card, the contact details offered into the strip,
                                    #   the display-ads work log, and the way back
 python3 test_client_uploads.py     # the client upload link, and the client an IO creates
-python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
+python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions, folders, the SEO copy sweep
 python3 test_image_creator.py      # the "Client gallery" chip reads the real shared
                                    #   gallery, searches it, and always offers the link
                                    #   to the full one
@@ -453,6 +453,18 @@ python3 test_activity_logging.py   # every module's work is attributable: an
                                    #   import is not a call, a module's own
                                    #   log() wrapper is resolved, and the
                                    #   remainder is declared with its reason
+python3 test_capped_reads.py       # the integrity check that finds a capped read
+                                   #   COUNTED or searched BY KEY -- the defect
+                                   #   class docs/claude/03 names, found by hand
+                                   #   four times before the repo looked for it.
+                                   #   Holds the four shapes that have shipped
+                                   #   and the things that look like them
+python3 test_client_work_log.py    # the client work log's horizon: narrowed to
+                                   #   the 47 work modules in the query, a count
+                                   #   that describes the client rather than the
+                                   #   page, and no reader allowed to print
+                                   #   "nothing has ever been made" off a read
+                                   #   that stopped at a window
 python3 test_hub_capped_reads.py   # readings in hub/ that have to be COMPLETE
                                    #   and were a window: the image audit swept
                                    #   a fifth of the archive, "this module
@@ -813,6 +825,29 @@ something got pushed past exactly that.
   the filenames in the source and counting what the shell actually iterates
   are different questions, and only the second is the answer.
 
+### The build screen is clicked every night, through the Hub
+
+`.github/workflows/nightly-browser.yml` runs `modules/ad_builder`'s browser
+test on a schedule with the whole path in front of it: the renderer on
+loopback, gunicorn serving `wsgi:application` with `AD_BUILDER_URL` pointed
+at it, a sign-in through `/login`, then the same clicks on
+`/tools/display-ads/build`. Every pull request runs the test against the
+renderer alone; this is the run that catches the proxy, the base-path shim
+and HubBar breaking the screen between them. Run it by hand with
+`workflow_dispatch`, or locally:
+
+```bash
+cd modules/ad_builder
+E2E_BASE_URL=http://127.0.0.1:5055/tools/display-ads E2E_HUB_PASSWORD=... \
+  E2E_REQUEST=AD-E2E-000001 npm run test:browser
+```
+
+A second job in the same file drives a staging Hub when the repository
+variables `STAGING_HUB_URL` and `STAGING_E2E_REQUEST` and the secret
+`STAGING_HUB_PASSWORD` are set. The test edits the campaign it opens, so
+that campaign is one kept for the purpose, and the job is never pointed at
+production.
+
 ### The MCP gateway's tests are not in the sweep above
 
 `mcp_gateway/` has its own tests and its own workflow
@@ -919,6 +954,16 @@ which is the only reason it read as fine: **"main is green" was not protecting
 production**, because production was not waiting for it.
 
 The dashboard switch is now *After CI checks pass* — the Render API reports
+**And until 17 September 2026 nothing built the image that deploys.** The gate
+installs `requirements.txt` onto an Ubuntu runner with `setup-python`; the
+service runs the `Dockerfile` — different base, apt packages, Node 20, three
+`npm ci` runs, two TypeScript builds. A grep for `docker` across every workflow
+found only comments about it. There is a path-filtered `image` job now that
+builds it and imports `wsgi` inside it, and `test_ci_gate.py` refuses a
+Dockerfile whose Python version differs from the one CI tests on — which is
+what made the open `3.12 -> 3.14` base bump unassessable. Written up in
+`docs/claude/72`.
+
 `autoDeployTrigger: checksPass` on smart1-hub as of 16 September 2026, checked
 against the live service rather than against `render.yaml`, which is the whole
 point of the paragraph below. So green main protects production again, at the

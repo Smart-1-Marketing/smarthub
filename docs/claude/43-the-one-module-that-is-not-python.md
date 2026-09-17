@@ -827,3 +827,69 @@ fails on any page error, console error or 5xx. It is its own npm script
 runs it after the HyperFrames render service's `npm ci` has downloaded
 Chrome and borrows that binary, and without one it is **skipped by name**
 rather than passed.
+
+**The third list, the seven after that.** Offered as "more ideas" once the
+second list shipped, and taken as a set.
+
+*Use this size's look on every size.* `styleOverrides` carries departures
+from one authored size to the rest, and a size somebody corrected by hand
+keeps its correction (`bySize`). What was missing was the reverse: having
+tuned the 728x90 until it was right, making it the size the rest are carried
+from. `carry.adoptLook()` is that: the size's resolved style (`styleFor`,
+which is already in its own pixels) marked `authoredFor` it, every other
+size's correction dropped, and the size's own layout pick promoted to the
+set's family when that family draws every size in the set -- otherwise the
+rail would lose the sizes it cannot draw, so the family stays per size and
+the report names them. `POST /api/concept/adopt-look` resolves it on the
+campaign the screen is holding rather than mirroring the carry in the
+browser; the screen asks before replacing another size's hand work and Undo
+takes it back. Offered in Text Boxes once there is a look to adopt.
+
+*The client's notes, one ad at a time.* The proof page had one box,
+"Request changes", and it closes the proof. Looking through eleven sizes,
+people notice things one at a time, and a single box at the bottom loses
+which ad each remark was about. Every ad on the client proof has a note box
+now (`POST /client-proof/<token>/comment`, public through the Hub proxy like
+the decision); a note is not a decision, so the proof stays open for the
+approve or change request that follows, and it is refused once the version
+is approved. Notes live on the proof record, are written to the project's
+notes, come back through `/api/project/<id>/workflow`, and the build screen
+draws them under that size's checks with a mark on the rail.
+
+*Hold to see before.* The first preview of a size in a sitting is held as
+its "before", and a save moves it forward; a chip on the stage swaps the
+picture while it is held and swaps back on release. A hold rather than a
+toggle so nobody leaves it on and edits the wrong picture.
+
+*Presets on the start form.* "Save as preset" existed and the only way to
+use one was the presets page. The Hub's start form lists the renderer's
+presets for the chosen client (`saved_presets`, exact client match), draws
+the preset's own slots as the form, puts the brief fields away, and
+`start_from_preset` calls the renderer's generate route -- refusing a preset
+saved under a different account rather than filing the ad against the wrong
+record.
+
+*The arrow keys.* With a pad button focused the keys move that pad;
+anywhere else that is not a text field they move the last thing nudged.
+Shift is a fast press and Alt a slow one, whatever the speed buttons say.
+
+*A health line per campaign.* `health.ts` writes one sentence per project
+for the projects list: approvals against the latest review's per-size
+verdicts, failures, where the client proof stands and how many notes the
+client left -- reading the reviews and proofs directories once each
+(`latestReviews`, `clientProofsByProject`) rather than once per row. Absent
+data is named ("No review yet"), never shown as a zero.
+
+*A nightly run through the Hub.* `.github/workflows/nightly-browser.yml`
+boots the renderer and the Hub the way the container does, signs in through
+the real login form, and runs `build.e2e.ts` against
+`/tools/display-ads/build` -- the login, the proxy adding the token, the
+base-path shim and HubBar's injection are all in the path, and each has
+broken the screen alone while every test stayed green. The test takes
+`E2E_BASE_URL`, `E2E_HUB_PASSWORD`, `E2E_REQUEST` and `E2E_TOKEN` for that;
+with none set it starts its own renderer as before. A second job runs the
+same against a staging Hub once the repository variables
+`STAGING_HUB_URL` and `STAGING_E2E_REQUEST` and the secret
+`STAGING_HUB_PASSWORD` exist; there is no staging service today, so it does
+nothing until then, and it must never be pointed at production because the
+test edits the campaign it opens.

@@ -257,7 +257,17 @@ def parse_records(nodes: list) -> dict:
         if not cid or day is None:
             skipped += 1
             continue
-        account = str(adv.get("id") or "").strip() or "advertiser:unknown"
+        account = str(adv.get("id") or "").strip()
+        if not account:
+            # Skipped and counted, not filed under a sentinel. account_id is
+            # part of store._FACT_KEY, so "advertiser:unknown" is a DIFFERENT
+            # row from the same campaign-day once the platform does name the
+            # advertiser -- and the 30-day re-read then holds both and a
+            # client's report adds them together. One campaign-day read twice
+            # is a doubled spend on a page somebody is invoiced against, which
+            # is worse than a row that is absent and counted here.
+            skipped += 1
+            continue
         extras = {"advertiser_name": str(adv.get("name") or "").strip()}
         for k in ("videoStarts", "audioStarts", "audioCompletions", "videoCompletions"):
             if m.get(k) not in (None, ""):
@@ -291,7 +301,18 @@ def _state_path() -> str:
     return os.path.join(jsonstore.data_dir("reports"), "stackadapt_status.json")
 
 
-def _remember(state: dict) -> None:
+def _remember(state: dict, *, keep_counts: bool = False) -> None:
+    """Write the note. ``keep_counts`` is for a run that landed nothing -- a
+    report still preparing, or a refusal -- which knows nothing about how many
+    advertisers there are and must not overwrite last night's answer with its
+    own zeroes. The index read "connected, 0 advertisers" after one pending
+    tick, about a feed that had read seven the night before, and the stamped
+    time moved to now for a pull that never happened."""
+    if keep_counts:
+        held = _remembered()
+        for key in ("rows", "advertisers", "campaigns", "at"):
+            if held.get(key) is not None:
+                state = {**state, key: held[key]}
     try:
         from hub import jsonstore
         jsonstore.write_json(_state_path(), state, durable=False)
@@ -379,8 +400,20 @@ def pull(days: int = DAYS, today: date | None = None, sleep=None, clock=None,
         out["advertisers"] = len({r["account_id"] for r in rows})
         out["campaigns"] = len({(r["account_id"], r["campaign_id"]) for r in rows})
         out["rows"] = store.upsert_rows(rows) if rows else 0
-        out["ok"] = True
-        store.record_sync("stackadapt", rows=out["rows"], error="", source="native")
+        if not rows and out["skipped"]:
+            # The platform answered records and NONE of them could be read.
+            # That is the ASSUMED names in this file being wrong, and it used
+            # to answer ok with an empty error: a clean watermark, "connected"
+            # on the index, and the day marked complete -- a feed reading
+            # nothing that looks exactly like a feed working.
+            out["error"] = (f"read {out['skipped']} record(s) and could file none of them: "
+                            "every one was missing a campaign id, an advertiser id or a day. "
+                            "The names this pull assumes are in stackadapt.py's docstring, "
+                            "and one of them is wrong.")
+            store.record_sync("stackadapt", rows=0, error=out["error"], source="native")
+        else:
+            out["ok"] = True
+            store.record_sync("stackadapt", rows=out["rows"], error="", source="native")
     except ReportPending as exc:
         out["pending"] = True
         out["error"] = _redact(str(exc))
@@ -391,7 +424,7 @@ def pull(days: int = DAYS, today: date | None = None, sleep=None, clock=None,
         log.exception("reports: StackAdapt pull failed")
         out["error"] = _redact(f"{type(exc).__name__}: {exc}")
         store.record_sync("stackadapt", rows=0, error=out["error"], source="native")
-    _remember({**out, "at": store.iso(store.now())})
+    _remember({**out, "at": store.iso(store.now())}, keep_counts=not out["rows"] and not out["ok"])
     return out
 
 

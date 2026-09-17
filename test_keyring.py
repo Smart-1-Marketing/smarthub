@@ -75,6 +75,17 @@ from hub import keyring                                     # noqa: E402
 SECRET = "a-client-website-password"
 
 
+def read_raw(path):
+    """The bytes on disk. Asserting on the stored blob rather than on what an
+    accessor returns is the difference between "it re-sealed" and "it still
+    reads" -- the second is true either way."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
 def only(**env):
     """Set exactly this key configuration and nothing left over."""
     for name in (keyring.SINGULAR, keyring.PLURAL):
@@ -231,6 +242,116 @@ check("cms_credentials reads its encryption state from the ring, so the panel "
       cms_credentials.encryption_state() == keyring.state())
 
 
+# --------------------------------------------- a rotation that can FINISH
+print("\na rotation that can be completed, not just survived")
+# needs_reseal() had no caller when it shipped. Without one, the old key can
+# never be dropped: everything stays readable only because the ring still
+# carries it, which is a rotation that never ends. This is the assertion that
+# says the third step of it happens.
+only(TOKEN_ENCRYPTION_KEY=OLD)
+cms_credentials.save_site_login("Rotate Co", login="rep", password=SECRET,
+                                actor="test")
+_path = cms_credentials._path("Rotate Co", cms_credentials.SITE_LOGIN)
+_before = json.loads(read_raw(_path))["secret"]["data"]
+
+only(TOKEN_ENCRYPTION_KEYS=f"{NEW},{OLD}")
+_st = cms_credentials.site_login_state("Rotate Co")
+check("the record is readable during the rotation", _st["readable"] is True)
+_after = json.loads(read_raw(_path))["secret"]["data"]
+check("and reading it RE-SEALS it under the newest key", _before != _after)
+
+only(TOKEN_ENCRYPTION_KEY=NEW)
+check("so with the old key dropped entirely it still opens — the rotation "
+      "can be finished rather than carried forever",
+      cms_credentials.site_login_state("Rotate Co")["readable"] is True)
+
+# A read that writes on every pass is the hub/ad_assets.py defect this repo
+# records paying for.
+_settled = read_raw(_path)
+cms_credentials.site_login_state("Rotate Co")
+check("a later read rewrites nothing", read_raw(_path) == _settled)
+
+# The WordPress kind goes through get(), a different call site.
+only(TOKEN_ENCRYPTION_KEY=OLD)
+cms_credentials.save("Rotate Co", cms_credentials.WORDPRESS,
+                     rest_root="https://x.test/wp-json/", username="u",
+                     app_password="abcd EFGH ijkl MNOP", actor="test")
+_wp = cms_credentials._path("Rotate Co", cms_credentials.WORDPRESS)
+_wp_before = json.loads(read_raw(_wp))["secret"]["data"]
+only(TOKEN_ENCRYPTION_KEYS=f"{NEW},{OLD}")
+check("get() returns the application password during a rotation",
+      cms_credentials.get("Rotate Co")["app_password"] == "abcdEFGHijklMNOP")
+check("and re-seals that record too", json.loads(read_raw(_wp))["secret"]["data"] != _wp_before)
+only(TOKEN_ENCRYPTION_KEY=NEW)
+check("which survives the old key being dropped",
+      cms_credentials.get("Rotate Co").get("app_password") == "abcdEFGHijklMNOP")
+
+# An unreadable record must not be "repaired" by re-sealing it, and must not
+# lose what is stored.
+only(TOKEN_ENCRYPTION_KEY=THIRD)
+_sealed_away = read_raw(_path)
+cms_credentials.site_login_state("Rotate Co")
+check("a record no key can open is left exactly as it is, not rewritten",
+      read_raw(_path) == _sealed_away)
+
+
+# ------------------------------------------- every store, through a rotation
+print("\nevery store survives a rotation")
+from modules.skills360 import store as _sk                 # noqa: E402
+from modules.youtube_studio import store as _yt            # noqa: E402
+
+only(TOKEN_ENCRYPTION_KEY=OLD)
+_sk_blob = _sk.seal(SECRET)
+_yt_blob = _yt.encrypt(SECRET)
+
+only(TOKEN_ENCRYPTION_KEYS=f"{NEW},{OLD}")
+check("skills360 reads a secret sealed before the rotation",
+      _sk.unseal(_sk_blob) == SECRET)
+check("youtube_studio reads a token sealed before the rotation",
+      _yt.decrypt(_yt_blob) == SECRET)
+
+# Re-sealed during the rotation, then the old key is dropped. If a new write
+# had used the OLD key the rotation could never finish, and this is what says
+# so rather than the prose above.
+_sk_new, _yt_new = _sk.seal(SECRET), _yt.encrypt(SECRET)
+only(TOKEN_ENCRYPTION_KEY=NEW)
+check("a skills360 secret re-sealed mid-rotation opens under the new key alone",
+      _sk.unseal(_sk_new) == SECRET)
+check("and a youtube_studio token does too", _yt.decrypt(_yt_new) == SECRET)
+check("while the un-re-sealed one is now unreadable rather than silently empty-"
+      "looking to the panel — skills360 reports token_readable separately",
+      _sk.unseal(_sk_blob) == "")
+
+# The contracts each module chose are NOT flattened by moving to the ring.
+# youtube_studio and google_finder refuse rather than write an OAuth token in
+# the clear; that refusal is the thing a shared helper could most easily have
+# smoothed away.
+only()
+refused = ""
+try:
+    _yt.encrypt(SECRET)
+except ValueError as exc:
+    refused = str(exc)
+check("with no key at all youtube_studio REFUSES rather than storing in the "
+      "clear — the contract the shared helper must not soften",
+      "not configured" in refused, refused or "it encrypted!")
+
+from modules.google_finder import app as _gf               # noqa: E402
+
+refused = ""
+try:
+    _gf._fernet()
+except RuntimeError as exc:
+    refused = str(exc)
+check("and google_finder refuses too, for its OAuth refresh tokens",
+      "not configured" in refused, refused or "it returned a cipher!")
+
+only(TOKEN_ENCRYPTION_KEYS=f"{NEW},{OLD}")
+check("google_finder's health check reads the RING, not one spelling — it "
+      "answered False mid-rotation before this",
+      _gf._keyring_configured() is True)
+
+
 # ------------------------------------------------------------- the audit
 print("\nwhat has not moved across yet")
 from hub import integrity                                   # noqa: E402
@@ -243,13 +364,30 @@ check("nor is cms_credentials, which now reads the ring",
 check("nor ghl_oauth", "hub/ghl_oauth.py" not in files, files)
 check("a test building a key for a fixture is not drift",
       not any(os.path.basename(f).startswith("test_") for f in files), files)
-check("the modules that have NOT moved are still named, so the number is "
-      "visible and shrinking rather than forgotten",
-      "modules/google_finder/app.py" in files, files)
-check("the finding says what a rotation would cost",
-      all("rotating" in f["detail"] for f in integrity.check_own_fernet()))
-check("and the fix names the key ring",
-      all("keyring" in f["fix"] for f in integrity.check_own_fernet()))
+check("nor google_finder, skills360 or youtube_studio, which moved in this "
+      "change — the list is empty now, and an empty audit is only worth "
+      "anything because the rotation itself is asserted above",
+      files == set(), files)
+# An empty audit is worth nothing unless it can be shown to detect something.
+# "Every module has moved across" and "the scan silently stopped scanning"
+# render identically, and this repo has paid for that difference before. So a
+# file with the defect in it is planted, found, and removed.
+_planted = os.path.join(ROOT, "modules", "_keyring_drift_probe.py")
+try:
+    with open(_planted, "w", encoding="utf-8") as _fh:
+        _fh.write("from cryptography.fernet import Fernet\n\n\n"
+                  "def cipher():\n    return Fernet(b'x')\n")
+    _probe = {f["file"] for f in integrity.check_own_fernet()}
+    check("a module building its own Fernet IS found — the empty list above is "
+          "a real answer and not a scan that has stopped running",
+          "modules/_keyring_drift_probe.py" in _probe, _probe)
+finally:
+    if os.path.exists(_planted):
+        os.remove(_planted)
+check("and the probe is gone again, so the repo is left as it was",
+      not os.path.exists(_planted))
+check("with it gone the audit is empty once more",
+      integrity.check_own_fernet() == [])
 check("it is registered on /api/integrity", any(
     g["key"] == "own_fernet" for g in integrity.run()["groups"]))
 

@@ -43,7 +43,7 @@ from flask import (Flask, Response, jsonify, redirect, render_template,
 
 from hub.webargs import clamp_int
 
-from . import client_pdf, client_view, organic, pacing, products, quarantine, reconcile, store, suite_email, youtube
+from . import automap, client_pdf, client_view, organic, pacing, products, quarantine, reconcile, store, suite_email, youtube
 
 try:                                   # the shared last-hop rule for a caller's address
     from hub import leads as hub_leads
@@ -228,9 +228,11 @@ def _native_status() -> list[dict]:
         try:
             import importlib
             m = importlib.import_module(f"modules.reports.{mod}")
-            out.append({"platform": label, **m.status()})
+            from . import provider_fields
+            out.append({"platform": label, "label": store.platform_label(label),
+                        "check_label": provider_fields.CHECK_LABELS.get(label), **m.status()})
         except Exception as exc:               # noqa: BLE001
-            out.append({"platform": label, "connected": False,
+            out.append({"platform": label, "label": store.platform_label(label), "connected": False,
                         "line": f"{label}: status could not be read ({type(exc).__name__})"})
     return out
 
@@ -252,11 +254,34 @@ def provider_check():
     # taken against real values, never against plausible names.
     samples = {s["platform"]: normalize.sample_row(s["platform"])
                for s in sources if s["status"] == "resolved"}
+    from . import provider_fields
     return render_template(
         "reports_provider_check.html",
         schema=provider_map.schema(), tables=tables,
-        sources=sources, samples=samples,
+        sources=sources, samples=samples, subnav=provider_fields.nav(""),
         error=request.args.get("error", ""), saved=request.args.get("saved", ""))
+
+
+@app.route("/provider-check/<platform>")
+def provider_page(platform: str):
+    """One provider: the field map its pull expects, what the platform
+    documents that the pull does not read, and what has to be true on
+    Render for it to run. Drawn from provider_fields.py, which reads the
+    map off the module that does the pull; the live check page, where one
+    exists, is linked rather than repeated. An unknown platform is a 404
+    with the submenu on it, not a 500."""
+    from . import normalize, provider_fields
+    platform = (platform or "").strip().lower()
+    try:
+        tables = normalize.schema_tables()
+    except Exception:                      # noqa: BLE001 - the page must render without the schema
+        tables = {}
+    pg = provider_fields.page(platform, tables)
+    if pg is None:
+        return render_template("reports_provider_page.html", pg=None, subnav=provider_fields.nav(""),
+                               unknown=platform, error="", saved=""), 404
+    return render_template("reports_provider_page.html", pg=pg, subnav=pg["nav"], unknown="",
+                           error=request.args.get("error", ""), saved=request.args.get("saved", ""))
 
 
 @app.route("/provider-check/confirm", methods=["POST"])
@@ -456,8 +481,11 @@ def audiogo_check():
     audiogo_map.py expects -- the same pattern as provider-check. Calls the
     endpoint for yesterday and prints the raw JSON keys (the key itself
     never reaches a body) so the real names can be pasted into the map."""
-    from . import audiogo
-    return render_template("reports_audiogo_check.html", chk=audiogo.check())
+    from . import audiogo, provider_fields
+    chk = audiogo.check()
+    return render_template("reports_audiogo_check.html", chk=chk,
+                           subnav=provider_fields.nav("audiogo"),
+                           unread=_unread("audiogo", chk), documented=provider_fields.DOCUMENTED["audiogo"])
 
 
 @app.route("/groundtruth-check")
@@ -467,8 +495,12 @@ def groundtruth_check():
     platform whose documentation the Hub's own environment cannot reach.
     Calls nothing while GROUND_TRUTH_API_BASE is unset: the key is never
     sent to a host nobody has confirmed."""
-    from . import groundtruth
-    return render_template("reports_groundtruth_check.html", chk=groundtruth.check())
+    from . import groundtruth, provider_fields
+    chk = groundtruth.check()
+    return render_template("reports_groundtruth_check.html", chk=chk,
+                           subnav=provider_fields.nav("groundtruth"),
+                           unread=_unread("groundtruth", chk),
+                           documented=provider_fields.DOCUMENTED["groundtruth"])
 
 
 @app.route("/amazon-check")
@@ -480,8 +512,28 @@ def amazon_check():
     refusal, and calls nothing at all while the connection is unconfigured
     or unconsented: a credential is not sent to find out whether it is set.
     """
-    from . import amazon_dsp
-    return render_template("reports_amazon_check.html", chk=amazon_dsp.check())
+    from . import amazon_dsp, provider_fields
+    chk = amazon_dsp.check()
+    return render_template("reports_amazon_check.html", chk=chk,
+                           subnav=provider_fields.nav("amazon_dsp"),
+                           unread=_unread("amazon_dsp", chk),
+                           documented=provider_fields.DOCUMENTED["amazon_dsp"])
+
+
+def _unread(platform: str, chk: dict) -> dict:
+    """Answered and not read, for a live check page: the row keys the
+    endpoint returned that the map does not name. ``measured`` is False
+    until a row has come back, and the box says so rather than printing an
+    empty list as a clean bill."""
+    from . import provider_fields
+    keys = []
+    answer = chk.get("answer") if isinstance(chk, dict) else None
+    if isinstance(answer, dict):
+        keys = list(answer.get("row_keys") or [])
+    elif isinstance(chk.get("sample"), dict):        # the Amazon page carries one raw row
+        keys = list(chk["sample"].keys())
+    # "names", not "keys": a dict key called keys is shadowed by dict.keys in Jinja.
+    return {"measured": bool(keys), "names": provider_fields.unread_from_answer(platform, keys)}
 
 
 # ---------------------------------------------------------------- mapping
@@ -497,10 +549,19 @@ def _resolve_client(name: str, key: str) -> tuple[str, str]:
 def unmapped():
     days = clamp_int(request.args.get("days"), 30, 1, 365)
     limit = clamp_int(request.args.get("limit"), 200, 1, 1000)
+    rows = store.unmapped_campaigns(days=days, limit=limit)
+    pending = store.pending_mappings()
+    # The likeness beside every row: the picker opens on the client the
+    # name looks like, and a pending row filed by likeness says why. Laid
+    # over at read time, never stored -- a registry that cannot be read
+    # leaves the lists empty and the page says so.
+    likeness = automap.annotate(rows, pending)
     return render_template(
         "reports_unmapped.html",
-        rows=store.unmapped_campaigns(days=days, limit=limit),
-        pending=store.pending_mappings(),
+        rows=rows, pending=pending,
+        likeness_error=likeness.get("error", ""),
+        file_pct=int(round(automap.FUZZY_FILE_SCORE * 100)),
+        aliases=store.campaign_aliases(), alias_file_count=automap.ALIAS_FILE_COUNT,
         days=days, shape=store.RENAME_SHAPE,
         products=products.catalog(),
         defaults=products.DEFAULT_PRODUCT_FOR_PLATFORM,
@@ -512,11 +573,23 @@ def unmapped():
 
 @app.route("/unmapped", methods=["POST"])
 def map_campaign():
+    """File a campaign under a client, or move one: the same press on an
+    unmapped row and on a proposal the auto-mapper filed under the wrong
+    client (the queue's and the client page's Move to). A person's mapping
+    replaces the row and is confirmed by the making, so a moved proposal
+    is on the right client's page from now and the wrong client's never
+    had it."""
     f = request.form
+    back = _mapping_back(f)
     client_key, client_name = _resolve_client(f.get("client_name", ""),
                                               f.get("client_key", ""))
     if not client_name and not client_key:
-        return redirect(url_for("unmapped", error="Pick a client first."))
+        return redirect(back + "?error=Pick+a+client+first.")
+    try:
+        before = store.campaign_map(f.get("platform", ""), f.get("account_id", ""),
+                                    f.get("campaign_id", ""))
+    except ValueError:
+        before = None
     try:
         row = store.map_campaign(
             f.get("platform", ""), f.get("account_id", ""), f.get("campaign_id", ""),
@@ -525,15 +598,29 @@ def map_campaign():
             campaign_name=f.get("campaign_name", ""),
             display_name=f.get("display_name") or None)
     except ValueError as exc:
-        return redirect(url_for("unmapped", error=str(exc)))
+        return redirect(back + "?error=" + str(exc).replace(" ", "+"))
+    moved = before is not None and before.get("client") != row.client
+    # A person's filing teaches what this campaign calls the client.
+    automap.learn(f.get("campaign_name") or row.display_name or "", client=row.client,
+                  client_name=client_name or row.client_name or "", by=actor_name())
     # client= so the mapping lands on that client's 360 activity.
     _log("campaign_mapped", client=client_name or client_key,
          client_key=row.client, platform=row.platform,
          campaign_id=row.campaign_id, product=row.product or None,
          detail=f"{store.platform_label(row.platform)} campaign "
                 f"{f.get('campaign_name') or row.campaign_id} mapped to "
-                f"{client_name or client_key}")
-    return redirect(url_for("unmapped", saved=row.campaign_id))
+                f"{client_name or client_key}"
+                + (f" (moved from {before.get('client_name') or before.get('client')}"
+                   f"{', which the auto-mapper had proposed' if before.get('pending') else ''})"
+                   if moved else ""))
+    if moved:
+        # The page that was showing the proposal is a page whose cache
+        # holds a campaign that is no longer theirs.
+        for token in [l.token for l in [store.link_for_client(before["client"])] if l]:
+            client_view.forget(token)
+    if f.get("back") == "client":
+        return redirect(back + "?saved=" + ("moved" if moved else "campaign"))
+    return redirect(url_for("unmapped", saved=("moved" if moved else row.campaign_id)))
 
 
 def _mapping_back(f) -> str:
@@ -560,6 +647,11 @@ def confirm_mapping():
     if row is None:
         return redirect(back + "?error=That+campaign+is+not+mapped.")
     name = row.client_name or row.client
+    try:
+        taught_from = (store.campaign_map(row.platform, row.account_id, row.campaign_id) or {}).get("campaign_name") or ""
+    except Exception:                  # noqa: BLE001 - a lesson is not the confirmation
+        taught_from = ""
+    automap.learn(taught_from, client=row.client, client_name=name, by=actor_name())
     _log("campaign_confirmed", client=name, client_key=row.client,
          platform=row.platform, campaign_id=row.campaign_id, product=row.product or None,
          detail=f"{store.platform_label(row.platform)} campaign {row.campaign_id} confirmed "
@@ -582,6 +674,7 @@ def refuse_mapping():
     if gone is None:
         return redirect(back + "?error=That+campaign+is+not+mapped.")
     name = gone["client_name"] or gone["client"]
+    automap.forget(gone["campaign_name"], client=gone["client"], client_name=name)
     _log("campaign_refused", client=name, client_key=gone["client"],
          platform=gone["platform"], campaign_id=gone["campaign_id"],
          product=gone["product"] or None,
@@ -592,6 +685,20 @@ def refuse_mapping():
         client_view.forget(token)
     return redirect(url_for("unmapped") + "?saved=refused" if f.get("back") != "client"
                     else back + "?saved=refused")
+
+
+@app.route("/unmapped/alias/forget", methods=["POST"])
+def forget_alias():
+    """Forget one learned name for one client. The queue's Forget button."""
+    f = request.form
+    alias, client = (f.get("alias") or "").strip(), (f.get("client") or "").strip()
+    if not (alias and client):
+        return redirect(url_for("unmapped") + "?error=Which+alias%3F")
+    if not store.forget_alias(alias, client):
+        return redirect(url_for("unmapped") + "?error=That+alias+is+not+on+file.")
+    _log("campaign_alias_forgotten", client=f.get("client_name") or client, client_key=client,
+         detail=f"the learned campaign name {alias!r} for {f.get('client_name') or client} was forgotten")
+    return redirect(url_for("unmapped") + "?saved=forgotten#aliases")
 
 
 @app.route("/api/clients")

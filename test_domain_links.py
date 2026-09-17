@@ -1047,7 +1047,10 @@ check("the rule re-runs when somebody changes the answer",
       "bought.addEventListener('change',()=>applyBoughtRule(host))" in C360)
 
 check("the save button does not name the system it writes to",
-      "Save to Knack" not in C360 and ">Save</a>" in C360)
+      "Save to Knack" not in C360
+      # A real button now rather than an anchor with a pointer cursor, so
+      # the keyboard can reach it; the label is what this check is about.
+      and (">Save</a>" in C360 or ">Save</button>" in C360))
 check("and no object number is put in front of a person",
       "object_153" not in C360)
 # The ids stay pinned in the code — that is what stops a renamed label

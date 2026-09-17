@@ -80,14 +80,44 @@ class AskClientMatchingTests(unittest.TestCase):
         self.assertEqual(result["client"], "Quality Air Columbus")
         self.assertEqual(result["matched_on"], "abbreviation")
 
-    def test_unique_typo_is_resolved_for_read_only_question(self):
+    def test_a_typo_is_offered_rather_than_assumed(self):
+        """A one-letter typo asks now, and it is one tap to answer.
+
+        This used to resolve itself, on a second scorer whose 0.90 was not
+        the 0.90 company_identity.py means by it. On the Hub's one scale
+        "Monagram Homes" scores 0.74 against "Monogram Homes" -- the tokens
+        differ, and that scorer is deliberately hard on a changed token
+        because the module it was written for *writes* aliases. So the
+        candidate comes back as a choice instead of an assumption, which is
+        the house rule ("never guess ownership from a partial name") applied
+        to the assistant. What it costs is one tap; what it buys is that no
+        answer is ever quietly about a different client.
+        """
         index = self._index("Monogram Homes", "Quality Air Columbus")
         unresolved = {"known": False, "client": "Monagram Homes", "candidates": []}
         with patch.object(ask_smarthub.v2_tools, "resolve_identity", return_value=unresolved), \
              patch.object(ask_smarthub.v2_tools.hub_client_key, "alias_index", return_value=index):
             result = ask_smarthub.match_client("Monagram Homes")
-        self.assertEqual(result["status"], "resolved")
-        self.assertEqual(result["client"], "Monogram Homes")
+        self.assertEqual(result["status"], "clarify")
+        self.assertEqual(result["choices"][0]["client"], "Monogram Homes")
+
+    def test_the_scale_and_the_rule_are_the_hubs_own(self):
+        """No second opinion about whether two names are one company."""
+        from hub import company_identity
+        score, reason, evidence = ask_smarthub._similarity(
+            "Monagram Homes", "Monogram Homes")
+        self.assertEqual(score, company_identity.name_score(
+            "Monagram Homes", "Monogram Homes"))
+        self.assertEqual(reason, "fuzzy")
+        self.assertEqual(evidence, [])
+        self.assertFalse(hasattr(ask_smarthub, "_AUTO_MATCH_SCORE"),
+                         "a second set of thresholds has grown back")
+        # An exactly normalised name is evidence company_identity weighs;
+        # an abbreviation is this file's own reading and says so.
+        self.assertEqual(ask_smarthub._similarity("Acme Ltd", "Acme"),
+                         (1.0, "exact", ["normalized-name"]))
+        self.assertEqual(ask_smarthub._similarity("QAC", "Quality Air Columbus"),
+                         (1.0, "abbreviation", ["abbreviation"]))
 
     def test_ambiguous_abbreviation_asks_instead_of_guessing(self):
         index = self._index("National Background Check", "North Building Company")

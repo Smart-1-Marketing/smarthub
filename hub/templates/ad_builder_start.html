@@ -99,6 +99,29 @@
       </div>
 
       {% if client %}</details>{% endif %}
+
+      {% if presets %}
+      <div class="field" data-when="client">
+        <label for="preset">Start from a saved preset</label>
+        <select id="preset" name="preset"
+                style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px">
+          <option value="">No preset — draft from the website</option>
+          {% for p in presets %}
+            <option value="{{ p.id }}" data-client="{{ p.client }}" data-fields='{{ p.fields|tojson }}'
+                    data-platforms="{{ p.platforms|join(', ') }}">
+              {{ p.name }} — {{ p.client }}{% if p.layoutFamily %} ({{ p.layoutFamily }}){% endif %}
+            </option>
+          {% endfor %}
+        </select>
+        <p style="font-size:12.5px;color:var(--muted);margin-top:5px">
+          The second ad for a client is the same setup with new words on it.
+          A preset keeps the brand, logo, layout and design from a build
+          somebody already approved, so this form becomes the few lines that
+          change. Presets are saved from the build screen.</p>
+        <div id="preset-fields" style="display:none"></div>
+      </div>
+      {% endif %}
+
       <div class="field">
         <label for="campaign">Campaign name</label>
         <input id="campaign" name="campaign" required
@@ -106,22 +129,22 @@
                placeholder="Spring Service Promo">
       </div>
 
-      <div class="field">
+      <div class="field" data-fresh>
         <label for="promoting">What is being promoted</label>
         <input id="promoting" name="promoting"
                value="{{ form.get('promoting', '') }}"
                placeholder="Free system check, booked online">
       </div>
 
-      <div class="field"><label for="objective">Campaign goal</label>
+      <div class="field" data-fresh><label for="objective">Campaign goal</label>
         <select id="objective" name="objective">
         {% for goal in ['Generate inquiries', 'Book appointments', 'Drive online sales', 'Build awareness'] %}
           <option {% if form.get('objective', 'Generate inquiries') == goal %}selected{% endif %}>{{ goal }}</option>
         {% endfor %}</select>
       </div>
-      <div class="field"><label for="offer">Offer (optional)</label><input id="offer" name="offer" value="{{ form.get('offer', '') }}" placeholder="For example, free consultation — leave blank if there is no offer"></div>
+      <div class="field" data-fresh><label for="offer">Offer (optional)</label><input id="offer" name="offer" value="{{ form.get('offer', '') }}" placeholder="For example, free consultation — leave blank if there is no offer"></div>
 
-      <div class="field">
+      <div class="field" data-fresh>
         <label for="website">Website or landing page</label>
         <input id="website" name="website" type="text" required
                value="{{ form.get('website', '') }}"
@@ -136,7 +159,7 @@
           is different from the main site.</p>
       </div>
 
-      <div class="field">
+      <div class="field" data-fresh>
         <label>Where these will run</label>
         <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:4px">
           {% for value, label in platform_choices %}
@@ -154,7 +177,7 @@
       </div>
 
       {% if proposals %}
-      <div class="field">
+      <div class="field" data-fresh>
         <label for="proposal">Build from a proposal</label>
         <select id="proposal" name="proposal"
                 style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px">
@@ -258,6 +281,46 @@
       if (opt && opt.dataset.title && !camp.value) camp.value = opt.dataset.title;
     });
   }
+})();
+
+// A preset replaces the brief: its slots are the form, and the fields the
+// website would have been read for are put away rather than left to be
+// filled in and ignored. The website stays required only when there is no
+// preset, or a hidden required field blocks the submit with a message that
+// points at nothing.
+(function () {
+  var pick = document.getElementById('preset');
+  var slots = document.getElementById('preset-fields');
+  if (!pick || !slots) return;
+  var site = document.getElementById('website');
+  var client = document.getElementById('client');
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  function apply() {
+    var opt = pick.options[pick.selectedIndex];
+    var on = !!(opt && opt.value);
+    document.querySelectorAll('[data-fresh]').forEach(function (el) { el.style.display = on ? 'none' : ''; });
+    if (site) site.required = !on;
+    if (!on) { slots.style.display = 'none'; slots.innerHTML = ''; return; }
+    var fields = [];
+    try { fields = JSON.parse(opt.dataset.fields || '[]'); } catch (e) { fields = []; }
+    if (client && opt.dataset.client && !client.value) client.value = opt.dataset.client;
+    slots.innerHTML = (fields.length
+      ? fields.map(function (f) {
+          return '<div class="field" style="margin-top:10px"><label for="preset_' + esc(f.role) + '">' + esc(f.label || f.role) +
+            '</label><input id="preset_' + esc(f.role) + '" name="preset_' + esc(f.role) + '"' +
+            (f.fallback ? ' placeholder="' + esc(f.fallback) + '"' : '') + '></div>';
+        }).join('') +
+        '<p style="font-size:12.5px;color:var(--muted);margin-top:6px">Leave a line blank to keep what the preset saved.</p>'
+      : '<p style="font-size:12.5px;color:var(--muted);margin-top:6px">This preset has no fill-in lines; the ad is built as saved.</p>') +
+      (opt.dataset.platforms ? '<p style="font-size:12.5px;color:var(--muted);margin-top:2px">Runs on: ' + esc(opt.dataset.platforms) + '.</p>' : '');
+    slots.style.display = '';
+  }
+  pick.addEventListener('change', apply);
+  apply();
 })();
 </script>
 {% endblock %}

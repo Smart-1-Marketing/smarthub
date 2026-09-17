@@ -119,6 +119,22 @@ def _fernets():
     return MultiFernet(good), len(good), bad
 
 
+def ring():
+    """The MultiFernet itself, or None when nothing usable is configured.
+
+    For callers that must keep their own behaviour around a missing key rather
+    than degrade to storing in the clear -- `modules/google_finder/app.py`
+    raises on purpose, because a Google refresh token written unencrypted is
+    worse than a module that refuses to run. They get the ring and decide.
+
+    `MultiFernet` carries the same `.encrypt()` / `.decrypt()` interface as a
+    single `Fernet`, so a caller swapping one for the other changes nothing at
+    its call sites -- it just gains "any key opens this" on the way past.
+    """
+    got, usable, _bad = _fernets()
+    return got if usable else None
+
+
 def available() -> bool:
     """Whether a value sealed right now would actually be encrypted."""
     ring, usable, _bad = _fernets()

@@ -7,7 +7,7 @@ say "above" or "below" mean earlier or later files in this list.
 
 | File | Topic | Lines |
 |---|---|---|
-| [`03-traps-every-one-of-these-has-cost-a-working-feature.md`](03-traps-every-one-of-these-has-cost-a-working-feature.md) | Traps — every one of these has cost a working feature | 1337 |
+| [`03-traps-every-one-of-these-has-cost-a-working-feature.md`](03-traps-every-one-of-these-has-cost-a-working-feature.md) | Traps — every one of these has cost a working feature | 1413 |
 | [`04-a-fallback-secret-in-the-source-is-a-forgeable-token.md`](04-a-fallback-secret-in-the-source-is-a-forgeable-token.md) | A fallback secret in the source is a forgeable token | 3523 |
 | [`05-data-sources-and-which-are-stale.md`](05-data-sources-and-which-are-stale.md) | Data sources, and which are stale | 1178 |
 | [`06-wiring-four-call-sites-is-not-wiring-the-module.md`](06-wiring-four-call-sites-is-not-wiring-the-module.md) | Wiring four call sites is not wiring the module | 93 |
@@ -49,19 +49,19 @@ say "above" or "below" mean earlier or later files in this list.
 | [`40-a-clients-photos-are-already-somewhere-and-it-is-not-their-l.md`](40-a-clients-photos-are-already-somewhere-and-it-is-not-their-l.md) | A client's photos are already somewhere, and it is not their laptop | 159 |
 | [`41-one-design-the-whole-size-set-and-the-fourth-copy-it-refused.md`](41-one-design-the-whole-size-set-and-the-fourth-copy-it-refused.md) | One design, the whole size set — and the fourth copy it refused to be | 139 |
 | [`42-the-brandtemplate-decision-resolved-a-pick-not-a-table.md`](42-the-brandtemplate-decision-resolved-a-pick-not-a-table.md) | The BrandTemplate decision, resolved: a pick, not a table | 81 |
-| [`43-the-one-module-that-is-not-python.md`](43-the-one-module-that-is-not-python.md) | The one module that is not Python | 829 |
+| [`43-the-one-module-that-is-not-python.md`](43-the-one-module-that-is-not-python.md) | The one module that is not Python | 895 |
 | [`44-everyone-has-their-own-login-and-there-are-two-levels-of-it.md`](44-everyone-has-their-own-login-and-there-are-two-levels-of-it.md) | Everyone has their own login, and there are two levels of it | 617 |
 | [`45-three-index-pages-and-the-question-each-one-answers.md`](45-three-index-pages-and-the-question-each-one-answers.md) | Three index pages, and the question each one answers | 85 |
 | [`46-one-description-of-what-a-record-page-looks-like.md`](46-one-description-of-what-a-record-page-looks-like.md) | One description of what a record page looks like | 221 |
 | [`47-declared-and-never-wired.md`](47-declared-and-never-wired.md) | Declared and never wired | 96 |
 | [`48-a-review-nobody-wrote-down-is-a-review-nobody-can-point-at.md`](48-a-review-nobody-wrote-down-is-a-review-nobody-can-point-at.md) | A review nobody wrote down is a review nobody can point at | 102 |
-| [`49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md`](49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md) | What the ad-report syncs propose, and the person who stands behind each | 247 |
+| [`49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md`](49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md) | What the ad-report syncs propose, and the person who stands behind each | 340 |
 | [`50-a-clients-google-listing-read-live-rather-than-remembered-fr.md`](50-a-clients-google-listing-read-live-rather-than-remembered-fr.md) | A client's Google listing, read live rather than remembered from the scan | 87 |
 | [`51-a-clients-youtube-channel-read-live-on-the-same-key.md`](51-a-clients-youtube-channel-read-live-on-the-same-key.md) | A client's YouTube channel, read live, on the same key | 80 |
-| [`52-microsoft-advertising-one-consent-and-the-reports-module-pul.md`](52-microsoft-advertising-one-consent-and-the-reports-module-pul.md) | Microsoft Advertising: one consent, and the reports module pulls | 115 |
-| [`53-groundtruth-the-key-arrived-before-the-document.md`](53-groundtruth-the-key-arrived-before-the-document.md) | GroundTruth: the key arrived before the document | 61 |
+| [`52-microsoft-advertising-one-consent-and-the-reports-module-pul.md`](52-microsoft-advertising-one-consent-and-the-reports-module-pul.md) | Microsoft Advertising: one consent, and the reports module pulls | 148 |
+| [`53-groundtruth-the-key-arrived-before-the-document.md`](53-groundtruth-the-key-arrived-before-the-document.md) | GroundTruth: the key arrived before the document | 84 |
 | [`54-one-industry-taxonomy-resolved-and-written-down.md`](54-one-industry-taxonomy-resolved-and-written-down.md) | One industry taxonomy, resolved and written down | 33 |
-| [`56-verifying-a-change.md`](56-verifying-a-change.md) | Verifying a change | 1045 |
+| [`56-verifying-a-change.md`](56-verifying-a-change.md) | Verifying a change | 1090 |
 | [`57-smartforecast-moved-to-the-hub-database.md`](57-smartforecast-moved-to-the-hub-database.md) | SmartForecast moved to the Hub database, and what the move found | 133 |
 | [`58-the-check-that-reported-no-json-on-the-disk.md`](58-the-check-that-reported-no-json-on-the-disk.md) | The check that reported no JSON on the disk | 181 |
 | [`59-leads-in-a-table-not-a-file-on-one-instance.md`](59-leads-in-a-table-not-a-file-on-one-instance.md) | Leads in a table, not a file on one instance | 136 |
@@ -72,7 +72,11 @@ say "above" or "below" mean earlier or later files in this list.
 | [`64-ask-smarthub-reads-the-fact-table.md`](64-ask-smarthub-reads-the-fact-table.md) | Ask SmartHub reads the fact table: named periods, decided flags, recipes | 174 |
 | [`65-the-delivery-lock-that-never-spanned-two-instances.md`](65-the-delivery-lock-that-never-spanned-two-instances.md) | The delivery lock that never spanned two instances | 107 |
 | [`66-the-stores-that-were-not-json.md`](66-the-stores-that-were-not-json.md) | The stores that were not JSON | 135 |
-| [`67-the-client-passwords-in-the-backup.md`](67-the-client-passwords-in-the-backup.md) | The client passwords in the backup | 236 |
+| [`67-the-client-passwords-in-the-backup.md`](67-the-client-passwords-in-the-backup.md) | The client passwords in the backup | 316 |
 | [`68-the-upload-url-that-nothing-ever-served.md`](68-the-upload-url-that-nothing-ever-served.md) | The upload URL that nothing ever served | 110 |
 | [`69-the-third-question-bytes-on-the-disk.md`](69-the-third-question-bytes-on-the-disk.md) | The third question: bytes on the disk | 120 |
-| [`70-client-360s-header-said-the-same-thing-twice.md`](70-client-360s-header-said-the-same-thing-twice.md) | Client 360's header said the same thing twice, and nothing about who to call | 71 |
+| [`70-client-360s-header-said-the-same-thing-twice.md`](70-client-360s-header-said-the-same-thing-twice.md) | Client 360's header said the same thing twice, and nothing about who to call | 94 |
+| [`71-a-clients-asset-home-has-five-folders-and-the-uploads-get-a-web-ready-copy.md`](71-a-clients-asset-home-has-five-folders-and-the-uploads-get-a-web-ready-copy.md) | A client's asset home has five folders, and the uploads get a web-ready copy | 162 |
+| [`72-nothing-built-the-image-that-deploys.md`](72-nothing-built-the-image-that-deploys.md) | Nothing built the image that deploys | 103 |
+| [`73-one-page-per-provider-and-the-fields-left-on-the-table.md`](73-one-page-per-provider-and-the-fields-left-on-the-table.md) | One page per provider, and the fields left on the table | 88 |
+| [`74-every-link-that-works-without-a-hub-login.md`](74-every-link-that-works-without-a-hub-login.md) | Every link that works without a Hub login | 153 |
