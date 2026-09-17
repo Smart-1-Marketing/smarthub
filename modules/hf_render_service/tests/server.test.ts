@@ -101,3 +101,23 @@ test("GET is not accepted on /render/<template> — only POST submits a job", as
   assert.equal(res.status, 404); // no route matches GET here, which is
   // correct: this path only exists as a POST target.
 });
+
+test("POST /resolve-image with no url field is refused with 400", async () => {
+  const res = await fetch(`${base}/resolve-image`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(res.status, 400);
+});
+
+test("POST /resolve-image on a host outside the allowlist is refused with 422, not a navigation attempt", async () => {
+  const res = await fetch(`${base}/resolve-image`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url: "https://evil.example.com/x" }),
+  });
+  assert.equal(res.status, 422);
+  const body = await res.json();
+  assert.match(body.error, /not on a host this service will navigate to/);
+});

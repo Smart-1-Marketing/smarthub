@@ -1,0 +1,16 @@
+<!doctype html>
+<!-- Only a /static/ asset ever loads here -- no real screenshot anywhere on
+     the page -- so extractLargestImage() has to report that rather than
+     handing back the favicon. -->
+<html lang="en">
+<head><meta charset="UTF-8"></head>
+<body>
+<script>
+  setTimeout(function () {
+    var icon = document.createElement('img');
+    icon.src = 'static/icon.svg';
+    document.body.appendChild(icon);
+  }, 200);
+</script>
+</body>
+</html>
