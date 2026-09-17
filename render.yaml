@@ -128,9 +128,22 @@ services:
       # Microsoft Advertising: the app registration, the developer token and
       # the manager account, under exactly these names. Connect on
       # /tools/ads/settings keeps the refresh token; BING_AD_REFRESH_TOKEN pins it.
+      # The app registration is read under MICROSOFT_ADS_CLIENT_ID /
+      # MICROSOFT_ADS_CLIENT_SECRET as well (both spellings are set on the
+      # service). MICROSOFT_ADS_REDIRECT_URI pins the callback to the string
+      # registered in Azure; MICROSOFT_ADS_TENANT narrows sign-in to one
+      # directory. Both optional.
       - key: BING_AD_CLIENT_ID
         sync: false
       - key: BING_AD_CLIENT_SECRET
+        sync: false
+      - key: MICROSOFT_ADS_CLIENT_ID
+        sync: false
+      - key: MICROSOFT_ADS_CLIENT_SECRET
+        sync: false
+      - key: MICROSOFT_ADS_REDIRECT_URI
+        sync: false
+      - key: MICROSOFT_ADS_TENANT
         sync: false
       - key: BING_AD_DEVELOPER_TOKEN
         sync: false

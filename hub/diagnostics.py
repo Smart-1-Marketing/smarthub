@@ -217,6 +217,11 @@ def check_microsoft_ads() -> Check:
                      "BING_MANAGER_ACCOUNT_ID " + st["manager_id_problem"], 0,
                      fix="Put the manager's customer id (digits) in BING_MANAGER_ACCOUNT_ID "
                          "and the account number in BING_MANAGER_ACCOUNT_NUMBER.")
+    if st.get("redirect_uri_problem"):
+        return Check("microsoft_ads", "Microsoft Ads", "error",
+                     "MICROSOFT_ADS_REDIRECT_URI " + st["redirect_uri_problem"], 0,
+                     fix="Point MICROSOFT_ADS_REDIRECT_URI at /tools/ads/oauth/bing/callback on a "
+                         "hostname this Hub answers, or clear it to build the callback from PUBLIC_BASE_URL.")
     if st.get("missing"):
         names = " / ".join(st["missing"])
         return Check("microsoft_ads", "Microsoft Ads", "off",

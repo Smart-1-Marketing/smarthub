@@ -1654,7 +1654,8 @@ REGISTRY: list[Help] = [
        "does. Nothing here manages a Bing campaign: what the connection "
        "buys is the native pull on /reports/, nightly at 3 AM Eastern, for every "
        "advertiser account under the manager. The four variables are read "
-       "under exactly the names set on Render, and a customer id that is "
+       "under exactly the names set on Render (the app registration under "
+       "either its BING_AD_ or MICROSOFT_ADS_ spelling), and a customer id that is "
        "not digits is refused here by name \u2014 the API answers a wrong id "
        "with the same bare failure as a bad token."),
     _h("ads_builder.settings.amazon", "One consent, given by the entity admin",
