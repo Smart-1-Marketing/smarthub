@@ -122,7 +122,8 @@ def local_assets() -> dict:
     other rows on it.
     """
     root = os.path.join(settings.data_dir, "assets")
-    out = {"root": root, "files": 0, "bytes": 0, "measured": False}
+    out = {"root": root, "files": 0, "bytes": 0, "unreadable": 0,
+           "measured": False}
     try:
         if not os.path.isdir(root):
             # The directory not existing is a real answer, not a failure to
@@ -135,9 +136,17 @@ def local_assets() -> dict:
                     out["bytes"] += os.path.getsize(os.path.join(folder, name))
                     out["files"] += 1
                 except OSError:
-                    continue
+                    # Counted, not skipped. A file that cannot be sized still
+                    # exists, so dropping it silently would report a confident
+                    # undercount -- which is the failure `measured` is here to
+                    # prevent, one file down instead of one directory.
+                    out["unreadable"] += 1
         out["measured"] = True
     except OSError:
+        # `measured` stays False, and that IS the answer: the caller prints
+        # "not measured" rather than a zero that reads as "nothing has fallen
+        # back". Raising instead would take the whole status panel down over a
+        # directory listing.
         pass
     return out
 

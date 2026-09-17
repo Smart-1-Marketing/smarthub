@@ -129,6 +129,40 @@ class WhatFellBackIsCountable(unittest.TestCase):
         self.assertFalse(out["measured"])
         self.assertEqual(out["files"], 0)
 
+    def test_a_file_it_cannot_size_is_counted_not_dropped(self):
+        """The undercount the first version of this made silently.
+
+        `measured` guards the whole directory failing. It said nothing about
+        one file inside it failing, so an unreadable file was skipped and the
+        result still came back measured -- a confident total that was short.
+        """
+        # The name on disk is NOT the name passed in -- the fallback appends a
+        # timestamp -- so match on what put() says it wrote. Matching the input
+        # name made this test pass against the broken code, for the wrong
+        # reason: nothing raised at all.
+        written = storage.put("unsizeable", "present.png", PNG).public_id
+        real = os.path.getsize
+
+        def refuse(path, *a, **kw):
+            if os.path.basename(path) == written:
+                raise OSError("denied")
+            return real(path, *a, **kw)
+
+        with patch("os.path.getsize", side_effect=refuse):
+            out = storage.local_assets()
+        self.assertTrue(out["measured"])
+        self.assertGreaterEqual(out["unreadable"], 1,
+                                "A file that could not be sized vanished from "
+                                "the count instead of being reported.")
+
+    def test_the_row_says_the_count_is_a_floor_when_one_is_unreadable(self):
+        from hub import diagnostics
+        with patch.object(storage, "local_assets",
+                          return_value={"root": TMP, "files": 3, "bytes": 2048,
+                                        "unreadable": 2, "measured": True}):
+            detail = diagnostics.check_cloudinary().detail
+        self.assertIn("minimum", detail)
+
     def test_the_diagnostics_row_says_what_is_held(self):
         storage.put("diagnosed", "row.png", PNG)
         from hub import diagnostics

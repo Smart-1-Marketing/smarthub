@@ -123,10 +123,15 @@ def check_cloudinary() -> Check:
             if not local.get("measured"):
                 held = (" How many assets have already fallen back here is not "
                         "measured — the local asset directory could not be read.")
-            elif local.get("files"):
+            elif local.get("files") or local.get("unreadable"):
                 held = (f" {local['files']} file(s), "
                         f"{local['bytes'] // 1024} KB, are already on this "
                         "instance's disk with no delivery URL.")
+                if local.get("unreadable"):
+                    # Said out loud rather than folded into the count: the
+                    # number above is a floor, not a total.
+                    held += (f" {local['unreadable']} more could not be read, "
+                             "so that is a minimum.")
         except Exception:                   # noqa: BLE001 — a panel row, not a probe
             held = " How much has fallen back here is not measured."
         return _off("cloudinary", "Cloudinary",
