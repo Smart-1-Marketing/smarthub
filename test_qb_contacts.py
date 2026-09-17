@@ -220,7 +220,8 @@ check("exactly one primary survives", [c["primary"] for c in cleaned] == [True, 
 check("a role is normalized to its key", cleaned[1]["role"] == "do_not_email")
 check("an unknown role is blank", cleaned[2]["role"] == "")
 
-SRC = open(os.path.join(ROOT, "hub", "__init__.py"), encoding="utf-8").read()
+with open(os.path.join(ROOT, "hub", "__init__.py"), encoding="utf-8") as fh:
+    SRC = fh.read()
 check("the record has a button route for the same pass",
       '@app.route("/api/client/profile/qb-sync", methods=["POST"])' in SRC)
 check("the profile route hands the levels to the modal", '"contact_roles"' in SRC)
