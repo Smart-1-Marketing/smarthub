@@ -132,8 +132,11 @@ test('no rendered size prints a number that contradicts its own verdict', async 
       const f = finding(out.qa, 'text-coverage')!;
       const shown = Number(f.detail.match(/([\d.]+)%/)![1]);
       const limit = getPlatform('meta').sizes[size]!.textCoverageWarnPct!;
+      // Over the line is a NOTE, not a warning: Meta's guideline is a
+      // delivery signal, and a warning on nearly every Meta ad is one people
+      // stop reading. The verdict and the number still agree.
       assert.equal(
-        f.status === 'warn', shown > limit,
+        f.status === 'info', shown > limit,
         `${concept.conceptId}/${size}: printed ${shown}%, limit ${limit}%, said ${f.status}`,
       );
     }
@@ -172,6 +175,7 @@ test('the new Google responsive assets render at their exact pixels', async () =
     assert.ok(cfg.sizes[size], `google buys ${size}`);
     const out = await renderPreview({
       brand: campaign.brand, concept: campaign.concepts[0], platform: 'google', size, assetRoot: ROOT,
+          fullSize: true,
     });
     const meta = await sharp(out.png).metadata();
     const [w, h] = size.split('x').map(Number);

@@ -453,6 +453,12 @@ python3 test_activity_logging.py   # every module's work is attributable: an
                                    #   import is not a call, a module's own
                                    #   log() wrapper is resolved, and the
                                    #   remainder is declared with its reason
+python3 test_client_work_log.py    # the client work log's horizon: narrowed to
+                                   #   the 47 work modules in the query, a count
+                                   #   that describes the client rather than the
+                                   #   page, and no reader allowed to print
+                                   #   "nothing has ever been made" off a read
+                                   #   that stopped at a window
 python3 test_hub_capped_reads.py   # readings in hub/ that have to be COMPLETE
                                    #   and were a window: the image audit swept
                                    #   a fifth of the archive, "this module

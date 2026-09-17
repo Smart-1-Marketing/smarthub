@@ -211,6 +211,8 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
     findings.push({ check, status: 'warn', detail, fix });
   const fail = (check: string, detail: string, fix?: QaFinding['fix']) =>
     findings.push({ check, status: 'fail', detail, fix });
+  const info = (check: string, detail: string) =>
+    findings.push({ check, status: 'info', detail });
 
   /* ---------------------------------------------------------- safe zones */
   // Meta story/reel formats reserve the top 14% and bottom 35% for platform
@@ -524,6 +526,9 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
 
   /* ------------------------------------------------------------ contrast */
   const lowContrast: string[] = [];
+  // What was behind each low block, so the advice layer can choose the ink
+  // that reads against it rather than guessing from "is there a photo".
+  const lowBehind: Array<{ role: string; ratio: number; behind: number }> = [];
   for (const role of TEXT_ROLES) {
     const box = composed.rects[role];
     const spec = layout[role];
@@ -545,7 +550,10 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
       height: Math.max(1, box.h * scale),
     });
     const ratio = contrastRatio(fg, bg);
-    if (ratio < 4.5) lowContrast.push(`${role} ${ratio.toFixed(1)}:1`);
+    if (ratio < 4.5) {
+      lowContrast.push(`${role} ${ratio.toFixed(1)}:1`);
+      lowBehind.push({ role, ratio: Number(ratio.toFixed(2)), behind: Number(bg.toFixed(3)) });
+    }
   }
   if (layout.cta && composed.fits.cta) {
     const fg = hexLuminance(resolveColor(layout.cta.color ?? 'dark', brand, '#111111'));
@@ -554,7 +562,11 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
     if (ratio < 4.5) lowContrast.push(`cta ${ratio.toFixed(1)}:1`);
   }
   if (lowContrast.length) {
-    warn('contrast', `below 4.5:1 — ${lowContrast.join(', ')}`);
+    findings.push({
+      check: 'contrast', status: 'warn',
+      detail: `below 4.5:1 — ${lowContrast.join(', ')}`,
+      data: { low: lowBehind },
+    });
   } else {
     pass('contrast', 'all text at or above 4.5:1 against what sits behind it');
   }
@@ -636,7 +648,12 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
     const pct = canvasArea > 0 ? (inkArea / canvasArea) * 100 : 0;
     const { shown, over } = coverageVerdict(pct, rule.textCoverageWarnPct);
     if (over) {
-      warn(
+      // A note, not a warning. Meta dropped the 20% rule as a rejection in
+      // 2020; what is left is a delivery signal, and most of these designs
+      // sit over it by design. An amber chip on nearly every Meta ad, and an
+      // acknowledgement demanded at every approval, is how amber comes to
+      // mean nothing -- the state the word-count check was removed for.
+      info(
         'text-coverage',
         `text covers roughly ${shown} of the canvas, over the ${rule.textCoverageWarnPct}% Meta ` +
         `recommends. Not a rejection — Meta dropped that rule in 2020 — but text-heavy images ` +
@@ -680,5 +697,6 @@ export async function runQa(input: QaInput): Promise<QaFinding[]> {
 export function rollUp(findings: QaFinding[]): 'pass' | 'warn' | 'fail' {
   if (findings.some((f) => f.status === 'fail')) return 'fail';
   if (findings.some((f) => f.status === 'warn')) return 'warn';
+  // `info` is a note and never a verdict.
   return 'pass';
 }

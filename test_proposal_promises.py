@@ -34,6 +34,7 @@ measured. This asserts the rules it is built on.
   than at tomorrow's rebuild.
 """
 import json
+import ast as _ast
 import os
 import sys
 import tempfile
@@ -276,8 +277,27 @@ check("...and holds the same rows the client's own work log holds",
       sorted((r["when"], r["action"]) for r in idx["rows"][CLIENT.lower().replace(" ", "")]),
       sorted((r["when"], r["action"]) for r in log_rows))
 src = _read("hub", "client_brand.py")
+# Read off the AST rather than matched as text. This asserted
+# `src.count("got = _work_row(e)") == 2`, which is a VARIABLE NAME, and it
+# went red on a refactor that kept the invariant and renamed the local. A
+# call is a call; prose and spelling are not.
+_cb_tree = _ast.parse(src)
+_cb_fns = {n.name: n for n in _ast.walk(_cb_tree)
+           if isinstance(n, _ast.FunctionDef)}
+
+
+def _calls(fn_name):
+    fn = _cb_fns.get(fn_name)
+    return {c.func.id for c in _ast.walk(fn) if isinstance(c, _ast.Call)
+            and isinstance(c.func, _ast.Name)} if fn else set()
+
+
 check("work_log() and work_index() read one _work_row()",
-      src.count("got = _work_row(e)") == 2 and src.count("for key in CLIENT_KEYS:") >= 1)
+      "_work_row" in _calls("work_log") and "_work_row" in _calls("work_index")
+      and src.count("for key in CLIENT_KEYS:") == 1)
+check("...and both take their entries from one window, so the record and the "
+      "promise schedule cannot disagree about how far back anybody looked",
+      "_work_entries" in _calls("work_log") and "_work_entries" in _calls("work_index"))
 
 # ---------------------------------------------------------------------------
 section("Through the run: the schedule served, the mark a route, the count on the record")
