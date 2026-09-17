@@ -247,6 +247,104 @@ def client_gallery(client_name: str, limit: int = 48) -> dict:
     return {"ok": True, "client": name, "images": images, "note": note}
 
 
+# What counts as a logo in a client's gallery, for the logo picker.
+#
+# Two kinds are filed as logos on purpose (`ad_logo` by this module,
+# `logo` by hub/client_logos.py), and a client's own uploads usually arrive
+# with "logo" in the filename or in the folder somebody sorted them into.
+# All three are offered; the folder is what decides the default view.
+LOGO_KINDS = (LOGO_KIND, "logo")
+LOGO_FOLDER_WORD = "logo"
+
+
+def client_logos(client_name: str, limit: int = 60) -> dict:
+    """Logos already in this client's gallery, for the build screen's picker.
+
+    The logo chooser had one button, Choose file, so a logo the client sent
+    last month -- filed in their gallery under a folder called "logos" --
+    had to be downloaded and uploaded again to reach an ad. This lists what
+    is already there: every row filed under a logo kind, plus any row whose
+    folder, label or filename says "logo". Rows from a folder whose path
+    contains "logos" are flagged, and `default_folder` names that folder so
+    the picker opens on it.
+
+    Never raises: a gallery that cannot be read costs this source, not the
+    panel.
+    """
+    name = str(client_name or "").strip()
+    if not name:
+        return {"ok": True, "client": "", "logos": [], "folders": [],
+                "default_folder": "",
+                "note": "This build has no client on it yet, so there is no gallery."}
+    try:
+        from modules.image_picker.filing import gallery_for_name
+        from modules.image_picker.models import SavedImage, session
+        from sqlalchemy import select
+
+        db = session()
+        try:
+            gallery = gallery_for_name(db, name)
+            if gallery is None:
+                return {"ok": True, "client": name, "logos": [], "folders": [],
+                        "default_folder": "",
+                        "note": f"There is no image gallery for {name} yet."}
+            rows = db.execute(
+                select(SavedImage)
+                .where(SavedImage.client_id == gallery.id)
+                .order_by(SavedImage.created_at.desc(), SavedImage.id.desc())
+                .limit(600)
+            ).scalars().all()
+        finally:
+            db.close()
+    except Exception as exc:                           # noqa: BLE001
+        logger.warning("display_ads: could not read the logos for %s: %s",
+                       name, exc)
+        return {"ok": True, "client": name, "logos": [], "folders": [],
+                "default_folder": "",
+                "note": "That client's gallery could not be read just now."}
+
+    logos, folders = [], {}
+    for row in rows:
+        url = str(row.cloudinary_url or "")
+        if not url.startswith("https://") or (row.resource_type or "image") != "image":
+            continue
+        kind = (row.collection_kind or "").strip().lower()
+        folder = str(row.asset_folder or "").strip()
+        label = str(row.collection_label or row.filename or "")
+        haystack = " ".join([folder, label, str(row.alt_text or ""),
+                             str(row.cloudinary_public_id or "")]).lower()
+        if kind not in LOGO_KINDS and LOGO_FOLDER_WORD not in haystack:
+            continue
+        in_logo_folder = "logos" in folder.lower()
+        folders[folder] = folders.get(folder, 0) + 1
+        logos.append({
+            "url": url,
+            "thumb": storage.preview_url(url, row.resource_type or "image"),
+            "public_id": row.cloudinary_public_id or "",
+            "label": label or (row.alt_text or ""),
+            "kind": kind,
+            "folder": folder,
+            "in_logo_folder": in_logo_folder,
+            "width": row.width or 0,
+            "height": row.height or 0,
+            "saved_at": row.created_at.isoformat() if row.created_at else "",
+        })
+        if len(logos) >= clamp_int(limit, 60, 1, 200):
+            break
+
+    # The folder the picker opens on: the one called "logos" if there is
+    # one, else nothing -- every row is shown and nothing is guessed.
+    default_folder = ""
+    for f in folders:
+        if "logos" in f.lower():
+            default_folder = f
+            break
+    note = "" if logos else f"{name}'s gallery has no logo in it yet."
+    return {"ok": True, "client": name, "logos": logos,
+            "folders": [{"folder": f, "count": n} for f, n in folders.items()],
+            "default_folder": default_folder, "note": note}
+
+
 def save_to_gallery(*, client_name: str, url: str, public_id: str = "",
                     filename: str = "", width: int = 0, height: int = 0,
                     actor: str = "") -> dict:
@@ -1023,6 +1121,18 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
         return jsonify(client_gallery(request.args.get("client", ""),
                                       limit=clamp_int(request.args.get("limit"),
                                                       48, 1, 200)))
+
+    @bp.route("/logos", methods=["GET"])
+    def logos_route():
+        """Logos already in the client's gallery, for the logo picker.
+
+        Same home as /gallery and for the same reason: the renderer does not
+        know who our clients are. A folder called "logos" is the default view
+        when the gallery has one.
+        """
+        return jsonify(client_logos(request.args.get("client", ""),
+                                    limit=clamp_int(request.args.get("limit"),
+                                                    60, 1, 200)))
 
     @bp.route("/gallery", methods=["POST"])
     def gallery_save_route():

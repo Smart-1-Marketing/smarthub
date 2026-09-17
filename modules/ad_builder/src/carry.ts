@@ -86,9 +86,10 @@
  *   silently would be it wearing a fix.
  */
 
-import type { SizeKey, TemplateSpec } from './types';
+import type { CreativeConcept, SizeKey, TemplateSpec } from './types';
 import type { BlockStyle, LogoStyle, SizeStyle, StyleOverrides } from './block-style';
 import { MIN_TYPE, STYLEABLE } from './block-style';
+import { templateFor } from './registry';
 
 export interface Frame { w: number; h: number }
 
@@ -286,6 +287,7 @@ function resolve(
   overrides: StyleOverrides | undefined,
   template: TemplateSpec,
   size: SizeKey,
+  fromTemplate?: TemplateSpec,
 ): { style: StyleOverrides | undefined; report: CarryReport } {
   const empty: CarryReport = {
     carried: false, moved: [], strained: [], dropped: [], corrected: false,
@@ -303,8 +305,11 @@ function resolve(
 
   if (authoredFor && authoredFor !== size) {
     report.carried = true;
+    // The authored size may render from a different family than this one
+    // (`layoutBySize`), so the departure is read against ITS layout and
+    // landed on this one's. Same template on both sides is the ordinary case.
     const sizes = template.sizes as Record<string, unknown>;
-    const fromLayout = sizes[authoredFor];
+    const fromLayout = ((fromTemplate ?? template).sizes as Record<string, unknown>)[authoredFor];
     const toLayout = sizes[size];
     const fromFrame = frameOf(fromLayout);
     const toFrame = frameOf(toLayout);
@@ -368,8 +373,9 @@ export function styleForSize(
   overrides: StyleOverrides | undefined,
   template: TemplateSpec,
   size: SizeKey,
+  fromTemplate?: TemplateSpec,
 ): StyleOverrides | undefined {
-  return resolve(overrides, template, size).style;
+  return resolve(overrides, template, size, fromTemplate).style;
 }
 
 /** What the carry did to this size, for the QA panel and the size rail. */
@@ -377,8 +383,27 @@ export function carriedInto(
   overrides: StyleOverrides | undefined,
   template: TemplateSpec,
   size: SizeKey,
+  fromTemplate?: TemplateSpec,
 ): CarryReport {
-  return resolve(overrides, template, size).report;
+  return resolve(overrides, template, size, fromTemplate).report;
+}
+
+/**
+ * The two above, asked of a concept rather than of a template -- so a caller
+ * cannot hand the wrong family in. With per-size layouts the size on screen
+ * and the size the adjustments were authored on may draw from different
+ * families, and this is the one place that pairs them up.
+ */
+export function styleFor(concept: CreativeConcept, size: SizeKey): StyleOverrides | undefined {
+  const from = concept.styleOverrides?.authoredFor;
+  return styleForSize(concept.styleOverrides, templateFor(concept, size), size,
+                      from ? templateFor(concept, from) : undefined);
+}
+
+export function carryFor(concept: CreativeConcept, size: SizeKey): CarryReport {
+  const from = concept.styleOverrides?.authoredFor;
+  return carriedInto(concept.styleOverrides, templateFor(concept, size), size,
+                     from ? templateFor(concept, from) : undefined);
 }
 
 /** True when this size is worth a person's eye before it ships. */

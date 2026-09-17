@@ -741,20 +741,25 @@ def test_the_column_collapses_and_explains_itself_in_bubbles():
 
 
 def test_layout_choice_follows_the_copy_inputs():
-    """The layout determines where the message can live.
+    """The left column is six sections, in the order the work happens.
 
-    It belongs directly after the copy fields, before background sourcing and
-    the more occasional brand/type controls. Otherwise an operator has to
-    scroll through a large image chooser before they can make the design
-    decision that changes how their headline reads.
+    Layout, Copy, Background, Type/Fonts, Text Boxes, Logo -- the operator's
+    own list. It was a scroll of every control at once with the layout cards
+    wrapped, after the fact, in a fold called "Advanced: Layout" that nobody
+    found. Each section is an accordion and opening one closes the rest, the
+    way the text box panels inside Text Boxes already behave.
     """
     screen = BUILD_HTML.read_text()
-    copy_group = screen.find("<div class=\"group\"><h3>Copy for ")
-    layout_group = screen.find("<div class=\"group\"><h3>Layout</h3>")
-    background_group = screen.find("<div class=\"group\"><h3>Background</h3>")
-    check("layout selection follows the copy inputs", copy_group < layout_group)
-    check("layout selection comes before the background chooser",
-          layout_group < background_group)
+    order = ["'layout', 'Layout'", "'copy', 'Copy'", "'background', 'Background'",
+             "'type', 'Type/Fonts'", "'text', 'Text Boxes'", "'logo', 'Logo'"]
+    at = [screen.find("navSection(" + o) for o in order]
+    check("all six sections are drawn", all(i >= 0 for i in at), str(at))
+    check("in the operator's order", at == sorted(at), str(at))
+    check("layout comes first", at[0] < at[1])
+    check("one section open at a time", "function wireNav" in screen
+          and "other.open = false" in screen.split("function wireNav")[1].split("\n  }\n")[0])
+    check("no more Advanced: Layout", "Advanced: Layout" not in screen
+          and "new MutationObserver" not in screen)
 
 
 def test_the_nav_starts_collapsed_on_the_builder():
@@ -1456,8 +1461,8 @@ def test_the_font_signal_says_only_what_it_measured():
           "The scan does not say which one." in screen)
     check("and a false is the actionable direction",
           "nothing here will match it by accident" in screen)
-    check("it sits in the Type panel, where the decision is",
-          "'<div id=\"siteType\"></div>' +" in screen)
+    check("it sits in the Type/Fonts section, where the decision is",
+          "'<div id=\"siteType\"></div>'" in screen.split("var typeBody =")[1].split("var textBody =")[0])
 
 # ---------------------------------------------------------------- animation
 
@@ -2023,7 +2028,11 @@ def test_carry():
     # headline at [18,18]. A sweep rather than an assertion about the four we
     # fixed: the fifth render path added next month must not be able to.
     raw = re.findall(r"applyBlockStyles\(\s*[A-Za-z0-9_.]+\s*,\s*([^)]+?)\)", render)
-    pasted = [a.strip() for a in raw if "styleForSize" not in a and "overrides" not in a]
+    # `styleFor(concept, size)` is the concept-aware reading of styleForSize
+    # -- it pairs the size's own family with the authored size's, which is
+    # what per-size layouts need -- and is the resolved style by construction.
+    pasted = [a.strip() for a in raw
+              if "styleForSize" not in a and "styleFor(" not in a and "overrides" not in a]
     check("every render path resolves the style for its own size first",
           not pasted, "pastes raw: " + ", ".join(pasted))
     check("and there is at least one, so the sweep is not reading an empty file",
@@ -2082,6 +2091,117 @@ def test_carry():
           "departureRatio" in carry and "min(sx, sy)" not in carry)
     check("neither imports the other",
           "magic_resize" not in strip_comments(carry) and "ad_builder" not in engine)
+
+
+# ------------------------------------------------- the operator's list, 2026-09
+
+
+def test_the_build_screen_follows_the_operators_list():
+    """Todd's list, item by item, each pinned to the line that keeps it.
+
+    Every one of these was a complaint about the screen as it was: a text
+    color that could not be changed after the first size, layouts that would
+    not change either, checks nobody could read, five buttons at the top and
+    the same five below, an "Advanced: Layout" fold nobody found.
+    """
+    screen = BUILD_HTML.read_text()
+    said = strip_comments(screen)
+    style = (MODULE / "src" / "block-style.ts").read_text()
+    svg = (MODULE / "src" / "svg.ts").read_text()
+    server = SERVER_TS.read_text()
+    anim = ANIMATION_TS.read_text()
+    registry = (MODULE / "src" / "registry.ts").read_text()
+    fonts = (MODULE / "src" / "fonts.ts").read_text()
+    link = (ROOT / "hub" / "ad_builder_link.py").read_text()
+
+    # Animate never applies to Meta sizes: refused in the renderer's own
+    # words, and the screen disables the button on a Meta-only buy.
+    check("Meta is refused by name, not only by its format list",
+          "cfg.platform === 'meta'" in anim and "never takes an animated image" in anim)
+    check("the screen will not offer motion to a Meta-only buy", "metaOnly" in said)
+
+    # The text color: chosen means drawn, over a photo too.
+    check("a chosen ink is flagged as chosen", "patched.keepColorOnBg = true" in style)
+    check("and the composer honors the flag", "keepColorOnBg" in svg)
+
+    # Use, Use and save, once.
+    check("a picked color waits for Use", 'data-cpact="use"' in screen and "function stagePick" in said)
+    check("Use and save keeps it as a chip", 'data-cpact="save"' in screen and "function saveColor" in said)
+    check("the same color is never saved twice", "if (b.savedColors.indexOf(v) >= 0) return;" in said)
+    check("saved colors are offered on every color control", 'class="inkchip saved"' in screen)
+    check("the brand swatches wait for Use too", "data-brandpick" in screen)
+
+    # Undo.
+    check("there is an undo button", 'id="undo"' in screen and 'id="redo"' in screen)
+    check("every change is remembered first", said.count("remember(") >= 15, str(said.count("remember(")))
+    check("and can be taken back", "function undo()" in said and "function redo()" in said)
+
+    # 200 pixels.
+    check("no type may exceed 200 pixels", "MAX_TYPE = 200" in style)
+    check("and the control says so", 'max="200"' in screen)
+
+    # The lines of type move up and down; the button and the logo on both axes.
+    check("type takes a y", "if (typeof style.y === 'number' && Number.isFinite(style.y)) {\n      patched.y" in style)
+    check("each line has an up/down pad", "PADS[key] = {" in said and "nudgePad(key, 'Move the ' + label.toLowerCase(), 'y')" in said)
+
+    # Suggest crop shows before it lands.
+    check("the suggested crop is previewed first", "bgSuggestPreview" in screen and "trial = JSON.parse(JSON.stringify(state.doc.campaign))" in said)
+
+    # Moving speed: slow, medium, fast; medium by default.
+    check("three speeds, one pixel, five, ten", "SPEEDS = { slow: 1, medium: 5, fast: 10 }" in said)
+    check("medium by default", "speed: 'medium'" in said)
+    check("beside every pad", "speedControl()" in said.split("function nudgePad")[1].split("\n  }\n")[0])
+
+    # Layout is Layout, and can differ per size.
+    check("no Advanced fold around the layout cards", "Advanced: Layout" not in screen and "MutationObserver" not in said)
+    check("a size may take its own family", "layoutBySize" in registry and "export function familyFor" in registry)
+    check("the screen offers it for this size only", "data-lscope=\"size\"" in screen and "c.layoutBySize[state.size] = id" in said)
+    check("and every render path asks the registry",
+          "getTemplate(concept.layoutFamily)" not in strip_comments(RENDER_TS.read_text()))
+
+    # The brief can be edited.
+    check("there is a route that writes the brief", "/brief$/" in server and "briefMatch" in server)
+    check("and the overview draws the form for staff", "function briefForm" in (MODULE / "src" / "overview.ts").read_text())
+
+    # Checks in plain English, with a suggestion, and AI on the way to the next size.
+    check("every finding carries a plain reading", "withPlain(" in server and "export function explainFinding" in (MODULE / "src" / "plain-checks.ts").read_text())
+    check("the panel draws the words, not the ratio", "plain.title" in said and 'id="qaNumbers"' in screen)
+    check("the AI route exists", "'POST /api/qa/advise'" in server)
+    check("and the screen asks it on the way to the next size",
+          "function adviseBeforeLeaving" in said and "'Yes, show me'" in said and "'No, save and continue'" in said)
+    check("a suggestion can be tried and undone", "function applySuggestion" in said and "data-try" in screen)
+
+    # Google Fonts.
+    check("the renderer carries Google families", "GOOGLE_FAMILIES" in fonts and "'Lato', 'lato'" in fonts)
+    check("each is probed before it is offered", "function renders(file: string)" in fonts)
+    check("the screen offers a list rather than a text box", "function fontSelect" in said)
+
+    # A dark logo gets a white or black version, not a guess.
+    check("the renderer makes a one-color version", "export async function makeMono" in (MODULE / "src" / "logo-tools.ts").read_text()
+          and "'POST /api/logo/mono'" in server)
+    check("the screen offers it", "data-tone=" in screen and "function setLogoTone" in said)
+    check("and the check suggests which", "kind: 'logo-tone'" in (MODULE / "src" / "plain-checks.ts").read_text())
+
+    # Six sections, one open at a time -- asserted in test_layout_choice_follows_the_copy_inputs.
+
+    # The blue M.
+    check("a Meta size wears a blue M", 'class="mm"' in screen and "function isMetaSize" in said)
+
+    # The action row: Render, Animate, Save as preset, Duplicate, then the blue Next.
+    row = screen.split('id="actionRow"')[1].split("</div>")[0]
+    order = [row.find('id="renderAll"'), row.find('id="animate"'), row.find('id="savePreset"'),
+             row.find('id="cloneConcept"'), row.find('id="reviewSet"')]
+    check("all five are in the row", all(i >= 0 for i in order), str(order))
+    check("in that order", order == sorted(order), str(order))
+    check("each says what it is for", row.count("<span>") >= 5)
+    bar = screen.split('<div class="bar">')[1].split("</div>")[0]
+    check("and none of them is duplicated in the toolbar",
+          not any(x in bar for x in ('id="renderAll"', 'id="animate"', 'id="savePreset"', 'id="reviewSet"')))
+
+    # Logos from the gallery, opening on the logos folder.
+    check("the Hub lists the gallery's logos", '"/logos"' in link and "def client_logos" in link)
+    check("a folder called logos is the default view", '"logos" in f.lower()' in link)
+    check("the screen offers it beside Choose file", "logoFromGallery" in screen and "'/_hub/logos?client='" in said and "default_folder" in said)
 
 
 def main():

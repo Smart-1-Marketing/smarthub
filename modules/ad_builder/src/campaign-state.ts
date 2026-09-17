@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Campaign, SizeKey } from './types';
 import type { Project } from './projects';
-import { getTemplate, getPlatform } from './registry';
+import { getPlatform, templateFor } from './registry';
 import { captureVersion } from './history';
 
 export interface CampaignDocument { campaign: Campaign; platforms?: string[]; [key: string]: any }
@@ -29,12 +29,15 @@ export function campaignRevision(doc: CampaignDocument): string {
 export function artworkFingerprint(doc: CampaignDocument, key: ArtworkKey, assetRoot: string): string {
   const concept = doc.campaign.concepts.find(c => c.conceptId === key.conceptId);
   if (!concept || !(doc.platforms ?? ['google']).includes(key.platform)) throw new CampaignConflict('That placement is no longer in this campaign.');
-  const layout = getTemplate(concept.layoutFamily).sizes[key.size as SizeKey];
+  // The family this size actually renders from, so re-laying out one size
+  // changes that size's fingerprint and retires its approval.
+  const layout = templateFor(concept, key.size).sizes[key.size as SizeKey];
   const rule = getPlatform(key.platform).sizes[key.size as SizeKey];
   if (!layout || !rule) throw new CampaignConflict('That size is not supported by this layout and platform.');
   const { copy, animation: _animation, name: _name, ...design } = concept;
   const effectiveCopy = { ...copy.default, ...copy[key.size as SizeKey] };
   const refs = [doc.campaign.brand.logos.primary, doc.campaign.brand.logos.reverse,
+    doc.campaign.brand.logos.white, doc.campaign.brand.logos.black,
     concept.backgroundImage, ...Object.values(concept.hero ?? {}), (effectiveCopy as any).__logoFile].filter(Boolean) as string[];
   const assets = refs.map(ref => {
     const file = path.resolve(assetRoot, ref);

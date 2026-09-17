@@ -102,6 +102,20 @@ export function validateCampaign(
     }
 
     const template = getTemplate(c.layoutFamily);
+    // A per-size family has to exist and has to draw that size, or the
+    // render falls back to the set's family and the operator's choice is
+    // silently undone. Said here rather than at render time.
+    for (const [size, fam] of Object.entries(c.layoutBySize ?? {})) {
+      if (!fam) continue;
+      if (!known.includes(fam)) {
+        err(`${at}.layoutBySize.${size}`, `"${fam}" is not a template. Available: ${known.join(', ')}`);
+      } else if (!(getTemplate(fam).sizes as Record<string, unknown>)[size]) {
+        err(`${at}.layoutBySize.${size}`, `${fam} has no layout for ${size}, so that size would render from ${c.layoutFamily}`);
+      }
+    }
+    if (c.logoTone && c.logoTone !== 'auto' && !campaign.brand?.logos?.[c.logoTone]) {
+      warn(`${at}.logoTone`, `asks for the ${c.logoTone} logo but the brand has none, so the primary is drawn`);
+    }
     if (!c.copy?.default) {
       warn(`${at}.copy.default`, 'no default copy — every size must then define its own');
     }
