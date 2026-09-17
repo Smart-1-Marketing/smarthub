@@ -260,3 +260,57 @@ that as *"Not authorized yet — connect once as the agency owner"* — sending 
 agency owner to re-consent to a marketplace app that was installed and fine,
 over an encryption key nobody mentioned. That is `connected_accounts_result()`'s
 failure, in this repo, today. It now says which of the two it is.
+
+## Postscript: the rotation could be survived but not finished
+
+`hub/keyring.py` shipped with `needs_reseal()` — the function that answers
+"is this value still under an older key?" — and **no caller at all**. It had a
+test, the test passed, and the test proved the function worked rather than that
+anything used it.
+
+What that cost is precise. The rotation story is three steps: put the new key
+in front, let the stores re-seal, drop the old key. Step two never happened, so
+the old key could never safely be dropped: everything stayed readable only
+because the ring still carried it. A rotation that cannot end is a rotation
+that has to be carried forever, and the deployment never gets back to one key.
+
+`cms_credentials._reseal()` is the caller. It writes a readable credential back
+under the newest key from the two paths that already open one — `get()` for
+the WordPress application password and `site_login_state()` for the client's
+own login, which matters more because **nothing ever reads that value**, so
+that state call is the only place it is ever opened at all.
+
+Three rules keep it from becoming the defect it guards against:
+
+- **It stops on its own.** It writes only while more than one key is
+  configured *and* the record is under an older one. After the write the
+  record is newest-key and the next read does nothing — a read that writes on
+  every pass is the `hub/ad_assets.py` defect.
+- **It re-reads inside the write.** Another worker may have re-sealed or
+  replaced the record between the read and the write, and overwriting a newer
+  secret with an older round-trip would be a credential going backwards.
+- **It never repairs.** A record no key can open is left exactly as it is,
+  not rewritten. `needs_reseal()` refuses an unreadable blob, which is why the
+  mutation that removes the caller's own `if not err` guard changes nothing:
+  two guards, one rule.
+
+### The check that could not see it
+
+`test_unwired.py` exists for "declared and never wired", which it opens by
+calling the single failure this codebase has paid for most often. It could not
+catch this: it counts every identifier-shaped word in the repo, and a test file
+is part of the repo — so a function called five times from `test_x.py` and
+nowhere else reads as thoroughly wired.
+
+`check_tested_but_unwired` on `/api/integrity` splits those two counts. It
+reads `test_unwired.ALLOW` rather than keeping a second copy, because two lists
+of what is deliberately unwired drift and the one in the checker drifts
+silently — the argument `check_unbacked_json` makes about keeping its rule in
+`hub/jsonstore.py`.
+
+**Low severity, and it has to stay low.** It went in with 21 findings behind
+it, and this repo's own rule is that a check red on the day it is switched on
+is a check people learn to ignore. Several of the 21 are a named reading of a
+table, kept on purpose; `ALLOW` already carries that argument for 35 others.
+What the check buys is that the number is visible and shrinking rather than a
+shape nobody could see at all.

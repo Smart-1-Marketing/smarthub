@@ -75,6 +75,17 @@ from hub import keyring                                     # noqa: E402
 SECRET = "a-client-website-password"
 
 
+def read_raw(path):
+    """The bytes on disk. Asserting on the stored blob rather than on what an
+    accessor returns is the difference between "it re-sealed" and "it still
+    reads" -- the second is true either way."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
 def only(**env):
     """Set exactly this key configuration and nothing left over."""
     for name in (keyring.SINGULAR, keyring.PLURAL):
@@ -229,6 +240,59 @@ only(TOKEN_ENCRYPTION_KEY=OLD)
 check("cms_credentials reads its encryption state from the ring, so the panel "
       "and /status cannot drift into two answers",
       cms_credentials.encryption_state() == keyring.state())
+
+
+# --------------------------------------------- a rotation that can FINISH
+print("\na rotation that can be completed, not just survived")
+# needs_reseal() had no caller when it shipped. Without one, the old key can
+# never be dropped: everything stays readable only because the ring still
+# carries it, which is a rotation that never ends. This is the assertion that
+# says the third step of it happens.
+only(TOKEN_ENCRYPTION_KEY=OLD)
+cms_credentials.save_site_login("Rotate Co", login="rep", password=SECRET,
+                                actor="test")
+_path = cms_credentials._path("Rotate Co", cms_credentials.SITE_LOGIN)
+_before = json.loads(read_raw(_path))["secret"]["data"]
+
+only(TOKEN_ENCRYPTION_KEYS=f"{NEW},{OLD}")
+_st = cms_credentials.site_login_state("Rotate Co")
+check("the record is readable during the rotation", _st["readable"] is True)
+_after = json.loads(read_raw(_path))["secret"]["data"]
+check("and reading it RE-SEALS it under the newest key", _before != _after)
+
+only(TOKEN_ENCRYPTION_KEY=NEW)
+check("so with the old key dropped entirely it still opens — the rotation "
+      "can be finished rather than carried forever",
+      cms_credentials.site_login_state("Rotate Co")["readable"] is True)
+
+# A read that writes on every pass is the hub/ad_assets.py defect this repo
+# records paying for.
+_settled = read_raw(_path)
+cms_credentials.site_login_state("Rotate Co")
+check("a later read rewrites nothing", read_raw(_path) == _settled)
+
+# The WordPress kind goes through get(), a different call site.
+only(TOKEN_ENCRYPTION_KEY=OLD)
+cms_credentials.save("Rotate Co", cms_credentials.WORDPRESS,
+                     rest_root="https://x.test/wp-json/", username="u",
+                     app_password="abcd EFGH ijkl MNOP", actor="test")
+_wp = cms_credentials._path("Rotate Co", cms_credentials.WORDPRESS)
+_wp_before = json.loads(read_raw(_wp))["secret"]["data"]
+only(TOKEN_ENCRYPTION_KEYS=f"{NEW},{OLD}")
+check("get() returns the application password during a rotation",
+      cms_credentials.get("Rotate Co")["app_password"] == "abcdEFGHijklMNOP")
+check("and re-seals that record too", json.loads(read_raw(_wp))["secret"]["data"] != _wp_before)
+only(TOKEN_ENCRYPTION_KEY=NEW)
+check("which survives the old key being dropped",
+      cms_credentials.get("Rotate Co").get("app_password") == "abcdEFGHijklMNOP")
+
+# An unreadable record must not be "repaired" by re-sealing it, and must not
+# lose what is stored.
+only(TOKEN_ENCRYPTION_KEY=THIRD)
+_sealed_away = read_raw(_path)
+cms_credentials.site_login_state("Rotate Co")
+check("a record no key can open is left exactly as it is, not rewritten",
+      read_raw(_path) == _sealed_away)
 
 
 # ------------------------------------------- every store, through a rotation
