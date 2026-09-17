@@ -21,6 +21,7 @@ import requests
 from . import dates
 from . import jsonstore
 from . import knack_data
+from . import sealing
 
 _lock = threading.Lock()
 
@@ -48,11 +49,147 @@ def load_store(client: str) -> dict:
         "questions": [], "answers": {}, "pages": {}, "sitemap": []})
 
 
+#: Fields inside ``setup`` that are secrets and are sealed on the way to disk.
+#:
+#: ``password`` is the client's own CMS login. It went in here as a plain
+#: string, and because this store goes through ``hub/jsonstore.py`` that put it
+#: verbatim into Postgres and into every database backup taken of it --
+#: which is the exposure ``hub/cms_credentials.py``'s docstring names as
+#: deferred work rather than a thing that had been dealt with.
+SEALED_SETUP_KEYS = ("password",)
+
+
+def _seal_setup(data: dict) -> None:
+    """Seal the secret fields of ``setup`` in place, idempotently.
+
+    Called from ``save_store()`` rather than from the route, because
+    ``save_store`` is the one door onto the file. A route that sealed for
+    itself would leave every other writer of this store -- and there are more
+    than twenty -- able to put a plain password back beside a sealed one, with
+    nothing saying which it was.
+
+    Idempotent because the ordinary path is read-modify-write: ``load_store``
+    hands back the sealed blob untouched and this must not seal it twice.
+    """
+    setup = data.get("setup")
+    if not isinstance(setup, dict):
+        return
+    for key in SEALED_SETUP_KEYS:
+        value = setup.get(key)
+        if isinstance(value, str) and value:
+            setup[key] = sealing.seal(value)
+
+
 def save_store(client: str, data: dict):
     data["client"] = client
+    _seal_setup(data)
     path = os.path.join(_store_base(), slugify(client) + ".json")
     with _lock:
         jsonstore.write_json(path, data, indent=1)
+
+
+def seal_existing_setup_passwords(limit: int = 2000) -> dict:
+    """Seal the passwords already written to disk in plain text.
+
+    **Every boot, and deliberately with no marker**, which is the opposite
+    choice from ``modules/check_reconciliation``'s upload sweep and for a
+    reason worth writing down. That one clears a directory *local to an
+    instance*, so a shared "already done" flag would leave a second instance's
+    disk untouched for ever. This store is mirrored, so the state is shared --
+    and a marker would still be wrong here, because the plaintext is in the
+    database backups and **restoring one brings it back**. A sweep that has
+    marked itself done would then leave it. With no marker it self-heals.
+
+    Idempotent and cheap once it has run: a store already sealed is read and
+    not written, so the steady-state cost is one read per client.
+
+    Never raises. A boot step that takes the app down is worse than one that
+    reports it did not run.
+    """
+    out = {"ran": True, "sealed": 0, "already": 0, "failed": 0, "reason": ""}
+    if not sealing.available():
+        # Said rather than silently skipped. Sealing nothing because no key is
+        # configured is a state with a fix, and the fix is naming the variable.
+        out.update(ran=False, reason=(
+            "TOKEN_ENCRYPTION_KEY is not set, so nothing can be sealed. Every "
+            "saved SEO setup password stays in plain text on the disk and in "
+            "the database mirror until it is."))
+        return out
+    try:
+        base = _store_base()
+        names = sorted(os.listdir(base))[:limit]
+    except OSError:
+        out.update(ran=False, reason="the SEO store directory could not be read")
+        return out
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        try:
+            path = os.path.join(base, name)
+            data = jsonstore.read_json(path, default=None)
+            if not isinstance(data, dict):
+                continue
+            value = (data.get("setup") or {}).get("password")
+            if sealing.is_plain(value):
+                # Both unprotected shapes, counted as one because they are one
+                # problem: the legacy bare string, and the {"enc": False} blob
+                # seal() returns when no key was configured. Splitting them
+                # into two counters made the second look like a third state
+                # somebody has to reason about, and it is not.
+                plain, _ = sealing.unseal(value)
+                if plain:
+                    data.setdefault("setup", {})["password"] = plain
+                    save_store(data.get("client") or name[:-5], data)
+                    out["sealed"] += 1
+            elif sealing.is_sealed(value):
+                out["already"] += 1
+        except Exception:                                   # noqa: BLE001
+            out["failed"] += 1
+    return out
+
+
+def plaintext_password_clients(limit: int = 2000) -> list[str]:
+    """Client names whose stored CMS password is still a bare string.
+
+    What `/diagnostics` reports on. Measured off the stored shape rather than
+    inferred from whether a key is configured: those are different questions,
+    and the one that matters is what is actually on the disk.
+    """
+    out: list[str] = []
+    try:
+        base = _store_base()
+        names = sorted(os.listdir(base))[:limit]
+    except OSError:
+        return out
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        try:
+            data = jsonstore.read_json(os.path.join(base, name), default=None)
+        except Exception:                                   # noqa: BLE001
+            continue
+        if not isinstance(data, dict):
+            continue
+        if sealing.is_plain((data.get("setup") or {}).get("password")):
+            out.append(str(data.get("client") or name[:-5]))
+    return out
+
+
+def setup_password(client: str) -> tuple[str, str]:
+    """``(password, error)`` for the client's CMS login.
+
+    Nothing calls this yet, and that is the honest state of it: a sweep of 261
+    responses across every SEO, client and backup route found that the saved
+    password reaches **no** response -- ``client_record()`` strips it and the
+    record page only ever learns whether one exists. It is here so that the
+    seal has a documented way out for whoever does need it, rather than the
+    next person reaching into the raw dict and getting a blob.
+
+    Never raises, and an unreadable value is an error rather than an empty
+    string -- the rule ``hub/sealing.py`` gives at length.
+    """
+    setup = (load_store(client) or {}).get("setup") or {}
+    return sealing.unseal(setup.get("password"))
 
 
 # -------------------------------------------------- attached accounts
@@ -1324,7 +1461,16 @@ def client_detail(client: str, full: bool = False) -> dict:
     base.update({
         "websites": webs,
         "setup": {k: v for k, v in store.get("setup", {}).items() if k != "password"},
-        "setup_has_password": bool(store.get("setup", {}).get("password")),
+        # Asked of the stored shape rather than of its truthiness: a sealed
+        # blob is a dict and every dict is truthy, so `bool(...)` would report
+        # "there is a password" for an empty one. And it must still say yes for
+        # a value sealed under a key that has since been rotated -- answering
+        # no there is the Google Finder failure wearing a placeholder.
+        "setup_has_password": sealing.has_secret(store.get("setup", {}).get("password")),
+        # What the NEXT save would do, said before it happens rather than
+        # discovered in a panel afterwards.
+        "setup_password_sealed": sealing.is_sealed(store.get("setup", {}).get("password")),
+        "secret_sealing": sealing.encryption_state(),
         "business_info": master_business_info(client, store),
         "questions": store.get("questions", []),
         "answers": store.get("answers", {}),

@@ -52,7 +52,7 @@ import os
 import re
 import time
 
-from . import jsonstore
+from . import jsonstore, sealing
 
 WORDPRESS = "wordpress"
 CMS_KEYS = (WORDPRESS,)
@@ -73,74 +73,20 @@ def _now() -> str:
 
 
 # ------------------------------------------------------------------ sealing
-def _fernet():
-    """The shared key, or None. Never raises -- a store that cannot seal must
-    still be able to say so, and raising here would take the panel down with
-    the encryption rather than reporting on it."""
-    key = (os.environ.get("TOKEN_ENCRYPTION_KEY") or "").strip()
-    if not key:
-        return None
-    try:
-        from cryptography.fernet import Fernet
-        return Fernet(key.encode("utf-8"))
-    except Exception:                                       # noqa: BLE001
-        return None
+#
+# Thin bindings over `hub/sealing.py`. The mechanics were written here first
+# and a fourth caller wanted them, so they moved rather than being copied --
+# the reason `hub/jsonstore.py`, `hub/storage.py` and `hub/images.py` exist.
+# The names stay, because the three states this file documents at length are
+# the shared module's three states and the prose above still describes them.
+_seal = sealing.seal
+_unseal = sealing.unseal
+_fernet = sealing._fernet
 
 
 def encryption_state() -> dict:
-    """Whether a credential saved right now would be sealed.
-
-    Asked before the save as well as reported after it, because "we stored
-    your client's website password in plain text" is worth saying in advance
-    rather than discovering in a panel afterwards.
-    """
-    key = (os.environ.get("TOKEN_ENCRYPTION_KEY") or "").strip()
-    if not key:
-        return {"configured": False,
-                "note": "TOKEN_ENCRYPTION_KEY is not set on this deployment, "
-                        "so a credential saved here is stored in the clear and "
-                        "is mirrored into the database backup that way. Set it "
-                        "before connecting a client's site."}
-    if _fernet() is None:
-        return {"configured": False,
-                "note": "TOKEN_ENCRYPTION_KEY is set but is not a valid Fernet "
-                        "key, so nothing can be sealed with it. A credential "
-                        "saved now would be stored in the clear."}
-    return {"configured": True,
-            "note": "Credentials are sealed with TOKEN_ENCRYPTION_KEY."}
-
-
-def _seal(value: str) -> dict:
-    raw = str(value or "")
-    f = _fernet()
-    if f is None:
-        return {"enc": False, "data": raw}
-    return {"enc": True, "data": f.encrypt(raw.encode("utf-8")).decode("ascii")}
-
-
-def _unseal(blob) -> tuple[str, str]:
-    """(value, error). An unreadable blob is an error, never an empty value.
-
-    Reading a rotated key as "there is no credential" is what sends somebody to
-    re-connect a site that is connected, and it hides the one fact that would
-    have explained it.
-    """
-    if not isinstance(blob, dict):
-        return "", "No credential is stored."
-    data = str(blob.get("data") or "")
-    if not blob.get("enc"):
-        return data, ""
-    f = _fernet()
-    if f is None:
-        return "", ("This credential is sealed and TOKEN_ENCRYPTION_KEY is not "
-                    "set on this deployment, so it cannot be read. Set the key "
-                    "it was saved under, or save the application password again.")
-    try:
-        return f.decrypt(data.encode("ascii")).decode("utf-8"), ""
-    except Exception:                                       # noqa: BLE001
-        return "", ("This credential cannot be decrypted with the current "
-                    "TOKEN_ENCRYPTION_KEY — the key has been rotated since it "
-                    "was saved. Save the application password again.")
+    """Whether a credential saved right now would be sealed."""
+    return sealing.encryption_state()
 
 
 # ------------------------------------------------------------------- store

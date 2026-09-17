@@ -1786,6 +1786,22 @@ jobs:
             echo "test_seo_page.py not on this branch — nothing to run."
           fi
 
+      - name: The client website password, and the backup it went into
+        if: matrix.group == 4
+        # hub/cms_credentials.py named this in its own docstring and left it:
+        # the SEO store's setup.password was a plain string, and because that
+        # store goes through hub/jsonstore.py it was in Postgres and in every
+        # database backup the same way. Asserts the three sealing states apart,
+        # that a rotated key is an error rather than "no password", and that no
+        # route serves the value -- driven against the real app, not read off
+        # the source. Needs no network.
+        run: |
+          if [ -f test_seo_setup_password.py ]; then
+            python test_seo_setup_password.py
+          else
+            echo "test_seo_setup_password.py not on this branch — nothing to run."
+          fi
+
       - name: SEO Intelligence recommendations
         if: matrix.group == 4
         # SEORecommendation declared a column named `query`, which shadows

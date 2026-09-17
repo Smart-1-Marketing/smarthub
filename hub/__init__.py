@@ -8709,6 +8709,25 @@ def create_hub_app() -> Flask:
         except Exception:  # noqa: BLE001
             pass
 
+    # And the SEO setup passwords, which are a client's own CMS login and went
+    # into data/seo/<client>.json as a plain string -- so into Postgres and
+    # into every database backup taken of it that way. Sealing them is what
+    # keeps them out of the NEXT backup; it does nothing about the ones already
+    # taken, and nothing here should read as though it does.
+    #
+    # Every boot with no marker, because restoring an old backup brings the
+    # plaintext back and a sweep that had marked itself done would leave it.
+    try:
+        from . import seo as _seo_boot
+        app.config["HUB_SEO_PASSWORD_SEAL"] = _seo_boot.seal_existing_setup_passwords()
+    except Exception as _seal_exc:  # noqa: BLE001
+        app.config["HUB_SEO_PASSWORD_SEAL"] = {
+            "ran": False, "reason": f"{type(_seal_exc).__name__}: {_seal_exc}"}
+        try:
+            errors.log_exception("seo", _seal_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
     # ---------------- v7: help bubbles, tool walkthroughs, demo mode -------
     # Registered last, because it needs _hub_user (defined with the login
     # routes above). The fallbacks below are not decoration: an earlier build

@@ -771,6 +771,53 @@ def check_lead_store() -> Check:
                      "shared between instances.")
 
 
+def check_seo_setup_passwords() -> Check:
+    """Whether the client CMS logins in the SEO store are sealed.
+
+    `hub/cms_credentials.py`'s docstring named this as deferred work: the
+    password a rep saves on a client's SEO record went into
+    `data/seo/<client>.json` as a plain string, and because that store goes
+    through `hub/jsonstore.py` it went into Postgres -- and into every database
+    backup taken of it -- the same way.
+
+    On the panel rather than in a log, because the failure state is a value
+    that silently is not protected. A deployment with no key seals nothing and
+    every screen goes on looking exactly the same.
+
+    **It counts what is on the disk, not what the key can do.** A green row
+    here means no store still holds a plain password, which is a different and
+    stronger claim than "sealing is configured".
+    """
+    def go():
+        from hub import sealing, seo
+        st = sealing.encryption_state()
+        try:
+            plain = seo.plaintext_password_clients()
+        except Exception as exc:                            # noqa: BLE001
+            return ("warn", "Whether any client's CMS login is stored in plain "
+                            f"text could not be measured: {type(exc).__name__}.")
+        if plain:
+            shown = ", ".join(plain[:5]) + ("…" if len(plain) > 5 else "")
+            return ("warn",
+                    f"{len(plain)} client record(s) still hold a website "
+                    f"password in plain text, so it is in the database mirror "
+                    f"and in the backup that way: {shown}. "
+                    + st.get("note", ""))
+        if not st.get("configured"):
+            return ("warn", "No client record holds a plain password right "
+                            "now, but nothing could be sealed if one were "
+                            "saved. " + st.get("note", ""))
+        return ("ok", "Every saved client CMS login is sealed. Note that "
+                      "backups taken before they were sealed still contain "
+                      "them in plain text.")
+    (state, detail), ms = _timed(go)
+    return Check("seo_setup_passwords", "SEO · client website logins",
+                 state, detail, ms,
+                 fix="Set TOKEN_ENCRYPTION_KEY to a valid Fernet key. The seal "
+                     "runs at every boot, so a restart after setting it seals "
+                     "what is already stored.")
+
+
 def check_google_token_store() -> Check:
     """Where the Google refresh tokens are, and whether the import landed.
 
@@ -975,7 +1022,7 @@ def check_google_accounts() -> list[Check]:
 
 CHECKS = [
     check_database, check_json_backup, check_activity_log, check_lead_store,
-    check_google_token_store,
+    check_google_token_store, check_seo_setup_passwords,
     check_public_base_url,
     check_openai, check_cloudinary,
     check_brandfetch, check_places, check_youtube, check_microsoft_ads, check_groundtruth, check_amazon_dsp, check_insites,

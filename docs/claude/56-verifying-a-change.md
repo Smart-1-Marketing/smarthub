@@ -292,6 +292,14 @@ python3 test_seo_intelligence.py   # the Search Console recommendation path:
                                    #   the queue answers, the page says when
                                    #   it cannot, and the job reads red when
                                    #   every refresh failed
+python3 test_seo_setup_password.py # the client's own CMS login, which went into
+                                   #   the store as a plain string and so into
+                                   #   Postgres and every backup: sealed on the
+                                   #   way in, the three states kept apart, a
+                                   #   rotated key an error rather than "no
+                                   #   password", the sweep with no marker
+                                   #   because a restored backup brings the
+                                   #   plaintext back, and no route serving it
 python3 test_seo_page.py           # the SEO list and record: a pill with four
                                    #   answers, a name nobody gave, a failed
                                    #   record that is not an empty one, SEO
