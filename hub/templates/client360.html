@@ -701,7 +701,7 @@ function render(g,q){
 
   // ---------- Client images (from the SEO Image Pipeline) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h">
-    <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Images</span><h3>Client Images {{ help_dot('hub.client360.images') if help_dot is defined else '' }}</h3>
+    <span class="src-tag src-web" style="background:#ede9fe;color:#5b21b6">Images</span><h3>Client Images</h3>
     <div class="right" style="display:flex;gap:10px;align-items:center" id="c-img-acts"></div></div>
     <div class="card-b" id="c-images"><div class="empty">Looking for saved images… <span class="spin"></span></div></div></div>`;
 
@@ -1185,24 +1185,29 @@ function render(g,q){
     .then(function(d){ UPLOADED = d.proposals||[]; renderProposals(); })
     .catch(function(){});
 
-  // ---------- Client images: what the SEO Image Pipeline has saved ----------
+  // ---------- Client images: the client's asset home, folder by folder ----------
   const imgBase = '/tools/seo-images/';
-  /* The gallery link opens the client's FULL gallery — every folder, every
-     source: their own uploads, display ads, logos, SEO images, stock — not
-     one pipeline's slice of it. The picker's resolver route does the name
-     matching (exactly one gallery or none, never a substring), and a client
-     with no full gallery yet lands on the SEO pipeline's archive for them,
-     which is everything the Hub holds outside one. hub-crumbs stamps c360
+  /* The gallery link opens the client's FULL asset home — every folder, every
+     source: their own uploads, creative, logos, files our team added, work
+     made in the Hub. The picker's resolver route does the name matching
+     (exactly one gallery or none, never a substring). hub-crumbs stamps c360
      onto this link, and the resolver carries it through the redirect. */
   const galleryHref  = '/tools/image-picker/gallery/for-client?name='+encodeURIComponent(name)
     + (web0&&web0.domain ? '&url='+encodeURIComponent(web0.domain) : '');
   const optimizeHref = imgBase+'?company='+encodeURIComponent(name)
     + (web0&&web0.domain ? '&url='+encodeURIComponent('https://'+web0.domain) : '');
   const actsHost = document.getElementById('c-img-acts');
+  /* Four things a person does from this card, in the order they are asked
+     for: look, hand the client a link, run the optimizer on a batch, add
+     files ourselves. The optimizer is a link to its tool rather than the
+     card's whole body — the card is about what the client has, and the
+     tool is one way more arrives. */
   if(actsHost) actsHost.innerHTML =
-      '<a class="open-link" id="c-img-uplink" style="cursor:pointer">&#128279; Client upload link</a>'
-    + '<a class="open-link" href="'+galleryHref+'">Open client assets →</a>'
-    + '<a class="open-link" href="'+optimizeHref+'">Optimize client images →</a>';
+      '<span id="c-img-counter" class="muted" style="font-size:11.5px"></span>'
+    + '<a class="open-link" href="'+galleryHref+'">Open gallery →</a>'
+    + '<a class="open-link" id="c-img-uplink" style="cursor:pointer">&#128279; Client upload link</a>'
+    + '<a class="open-link" href="'+optimizeHref+'">Optimize images →</a>'
+    + '<a class="open-link" id="c-img-add" style="cursor:pointer">+ Add more images</a>';
 
   /* The link a client uploads their own photographs through.
      Client Image Uploads has always been able to hand one out, and getting it
@@ -1215,57 +1220,128 @@ function render(g,q){
      worse than no link. */
   var uplink = document.getElementById('c-img-uplink');
   if(uplink) uplink.onclick = function(){ clientUploadLink(name, web0); };
+  var addlink = document.getElementById('c-img-add');
+  if(addlink) addlink.onclick = function(){ addMoreImages(name, web0); };
 
-  /* Named, because deleting one image has to redraw this card. It used to be
-     an anonymous fetch, which is why the brand logos were spliced into
-     whatever it had already drawn rather than re-run through it. */
+  /* Named, because adding or deleting a file has to redraw this card. */
   window.loadClientImages = function(){
-  fetch(imgBase+'api/gallery?company='+encodeURIComponent(name)+'&limit=12')
-    .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
-      const rows=d.gallery||[];
-      if(!rows.length && !(window.BRAND_LOGOS||[]).length){
-        $('c-images').innerHTML='<div class="empty">No images saved for this client yet. '
-          +'<a href="'+optimizeHref+'">Optimize their first batch →</a></div>';
-        return;
-      }
-      // d.total is the total for THIS CLIENT. It used to be the size of the
-      // whole archive, so a client with one image read "Showing 1 of 7
-      // saved images" and the gallery it linked to then showed the one.
-      const total=(d.total||0)+(window.BRAND_LOGOS?BRAND_LOGOS.length:0);
-      $('c-images').innerHTML=
-        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">'
-        + rows.map(r=>`<div style="border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff" data-img="${esc(r.id)}">
-            <a href="${esc(r.url)}" target="_blank" rel="noopener" style="display:block;aspect-ratio:4/3;background:#f1f5f9">
-              <img src="${esc(r.thumb||r.url)}" alt="${esc(r.alt_text)}" loading="lazy"
-                   style="width:100%;height:100%;object-fit:cover;display:block"></a>
-            <div style="padding:7px 9px">
-              <div style="font:600 10.5px ui-monospace,Consolas,monospace;color:var(--navy);overflow-wrap:anywhere">${esc(r.filename)}</div>
-              <div class="muted" style="font-size:11px;margin-top:2px">${esc(r.project||'')}${r.page?' · '+esc(r.page):''}</div>
-              <div style="margin-top:6px;display:flex;gap:9px;align-items:center">
-                <a class="open-link" style="font-size:11px" href="${esc(imgBase)}api/gallery/download?id=${encodeURIComponent(r.id)}"
-                   title="Download this file, named ${esc(r.filename)}">&#8681; Download</a>
-                <a class="open-link img-del" style="font-size:11px;color:#dc2626;cursor:pointer"
-                   data-del="${esc(r.id)}" data-name="${esc(r.filename)}"
-                   title="Delete this image from the client gallery and the archive. This cannot be undone.">&#128465; Delete</a>
-              </div>
-            </div></div>`).join('')
-        + '</div>'
-        + '<div class="muted" style="font-size:12px;margin-top:10px">Showing '+rows.length+' of '+total
-        + ' saved image'+(total===1?'':'s')+' · <a href="'+galleryHref+'">see the full gallery →</a></div>';
-      wireImageDeletes();
-      addLogosToImages();
-    }).catch(()=>{
-      $('c-images').innerHTML='<div class="empty">Image pipeline unavailable. '
-        +'<a href="'+optimizeHref+'">Open the tool →</a></div>';
-    });
+    var host=$('c-images'); if(!host) return;
+    var keep = host.querySelector('#c-uplink-box, #c-addimg-box');
+    fetch('/tools/image-picker/api/master-gallery?name='+encodeURIComponent(name),{credentials:'same-origin'})
+      .then(function(r){ return r.ok?r.json():Promise.reject(); })
+      .then(function(d){
+        if(!d || !d.ok) throw new Error((d&&d.error)||'no');
+        var rows=(d.images||[]).concat(d.projects||[]);
+        var sections=d.sections||[];
+        var folders=d.folders||[];
+        /* The five sections, empty or not: the person adding a logo finds
+           the Logos folder waiting rather than inventing one. Each tile
+           opens the gallery on that section. */
+        var tiles=sections.map(function(s){
+          var n=rows.filter(function(r){ return r.section===s.key; }).length;
+          return '<a href="'+galleryHref+'&section='+encodeURIComponent(s.key)+'" class="c360-folder" '
+            + 'style="display:block;border:1px solid var(--line);border-radius:9px;padding:10px 12px;background:#fff;text-decoration:none;color:inherit">'
+            + '<div style="font-weight:600;color:var(--navy)">&#128193; '+esc(s.label)+'</div>'
+            + '<div class="muted" style="font-size:11.5px;margin-top:2px">'+n+' item'+(n===1?'':'s')+(n?'':' · empty')+'</div></a>';
+        }).join('');
+        /* Named folders somebody filed into, beneath the sections. */
+        var named=folders.filter(function(f){ return !f['default']; });
+        var chips=named.length
+          ? '<div class="muted" style="font-size:11.5px;margin:12px 0 5px">Folders in use</div>'
+            + '<div style="display:flex;flex-wrap:wrap;gap:6px">'
+            + named.map(function(f){
+                return '<a class="pill neutral" style="text-decoration:none" href="'+galleryHref
+                  +'&section='+encodeURIComponent(f.section)+'&folder='+encodeURIComponent(f.label)+'">'
+                  +esc(f.label)+' <span class="muted">'+f.count+'</span></a>';
+              }).join('')+'</div>'
+          : '';
+        var incomplete=(d.complete===false)
+          ? '<div class="muted" style="font-size:11.5px;margin-top:8px">Some sources could not be read, so a count here may be low rather than complete.</div>'
+          : '';
+        host.innerHTML =
+          '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px" id="c-img-sections">'+tiles+'</div>'
+          + chips + incomplete
+          + '<details style="margin-top:12px"><summary class="muted" style="cursor:pointer;font-size:12px">Latest optimized images from the SEO Image Pipeline</summary>'
+          + '<div id="c-images-seo" style="margin-top:10px"><div class="empty">Looking… <span class="spin"></span></div></div></details>';
+        if(keep) host.insertBefore(keep, host.firstChild);
+        renderOptimCounter(d.optimization||{});
+        loadSeoTiles();
+      }).catch(function(){
+        host.innerHTML='<div class="empty">The client asset home could not be read just now — '
+          +'<b>not measured</b> rather than empty. <a href="'+galleryHref+'">Open the gallery →</a></div>';
+        if(keep) host.insertBefore(keep, host.firstChild);
+      });
   };
 
-  /* Delete one image, from the record the work was done for.
-     The tile has always linked out to the file and to the gallery and offered
-     nothing to do about a wrong one, so a bad image was a trip through two
-     screens. Same endpoint the pipeline's own archive table uses — one
-     description of what deleting an image means, and one place that decides
-     whether the Cloudinary copy goes with it. */
+  /* A small counter in the card header: how many of the uploaded images
+     have their SEO copy yet. Polled while any are pending, because the
+     scheduler is making them a few at a time; said as "paused" when the
+     system is busy rather than as stuck. "Not measured" is never zero. */
+  var optimTimer=null;
+  function renderOptimCounter(o){
+    var el=document.getElementById('c-img-counter'); if(!el) return;
+    if(optimTimer){ clearTimeout(optimTimer); optimTimer=null; }
+    if(!o || !o.measured){ el.textContent = o&&o.error ? 'SEO copies: not measured' : ''; return; }
+    if(!o.total){ el.textContent=''; return; }
+    if(o.pending){
+      el.innerHTML='<span class="spin" style="width:9px;height:9px"></span> Optimizing '+o.done+' of '+o.total
+        +(o.deferred?' <span title="'+esc(o.deferred_why||'')+'">(paused while busy)</span>':'');
+      optimTimer=setTimeout(function(){
+        fetch('/tools/image-picker/api/optimize/status?name='+encodeURIComponent(name),{credentials:'same-origin'})
+          .then(function(r){return r.json();}).then(renderOptimCounter).catch(function(){});
+      }, 20000);
+      return;
+    }
+    el.innerHTML='&#10003; '+Number(o.done)+' of '+Number(o.total)+' optimized'+(o.failed?' · '+Number(o.failed)+' failed':'');
+  }
+
+  /* What the SEO Image Pipeline has saved for this client, behind a click:
+     the record of a batch somebody ran, with download and delete on each.
+     Every image can be deleted from the record it belongs to — the same
+     endpoint the pipeline's own archive table uses, so one description of
+     what deleting an image means. */
+  function loadSeoTiles(){
+    var box=document.getElementById('c-images-seo'); if(!box) return;
+    fetch(imgBase+'api/gallery?company='+encodeURIComponent(name)+'&limit=12')
+      .then(r=>r.ok?r.json():Promise.reject()).then(d=>{
+        const rows=d.gallery||[];
+        if(!rows.length){
+          box.innerHTML='<div class="empty">Nothing from the pipeline yet. '
+            +'<a href="'+optimizeHref+'">Optimize a batch →</a></div>';
+          return;
+        }
+        // d.total is the total for THIS CLIENT, not the whole archive's.
+        const total=d.total||0;
+        box.innerHTML=
+          '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px">'
+          + rows.map(r=>`<div style="border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff" data-img="${esc(r.id)}">
+              <a href="${esc(r.url)}" target="_blank" rel="noopener" style="display:block;aspect-ratio:4/3;background:#f1f5f9">
+                <img src="${esc(r.thumb||r.url)}" alt="${esc(r.alt_text)}" loading="lazy"
+                     style="width:100%;height:100%;object-fit:cover;display:block"></a>
+              <div style="padding:7px 9px">
+                <div style="font:600 10.5px ui-monospace,Consolas,monospace;color:var(--navy);overflow-wrap:anywhere">${esc(r.filename)}</div>
+                <div class="muted" style="font-size:11px;margin-top:2px">${esc(r.project||'')}${r.page?' · '+esc(r.page):''}</div>
+                <div style="margin-top:6px;display:flex;gap:9px;align-items:center">
+                  <a class="open-link" style="font-size:11px" href="${esc(imgBase)}api/gallery/download?id=${encodeURIComponent(r.id)}"
+                     title="Download this file, named ${esc(r.filename)}">&#8681; Download</a>
+                  <a class="open-link img-del" style="font-size:11px;color:#dc2626;cursor:pointer"
+                     data-del="${esc(r.id)}" data-name="${esc(r.filename)}"
+                     title="Delete this image from the client gallery and the archive. This cannot be undone.">&#128465; Delete</a>
+                </div>
+              </div></div>`).join('')
+          + '</div>'
+          + '<div class="muted" style="font-size:12px;margin-top:10px">Showing '+rows.length+' of '+total
+          + ' saved image'+(total===1?'':'s')+' · <a href="'+galleryHref+'">see the full gallery →</a></div>';
+        wireImageDeletes();
+      }).catch(()=>{
+        box.innerHTML='<div class="empty">Image pipeline unavailable. '
+          +'<a href="'+optimizeHref+'">Open the tool →</a></div>';
+      });
+  }
+
+  /* Delete one image, from the record the work was done for. Same endpoint
+     the pipeline's own archive table uses — one place that decides whether
+     the Cloudinary copy goes with it. */
   function wireImageDeletes(){
     const host=$('c-images'); if(!host) return;
     host.querySelectorAll('.img-del').forEach(function(a){
@@ -3022,6 +3098,104 @@ function c360Traffic(propertyId,googleLogin){
 
 {% if q %}run();{% endif %}
 
+// ------------------------------------------------- add more images (ours)
+/* Files our team adds from internal resources — a Drive folder of logo
+   versions, a Dropbox of store photos — into a folder of the person's
+   choosing. The same Cloudinary widget the picker's own pages open
+   (modules/image_picker/static/picker-upload.js), so the source tabs, the
+   formats and the ceiling are decided server-side once. The folder chooser
+   offers what already exists first: a second batch of logos lands in Logos,
+   not in a new folder spelled "logo". */
+function addMoreImages(name, web0){
+  var host = document.getElementById('c-images');
+  if(!host) return;
+  var box = document.getElementById('c-addimg-box');
+  if(box){ box.remove(); return; }
+  box = document.createElement('div');
+  box.id = 'c-addimg-box';
+  box.style.cssText = 'margin:0 0 12px;padding:11px 13px;border:1px solid #c7d2fe;'
+    + 'background:#eef2ff;border-radius:9px;font-size:12.5px';
+  host.insertBefore(box, host.firstChild);
+  box.innerHTML = '<span class="muted">Finding this client’s gallery…</span>';
+  var url = (web0 && web0.domain) ? String(web0.domain) : '';
+  var BASE = '/tools/image-picker';
+
+  function fail(msg){
+    box.innerHTML = '<div style="color:#b45309">'+esc(msg||'The gallery could not be opened.')+'</div>'
+      + '<div style="margin-top:7px"><a class="gbtn" href="'+BASE+'/">Open Client Assets →</a> '
+      + '<a class="open-link" id="c-addimg-close" style="cursor:pointer;margin-left:8px">Close</a></div>';
+    document.getElementById('c-addimg-close').onclick = function(){ box.remove(); };
+  }
+
+  function script(){
+    if(window.S1PickerUpload) return Promise.resolve();
+    return new Promise(function(resolve, reject){
+      var tag = document.createElement('script');
+      tag.src = BASE + '/static/picker-upload.js';
+      tag.onload = resolve; tag.onerror = reject;
+      document.head.appendChild(tag);
+    });
+  }
+
+  /* Creating the gallery is what this press means, when there is none:
+     somebody chose to add files to this client, which is not a page load. */
+  Promise.all([
+    script(),
+    fetch(BASE+'/api/clients/for-hub-client',{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:name, url:url, create:true})}).then(function(r){ return r.json(); })
+  ]).then(function(both){
+    var d = both[1];
+    if(!d || !d.ok || !d.client){ fail(d && d.error); return; }
+    var U = window.S1PickerUpload;
+    var clientId = d.client.id;
+    box.innerHTML =
+      '<div style="font-weight:600;color:var(--navy);margin-bottom:6px">Add files to '+esc(name)+'’s gallery</div>'
+      + '<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">'
+      + '<select id="c-addimg-folder" aria-label="Folder" style="padding:7px 9px;border:1px solid var(--line);border-radius:7px;font:12.5px inherit;min-width:220px"></select>'
+      + '<input id="c-addimg-folder-new" hidden placeholder="New folder name, e.g. Logos" maxlength="200" '
+      + 'style="padding:7px 9px;border:1px solid var(--line);border-radius:7px;font:12.5px inherit;min-width:220px">'
+      + '<button class="gbtn" id="c-addimg-open" type="button">Choose files…</button>'
+      + '<a class="open-link" id="c-addimg-close" style="cursor:pointer">Close</a>'
+      + '</div>'
+      + '<div class="muted" id="c-addimg-state" style="margin-top:6px">From your computer, Google Drive, Dropbox or a link. '
+      + 'Originals are kept as uploaded; a web-ready SEO copy of each image is made in the background.</div>'
+      + '<div id="c-addimg-strip" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>';
+    var sel = document.getElementById('c-addimg-folder');
+    var fresh = document.getElementById('c-addimg-folder-new');
+    var state = document.getElementById('c-addimg-state');
+    var strip = document.getElementById('c-addimg-strip');
+    document.getElementById('c-addimg-close').onclick = function(){ box.remove(); };
+    var opts = {
+      base: BASE, token: '', clientId: clientId, internal: true,
+      folder: function(){ return U.chosenFolder(sel, fresh); },
+      onState: function(m){ if(m) state.textContent = m; },
+      onAdded: function(info){
+        var fig = document.createElement('span');
+        fig.className = 'pill neutral';
+        fig.textContent = String(info.original_filename || 'file').slice(0, 24);
+        strip.appendChild(fig);
+        state.textContent = 'Added '+strip.children.length+' file'+(strip.children.length===1?'':'s')
+          + (U.chosenFolder(sel, fresh) ? ' to '+U.chosenFolder(sel, fresh) : '') + '.';
+      },
+      onDuplicate: function(info){
+        var fig = document.createElement('span');
+        fig.className = 'pill warn';
+        fig.textContent = String(info.original_filename || 'file').slice(0, 24) + ' — already in the gallery';
+        strip.appendChild(fig);
+      },
+      onQueueEnd: function(){
+        if(window.loadClientImages) window.loadClientImages();
+        U.folders(opts).then(function(list){ var keep = U.chosenFolder(sel, fresh); U.fillChooser(sel, fresh, list); if(keep) sel.value = keep; });
+      }
+    };
+    U.folders(opts).then(function(list){ U.fillChooser(sel, fresh, list); });
+    document.getElementById('c-addimg-open').onclick = function(){ U.open(opts); };
+  }).catch(function(){
+    fail('Client Image Uploads could not be reached, so nothing was added.');
+  });
+}
+
 // ------------------------------------------------- client upload link
 /* Hand a client the link they upload their own photographs through.
    Two presses on purpose: the first asks whether a gallery already exists and
@@ -3137,43 +3311,37 @@ function copyToClipboard(text, btn, fieldId){
 }
 
 // ---------------------------------------------------------------- brand card
-function addLogosToImages(){
-  if(!window.BRAND_LOGOS || !BRAND_LOGOS.length) return;
-  var host = document.getElementById('c-images');
-  if(!host) return;
-  if(host.querySelector('.brand-logo-tile')) return;      // already added
-  var grid = host.querySelector('div[style*="grid-template-columns"]');
-  var tiles = BRAND_LOGOS.map(function(l){
-    return '<div class="brand-logo-tile" style="border:1px solid var(--line);'+
-      'border-radius:9px;overflow:hidden;background:#fff">'+
-      '<a href="'+esc(l.url)+'" target="_blank" rel="noopener" '+
-      'style="display:block;aspect-ratio:4/3;background:#f8fafc;padding:14px;'+
-      'box-sizing:border-box">'+
-      '<img src="'+esc(l.url)+'" alt="Brand logo" loading="lazy" '+
-      'style="width:100%;height:100%;object-fit:contain;display:block"></a>'+
-      '<div style="padding:7px 9px"><span class="pill neutral" '+
-      'style="font-size:10.5px">Brand logo</span></div></div>';
-  }).join('');
-  if(grid){
-    grid.insertAdjacentHTML('afterbegin', tiles);
-  } else {
-    // The card is showing its empty state — replace it, a logo IS an image.
-    host.innerHTML = '<div style="display:grid;grid-template-columns:'+
-      'repeat(auto-fill,minmax(150px,1fr));gap:12px">'+tiles+'</div>';
-  }
+/* Any logo the Hub holds for this client belongs in their gallery's Logos
+   folder, without a press. hub/client_logos.file_logos reads the brand
+   record and the last site scan -- never Brandfetch, which is billed -- and
+   with `auto` it fetches nothing for a source already filed, so a page load
+   that finds nothing new costs one query. Said on the card when something
+   was filed, because a file that appears in a gallery with nothing
+   announcing it is one nobody knows to look for. */
+var LOGOS_AUTO_FILED = false;
+function autoFileLogos(d){
+  if(LOGOS_AUTO_FILED) return;
+  if(!d || !(d.logo_tiles||[]).length) return;
+  LOGOS_AUTO_FILED = true;
+  fetch('/api/client/logos',{method:'POST',credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:window.CURRENT_CLIENT||'', domain:window.__c360domain||'', auto:true})})
+    .then(function(r){return r.json();}).then(function(res){
+      if(!res || !(res.filed||[]).length) return;
+      var acts=document.getElementById('c-brand-acts');
+      if(acts) acts.insertAdjacentHTML('afterbegin',
+        '<span class="pill ok" style="font-size:10.5px" title="'+esc(res.summary||'')+'">Logo filed to gallery</span> ');
+      if(window.loadClientImages) window.loadClientImages();
+    }).catch(function(){});
 }
 
 var COLOR_ROLES_UI=['primary','secondary','accent'];
 function renderBrand(d){
-  /* The logo is a client image; it just lives in the brand store rather than
-     the gallery, so it never appeared there. The two cards load independently
-     and the gallery fetch isn't in a named function, so rather than re-running
-     it the logo is inserted into whatever the images card has already drawn.
-     Only the logos actually on file go across: the gallery is the client's own
-     library, and a logo lifted off a home page is a candidate for it, not a
-     member of it. */
-  window.BRAND_LOGOS = (d&&d.logos||[]).filter(function(l){ return l.url; }).slice(0,2);
-  addLogosToImages();
+  /* The logo is a client image. It is filed into the gallery's Logos folder
+     automatically (autoFileLogos), where the images card lists it under
+     its own heading beside everything else the client has -- never spliced
+     into the card as a tile that exists on no record. */
+  autoFileLogos(d);
 
   const el=document.getElementById('c-brand'); if(!el) return;
   const acts=document.getElementById('c-brand-acts');

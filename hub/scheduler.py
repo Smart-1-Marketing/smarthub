@@ -635,6 +635,27 @@ def job_describe_client_uploads(app) -> dict:
         return {"ok": False, "error": type(exc).__name__}
 
 
+def job_optimize_client_uploads(app) -> dict:
+    """Make the SEO copy of another batch of uploaded images.
+
+    The same shape as the two sweeps above: a count and a wall clock, a
+    written-down give-up, and `{"skipped": ...}` for an unconfigured Hub.
+    What is new is that it steps aside under load -- a re-encode of a phone
+    photograph is a second of CPU on the box that is also answering pages --
+    and says so in its result rather than silently doing nothing, so the
+    scheduler panel reads "deferred" and not "ran, did nothing".
+    """
+    try:
+        from modules.image_picker import optimize
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    try:
+        with app.app_context():
+            return optimize.run_backlog(actor="scheduler")
+    except Exception as exc:                            # noqa: BLE001
+        return {"ok": False, "error": type(exc).__name__}
+
+
 def job_social_idea_batches(app) -> dict:
     """Offer another week's ideas to the clients who are actually swiping.
 
@@ -1339,6 +1360,8 @@ JOBS = {
                           "Describe another batch of the video background library."),
     "picker_describe":   (60, job_describe_client_uploads,
                           "Describe another batch of the photos clients sent us."),
+    "picker_optimize":   (5, job_optimize_client_uploads,
+                          "Make the SEO copy of another batch of uploaded images; waits under load."),
     "social_ideas":      (60, job_social_idea_batches,
                           "Offer another week's ideas to clients who are swiping."),
     "llms_verify":       (720, job_verify_llms_txt,

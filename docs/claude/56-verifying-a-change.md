@@ -381,7 +381,7 @@ python3 test_client_images.py      # every module that logs client work is one t
                                    #   card, the contact details offered into the strip,
                                    #   the display-ads work log, and the way back
 python3 test_client_uploads.py     # the client upload link, and the client an IO creates
-python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
+python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions, folders, the SEO copy sweep
 python3 test_image_creator.py      # the "Client gallery" chip reads the real shared
                                    #   gallery, searches it, and always offers the link
                                    #   to the full one

@@ -25,8 +25,8 @@ split out; it was moved.
 ## Client asset home — standing directive, September 15, 2026
 
 Every client has one staff asset home at `/tools/image-picker/gallery/for-client?name=...`.
-It always offers **Client Uploads**, **Creative**, and **Hub Projects**, even when
-a section is empty. Client 360, the Creative index, and project links use this
+It always offers **Client Uploads**, **Creative**, **Hub Projects**, **Logos**, and
+**Internal**, even when a section is empty (`docs/claude/70` for the last two). Client 360, the Creative index, and project links use this
 home. Source/provider is provenance, not the main folder hierarchy: a Drive
 campaign import is Creative, not a client upload just because it came from Drive.
 

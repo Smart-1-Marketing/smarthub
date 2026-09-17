@@ -75,3 +75,4 @@ say "above" or "below" mean earlier or later files in this list.
 | [`67-the-client-passwords-in-the-backup.md`](67-the-client-passwords-in-the-backup.md) | The client passwords in the backup | 184 |
 | [`68-the-upload-url-that-nothing-ever-served.md`](68-the-upload-url-that-nothing-ever-served.md) | The upload URL that nothing ever served | 110 |
 | [`69-the-third-question-bytes-on-the-disk.md`](69-the-third-question-bytes-on-the-disk.md) | The third question: bytes on the disk | 120 |
+| [`70-a-clients-asset-home-has-five-folders-and-the-uploads-get-a-web-ready-copy.md`](70-a-clients-asset-home-has-five-folders-and-the-uploads-get-a-web-ready-copy.md) | A client's asset home has five folders, and the uploads get a web-ready copy | 162 |
