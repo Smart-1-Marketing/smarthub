@@ -472,6 +472,19 @@ jobs:
         if: matrix.group == 2
         run: python test_jsonstore.py
 
+      - name: The page optimizer's bytes cross the instance boundary
+        if: matrix.group == 2
+        # The last store on the Render disk with no copy elsewhere. Run twice
+        # because the assertion that matters -- bytes written against one data
+        # directory are readable against a different one -- is only meaningful
+        # against the backend production restores from, and the SQLite run
+        # keeps a checkout with no Postgres honest.
+        env:
+          PAGE_IMAGE_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          python test_page_image_bytes.py
+          env -u PAGE_IMAGE_TEST_DATABASE_URL python test_page_image_bytes.py
+
       - name: Nothing is lost across two restarts
         if: matrix.group == 2
         # The acceptance criterion for taking this service off the Render
