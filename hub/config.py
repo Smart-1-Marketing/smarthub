@@ -140,6 +140,15 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "ghl_lead_location_id": ("GHL_LEAD_LOCATION_ID", "SMART1_MARKETING_LOCATION_ID",
                              "GHL_ACCOUNTING_LOCATION_ID"),
     "simvoly_key": ("SIMVOLY_API_KEY", "SIMVOLY_KEY"),
+    # Microsoft Advertising's app registration. Set on Render as
+    # MICROSOFT_ADS_CLIENT_ID / MICROSOFT_ADS_CLIENT_SECRET, which the code
+    # read as BING_AD_CLIENT_ID / BING_AD_CLIENT_SECRET only -- so the
+    # settings card reported the pair missing with both plainly present,
+    # and Connect could not start. Both spellings are in use, which is the
+    # one condition for a row here. The developer token and the manager
+    # account have one spelling each and stay out.
+    "bing_client_id": ("BING_AD_CLIENT_ID", "MICROSOFT_ADS_CLIENT_ID"),
+    "bing_client_secret": ("BING_AD_CLIENT_SECRET", "MICROSOFT_ADS_CLIENT_SECRET"),
 }
 
 # The two contact custom fields a lead's report links are written into, by
@@ -294,16 +303,23 @@ class Settings:
     youtube_key: str = field(default_factory=lambda: _s("YOUTUBE_API_KEY"))
     # Microsoft Advertising, for Smart 1 Ads' connection and the reports
     # module's native pull (modules/ads_builder/bing_ads.py reads these at
-    # call time through _s()). Exactly the spellings set on Render: no
-    # BING_ADS_ twin beside any of them, because ALIASES is only spellings
-    # in use and a speculative second name is how thirteen correct modules
-    # once became findings. The id is the manager's customer id (digits);
-    # the number is the one printed beside it, kept for the settings row.
-    bing_client_id: str = field(default_factory=lambda: _s("BING_AD_CLIENT_ID"))
-    bing_client_secret: str = field(default_factory=lambda: _s("BING_AD_CLIENT_SECRET"))
+    # call time through _s() and _alias()). Exactly the spellings set on
+    # Render: the app registration under either BING_AD_ or MICROSOFT_ADS_
+    # (both are set there, see ALIASES), the rest under one name each, and
+    # no BING_ADS_ twin beside any of them, because ALIASES is only
+    # spellings in use and a speculative second name is how thirteen
+    # correct modules once became findings. The id is the manager's
+    # customer id (digits); the number is the one printed beside it, kept
+    # for the settings row. The tenant is the identity-platform path
+    # segment (unset means /common/, personal and work accounts alike) and
+    # the redirect URI pins the callback the Azure portal was given.
+    bing_client_id: str = field(default_factory=lambda: _alias("bing_client_id"), repr=False)
+    bing_client_secret: str = field(default_factory=lambda: _alias("bing_client_secret"), repr=False)
     bing_developer_token: str = field(default_factory=lambda: _s("BING_AD_DEVELOPER_TOKEN"))
     bing_manager_account_id: str = field(default_factory=lambda: _s("BING_MANAGER_ACCOUNT_ID"))
     bing_manager_account_number: str = field(default_factory=lambda: _s("BING_MANAGER_ACCOUNT_NUMBER"))
+    bing_tenant: str = field(default_factory=lambda: _s("MICROSOFT_ADS_TENANT"))
+    bing_redirect_uri: str = field(default_factory=lambda: _s("MICROSOFT_ADS_REDIRECT_URI"))
     # GroundTruth, for the reports module's native pull (modules/reports/
     # groundtruth.py reads it at call time through _s()). Exactly the
     # spelling set on Render -- GROUND_TRUTH_API, underscore and all -- and
@@ -557,6 +573,8 @@ class Settings:
         "ghl_company_id": "Suite agency (company) id",
         "ghl_lead_location_id": "Suite sub-account leads are written into",
         "simvoly_key": "Smart 1 Sites",
+        "bing_client_id": "Microsoft Ads app (client id)",
+        "bing_client_secret": "Microsoft Ads app (client secret)",
     }
 
     def spellings(self, setting: str) -> str:
@@ -687,7 +705,8 @@ class Settings:
             row("Google Places", bool(self.google_places_key), False, "GOOGLE_PLACES_API_KEY — a client's Google Business Profile rating and review count, read nightly."),
             row("Microsoft Ads", bool(self.bing_client_id and self.bing_client_secret
                                       and self.bing_developer_token and self.bing_manager_account_id), False,
-                "BING_AD_CLIENT_ID / BING_AD_CLIENT_SECRET / BING_AD_DEVELOPER_TOKEN / BING_MANAGER_ACCOUNT_ID — "
+                "BING_AD_CLIENT_ID / BING_AD_CLIENT_SECRET (or MICROSOFT_ADS_CLIENT_ID / "
+                "MICROSOFT_ADS_CLIENT_SECRET) / BING_AD_DEVELOPER_TOKEN / BING_MANAGER_ACCOUNT_ID — "
                 "Smart 1 Ads connects a Microsoft account with them and the reports module pulls campaign "
                 "figures; the connection itself is a press on /tools/ads/settings."
                 + (" Missing: " + ", ".join(n for n, v in (

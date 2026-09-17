@@ -228,6 +228,13 @@ def site_login_state(client: str) -> dict:
                 "sealed": False, "readable": False, "error": "",
                 "saved_by": "", "saved_at": "", "encryption": enc}
     _secret, err = _unseal(rec.get("secret"))
+    # The only path that ever opens a site login, so the only place it can be
+    # re-sealed. Nothing retrieves this value -- it is written and never read
+    # back, which is the open question this store carries -- so without the
+    # re-seal here a client's login would stay under a retired key forever and
+    # a rotation could never be completed.
+    if not err:
+        _reseal(client, SITE_LOGIN, rec.get("secret"), _secret)
     return {"has_password": True,
             "login": rec.get("login") or "",
             "sealed": bool((rec.get("secret") or {}).get("enc")),
@@ -287,6 +294,47 @@ def adopt_plaintext_site_login(client: str, setup: dict) -> bool:
         return False
 
 
+def _reseal(client: str, cms: str, blob, secret: str) -> None:
+    """Write a readable credential back under the NEWEST key, once.
+
+    This is what makes a key rotation **finish**. `hub/keyring.py` lets the
+    old key stay on the ring so nothing breaks the moment a new one goes in
+    front -- but if nothing ever re-seals, the old key can never be dropped
+    and the rotation is permanent. `needs_reseal()` existed for exactly this
+    and had no caller, which is the failure `test_unwired.py` opens by naming:
+    declared and never wired.
+
+    Bounded, and it stops on its own. It writes only while more than one key
+    is configured AND this record is under an older one; after the write the
+    record is under the newest key and the next read does nothing. A read that
+    writes on every pass is the `hub/ad_assets.py` defect, and the guard
+    against it is the same one `seal_site_login()` uses.
+
+    Never raises. A credential that was just read successfully must not fail
+    the caller because the re-seal could not be written -- the value is fine,
+    it is simply still under the old key, and the next read will try again.
+    """
+    try:
+        if not keyring.needs_reseal(blob):
+            return
+
+        def mutate(rec):
+            if not rec:
+                return None
+            # Re-read rather than trusting the blob we were handed: another
+            # worker may have re-sealed or replaced it between the read and
+            # this write, and overwriting a NEWER secret with an older
+            # plaintext round-trip would be a credential going backwards.
+            if not keyring.needs_reseal(rec.get("secret")):
+                return None
+            rec["secret"] = keyring.seal(secret)
+            return rec
+
+        jsonstore.update_json(_path(client, cms), mutate, default={}, indent=1)
+    except Exception:                                       # noqa: BLE001
+        return
+
+
 def get(client: str, cms: str = WORDPRESS) -> dict:
     """The credential itself. Reached from `hub/wordpress.py` and nowhere else.
 
@@ -299,6 +347,7 @@ def get(client: str, cms: str = WORDPRESS) -> dict:
     secret, err = _unseal(rec.get("secret"))
     if err:
         return {"error": err}
+    _reseal(client, cms, rec.get("secret"), secret)
     return {"rest_root": rec.get("rest_root") or "",
             "username": rec.get("username") or "",
             "app_password": secret,

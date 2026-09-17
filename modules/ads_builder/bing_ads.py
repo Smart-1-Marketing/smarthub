@@ -24,6 +24,11 @@ discovered from the refusal:
   the refresh token. Refreshed per call from the refresh token, never
   cached across a deploy;
 * **the developer token** -- ``BING_AD_DEVELOPER_TOKEN``, one per app;
+  the app registration itself is ``BING_AD_CLIENT_ID`` /
+  ``BING_AD_CLIENT_SECRET`` or, as Render also spells the pair,
+  ``MICROSOFT_ADS_CLIENT_ID`` / ``MICROSOFT_ADS_CLIENT_SECRET`` -- both
+  are in use, so both are in ``hub/config.py``'s ALIASES, and the first
+  that is set answers;
 * **the customer id** -- ``BING_MANAGER_ACCOUNT_ID``, the manager
   (agency) customer id, sent as the ``CustomerId`` header. Refused by name
   when it is not numeric, because the id and the account NUMBER are easy to
@@ -40,6 +45,17 @@ ALIASES rule is only spellings in use, and inventing a ``BING_ADS_`` twin is
 how thirteen correct modules once became findings. Every one is read through
 ``hub/config.py`` at call time (``_env()``), with a bare ``os.environ`` read
 only where the Hub is not importable -- the module runs standalone too.
+
+Two more settings shape the consent itself. ``MICROSOFT_ADS_TENANT`` is the
+identity platform's path segment -- ``common`` when unset, and a tenant id
+or ``organizations`` for a registration that allows only work accounts,
+because ``/common/`` against a single-tenant registration is refused
+(AADSTS50194) before any consent screen. ``MICROSOFT_ADS_REDIRECT_URI``
+pins the callback to the exact string pasted into the Azure portal, the
+``AMAZON_ADS_REDIRECT_URI`` arrangement; unset, it is ``PUBLIC_BASE_URL``'s
+origin plus this mount's callback path. A pinned URI whose path is not
+this mount's callback is refused by name in ``connection_status()``,
+because Microsoft would send the code to a page this Hub does not answer.
 
 ## Where the token lives
 
@@ -92,8 +108,11 @@ MOUNT = "/tools/ads"
 CALLBACK_PATH = MOUNT + "/oauth/bing/callback"
 TIMEOUT = 60
 
-AUTH_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
-TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+# The /common/ endpoints: what is sent unless MICROSOFT_ADS_TENANT narrows
+# the tenant (auth_url() / token_url() below).
+IDENTITY_HOST = "https://login.microsoftonline.com"
+AUTH_URL = IDENTITY_HOST + "/common/oauth2/v2.0/authorize"
+TOKEN_URL = IDENTITY_HOST + "/common/oauth2/v2.0/token"
 SCOPE = "https://ads.microsoft.com/msads.manage offline_access"
 
 # The two REST hosts the pull reaches, per environment. Both go into
@@ -114,9 +133,22 @@ HOSTS = {
 REQUIRED = ("BING_AD_CLIENT_ID", "BING_AD_CLIENT_SECRET", "BING_AD_DEVELOPER_TOKEN",
             "BING_MANAGER_ACCOUNT_ID")
 
+# The names that answer to more than one spelling, keyed by the name this
+# module asks for, valued by the hub/config.py ALIASES row that lists every
+# spelling. The tuple beside it is the standalone fallback: the same
+# spellings, for a run where the Hub is not importable.
+ALIAS_KEYS = {
+    "BING_AD_CLIENT_ID": ("bing_client_id", ("BING_AD_CLIENT_ID", "MICROSOFT_ADS_CLIENT_ID")),
+    "BING_AD_CLIENT_SECRET": ("bing_client_secret", ("BING_AD_CLIENT_SECRET", "MICROSOFT_ADS_CLIENT_SECRET")),
+}
+TENANT_VAR = "MICROSOFT_ADS_TENANT"
+REDIRECT_PIN_VAR = "MICROSOFT_ADS_REDIRECT_URI"
+
 BLOCKS = {
-    "BING_AD_CLIENT_ID": "the app registration on the Microsoft identity platform (Azure portal → App registrations)",
-    "BING_AD_CLIENT_SECRET": "the same registration's client secret (Certificates & secrets)",
+    "BING_AD_CLIENT_ID": "the app registration on the Microsoft identity platform (Azure portal → "
+                         "App registrations); MICROSOFT_ADS_CLIENT_ID is read for it too",
+    "BING_AD_CLIENT_SECRET": "the same registration's client secret (Certificates & secrets); "
+                             "MICROSOFT_ADS_CLIENT_SECRET is read for it too",
     "BING_AD_DEVELOPER_TOKEN": "the developer token from the Microsoft Advertising manager account (Tools → Developer token)",
     "BING_MANAGER_ACCOUNT_ID": "the manager account's customer id, digits only -- the id, not the account number beside it",
     "PUBLIC_BASE_URL": "the Hub's own origin, which the callback is built from",
@@ -130,12 +162,39 @@ BLOCKS = {
 def _env(name: str) -> str:
     """One setting, read at call time through hub/config.py -- the copy
     somebody corrects mid-incident -- and straight off the environment
-    only where the Hub is not importable (the module runs standalone)."""
+    only where the Hub is not importable (the module runs standalone).
+    A name in ALIAS_KEYS answers under whichever of its spellings is set,
+    in the order hub/config.py's ALIASES prefers them."""
+    key, spellings = ALIAS_KEYS.get(name, ("", (name,)))
     try:
         from hub import config as _config
-        return _config._s(name)
+        return _config._alias(key) if key else _config._s(name)
     except Exception:                                   # noqa: BLE001
-        return (os.environ.get(name) or "").strip()
+        for n in spellings:
+            v = (os.environ.get(n) or "").strip()
+            if v:
+                return v
+        return ""
+
+
+def tenant() -> str:
+    """The identity platform's path segment: ``common`` unless
+    MICROSOFT_ADS_TENANT names a tenant id, a verified domain,
+    ``organizations`` or ``consumers``. Anything that is not one of those
+    shapes (a pasted URL, a space) falls back to ``common`` rather than
+    being sent inside a hostname path."""
+    v = _env(TENANT_VAR).strip().strip("/")
+    if v and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.\-]{0,127}", v):
+        return v
+    return "common"
+
+
+def auth_url() -> str:
+    return f"{IDENTITY_HOST}/{tenant()}/oauth2/v2.0/authorize"
+
+
+def token_url() -> str:
+    return f"{IDENTITY_HOST}/{tenant()}/oauth2/v2.0/token"
 
 
 def _origin(value: str) -> str:
@@ -146,8 +205,38 @@ def _origin(value: str) -> str:
     return f"{parts.scheme}://{parts.netloc}" if parts.netloc else value
 
 
+def pinned_redirect_uri() -> str:
+    """MICROSOFT_ADS_REDIRECT_URI as set, quotes Render stores literally
+    stripped, or "" -- the string somebody pasted into the Azure portal."""
+    return _env(REDIRECT_PIN_VAR).strip().strip('"').strip("'")
+
+
+def redirect_uri_problem() -> str:
+    """Why the pinned redirect URI cannot work, or "".
+
+    Microsoft sends the authorization code to the registered URI exactly,
+    and this Hub answers the Microsoft callback at one path. A pin whose
+    path is some other callback -- Google's, or one from a previous
+    integration -- lands the code on a page that 404s or, worse, on a
+    different provider's handler, with nothing saying why.
+    """
+    pinned = pinned_redirect_uri()
+    if not pinned:
+        return ""
+    parts = urlsplit(pinned if "://" in pinned else "https://" + pinned)
+    if not parts.netloc:
+        return f"is {pinned[:80]!r}, which is not a URL."
+    if parts.path.rstrip("/") != CALLBACK_PATH:
+        return (f"ends in {parts.path or '/'}, but this Hub answers the Microsoft callback "
+                f"only at {CALLBACK_PATH}. Register {parts.scheme}://{parts.netloc}{CALLBACK_PATH} "
+                "in the Azure portal and set the variable to it, or clear the variable to build "
+                "the callback from PUBLIC_BASE_URL.")
+    return ""
+
+
 def redirect_uri() -> str:
-    """The callback, built from PUBLIC_BASE_URL's origin at call time.
+    """The callback: MICROSOFT_ADS_REDIRECT_URI when it is set and usable,
+    else PUBLIC_BASE_URL's origin plus this mount's path, at call time.
 
     The one reading, which is what lets hub/oauth_redirects.py print the
     string somebody pastes into the Azure portal and this send the same
@@ -155,8 +244,12 @@ def redirect_uri() -> str:
     so a PUBLIC_BASE_URL that has ever carried a callback of its own does
     not put it in the middle of this one. Empty when the variable is unset,
     which ``connection_status()`` reports by name rather than sending a
-    consent request nowhere.
+    consent request nowhere. A pin at the wrong path is not sent either:
+    ``redirect_uri_problem()`` names it and the flow does not start.
     """
+    pinned = pinned_redirect_uri()
+    if pinned and not redirect_uri_problem():
+        return pinned
     try:
         from hub import config as _config
         origin = _config.public_base_origin()
@@ -188,7 +281,10 @@ def cfg() -> dict:
         "manager_id_problem": manager_id_problem(manager),
         "manager_number": _env("BING_MANAGER_ACCOUNT_NUMBER"),
         "environment": environment(),
+        "tenant": tenant(),
         "redirect_uri": redirect_uri(),
+        "redirect_uri_problem": redirect_uri_problem(),
+        "redirect_uri_source": REDIRECT_PIN_VAR if pinned_redirect_uri() else "PUBLIC_BASE_URL",
     }
 
 
@@ -297,6 +393,9 @@ def assert_configured() -> None:
     if c["manager_id_problem"]:
         raise NotConfigured("BING_MANAGER_ACCOUNT_ID " + c["manager_id_problem"],
                             status=400, code="NOT_CONFIGURED")
+    if c["redirect_uri_problem"]:
+        raise NotConfigured(REDIRECT_PIN_VAR + " " + c["redirect_uri_problem"],
+                            status=400, code="NOT_CONFIGURED")
     if not c["redirect_uri"]:
         raise NotConfigured("PUBLIC_BASE_URL is not set, so the Microsoft callback has no "
                             "hostname to come back to.", status=400, code="NOT_CONFIGURED")
@@ -304,7 +403,7 @@ def assert_configured() -> None:
 
 def build_auth_url(state: str = "") -> str:
     c = cfg()
-    return AUTH_URL + "?" + urlencode({
+    return auth_url() + "?" + urlencode({
         "client_id": c["client_id"],
         "response_type": "code",
         "redirect_uri": c["redirect_uri"],
@@ -321,7 +420,7 @@ def build_auth_url(state: str = "") -> str:
 
 def _token_post(data: dict) -> dict:
     try:
-        resp = requests.post(TOKEN_URL, data=data, timeout=TIMEOUT)
+        resp = requests.post(token_url(), data=data, timeout=TIMEOUT)
     except requests.RequestException as exc:
         raise BingAdsError(f"Microsoft's token endpoint could not be reached: {type(exc).__name__}",
                            status=502, code="OAUTH_UNREACHABLE")
@@ -410,13 +509,19 @@ def connection_status(store=None) -> dict:
     c = cfg()
     from_env = bool((os.environ.get("BING_AD_REFRESH_TOKEN") or "").strip())
     from_db = bool(store and (store.get_setting("bing_refresh_token") or "").strip())
-    required = [(n, _env(n)) for n in REQUIRED] + [("PUBLIC_BASE_URL", c["redirect_uri"])]
+    required = [(n, _env(n)) for n in REQUIRED]
+    if not c["redirect_uri_problem"]:
+        # A pin at the wrong path is its own finding below, not a missing
+        # PUBLIC_BASE_URL -- that variable may be set and correct.
+        required.append(("PUBLIC_BASE_URL", c["redirect_uri"]))
     missing = [n for n, v in required if not v]
-    usable = not missing and not c["manager_id_problem"]
+    usable = not missing and not c["manager_id_problem"] and not c["redirect_uri_problem"]
     blocks = [{"name": n, "why": BLOCKS[n]} for n, v in required if not v]
     if c["manager_id_problem"]:
         blocks.append({"name": "BING_MANAGER_ACCOUNT_ID",
                        "why": "it is set, but " + c["manager_id_problem"]})
+    if c["redirect_uri_problem"]:
+        blocks.append({"name": REDIRECT_PIN_VAR, "why": "it is set, but " + c["redirect_uri_problem"]})
     return {
         "configured": usable,
         "connected": from_env or from_db,
@@ -427,10 +532,13 @@ def connection_status(store=None) -> dict:
             else "hub database (set BING_AD_REFRESH_TOKEN to pin it)" if from_db
             else "none"),
         "environment": c["environment"],
+        "tenant": c["tenant"],
         "manager_id": c["manager_id"] if not c["manager_id_problem"] else "",
         "manager_id_problem": c["manager_id_problem"],
         "manager_number": c["manager_number"],
         "redirect_uri": c["redirect_uri"],
+        "redirect_uri_problem": c["redirect_uri_problem"],
+        "redirect_uri_source": c["redirect_uri_source"],
         "missing": missing,
         "blocks": blocks,
     }

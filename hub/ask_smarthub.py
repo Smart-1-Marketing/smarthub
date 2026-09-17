@@ -12,7 +12,6 @@ import re
 import threading
 import time
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 from typing import Any, Callable
 
 from hub import ai, audit, help as help_registry
@@ -42,8 +41,10 @@ _RATE: dict[str, list[float]] = {}
 _RATE_LOCK = threading.Lock()
 
 _CLIENT_ARGUMENTS = ("client_name", "name")
-_AUTO_MATCH_SCORE = 0.90
-_AUTO_MATCH_MARGIN = 0.10
+# Low enough to offer as a choice somebody can tap, and nowhere near the
+# bands that decide anything: whether a candidate is *the* client is
+# company_identity.decide()'s call, not this file's.
+_SUGGEST_SCORE = 0.50
 
 
 @dataclass(frozen=True)
@@ -564,26 +565,33 @@ def _initials(name: str) -> str:
     return "".join(word[0] for word in words if word)
 
 
-def _similarity(query: str, candidate: str) -> tuple[float, str]:
-    """Rank a typed client label without ever turning the rank into stored identity."""
+def _similarity(query: str, candidate: str) -> tuple[float, str, list[str]]:
+    """Rank a typed client label on the Hub's own scale.
+
+    The score is `company_identity.name_score()` -- the one scorer, the one
+    scale -- and what this adds is the evidence the caller legitimately has,
+    which `company_identity.decide()` then weighs. This used to be a second
+    scorer with its own boosts and its own 0.90, a number that looked like
+    the 0.90 one module over and was not on the same scale as it: two
+    opinions about whether two names are one company, which is the finding
+    hub/client_key.py exists to close.
+
+    An abbreviation is the one reading kept here rather than pushed into the
+    shared scorer. "QAC" is how people type Quality Air Columbus into a
+    question and is worth resolving; it is also not evidence anybody should
+    *write* an alias on, and company_identity writes.
+    """
+    from hub import company_identity
     q = v2_tools.hub_client_key.normalise_name(query)
     c = v2_tools.hub_client_key.normalise_name(candidate)
     if not q or not c:
-        return 0.0, ""
+        return 0.0, "", []
     if q == c:
-        return 1.0, "exact"
+        return 1.0, "exact", ["normalized-name"]
     compact = re.sub(r"[^a-z0-9]", "", q)
     if len(compact) >= 2 and compact == _initials(candidate):
-        return 1.0, "abbreviation"
-    ratio = SequenceMatcher(None, q, c).ratio()
-    q_words, c_words = set(q.split()), set(c.split())
-    coverage = len(q_words & c_words) / max(1, len(q_words))
-    if q_words and all(any(word.startswith(part) for word in c_words)
-                       for part in q_words):
-        ratio = max(ratio, 0.86)
-    if coverage:
-        ratio = max(ratio, 0.72 + (0.20 * coverage))
-    return min(ratio, 1.0), "fuzzy"
+        return 1.0, "abbreviation", ["abbreviation"]
+    return company_identity.name_score(query, candidate), "fuzzy", []
 
 
 def match_client(reference: str, limit: int = 5) -> dict:
@@ -599,29 +607,33 @@ def match_client(reference: str, limit: int = 5) -> dict:
     index = v2_tools.hub_client_key.alias_index()
     ranked: dict[str, dict] = {}
     for entry in (index.get("entries") or {}).values():
-        best_score, best_reason = 0.0, ""
+        best_score, best_reason, best_evidence = 0.0, "", []
         for alias in entry.get("names") or [entry.get("name")]:
-            score, reason = _similarity(requested, alias or "")
+            score, reason, evidence = _similarity(requested, alias or "")
             if score > best_score:
-                best_score, best_reason = score, reason
-        if best_score < 0.50:
+                best_score, best_reason, best_evidence = score, reason, evidence
+        if best_score < _SUGGEST_SCORE:
             continue
         ranked[entry["key"]] = {
             "client": _clean(entry.get("name"), 180),
             "domain": _clean(entry.get("domain"), 240),
             "score": round(best_score, 3), "matched_on": best_reason,
+            "evidence": best_evidence,
         }
     choices = sorted(ranked.values(), key=lambda row: (-row["score"], row["client"].lower()))
-    top = choices[0] if choices else None
-    runner_up = choices[1]["score"] if len(choices) > 1 else 0.0
-    if top and top["score"] >= _AUTO_MATCH_SCORE \
-            and top["score"] - runner_up >= _AUTO_MATCH_MARGIN:
+    # One rule, one caller of it. "review" is company_identity's word for a
+    # band that needs a person, and a person is exactly what this has: the
+    # answer comes back as the candidates, one tap each.
+    from hub import company_identity
+    verdict, top, _margin = company_identity.decide(choices)
+    if verdict == "auto" and top:
         return {"status": "resolved", "requested": requested,
                 "client": top["client"], "confidence": "probable",
                 "matched_on": top["matched_on"], "choices": []}
     return {"status": "clarify", "requested": requested, "client": "",
             "confidence": "unmatched", "matched_on": "",
-            "choices": choices[:max(1, min(limit, 8))]}
+            "choices": [{k: v for k, v in row.items() if k != "evidence"}
+                        for row in choices[:max(1, min(limit, 8))]]}
 
 
 def friendly_client_search(query: str = "", limit: int = 20) -> dict:

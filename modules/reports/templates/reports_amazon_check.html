@@ -137,4 +137,8 @@
     change as any correction the row calls for. Until then the Reports index says the pull is
     reading a claim — which is the honest reading, not a fault.</p>
 </div>
+
+{% with unread=unread, documented=documented %}
+  {% include "_reports_unread_fields.html" %}
+{% endwith %}
 {% endblock %}

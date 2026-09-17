@@ -5,6 +5,7 @@
   yet. Spend they carry reaches no client report until they are.{% endblock %}
 {% block saved_text %}{% if saved == 'confirmed' %}Confirmed. The campaign is on the client's page from now.
   {% elif saved == 'refused' %}Refused. The campaign is back on the unmapped list below, and the auto-mapper will not file it under that client from that name again.
+  {% elif saved == 'moved' %}Moved. The campaign is filed under the client you picked, confirmed by your press, and on their page from now.
   {% else %}Campaign {{ saved }} is filed. It leaves this list on the next load.{% endif %}{% endblock %}
 
 {% block style %}
@@ -15,7 +16,15 @@
   form.map input[type=text] { width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 7px; font: inherit; }
   form.map input.product { max-width: 150px; }
   form.decide { display: inline-flex; gap: 6px; }
+  form.move { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+  form.move .picker { min-width: 180px; flex: 1; }
+  form.move input[type=text] { width: 100%; padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 7px; font: inherit; font-size: 12px; }
   .refused-note { display: block; font-size: 12px; color: #92400e; }
+  .looks { display: block; font-size: 12px; color: var(--muted, #64748b); margin-top: 4px; }
+  .looks button { border: 1px solid #c7d2fe; background: #eef2ff; color: #3730a3; border-radius: 999px; padding: 1px 8px; font: inherit; font-size: 12px; cursor: pointer; margin: 2px 2px 0 0; }
+  .looks button.best { font-weight: 600; }
+  .looks button[aria-pressed=true] { background: #3730a3; color: #fff; border-color: #3730a3; }
+  .why { display: block; font-size: 12px; color: var(--muted, #64748b); }
 {% endblock %}
 
 {% block body %}
@@ -28,18 +37,19 @@
   <div class="s1d-scroll">
   <table class="s1d-t">
     <thead><tr>
-      <th>Platform</th><th>Campaign</th><th>Filed under</th><th>Product</th><th>Shown to the client as</th><th>Filed</th><th>Decide</th>
+      <th>Platform</th><th>Campaign</th><th>Filed under</th><th>Product</th><th>Shown to the client as</th><th>Filed</th><th>Decide, or move it</th>
     </tr></thead>
     <tbody>
     {% for m in pending %}
       <tr>
         <td>{{ m.platform_label }}</td>
         <td><b>{{ m.campaign_name or '(unnamed)' }}</b><br><span class="s1d-muted mono">{{ m.campaign_id }}</span></td>
-        <td><a href="/reports/client/{{ m.client }}">{{ m.client_name or m.client }}</a> <span class="s1d-muted mono">{{ m.client }}</span></td>
+        <td><a href="/reports/client/{{ m.client }}">{{ m.client_name or m.client }}</a> <span class="s1d-muted mono">{{ m.client }}</span>
+            {% if m.by_evidence %}<span class="why">{% if m.match %}{{ m.match.pct }}%: {{ m.match.why }}{% else %}filed on evidence the page can no longer see; check it{% endif %}</span>{% endif %}</td>
         <td>{% if m.product %}{{ m.product }}{% else %}<span class="s1d-pill warn">no product set</span>{% endif %}
             {% if 'unknown_product' in m.auto_rule %}<br><span class="s1d-muted">the name's product segment is not in the catalog</span>{% endif %}</td>
         <td>{{ m.display_name }}</td>
-        <td><time datetime="{{ m.mapped_at }}">{{ m.mapped_at }}</time> <span class="s1d-muted">({{ m.auto_rule }})</span></td>
+        <td><time datetime="{{ m.mapped_at }}">{{ m.mapped_at }}</time><br><span class="s1d-muted">{{ 'by its ad account' if 'account_v1' in m.auto_rule else 'by likeness' if m.by_evidence else 'from the S1M name' }} ({{ m.auto_rule }})</span></td>
         <td>
           <form class="decide" method="post" action="/reports/unmapped/confirm">
             <input type="hidden" name="platform" value="{{ m.platform }}">
@@ -53,6 +63,19 @@
             <input type="hidden" name="campaign_id" value="{{ m.campaign_id }}">
             <button type="submit" class="s1d-btn sec small">Not theirs</button>
           </form>
+          <form class="move" method="post" action="/reports/unmapped">
+            <input type="hidden" name="platform" value="{{ m.platform }}">
+            <input type="hidden" name="account_id" value="{{ m.account_id }}">
+            <input type="hidden" name="campaign_id" value="{{ m.campaign_id }}">
+            <input type="hidden" name="campaign_name" value="{{ m.campaign_name }}">
+            <input type="hidden" name="product" value="{{ m.product }}">
+            <div class="picker">
+              <input type="text" name="client_name" placeholder="Move to another client…" autocomplete="off" required aria-label="Move to client">
+              <input type="hidden" name="client_key" value="">
+              <div class="picker-list"></div>
+            </div>
+            <button type="submit" class="s1d-btn sec small">Move</button>
+          </form>
         </td>
       </tr>
     {% endfor %}
@@ -62,11 +85,13 @@
   {% else %}
     <div class="empty">Nothing is waiting: every campaign the auto-mapper filed has been confirmed or refused.</div>
   {% endif %}
-  <p class="s1d-hint">The auto-mapper reads a campaign's name and files it under the client the name says.
-    A name is somebody's typing in somebody else's platform, so the filing is a proposal:
+  <p class="s1d-hint">The auto-mapper files a campaign under the client the evidence says
+    &mdash; the <span class="mono">S1M</span> shape in its name; an ad account whose confirmed campaigns are all one client's;
+    or a campaign or account name that is plainly one client's ({{ file_pct }}% alike or better, with no other client close). A name is somebody's typing in somebody else's platform, so the filing is a proposal:
     Confirm puts the campaign on the client's page from now, Not theirs deletes the proposal and
     sends the campaign back to the list below for a person to file &mdash; and the auto-mapper
-    will not file that name under that client again.</p>
+    will not file that name under that client again. Move files it under the client you pick instead,
+    confirmed by your press.</p>
 </div>
 
 <div class="s1d-card">
@@ -74,6 +99,7 @@
     <h2>{{ rows|length }} unmapped {{ help_dot('reports.unmapped.hint') if help_dot is defined else '' }}</h2>
     <span class="s1d-muted">Spend is the last {{ days }} days, biggest first.</span>
   </div>
+  {% if likeness_error %}<p class="s1d-pill warn" title="{{ likeness_error }}">Suggestions not available: the client registry could not be read, so no row opens on a client. Pick each by hand.</p>{% endif %}
   {% if rows %}
   <div class="s1d-scroll">
   <table class="s1d-t">
@@ -87,7 +113,8 @@
     {% for r in rows %}
       <tr>
         <td>{{ r.platform_label }}</td>
-        <td class="mono">{{ r.account_id }}</td>
+        <td><span class="mono">{{ r.account_id }}</span>{% if r.account_name %}<br><span class="s1d-muted">{{ r.account_name }}</span>{% endif %}
+            {% for c in r.suggestions if c.rule == 'account_v1' %}<br><span class="why">{{ c.why }} ({{ c.name }})</span>{% endfor %}</td>
         <td><b>{{ r.campaign_name or '(unnamed)' }}</b><br>
             <span class="s1d-muted mono">{{ r.campaign_id }}</span>
             {% if r.last_seen %}<br><span class="s1d-muted">last seen {{ r.last_seen }}</span>{% endif %}
@@ -100,13 +127,20 @@
             <input type="hidden" name="campaign_id" value="{{ r.campaign_id }}">
             <input type="hidden" name="campaign_name" value="{{ r.campaign_name }}">
             <div class="picker">
-              <input type="text" name="client_name" placeholder="Client…" autocomplete="off" required>
-              <input type="hidden" name="client_key" value="">
+              <input type="text" name="client_name" placeholder="Client…" autocomplete="off" required value="{{ r.suggestions[0].name if r.suggestions else '' }}">
+              <input type="hidden" name="client_key" value="{{ r.suggestions[0].key if r.suggestions else '' }}">
               <div class="picker-list"></div>
             </div>
             <input type="text" name="product" class="product" list="s1-products" placeholder="Product" autocomplete="off" value="{{ r.default_product or defaults.get(r.platform, '') }}">
             <button type="submit" class="s1d-btn small">Map</button>
           </form>
+          {% if r.suggestions %}
+          <span class="looks">Looks like:
+            {% for c in r.suggestions %}<button type="button" class="{{ 'best' if loop.first else '' }}" data-key="{{ c.key }}" data-name="{{ c.name }}" title="{{ c.why }}" aria-pressed="{{ 'true' if loop.first else 'false' }}">{{ c.name }} {{ c.pct }}%</button>{% endfor %}
+            <span class="why">{{ r.suggestions[0].why }} &mdash; a suggestion, not a fact; change it if it is wrong.</span></span>
+          {% elif not likeness_error %}
+          <span class="looks">No client's name looks like this one.</span>
+          {% endif %}
         </td>
         <td class="hint-cell">
           <span class="s1d-muted">Rename it in {{ r.platform_label }} to</span><br>
@@ -125,6 +159,12 @@
     filed under one product are one bar on their page. The box offers the Smart 1 catalog
     and opens on the platform's default; anything else may be typed. A mapping with no
     product shows under a generic label and is flagged on the client's page.</p>
+  <p class="s1d-hint">"Looks like" is what the book and the names say: the client the ad account's other campaigns
+    are confirmed as, the client whose name the campaign name resembles &mdash; the client's name or domain in it, or
+    a near spelling &mdash; and the client the account's own name resembles. The picker opens on the likeliest one so
+    Map is one press. Two clients alike (an account saying one and a name saying another counts), or a likeness under
+    {{ file_pct }}%, is why the auto-mapper left the row here rather than filing it: it is a suggestion for a person,
+    and the client somebody refused is never suggested again.</p>
   <p class="s1d-hint">The rename hint is the name shape the auto-mapper reads:
     <span class="mono">{{ shape }}</span>. A campaign named that way is filed
     without anybody opening this page, and waits above for a confirmation.
@@ -172,6 +212,29 @@
   });
   document.addEventListener("input", function (e) {
     if (e.target && e.target.name === "product") refresh(e.target.closest("tr"));
+  });
+  // A "Looks like" chip puts that client in the row's picker, key and all,
+  // the same as picking it from the type-ahead.
+  document.addEventListener("click", function (e) {
+    var chip = e.target.closest(".looks button[data-key]");
+    if (!chip) return;
+    var row = chip.closest("tr");
+    var name = row && row.querySelector("form.map input[name=client_name]");
+    var key = row && row.querySelector("form.map input[name=client_key]");
+    if (!name || !key) return;
+    name.value = chip.getAttribute("data-name") || "";
+    key.value = chip.getAttribute("data-key") || "";
+    Array.prototype.forEach.call(row.querySelectorAll(".looks button[data-key]"), function (b) {
+      b.setAttribute("aria-pressed", b === chip ? "true" : "false");
+    });
+    name.dispatchEvent(new CustomEvent("s1reports:client", { bubbles: true,
+      detail: { key: key.value, name: name.value } }));
+  });
+  // A row that opened on a suggestion shows the rename hint for that client.
+  Array.prototype.forEach.call(document.querySelectorAll("form.map input[name=client_key]"), function (k) {
+    if (!k.value) return;
+    var row = k.closest("tr");
+    if (row) { row.__key = k.value.replace(/^[dn]:/, ""); refresh(row); }
   });
   function refresh(row) {
     if (!row) return;
