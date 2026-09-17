@@ -598,8 +598,144 @@ check("...and is not called stuck on the strength of a stamp nobody took",
 amazon_dsp._remember({**amazon_dsp._remembered(), "pending": {}})
 
 
+# ------------------------------------------- what a review found afterwards
+section("The error paths, which is where the quiet losses were")
+
+# A day Amazon writes in a shape this cannot read loses that ROW. store.parse_date
+# raises rather than answering None, so unguarded it threw out of the fold and
+# lost the whole advertiser's report -- the opposite of skipped-and-counted.
+mixed = amazon_dsp.to_facts(
+    [{"date": "20260914", "orderId": "o1", "orderName": "good", "totalCost": 1,
+      "impressions": 10, "clickThroughs": 1},
+     {"date": "the fourteenth", "orderId": "o2", "orderName": "unreadable day",
+      "totalCost": 2, "impressions": 20}],
+    {"id": "A1", "name": "Acme"})
+check("an unreadable day costs that row and not the advertiser's whole report",
+      ([r["campaign_id"] for r in mixed["rows"]], mixed["skipped"]), (["o1"], 1))
+
+# Rounding once at the end rather than on every line item.
+many = amazon_dsp.to_facts(
+    [{"date": "20260914", "orderId": "o1", "orderName": "o", "lineItemName": f"l{i}",
+      "totalCost": "0.005", "impressions": 1} for i in range(40)],
+    {"id": "A1", "name": "Acme"})["rows"][0]
+check("spend is rounded once, so forty line items do not compound a drift",
+      many["spend"], 0.2)
+
+# A night that never reached the reports must not forget what is pending.
+# Two hours old: inside the ceiling, so this is about the error paths rather
+# than about giving up.
+HELD_SINCE = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+amazon_dsp._remember({**amazon_dsp._remembered(),
+                      "pending": {"A1": {"report_id": "rep-held", "since": HELD_SINCE}}})
+_saved_status = amazon_dsp.amazon_status
+amazon_dsp.amazon_status = lambda: {"configured": False, "connected": False, "missing": ["X"],
+                                    "region": "NA", "entity_id": "", "region_problem": ""}
+try:
+    amazon_dsp.pull(today=date(2026, 9, 16))
+finally:
+    amazon_dsp.amazon_status = _saved_status
+check("a tick that stopped before it looked keeps the carried report",
+      amazon_dsp.pending_reports(), {"A1": "rep-held"})
+check("...and keeps when it was first seen, so the ceiling still counts from then",
+      amazon_dsp.pending_since()["A1"], HELD_SINCE)
+
+# A refusal partway through polling must not drop the carried report either:
+# dropping it re-submits, which restarts the stuck clock for ever.
+ANSWERS.extend([
+    _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
+    _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme Plumbing", "currency": "USD"}]}),
+    _Resp(429, {"code": "TOO_MANY_REQUESTS", "details": "slow down"}),
+])
+res = amazon_dsp.pull(today=date(2026, 9, 16))
+check("a throttle mid-poll keeps the report rather than abandoning it",
+      (res["pending"]["A1"]["report_id"], res["pending"]["A1"]["since"]),
+      ("rep-held", HELD_SINCE))
+check("...and names the refusal", any("throttled" in f for f in res["failures"]))
+
+# pull() answers {adv: {report_id, since}}; handing that straight back must work.
+ANSWERS.extend([
+    _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
+    _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme Plumbing", "currency": "USD"}]}),
+    _Resp(200, {"status": "SUCCESS", "location": SIGNED_URL}),
+])
+CALLS.clear()
+res2 = amazon_dsp.pull(today=date(2026, 9, 16), pending=res["pending"])
+check("a caller can hand back the pending shape pull() itself returned",
+      [c["url"].rsplit("/", 1)[-1] for c in CALLS if "dsp/reports/" in c["url"]], ["rep-held"])
+check("...and it collects rather than paying for another", (res2["ok"], res2["rows"]), (True, 2))
+
+# Two stale reports: each name against its own duration.
+old_a = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+old_b = (datetime.now(timezone.utc) - timedelta(hours=50)).isoformat()
+amazon_dsp._remember({**amazon_dsp._remembered(), "pending": {
+    "A1": {"report_id": "r1", "since": old_a}, "A2": {"report_id": "r2", "since": old_b}}})
+ANSWERS.extend([
+    _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
+    _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme", "currency": "USD"},
+                             {"advertiserId": "A2", "name": "Riverside", "currency": "USD"}]}),
+    _Resp(200, {"reportId": "fresh-1"}),
+    _Resp(200, {"status": "IN_PROGRESS"}),
+    _Resp(200, {"reportId": "fresh-2"}),
+    _Resp(200, {"status": "IN_PROGRESS"}),
+])
+res3 = amazon_dsp.pull(today=date(2026, 9, 16), budget=0)
+note = next(n for n in res3["notes"] if "fresh report" in n)
+check("each stuck advertiser is printed against its OWN duration, not the other's",
+      ("A1 (preparing 30h)" in note, "A2 (preparing 50h)" in note), (True, True))
+amazon_dsp._remember({**amazon_dsp._remembered(), "pending": {}})
+
+
 # ------------------------------------------------- the check page never 500s
 section("The check page answers even when something under it raises")
+
+# The page is a GET a person refreshes. A reportId it asks for and does not
+# write down is a report nobody ever collects -- one orphaned per refresh.
+amazon_dsp._remember({**amazon_dsp._remembered(), "pending": {}})
+ANSWERS.extend([
+    _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
+    _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme", "currency": "USD"}]}),
+    _Resp(200, {"reportId": "page-1"}),
+    _Resp(200, {"status": "IN_PROGRESS"}),
+])
+slept.clear()
+chk = amazon_dsp.check(today=date(2026, 9, 16))
+check("a report the check page asks for is written down, so the pull collects it",
+      amazon_dsp.pending_reports(), {"A1": "page-1"})
+check("...and it waits inside the page's own budget, not the nightly job's",
+      sum(slept) <= amazon_dsp.CHECK_BUDGET_SECONDS, True, note=slept)
+CALLS.clear()
+ANSWERS.extend([
+    _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
+    _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme", "currency": "USD"}]}),
+    _Resp(200, {"status": "IN_PROGRESS"}),
+])
+amazon_dsp.check(today=date(2026, 9, 16))
+check("...so a refresh polls that same report rather than ordering another",
+      ({c["url"].rsplit("/", 1)[-1] for c in CALLS if "dsp/reports/" in c["url"]},
+       [c for c in CALLS if c["method"] == "POST" and c["url"].endswith("/dsp/reports")]),
+      ({"page-1"}, []))
+amazon_dsp._remember({**amazon_dsp._remembered(), "pending": {}})
+
+# A row that is not a dict must never reach the template, which calls .items()
+# on it -- and check()'s guard wraps _check(), not the render.
+ANSWERS.extend([
+    _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
+    _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme", "currency": "USD"}]}),
+    _Resp(200, {"reportId": "odd-1"}),
+    _Resp(200, {"status": "SUCCESS", "location": SIGNED_URL}),
+])
+_saved_dl = requests.get
+requests.get = lambda url, timeout=None, **kw: _Resp(
+    200, content=gzip.compress(json.dumps([["not", "a", "dict"], RAW[0]]).encode()))
+try:
+    chk = amazon_dsp.check(today=date(2026, 9, 16))
+finally:
+    requests.get = _saved_dl
+check("a row that is not an object never reaches the page as the sample",
+      isinstance(chk["sample"], dict) and chk["sample"]["orderId"] == "o1")
+check("...and what the page prints is always something .items() works on",
+      chk["sample"] is None or hasattr(chk["sample"], "items"))
+amazon_dsp._remember({**amazon_dsp._remembered(), "pending": {}})
 
 _boom = amz.connection_status
 amz.connection_status = lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("amazon fell over"))
