@@ -1,15 +1,15 @@
-Flask==3.1.1
+Flask==3.1.3
 Flask-Session==0.8.0
-Werkzeug==3.1.3
+Werkzeug==3.1.8
 gunicorn==23.0.0
-requests==2.32.4
+requests==2.34.2
 itsdangerous==2.2.0
 cryptography==45.0.5
 Pillow==11.3.0
-psycopg2-binary==2.9.10
-python-dotenv==1.1.1
-beautifulsoup4==4.13.4
-SQLAlchemy==2.0.36
+psycopg2-binary==2.9.13
+python-dotenv==1.2.3
+beautifulsoup4==4.15.0
+SQLAlchemy==2.0.52
 Flask-SQLAlchemy==3.1.1
 flask-cors==5.0.0
 reportlab==4.2.5
@@ -19,12 +19,12 @@ reportlab==4.2.5
 # output that clients already receive, for no gain, and the same library
 # covers all eleven pages rather than one.
 fpdf2>=2.7.9
-python-docx==1.1.2
+python-docx==1.2.0
 pypdf==5.1.0
-cloudinary==1.41.0
-qrcode[pil]==8.0
+cloudinary==1.46.2
+qrcode[pil]==8.2
 openai==1.59.6
-MarkupSafe==3.0.2
+MarkupSafe==3.0.3
 # Already a de facto dependency -- four tests under tests/ run via pytest
 # instead of the usual `python3 test_x.py`. It used to be pip-installed as
 # its own CI step, mid-job; pinning it here means it installs once, from the
