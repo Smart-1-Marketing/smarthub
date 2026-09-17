@@ -221,10 +221,10 @@ print("\nThe integrity sweep runs where some of its checks can answer")
 # the one check whose answer exists only in production was the one nothing in
 # production ran.
 os.environ["HUB_SKIP_SCHEDULER"] = "1"
-import hub                                                        # noqa: E402
-from hub import audit as _audit, seo as _seo                      # noqa: E402
+from hub import (audit as _audit, create_hub_app,                 # noqa: E402
+                 seo as _seo)
 
-_app = hub.create_hub_app()
+_app = create_hub_app()
 SECRET = "PLAINTEXT-LOGIN-IN-PROD"
 
 check("the sweep is a registered job", "integrity_audit" in sched.JOBS)
