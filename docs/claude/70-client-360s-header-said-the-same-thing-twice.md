@@ -48,6 +48,13 @@ What changed, September 2026, one thing per line:
   name tier files the winery under restaurant for the Image Picker and the
   record reads "Winery" without anybody typing it. A manual pick of a
   canonical key clears that wording, as it clears any custom label.
+  And the job that applies it, `industry_resolve`, now runs ahead of the
+  slow provider sweeps in `hub/scheduler.JOBS` beside the QA jobs: it
+  takes a quarter of a second reading the Hub's own disk, and behind the
+  28-minute Google sweep it never got a turn on an afternoon with six
+  deploys in an hour, each boot restarting the pass. Merged and deployed at
+  17:15, the fix was still not on the record at 19:20. `qb_contacts` moved
+  with it for the same reason.
 * **The scan's screenshots** sit beside the name, from
   `scan_facts.screenshots()` via `/api/client/screenshots`. A thumbnail is
   added only after its image loads, so a capture the scan host no longer
