@@ -38,6 +38,16 @@ What changed, September 2026, one thing per line:
   person's, lands on `profile.category` too; saving a typed category calls
   `set_manual(custom_label=...)`. The scan remains the point of truth until
   somebody picks by hand, exactly as before.
+* **An alias can carry its own word.** Read from the live mirror after the
+  deploy, Buckeye Lake Winery Inc still said General Business: its record
+  held a `general` reading from the day before, and `due_for_resweep()`
+  kept any reading for 30 days. Two rules followed. A `general` reading is
+  not a reading and is asked again every night. And `ALIAS_LABELS` lets an
+  alias whose own word is what a person calls the business (winery,
+  vineyard, distillery, brewery) ride along as the record's label, so the
+  name tier files the winery under restaurant for the Image Picker and the
+  record reads "Winery" without anybody typing it. A manual pick of a
+  canonical key clears that wording, as it clears any custom label.
 * **The scan's screenshots** sit beside the name, from
   `scan_facts.screenshots()` via `/api/client/screenshots`. A thumbnail is
   added only after its image loads, so a capture the scan host no longer
