@@ -134,6 +134,16 @@ _ENV = {
 }
 
 
+def _per_page() -> int:
+    """CALLRAIL_PER_PAGE clamped to the documented ceiling; the ceiling
+    itself when the variable is unset or not a number, because a page size
+    somebody mistyped must not stop the pull."""
+    try:
+        return max(1, min(PER_PAGE, int(os.environ.get("CALLRAIL_PER_PAGE") or PER_PAGE)))
+    except (TypeError, ValueError):
+        return PER_PAGE
+
+
 def _env(name: str, default: str) -> str:
     val = os.environ.get(_ENV[name])
     return val.strip() if val is not None and val.strip() else default
@@ -157,11 +167,7 @@ def config() -> dict:
         override = os.environ.get(f"CALLRAIL_PARAM_{k.upper()}")
         if override is not None and override.strip():
             params[k] = override.strip()
-    per_page = PER_PAGE
-    try:
-        per_page = max(1, min(PER_PAGE, int(os.environ.get("CALLRAIL_PER_PAGE") or PER_PAGE)))
-    except (TypeError, ValueError):
-        pass
+    per_page = _per_page()
     account_fields = dict(ACCOUNT_FIELDS)
     for k in list(account_fields):
         override = os.environ.get(f"CALLRAIL_ACCOUNT_FIELD_{k.upper()}")
