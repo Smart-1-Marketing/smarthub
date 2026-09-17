@@ -1384,3 +1384,118 @@ def stale_exemptions(root=None) -> list[str]:
         if not p.is_file():
             stale.append(f"{rel} (no such file)")
     return stale
+
+
+# ----------------------------------------- the stores that are not JSON
+#
+# `unmirrored_json_writers()` answers one question -- what is written to the
+# Render disk with no copy in the database -- and it is the only check that
+# asks it. **A SQLite file is not JSON**, so a store that is a whole database
+# was outside the one check that exists to find stores on the disk, whatever
+# it held.
+#
+# Two were, and neither was found by a check. `modules/google_finder/app.py`
+# kept Google OAuth refresh tokens in `google_tokens.db`, and
+# `modules/io_builder/submission_attempts.py` keeps the attempt and receipt
+# tables that stop a retried Suite delivery creating a second opportunity
+# against a real insertion order. Both were found by somebody grepping, which
+# is the same shape as the lead store: the panel said nothing, and nothing is
+# what it could say.
+#
+# Deliberately `sqlite3.connect()` and nothing else. A module that opens a
+# database through SQLAlchemy is answered by `hub/client_context.py`'s
+# `_engine_use()`, which already reports who builds their own engine instead of
+# taking the shared one; adding `create_engine` here would report the same
+# modules twice and would flag `hub/extensions.py` and `modules/reports/store.py`
+# for their no-DATABASE_URL fallbacks, which are the shared engine, not a
+# second store. Two checks disagreeing on one page is the defect the comment
+# above `SCAN_SKIP_DIRS` records. `sqlite3.connect` is the spelling that
+# reaches a file on the disk with no engine, no pool and no mirror.
+
+DISK_SQLITE_EXEMPT: dict[str, str] = {
+    "modules/smartforecast/store.py":
+        "the read side of the one-time import off the legacy file. The store "
+        "moved to the shared engine in #648; this connect exists to empty that "
+        "file, so counting it would report the migration as the thing to "
+        "migrate",
+    # Added on this check's first real encounter with a module moving, which
+    # is the case the list has to get right or it starts punishing the fix.
+    # `_copy_legacy_into()` is the same shape as smartforecast's above: the
+    # OAuth tokens are on the shared engine now, and what is left at this call
+    # site is the code that empties the file they were in.
+    "modules/google_finder/app.py":
+        "the read side of the one-time import off google_tokens.db. The tokens "
+        "moved to the shared engine in #674; this connect is _copy_legacy_into(), "
+        "which exists to empty that file, so counting it would report the "
+        "migration as the thing to migrate",
+}
+
+
+def disk_sqlite_stores(root=None) -> list[dict]:
+    """Every source file that opens a SQLite database directly on the disk.
+
+    The disk is outside the database backup and does not survive the service
+    being recreated, so what is in one of these is what would be lost -- which
+    is the same sentence ``unmirrored_json_writers()`` exists to be able to
+    say, about the files it can see.
+
+    Read rather than run, and by AST rather than by substring, for the reason
+    ``_writes_json_to_disk`` gives: the text ``sqlite3.connect(`` appears in
+    this module's own prose, and a check a comment can trip is one nobody
+    trusts.
+    """
+    import ast
+    import pathlib
+
+    base = pathlib.Path(root) if root else pathlib.Path(__file__).resolve().parent.parent
+    out: list[dict] = []
+    for p in sorted(base.rglob("*.py")):
+        if any(x in p.parts for x in SCAN_SKIP_DIRS):
+            continue
+        rel = p.relative_to(base).as_posix()
+        if _disk_sqlite_exempt_reason(rel):
+            continue
+        try:
+            tree = ast.parse(p.read_text(encoding="utf-8", errors="ignore"))
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                    and node.func.attr == "connect" \
+                    and isinstance(node.func.value, ast.Name) \
+                    and node.func.value.id == "sqlite3":
+                out.append({"file": rel, "module": _module_of(rel),
+                            "line": node.lineno})
+                break
+    return out
+
+
+def _disk_sqlite_exempt_reason(rel: str) -> str | None:
+    """Why this file is not counted, or None if it is.
+
+    The same shape as ``_unmirrored_exempt_reason``, and deliberately a second
+    function rather than a shared one: the two checks exempt for different
+    reasons, and a file that is rightly excused from one is not thereby
+    excused from the other.
+    """
+    if rel in DISK_SQLITE_EXEMPT:
+        return DISK_SQLITE_EXEMPT[rel]
+    if rel.startswith("tools/") or "/scripts/" in rel or rel.startswith("scripts/"):
+        return "repo tooling; holds no state on the data disk"
+    name = rel.rsplit("/", 1)[-1]
+    if name.startswith("test_") or name.endswith("_test.py"):
+        return "test; writes to a temporary directory"
+    return None
+
+
+def stale_sqlite_exemptions(root=None) -> list[str]:
+    """``DISK_SQLITE_EXEMPT`` entries pointing at a file that is no longer there.
+
+    For the reason ``stale_exemptions()`` gives: a deleted file leaves an entry
+    that silently covers whatever is written at that path next.
+    """
+    import pathlib
+
+    base = pathlib.Path(root) if root else pathlib.Path(__file__).resolve().parent.parent
+    return [f"{rel} (no such file)" for rel in DISK_SQLITE_EXEMPT
+            if not (base / rel).is_file()]
