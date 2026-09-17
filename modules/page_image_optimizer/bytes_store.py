@@ -61,7 +61,6 @@ import would move data that is about to be deleted.
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -276,12 +275,20 @@ def status() -> dict:
 
 
 def drop_table_for_tests() -> None:
-    """Between tests that share one database, as dbshim does for its own."""
-    global _ready, _init_retry_at
+    """Empty the table between tests that share one database.
+
+    No `global` here. An earlier draft reset the init cache as well and this
+    carried `global _ready, _init_retry_at` that assigned neither -- which is
+    what made the checker report both as unused, because a declaration with no
+    assignment is all it could see in this scope.
+    """
     if not _init():
         return
     try:
         with _engine.begin() as cx:
             cx.execute(delete(_table))
     except Exception:                                   # noqa: BLE001
+        # A fixture helper: a database that will not take the DELETE leaves
+        # rows the next test filters past by job id anyway, and raising here
+        # would fail the test for the teardown rather than the assertion.
         pass
