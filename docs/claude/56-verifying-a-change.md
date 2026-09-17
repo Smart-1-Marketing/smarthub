@@ -242,6 +242,12 @@ python3 test_wordpress_publish.py  # the other publishing path: a credential
                                    #   category matched exactly or created, and
                                    #   two pages wanting two alts on one image
                                    #   named rather than last-one-wins
+python3 test_outbound.py           # what this Hub may fetch: the check is
+                                   #   on the resolved address rather than the
+                                   #   hostname, every redirect hop is
+                                   #   re-checked, unresolvable is refused
+                                   #   rather than allowed, and the body is
+                                   #   capped on the bytes actually read
 python3 test_wordpress_schema.py   # the other half of that: one meta key
                                    #   spelled the same in Python and in PHP,
                                    #   a write read back because a 200 is not

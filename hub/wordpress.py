@@ -82,6 +82,7 @@ activity row. `_call()` builds the Authorization header and it goes no further.
 from __future__ import annotations
 
 import base64
+import json
 
 import os
 import re
@@ -90,7 +91,7 @@ import urllib.parse
 
 import requests
 
-from . import audit, blog_spec, cms_credentials
+from . import audit, blog_spec, cms_credentials, outbound
 
 TIMEOUT = 25
 # Bounded on both axes. A post is up to three calls (terms, media, the post
@@ -199,28 +200,29 @@ def discover(site_url: str) -> dict:
                          "application passwords over an unencrypted connection, "
                          "so the site needs HTTPS before it can be connected."}
     candidates: list[tuple[str, str]] = []
-    try:
-        r = requests.get(origin + "/", headers=UA, timeout=TIMEOUT,
-                         allow_redirects=True)
-        link = (r.links.get("https://api.w.org/") or {}).get("url")
-        if link:
-            candidates.append((link, "advertised in the site's own Link header"))
-        else:
-            m = _REST_LINK.search(r.text[:200000] or "")
-            if m:
-                candidates.append((m.group(1), "advertised in the page head"))
-    except requests.RequestException:
-        pass
+    # Through `hub/outbound.py`, because this is the first thing that happens
+    # to an address somebody typed into a form -- and the address it settles on
+    # is the one every later call sends the application password to.
+    r, why = outbound.fetch(origin + "/")
+    if r is None:
+        return {"error": f"Could not read that site. {why}"}
+    link = (r.headers.get("Link") or "")
+    m_link = re.search(r'<([^>]+)>;\s*rel="https://api\.w\.org/"', link)
+    if m_link:
+        candidates.append((m_link.group(1), "advertised in the site's own Link header"))
+    else:
+        m = _REST_LINK.search(r.text[:200000] or "")
+        if m:
+            candidates.append((m.group(1), "advertised in the page head"))
     candidates.append((origin + "/wp-json/", "the default address"))
     candidates.append((origin + "/?rest_route=/", "the plain-permalinks address"))
 
     tried = []
     for url, how in candidates:
         root = url if url.endswith("/") else url + "/"
-        try:
-            r = requests.get(root, headers=UA, timeout=TIMEOUT)
-        except requests.RequestException as exc:            # noqa: BLE001
-            tried.append(f"{root} ({type(exc).__name__})")
+        r, why = outbound.fetch(root)
+        if r is None:
+            tried.append(f"{root} ({why})")
             continue
         if r.status_code != 200:
             tried.append(f"{root} ({r.status_code})")
@@ -314,6 +316,15 @@ def _call(cred: dict, method: str, path: str, *, json_body=None,
     if filename:
         headers["Content-Disposition"] = f'attachment; filename="{filename}"'
     url = _endpoint(root, path)
+    # The guard matters most here, not least. This request carries the client's
+    # application password in an Authorization header, and the address comes
+    # from a stored REST root -- which was checked at connect time, and DNS
+    # moves afterwards. Sending a credential to whatever a hostname resolves to
+    # today is the thing worth refusing.
+    ok, why = outbound.safe_url(url)
+    if not ok:
+        raise Refused("This site's saved address is not one we send "
+                      f"credentials to. {why}")
     try:
         r = requests.request(method, url, headers=headers, params=params,
                              json=json_body, data=data, timeout=TIMEOUT)
@@ -360,11 +371,12 @@ def probe(client: str) -> dict:
     can_post = bool(caps.get("publish_posts") or caps.get("edit_posts"))
     can_media = bool(caps.get("upload_files"))
     namespaces: list[str] = []
-    try:
-        root = requests.get(cred["rest_root"], headers=UA, timeout=TIMEOUT)
-        namespaces = list((root.json() or {}).get("namespaces") or [])
-    except Exception:                                       # noqa: BLE001
-        namespaces = []
+    root, _why = outbound.fetch(cred.get("rest_root") or "")
+    if root is not None:
+        try:
+            namespaces = list((json.loads(root.text) or {}).get("namespaces") or [])
+        except Exception:                                   # noqa: BLE001
+            namespaces = []
     plugin = next((SEO_NAMESPACES[n] for n in namespaces if n in SEO_NAMESPACES), "")
     out = {
         "ok": True,
@@ -723,10 +735,9 @@ def _fetch_public(url: str) -> tuple[str, str]:
     different one. A logged-in request also bypasses most page caches, which
     is exactly the fault this is looking for.
     """
-    try:
-        r = requests.get(url, headers=UA, timeout=TIMEOUT, allow_redirects=True)
-    except requests.RequestException as exc:                # noqa: BLE001
-        return "", (f"Could not fetch that page ({type(exc).__name__}).")
+    r, why = outbound.fetch(url)
+    if r is None:
+        return "", why
     if r.status_code == 404:
         return "", ("That address answers 404 to somebody not signed in. A "
                     "draft or private page is not public, so nothing on it is "
@@ -957,8 +968,19 @@ def _author_id(cred: dict, name: str, probe_row: dict) -> tuple[int | None, str]
 
 # ------------------------------------------------------------------- media
 def _fetch_bytes(url: str) -> tuple[bytes, str]:
-    r = requests.get(url, headers=UA, timeout=TIMEOUT)
-    r.raise_for_status()
+    """The approved featured image, fetched from wherever it is stored.
+
+    Through the guard like everything else: this is a URL off a stored record
+    rather than one this code chose, and the bytes are about to be uploaded
+    into the client's own media library.
+    """
+    r, why = outbound.fetch(url)
+    if r is None:
+        raise Refused(why)
+    if r.status_code >= 400:
+        raise Refused(f"That image answered {r.status_code}.")
+    if r.truncated:
+        raise Refused("That image is larger than this uploads.")
     return r.content, (r.headers.get("Content-Type") or "").split(";")[0].strip()
 
 
