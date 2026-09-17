@@ -212,7 +212,7 @@ def scoreboard(limit: int = ROW_LIMIT) -> dict:
         return _unavailable(exc)
 
     try:
-        accounts = store.deployed_accounts(limit=500)
+        accounts = store.deployed_accounts()
     except Exception as exc:                             # noqa: BLE001
         return _unavailable(exc)
 
@@ -230,8 +230,7 @@ def scoreboard(limit: int = ROW_LIMIT) -> dict:
                 "empty": "no_accounts"}
 
     try:
-        runs = {r["customer_id"]: r
-                for r in store.latest_optimization_runs(limit=len(accounts) + 20)}
+        runs = {r["customer_id"]: r for r in store.latest_optimization_runs()}
     except Exception as exc:                             # noqa: BLE001
         return _unavailable(exc)
 

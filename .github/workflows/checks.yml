@@ -290,6 +290,13 @@ jobs:
         # proposal written before campaignType existed still reads as Search.
         run: python test_ads_pmax.py
 
+      - name: How the Ads Builder reads its live accounts
+        if: matrix.group == 1
+        # Uncapped and by key. A cap spent on PROPOSALS is a cap of roughly
+        # half as many accounts, and past it a scheduled client report went
+        # out with a blank client name.
+        run: python test_ads_account_reads.py
+
       - name: Recurring client Google Ads reports
         if: matrix.group == 1
         # Off until somebody turns it on, a month that could not be measured is
@@ -2792,6 +2799,13 @@ jobs:
       - name: Every module's work is attributable
         if: matrix.group == 6
         run: python3 test_activity_logging.py
+      # A reading that has to be COMPLETE and was a window instead: the image
+      # audit swept a fifth of the archive, "this module never logged" was
+      # decided off the newest 5000 rows, and a person's own inbox filtered a
+      # few hours of everybody's.
+      - name: Readings in hub/ that have to be complete
+        if: matrix.group == 6
+        run: python3 test_hub_capped_reads.py
       # Declared and never wired is the failure this repo has paid for most
       # often -- an ">>> INTEGRATION POINT <<<" naming three writers that have
       # never existed, `storage.manifest()` feeding an audit nobody built,
