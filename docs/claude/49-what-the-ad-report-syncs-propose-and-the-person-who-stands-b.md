@@ -357,3 +357,14 @@ catalog name, else a synonym that means one product on every platform --
 CTV, OTT, pre-roll, podcast, geofence, retargeting, PMax; never "search"
 or "video" alone) and says so; a hint is for the person reading the box,
 and the auto-mapper's own filings still read catalog names only.
+
+
+**The thresholds are tuned on people's decisions, not on a feeling about
+the queue.** `store.automap_scorecard()` counts, per rule family (the
+part of `auto_rule` before any `+`), the filings a person confirmed, the
+ones refused (`MapRefusal.rule`) and the ones still waiting, and the
+queue draws it as a card. A rule whose refusals keep pace with its
+confirmations is filing wrong more than it should, and that reading --
+not the size of the queue -- is what a bar (`FUZZY_FILE_SCORE`,
+`ALIAS_FILE_COUNT`, `ACCOUNT_MIN_CONFIRMED`) is raised on. An unreadable
+store is *not measured*, never a scorecard of noughts.
