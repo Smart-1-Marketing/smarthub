@@ -32,6 +32,7 @@ So each check below destroys something and asserts the data came back:
   14. update_json                    — read-change-write as ONE step,
                                        across threads AND across workers
 """
+import ast
 import json
 import os
 import re
@@ -678,6 +679,113 @@ check("with the stale-exemption half beside it",
       '("stale_sqlite_exemptions"' in _integ, True)
 
 
+# ------------------------------- 14b. the third question: bytes on the disk
+section("Bytes on the disk, which neither other check can see")
+# Driven the same way as the SQLite block above: put a file that is
+# unambiguously a binary store in front of the other two checks and watch both
+# answer "no". A .webp on the disk is not JSON and is not a database, and for
+# as long as this page asked only those two questions it was most of what this
+# suite produces sitting outside every check on it.
+_bin_src = ("def save(p, data):\n"
+            "    with open(p, 'wb') as fh:\n"
+            "        fh.write(data)\n")
+check("the JSON check cannot see a binary store",
+      js_scan._writes_json_to_disk(_bin_src), "")
+check("...nor can the SQLite one",
+      "sqlite3.connect(" in _bin_src, False)
+
+_bin_found = {h["file"] for h in js_scan.disk_binary_writers(REPO)}
+
+# Cross-checked against a cruder second reading, for the reason the SQLite
+# block gives: pinning today's filenames goes red when somebody does the work,
+# and asserting the set is empty is the shape that let the lead store hide.
+_bcrude = set()
+for _p in REPO.rglob("*.py"):
+    _rel = _p.relative_to(REPO).as_posix()
+    if any(x in _p.parts for x in js_scan.SCAN_SKIP_DIRS):
+        continue
+    if js_scan._disk_binary_exempt_reason(_rel):
+        continue
+    try:
+        _lines = _p.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        continue
+    if any(('"wb"' in ln or "'wb'" in ln or "write_bytes(" in ln)
+           and not ln.lstrip().startswith("#") for ln in _lines):
+        _bcrude.add(_rel)
+# Same one-file disagreement as its sibling, and asserted for the same reason:
+# this module's own prose names the spelling, in the docstring explaining why
+# the check is an AST walk. Excluding that file by name would throw away the
+# one piece of evidence on real source that the walk buys anything.
+check("the two readings differ on exactly one file",
+      sorted(_bcrude - _bin_found), ["hub/jsonstore.py"])
+check("...which is the module whose prose names the spelling",
+      '"wb"' in (REPO / "hub" / "jsonstore.py").read_text(
+          encoding="utf-8").split("def disk_binary_writers")[1][:1600], True)
+check("...and the check reads past it", "hub/jsonstore.py" in _bin_found, False)
+check("and otherwise they agree",
+      sorted(_bin_found), sorted(_bcrude - {"hub/jsonstore.py"}))
+
+check("each finding names the line it is on",
+      all(isinstance(h.get("line"), int) and h["line"] > 0
+          for h in js_scan.disk_binary_writers(REPO)), True)
+check("...and how the bytes are written, so the finding can be opened",
+      all(h.get("how") for h in js_scan.disk_binary_writers(REPO)), True)
+
+# The anti-neutering guard, which is what stops an empty list ever meaning
+# "the scan broke". A probe the scan MUST find, whatever this repo contains.
+# It also pins the two readings the AST walk has to tell apart: prose naming
+# the spelling is not a write, and "rb" is a read.
+_bprobe = Path(tempfile.mkdtemp(prefix="binary-probe-"))
+(_bprobe / "modules").mkdir()
+(_bprobe / "modules" / "prose_only.py").write_text(
+    '# this used to open(path, "wb") and no longer does\n'
+    "x = 1\n", encoding="utf-8")
+(_bprobe / "modules" / "reads_only.py").write_text(
+    "def f(p):\n"
+    "    with open(p, 'rb') as fh:\n"
+    "        return fh.read()\n", encoding="utf-8")
+(_bprobe / "modules" / "really_writes.py").write_text(
+    "def f(p, data):\n"
+    "    with open(p, 'wb') as fh:\n"
+    "        fh.write(data)\n", encoding="utf-8")
+(_bprobe / "modules" / "pathlib_writes.py").write_text(
+    "from pathlib import Path\n"
+    "def f(p, data):\n"
+    "    Path(p).write_bytes(data)\n", encoding="utf-8")
+check("prose is not a write, a read is not a write, and both real ones are found",
+      sorted(h["file"] for h in js_scan.disk_binary_writers(_bprobe)),
+      ["modules/pathlib_writes.py", "modules/really_writes.py"])
+shutil.rmtree(_bprobe, ignore_errors=True)
+
+# The exemptions are where this check's weight is: sixteen files write bytes
+# and fifteen of them are fine. Each reason is checked against the file rather
+# than assumed, the rule UNMIRRORED_EXEMPT's own comment gives -- an exemption
+# that outlives the code it covered is how a real finding later gets swallowed.
+check("every binary exemption says why, at length",
+      [rel for rel, why in js_scan.DISK_BINARY_EXEMPT.items()
+       if len(str(why).strip()) < 60], [])
+check("...and every one still names a file that exists",
+      js_scan.stale_binary_exemptions(REPO), [])
+# Each exempted file must actually contain the write it is excused for.
+# Without this an entry could excuse a file that never wrote bytes at all,
+# which reads as diligence and is noise.
+check("...and every exempted file really does write bytes",
+      sorted(rel for rel in js_scan.DISK_BINARY_EXEMPT
+             if not js_scan._binary_write_line(
+                 ast.parse((REPO / rel).read_text(encoding="utf-8",
+                                                  errors="ignore")))), [])
+
+# On the page, not just in a function -- a scanner nobody renders is the same
+# bug with an extra step.
+check("the structure panel asks the third question",
+      "disk_binary_writers(" in _ctx, True)
+check("and /api/integrity has a check of its own",
+      '("disk_binary"' in _integ, True)
+check("with the stale-exemption half beside it",
+      '("stale_binary_exemptions"' in _integ, True)
+
+
 # ------------------------------- 15. a resolved risk is not an amber finding
 section("The structure panel's own colors")
 # The client-key row is the *resolved* case: the columns still differ and
@@ -710,7 +818,19 @@ _want = [] if not _left else [(
     "medium",
     f"{_left} module opens its own SQLite file on the data disk" if _left == 1
     else f"{_left} modules open their own SQLite files on the data disk")]
-check("the panel names the work that is left, and nothing else", outstanding, _want)
+# The binary row, derived the same way and for the same reason. It is a
+# separate term rather than a third branch of the one above because the two
+# rows answer different questions and can be outstanding independently -- and
+# because folding them into one count would let a binary store hide behind a
+# SQLite one being fixed, which is the shape of every hole this file records.
+_bleft = len(js_scan.disk_binary_writers(REPO))
+_want += [] if not _bleft else [(
+    "medium",
+    (f"{_bleft} module writes bytes" if _bleft == 1
+     else f"{_bleft} modules write bytes")
+    + " to the data disk with no copy elsewhere")]
+check("the panel names the work that is left, and nothing else",
+      outstanding, sorted(_want))
 check("and nothing is high", [r for r in report["risks"]
                               if r["level"] == "high"], [])
 
