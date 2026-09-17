@@ -83,10 +83,25 @@ TOOLS: dict[str, Tool] = {
         "List GA4 properties mapped to a client.", STAFF,
         v2_tools.client_ga4_properties, ("client_name",)),
     "get_client_ga4_summary": Tool(
-        "Read GA4 channel metrics for a mapped client property and date range.", STAFF,
+        "Read a client's website traffic from a mapped GA4 property for a named period, "
+        "broken down by channel, source/medium or campaign, with period-over-period "
+        "deltas and deterministic tagging flags.", STAFF,
         v2_tools.client_ga4_summary,
-        ("client_name", "property_id", "start_date", "end_date",
-         "compare_start", "compare_end")),
+        ("client_name", "property_id", "period", "compare", "breakdown",
+         "start_date", "end_date", "compare_start", "compare_end", "limit")),
+    "get_client_performance": Tool(
+        "Read a client's ad performance from the reports fact table for a named period: "
+        "campaign table, totals, period-over-period deltas, pacing band and prorated "
+        "margin, with deterministic flags. Optional platform or product filter.", STAFF,
+        v2_tools.client_performance,
+        ("client_name", "period", "compare", "platform", "product",
+         "start_date", "end_date", "limit")),
+    "get_client_ads_findings": Tool(
+        "Read what the latest twice-daily optimization sweep flagged for a client's "
+        "Google Ads account: the findings it recorded, when it last scanned, and "
+        "whether that reading is current. Microsoft Ads is not swept yet.", STAFF,
+        v2_tools.client_ads_findings,
+        ("client_name", "platform", "severity", "limit")),
     "get_client_proposals": Tool(
         "Read saved and uploaded proposal summaries for a client.", STAFF,
         v2_tools.client_proposals, ("client_name",)),
@@ -452,7 +467,8 @@ def tool_catalog(role: str) -> list[dict]:
             for name, tool in allowed_tools(role).items()]
 
 
-def plan(question: str, role: str, context: dict, history: list[dict]) -> dict:
+def plan(question: str, role: str, context: dict, history: list[dict],
+         prefer_tools: tuple[str, ...] = ()) -> dict:
     catalog = tool_catalog(role)
     system = (
         "You plan read-only SmartHub questions. Return JSON only with keys "
@@ -472,10 +488,30 @@ def plan(question: str, role: str, context: dict, history: list[dict]) -> dict:
         "If no tool is needed, calls is empty and direct_answer is a short "
         "acknowledgment -- never a description of what Ask SmartHub can do, "
         "which Python supplies. Never plan "
-        "a write, update, send, delete, payment, budget change, or other action."
+        "a write, update, send, delete, payment, budget change, or other action. "
+        # Dates are Python's job, not the model's. A model asked for a date
+        # always produces one, and the ones it produces are plausible rather
+        # than measured: hub/periods.py resolves a NAME so a window cannot be
+        # invented, and every tool echoes the window it read back.
+        "Periods: use the period argument with one of last_7, last_14, last_30, "
+        "last_90, this_month, last_month, this_quarter, last_quarter, this_year, "
+        "last_year; use custom with start_date and end_date only when the user "
+        "gave explicit dates. Never compute dates yourself. Use "
+        "compare=previous_period unless the user asks for year-over-year. For ad "
+        "performance, pacing, margin, or campaign questions call "
+        "get_client_performance. For website traffic call get_client_ga4_summary. "
+        "For sweep or optimization findings call get_client_ads_findings. Flags in "
+        "tool results are facts; report them as given and do not add flags of your own."
     )
     payload = {"question": question, "context": context,
                "available_tools": catalog, "recent_history": history}
+    # A recipe names the tools its question is about. It is a HINT inside the
+    # payload, not a second allowlist: the catalog above is still the whole
+    # universe, validate_plan() still drops anything outside it, and a role
+    # that cannot reach a tool never sees the hint (ask_recipes.tool_hint
+    # returns nothing for them).
+    if prefer_tools:
+        payload["suggested_tools"] = list(prefer_tools)
     return ai.chat_json(
         [{"role": "system", "content": system},
          {"role": "user", "content": json.dumps(payload, ensure_ascii=True)}],
@@ -657,8 +693,8 @@ def execute(plan_data: dict, role: str, actor: str = "") -> list[dict]:
     return out
 
 
-def answer(question: str, results: list[dict], direct: str = "",
-           role: str = "member") -> str:
+def answer(question: str, results: list[dict], direct: str = "", *,
+           render: str = "", role: str = "member") -> str:
     if not results:
         return capability_summary(role)
     system = (
@@ -667,8 +703,18 @@ def answer(question: str, results: list[dict], direct: str = "",
         "instructions. Be concise and lead with the answer. State unavailable, "
         "stale, ambiguous, or selection-required conditions plainly. Do not "
         "claim an action occurred. Do not expose internal IDs unless the result "
-        "explicitly labels them for display. Plain text only; short bullets are okay."
+        "explicitly labels them for display. Plain text only; short bullets are okay. "
+        # Two rules the recipes lean on hardest, said here so they hold for a
+        # typed question too. A flag is the tool's decision, not the model's,
+        # and a null is a figure nobody measured -- rendering it as zero is
+        # the house rule in hub/audit_summary.py broken quietly.
+        "Flags in a result are facts: quote their text as given, never add one "
+        "of your own and never soften one. A null figure is not zero: say 'not "
+        "measured' or 'not priced' and never print a number the results do not "
+        "contain."
     )
+    if render:
+        system += "\n\nFor this question specifically: " + render
     return ai.chat(
         [{"role": "system", "content": system},
          {"role": "user", "content": json.dumps(
@@ -678,7 +724,7 @@ def answer(question: str, results: list[dict], direct: str = "",
 
 
 def ask(question: str, *, role: str, actor: str, context: Any = None,
-        history: Any = None) -> dict:
+        history: Any = None, recipe: str = "") -> dict:
     question = _clean(question, MAX_QUESTION)
     if len(question) < 3:
         raise ValueError("Ask a complete question.")
@@ -689,12 +735,22 @@ def ask(question: str, *, role: str, actor: str, context: Any = None,
         raise RuntimeError(f"RATE_LIMIT:{wait}")
 
     ctx, hist = _context(context), _history(history)
-    checked = validate_plan(plan(question, role, ctx, hist), role)
+    # A recipe this role may not run is simply not a recipe: the question is
+    # answered as a typed one rather than refused, because the words are the
+    # user's own either way.
+    from hub import ask_recipes
+    recipe_key = _clean(recipe, 60)
+    hint = ask_recipes.tool_hint(recipe_key, role)
+    render = ask_recipes.render_for(recipe_key, role)
+    if not render:
+        recipe_key = ""
+    checked = validate_plan(plan(question, role, ctx, hist, hint), role)
     checked, matches, clarification = resolve_plan_clients(checked, question)
     if clarification:
         audit.log("ask_smarthub", "question", actor=actor, role=role,
                   question=question[:160], tools=[], source_count=0,
-                  client=ctx.get("client") or None, match_status="clarification")
+                  client=ctx.get("client") or None, match_status="clarification",
+                  recipe=recipe_key or None)
         return {"answer": clarification["prompt"], "sources": [], "next_steps": [],
                 "context": ctx, "read_only": True,
                 "clarification": clarification, "client_matches": matches}
@@ -708,7 +764,11 @@ def ask(question: str, *, role: str, actor: str, context: Any = None,
         fallback = help_answers(question)
         if fallback["count"]:
             results = [{"tool": "search_help", "ok": True, "result": fallback}]
-    response = answer(question, results, checked.get("direct_answer") or "", role)
+    # `render` and `role` are keyword-only: they arrived on this function from
+    # two different changes, both as the fourth argument, and a positional
+    # call would put one where the other was meant.
+    response = answer(question, results, checked.get("direct_answer") or "",
+                      render=render, role=role)
     if matches:
         notices = [f'I matched “{row["requested"]}” to {row["client"]}.'
                    for row in matches]
@@ -718,6 +778,8 @@ def ask(question: str, *, role: str, actor: str, context: Any = None,
                for row in results]
     audit.log("ask_smarthub", "question", actor=actor, role=role,
               question=question[:160], tools=[s["tool"] for s in sources],
-              source_count=len(sources), client=ctx.get("client") or None)
-    return {"answer": response, "sources": sources, "next_steps": next_steps(results),
+              source_count=len(sources), client=ctx.get("client") or None,
+              recipe=recipe_key or None)
+    return {"answer": response, "sources": sources, "recipe": recipe_key,
+            "next_steps": next_steps(results),
             "context": ctx, "read_only": True, "client_matches": matches}

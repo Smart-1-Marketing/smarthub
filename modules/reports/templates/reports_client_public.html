@@ -66,6 +66,10 @@
   td.sub{color:var(--ink3);font-size:13px}
   td.url{word-break:break-all;font-size:13px}
   .card.soon{background:var(--accent-soft);border-color:transparent}
+ .summary{background:#fff;border:1px solid var(--line,#e2e8f0);border-radius:12px;
+   padding:16px 18px;margin:0 0 16px}
+ .summary h2{font-size:18px;margin:0 0 8px}
+ .summary p{margin:0;line-height:1.6;color:#334155;white-space:pre-wrap}
 </style>
 </head>
 {% macro trend_svg(series, field, unit, svg_id, tip_id) %}
@@ -127,6 +131,17 @@
     <div class="tile"><div class="k">{{ t.label }}</div><div class="v">{{ t.display }}</div></div>
     {% endfor %}
   </section>
+
+  {# The summary a Smart 1 person wrote up and saved for this month. This
+     page renders the saved words and asks for none: nothing here reaches an
+     AI call, and nothing appears that a person did not read first. Absent
+     when none was saved, rather than a sentence about why. #}
+  {% if a.exec_summary and a.exec_summary.text %}
+  <section class="summary" aria-labelledby="summary-h">
+    <h2 id="summary-h">Summary</h2>
+    <p>{{ a.exec_summary.text }}</p>
+  </section>
+  {% endif %}
 
   <div class="grid">
     <div class="card">

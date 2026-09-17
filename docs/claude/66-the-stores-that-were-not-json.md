@@ -22,8 +22,11 @@ Both were found by somebody grepping. Neither was on any list, on any panel, or
 in any audit. The structure panel read "one store left to move" with two whole
 databases sitting beside it.
 
-The first moved to the shared engine in `docs/claude/63`, while this change was
-open. The second is still there, and is what the check reports today.
+**Both moved while this change was open** — google_finder's tokens in
+`docs/claude/63`, io_builder's delivery lock in `docs/claude/65` — so the check
+reports none today. That is the right answer now and was the wrong answer for
+the whole time it could not see them, which is the distinction the rest of this
+file is about.
 
 ## Why it is `sqlite3.connect` and nothing else
 
@@ -77,6 +80,26 @@ assumed — `stale_sqlite_exemptions()` is the other half, for the same reason
 goes on covering whatever is written there next, and the audit stays green
 while doing it.
 
+## An empty answer, from a check that has been empty for the wrong reason
+
+`unmirrored_json_writers()` answered **nothing** while `hub/leads.py` held every
+lead the business had captured. This check answers nothing today because there
+is nothing left. The two are indistinguishable from the number alone, and the
+number is all a panel shows.
+
+So the guard is not a count. `test_jsonstore.py` keeps a **probe** — a two-file
+tree, one whose prose names `sqlite3.connect` and one that really calls it — and
+asserts the scan finds exactly the second. That holds whatever this repo
+contains, including nothing.
+
+Being exact about which guard does that work, because "we have two" is how one
+of them stops being checked: neutering the scan to `return []` turns **exactly
+one** check red, and it is the probe. The crude cross-check below survives it,
+because with both stores moved the crude reading is down to this file alone and
+the assertion is about a difference that is empty either way. It earns its place
+on the AST question — swapping the walk for the substring turns it red — and not
+on this one. Two guards that would go quiet together are one guard.
+
 ## The assertion that has to survive the fix
 
 The panel's outstanding set is derived from the live scan, not transcribed:
@@ -93,12 +116,19 @@ broke, which is the exact shape that let the lead store hide. This way the row
 has to be there while the work is, and gone when it is done, and neither is
 something a person retypes.
 
-**That was tested by events rather than by argument.** `docs/claude/63` merged
-while this change was open, taking google_finder off its file. The panel went
-from "2 modules open their own SQLite files" to "1 module opens its own SQLite
-file", naming `io_builder`, and the 157 checks passed **with no edit to the
-test at all**. A transcribed list would have gone red for the one reason a
-check never should: somebody did the work.
+**That was tested by events rather than by argument, twice.**
+`docs/claude/63` merged while this change was open and took google_finder off
+its file: the panel went from "2 modules open their own SQLite files" to "1
+module opens its own SQLite file", naming `io_builder`, with **no edit to the
+test at all**. Then `docs/claude/65` took io_builder, and the panel row went
+away entirely — again with no edit.
+
+One assertion did go red on that second one, and it deserved to: a
+`len(found) > 0` line written while both stores were outstanding. It was
+demanding a finding, so it went red because somebody did the work. It is gone,
+and the probe above is what replaced it. A transcribed list would have done the
+same thing on both occasions, and there would have been nothing to replace it
+with.
 
 ## Render environment
 

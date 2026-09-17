@@ -541,7 +541,24 @@ check("...which is the module whose prose names the call",
 check("...and the check reads past it", "hub/jsonstore.py" in _sqlite_found, False)
 check("and otherwise they agree",
       sorted(_sqlite_found), sorted(_crude - {"hub/jsonstore.py"}))
-check("and it is not reporting nothing", len(_sqlite_found) > 0, True)
+# There is deliberately no `len(_sqlite_found) > 0` here, and the reason is the
+# whole subject of docs/claude/58. That assertion was in this file while both
+# stores were outstanding, and it would now be the wrong one: docs/claude/65
+# took the last of them, so an empty list is the true answer and a check
+# demanding a finding would go red because somebody did the work.
+#
+# What an empty list may NOT be allowed to mean is "the scan broke". That is
+# the failure the lead store hid behind, one screen further along. So the guard
+# moves off the count and onto the probe directly below, which puts a file the
+# scan MUST find in front of it whatever this repo happens to contain.
+#
+# The probe is doing that alone, which is worth being exact about rather than
+# claiming the pair. Neutering the scan to `return []` turns exactly ONE check
+# red, and it is the probe. The crude cross-check above survives it, because
+# with both stores moved `_crude` is down to this file and the assertion is
+# about a difference that is still empty either way. It earns its place on the
+# AST question -- swapping the walk for the substring turns it red -- and not
+# on this one. Two guards that would both go quiet together are one guard.
 
 # Every entry names a line, because "io_builder has one somewhere" is not a
 # finding somebody can open.

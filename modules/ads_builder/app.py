@@ -159,7 +159,19 @@ def page_campaigns():
 
 @app.get("/optimization")
 def page_optimization():
-    return render_template("ads_optimization.html", status=google_ads.connection_status(store))
+    # The chips come from hub/ask_recipes.py. This module has its own Jinja
+    # environment and cannot see the hub globals, so the list is built here
+    # and passed in as plain data; a Hub that could not be imported costs the
+    # page its chips and nothing else.
+    try:
+        from hub import ask_recipes
+        chips = ask_recipes.staff_chips(
+            "ads_optimization_google", (request.args.get("client") or "")[:180])
+    except Exception:                                   # noqa: BLE001
+        chips = []
+    return render_template("ads_optimization.html",
+                           status=google_ads.connection_status(store),
+                           ask_chips=chips, placement="ads_optimization_google")
 
 
 @app.get("/approvals")

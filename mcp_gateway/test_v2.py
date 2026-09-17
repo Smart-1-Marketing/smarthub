@@ -222,6 +222,8 @@ class ToolMetadataTests(unittest.TestCase):
                 "get_client_ga4_summary",
                 "get_client_proposals",
                 "get_client_insertion_orders",
+                "get_client_performance",
+                "get_client_ads_findings",
             },
         )
         for tool in tools:
