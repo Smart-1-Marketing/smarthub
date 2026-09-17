@@ -9,7 +9,14 @@ import type { Project, ProjectStore } from './projects';
 type ProofCell = { conceptId: string; platform: string; size: string; file: string; fileHash: string; inputHash: string };
 export type ClientProof = { token: string; version: number; projectId: string; reviewId: string; revision: string; client: string;
   campaign: string; createdAt: string; cells: ProofCell[]; status: 'ready'|'sent'|'changes-requested'|'approved'|'complete';
-  sentAt?: string; messageId?: string; decisionAt?: string; notes?: string; size?: string; download?: string };
+  sentAt?: string; messageId?: string; decisionAt?: string; notes?: string; size?: string; download?: string;
+  /** Notes the client left on single ads while looking, before any decision. */
+  comments?: ProofComment[] };
+/** One note from the client about one ad on the proof, or about the set when `cell` is blank. */
+export type ProofComment = { id: string; cell: string; size: string; text: string; at: string };
+export const COMMENT_LIMIT = 40;
+export const COMMENT_LENGTH = 1000;
+const cellKey = (c: { conceptId: string; platform: string; size: string }) => `${c.conceptId}/${c.platform}/${c.size}`;
 const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 const proofFile = (out: string, token: string) => {
   if (!/^[a-f0-9-]{36}$/.test(token)) throw new Error('Invalid proof link.');
@@ -83,6 +90,43 @@ export function decideClientProof(out:string,root:string,store:ProjectStore,toke
   proof.status='approved';proof.decisionAt=new Date().toISOString();save(out,proof);
   finishProofDelivery(out,store,proof);return getClientProof(out,token);
 }
+/**
+ * A note from the client about one ad.
+ *
+ * "Request changes" was the only way a client could say anything, and it
+ * closes the proof: one note, then a new version. Looking through eleven
+ * sizes, people notice things one at a time -- the 728x90 crops the logo, the
+ * story is fine -- and a single box at the bottom loses which ad each remark
+ * was about. A note lands on the ad it was written under, stays with the
+ * proof, and is written onto the project record so the build screen shows it
+ * on that size. It is not a decision: the proof stays open for the approve or
+ * the change request that follows.
+ */
+export function commentOnClientProof(out:string,store:ProjectStore,token:string,body:any): ProofComment {
+  const proof=getClientProof(out,token), project=store.get(proof.projectId);
+  if(!project)throw new Error('This campaign is unavailable.');
+  if(proof.status==='complete'||proof.status==='approved')throw new CampaignConflict('This version has been approved, so notes on it are closed. Ask Smart 1 if something needs changing.');
+  const text=String(body?.text||'').replace(/\s+/g,' ').trim();
+  if(!text||text.length>COMMENT_LENGTH)throw Object.assign(new Error(`Write a note of up to ${COMMENT_LENGTH} characters.`),{statusCode:400});
+  const cell=String(body?.cell||'');
+  const found=cell?proof.cells.find(c=>cellKey(c)===cell):null;
+  if(cell && !found)throw Object.assign(new Error('Choose an ad from this proof.'),{statusCode:400});
+  const comments=proof.comments??[];
+  if(comments.length>=COMMENT_LIMIT)throw Object.assign(new Error('This proof has all the notes it can hold. Use Request changes for the rest.'),{statusCode:400});
+  const note:ProofComment={id:randomUUID(),cell,size:found?found.size:'',text,at:new Date().toISOString()};
+  proof.comments=[...comments,note];save(out,proof);
+  project.notes.push(`[${note.at}] Client note on ${found?found.size+' ('+found.platform+')':'the whole set'}, version ${proof.version}: ${text}`);
+  store.save(project);
+  return note;
+}
+/** Every proof in the store, grouped by project, read once for a list view. */
+export function clientProofsByProject(out:string): Map<string,ClientProof[]> {
+  const dir=path.join(out,'client-proofs'); const byProject=new Map<string,ClientProof[]>();
+  if(!fs.existsSync(dir))return byProject;
+  for(const token of fs.readdirSync(dir)){try{const p=getClientProof(out,token);const rows=byProject.get(p.projectId)??[];rows.push(p);byProject.set(p.projectId,rows);}catch{/* not a proof */}}
+  for(const rows of byProject.values())rows.sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+  return byProject;
+}
 export function finishProofDelivery(out:string,store:ProjectStore,proof:ClientProof) {
   if(!['approved','complete'].includes(proof.status))return;
   if(proof.status==='complete' && store.get(proof.projectId)?.delivered?.some(d=>d.zipUrl===proof.download))return;
@@ -106,6 +150,11 @@ export function recoverProofDeliveries(out:string,store:ProjectStore) {
 }
 export function proofDownload(out:string,token:string) {const p=getClientProof(out,token);if(p.status!=='complete')throw new Error('Final files are not ready.');return path.join(path.dirname(proofFile(out,token)),'approved.zip');}
 export function clientProofHtml(proof:ClientProof) {
-  const cells=proof.cells.map(c=>`<article><h2>${esc(c.size)} · ${esc(c.platform)}</h2><img alt="${esc(c.conceptId+' '+c.size)}" src="data:image/${path.extname(c.file)==='.png'?'png':'jpeg'};base64,${fs.readFileSync(c.file).toString('base64')}"></article>`).join('');
-  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(proof.client)} — Review your ads</title><style>body{font:17px/1.5 system-ui;margin:0;background:#f5f7fa;color:#192631}main{max-width:1100px;margin:auto;padding:24px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px}article{background:white;padding:16px;border-radius:12px}img{max-width:100%;max-height:350px;object-fit:contain}button,select,textarea{font:inherit;padding:12px;max-width:100%}textarea{display:block;width:90%;min-height:100px}button{cursor:pointer;margin:12px 8px 0 0}#status{padding:16px;background:white}label{display:block;margin-top:12px}</style><main><h1>${esc(proof.client)}: your ad proof</h1><p>${esc(proof.campaign)} · Version ${proof.version} · ${esc(new Date(proof.createdAt).toLocaleDateString())}</p><p>Review the full set below. Approve this version or tell Smart 1 what to change. No sign-in is needed.</p><p id="status" role="status">${esc(proof.status.replace(/-/g,' '))}</p><div class="grid">${cells}</div><section id="actions"><h2>Your decision</h2><button id="approve">Approve this ad set</button><details><summary>Request changes</summary><label>Which ad? <select id="size"><option value="">The whole set</option>${proof.cells.map(c=>`<option value="${esc(c.conceptId+'/'+c.platform+'/'+c.size)}">${esc(c.conceptId+' · '+c.size+' · '+c.platform)}</option>`).join('')}</select></label><label>What should change?<textarea id="notes" maxlength="3000"></textarea></label><button id="changes">Send change request</button></details></section><p id="download">${proof.download?`<a href="${esc(proof.download)}">Download approved final files</a>`:''}</p></main><script>(function(){const status=document.getElementById('status'),buttons=[...document.querySelectorAll('button')];async function decide(action){buttons.forEach(b=>b.disabled=true);status.textContent='Saving your decision…';try{const r=await fetch('/client-proof/${proof.token}/decision',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,notes:document.getElementById('notes').value,size:document.getElementById('size').value})});const b=await r.json();if(!r.ok)throw Error(b.error||'Please try again.');status.textContent=b.status==='complete'?'Approved. Your final files are ready.':'Thank you. Smart 1 will review your requested changes.';document.getElementById('actions').hidden=true;if(b.download){const a=document.createElement('a');a.href=b.download;a.textContent='Download approved final files';document.getElementById('download').replaceChildren(a);}}catch(e){status.textContent=e.message;buttons.forEach(b=>b.disabled=false);}}document.getElementById('approve').onclick=()=>decide('approve');document.getElementById('changes').onclick=()=>decide('changes');if(${JSON.stringify(['complete','approved','changes-requested'].includes(proof.status))})document.getElementById('actions').hidden=true;})();</script></html>`;
+  const open=!['complete','approved'].includes(proof.status);
+  const notesFor=(key:string)=>(proof.comments??[]).filter(n=>n.cell===key);
+  const noteList=(key:string)=>`<ul class="notes" data-notes="${esc(key)}">${notesFor(key).map(n=>`<li>${esc(n.text)}</li>`).join('')}</ul>`;
+  const noteBox=(key:string,what:string)=>open?`<details class="note"><summary>Add a note about ${esc(what)}</summary><textarea maxlength="${COMMENT_LENGTH}" data-note-for="${esc(key)}" placeholder="What you noticed on this ad"></textarea><button type="button" data-send-note="${esc(key)}">Send note</button></details>`:'';
+  const cells=proof.cells.map(c=>{const key=cellKey(c);return `<article data-cell="${esc(key)}"><h2>${esc(c.size)} · ${esc(c.platform)}</h2><img alt="${esc(c.conceptId+' '+c.size)}" src="data:image/${path.extname(c.file)==='.png'?'png':'jpeg'};base64,${fs.readFileSync(c.file).toString('base64')}">${noteList(key)}${noteBox(key,'this ad')}</article>`;}).join('');
+  const setNotes=`<section id="setnotes"><h2>Notes on the set</h2><p>Each ad above has its own note box, so a remark stays with the ad it is about. This one is for the set as a whole.</p>${noteList('')}${noteBox('','the whole set')}</section>`;
+  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(proof.client)} — Review your ads</title><style>body{font:17px/1.5 system-ui;margin:0;background:#f5f7fa;color:#192631}main{max-width:1100px;margin:auto;padding:24px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px}article{background:white;padding:16px;border-radius:12px}img{max-width:100%;max-height:350px;object-fit:contain}button,select,textarea{font:inherit;padding:12px;max-width:100%}textarea{display:block;width:90%;min-height:100px}button{cursor:pointer;margin:12px 8px 0 0}#status{padding:16px;background:white}label{display:block;margin-top:12px}.notes{list-style:none;padding:0;margin:8px 0 0}.notes li{background:#eef3f8;border-radius:8px;padding:8px 10px;margin-top:6px;font-size:15px}.notes li::before{content:"Your note: ";color:#4a5c6a}.note summary{cursor:pointer;color:#1f5fbf;margin-top:10px}.note textarea{min-height:70px}.note .sent{color:#1a7f4b;font-size:14px}</style><main><h1>${esc(proof.client)}: your ad proof</h1><p>${esc(proof.campaign)} · Version ${proof.version} · ${esc(new Date(proof.createdAt).toLocaleDateString())}</p><p>Review the full set below. Approve this version or tell Smart 1 what to change. No sign-in is needed.</p><p id="status" role="status">${esc(proof.status.replace(/-/g,' '))}</p><div class="grid">${cells}</div>${setNotes}<section id="actions"><h2>Your decision</h2><button id="approve">Approve this ad set</button><details><summary>Request changes</summary><label>Which ad? <select id="size"><option value="">The whole set</option>${proof.cells.map(c=>`<option value="${esc(c.conceptId+'/'+c.platform+'/'+c.size)}">${esc(c.conceptId+' · '+c.size+' · '+c.platform)}</option>`).join('')}</select></label><label>What should change?<textarea id="notes" maxlength="3000"></textarea></label><button id="changes">Send change request</button></details></section><p id="download">${proof.download?`<a href="${esc(proof.download)}">Download approved final files</a>`:''}</p></main><script>(function(){const status=document.getElementById('status'),buttons=[...document.querySelectorAll('button')];async function decide(action){buttons.forEach(b=>b.disabled=true);status.textContent='Saving your decision…';try{const r=await fetch('/client-proof/${proof.token}/decision',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,notes:document.getElementById('notes').value,size:document.getElementById('size').value})});const b=await r.json();if(!r.ok)throw Error(b.error||'Please try again.');status.textContent=b.status==='complete'?'Approved. Your final files are ready.':'Thank you. Smart 1 will review your requested changes.';document.getElementById('actions').hidden=true;if(b.download){const a=document.createElement('a');a.href=b.download;a.textContent='Download approved final files';document.getElementById('download').replaceChildren(a);}}catch(e){status.textContent=e.message;buttons.forEach(b=>b.disabled=false);}}document.getElementById('approve').onclick=()=>decide('approve');document.getElementById('changes').onclick=()=>decide('changes');document.querySelectorAll('[data-send-note]').forEach(btn=>{btn.onclick=async()=>{const key=btn.getAttribute('data-send-note'),box=document.querySelector('[data-note-for="'+key.replace(/"/g,'\\"')+'"]'),text=(box.value||'').trim();if(!text){box.focus();return;}btn.disabled=true;btn.textContent='Sending…';try{const r=await fetch('/client-proof/${proof.token}/comment',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({cell:key,text})});const b=await r.json();if(!r.ok)throw Error(b.error||'Please try again.');const li=document.createElement('li');li.textContent=b.text;document.querySelector('[data-notes="'+key.replace(/"/g,'\\"')+'"]').appendChild(li);box.value='';btn.textContent='Send note';btn.insertAdjacentHTML('afterend',' <span class="sent">Sent to Smart 1.</span>');}catch(e){btn.textContent='Send note';alert(e.message);}finally{btn.disabled=false;}};});if(${JSON.stringify(['complete','approved','changes-requested'].includes(proof.status))})document.getElementById('actions').hidden=true;})();</script></html>`;
 }

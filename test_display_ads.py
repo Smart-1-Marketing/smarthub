@@ -2284,6 +2284,136 @@ def test_the_second_list_smoother_and_bulletproof():
     check("it fails on any page error", "pageerror" in e2e.read_text())
 
 
+def test_the_third_list_seven_more():
+    """The seven after the second list: a size's look adopted by the set, the
+    client's notes per ad, hold-to-see-before, presets on the start form, the
+    arrow keys, a health line per campaign, and a nightly run through the
+    Hub."""
+    screen = BUILD_HTML.read_text()
+    said = strip_comments(screen)
+    carry = (MODULE / "src" / "carry.ts").read_text()
+    server = (MODULE / "src" / "server.ts").read_text()
+    workflow_ts = (MODULE / "src" / "workflow.ts").read_text()
+    proxy = (ROOT / "hub" / "ad_builder_proxy.py").read_text()
+    link = (ROOT / "hub" / "ad_builder_link.py").read_text()
+    form = (ROOT / "hub" / "templates" / "ad_builder_start.html").read_text()
+    projects = (MODULE / "public" / "projects.html").read_text()
+    e2e = (MODULE / "tests-browser" / "build.e2e.ts").read_text()
+    nightly = ROOT / ".github" / "workflows" / "nightly-browser.yml"
+
+    # 1. Use this size's look on every size
+    check("the carry can adopt a size", "export function adoptLook" in carry)
+    check("it is the server's reading, not a browser mirror",
+          "route === 'POST /api/concept/adopt-look'" in server and "'/api/concept/adopt-look'" in said)
+    check("the screen offers it in Text Boxes", 'id="adoptLook"' in said)
+    check("and asks before replacing another size's hand work",
+          "Adjustments made by hand on" in said and "Undo puts it all back" in said)
+    check("a layout that cannot draw every size stays per size",
+          "layoutMissing" in carry and "does not draw" in said)
+
+    # 2. The client's notes, one ad at a time
+    check("a note lands on the proof", "export function commentOnClientProof" in workflow_ts)
+    check("and is not a decision", "a note is not a decision" in workflow_ts.lower() or "Not\n      // a decision" in server or "a note is not a decision" in server.lower() or "the proof stays where it is" in server)
+    check("the proof page has a box under each ad", "data-send-note" in workflow_ts and "Add a note about" in workflow_ts)
+    check("the route is public through the Hub, like the decision",
+          "(decision|download|comment)" in proxy and "(decision|download|comment)" in server)
+    check("the build screen shows them under the size's checks", "function clientNotesBlock" in said and "The client said" in said)
+    check("and marks the size on the rail", "The client left a note on this size" in said)
+    check("the workflow API carries them", "comments:p.comments??[]" in server)
+
+    # 3. Hold to see before
+    check("there is a before chip", 'id="beforeBtn"' in screen and "Hold to see before" in screen)
+    check("it is a hold, not a mode", "'pointerdown'" in said and "'pointerup'" in said)
+    check("the baseline moves forward on save", "state.baseline = {};" in said and "refreshBefore();" in said)
+    check("and is per concept and size", "function baselineKey" in said)
+
+    # 4. Presets on the start form
+    check("the Hub lists the renderer's presets", "def saved_presets" in link and '"/api/presets"' in link)
+    check("and can start from one", "def start_from_preset" in link and "/generate" in link)
+    check("a preset under the wrong client is refused", "That preset belongs to" in link)
+    check("the form offers them", 'name="preset"' in form and "Start from a saved preset" in form)
+    check("the brief fields step aside for a preset", "data-fresh" in form and "site.required = !on" in form)
+    check("the slots come from the preset's own fields", "data-fields=" in form and "preset_" in form)
+
+    # 5. The arrow keys
+    check("arrow keys nudge", "/^Arrow(Up|Down|Left|Right)$/" in said)
+    check("Shift is fast and Alt is slow", "if (e.shiftKey) state.speed = 'fast'; else if (e.altKey) state.speed = 'slow';" in said)
+    check("a text field keeps its own arrows", "tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'" in said)
+    check("the last pad pressed is what the keys move", "state.lastPad" in said)
+    check("the canvas can take focus for it", 'id="canvas" tabindex="0"' in screen)
+
+    # 6. A health line per campaign
+    check("there is a health module", (MODULE / "src" / "health.ts").exists())
+    check("the list carries it", "campaignHealth(p, reviews.get(p.projectId)" in server)
+    check("the directories are read once, not per row", "latestReviews(OUT)" in server and "clientProofsByProject(OUT)" in server)
+    check("the page draws it", 'class="chealth ' in projects)
+    health = (MODULE / "src" / "health.ts").read_text()
+    check("absent data is named, not zeroed", "'No review yet'" in health)
+
+    # 7. A nightly run through the Hub
+    check("there is a nightly workflow", nightly.exists())
+    wf = nightly.read_text() if nightly.exists() else ""
+    check("it is scheduled", "schedule:" in wf and "cron:" in wf)
+    check("it boots the Hub in front of the renderer", "gunicorn wsgi:application" in wf and "AD_BUILDER_URL" in wf)
+    check("and signs in through the real login", "E2E_HUB_PASSWORD" in wf and "async function hubLogin" in e2e)
+    check("the test can drive a live screen", "E2E_BASE_URL" in e2e and "E2E_REQUEST" in e2e)
+    check("the staging job waits for a Hub to be named", "vars.STAGING_HUB_URL != ''" in wf)
+    check("and says never to point it at production", "Never point it at production" in wf)
+    check("one seeding for the test and the workflow", "tests-browser/seed.ts" in wf and "from './seed'" in e2e)
+
+
+def test_a_preset_starts_a_build_from_the_hub():
+    """The Hub's start form can begin from a saved preset: the renderer's
+    generate route is what writes the campaign, only the preset's own slots
+    travel, and a preset saved under another client is refused."""
+    import importlib
+    link = importlib.import_module("hub.ad_builder_link")
+    calls = []
+
+    def fake_api(method, path, payload=None, timeout=(10, 60)):
+        calls.append((method, path, payload))
+        if path == "/api/presets?client=Acme%20Solar":
+            return True, {"presets": [
+                {"id": "pre-1", "name": "Spring look", "client": "Acme Solar", "layoutFamily": "T01",
+                 "platforms": ["google"], "fields": [{"role": "headline", "label": "Headline", "fallback": "Old"}]},
+                {"id": "", "name": "no id"}, "junk"]}
+        if path == "/api/presets/pre-1":
+            return True, {"preset": {"id": "pre-1", "client": "Acme Solar",
+                                     "fields": [{"role": "headline"}, {"role": "offer"}]}}
+        if path == "/api/presets/pre-1/generate":
+            return True, {"requestId": "AD-2026-PRESET1"}
+        if path == "/api/presets/gone":
+            return False, {"error": "No such preset"}
+        return False, {"error": "unexpected " + path}
+
+    real = link._api
+    link._api = fake_api
+    try:
+        rows = link.saved_presets("Acme Solar")
+        check("the Hub lists the renderer's presets for the client, exact match asked of the renderer",
+              len(rows) == 1 and rows[0]["id"] == "pre-1" and rows[0]["fields"][0]["label"] == "Headline", rows)
+        res = link.start_from_preset(preset_id="pre-1", client_name="Acme Solar", campaign="Summer sale",
+                                     values={"headline": " New line ", "offer": "20% off", "bogus": "x"}, actor="t")
+        check("a preset starts a build through the renderer's generate route",
+              res.get("ok") and res["request_id"] == "AD-2026-PRESET1" and res["client"] == "Acme Solar", res)
+        gen = [c for c in calls if c[1] == "/api/presets/pre-1/generate"]
+        check("only the preset's own slots travel, trimmed",
+              gen and gen[0][2] == {"campaignName": "Summer sale", "values": {"headline": "New line", "offer": "20% off"}},
+              gen)
+        wrong = link.start_from_preset(preset_id="pre-1", client_name="Other Co", campaign="x", values={})
+        check("a preset under another client is refused, naming the owner",
+              not wrong.get("ok") and "belongs to Acme Solar" in wrong.get("error", ""), wrong)
+        gone = link.start_from_preset(preset_id="gone", client_name="Acme Solar", campaign="x", values={})
+        check("a preset that is no longer there says so", not gone.get("ok") and "no longer there" in gone.get("error", ""), gone)
+        odd = link.start_from_preset(preset_id="../x", client_name="Acme Solar", campaign="x", values={})
+        check("an id the renderer would not have made never reaches it",
+              not odd.get("ok") and not any(c[1].startswith("/api/presets/..") for c in calls), odd)
+        noname = link.start_from_preset(preset_id="pre-1", client_name="Acme Solar", campaign="  ", values={})
+        check("a campaign name is still required", not noname.get("ok") and "campaign name" in noname.get("error", ""), noname)
+    finally:
+        link._api = real
+
+
 def main():
     print(__doc__.strip().splitlines()[0])
     print()

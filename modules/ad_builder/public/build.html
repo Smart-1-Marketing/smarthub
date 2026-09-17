@@ -198,6 +198,18 @@
     border-radius: 5px; padding: 5px 10px; font-size: 12px; cursor: pointer;
   }
   .chip[aria-pressed="true"] { background: #101318; border-color: #101318; }
+  #beforeBtn { user-select: none; touch-action: none; }
+  #canvas:focus { outline: 2px solid var(--signal); outline-offset: 2px; }
+  .adoptrow { display: flex; flex-direction: column; gap: 4px; margin: 0 0 10px; padding: 8px 10px;
+    border: 1px dashed var(--line); border-radius: 6px; }
+  .adoptrow span { font-size: 11px; color: var(--ink-2); line-height: 1.4; }
+  .qa .cnotes { margin: 0 0 10px; padding: 8px 10px; border-radius: 6px; background: rgba(37,99,235,.08);
+    border-left: 3px solid var(--signal); }
+  .qa .cnotes h3 { margin: 0 0 4px; font-size: 11px; }
+  .qa .cnotes ul { margin: 0; padding: 0; list-style: none; }
+  .qa .cnotes li { font-size: 12px; line-height: 1.4; margin-top: 4px; }
+  .qa .cnotes .cnwho { display: block; font-size: 10px; color: var(--ink-2); letter-spacing: .04em; text-transform: uppercase; }
+  .rail .cn, #rail .cn { display: inline-block; margin-left: 5px; color: var(--signal); font-size: 11px; cursor: help; }
   .dim { position: relative; color: #22262C; font-size: 12px; }
 
   /* ---------- size rail ---------- */
@@ -809,9 +821,10 @@
 <div class="bench" id="bench">
   <div class="col left" id="controls"></div>
   <div class="stage">
-    <div class="canvas" id="canvas"><img id="preview" alt="Preview"></div>
+    <div class="canvas" id="canvas" tabindex="0" title="Arrow keys move the last thing you nudged. Shift is fast, Alt is slow."><img id="preview" alt="Preview"></div>
     <div class="dim mono" id="dims">—</div>
     <div class="stagebar">
+      <button class="chip" id="beforeBtn" aria-pressed="false" style="display:none" title="Hold to see this size as it was last saved. Let go to come back.">Hold to see before</button>
       <button class="chip" id="squint" aria-pressed="false">Squint</button>
       <button class="chip" id="onDark" aria-pressed="false">Dark page</button>
       <button class="chip" id="onLight" aria-pressed="true">Light page</button>
@@ -891,6 +904,14 @@
     visited: {},
     /** True while a preview is on its way back, so "done" can wait for it. */
     previewBusy: false,
+    /** The preview as last saved, per concept and size, for "hold to see before". */
+    baseline: {},
+    /** The preview on screen now. */
+    current: null,
+    /** The pad last pressed, so the arrow keys have something to move. */
+    lastPad: null,
+    /** Notes the client left on the proof, per size. */
+    clientNotes: [],
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -1445,7 +1466,7 @@
             'means use the layout’s own setting. Sizes are a ceiling — long ' +
             'copy still shrinks to fit. Width is where the line wraps, and is ' +
             'capped at the edge of the ad.') + '</div>' +
-      blockStyleControls() + panelControls();
+      adoptRow() + blockStyleControls() + panelControls();
 
     $('controls').innerHTML =
       startHere() +
@@ -1467,6 +1488,8 @@
 
     wireDraftCopy();
     wireNav();
+    var adoptBtn = $('adoptLook');
+    if (adoptBtn) adoptBtn.addEventListener('click', adoptLookNow);
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-step]'), function (el) {
       el.addEventListener('click', function () {
         openNav = el.dataset.step;
@@ -2047,6 +2070,7 @@
       if (!spec) return;
       Array.prototype.forEach.call(pad.querySelectorAll('[data-nudge]'), function (btn) {
         btn.addEventListener('click', function () {
+          state.lastPad = pad.dataset.pad;
           var d = btn.dataset.nudge;
           if (d === 'reset') return spec.reset();
           // An up arrow moves the thing up, which is a smaller y.
@@ -2056,6 +2080,33 @@
       });
     });
   }
+
+  /* The arrow keys move things too. With a pad button focused they move that
+     pad; anywhere else that is not a text field they move the last thing
+     nudged, so a person can press an arrow once, put their hands on the
+     keyboard and tap the rest in. Shift is fast and Alt is slow for one
+     press, whatever the speed buttons say; the speed buttons still decide
+     the plain press. A field keeps its own arrows. */
+  document.addEventListener('keydown', function (e) {
+    if (!/^Arrow(Up|Down|Left|Right)$/.test(e.key) || e.ctrlKey || e.metaKey) return;
+    var t = e.target, tag = t && t.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (t && t.isContentEditable)) return;
+    if (document.querySelector('.ask')) return;
+    var pad = t && t.closest ? t.closest('[data-pad]') : null;
+    var id = pad ? pad.dataset.pad : state.lastPad;
+    var spec = id && PADS[id];
+    if (!spec) return;
+    var padEl = pad || $('controls').querySelector('[data-pad="' + id + '"]');
+    var vertical = !!(padEl && padEl.classList.contains('vert'));
+    var dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
+    var dy = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
+    if (vertical && dx) return;
+    e.preventDefault();
+    state.lastPad = id;
+    var was = state.speed;
+    if (e.shiftKey) state.speed = 'fast'; else if (e.altKey) state.speed = 'slow';
+    try { spec.step(dx, dy); } finally { state.speed = was; }
+  });
 
   /* The template's own box for a block at this size, so a nudge starts from
      where the layout put it rather than from zero. */
@@ -2071,11 +2122,11 @@
   function nudgePad(id, title, axes) {
     var vertical = axes === 'y';
     var pad = vertical
-      ? '<div class="pad vert" data-pad="' + id + '" title="' + esc(title) + '">' +
+      ? '<div class="pad vert" data-pad="' + id + '" title="' + esc(title) + ' \u2014 the arrow keys work here too; Shift is fast, Alt is slow">' +
           '<button type="button" data-nudge="up" aria-label="Move up">\u2191</button>' +
           '<button type="button" class="mid" data-nudge="reset" aria-label="Put it back">\u25CB</button>' +
           '<button type="button" data-nudge="down" aria-label="Move down">\u2193</button></div>'
-      : '<div class="pad" data-pad="' + id + '" title="' + esc(title) + '">' +
+      : '<div class="pad" data-pad="' + id + '" title="' + esc(title) + ' \u2014 the arrow keys work here too; Shift is fast, Alt is slow">' +
           '<span></span>' +
           '<button type="button" data-nudge="up" aria-label="Move up">\u2191</button>' +
           '<span></span>' +
@@ -2086,6 +2137,67 @@
           '<button type="button" data-nudge="down" aria-label="Move down">\u2193</button>' +
           '<span></span></div>';
     return '<div class="padrow">' + pad + speedControl() + '</div>';
+  }
+
+  /* "Use this size's look on every size." Shown once there is a look to
+     use: an adjustment on this concept, or a layout picked for one size.
+     On the authored size itself there is nothing to adopt -- the rest
+     already follow it -- so the row says so instead of offering a button. */
+  function adoptRow() {
+    var c = concept(); if (!c) return '';
+    var o = c.styleOverrides || {};
+    var hasStyle = Object.keys(o).some(function (k) { return k !== 'authoredFor' && k !== 'bySize'; }) || !!o.bySize;
+    var hasLayout = !!(c.layoutBySize && Object.keys(c.layoutBySize).length);
+    if (!hasStyle && !hasLayout) return '';
+    var already = o.authoredFor === state.size && !o.bySize && !hasLayout;
+    return '<div class="adoptrow">' +
+      (already
+        ? '<span>The rest of the set already takes its look from <b>' + esc(state.size) + '</b>.</span>'
+        : '<button type="button" class="fix" id="adoptLook" title="Make this size the one every other size is carried from: its type sizes, colors, positions and logo, in proportion.">' +
+            'Use this size\u2019s look on every size</button>' +
+          '<span>Every other size takes its type, colors, positions and logo from ' + esc(state.size) +
+          ', in proportion. Undo puts it back.</span>') +
+      '</div>';
+  }
+
+  function adoptLookNow() {
+    var c = concept(); if (!c) return;
+    var btn = $('adoptLook');
+    var mark = waitBtn(btn, 'Reading this size\u2026');
+    whenPreviewSettled().then(function () {
+      return post('/api/concept/adopt-look', {
+        campaign: state.doc.campaign, conceptId: c.conceptId, size: state.size, sizes: railSizes()
+      });
+    }).then(function (r) {
+      mark.done();
+      if (!r || r.error) { showNextSteps((r && r.error) || 'Could not read this size\u2019s look.', true); return; }
+      var lines = ['Every other size takes its type sizes, colors, positions and logo from ' + state.size + ', in proportion.'];
+      if (r.droppedCorrections && r.droppedCorrections.length) {
+        lines.push('Adjustments made by hand on ' + r.droppedCorrections.join(', ') + ' are replaced.');
+      }
+      if (r.droppedLayouts && r.droppedLayouts.length) {
+        lines.push('The layout picked for ' + r.droppedLayouts.join(', ') + ' is replaced too.');
+      }
+      if (!r.layoutApplied) {
+        lines.push('The layout stays with this size alone, because it does not draw ' + r.layoutMissing.join(', ') + '.');
+      }
+      lines.push('Undo puts it all back.');
+      return ask('Use this size\u2019s look on every size?', lines.join(' '),
+                 [['Yes, use it everywhere', 'yes'], ['Cancel', null]]).then(function (v) {
+        if (v !== 'yes') return;
+        remember('adopt');
+        if (r.styleOverrides) c.styleOverrides = r.styleOverrides; else delete c.styleOverrides;
+        c.layoutFamily = r.layoutFamily;
+        if (r.layoutBySize) c.layoutBySize = r.layoutBySize; else delete c.layoutBySize;
+        state.dirty = true;
+        state.resolvedStyle = null; state.resolvedFor = null;
+        drawControls(); drawRail(); preview(); refreshCarry();
+        showNextSteps('Every size now takes its look from ' + state.size + '.');
+      });
+    }).catch(function () {
+      mark.done();
+      showNextSteps('Could not read this size\u2019s look.', true);
+    });
   }
 
   /* A dot on a collapsed header, so a panel that is carrying an override says
@@ -4173,6 +4285,12 @@
         $('preview').alt = (res.b.replacement ? 'Actual replacement for ' : 'Preview for ') + state.size;
         state.previewReady = res.b.status !== 'fail';
         $('dims').textContent = res.b.width + ' x ' + res.b.height;
+        // The first preview of a size in this sitting is the "before"; a save
+        // moves it forward. Held rather than re-rendered, so showing it costs
+        // nothing.
+        state.current = { src: res.b.image, width: res.b.width, dims: res.b.width + ' x ' + res.b.height };
+        if (!state.baseline[baselineKey()]) state.baseline[baselineKey()] = state.current;
+        refreshBefore();
         state.sizeStatus[state.size] = { status: res.b.status };
         state.resolvedStyle = res.b.style || null;
         state.resolvedFor = res.b.style ? state.size : null;
@@ -4216,6 +4334,7 @@
             // the size that behaves differently -- never animated, held to
             // Meta's text guideline -- and nothing else told you which.
             (isMetaSize(sz) ? '<span class="mm" title="A Meta (Facebook and Instagram) size. Meta sizes are never animated.">M</span>' : '') +
+            (clientNotesFor(sz).length ? '<span class="cn" title="The client left a note on this size">\u270E</span>' : '') +
             '</button>' +
           '<span class="st" data-st="' + esc(sz) + '"></span>' +
           '<span class="cr" data-cr="' + esc(sz) + '"></span>' +
@@ -4396,7 +4515,7 @@
       return /copy|model|openai/i.test(note) && /fell back|form answers|no .*key|fail|not configured|error/i.test(note);
     }).forEach(function (note) { list.push({ check: 'Copy needs review', status: 'warn', detail: note + ' Review the copy manually or use “Draft the copy from their website” to retry.' }); });
     if (!list || !list.length) {
-      el.innerHTML = '<h3>Checks</h3><div class="clean">All checks pass.</div>' + doneButton();
+      el.innerHTML = clientNotesBlock() + '<h3>Checks</h3><div class="clean">All checks pass.</div>' + doneButton();
       wireDone();
       return;
     }
@@ -4405,7 +4524,7 @@
        (plain-checks.ts) beside the measurement, and the measurement is what
        a ratio-literate reader can still open. "Ask AI" asks the model for
        the same list written for THIS ad, with one change it can show. */
-    el.innerHTML = '<h3>Checks</h3>' +
+    el.innerHTML = clientNotesBlock() + '<h3>Checks</h3>' +
       (advised && advised.summary ? '<div class="qasum">' + esc(advised.summary) + '</div>' : '') +
       '<div class="qatools">' +
         '<button type="button" class="fix" id="qaAdvise">' + (advised ? 'Ask AI again' : 'Ask AI what to do') + '</button>' +
@@ -4650,6 +4769,43 @@
     return Promise.resolve();
   }
 
+  /* ------------------------------------------------------ before / after
+     Every edit shows only the after. Holding the chip swaps the picture for
+     the one from the last save (or from when the size was opened), and
+     letting go brings the edit back -- a comparison, not a mode, so nobody
+     leaves it on and edits the wrong picture. */
+  var beforeShowing = false;
+  function baselineKey() { return state.conceptId + '@' + state.size; }
+  function refreshBefore() {
+    var btn = $('beforeBtn'); if (!btn) return;
+    beforeShowing = false;
+    btn.setAttribute('aria-pressed', 'false');
+    var b = state.baseline[baselineKey()], cur = state.current;
+    btn.style.display = b && cur && b.src !== cur.src ? '' : 'none';
+  }
+  function showBefore(on) {
+    var b = state.baseline[baselineKey()], cur = state.current, btn = $('beforeBtn');
+    if (!b || !cur || state.previewBusy) return;
+    beforeShowing = on;
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    var pick = on ? b : cur;
+    $('preview').src = pick.src;
+    $('preview').style.width = pick.width ? pick.width + 'px' : '';
+    $('dims').textContent = on ? 'Before \u2014 as last saved' : cur.dims;
+  }
+  (function () {
+    var btn = $('beforeBtn');
+    btn.addEventListener('pointerdown', function (e) { e.preventDefault(); showBefore(true); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (ev) {
+      btn.addEventListener(ev, function () { if (beforeShowing) showBefore(false); });
+    });
+    btn.addEventListener('keydown', function (e) {
+      if (e.key !== ' ' && e.key !== 'Enter') return;
+      e.preventDefault();
+      showBefore(!beforeShowing);
+    });
+  })();
+
   /* ---------------------------------------------------------- stage view */
   $('squint').addEventListener('click', function () {
     var on = this.getAttribute('aria-pressed') !== 'true';
@@ -4679,6 +4835,7 @@
         autosaveBlocked = false;
         state.sizeStatus = {};
         state.approvals = [];
+        state.baseline = {}; state.current = null; state.clientNotes = [];
         // Scope is a per-campaign answer, not a per-session one: "every size"
         // meant this set's sizes.
         state.copyScope = {};
@@ -4741,7 +4898,47 @@
         drawControls(); drawRail(); preview(); refreshCarry();
         refreshDeliver(); refreshOverrideNote(); refreshStage();
         loadApprovals();
+        loadClientNotes();
       });
+  }
+
+  /* Notes the client left on the proof, one ad at a time. They live on the
+     proof record and are read back here so the size they were about shows
+     them under its checks -- and the rail says which sizes have one. */
+  function loadClientNotes() {
+    state.clientNotes = [];
+    var pid = projectIdOf(); if (!pid) return;
+    fetch('/api/project/' + encodeURIComponent(pid) + '/workflow')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (w) {
+        if (!w || !w.proofs) return;
+        var notes = [];
+        w.proofs.forEach(function (p) {
+          (p.comments || []).forEach(function (n) {
+            notes.push({ cell: n.cell, size: n.size, text: n.text, at: n.at, version: p.version });
+          });
+        });
+        if (!notes.length) return;
+        state.clientNotes = notes;
+        markRail();
+        if (state.lastQa) drawQa(state.lastQa);
+      })
+      .catch(function () { /* the notes are worth losing, the screen is not */ });
+  }
+  function clientNotesFor(size) {
+    return (state.clientNotes || []).filter(function (n) {
+      if (!n.cell) return !size;
+      var parts = n.cell.split('/');
+      return parts[0] === state.conceptId && parts[2] === size;
+    });
+  }
+  function clientNotesBlock() {
+    var mine = clientNotesFor(state.size).concat(clientNotesFor(''));
+    if (!mine.length) return '';
+    return '<div class="cnotes"><h3>The client said</h3><ul>' + mine.map(function (n) {
+      return '<li><span class="cnwho">' + (n.cell ? 'On this size' : 'On the whole set') +
+        ' \u00b7 proof v' + esc(n.version) + '</span>' + esc(n.text) + '</li>';
+    }).join('') + '</ul></div>';
   }
 
   /* ------------------------------------------------- the brief, changed
@@ -4892,6 +5089,13 @@
          people learn to resent. */
       state.saved = true;
       refreshStage();
+      // What is on screen is now what is saved, so it is the new "before"
+      // for this size; the other sizes pick theirs up on their next preview.
+      if (!state.dirty) {
+        state.baseline = {};
+        if (state.current && !state.previewBusy) state.baseline[baselineKey()] = state.current;
+        refreshBefore();
+      }
       return body;
     }); });
   }
