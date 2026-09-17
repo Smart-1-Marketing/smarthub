@@ -395,8 +395,7 @@ guarded("normalize's sync log reads by campaign key",
         lambda: normalize._log_clients({("ttd", "old", "c-old")}, 1, 5, "scheduler"))
 guarded("the cost report reads the whole book uncapped",
         lambda: pacing.cost(today=TODAY))
-guarded("client_card's key index reads the whole book uncapped",
-        lambda: client_card._filed())
+guarded("client_card's key index reads the whole book uncapped", client_card._filed)
 guarded("the held-days reading for a client filters in the database",
         lambda: quarantine.held_for_client(OLD))
 guarded("the reconcile screen's held count is counted in SQL",
