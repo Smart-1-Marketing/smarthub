@@ -80,14 +80,64 @@ SCENARIOS: list[Scenario] = [
             Step("Send the chosen version for approval", "Use Send for Approval on the version you want reviewed.", "The review belongs to that version, so check its output first.")]),
     Scenario(key="google_access.cleanup_review", module="google_access",
         title="Review an inactive Google account scan",
-        goal="Separate measured inactivity from missing evidence before deciding what to clean up.",
-        minutes=4, path="/tools/google-access/qa-inactive/", steps=[
+        goal="Separate measured inactivity from missing evidence, then clear the backlog in batches without acting on a row you cannot see.",
+        minutes=6, path="/tools/google-access/qa-inactive/", steps=[
             Step("Start a fresh scan", "Open Inactive Google Accounts QA and use Update scan. Choose Full rescan only when you need every resource checked live.", "Existing results may describe an earlier scan."),
             Step("Wait for complete evidence", "Read the progress and partial results while connected accounts are scanned.", "A paused, partial or failed scan is not evidence that unseen resources are inactive."),
+            Step("Narrow to the rows you mean", "Each section has a filter over the name, ID, account, Google login and the reason a row was flagged. Type part of any of them to bring one client's resources together.", "The filter decides what a bulk action touches. Select all takes the rows on screen, and a row you ticked before filtering it away leaves the selection rather than being acted on out of sight.", selector="#filterInactive"),
             Step("Check the resource and account", "Review the inactivity evidence for each GA4 property or GTM container.", "A completed GTM scan can list a candidate when linked GA4 activity cannot be confirmed. That is not proof the tag is unused."),
-            Step("Check a GTM tag on its site", "On a GTM row choose Check site. Verify or correct the suggested website, then choose Check and read the result.", "This searches one page's raw HTML for the container ID. It does not run the page or measure traffic; not found is not proof of no use elsewhere."),
-            Step("Decide before confirming", "Confirm the specific resource only when its evidence justifies cleanup.", "GA4 goes to the Analytics trash; GTM container deletion is permanent. This walkthrough does not delete anything.")]),
+            Step("Check GTM tags on their sites", "Check site on a row does one container. Tick several and use Check sites to do them together: every one is listed with the site it would be fetched against, and a container nothing could resolve a site for waits for you to type one.", "This searches each page's raw HTML for the container ID. It does not run the page or measure traffic; not found is not proof of no use elsewhere. A container left blank is not checked at all.", selector="#bulkInactiveCheck"),
+            Step("Skip what you have already judged", "A container whose tag the check found live is never going to be deleted. Skip it, on the row or in bulk, and it stops coming back every scan. A Google login that needs reconnecting cannot be skipped.", "Skipping that login would hide every property behind it and report a clean sweep of accounts nothing looked at. Reconnect it instead.", selector="#bulkReviewSkip"),
+            Step("Decide before confirming", "Delete a row on its own by typing its name, or several at once by typing DELETE and the count the dialog shows you.", "GA4 goes to the Analytics trash; GTM container deletion is permanent. Read the list in the dialog before typing the count. This walkthrough does not delete anything.", selector="#bulkInactiveDelete"),
+            Step("Check what was already done", "Open Cleanup history for every skip, un-skip, site check and deletion made here, with who made it and what Google answered. A failed one is in red with the reason.", "It shows the most recent entries and says so when the stored log is longer. A log it could not read says that rather than showing an empty table.", selector="#historyPanel")]),
 
+
+    Scenario(
+        key="ask_smarthub.client_performance", module="ask_smarthub",
+        title="Ask how a client's campaigns are doing, and read the answer safely",
+        goal="One client's month read out of the reports fact table, with the "
+             "window it covers, what is not in the totals, and which numbers "
+             "were measured rather than assumed.",
+        minutes=4, path="/ask-smarthub", spends=["openai.text"], steps=[
+            Step("Start from a chip, not a blank box",
+                 "Open Ask SmartHub and choose Campaign performance summary, or press "
+                 "the same chip on the reporting hub, the pacing board or a client's "
+                 "360 record.",
+                 "A chip fills in the client the page already knows about and asks a "
+                 "question shaped for the data. Typing your own question works too; "
+                 "the chip just spends the four-read budget better."),
+            Step("Name a period, never dates",
+                 "Say this month, last month, last 30 days, last quarter. The Hub turns "
+                 "the name into days.",
+                 "Every window is complete days, so today is never in it -- today's "
+                 "figures are still arriving. The answer states the window it read; "
+                 "check it matches what you meant before you quote anything."),
+            Step("Read what is NOT in the total",
+                 "Look for pending campaigns and quarantined days in the answer.",
+                 "A campaign the auto-mapper filed from its name is a proposal until "
+                 "somebody confirms it, and its spend is in no figure here. A "
+                 "quarantined day is one the screen held back as impossible. Both are "
+                 "named so you can say the total is partial."),
+            Step("Treat a flag as a reading, not an opinion",
+                 "Flags like a CTR drop or a campaign paying twice the account's cost "
+                 "per conversion are computed from the figures, with a threshold "
+                 "printed beside them.",
+                 "Ask SmartHub reports flags; it does not decide them and cannot add "
+                 "one. If it explains why a flag fired, that explanation is its own "
+                 "reasoning -- check it against the table."),
+            Step("Take 'not measured' literally",
+                 "Where a figure reads not measured or not priced, it is missing, not "
+                 "zero.",
+                 "A cost per conversion with no conversions has no value; a platform "
+                 "with no pricing rule has no billed figure. Neither is nought, and "
+                 "neither belongs in something you send a client without checking "
+                 "why it is absent."),
+            Step("Publish a client summary only after reading it",
+                 "On a client's report page in Reports, use Draft with Ask SmartHub, "
+                 "read what comes back, edit it, then Save.",
+                 "Drafting publishes nothing. Saving puts those exact words on the "
+                 "client's page under your name, and the client's page never asks for "
+                 "a new one. Nothing reaches a client that a person has not read.")]),
 
     # ------------------------------------------------------------------
     Scenario(

@@ -101,6 +101,26 @@ ok("with every runtime prefix actually reaching something",
    str(DATA["runtime_covers"]))
 check("nothing registered is left unaccounted for", DATA["unplaced"], [])
 
+# Help written to be *asked* for rather than pointed at. It is exempt from
+# the check above, so the exemption is held to what it is for: every one of
+# these has to be findable by the search Ask SmartHub reaches it through, and
+# has to offer somewhere to start. An entry that is neither is help nobody can
+# reach by any route, which is the thing this whole file exists to catch.
+ASK_ONLY = DATA["ask_only"]
+ok("assistant-only help is named rather than hidden", bool(ASK_ONLY), str(ASK_ONLY))
+_by_key = {h.key: h for h in help_registry.REGISTRY}
+ok("and every one of them is reachable by asking for it",
+   all(any(r["key"] == key
+           for r in help_registry.search(_by_key[key].title.lower(), 8))
+       for key in ASK_ONLY),
+   str([key for key in ASK_ONLY
+        if not any(r["key"] == key
+                   for r in help_registry.search(_by_key[key].title.lower(), 8))]))
+ok("and every one of them says where to start",
+   all(_by_key[key].link.startswith("/") and _by_key[key].link_text
+       for key in ASK_ONLY),
+   str([key for key in ASK_ONLY if not _by_key[key].link.startswith("/")]))
+
 # data-help is a real placement, not decoration: scanning only Jinja misses it.
 _lit, _rt = help_audit.placements()
 ok("data-help placements are counted too", bool(_rt) or bool(_lit))

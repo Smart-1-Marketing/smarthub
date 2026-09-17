@@ -13,8 +13,12 @@ Nothing here reaches QuickBooks or OpenAI: these are the pure halves of the
 module — name normalization, match scoring, allocation suggestion and the
 Payment payload — driven directly.
 """
+import io
 import json
 import os
+import pathlib
+import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -29,7 +33,10 @@ os.environ.pop("CHECK_RECONCILIATION_DATA_DIR", None)
 # and INHERITS its DATABASE_URL is the shape test_jsonstore.py names -- the
 # mirror is keyed relative to the data root, so two runs against one shared
 # database meet each other's rows and the second one reads what the first
-# wrote. Owning both takes it out of that shape entirely.
+# wrote. Owning it names the database this file uses instead of taking
+# whatever the machine had. It does NOT isolate the phases below from each
+# other: they share this URL by design, and because the key is relative a
+# second temporary directory is the same key. See the concurrency section.
 os.environ["DATABASE_URL"] = (os.environ.get("CHECKREC_TEST_DATABASE_URL")
                               or "sqlite:///" + os.path.join(_TMP, "hub.sqlite3"))
 os.environ.setdefault("SECRET_KEY", "fixture-only")
@@ -194,6 +201,167 @@ check("a file of the wrong shape reads back as the default",
       cr._shaped({"aliases": "not a dict", "checks": None})["aliases"], {})
 check("and keys it does not know are kept",
       cr._shaped({"extra": 1})["extra"], 1)
+
+
+# ---------------------------------------------------------------------------
+print("\nThe check image is read and not kept")
+
+# A scanned check carries an account number, a routing number and a signature.
+# Nothing in this module ever read the stored file back -- no route serves one
+# and the OCR works on the uploaded bytes in memory -- so the file was
+# write-only: all of the exposure and none of the use.
+#
+# Driven through the real route rather than read off the source, because the
+# claim is about what reaches the disk and prose naming a write is not a write.
+cr.app.config["TESTING"] = True
+_client = cr.app.test_client()
+_seen = {}
+_real_extract = cr._extract_check
+
+
+def _fake_extract(raw, mime):
+    _seen["bytes"] = len(raw)
+    return {"payer": "Acme", "amount": "10.00", "date": "2026-09-16",
+            "check_number": "1234", "confidence": 0.9}
+
+
+cr._extract_check = _fake_extract
+cr._owner_gate_saved = cr._owner_gate
+cr._owner_gate = lambda: None          # the gate is asserted elsewhere
+try:
+    _before = set(p.name for p in cr._upload_dir().glob("*")) if cr._upload_dir().exists() else set()
+    _r = _client.post("/api/upload", data={"file": (io.BytesIO(b"fake-check-bytes"), "check.png")},
+                      content_type="multipart/form-data")
+    check("the upload is accepted", _r.status_code, 200)
+    check("...and the OCR still saw the bytes", _seen.get("bytes"), len(b"fake-check-bytes"))
+    check("...and records no filename", _r.get_json()["check"]["file"], "")
+    _after = set(p.name for p in cr._upload_dir().glob("*")) if cr._upload_dir().exists() else set()
+    check("...and wrote nothing to the uploads directory", _after, _before)
+finally:
+    cr._extract_check = _real_extract
+    cr._owner_gate = cr._owner_gate_saved
+
+# The resolver stays, because a check recorded before this change carries a
+# filename and deleting that check should still take its file with it.
+check("the uploads path is still resolvable for old rows",
+      cr._upload_dir().name, "uploads")
+
+
+# ---------------------------------------------------------------------------
+print("\nSweeping the images the old upload path left behind")
+
+_up = cr._upload_dir()
+_up.mkdir(parents=True, exist_ok=True)
+(_up / "chk_aaa.png").write_bytes(b"scan-one")
+(_up / "chk_bbb.jpg").write_bytes(b"scan-two-longer")
+(_up / "nested").mkdir(exist_ok=True)            # a directory must survive
+(_up / "nested" / "keep.txt").write_bytes(b"not mine to delete")
+_res = cr.sweep_legacy_uploads()
+check("it removes the images", _res["removed"], 2)
+check("...and counts the bytes it freed", _res["bytes"], len(b"scan-one") + len(b"scan-two-longer"))
+check("...and the files are actually gone",
+      sorted(x.name for x in _up.iterdir()) if _up.exists() else [], ["nested"])
+check("...and it does not recurse into a directory",
+      (_up / "nested" / "keep.txt").exists(), True)
+check("...and nothing failed", _res["failed"], 0)
+
+# Second run is a no-op rather than an error: it runs on every boot, so being
+# idempotent is the property that makes having no marker safe.
+_again = cr.sweep_legacy_uploads()
+check("a second sweep removes nothing", _again["removed"], 0)
+
+# An empty directory is taken away with the files; a missing one is not an
+# error, because that is the steady state on every boot after the first.
+import shutil as _sh
+_sh.rmtree(_up, ignore_errors=True)
+_gone = cr.sweep_legacy_uploads()
+check("no directory is not a failure", (_gone["removed"], _gone["failed"], _gone["swept"]),
+      (0, 0, False))
+
+# It may never raise: a cleanup that stops a worker coming up is worse than the
+# files it was cleaning.
+_real_dir = cr._upload_dir
+cr._upload_dir = lambda: (_ for _ in ()).throw(RuntimeError("disk gone"))
+try:
+    check("a failure inside it is reported, not raised",
+          cr.sweep_legacy_uploads()["removed"], 0)
+finally:
+    cr._upload_dir = _real_dir
+
+# ---------------------------------------------------------------------------
+print("\nTwo workers, which is the only way a lost write shows")
+
+# The check above proves the cross-worker lock is *taken*. This proves nothing
+# is *lost*, which is a different claim and the one the store exists for: a
+# lock can be entered and still not serialise -- the wrong scope, a lock per
+# process, a read that happened before it was held. Counting the call cannot
+# see any of that.
+#
+# It needs two real processes. Threads cannot show it, because `_LOCK`
+# serialises them and every assertion passes while two containers quietly
+# overwrite each other -- the measurement `hub/leads.py` records as 30 of 60
+# leads surviving. Each worker reads, waits inside the mutation, and writes;
+# with the read and the write not held together the second silently lands on
+# top of the first and one check simply goes.
+WORKER = pathlib.Path(_TMP) / "worker.py"
+WORKER.write_text(
+    "import os, sys, time\n"
+    "sys.path.insert(0, os.environ['CR_REPO'])\n"
+    "from modules.check_reconciliation import app as cr\n"
+    "tag = sys.argv[1]\n"
+    "def fn(state):\n"
+    "    state['checks'].append({'id': tag})\n"
+    "    time.sleep(0.6)\n"
+    "    state['oauth']['refresh_token'] = tag\n"
+    "cr._mutate(fn)\n"
+    "print('done', tag)\n", encoding="utf-8")
+
+_CONC = tempfile.mkdtemp(prefix="s1-checkrec-conc-")
+_env = dict(os.environ)
+_env["CR_REPO"] = str(pathlib.Path(__file__).resolve().parent)
+_env["HUB_DATA_DIR"] = _CONC
+_env.pop("CHECK_RECONCILIATION_DATA_DIR", None)
+_env["DATABASE_URL"] = (os.environ.get("CHECKREC_TEST_DATABASE_URL")
+                        or "sqlite:///" + os.path.join(_CONC, "hub.sqlite3"))
+# A fresh HUB_DATA_DIR is not a fresh store, and on Postgres that difference
+# is the whole thing. `jsonstore.key_for()` keys the mirror on the path
+# RELATIVE TO the data root precisely so a blob survives the root moving --
+# so this directory and the one the checks above used produce the same key,
+# `check-reconciliation/state.json`, and against a shared database the first
+# read here restores the record the upload check created. The run is green on
+# SQLite, where each phase gets its own file, and red only on the backend
+# production actually uses.
+#
+# So the key is cleared rather than the directory swapped. `delete_json()`
+# takes the file and the mirrored blob together, which is the point -- dropping
+# only the file would leave the blob to be restored by the next read.
+subprocess.run(
+    [sys.executable, "-c",
+     "import os, sys\n"
+     "sys.path.insert(0, os.environ['CR_REPO'])\n"
+     "from hub import jsonstore\n"
+     "from modules.check_reconciliation import app as cr\n"
+     "jsonstore.delete_json(str(cr._data_file()))\n"],
+    env=_env, capture_output=True)
+# Warm the store first, so the two children race the data rather than the
+# schema the first one to arrive would create.
+subprocess.run([sys.executable, str(WORKER), "warm"], env=_env, capture_output=True)
+_procs = [subprocess.Popen([sys.executable, str(WORKER), tag], env=_env,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+          for tag in ("A", "B")]
+_results = [p.communicate() for p in _procs]
+check("both workers report success",
+      all(b"done" in (out or b"") for out, _ in _results))
+_final = subprocess.run(
+    [sys.executable, "-c",
+     "import os, sys, json\n"
+     "sys.path.insert(0, os.environ['CR_REPO'])\n"
+     "from modules.check_reconciliation import app as cr\n"
+     "print(json.dumps([c['id'] for c in cr._read_state()['checks']]))"],
+    env=_env, capture_output=True, text=True)
+check("and neither write was lost",
+      sorted(json.loads(_final.stdout.strip() or "[]")), ["A", "B", "warm"])
+shutil.rmtree(_CONC, ignore_errors=True)
 
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

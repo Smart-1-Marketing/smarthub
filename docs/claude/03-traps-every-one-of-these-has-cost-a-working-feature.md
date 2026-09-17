@@ -1194,3 +1194,144 @@ enough to fix this goes wrong in the other direction just as quietly.
 `female-18-34` is a working calculator with no page. `test_calculator_embeds.py`
 names both as known absences rather than leaving them implicit, so building one
 makes the assertion the reminder to point the page at it.
+
+**A capped global read, filtered in Python, silently drops the OLDEST rows —
+and drops them from one client at a time.** Every campaign-map reading in
+`modules/reports` used to go through `store.mapped_campaigns(limit=N)`, which
+orders by `mapped_at` descending and truncates. Callers then filtered that
+list: `[m for m in mapped_campaigns(limit=10000) if m["client"] == c]` on the
+pacing board, in `client_card.summary`, in `v2_tools.client_performance`; `if
+(platform, account_id, campaign_id) in touched` on the CSV upload's cache
+clear and in `normalize._log_clients`; `if m["pending"]` in
+`pending_mappings`. Every one of them is correct until the map table passes
+N, and then wrong about the longest-standing client only, which is the client
+whose numbers somebody has been reading for a year.
+
+It goes wrong asymmetrically, which is what made it worth a file of its own.
+`facts_for` queries **by client**, so the spend keeps coming back; only the
+campaign list truncates. The money reads right and the campaign count reads
+zero. On the pacing board that combination is `band='unmapped'`,
+`actual_to_date=0.00` for a funded, spending line — printed on a page a
+client's rep reads, with nothing logged and nothing raised.
+`pending_mappings` had the same shape one layer up: a confirmation queue
+whose oldest items fall off it as the book grows, while `pending_count()`,
+which counts in SQL, goes on reporting them.
+
+The fix is not a bigger cap. `store.campaign_maps_for(clients)` filters on the
+indexed `CampaignMap.client` in the database; `store.campaign_map(platform,
+account_id, campaign_id)` is a primary-key `db.get`; `store.campaign_maps_by_key(keys)`
+queries the touched keys in chunks; `pending_mappings` filters on
+`confirmed_at IS NULL` in SQL. `mapped_campaigns(limit=N)` stays, with a
+docstring saying never to filter it by client — it is the bounded read for the
+recent-activity list on `/reports/mappings`, which genuinely wants the newest N.
+
+`test_reports_map_reads.py` reproduces the truncation rather than asserting it
+from the source, asserts the pacing band that follows from it, and holds the
+guard that matters: it replaces `store.mapped_campaigns` with a **counting
+spy** and asserts no filtering reader reaches it. A spy rather than a raise
+because `pacing._overlay_pending` catches every exception on purpose — a guard
+that raised would be swallowed there and the test would pass on the broken
+code.
+
+**The same cap sat on the budget book, where the consequence is absence
+rather than a wrong number.** `store.budget_lines(limit=N)` orders by
+`created_at` descending and truncates, and `pacing.compute`,
+`client_card.summary`, `client_card._filed`, `v2_tools.client_performance`,
+`budget_lines_for` and `budget_lines_named` all filtered its result in Python.
+A budget line is what *puts* a row on the pacing board, so a truncated line
+does not pace wrongly — it is **not on the board at all**, and a line nobody
+sees is a line nobody paces. Reproduced: with the cap reached, the oldest
+client's sold, funded, spending Streaming TV line vanished from
+`pacing.compute` entirely while every newer filler line stayed.
+
+Two counts went with it. `/reports` printed
+`len(store.budget_lines(limit=1000))` in the "Budget lines" tile, so past 1000
+the tile would have read `1000` forever; `/reports/budgets` printed
+`rows|length` as its heading, which past the page size is the *page size*
+printed as the book. Both are the house rule — never print a figure this Hub
+did not measure — and both now go through `store.budget_line_count()`, counted
+in SQL, with the budgets page saying "Showing the newest N" when it is showing
+fewer than the total.
+
+`store.budget_lines_for(clients, active_only=)` filters in the database for one
+key or many, `all_budget_lines(active_only=)` is the uncapped read for the four
+callers that genuinely need every line, and `budget_lines(limit=N)` stays for
+the page that pages. `_active()` writes the active filter once, and it treats a
+**NULL** status as active: a row written before that column existed is active
+because nothing else could have written a status then, and `status == 'active'`
+alone would have dropped every line filed before that migration — a second
+silent-absence bug inside the fix for the first. `test_reports_map_reads.py`
+asserts that case directly.
+
+**And a third time on the quarantine queue, where the cap drops the days that
+have been missing longest.** `quarantine.held(limit=N)` orders by `date`
+descending, so `held_for_client` — "the days missing from their page, which is
+the thing the staff page should say" — kept the members of a capped list and
+under-reported exactly the oldest ones. Its default limit was **500**, not
+5000. `reconcile._held_in` was worse in kind: `sum(1 for h in held(limit=5000)
+if ...)`, a count over a capped read, printed beside a platform's own monthly
+total on the reconcile screen — the one place an under-count reads as
+*agreement* rather than as a gap. `held_for_keys(keys)` filters in the
+database and `held_count(platform, start, end)` counts in SQL; `held(limit=N)`
+stays for the queue screen with the same docstring warning.
+
+Three tables, three screens, one shape. If you are about to write
+`[x for x in some_read(limit=N) if ...]` or `len(some_read(limit=N))`, the
+question is not whether N is big enough — it is whether the database can do the
+filtering or the counting, and it nearly always can.
+
+**The same shape again outside `modules/reports`, in four more places.** Worth
+reading as one list, because the variations are what make it hard to spot:
+
+- **A cap spent on the wrong noun.** `ads_builder.deployed_accounts()` read
+  `list_proposals(limit=500, status="DEPLOYED")` and deduped down to one row
+  per ACCOUNT. The cap was on proposals, so with two proposals per client it
+  was a cap of roughly 250 accounts — reached at half the number anybody would
+  guess from the call. Past it the longest-standing account was unscanned by
+  the twice-daily sweep, uncounted on a dashboard tile whose own comment
+  worries about reading "as a clean book", missing from Ask SmartHub, and —
+  because every by-key caller fell back to `{"client_name": ""}` on a miss — a
+  scheduled performance report went out **to a real client with a blank client
+  name**. `deployed_accounts()` is uncapped now (and cheaper: three columns
+  rather than the whole campaign blob per proposal), `deployed_account(cid)`
+  is the by-key reading, and its `limit` pages accounts.
+
+- **A cap hidden behind a multiplier.** `latest_optimization_runs(limit=N)`
+  read the newest `limit * 10` RUNS and deduped to one per account, which is
+  correct only while every account scans at the same rate. A handful of busy
+  accounts fill those rows, so the newest run of a QUIET account falls past the
+  end and the panel reads it as never scanned — meaning the account that has
+  gone longest without a scan is the one reported as never having had one. It
+  is a `ROW_NUMBER() OVER (PARTITION BY customer_id …)` now, one row per
+  account in SQL.
+
+- **A cap the callee silently overrides.** `hub/image_audit._page_images`
+  called `archive.recent(limit=2000)`; `recent` clamps its limit to **1000**,
+  so the call asked for 2000, got 1000, and swept at most a fifth of the 5000
+  rows the archive keeps. The job of that sweep is to find images nothing else
+  knows about, so stopping early reports an orphan as filed — while
+  `_attach_page_image` reads the same file uncapped, so an image the audit said
+  was not there attached perfectly well. `archive.all_rows()` is the complete
+  reading.
+
+- **A cap under a check whose job is to catch silence.**
+  `audit.silent_modules` decided "this module has never logged" from
+  `read(limit=5000)`, so a module that logged steadily a year ago and has been
+  quiet since was reported as never having logged at all. A check that cries
+  wolf gets scrolled past, which costs what a silent one costs. It is
+  `SELECT DISTINCT module` now (`audit.modules_seen()`).
+
+And one that was **already right**, worth copying rather than fixing:
+`client_brand.work_index()` is a window too, and it says so — it returns
+`horizon` and `scanned` alongside its rows, and `hub/proposal_promises.py`
+reads them ("a month the log cannot answer for is not a miss"). A bounded read
+that reports its own bound is not this defect. `client_brand.work_log()` is the
+same window WITHOUT that reporting — it returns a bare `count` — and it cannot
+be narrowed the way the others were, because `hub_activity` has `module`,
+`type` and `actor` columns but no `client`. Giving it a horizon, or the column,
+is its own change.
+
+`audit.read()/tail()` now narrow by **actor** in the query, which is what fixed
+`hub/help_center`'s personal inbox: it filtered the newest 2000 rows HUB-WIDE
+by actor, and on a busy day 2000 rows is a few hours, so somebody's own renders
+scrolled out of their own inbox while it reported nothing to show.

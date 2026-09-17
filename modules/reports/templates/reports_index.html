@@ -23,6 +23,8 @@
     <b>{{ markups|length }}</b><span>Platforms with a markup set</span></a>
 </div>
 
+{% with placement = 'reports_trends' %}{% include "_reports_ask.html" %}{% endwith %}
+
 <div class="s1d-card">
   <div class="s1d-cardhead"><h2>Platform syncs {{ help_dot('reports.index.syncs') if help_dot is defined else '' }}</h2>
     <span class="s1d-muted">

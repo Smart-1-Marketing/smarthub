@@ -65,12 +65,16 @@ class StoredAsset:
     backend: str          # "cloudinary" | "disk"
     folder: str
     checksum: str
+    # Why there is no `url`, when there is none. A caller that shows a person
+    # where their file went has something true to show them instead of a link
+    # that does not open; one that only files the row can ignore it.
+    note: str = ""
 
     def as_dict(self) -> dict:
         return {"public_id": self.public_id, "url": self.url,
                 "resource_type": self.resource_type, "bytes": self.bytes,
                 "backend": self.backend, "folder": self.folder,
-                "checksum": self.checksum}
+                "checksum": self.checksum, "note": self.note}
 
 
 def slug(text: str, fallback: str = "item") -> str:
@@ -103,6 +107,48 @@ def _disk_root(kind: str) -> str:
     path = os.path.join(settings.data_dir, "assets", kind)
     os.makedirs(path, exist_ok=True)
     return path
+
+
+def local_assets() -> dict:
+    """What the disk fallback is holding, for /status and /diagnostics.
+
+    A count rather than a boolean, and `measured` rather than a zero that could
+    mean either. "Cloudinary is not configured" is a setting; "and 340 files
+    are sitting on one instance's disk with no delivery URL" is the cost of it,
+    and only the second one tells somebody whether anything has been lost yet.
+
+    Never raises. This is read by a status panel, and a panel that 500s
+    because it could not list a directory reports nothing about the twenty
+    other rows on it.
+    """
+    root = os.path.join(settings.data_dir, "assets")
+    out = {"root": root, "files": 0, "bytes": 0, "unreadable": 0,
+           "measured": False}
+    try:
+        if not os.path.isdir(root):
+            # The directory not existing is a real answer, not a failure to
+            # look: nothing has ever fallen back on this instance.
+            out["measured"] = True
+            return out
+        for folder, _dirs, names in os.walk(root):
+            for name in names:
+                try:
+                    out["bytes"] += os.path.getsize(os.path.join(folder, name))
+                    out["files"] += 1
+                except OSError:
+                    # Counted, not skipped. A file that cannot be sized still
+                    # exists, so dropping it silently would report a confident
+                    # undercount -- which is the failure `measured` is here to
+                    # prevent, one file down instead of one directory.
+                    out["unreadable"] += 1
+        out["measured"] = True
+    except OSError:
+        # `measured` stays False, and that IS the answer: the caller prints
+        # "not measured" rather than a zero that reads as "nothing has fallen
+        # back". Raising instead would take the whole status panel down over a
+        # directory listing.
+        pass
+    return out
 
 
 def _note_asset(bucket: str, op: str, nbytes: int, public_id: str) -> None:
@@ -182,14 +228,39 @@ def put(kind: str, filename: str, data: bytes, *, client: str = "",
             folder=folder, checksum=checksum)
 
     # ---- disk fallback ----
+    # The bytes are kept. An upload a person waited for, or a render that cost
+    # money, is never thrown away because a credential is missing.
+    #
+    # What no longer happens is inventing a delivery URL for them. This
+    # returned f"/hub/assets/{kind}/{safe}" for as long as the function has
+    # existed, and NOTHING HAS EVER SERVED THAT PATH: it appears nowhere else
+    # in the repository, no route matches it, and a booted app answers 404.
+    # Fifty call sites take `.url` on trust and two of them look at `.backend`,
+    # so a Hub without Cloudinary filed dead links into client galleries,
+    # prospect records and proposals, with every screen reporting success --
+    # the `/signup` failure CLAUDE.md names, wearing a URL.
+    #
+    # put_remote() below already refuses outright when Cloudinary is
+    # unconfigured, and says why: there is no sensible disk fallback for "have
+    # someone else fetch this", and faking one "would reintroduce the behaviour
+    # this exists to avoid". put() was doing exactly that, with a string.
+    #
+    # An empty url is the answer a caller can act on. A template renders
+    # nothing rather than a broken link, `if not asset.url` is a condition that
+    # now means something, and `note` says why for anything that tells a
+    # person. What it is NOT is silence: local_assets() counts what is sitting
+    # here and /diagnostics reports it.
     root = _disk_root(kind)
     safe = f"{slug(base,'file')}-{int(time.time())}{os.path.splitext(filename)[1].lower()}"
     dest = os.path.join(root, safe)
     with open(dest, "wb") as fh:
         fh.write(data)
-    return StoredAsset(public_id=safe, url=f"/hub/assets/{kind}/{safe}",
+    return StoredAsset(public_id=safe, url="",
                        resource_type=rtype, bytes=len(data), backend="disk",
-                       folder=folder, checksum=checksum)
+                       folder=folder, checksum=checksum,
+                       note=("Cloudinary is not configured, so this is on the "
+                             "local disk of one instance and has no delivery "
+                             f"URL. It is at {dest}."))
 
 
 def put_remote(kind: str, url: str, *, filename: str = "", client: str = "",

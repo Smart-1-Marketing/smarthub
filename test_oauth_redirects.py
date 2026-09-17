@@ -264,6 +264,9 @@ BUILDERS = {
     # Smart 1 Ads' Microsoft Advertising callback: PUBLIC_BASE_URL's origin
     # plus the mount's own path, read at call time in bing_ads.redirect_uri().
     "bing_ads": ("modules.ads_builder.bing_ads", "redirect_uri"),
+    # Smart 1 Ads' Amazon Ads callback: the same reading again, in
+    # amazon_ads.redirect_uri(), with AMAZON_ADS_REDIRECT_URI able to pin it.
+    "amazon_ads": ("modules.ads_builder.amazon_ads", "redirect_uri"),
 }
 
 

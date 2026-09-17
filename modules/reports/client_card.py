@@ -73,7 +73,7 @@ def _filed() -> list[tuple[str, str]]:
     campaign mappings and the budget lines. A link alone rides on one of
     those keys in practice, and the raw name is a candidate anyway."""
     out = [(r["client"], r.get("client_name") or "") for r in store.clients_with_campaigns()]
-    out += [(b["client"], b.get("client_name") or "") for b in store.budget_lines(limit=5000)]
+    out += [(b["client"], b.get("client_name") or "") for b in store.all_budget_lines()]
     return out
 
 
@@ -231,9 +231,8 @@ def summary(names, url: str = "", today: date | None = None) -> dict:
     try:
         filed = _filed()
         keys = candidate_keys(names, url, filed)
-        campaigns = [m for m in store.mapped_campaigns(limit=10000) if m["client"] in keys]
-        lines = [b for b in store.budget_lines(limit=5000)
-                 if b["client"] in keys and (b.get("status") or "active") == "active"]
+        campaigns = store.campaign_maps_for(keys)
+        lines = store.budget_lines_for(keys, active_only=True)
         links = [l for l in (store.link_for_client(k) for k in keys) if l is not None]
         rng = client_view.period_range("mtd", today)
         per_key = []

@@ -42,6 +42,7 @@ whole entry is stored as its payload and handed back verbatim.
 """
 import json
 import os
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -260,7 +261,8 @@ def _db_write(entries: list[dict]) -> bool:
         return False
 
 
-def _db_read(limit: int, module: str | None, type_: str | None):
+def _db_read(limit: int, module: str | None, type_: str | None,
+             actor: str | None = None):
     """The newest rows, or None where the database could not be asked.
 
     None rather than `[]`, because *we could not look* and *nothing has been
@@ -281,6 +283,8 @@ def _db_read(limit: int, module: str | None, type_: str | None):
             q = q.where(_table.c.module == str(module)[:80])
         if type_:
             q = q.where(_table.c.type == str(type_)[:80])
+        if actor:
+            q = q.where(_table.c.actor == str(actor)[:60])
         with _engine.connect() as cx:
             rows = cx.execute(q.limit(max(1, int(limit)))).fetchall()
     except Exception as exc:                            # noqa: BLE001
@@ -492,7 +496,14 @@ def log(module: str, type_: str, actor: str | None = None, **extra) -> None:
             pass
 
 
-def _file_rows(limit: int, module: str | None, type_: str | None) -> list[dict]:
+# _file_rows() stops once it has `limit` rows, so "all of them" needs a limit
+# no file can reach rather than a big round number somebody has to keep ahead
+# of the log -- the shape this whole change is about.
+_FILE_ROWS_ALL = sys.maxsize
+
+
+def _file_rows(limit: int, module: str | None, type_: str | None,
+               actor: str | None = None) -> list[dict]:
     """The newest matching rows across the fallback and the legacy file."""
     out: list[dict] = []
     for path in (_pending_path(), _path()):
@@ -501,6 +512,8 @@ def _file_rows(limit: int, module: str | None, type_: str | None) -> list[dict]:
                 continue
             if type_ and e.get("type") != type_:
                 continue
+            if actor and e.get("actor") != actor:
+                continue
             out.append(e)
             if len(out) >= limit:
                 return out
@@ -508,8 +521,14 @@ def _file_rows(limit: int, module: str | None, type_: str | None) -> list[dict]:
 
 
 def read(limit: int = 300, module: str | None = None,
-         type_: str | None = None) -> list[dict]:
-    """The newest entries, narrowed to one module and/or one action.
+         type_: str | None = None, actor: str | None = None) -> list[dict]:
+    """The newest entries, narrowed to one module, action and/or actor.
+
+    `actor` narrows in the same place the other two do -- the query. A caller
+    that wants one person's rows and reads a window of everybody's instead is
+    reading a window of the HUB's activity: on a busy day the newest 2000 rows
+    are a few hours, so that person's own work scrolls out of their own inbox
+    while the inbox reports nothing to show.
 
     `type_` mirrors `tail()`'s, and it is what lets a figure elsewhere in the
     Hub link to *the rows it counted* rather than to everything one module has
@@ -524,10 +543,10 @@ def read(limit: int = 300, module: str | None = None,
     the two somebody reached for was never a decision about the answer.
     """
     limit = max(1, int(limit))
-    rows = _db_read(limit, module, type_)
+    rows = _db_read(limit, module, type_, actor)
     if rows is None:
-        return _file_rows(limit, module, type_)
-    pend = _pending_rows(limit, module, type_)
+        return _file_rows(limit, module, type_, actor)
+    pend = _pending_rows(limit, module, type_, actor)
     if pend:
         # In front, not behind. These were written while the table was
         # refusing, so they are newer than everything in it -- and left out
@@ -540,13 +559,13 @@ def read(limit: int = 300, module: str | None = None,
 
 
 def tail(limit: int = 300, module: str | None = None,
-         type_: str | None = None) -> list[dict]:
+         type_: str | None = None, actor: str | None = None) -> list[dict]:
     """read(), under the name ten call sites already use. See read()."""
-    return read(limit=limit, module=module, type_=type_)
+    return read(limit=limit, module=module, type_=type_, actor=actor)
 
 
 def _pending_rows(limit: int, module: str | None,
-                  type_: str | None) -> list[dict]:
+                  type_: str | None, actor: str | None = None) -> list[dict]:
     """The fallback file's newest matching rows, newest first.
 
     Sized first, so the ordinary path -- a database that is answering and a
@@ -564,6 +583,8 @@ def _pending_rows(limit: int, module: str | None,
         if module and e.get("module") != module:
             continue
         if type_ and e.get("type") != type_:
+            continue
+        if actor and e.get("actor") != actor:
             continue
         out.append(e)
         if len(out) >= limit:
@@ -861,9 +882,40 @@ def known_modules(window: int = KNOWN_MODULES_WINDOW) -> dict:
     }
 
 
+def modules_seen() -> set:
+    """Every module that has EVER written a row -- one DISTINCT, not a read.
+
+    ``SELECT DISTINCT module`` costs one query however long the log grows,
+    and it is the only reading that answers "has this module ever logged"
+    truthfully. The file fallback reads the whole file, which is what that
+    path has always done.
+    """
+    if _init():
+        try:
+            with _engine.connect() as cx:
+                rows = cx.execute(select(_table.c.module).distinct()).fetchall()
+            return {(m or "") for (m,) in rows if m}
+        except Exception as exc:                        # noqa: BLE001
+            global _init_error
+            _init_error = _reason(exc)
+    # No database: the file is the whole record, so read all of it rather
+    # than a window of it.
+    return {e.get("module") for e in _file_rows(_FILE_ROWS_ALL, None, None)
+            if e.get("module")}
+
+
 def silent_modules(expected: list[str]) -> list[str]:
-    """Modules that were expected to log and never have. Boot-time check."""
-    seen = {e.get("module") for e in read(limit=5000)}
+    """Modules that were expected to log and never have. Boot-time check.
+
+    Asked as a DISTINCT rather than read off the newest N rows. It used to
+    take ``read(limit=5000)``, so a module that logged steadily a year ago and
+    has been quiet since -- which is a fair description of a seasonal tool --
+    was reported as never having logged at all. This check exists to catch
+    "declared and never wired" (docs/claude/47), and a check that cries wolf
+    is a check people learn to scroll past, which costs exactly as much as one
+    that stays silent.
+    """
+    seen = modules_seen()
     return sorted(m for m in expected if m not in seen)
 
 

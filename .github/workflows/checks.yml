@@ -20,8 +20,27 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # A new push supersedes the run in flight for the same branch.
-  group: checks-${{ github.ref }}
+  # A new push supersedes the run in flight for the same PULL REQUEST, which is
+  # what this was written for: nobody wants the verdict on a commit the author
+  # has already replaced.
+  #
+  # A push to `main` is the opposite case and shared the group, so every merge
+  # cancelled the run for the merge before it. With merges landing faster than
+  # a run takes (~15-18 min), `main` stopped completing runs at all -- and
+  # `render.yaml` sets `autoDeployTrigger: checksPass`, so a run that is
+  # cancelled rather than passed never deploys. Measured: the last auto deploy
+  # was 11be225, which is exactly the last commit on `main` whose run completed
+  # instead of being cancelled; twelve merges later the service was still
+  # serving that code, moved on only by one manual deploy.
+  #
+  # And it is how `main` going red stays invisible. Every commit on `main` is a
+  # different tree that nothing else will ever check, so a cancelled run there
+  # is a verdict thrown away, not a superseded one.
+  #
+  # So a push gets a group of its own per commit -- nothing to cancel, and the
+  # runs proceed alongside each other rather than queueing behind one lane,
+  # which `cancel-in-progress: false` on a shared group would have done.
+  group: checks-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || 'ref' }}
   cancel-in-progress: true
 
 permissions:
@@ -135,8 +154,25 @@ jobs:
           python test_io_media_mix.py
           node test_io_media_mix.js
           python test_io_delivery.py
+          python test_io_delivery_lock.py
           python test_io_completion.py
           node test_io_recovery_ui.js
+
+      - name: IO delivery lock against Postgres
+        if: matrix.group == 1
+        # The reservation that keeps a duplicate opportunity out of Smart 1
+        # Suite. It was BEGIN IMMEDIATE on a SQLite file, which serialises the
+        # two workers sharing one file and says nothing about a second
+        # instance -- and the two halves of a zero-downtime deploy are two
+        # instances. The lock that spans them is a Postgres advisory lock, so
+        # a suite that only ever sees SQLite cannot see the thing that fixed
+        # it: the step above runs these two on SQLite, this one repeats them
+        # against the backend the lock actually lives in.
+        env:
+          IO_DELIVERY_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          python test_io_delivery.py
+          python test_io_delivery_lock.py
 
       # The PDF Optimizer is a wrapper around these two, and they were in the
       # Dockerfile and nowhere else -- so the compression the tool exists for
@@ -179,6 +215,16 @@ jobs:
       - name: Link and mount check
         if: matrix.group == 1
         run: python tools/linkcheck.py
+
+      # The links a person actually clicks. linkcheck above reads URL literals
+      # and pagecheck walks a fixed page list; the sidebar builds its hrefs
+      # from a table in hub/sidebar.py, so a row whose route moved is data
+      # neither of them reads. This asks the nav for its links and follows
+      # them, and checks that every /views/<slug>#<anchor> a group heading
+      # points at is an id that exists on the page it lands on.
+      - name: Menu links and group anchors
+        if: matrix.group == 1
+        run: python tools/menucheck.py --quiet
 
       - name: Ad builder module tests
         if: matrix.group == 1
@@ -243,6 +289,13 @@ jobs:
         # Search proposal generates and deploys byte-for-byte as it did, and a
         # proposal written before campaignType existed still reads as Search.
         run: python test_ads_pmax.py
+
+      - name: How the Ads Builder reads its live accounts
+        if: matrix.group == 1
+        # Uncapped and by key. A cap spent on PROPOSALS is a cap of roughly
+        # half as many accounts, and past it a scheduled client report went
+        # out with a blank client name.
+        run: python test_ads_account_reads.py
 
       - name: Recurring client Google Ads reports
         if: matrix.group == 1
@@ -406,6 +459,16 @@ jobs:
         if: matrix.group == 2
         run: python test_jsonstore.py
 
+      - name: The shared uploader with no Cloudinary
+        if: matrix.group == 2
+        # This job has no credentials by design, so it is already running the
+        # branch under test: settings.cloudinary_ready is False here exactly as
+        # it is on a checkout that was never given the variable. That branch
+        # returned a /hub/assets/... URL nothing has ever served, and the test
+        # catches it by asking the booted app to route whatever put() hands
+        # back -- which is why this step needs no environment of its own.
+        run: python test_storage_fallback.py
+
       - name: Cross-instance locking tests
         if: matrix.group == 2
         # The lock that stops working the day the service stops having one
@@ -465,6 +528,35 @@ jobs:
             python test_audit_store.py
           else
             echo "test_audit_store.py not on this branch — nothing to run."
+          fi
+
+      - name: Google token store tests
+        if: matrix.group == 2
+        # Google's OAuth refresh tokens moved off a SQLite file on the disk.
+        # Two things this guards and both are silent: the tokens must move as
+        # ciphertext (decrypting to re-encrypt turns a migration into a mass
+        # disconnect on a rotated key), and the ids must keep their sequences
+        # -- an id-preserving copy leaves every Postgres sequence at 1, with
+        # every row count matching, until the first report anybody saves.
+        run: |
+          if [ -f test_google_token_store.py ]; then
+            python test_google_token_store.py
+          else
+            echo "test_google_token_store.py not on this branch — nothing to run."
+          fi
+
+      - name: Google token store against Postgres
+        if: matrix.group == 2
+        # The sequence half is Postgres-only by construction: SQLite has no
+        # sequence to leave behind, so a suite that only sees SQLite cannot
+        # see it.
+        env:
+          GOOGLE_TOKENS_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          if [ -f test_google_token_store.py ]; then
+            python test_google_token_store.py
+          else
+            echo "test_google_token_store.py not on this branch — nothing to run."
           fi
 
       - name: Lead store tests
@@ -904,6 +996,20 @@ jobs:
             python test_scan_widgets.py
           else
             echo "test_scan_widgets.py not on this branch — nothing to run."
+          fi
+
+      - name: Scan-to-lead tests
+        if: matrix.group == 2
+        # A scanned business that is not a client becomes a lead: the client
+        # check that refuses to answer from a registry it could not read, the
+        # website that is already a lead, and the contactless row that is
+        # refused by name. Guarded like the steps around it so this workflow
+        # stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_scan_lead.py ]; then
+            python test_scan_lead.py
+          else
+            echo "test_scan_lead.py not on this branch — nothing to run."
           fi
 
       - name: Prospect queue tests
@@ -1624,6 +1730,58 @@ jobs:
             echo "test_wordpress_publish.py not on this branch — nothing to run."
           fi
 
+      - name: The client's own website login, sealed
+        if: matrix.group == 4
+        # `setup.password` on the SEO record is a client's real login to their
+        # real website, and it was stored as a plain string -- so, through
+        # hub/jsonstore.py, mirrored verbatim into Postgres and every database
+        # backup. What is asserted is the bytes on the disk rather than the API
+        # answer: that the plaintext leaves the SEO record, that it moves
+        # exactly once, that a deployment with no TOKEN_ENCRYPTION_KEY refuses
+        # to "migrate" plaintext into an identical file, and that a rotated key
+        # reads as "cannot be read" and never as "no login on file". Guarded
+        # like the steps around it so this workflow stays mergeable on a branch
+        # that predates the file.
+        run: |
+          if [ -f test_site_login.py ]; then
+            python test_site_login.py
+          else
+            echo "test_site_login.py not on this branch — nothing to run."
+          fi
+
+      - name: What this Hub may fetch, and how
+        if: matrix.group == 4
+        # One reading of the SSRF guard. The rule existed twice before this --
+        # in the ad builder's TypeScript and in modules/restaurant -- and in
+        # neither place hub/ could reach it, so hub/wordpress.py shipped six
+        # outbound fetches with none. What is asserted is the half a hostname
+        # denylist misses: the check is on the RESOLVED address, and every
+        # redirect hop is re-checked. Guarded like the steps around it so this
+        # workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_outbound.py ]; then
+            python test_outbound.py
+          else
+            echo "test_outbound.py not on this branch — nothing to run."
+          fi
+
+      - name: Page schema, and the plugin that makes it writable
+        if: matrix.group == 4
+        # The other half of the WordPress story: the meta key and the REST
+        # namespace are written once in Python and once in PHP, and a key
+        # spelled one way here and another there is a write that answers 200
+        # and stores nothing — so the two halves are held against each other,
+        # and every write is read back. It also runs the plugin's own functions
+        # through test_wordpress_plugin.php where php is installed, and says so
+        # out loud where it is not. Guarded like the steps around it so this
+        # workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_wordpress_schema.py ]; then
+            python test_wordpress_schema.py
+          else
+            echo "test_wordpress_schema.py not on this branch — nothing to run."
+          fi
+
       - name: The hub's own tours and walkthrough buttons
         if: matrix.group == 4
         # That every registered hub tour can actually be offered, and that a
@@ -2281,6 +2439,32 @@ jobs:
       # renders, the link resolves, the English is correct. This is green, so
       # a new "colour" is a failing build rather than something a client finds
       # on a proposal.
+      - name: A credential is typed into a box that masks it
+        if: matrix.group == 5
+        # Every field somebody types their OWN password into was already
+        # type="password". Four holding somebody else's were not: a client's
+        # website login, their WordPress application password, and the two
+        # boxes an admin sets another person's password in. Two of the four
+        # were found by the check rather than by reading the page.
+        run: python3 test_secret_fields.py
+
+      - name: The docs/claude index matches the directory
+        if: matrix.group == 5
+        # CLAUDE.md tells every session to open that index before editing a
+        # module, and its line counts were typed once and never revisited --
+        # five of sixty-seven were wrong, 56-verifying-a-change.md by 309
+        # lines. Generated from the directory now, so a drifted row is a
+        # failing build rather than something nobody notices.
+        run: python3 tools/claudedocs.py
+
+      # ...and that the check above can actually fail. It runs against a clean
+      # repo, so none of its failure paths is ever taken there -- a duplicate
+      # number, a file with no heading, a count that has drifted. Each one is
+      # driven against a throwaway tree here.
+      - name: The docs index check still bites
+        if: matrix.group == 5
+        run: python3 test_claude_docs_index.py
+
       - name: American English in the copy
         if: matrix.group == 5
         run: python tools/spellcheck.py
@@ -2529,7 +2713,17 @@ jobs:
       # described-only or mock bed stops a mix being filed, that an override
       # needs a reason and a name, that the audio the browser reads back is
       # only what the project's own row recorded, and that a variation carries
-      # the scripts without the audio.
+      # the scripts without the audio. It also holds Fan Radio's answer to the
+      # one read the length check was a dead end for: a read somebody UPLOADED
+      # cannot be tightened and recorded again, so the panel works out the
+      # playback rate that lands it back inside its slot, quotes what that
+      # costs in pitch, refuses past 1.15x -- "speed it up" is not an answer to
+      # a read five seconds too long -- and records the approved rate on the
+      # mix, because a mix that only fits because it was sped up otherwise
+      # reads exactly like one that landed on the clock. Both builders do it
+      # now, and the step holds that it is the SAME function answering: a
+      # second copy of the ceiling is how the two tools would start giving one
+      # read two rates, which is the state their length menus were already in.
       - name: Radio Ad Creator — beds composed, the mix measured off the file
         if: matrix.group == 6
         run: python3 test_radio_ads.py
@@ -2549,6 +2743,55 @@ jobs:
       - name: Radio Promo parity — the lengths, their costs, the beats, the panel
         if: matrix.group == 6
         run: python3 test_radio_parity.py
+
+      # And Fan Radio's half of the same list, which is the other direction.
+      # Every item above landed in the Radio Ad Creator and none of them here,
+      # in the tool writing the same reads for the same clients against the
+      # same clock: Fan Radio had two of the nine checks, so a :30 that never
+      # said the client's web address was a named finding one tool over and
+      # silence in this one, and a required disclaimer was nothing at all
+      # because there was nowhere to type one. The checks are
+      # hub/radio_script_qc.py now and both builders read them, so what this
+      # asserts is that the one table is read twice rather than two that agree
+      # today -- plus the two rows that are genuinely this tool's own, the
+      # trademark verdict and the post-game result rule, on the same panel
+      # rather than beside it.
+      - name: Fan Radio parity — the script panel, its own two rows, the rail
+        if: matrix.group == 6
+        run: python3 test_radio_feature_parity.py
+
+      # The reusable-read library, which was the last thing one radio builder
+      # had and the other did not -- and which no screen in either tool
+      # reached: four default reads, a store, a route and a test that drove the
+      # route, with nothing a rep could press. A test that drives a route
+      # cannot notice that nobody can press it, so this asserts the screen as
+      # well as the store. It is one library both tools read now, so a read
+      # saved in one is offered in the other; the `{business}` placeholder is
+      # filled on the way out and put *back* on the way in, or the library
+      # stops being reusable the first time somebody saves to it; and a preset
+      # saved under the old per-tool file is still offered, because migrating
+      # it on read would race the second worker.
+      - name: Radio reusable reads — one library, both tools, reachable
+        if: matrix.group == 6
+        run: python3 test_radio_presets.py
+
+      # The last difference between the two radio builders nobody had recorded
+      # a decision about: an approved Radio Ad Creator spot could be filed as
+      # the client's Suite opportunity and a finished Fan Radio spot could not,
+      # so it reached the CRM only if somebody pasted a link in by hand. It
+      # goes through hub/suite_opportunity.push_proposal rather than a webhook
+      # of its own -- hub/ghl_contacts.py is the Hub's one contact write path,
+      # and commercial_builder/routes/suite.py wrote down its refusal to add a
+      # second; this would have been the fourth. Asserted off the AST, because
+      # the module explains in prose why it does not post to the old hook and
+      # a substring search reports that explanation as the defect. What may be
+      # filed is what the CLIENT approved on the share page -- a stronger
+      # record than the staff press the other tool gates on -- never the naked
+      # read behind an unrendered mix, and never with a URL a salesperson
+      # cannot open.
+      - name: Fan Radio to the Suite — the client's approval, one write path
+        if: matrix.group == 6
+        run: python3 test_fan_radio_suite.py
 
       # The sample campaigns both radio builders open empty without. Two
       # things about the seeder are worth holding to an assertion. It must not
@@ -2582,6 +2825,13 @@ jobs:
       - name: Every module's work is attributable
         if: matrix.group == 6
         run: python3 test_activity_logging.py
+      # A reading that has to be COMPLETE and was a window instead: the image
+      # audit swept a fifth of the archive, "this module never logged" was
+      # decided off the newest 5000 rows, and a person's own inbox filtered a
+      # few hours of everybody's.
+      - name: Readings in hub/ that have to be complete
+        if: matrix.group == 6
+        run: python3 test_hub_capped_reads.py
       # Declared and never wired is the failure this repo has paid for most
       # often -- an ">>> INTEGRATION POINT <<<" naming three writers that have
       # never existed, `storage.manifest()` feeding an audit nobody built,
@@ -3550,6 +3800,17 @@ jobs:
       - name: The config-driven GroundTruth pull and its check page
         if: matrix.group == 8
         run: python3 test_reports_groundtruth.py
+      # Amazon DSP: five separate claims told apart (a revoked consent, a
+      # consent given by somebody who does not administer the entity, an
+      # API application not approved for the entity, and write access never
+      # probed), one report per advertiser polled inside the StackAdapt
+      # budget with pending carried between ticks rather than paid for
+      # twice, the pre-signed download fetched with no Authorization header,
+      # purchases kept out of conversions, and the Settings card, callback
+      # and disconnect in Smart 1 Ads.
+      - name: The native Amazon DSP pull and its connection
+        if: matrix.group == 8
+        run: python3 test_reports_amazon_dsp.py
       # The organic-search section: gated on an SEO product AND a linked
       # analytics property, the client-facing labels naming no product by
       # default, Search Console missing said neutrally to the client and by
@@ -3660,6 +3921,27 @@ jobs:
       - name: Reports reconcile
         if: matrix.group == 8
         run: python3 test_reports_reconcile.py
+      - name: Named reporting periods
+        if: matrix.group == 8
+        run: python3 test_periods.py
+      - name: The deterministic flag rules
+        if: matrix.group == 8
+        run: python3 test_reports_flags.py
+      - name: Ask SmartHub ad-performance read
+        if: matrix.group == 8
+        run: python3 test_v2_performance.py
+      - name: Ask SmartHub traffic and sweep reads
+        if: matrix.group == 8
+        run: python3 test_v2_insights.py
+      - name: The Ask SmartHub recipe library and its placements
+        if: matrix.group == 8
+        run: python3 test_ask_recipes.py
+      - name: The client dashboard executive summary
+        if: matrix.group == 8
+        run: python3 test_reports_exec_summary.py
+      - name: How the campaign map is read
+        if: matrix.group == 8
+        run: python3 test_reports_map_reads.py
       - name: The reports tests against Postgres
         if: matrix.group == 8
         env:
@@ -3670,7 +3952,10 @@ jobs:
                    test_reports_seo.py test_reports_ttd.py test_reports_stackadapt.py \
                    test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
                    test_reports_confirmations.py test_reports_quarantine.py \
-                   test_reports_reconcile.py test_reports_bing.py test_reports_groundtruth.py; do
+                   test_reports_reconcile.py test_reports_bing.py test_reports_groundtruth.py \
+                   test_reports_amazon_dsp.py \
+                   test_v2_performance.py test_reports_exec_summary.py \
+                   test_reports_map_reads.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1
           done
 

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import re
 
+from hub import radio_spec
+
 ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
         "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
         "sixteen", "seventeen", "eighteen", "nineteen"]
@@ -30,7 +32,16 @@ MONTHS = {"jan": "January", "feb": "February", "mar": "March", "apr": "April",
 
 TLD = r"(?:com|net|org|co|io|us|biz|info|shop|agency|studio)"
 
-WORDS_PER_SECOND = 2.6          # natural commercial read pace
+# The read pace and the three functions derived from it are
+# `hub/radio_spec.py` now, re-exported here under their old names so no call
+# site had to change. They moved because this was the only copy: Fan Radio
+# writes the same reads against the same clock and had no way to ask how long
+# one ran until it had spent the characters -- the shape of defect the word
+# budgets were, one table over.
+WORDS_PER_SECOND = radio_spec.WORDS_PER_SECOND
+count_words = radio_spec.count_words
+estimate_seconds = radio_spec.estimate_seconds
+grade_duration = radio_spec.grade_duration
 
 
 def number_to_words(n) -> str:
@@ -194,31 +205,3 @@ def normalize_for_speech(text: str, pronunciations: list[dict] | None = None) ->
     return {"spoken": out, "changes": changes}
 
 
-# ------------------------------------------------------------------- timing
-def count_words(s: str = "") -> int:
-    return len([w for w in re.split(r"\s+", str(s or "")) if w])
-
-
-def estimate_seconds(s: str = "") -> float:
-    return round(count_words(s) / WORDS_PER_SECOND, 1)
-
-
-def grade_duration(seconds: float | None, target: int) -> dict:
-    """How far off the clock a finished render is, and whether that matters.
-
-    A read that runs long is never trimmed automatically — trimming clips a
-    word. It comes back flagged with how many words to cut instead.
-    """
-    if not seconds:
-        return {"status": "unknown", "label": "Length not measured"}
-    over = seconds - target
-    if over > 0.4:
-        words = max(1, round(over * WORDS_PER_SECOND))
-        return {"status": "long", "over": round(over, 1), "trim_words": words,
-                "label": f"{seconds:.1f}s — {over:.1f}s over. Roughly {words} "
-                         f"word{'' if words == 1 else 's'} too many."}
-    if seconds < target - 2.5:
-        under = target - seconds
-        return {"status": "short", "under": round(under, 1),
-                "label": f"{seconds:.1f}s — {under:.1f}s of dead air at the end."}
-    return {"status": "good", "label": f"{seconds:.1f}s — lands on the clock."}

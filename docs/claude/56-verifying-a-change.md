@@ -10,11 +10,29 @@ python tools/jscheck.py            # every .js file and inline block, via node
 python tools/checktemplates.py     # the Jinja-carrying blocks jscheck skips
 python tools/linkcheck.py          # every internal URL resolves, every url_for has a route
 python tools/pagecheck.py          # the page the browser actually receives
+python tools/menucheck.py          # every link the menu emits, and the anchors it aims at
 python tools/integritycheck.py     # known defect patterns
 python tools/spellcheck.py         # American English in everything a person reads
+python3 test_secret_fields.py      # every box a credential is typed into masks
+                                   #   it, and the check that says so still bites:
+                                   #   the words it must match and the ones it
+                                   #   must not, both driven
+python3 tools/claudedocs.py        # the docs/claude index matches the directory:
+                                   #   every file indexed, the title its own heading
+                                   #   gives, the line count measured rather than
+                                   #   typed, and no two files at one number
 python3 test_jsonstore.py          # the mirror restores, one answer on who is outside
                                    #   it, and which database it mirrors into being a
-                                   #   setting rather than a latch on the first write
+                                   #   setting rather than a latch on the first write.
+                                   #   Also the three questions about the disk -- what
+                                   #   JSON has no mirror, what opens a database, and
+                                   #   what writes bytes -- each cross-checked against
+                                   #   a cruder second reading so an empty answer
+                                   #   cannot mean the scan broke; and the opposite
+                                   #   question about those same files -- a credential
+                                   #   sitting in a mirrored store as a readable
+                                   #   string, which every other check here passed
+                                   #   while it was true
 python3 test_jsonstore_locking.py  # two real processes with two real data roots:
                                    #   a flock each instance takes on its own disk
                                    #   serialises nothing, and the read half of a
@@ -48,6 +66,13 @@ python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the cl
 python3 test_ads_estimate.py       # the estimate a client reads, and what they can answer
 python3 test_ads_keyword_plan.py   # measured CPC, the access tier, the deploy preflight
 python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkthroughs
+python3 test_ads_account_reads.py  # how the Ads Builder reads its live accounts:
+                                   #   uncapped and by key. A cap spent on
+                                   #   PROPOSALS is a cap of roughly half as
+                                   #   many accounts, and past it a scheduled
+                                   #   client report went out with a blank
+                                   #   client name. Same defect class as
+                                   #   test_reports_map_reads.py, same guard
 python3 test_help_layer.py         # every bubble placed has help behind it, both
                                    #   ways one is placed, a key built at runtime
                                    #   named rather than guessed at, the
@@ -66,6 +91,21 @@ python3 test_lead_store.py         # where a lead actually is: the table, the
                                    #   answer, and the one-time import that does
                                    #   not mark itself done unless every lead in
                                    #   the file is in the table
+python3 test_google_token_store.py # the OAuth refresh tokens off their SQLite
+                                   #   file: moved as ciphertext, never through
+                                   #   _fernet(); ids preserved because an alert
+                                   #   points at a report; and the sequences moved
+                                   #   with them, which counting alone misses
+python3 test_io_delivery_lock.py   # the reservation that keeps a duplicate
+                                   #   opportunity out of Smart 1 Suite: the lock
+                                   #   is asked for with a try-lock rather than
+                                   #   waited on, so a broken one fails in a
+                                   #   second instead of hanging the job
+python3 test_storage_fallback.py   # what the shared uploader hands back with no
+                                   #   Cloudinary: the bytes are kept, but the
+                                   #   URL is empty rather than the /hub/assets
+                                   #   path nothing has ever served -- asserted
+                                   #   by asking the booted app to route it
 python3 test_check_reconciliation.py # matching and the QBO payment payload, and
                                    #   where the state lives: the QuickBooks
                                    #   tokens, payer aliases, records and audit
@@ -80,6 +120,13 @@ python3 test_scan_run.py           # what a prospect on somebody else's
                                    #   being polled to the ceiling, no
                                    #   promise of an email nothing here
                                    #   can send, and one unlock per run
+python3 test_scan_lead.py          # a scanned business that is not a client
+                                   #   becomes a lead: an unreadable client
+                                   #   list refuses to answer rather than
+                                   #   filing the client book as prospects,
+                                   #   a website that is already a lead is
+                                   #   linked not re-filed, and a row nobody
+                                   #   can contact is refused by name
 python3 test_prospect_queue.py     # who to call, in the order the work has to happen
 python3 test_upsell_report.py      # what the audit says we could sell each client:
                                    #   coverage named, recorded vs observed kept apart
@@ -224,6 +271,29 @@ python3 test_wordpress_publish.py  # the other publishing path: a credential
                                    #   category matched exactly or created, and
                                    #   two pages wanting two alts on one image
                                    #   named rather than last-one-wins
+python3 test_site_login.py         # the client's own website login, sealed:
+                                   #   the plaintext leaves the SEO record and
+                                   #   the assertion is on the bytes on the
+                                   #   disk, it moves exactly once, a
+                                   #   deployment with no TOKEN_ENCRYPTION_KEY
+                                   #   refuses to move plaintext into an
+                                   #   identical file, and a rotated key reads
+                                   #   as "cannot be read" rather than as no
+                                   #   login on file
+python3 test_outbound.py           # what this Hub may fetch: the check is
+                                   #   on the resolved address rather than the
+                                   #   hostname, every redirect hop is
+                                   #   re-checked, unresolvable is refused
+                                   #   rather than allowed, and the body is
+                                   #   capped on the bytes actually read
+python3 test_wordpress_schema.py   # the other half of that: one meta key
+                                   #   spelled the same in Python and in PHP,
+                                   #   a write read back because a 200 is not
+                                   #   evidence it landed, a URL resolved by
+                                   #   WordPress rather than guessed from a
+                                   #   slug, nothing unapproved reaching a
+                                   #   client's live site, and the plugin's
+                                   #   own functions run rather than grepped
 python3 test_webargs.py            # a caller's number: never a 500, never a
                                    #   negative slice, and the three call
                                    #   sites the shared helper never reached
@@ -329,9 +399,14 @@ python3 test_google_inactive_qa_bulk.py
                                    #   on its own row, a delete guarded on the
                                    #   count somebody typed, and a site check
                                    #   that refuses a GA4 row and a site nobody
-                                   #   can point at, and an audit endpoint
-                                   #   that answers "could not read" rather
-                                   #   than an empty log
+                                   #   can point at, an audit endpoint that
+                                   #   answers "could not read" rather than an
+                                   #   empty log, and a Needs Review row the
+                                   #   scan honors a skip on -- except the
+                                   #   broken login, which is refused in words
+                                   #   -- and a resolver that says which site
+                                   #   each container would be fetched against
+                                   #   without fetching any of them
 node test_google_inactive_qa_bulk_ui.js
                                    # the same page's own script, run for real:
                                    #   selection per section surviving the
@@ -341,7 +416,16 @@ node test_google_inactive_qa_bulk_ui.js
                                    #   nothing until its count is typed, and
                                    #   the Cleanup history panel: loaded on
                                    #   open, reloaded after an action, and a
-                                   #   window on the log saying it is one
+                                   #   window on the log saying it is one; and
+                                   #   Needs Review offering Skip on the rows a
+                                   #   skip means something for and no other;
+                                   #   the bulk check collecting a site per
+                                   #   container first, checking only the ones
+                                   #   given an address and naming the blanks;
+                                   #   and a per-section filter deciding what a
+                                   #   bulk action touches -- a ticked row it
+                                   #   hides leaves the selection rather than
+                                   #   being deleted out of sight
 python3 test_analytics_ids.py      # two names for one property are not a
                                    #   disagreement: the measurement id Knack
                                    #   holds against the property id Google
@@ -358,6 +442,15 @@ python3 test_activity_logging.py   # every module's work is attributable: an
                                    #   import is not a call, a module's own
                                    #   log() wrapper is resolved, and the
                                    #   remainder is declared with its reason
+python3 test_hub_capped_reads.py   # readings in hub/ that have to be COMPLETE
+                                   #   and were a window: the image audit swept
+                                   #   a fifth of the archive, "this module
+                                   #   never logged" was decided off the newest
+                                   #   5000 rows, and a person's own inbox
+                                   #   filtered a few hours of everybody's.
+                                   #   Third file of the capped-read family --
+                                   #   see test_reports_map_reads.py and
+                                   #   test_ads_account_reads.py
 python3 test_radio_builders.py     # the two radio builders: the client's own
                                    #   approval page public and chrome-free,
                                    #   nobody's trademark leaving the building,
@@ -380,6 +473,13 @@ python3 test_radio_ads.py          # the Radio Ad Creator's second half: a bed
                                    #   without the audio -- and Fan Radio's
                                    #   half of the same list, asserted as one
                                    #   table read twice rather than two that
+                                   #   agree today; plus the playback rate that
+                                   #   gets an over-long UPLOADED read back
+                                   #   inside its slot, its 1.15x ceiling, and
+                                   #   the rate being recorded on the mix rather
+                                   #   than inferred later -- asserted in both
+                                   #   builders, and asserted as the SAME
+                                   #   function answering rather than two that
                                    #   agree today
 python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
                                    #   and the :60 that were unbuildable, the
@@ -389,6 +489,41 @@ python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
                                    #   named script panel run on the copy --
                                    #   where certainty rather than severity
                                    #   decides what may refuse a billed record
+python3 test_fan_radio_suite.py    # Fan Radio's finished work reaching Smart 1
+                                   #   Suite -- the last recorded-nowhere
+                                   #   difference between the two builders.
+                                   #   Through hub/suite_opportunity, not a
+                                   #   third GHL webhook (asserted off the AST,
+                                   #   because the module explains the old hook
+                                   #   in prose); what the CLIENT approved on
+                                   #   the share page rather than a staff
+                                   #   press; never the naked read behind an
+                                   #   unrendered mix; never a URL nobody can
+                                   #   open; and a second press revising one
+                                   #   opportunity rather than opening two
+python3 test_radio_presets.py      # the reusable-read library: one store both
+                                   #   builders offer rather than a second copy
+                                   #   in each, the {business} placeholder
+                                   #   filled on the way out and put back on
+                                   #   the way in so the library survives its
+                                   #   own first save, a preset saved under the
+                                   #   old per-tool file still offered, and the
+                                   #   screen asserted as well as the route --
+                                   #   this was four reads, a store, a route
+                                   #   and a test, reachable from no page
+python3 test_radio_feature_parity.py # Fan Radio's half, which is the other
+                                   #   direction: every item above landed in
+                                   #   the Radio Ad Creator and none of them
+                                   #   here, so this tool had two of the nine
+                                   #   checks and no way to know a :30 never
+                                   #   said the address. The panel is
+                                   #   hub/radio_script_qc.py and both read
+                                   #   it, asserted as one table read twice
+                                   #   rather than two that agree today, plus
+                                   #   the trademark and post-game rows that
+                                   #   are genuinely this tool's own, and a
+                                   #   :10 neither asked for a response nor
+                                   #   judged for leaving one out
 python3 test_commercial_heygen.py  # the spokesperson clip actually arrives
 python3 test_commercial_providers.py # a key that was added is read, and works
 python3 test_commercial_meter.py   # every billed call records, no invented price,
@@ -494,6 +629,11 @@ python3 test_knack_websites_source.py # websites live where Knack answers, the
 python3 test_spelling.py           # the spelling check still bites, its exemptions
                                    #   still name real files, and it reads the one
                                    #   module that is not Python
+python3 test_claude_docs_index.py  # ...and the docs index check still bites: it
+                                   #   runs against a clean repo, so every failure
+                                   #   path -- a duplicate number, a file with no
+                                   #   heading, a count that drifted -- is driven
+                                   #   against a throwaway tree instead
 python3 test_client_prefill.py     # one client reader: what a form is offered,
                                    #   what it is never offered, and what a
                                    #   model is told about the client
@@ -557,6 +697,14 @@ python3 test_reports_groundtruth.py # the GroundTruth pull, whose key arrived
                                    #   person confirms, the key sent nowhere
                                    #   until the origin is named, visits under
                                    #   their own name and on the client's page
+python3 test_reports_amazon_dsp.py # the native Amazon DSP pull and the
+                                   #   connection behind it: five claims told
+                                   #   apart rather than one "connected", one
+                                   #   report per advertiser polled inside the
+                                   #   budget with pending carried between
+                                   #   ticks, the pre-signed download fetched
+                                   #   with no Authorization header on it, and
+                                   #   purchases kept out of conversions
 python3 test_reports_seo.py        # the organic search section for SEO clients
 python3 test_places.py             # a client's Google listing: proposed once,
                                    #   confirmed by a person, read once a night,
@@ -588,10 +736,92 @@ python3 test_reports_confirmations.py # a campaign filed from its name waiting f
 python3 test_reports_quarantine.py # a fact row that cannot be true held, not filed
 python3 test_reports_reconcile.py  # each platform's month against the platform's own
                                    #   total, independent or re-read, through yesterday
+python3 test_reports_exec_summary.py # the summary on a client's dashboard: staff
+                                   #   generate it, staff read it, staff save it, and
+                                   #   the client's page renders it and can reach no
+                                   #   AI call at all
+python3 test_reports_map_reads.py  # how the campaign map is read: by client, by
+                                   #   campaign key, and never by sweeping a capped
+                                   #   global list. Reproduces the truncation itself,
+                                   #   and guards every filtering reader against
+                                   #   reaching mapped_campaigns() again
                                    #   (checks.yml runs all of these a second time
                                    #   against Postgres, through _reports_testdb.py)
+python3 test_periods.py            # the named reporting windows, so no model writes a
+                                   #   date: every period on a fixed today, the quarter
+                                   #   boundaries, the leap day, and custom's refusals
+python3 test_reports_flags.py      # the deterministic flag rules, asserted from BOTH
+                                   #   sides of every threshold -- 14.9% raises nothing,
+                                   #   15.1% raises one
+python3 test_v2_performance.py     # the ad-performance read Ask SmartHub answers from:
+                                   #   two spellings summed once, pending spend excluded,
+                                   #   and pacing equal to the board field for field
+python3 test_v2_insights.py        # the GA4 breakdown and the optimization-sweep read
+python3 test_ask_recipes.py        # the recipe library and every placement its chips
+                                   #   appear in, through wsgi.application so a mounted
+                                   #   page's chips are actually checked
 python3 test_ci_gate.py            # the gate runs every check a person runs
 ```
+
+### One command: `python3 tools/preflight.py`
+
+```bash
+python3 tools/preflight.py            # the sweep, plus the gateway's own tests
+python3 tools/preflight.py --merge    # ...and the three merge-only checks
+python3 tools/preflight.py --only-merge   # just those three, after resolving
+python3 tools/preflight.py --list     # what it would run, and nothing else
+```
+
+It exits with the number of failing checks, so `&&` works, and it runs the
+same tools in the same order as the list above rather than reimplementing any
+of them. It exists because "I ran the checks" has to mean the same thing
+twice: a sweep somebody assembles by hand is a sweep with whatever they forgot
+missing from it, and all three `--merge` checks below are here because
+something got pushed past exactly that.
+
+**`--merge` is three checks, each earned:**
+
+* **Conflict markers across the whole INDEX** (`git ls-files`, not a directory
+  walk). `git add -A` after a merge stages a conflicted file exactly as it
+  sits, markers and all, and marks it resolved. A grep scoped to the
+  directories somebody expected markers in is a grep with a hole in it -- that
+  is how markers reached `.github/workflows/checks.yml`.
+
+* **Every workflow parses as YAML.** A workflow that does not parse fails
+  INSTANTLY with no jobs and zero duration, and GitHub shows the file path
+  instead of the workflow's name. On a pull request that reads like the
+  workflow simply not being required: `smoke` and CodeQL went green while the
+  entire `checks` workflow had never run.
+
+* **Every workflow file-loop is executed with its command stubbed.** A lost
+  line-continuation inside a `run:` block is still valid YAML. It parses, the
+  job starts, and it silently iterates a shorter list than it names. Counting
+  the filenames in the source and counting what the shell actually iterates
+  are different questions, and only the second is the answer.
+
+### The MCP gateway's tests are not in the sweep above
+
+`mcp_gateway/` has its own tests and its own workflow
+(`.github/workflows/mcp-gateway.yml`, the **smoke** check). They are
+`unittest` modules rather than root-level `test_*.py` scripts, so nothing in
+the list above runs them, `test_ci_gate.py` does not govern them, and they
+need the separately deployed MCP SDK the Hub's own runtime does not install:
+
+```bash
+pip install -r mcp_gateway/requirements.txt     # the SDK, once
+export MCP_API_TOKEN=ci-test-token-not-for-production HUB_DATA_DIR=/tmp/smarthub-mcp-ci
+python3 -m unittest mcp_gateway.test_server     # V1 identity and security boundary
+python3 -m unittest mcp_gateway.test_v2         # V2 identity and connector boundary
+python3 -m unittest test_ask_smarthub           # the role and tool boundary
+```
+
+**Run them after editing `mcp_gateway/v2_tools.py`, `hub/ask_smarthub.py`, or
+the Ask SmartHub page or widget** — the workflow's own path filter names
+exactly those files. `test_v2.ToolMetadataTests` asserts the V2 tool set as a
+**closed set**: adding a tool without adding its name there fails the smoke
+check, which is the point. A tool the gateway exposes and nobody wrote down
+is the surface growing without anybody agreeing to it, so the fix is to add
+the name, never to loosen the assertion.
 
 The test files need no pytest and no new dependencies; each runs against a
 temporary data directory and a throwaway SQLite database, so none of them
@@ -696,6 +926,31 @@ each half internally consistent, only the join between them wrong, which is
 the shape this file counts a dozen of. Both are corrected together, because
 correcting either alone is what makes the other dangerous.
 
+**And `checksPass` turned the gate's own cancellation rule into a deploy
+freeze.** `checks.yml` set `cancel-in-progress: true` on a group of
+`checks-${{ github.ref }}` -- written for pull requests, where nobody wants the
+verdict on a commit the author has already replaced. A push to `main` shared
+that group, so **every merge cancelled the run for the merge before it**, and
+with merges landing faster than a run takes (~15-18 minutes) `main` stopped
+completing runs at all. A cancelled run is not a passed one, so nothing
+auto-deployed.
+
+Measured on 16 September 2026 rather than inferred: the last deploy with
+`trigger: "new_commit"` was `11be225`, which is *exactly* the last commit on
+`main` whose run completed instead of being cancelled. Twelve merges later the
+service was still serving that code, moved on only by one `trigger: "manual"`
+deploy somebody pressed. Every screen said green the whole time, because every
+one of those merges really had passed on its own pull request.
+
+The second cost is the one that outlives the deploy: **a cancelled run on
+`main` is a verdict thrown away.** Every commit there is a different tree --
+the merge result -- that nothing else will ever check, which is how the
+`/qa-inactive/` breakage above sat on `main` with no completed run saying so. A
+push gets a group of its own per commit now (`github.sha` in the group name, for
+`push` only), so nothing cancels it. Not `cancel-in-progress: false` on the
+shared group: that would have queued every merge behind one lane instead of
+running them alongside each other.
+
 `test_ci_gate.py` asserts what is true now instead of what the job used to
 promise: **this workflow holds no credential at all** — no stored secret, and
 no second job carrying one. Everything the gate runs, a contributor runs on a
@@ -727,6 +982,28 @@ the page's script early, and the entire tool rendered blank. It checks that
 the chrome arrives as an *element* (`html.parser` goes raw-text inside
 `<script>` exactly as a browser does, so chrome hidden in a literal is not
 seen) and that every browser-delimited script block still parses.
+
+`tools/menucheck.py` covers the gap between those two. linkcheck reads URL
+literals out of files; pagecheck walks a hand-maintained list of pages. Neither
+asks the navigation what it is actually putting in front of a person, and the
+sidebar builds its hrefs from `LEAVES` in `hub/sidebar.py` rather than from URL
+literals in a template — so a row whose route moved is data nothing reads, and
+`department_tiles()` drops a key missing from `LEAVES` on purpose rather than
+raising, because the nav must never break a page. This asks the nav for its own
+links and follows every one: each department index, each leaf, each tile.
+
+It also checks the half nothing else can see — every flyout group heading links
+to `/views/<slug>#<anchor>`, and a fragment matching no element on the page is
+invisible to every other check here: the link resolves, the page returns 200,
+and the browser silently stays where it is. Both halves were confirmed red
+first, against a leaf pointed at a route that does not exist and against the
+heading rendering without its `id`.
+
+Three non-2xx answers are gates working rather than defects, and `EXPECTED` in
+that file names each with its reason so a fourth is a finding rather than noise
+somebody learns to scroll past: Check Reconciliation's allowlist, the Users
+panel needing a named Admin account, and a proxied mount whose Node process is
+not running outside the container.
 
 `tools/jscheck.py` and `tools/checktemplates.py` split the JavaScript between
 them. jscheck hands every file and every inline block to `node --check`, the

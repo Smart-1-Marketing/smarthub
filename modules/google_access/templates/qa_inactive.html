@@ -13,11 +13,15 @@
     .banner{display:none;padding:11px 13px;border-radius:8px;margin:10px 0;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412}.banner.show{display:block}.section{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-top:14px;overflow:hidden}.section-head{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:15px}.section-head h2{font-size:16px;margin:0}.section-head p{margin:2px 0 0;color:var(--muted);font-size:12px}.pill{border-radius:999px;padding:3px 8px;font-size:11px;font-weight:700}.pill.ga4{background:#eff8ff;color:#175cd3}.pill.gtm{background:#f4f3ff;color:#5925dc}.pill.review{background:#fffaeb;color:#b54708}
     .table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:1050px}th,td{text-align:left;padding:11px 12px;border-bottom:1px solid #eef2f6;vertical-align:top}th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#667085;background:#fbfcfd;position:sticky;top:0}td small{display:block;color:var(--muted);margin-top:2px}.num{text-align:right;font-variant-numeric:tabular-nums}.row-actions{display:flex;gap:6px;justify-content:flex-end;white-space:nowrap}.empty{padding:28px;text-align:center;color:var(--muted)}.reason{max-width:360px}.muted{color:var(--muted)}
     details{border-top:1px solid var(--line)}summary{cursor:pointer;padding:12px 16px;font-weight:600}.skipped-row{opacity:.7}
-    .bulkbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--line);background:#fbfcfd;color:var(--muted);font-size:12px}.bulkbar .count{color:var(--ink);font-size:13px}.bulkbar .spacer{flex:1}.bulkbar .filter{border:1px solid #cbd5e1;border-radius:8px;padding:6px 9px;font:inherit;min-width:260px}
+    .bulkbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--line);background:#fbfcfd;color:var(--muted);font-size:12px}.bulkbar .count{color:var(--ink);font-size:13px}.bulkbar .spacer{flex:1}.bulkbar .filter{border:1px solid #cbd5e1;border-radius:8px;padding:6px 9px;font:inherit;min-width:220px;max-width:100%}
     .act{border-radius:999px;padding:2px 7px;font-size:11px;font-weight:700;background:#f1f5f9;color:#334155}.act.delete{background:#fff1f0;color:var(--red)}.act.skip{background:#fffaeb;color:var(--amber)}.act.unskip{background:#ecfdf3;color:var(--green)}.act.site_check{background:#eff8ff;color:var(--blue)}.hist-bad td{color:var(--red)}
     th.pick,td.pick{width:36px;padding-right:0}input[type=checkbox]{width:15px;height:15px;cursor:pointer;accent-color:#1a2e58}
     .bulk-list{max-height:180px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:6px 0 12px;font-size:12px;background:#fbfcfd}.bulk-list div{padding:2px 0}
     .bulk-results{max-height:200px;overflow:auto;margin:8px 0 0;font-size:12px}.bulk-results div{padding:3px 0;border-bottom:1px solid #eef2f6}.line-ok{color:var(--green)}.line-bad{color:var(--red)}
+    dialog.wide{max-width:680px}.url-list{max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:4px 10px;margin:6px 0 12px;background:#fbfcfd}
+    .url-row{padding:8px 0;border-bottom:1px solid #eef2f6}.url-row:last-child{border-bottom:0}.url-row .url-name{font-size:12px;margin-bottom:3px}.url-row .url-name small{display:inline;color:var(--muted);margin-left:5px}
+    .url-row input{width:100%;border:1px solid #cbd5e1;border-radius:7px;padding:6px 9px;font:inherit;font-size:12px;margin:0}.url-row.missing input{border-color:#fcbfae;background:#fffbfa}
+    .url-src{display:block;color:var(--muted);font-size:11px;margin-top:3px}.url-src.none{color:var(--red)}
     dialog{border:0;border-radius:12px;padding:0;box-shadow:0 24px 70px #0f172a33;max-width:520px;width:calc(100% - 32px)}dialog::backdrop{background:#0f172a80}.modal{padding:22px}.modal h3{margin:0 0 8px;font-size:18px}.modal p{color:var(--muted)}.modal input,.modal textarea{width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font:inherit;margin:5px 0 12px}.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}.danger-note{background:#fff1f0;border:1px solid #fecdca;color:#b42318;border-radius:8px;padding:10px;margin:10px 0}.spinner{display:inline-block;width:14px;height:14px;border:2px solid #cbd5e1;border-top-color:#1a2e58;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:7px}@keyframes spin{to{transform:rotate(360deg)}}
     @media(max-width:800px){main{padding:20px 12px 50px}.head{display:block}.actions{margin-top:14px}.stats{grid-template-columns:1fr 1fr}.section{border-radius:9px}.section-head{align-items:flex-start}.hide-mobile{display:none}}
   </style>
@@ -27,7 +31,7 @@
   <div class="head">
     <div>
       <h1>Inactive Google Accounts QA {{ help_dot('google_access.cleanup.progress') if help_dot is defined else '' }} {{ help_dot('google_access.cleanup.delete') if help_dot is defined else '' }} </h1>
-      <p>Find GA4 properties with no events or sessions in the last {{ window_days }} days, plus GTM containers with no confirmed traffic in the same window. GTM has no traffic-reporting API of its own, so a container GA4 confirms alive is skipped and read active — nothing else about the linked property (inactive, unreachable, not visible to this login) holds a container back as inactive here. Every remaining GTM container is checked automatically instead: this scan fetches its resolved website and looks for the container's own tag in the raw HTML. A confirmed find moves it out of the deletable candidates and into <b>Needs Review</b>, because the tag is genuinely on the page and that is a person's call, not this scan's. A <b>Check site</b> button on every GTM row runs the same check on demand, for a site the automatic pass could not resolve or to double-check one by hand. Every section also works in bulk {{ help_dot('google_access.cleanup.bulk') if help_dot is defined else '' }} — tick the rows you mean and use the buttons above each table.</p>
+      <p>Find GA4 properties with no events or sessions in the last {{ window_days }} days, plus GTM containers with no confirmed traffic in the same window. GTM has no traffic-reporting API of its own, so a container GA4 confirms alive is skipped and read active — nothing else about the linked property (inactive, unreachable, not visible to this login) holds a container back as inactive here. Every remaining GTM container is checked automatically instead: this scan fetches its resolved website and looks for the container's own tag in the raw HTML. A confirmed find moves it out of the deletable candidates and into <b>Needs Review</b>, because the tag is genuinely on the page and that is a person's call, not this scan's. A <b>Check site</b> button on every GTM row runs the same check on demand, and the bulk check lists every selected container with the site it would fetch, so an address the automatic pass could not resolve can be filled in for all of them in one pass. Every section also works in bulk {{ help_dot('google_access.cleanup.bulk') if help_dot is defined else '' }} — tick the rows you mean and use the buttons above each table.</p>
     </div>
     <div class="actions">
       <a class="btn" href="/qa">Back to QA</a>
@@ -48,7 +52,7 @@
   <section class="section">
     <div class="section-head"><div><h2>Inactive candidates</h2><p>These are the resources eligible for Skip or Delete.</p></div><span id="scanTime" class="muted"></span></div>
     <div class="bulkbar">
-      <span class="count"><b id="cntInactive">0</b> selected</span>
+      <input id="filterInactive" class="filter" placeholder="Filter these rows" aria-label="Filter this section"><span class="count"><b id="cntInactive">0</b> selected</span><span id="shownInactive" class="muted"></span>
       <button class="small" id="bulkInactiveCheck" disabled>Check sites</button>
       <button class="small" id="bulkInactiveSkip" disabled>Skip selected</button>
       <button class="small danger" id="bulkInactiveDelete" disabled>Delete selected</button>
@@ -62,10 +66,11 @@
   </section>
 
   <section class="section">
-    <div class="section-head"><div><h2>Needs review</h2><p>A scan that could not run, or a container whose tag the automatic site check found live on the page. No Delete button is shown, in bulk or on a row.</p></div></div>
+    <div class="section-head"><div><h2>Needs review</h2><p>A scan that could not run, or a container whose tag the automatic site check found live on the page. No Delete button is shown, in bulk or on a row. <b>Skip</b> is offered instead: a container whose tag is genuinely live is never going to be deleted, and skipping it is how it stops coming back every scan. A Google login that needs reconnecting cannot be skipped — it hides every resource behind it, so reconnect it instead.</p></div></div>
     <div class="bulkbar">
-      <span class="count"><b id="cntReview">0</b> selected</span>
+      <input id="filterReview" class="filter" placeholder="Filter these rows" aria-label="Filter this section"><span class="count"><b id="cntReview">0</b> selected</span><span id="shownReview" class="muted"></span>
       <button class="small" id="bulkReviewCheck" disabled>Check sites</button>
+      <button class="small" id="bulkReviewSkip" disabled>Skip selected</button>
       <span class="spacer"></span>
       <button class="small ghost" id="bulkReviewClear" disabled>Clear selection</button>
     </div>
@@ -79,15 +84,15 @@
     <details>
       <summary>Skipped resources <span id="skippedCount" class="muted"></span></summary>
       <div class="bulkbar">
-        <span class="count"><b id="cntSkipped">0</b> selected</span>
+        <input id="filterSkipped" class="filter" placeholder="Filter these rows" aria-label="Filter this section"><span class="count"><b id="cntSkipped">0</b> selected</span><span id="shownSkipped" class="muted"></span>
         <button class="small" id="bulkSkippedCheck" disabled>Check sites</button>
         <button class="small" id="bulkSkippedUnskip" disabled>Un-skip selected</button>
         <span class="spacer"></span>
         <button class="small ghost" id="bulkSkippedClear" disabled>Clear selection</button>
       </div>
       <div class="table-wrap"><table>
-        <thead><tr><th class="pick"><input type="checkbox" id="allSkipped" aria-label="Select every skipped resource"></th><th>Type</th><th>Google login</th><th>Account</th><th>Property / container</th><th>Reason skipped</th><th></th></tr></thead>
-        <tbody id="skippedBody"><tr><td colspan="7" class="empty">Nothing skipped.</td></tr></tbody>
+        <thead><tr><th class="pick"><input type="checkbox" id="allSkipped" aria-label="Select every skipped resource"></th><th>Type</th><th>Google login</th><th>Account</th><th>Property / container</th><th>Skipped from</th><th>Reason skipped</th><th></th></tr></thead>
+        <tbody id="skippedBody"><tr><td colspan="8" class="empty">Nothing skipped.</td></tr></tbody>
       </table></div>
     </details>
   </section>
@@ -155,11 +160,11 @@
   <div class="modal-actions"><button value="cancel">Close</button><button id="confirmBulkDelete" class="danger" value="default">Delete them</button></div>
 </form></dialog>
 
-<dialog id="bulkCheckDialog"><form method="dialog" class="modal" id="bulkCheckForm">
+<dialog id="bulkCheckDialog" class="wide"><form method="dialog" class="modal" id="bulkCheckForm">
   <h3>Check these containers' tags on their sites?</h3>
   <p id="bulkCheckCount"></p>
-  <p class="muted" style="margin:0 0 6px">Each container is checked against the site it was last checked against, or the website of an exact client match on its GTM account name. A container neither of those resolves says so on its row — use <b>Check site</b> on it to supply an address by hand.</p>
-  <div class="bulk-list" id="bulkCheckList"></div>
+  <p class="muted" style="margin:0 0 6px">Each site below is the one that container was last checked against, or the website of an exact client match on its GTM account name. Correct any of them, and fill in the ones nothing could resolve — a container left blank is not checked. An address you supply here is remembered, so the next check finds it without asking.</p>
+  <div class="url-list" id="bulkCheckList"></div>
   <p id="bulkCheckResult" class="muted" style="margin:0"></p>
   <div class="bulk-results" id="bulkCheckRows"></div>
   <div class="modal-actions"><button value="cancel">Close</button><button id="confirmBulkCheck" class="primary" value="default">Check them</button></div>
@@ -193,6 +198,13 @@ function siteCheckLine(c){
   return `<small class="muted">Could not check ${link}${c.error?' — '+esc(c.error):''}</small>`;
 }
 function checkButton(r){return r.kind==='GTM'?`<button class="small ghost" data-check='${encodeURIComponent(JSON.stringify(r))}'>Check site</button>`:''}
+// A skip is a judgment about a Google resource. Needs Review also carries
+// rows that are not one -- a connected login that needs reconnecting -- and
+// skipping one of those would hide every property behind it, so the button
+// is not offered and the endpoint refuses it too (SKIPPABLE_KINDS).
+const SKIPPABLE=['GA4','GTM'];
+function canSkip(r){return SKIPPABLE.includes(r.kind)}
+function skipButton(r){return canSkip(r)?`<button class="small" data-skip='${encodeURIComponent(JSON.stringify(r))}'>Skip</button>`:''}
 
 // Selection, one set of row keys per section. Held here rather than read off
 // the checkboxes when a bulk action fires, because every action ends in a
@@ -204,22 +216,50 @@ const SECTIONS=['inactive','review','skipped'];
 const SEL={inactive:new Set(),review:new Set(),skipped:new Set()};
 const keyOf=r=>`${r.kind}:${String(r.login||'').toLowerCase()}:${r.resource}`;
 function rowsOf(sec){return (state&&state[sec])||[]}
-function selectedRows(sec){return rowsOf(sec).filter(r=>SEL[sec].has(keyOf(r)))}
+
+// A filter per section, over everything on the row a person would search by.
+// What it hides, a bulk action does not touch: the count, the header
+// checkbox, every button and every press read `visibleRows`, never `rowsOf`.
+// A screen with a Delete on it has to hold "what you see is what you act on"
+// -- a ticked row scrolled out of view is one thing, a ticked row the filter
+// has removed from the page is quite another, and the second is how somebody
+// deletes a property they were not looking at.
+const FILTERS={inactive:'',review:'',skipped:''};
+function rowHaystack(r){
+  const s=r.skip||{}, c=r.site_check||{};
+  return [r.kind,r.login,r.account,r.name,r.resource,r.public_id,r.reason,
+          r.from,s.reason,s.by,c.url].join(' ').toLowerCase();
+}
+function rowMatches(r,q){return !q||rowHaystack(r).includes(q)}
+function visibleRows(sec){const q=FILTERS[sec];return rowsOf(sec).filter(r=>rowMatches(r,q))}
+function isFiltered(sec){return !!FILTERS[sec]}
+function selectedRows(sec){return visibleRows(sec).filter(r=>SEL[sec].has(keyOf(r)))}
 // A row that is no longer in the section it was picked in -- deleted,
 // skipped into another table, promoted by a site check -- drops out of the
 // selection rather than staying picked invisibly.
-function pruneSelection(){for(const sec of SECTIONS){const live=new Set(rowsOf(sec).map(keyOf));for(const k of Array.from(SEL[sec]))if(!live.has(k))SEL[sec].delete(k);}}
+function pruneSelection(){for(const sec of SECTIONS){const live=new Set(visibleRows(sec).map(keyOf));for(const k of Array.from(SEL[sec]))if(!live.has(k))SEL[sec].delete(k);}}
 function pickCell(sec,r){const k=keyOf(r);return `<td class="pick"><input type="checkbox" data-sec="${sec}" data-key="${esc(k)}"${SEL[sec].has(k)?' checked':''} aria-label="Select ${esc(r.name)}"></td>`}
 
-function rowInactive(r){return `<tr>${pickCell('inactive',r)}<td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${r.public_id?`<small>${esc(r.public_id)}</small>`:''}${siteCheckLine(r.site_check)}</td><td>${esc(r.resource)}</td><td class="num">${n(r.events)}</td><td class="num">${n(r.sessions)}</td><td class="reason">${esc(r.reason)}</td><td><div class="row-actions">${checkButton(r)}<button class="small" data-skip='${encodeURIComponent(JSON.stringify(r))}'>Skip</button><button class="small danger" data-delete='${encodeURIComponent(JSON.stringify(r))}'>Delete</button></div></td></tr>`}
-function rowReview(r){return `<tr>${pickCell('review',r)}<td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${siteCheckLine(r.site_check)}</td><td>${esc(r.resource)}</td><td class="reason">${esc(r.reason)}</td><td>${checkButton(r)}</td></tr>`}
-function rowSkipped(r){const s=r.skip||{};return `<tr class="skipped-row">${pickCell('skipped',r)}<td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${siteCheckLine(r.site_check)}</td><td>${esc(s.reason||'—')}<small>${esc(s.by||'')} ${s.at?esc(s.at.slice(0,10)):''}</small></td><td><div class="row-actions">${checkButton(r)}<button class="small" data-unskip='${encodeURIComponent(JSON.stringify(r))}'>Un-skip</button></div></td></tr>`}
+function rowInactive(r){return `<tr>${pickCell('inactive',r)}<td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${r.public_id?`<small>${esc(r.public_id)}</small>`:''}${siteCheckLine(r.site_check)}</td><td>${esc(r.resource)}</td><td class="num">${n(r.events)}</td><td class="num">${n(r.sessions)}</td><td class="reason">${esc(r.reason)}</td><td><div class="row-actions">${checkButton(r)}${skipButton(r)}<button class="small danger" data-delete='${encodeURIComponent(JSON.stringify(r))}'>Delete</button></div></td></tr>`}
+function rowReview(r){return `<tr>${pickCell('review',r)}<td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${siteCheckLine(r.site_check)}</td><td>${esc(r.resource)}</td><td class="reason">${esc(r.reason)}</td><td><div class="row-actions">${checkButton(r)}${skipButton(r)}</div></td></tr>`}
+function fromCell(r){return r.from==='review'?'<span class="pill review">Needs review</span>':'<span class="muted">Inactive candidate</span>'}
+function rowSkipped(r){const s=r.skip||{};return `<tr class="skipped-row">${pickCell('skipped',r)}<td>${typePill(r.kind)}</td>${loginCell(r.login)}<td>${esc(r.account)}</td><td><b>${esc(r.name)}</b>${siteCheckLine(r.site_check)}</td><td>${fromCell(r)}</td><td>${esc(s.reason||'—')}<small>${esc(s.by||'')} ${s.at?esc(s.at.slice(0,10)):''}</small></td><td><div class="row-actions">${checkButton(r)}<button class="small" data-unskip='${encodeURIComponent(JSON.stringify(r))}'>Un-skip</button></div></td></tr>`}
 function render(data){state=data;pruneSelection();$('#inactiveCount').textContent=data.inactive.length;$('#reviewCount').textContent=data.review.length;$('#activeCount').textContent=data.active_count;$('#loginCount').textContent=data.connected_logins;$('#skippedCount').textContent=`(${data.skipped.length})`;$('#scanTime').textContent=data.scanned_at?`Scanned ${new Date(data.scanned_at).toLocaleString()}`:'';
  $('#lastScanLine').textContent=data.scanned_at?`Last scanned ${new Date(data.scanned_at).toLocaleString()} — properties and containers checked in the last 24h are read back from that scan rather than re-checked. Use Full rescan to ignore that and check everything live.`:'';
- $('#inactiveBody').innerHTML=data.inactive.length?data.inactive.map(rowInactive).join(''):'<tr><td colspan="10" class="empty">No inactive GA4 properties or defensible inactive GTM containers found.</td></tr>';
- $('#reviewBody').innerHTML=data.review.length?data.review.map(rowReview).join(''):'<tr><td colspan="8" class="empty">Nothing needs manual review.</td></tr>';
- $('#skippedBody').innerHTML=data.skipped.length?data.skipped.map(rowSkipped).join(''):'<tr><td colspan="7" class="empty">Nothing skipped.</td></tr>';
+ drawSection('inactive',rowInactive,10,'No inactive GA4 properties or defensible inactive GTM containers found.');
+ drawSection('review',rowReview,8,'Nothing needs manual review.');
+ drawSection('skipped',rowSkipped,8,'Nothing skipped.');
  const bits=[];if(data.source_error)bits.push(data.source_error);if(data.errors?.length)bits.push(data.errors.join(' | '));show(bits.join(' — ')); bind(); refreshBulkBars();}
+const BODIES={inactive:'#inactiveBody',review:'#reviewBody',skipped:'#skippedBody'};
+const SHOWN={inactive:'#shownInactive',review:'#shownReview',skipped:'#shownSkipped'};
+function drawSection(sec,rowFn,cols,emptyText){
+  const all=rowsOf(sec), shown=visibleRows(sec);
+  $(BODIES[sec]).innerHTML=shown.length?shown.map(rowFn).join('')
+    :`<tr><td colspan="${cols}" class="empty">${esc(all.length?'Nothing in this section matches that filter.':emptyText)}</td></tr>`;
+  // Only when a filter is on: an unfiltered section already says its count
+  // in the tile above, and repeating it here reads as two different numbers.
+  $(SHOWN[sec]).textContent=isFiltered(sec)?`showing ${shown.length} of ${all.length}`:'';
+}
 function bind(){document.querySelectorAll('[data-skip]').forEach(b=>b.onclick=()=>openSkip(JSON.parse(decodeURIComponent(b.dataset.skip))));document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>openDelete(JSON.parse(decodeURIComponent(b.dataset.delete))));document.querySelectorAll('[data-unskip]').forEach(b=>b.onclick=()=>unskip(JSON.parse(decodeURIComponent(b.dataset.unskip))));document.querySelectorAll('[data-check]').forEach(b=>b.onclick=()=>openCheck(JSON.parse(decodeURIComponent(b.dataset.check))));document.querySelectorAll('input[data-sec]').forEach(c=>c.onchange=()=>{const s=SEL[c.dataset.sec];if(!s)return;if(c.checked)s.add(c.dataset.key);else s.delete(c.dataset.key);refreshBulkBars();});}
 let pollTimer=null;
 function stopPolling(){if(pollTimer){clearInterval(pollTimer);pollTimer=null}}
@@ -367,20 +407,22 @@ $('#checkForm').addEventListener('submit',async e=>{
 // in one request is a worker killed mid-flight, not a faster cleanup.
 const CHUNK={skip:500,unskip:500,del:20,check:12};
 const BULK={
-  inactive:{count:'#cntInactive',all:'#allInactive',buttons:['#bulkInactiveCheck','#bulkInactiveSkip','#bulkInactiveDelete','#bulkInactiveClear'],gtmOnly:['#bulkInactiveCheck']},
-  review:{count:'#cntReview',all:'#allReview',buttons:['#bulkReviewCheck','#bulkReviewClear'],gtmOnly:['#bulkReviewCheck']},
-  skipped:{count:'#cntSkipped',all:'#allSkipped',buttons:['#bulkSkippedCheck','#bulkSkippedUnskip','#bulkSkippedClear'],gtmOnly:['#bulkSkippedCheck']},
+  inactive:{count:'#cntInactive',all:'#allInactive',buttons:['#bulkInactiveCheck','#bulkInactiveSkip','#bulkInactiveDelete','#bulkInactiveClear'],gtmOnly:['#bulkInactiveCheck'],skipOnly:[]},
+  review:{count:'#cntReview',all:'#allReview',buttons:['#bulkReviewCheck','#bulkReviewSkip','#bulkReviewClear'],gtmOnly:['#bulkReviewCheck'],skipOnly:['#bulkReviewSkip']},
+  skipped:{count:'#cntSkipped',all:'#allSkipped',buttons:['#bulkSkippedCheck','#bulkSkippedUnskip','#bulkSkippedClear'],gtmOnly:['#bulkSkippedCheck'],skipOnly:[]},
 };
 function gtmRows(rows){return rows.filter(r=>r.kind==='GTM')}
 function refreshBulkBars(){
   for(const sec of SECTIONS){
-    const cfg=BULK[sec], picked=selectedRows(sec), rows=rowsOf(sec);
+    const cfg=BULK[sec], picked=selectedRows(sec), rows=visibleRows(sec);
     $(cfg.count).textContent=picked.length;
-    const gtm=gtmRows(picked).length;
+    const gtm=gtmRows(picked).length, skippable=picked.filter(canSkip).length;
     for(const id of cfg.buttons){
       const el=$(id);
       if(!el)continue;
-      el.disabled=cfg.gtmOnly.includes(id)?gtm===0:picked.length===0;
+      if(cfg.gtmOnly.includes(id))el.disabled=gtm===0;
+      else if((cfg.skipOnly||[]).includes(id))el.disabled=skippable===0;
+      else el.disabled=picked.length===0;
     }
     const box=$(cfg.all);
     if(box){box.checked=rows.length>0&&picked.length===rows.length;box.indeterminate=picked.length>0&&picked.length<rows.length;}
@@ -390,7 +432,7 @@ function refreshBulkBars(){
 }
 function toggleAll(sec,on){
   const s=SEL[sec];s.clear();
-  if(on)rowsOf(sec).forEach(r=>s.add(keyOf(r)));
+  if(on)visibleRows(sec).forEach(r=>s.add(keyOf(r)));
   document.querySelectorAll(`input[data-sec="${sec}"]`).forEach(c=>{c.checked=on});
   refreshBulkBars();
 }
@@ -406,11 +448,15 @@ function nameList(rows){return rows.map(r=>`<div>${typePill(r.kind)} ${esc(r.nam
 function resultLines(rows){return rows.map(r=>`<div class="${r.ok?'line-ok':'line-bad'}">${r.ok?'✓':'✗'} ${esc(r.name)}${r.ok?'':' — '+esc(r.error||'failed')}</div>`).join('')}
 
 // --- Skip in bulk ----------------------------------------------------------
-let bulkSkipRows=[];
-function openBulkSkip(){
-  bulkSkipRows=selectedRows('inactive');
+let bulkSkipRows=[], bulkSkipSection='inactive';
+function openBulkSkip(sec){
+  bulkSkipSection=sec;
+  const picked=selectedRows(sec);
+  bulkSkipRows=picked.filter(canSkip);
   if(!bulkSkipRows.length)return;
-  $('#bulkSkipCount').textContent=`${bulkSkipRows.length} resource${bulkSkipRows.length===1?'':'s'} will be moved to Skipped. Nothing is deleted, and any of them can be un-skipped later.`;
+  const left=picked.length-bulkSkipRows.length;
+  $('#bulkSkipCount').textContent=`${bulkSkipRows.length} resource${bulkSkipRows.length===1?'':'s'} will be moved to Skipped. Nothing is deleted, and any of them can be un-skipped later.`
+    +(left?` ${left} selected row${left===1?' is':'s are'} a Google login that needs reconnecting rather than a resource, so ${left===1?'it is':'they are'} left alone.`:'');
   $('#bulkSkipList').innerHTML=nameList(bulkSkipRows);
   $('#bulkSkipReason').value='';$('#bulkSkipResult').textContent='';
   $('#bulkSkipDialog').showModal();
@@ -428,7 +474,7 @@ $('#bulkSkipForm').addEventListener('submit',async e=>{
       $('#bulkSkipResult').textContent=`Skipped ${done} of ${bulkSkipRows.length}…`;
     }
     $('#bulkSkipDialog').close();
-    clearSelection('inactive');
+    clearSelection(bulkSkipSection);
     show(failed.length?`Skipped ${done}. ${failed.length} could not be skipped: ${failed.map(f=>f.name+' — '+f.error).join('; ')}`:`Skipped ${done} resource${done===1?'':'s'}.`);
     await startScan(false);
   }catch(err){$('#bulkSkipResult').textContent=err.message}finally{b.disabled=false}
@@ -503,17 +549,71 @@ $('#bulkDeleteForm').addEventListener('submit',async e=>{
 });
 
 // --- Site check in bulk ----------------------------------------------------
-let bulkCheckRows=[], bulkCheckSection='inactive';
-function openBulkCheck(sec){
+// A container is only checkable against a site somebody can name. The scan
+// works one out where it can -- the site last checked, or an exact
+// client-registry match on the GTM account name -- and records "no website
+// could be resolved" for the rest. Fixing those one dialog at a time is what
+// made the bulk check stop short of the containers that needed it most, so
+// the dialog asks the server what each row would be checked against, shows
+// it in an editable field, and takes the blanks in one pass.
+let bulkCheckRows=[], bulkCheckSection='inactive', bulkCheckUrls={};
+const URL_SOURCE={
+  checked:'The site it was last checked against',
+  client:'Website of an exact client match',
+  none:'No website could be resolved — type one to check this container',
+};
+function urlRow(r){
+  const key=keyOf(r), url=bulkCheckUrls[key]||'';
+  const src=r.source||'none';
+  const note=src==='client'&&r.client?`${URL_SOURCE.client}: ${esc(r.client)}`:esc(URL_SOURCE[src]||URL_SOURCE.none);
+  return `<div class="url-row${url?'':' missing'}">
+    <div class="url-name"><b>${esc(r.name)}</b><small>${esc(r.account||'')}${r.public_id?' · '+esc(r.public_id):''}</small></div>
+    <input data-url="${esc(key)}" value="${esc(url)}" placeholder="https://example.com" autocomplete="off">
+    <small class="url-src${src==='none'&&!url?' none':''}">${note}</small>
+  </div>`;
+}
+function drawCheckUrls(rows){
+  $('#bulkCheckList').innerHTML=rows.map(urlRow).join('');
+  document.querySelectorAll('#bulkCheckList input[data-url]').forEach(el=>{
+    el.oninput=()=>{
+      bulkCheckUrls[el.dataset.url]=el.value;
+      el.closest('.url-row').classList.toggle('missing',!el.value.trim());
+      countCheckable();
+    };
+  });
+  countCheckable();
+}
+function countCheckable(){
+  const ready=bulkCheckRows.filter(r=>(bulkCheckUrls[keyOf(r)]||'').trim()).length;
+  const blank=bulkCheckRows.length-ready;
+  $('#bulkCheckCount').textContent=`${ready} of ${bulkCheckRows.length} container${bulkCheckRows.length===1?'':'s'} will be fetched and searched for their own tag.`
+    +(blank?` ${blank} ${blank===1?'has':'have'} no site yet and ${blank===1?'is':'are'} not checked until one is filled in.`:'');
+  $('#confirmBulkCheck').disabled=ready===0;
+}
+async function openBulkCheck(sec){
   bulkCheckSection=sec;
   bulkCheckRows=gtmRows(selectedRows(sec));
   if(!bulkCheckRows.length)return;
+  bulkCheckUrls={};
   const skipped=selectedRows(sec).length-bulkCheckRows.length;
-  $('#bulkCheckCount').textContent=`${bulkCheckRows.length} GTM container${bulkCheckRows.length===1?'':'s'} will be fetched and searched for their own tag.`+(skipped?` ${skipped} selected GA4 propert${skipped===1?'y has':'ies have'} no tag to look for and ${skipped===1?'is':'are'} left alone.`:'');
-  $('#bulkCheckList').innerHTML=nameList(bulkCheckRows);
+  $('#bulkCheckCount').textContent=`Working out which site each container is checked against…`
+    +(skipped?` ${skipped} selected GA4 propert${skipped===1?'y has':'ies have'} no tag to look for and ${skipped===1?'is':'are'} left alone.`:'');
+  $('#bulkCheckList').innerHTML='<div class="url-row"><span class="spinner"></span>Reading the sites already on file…</div>';
   $('#bulkCheckResult').textContent='';$('#bulkCheckRows').innerHTML='';
-  $('#confirmBulkCheck').disabled=false;
+  $('#confirmBulkCheck').disabled=true;
   $('#bulkCheckDialog').showModal();
+  try{
+    const d=await postJSON('api/gtm/resolve-url/bulk',{rows:bulkCheckRows});
+    const bySource={};
+    for(const r of d.rows||[]){bySource[keyOf(r)]=r;if(r.url)bulkCheckUrls[keyOf(r)]=r.url;}
+    // Draw against the selection, not the response, so a row the server had
+    // nothing to say about still gets a field rather than disappearing.
+    drawCheckUrls(bulkCheckRows.map(r=>({...r,...(bySource[keyOf(r)]||{source:'none'})})));
+  }catch(err){
+    // No suggestions is not no dialog: every row still gets an empty field.
+    drawCheckUrls(bulkCheckRows.map(r=>({...r,source:'none'})));
+    $('#bulkCheckResult').textContent='Could not read the sites already on file: '+err.message;
+  }
 }
 function applySiteChecks(results){
   if(!state)return;
@@ -529,11 +629,19 @@ function applySiteChecks(results){
 $('#bulkCheckForm').addEventListener('submit',async e=>{
   e.preventDefault();
   if(!bulkCheckRows.length)return;
+  // Only the rows somebody has given a site for. A blank is "not this one",
+  // not "check it and record that we could not" -- the automatic pass
+  // already writes that, and repeating it on an explicit press would bury
+  // the rows a person just fixed.
+  const ready=bulkCheckRows
+    .map(r=>({...r,url:(bulkCheckUrls[keyOf(r)]||'').trim()}))
+    .filter(r=>r.url);
+  if(!ready.length){$('#bulkCheckResult').textContent='Fill in a website for at least one container first.';return;}
   const b=$('#confirmBulkCheck');b.disabled=true;
-  const total=bulkCheckRows.length;
+  const total=ready.length;
   let results=[],checked=0;
   try{
-    for(const part of chunk(bulkCheckRows,CHUNK.check)){
+    for(const part of chunk(ready,CHUNK.check)){
       $('#bulkCheckResult').innerHTML=`<span class="spinner"></span>Checked ${checked} of ${total}…`;
       const d=await postJSON('api/gtm/site-check/bulk',{rows:part});
       checked+=d.checked||0;results=results.concat(d.results||[]);
@@ -547,7 +655,9 @@ $('#bulkCheckForm').addEventListener('submit',async e=>{
   const found=results.filter(r=>r.ok&&r.found===true).length;
   const missing=results.filter(r=>r.ok&&r.found===false).length;
   const unknown=results.length-found-missing;
+  const blank=bulkCheckRows.length-total;
   $('#bulkCheckResult').textContent=`${found} tag${found===1?'':'s'} found, ${missing} not found, ${unknown} could not be checked.`
+    +(blank?` ${blank} left blank and not checked.`:'')
     +(found?' A container whose tag is live moves into Needs Review on the next scan.':'');
   $('#bulkCheckRows').innerHTML=results.map(r=>{
     const label=esc(r.name);
@@ -561,14 +671,31 @@ $('#bulkCheckForm').addEventListener('submit',async e=>{
   b.disabled=false;
 });
 
+const FILTER_INPUTS={inactive:'#filterInactive',review:'#filterReview',skipped:'#filterSkipped'};
+const ROW_DRAWERS={inactive:[rowInactive,10,'No inactive GA4 properties or defensible inactive GTM containers found.'],
+                   review:[rowReview,8,'Nothing needs manual review.'],
+                   skipped:[rowSkipped,8,'Nothing skipped.']};
+function applyFilter(sec,value){
+  FILTERS[sec]=String(value||'').trim().toLowerCase();
+  // Pruning before the redraw is what makes "what you see is what you act
+  // on" true: a ticked row the filter has just hidden leaves the selection
+  // rather than staying picked where nobody can see it.
+  pruneSelection();
+  drawSection(sec,...ROW_DRAWERS[sec]);
+  bind();
+  refreshBulkBars();
+}
 for(const sec of SECTIONS){
   const box=$(BULK[sec].all);
   if(box)box.onchange=()=>toggleAll(sec,box.checked);
+  const input=$(FILTER_INPUTS[sec]);
+  if(input)input.oninput=()=>applyFilter(sec,input.value);
 }
 $('#bulkInactiveClear').onclick=()=>clearSelection('inactive');
 $('#bulkReviewClear').onclick=()=>clearSelection('review');
 $('#bulkSkippedClear').onclick=()=>clearSelection('skipped');
-$('#bulkInactiveSkip').onclick=openBulkSkip;
+$('#bulkInactiveSkip').onclick=()=>openBulkSkip('inactive');
+$('#bulkReviewSkip').onclick=()=>openBulkSkip('review');
 $('#bulkInactiveDelete').onclick=openBulkDelete;
 $('#bulkSkippedUnskip').onclick=bulkUnskip;
 $('#bulkInactiveCheck').onclick=()=>openBulkCheck('inactive');

@@ -177,12 +177,21 @@ check("it asks existing or new", 'name="client_type"' in html
 check("existing gets the Client 360 lookup", "/api/clients/search" in html)
 check("Google Ads is not offered as a tickbox", 'value="ads"' not in html)
 
+# The catch-all added for stale links is registered on the SAME prefix a live
+# tool is mounted under, so the thing worth asserting is that it does not
+# swallow one. `/tools/google-access/qa-inactive/` is the Inactive GA & GTM
+# report -- its own blueprint (modules/google_access/qa_inactive.py), an entry
+# in hub/sidebar.py and a registered walkthrough in hub/demos.py -- and a
+# redirect there is the tool disappearing from the Hub with every screen still
+# looking healthy.
 qa_inactive = composed.get("/tools/google-access/qa-inactive/")
-check("the inactive QA screen remains reachable", qa_inactive.status_code == 200, qa_inactive.status_code)
+check("a live tool under this prefix is not swallowed by the catch-all",
+      qa_inactive.status_code == 200, qa_inactive.status_code)
 check("the inactive QA route serves its own screen",
       "Inactive GA" in qa_inactive.get_data(as_text=True))
 stale_path = composed.get("/tools/google-access/retired-link/")
-check("other stale Google Access paths resolve", stale_path.status_code in (301, 302), stale_path.status_code)
+check("a genuinely stale Google Access path goes to the tool home",
+      stale_path.status_code in (301, 302), stale_path.status_code)
 
 def create(**payload):
     return composed.post("/tools/google-access/api/requests", data=payload)

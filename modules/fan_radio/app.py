@@ -34,8 +34,14 @@ import requests
 from flask import (Flask, Response, jsonify, render_template, request,
                    send_file)
 
-from . import ai, catalog, phrases, speech, store, voices, script_presets, delivery
+from . import (ai, catalog, phrases, qc, speech, store, suite, voices,
+               script_presets, delivery)
 from hub import radio_share, voice_casting
+
+try:
+    from hub import suite_opportunity
+except Exception:                                            # noqa: BLE001
+    suite_opportunity = None
 
 try:
     from hub import radio_spec
@@ -113,10 +119,29 @@ def rate_limited(bucket: str, limit: int, window: int = 60) -> bool:
     return _limiter.hit(bucket, client_ip(), limit, window)
 
 
-def fail(message: str, code: int = 400):
+def fail(message: str, code: int = 400, **extra):
     """Customer-safe error. No provider bodies, no tracebacks — the audit
-    found an API key prefix reaching a public lead page that way."""
-    return jsonify({"ok": False, "error": message}), code
+    found an API key prefix reaching a public lead page that way.
+
+    ``extra`` carries structure the page can draw rather than parse out of the
+    sentence — the script panel behind a refused record, say. It is this
+    service's own data by construction: every caller passes values it just
+    computed, never a provider's response body, which is the rule above.
+    """
+    return jsonify({"ok": False, "error": message, **extra}), code
+
+
+def write_musts(project: dict) -> dict:
+    """The non-negotiables a write is asked for and the panel checks for.
+
+    `qc.facts_for` and `qc.required_for` are the one reading of which field
+    holds what; this only adds the disclaimer and hands the pair to the
+    prompt. A second description here is how the prompt comes to ask for a
+    `landing_url` the panel never looks at.
+    """
+    return dict(qc.facts_for(project),
+                require=qc.required_for(project),
+                disclaimer=project.get("disclaimer") or "")
 
 
 def banned_terms(project: dict) -> list[str]:
@@ -336,6 +361,33 @@ def api_phrase_check():
 # =====================================================================
 # Projects
 # =====================================================================
+@app.route("/api/projects/<pid>/script-qc")
+def api_script_qc(pid):
+    """The script panel, on demand. Cheap: it reads the copy and reaches no
+    provider, which is the whole point of running it on the Spots step.
+
+    Its own path, and deliberately not `/qc`. That one is the **mix** panel --
+    the bed's source, the loudness, the length measured off the stored WAV --
+    and it answers after a render. This one answers before anybody has paid
+    for a voice. They are neighbours rather than two readings of one question,
+    so they are asked separately; sharing a URL would have made whichever
+    registered second the only one anybody could reach.
+
+    `labels` is served with the panel rather than restated in the template,
+    because a check absent from the label map is skipped silently by the loop
+    that draws it.
+    """
+    project = store.load(pid)
+    if not project:
+        return fail("No project with that id.", 404)
+    only = (request.args.get("spot") or "").strip()
+    spots = [s for s in (project.get("spots") or [])
+             if not only or s.get("id") == only]
+    panel = qc.run(project, spots, banned_terms(project))
+    return jsonify({"ok": True, **panel, "labels": qc.CHECK_LABELS,
+                    "blocks_render": list(qc.BLOCKS_RENDER)})
+
+
 @app.route("/api/projects", methods=["GET"])
 def api_list():
     scope = (request.args.get("scope") or "").strip()
@@ -372,6 +424,14 @@ def api_create():
         "promotion": str(body.get("promotion") or "").strip(),
         "notes": str(body.get("notes") or "").strip(),
         "team_context": str(body.get("team_context") or "").strip(),
+        # The response number and the disclaimer the script panel checks for.
+        # Both were absent here and present in the Radio Ad Creator, so
+        # "the read never says the phone number" and "the required disclaimer
+        # did not make the cut" were findings one tool could make and this one
+        # could not -- there was nowhere to type the answer.
+        "phone": str(body.get("phone") or "").strip(),
+        "include_phone": bool(body.get("include_phone")),
+        "disclaimer": str(body.get("disclaimer") or "").strip(),
         "tone": body.get("tone") if body.get("tone") in catalog.TONE_IDS else "warm",
     }, actor_name())
 
@@ -411,9 +471,11 @@ def api_update(pid):
         return fail("No project with that id.", 404)
     body = request.get_json(silent=True) or {}
     for key in ("company", "home_url", "promotion", "notes", "team_context",
-                "client", "scope"):
+                "client", "scope", "phone", "disclaimer"):
         if key in body:
             project[key] = str(body[key] or "").strip()
+    if "include_phone" in body:
+        project["include_phone"] = bool(body["include_phone"])
     if body.get("tone") in catalog.TONE_IDS:
         project["tone"] = body["tone"]
     if isinstance(body.get("banned"), list):
@@ -476,7 +538,7 @@ def api_write(pid):
         if dp != "postgame":
             outcome = "neutral"
         out = ai.write_spot(project["brief"], dp, seconds, tone_id, outcome,
-                            banned, steer)
+                            banned, steer, must=write_musts(project))
         spot = {
             "id": store.spot_id(), "daypart": dp, "seconds": seconds,
             "outcome": outcome, "tone": tone_id,
@@ -520,7 +582,8 @@ def api_rewrite(pid, sid):
         else spot.get("tone") or project.get("tone", "warm")
     out = ai.write_spot(project["brief"], spot["daypart"], spot["seconds"],
                         tone_id, spot.get("outcome") or "neutral",
-                        banned_terms(project), str(body.get("steer") or "")[:600])
+                        banned_terms(project), str(body.get("steer") or "")[:600],
+                        must=write_musts(project))
     spot.update({"script": out.get("script") or spot.get("script"),
                  "hook": out.get("hook") or "", "notes": out.get("notes") or "",
                  "tone": tone_id, "ai": bool(out.get("ai")),
@@ -753,15 +816,28 @@ def api_set_voice(pid):
 
 @app.route("/api/script-presets", methods=["GET", "POST"])
 def api_script_presets():
+    """The shared reusable-read library, filled in for a project if named.
+
+    `?project=` is optional and only decides whose name the placeholder is
+    filled with. The library itself is `hub/radio_presets.py` and is the same
+    rows the Radio Ad Creator offers -- a read saved in one tool is offered in
+    the other, because both write the same lengths against the same budgets.
+    """
+    project = store.load((request.args.get("project") or "").strip()) or {}
+    company = project.get("company") or ""
     if request.method == "GET":
-        return jsonify({"ok": True, **script_presets.library()})
+        return jsonify({"ok": True, **script_presets.library(company)})
     body = request.get_json(silent=True) or {}
+    # Saved with this client's name put back to the placeholder, or the
+    # library's first reuse reads out somebody else's business.
+    text = script_presets.generalize(body.get("script"), company)
     try:
-        row = script_presets.save(body.get("name"), body.get("script"), actor_name())
+        row = script_presets.save(body.get("name"), text, actor_name())
     except ValueError as exc:
         return fail(str(exc))
     _log("script_preset_saved", preset=row["id"])
-    return jsonify({"ok": True, "preset": row})
+    return jsonify({"ok": True, "preset": row,
+                    **script_presets.library(company)})
 
 
 @app.route("/api/projects/<pid>/voice/preview", methods=["POST"])
@@ -811,15 +887,24 @@ def api_record(pid, sid):
         return fail("No spot with that id.", 404)
     if not spot.get("script"):
         return fail("Nothing to record — write the spot first.")
-    # The trademark check runs before the voice check: it's the problem
-    # that has to be fixed either way, and it costs nothing to find.
-    check = phrases.scan(spot["script"], banned_terms(project),
-                         spot.get("daypart") or "",
-                         spot.get("outcome") or "neutral")
-    if not check["clean"]:
-        hits = ", ".join(h["term"] for h in check["blocked"])
-        return fail(f"This script still says: {hits}. That's a trademark — "
-                    f"fix it before spending a render.")
+    # The script panel runs before the voice check: these are the problems
+    # that have to be fixed either way, and they cost nothing to find. It used
+    # to be the trademark scan alone, which is why a :30 that never said the
+    # client's web address recorded happily here and was refused one tool over.
+    #
+    # Only `qc.BLOCKS_RENDER` refuses, and the line is **certainty** rather
+    # than severity: a registered mark, a missing disclaimer, an invented price
+    # and an address the read never says are facts about the text. The read
+    # estimate is words over a read pace, so it reports loudly and the render
+    # still goes -- refusing that would be refusing a correct read, which is
+    # how a panel comes to be switched off, and switching this one off would
+    # cost the trademark check with it.
+    panel = qc.run_spot(project, spot, banned_terms(project))
+    stopped = qc.blocking(panel)
+    if stopped:
+        return fail(" ".join(panel["checks"][k]["message"] for k in stopped),
+                    422, qc_panel=panel, stopped=stopped,
+                    labels=qc.CHECK_LABELS)
     voice = project.get("voice") or {}
     if not voice.get("voice_id"):
         return fail("Cast a voice for this project first.")
@@ -1361,6 +1446,7 @@ def _qc_for(project: dict, spot: dict) -> dict:
         words_low=budget.get("low"), words_high=budget.get("high"),
         target_seconds=spot.get("seconds"),
         mixed_seconds=mix.get("seconds") if mix.get("measured") else None,
+        speed=mix.get("speed"),
         bed=bed, vo_only=bed is None)
     report["available"] = True
     report["error"] = ""
@@ -1379,6 +1465,58 @@ def api_qc(pid):
              if not only or s.get("id") == only]
     return jsonify({"ok": True,
                     "reports": {s["id"]: _qc_for(project, s) for s in spots}})
+
+
+# ------------------------------------------------- an over-long uploaded read
+@app.route("/api/projects/<pid>/spots/<sid>/speed", methods=["POST"])
+def api_speed_suggestion(pid, sid):
+    """The rate that would get an uploaded read back inside its slot.
+
+    A read this tool *recorded* and that overruns has two levers already on the
+    screen — tighten the script, or drop the voice speed in the casting step —
+    and both produce a fresh read at the right pace. A read somebody
+    **uploaded** has neither: it is a finished file made by talent who has gone
+    home, and with no ffmpeg in this runtime the only lever left is the one the
+    browser already has, which is to play it faster.
+
+    So this answers with a rate rather than the page working one out.
+    `hub/radio_spec.speed_suggestion()` owns the arithmetic, the ceiling and
+    the sentence, exactly as it owns the dB pair — a second copy of "how fast
+    is too fast" in JavaScript is how the panel and the render come to
+    disagree about what was approved.
+
+    Every number in is a duration the browser decoded, and the answer says so.
+    It changes nothing about what gets filed: that is still measured from the
+    WAV's own header by `wav_seconds()` on the way in.
+    """
+    try:
+        project, spot = _spot_or_fail(pid, sid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    spec, error = _need_spec()
+    if not spec:
+        return fail(error, 503)
+
+    body = request.get_json(silent=True) or {}
+    mix_cfg = spec.mix_defaults((project.get("mix_level") or ""))
+    lead = mix_cfg["lead_in_ms"] if (spot.get("bed") or {}).get("audio_url") else 0
+    suggestion = spec.speed_suggestion(
+        vo_seconds=body.get("vo_seconds"),
+        target_seconds=spot.get("seconds"),
+        mixed_seconds=body.get("mixed_seconds"),
+        lead_in_ms=lead)
+
+    # Whose read it is decides which advice is the right advice, and only the
+    # route knows: `audio_provider` is set by the upload and by nothing else.
+    uploaded = (spot.get("audio_provider") or "") == "upload"
+    return jsonify({"ok": True, "uploaded": uploaded,
+                    "suggestion": suggestion,
+                    "alternative": "" if uploaded else
+                    ("This read was recorded here, so the honest fix is a fresh "
+                     "one: tighten the script, or drop the voice speed in the "
+                     "casting step, and record it again. Speeding a finished "
+                     "file up is for a read somebody uploaded, where there is "
+                     "no re-record to ask for.")})
 
 
 # ------------------------------------------------------------------ the mix
@@ -1431,7 +1569,16 @@ def api_mix(pid, sid):
 
     level = (request.form.get("level") or "").strip()
     pair = spec.ducked_db(level)
-    probe = dict(spot, mix={"seconds": seconds, "measured": True})
+    # The rate the read was played at, if it was time-compressed to fit. It is
+    # validated rather than trusted: the ceiling lives in `radio_spec` so the
+    # panel, the render and the record cannot disagree about what is allowed,
+    # and a rate past it is a 400 rather than a filed mix nobody can account
+    # for. Absent or 1.0 means the read played at its own pace.
+    speed, speed_error = spec.speed_ok(request.form.get("speed"))
+    if speed_error:
+        return fail(speed_error)
+    probe = dict(spot, mix={"seconds": seconds, "measured": True,
+                            "speed": speed})
     report = _qc_for(project, probe)
     override = str(request.form.get("override") or "").strip().lower() in (
         "1", "true", "yes")
@@ -1449,6 +1596,8 @@ def api_mix(pid, sid):
                    "seconds": seconds, "measured": True, "bytes": len(data),
                    "filename": filename, "format": spec.MIX_FORMAT,
                    "level": level or spec.bed_levels().get("reference", ""),
+                   "speed": speed,
+                   "speed_semitones": spec.speed_semitones(speed) if speed > 1 else 0,
                    "bed_db": pair["bed"], "ducked_db": pair["ducked"],
                    "level_known": pair["known"],
                    "bed": (spot.get("bed") or {}).get("kind") or "",
@@ -1460,7 +1609,8 @@ def api_mix(pid, sid):
     spot.pop("mix_note", None)
     store.save(project)
     _log("spot_mixed", project=pid, spot=sid, qc=report["status"],
-         override=spot["mix"]["override"], client=project.get("client") or "")
+         override=spot["mix"]["override"], speed=speed,
+         client=project.get("client") or "")
     payload = {"ok": True, "spot": spot, "mix": spot["mix"], "qc": report}
     if asset.get("warning"):
         payload["warning"] = asset["warning"]
@@ -1472,6 +1622,106 @@ def api_mix(pid, sid):
 # =====================================================================
 def share_url(project: dict) -> str:
     return radio_share.share_url(MOUNT, (project.get("share") or {}).get("token"))
+
+
+@app.route("/api/projects/<pid>/suite")
+def api_suite_state(pid):
+    """What the Suite holds for this project, and whether there is anything to send.
+
+    Four answers rather than two, for the reason the Commercial Builder's own
+    Suite route gives: the Suite not being configured, nothing approved yet, a
+    push Suite refused and a job already filed send somebody to four different
+    places, and only one of them is a button to press.
+    """
+    project = store.load(pid)
+    if not project:
+        return fail("No project with that id.", 404)
+    rows = suite.units(project, MOUNT)
+    held = suite.blockers(project, rows)
+    ready = bool(suite_opportunity and suite_opportunity.configured())
+    problems = ([] if ready else
+                (suite_opportunity.status()["problems"] if suite_opportunity
+                 else ["Smart 1 Suite is not available in this build."]))
+    return jsonify({
+        "ok": True,
+        "configured": ready,
+        "problems": problems,
+        "blockers": held,
+        "spots": rows,
+        "delivery": suite.record(project),
+        # Only a button where there is genuinely something to press. A control
+        # that can only ever refuse is one people learn to skip past.
+        "can_push": bool(ready and rows["ready"] and not held),
+    })
+
+
+@app.route("/api/projects/<pid>/suite", methods=["POST"])
+def api_suite_push(pid):
+    """File the approved spots as one Smart 1 Suite opportunity.
+
+    Through `hub/suite_opportunity.push_proposal` rather than a webhook of its
+    own: `hub/ghl_contacts.py` is the Hub's one contact write path, and the
+    Radio Ad Creator's raw `GHL_OPPORTUNITY_WEBHOOK_URL` post is the older of
+    the two answers. A third copy here is what
+    `modules/commercial_builder/routes/suite.py` declined to write, in as many
+    words, and this follows it.
+    """
+    project = store.load(pid)
+    if not project:
+        return fail("No project with that id.", 404)
+    if suite_opportunity is None:
+        return fail("Smart 1 Suite isn't available in this build.", 503)
+    rows = suite.units(project, MOUNT)
+    held = suite.blockers(project, rows)
+    if held:
+        return fail(" ".join(held), 422, spots=rows)
+    if rate_limited("suite", 20, 300):
+        return fail("That's a lot of pushes at once — give it a minute.", 429)
+
+    previous = suite.record(project)
+    result = suite_opportunity.push_proposal(
+        client=project.get("client") or "",
+        title=f"{project.get('company') or project.get('client')} — Fan Radio",
+        contact=(request.get_json(silent=True) or {}).get("contact") or {},
+        website=project.get("home_url") or "",
+        # The opportunity already opened for this job, so a second press
+        # revises it rather than opening a second one on the same pipeline.
+        opportunity_id=previous.get("opportunity_id") or "",
+        note_lines=suite.note_lines(project, rows["ready"]),
+        source="Smart 1 Hub — Fan Radio")
+
+    # Written whether or not Suite took it. "Nobody has pushed this", "we
+    # pushed it and Suite refused" and "Suite has it" are three states, and the
+    # middle one is the one somebody has to act on.
+    contact = result.get("contact") or {}
+    project["suite"] = {
+        "ok": bool(result.get("ok")),
+        "opportunity_id": (result.get("opportunity_id")
+                           or previous.get("opportunity_id") or ""),
+        "contact_id": contact.get("id") or previous.get("contact_id") or "",
+        "contact_name": (contact.get("name") or contact.get("email")
+                         or previous.get("contact_name") or ""),
+        "spots": len(rows["ready"]),
+        "pushed_by": actor_name(),
+        "pushed_at": store.now(),
+        "reason": "" if result.get("ok") else (result.get("reason") or ""),
+        "needs_contact": bool(result.get("needs_contact")),
+    }
+    store.save(project)
+    _log("suite_push", project=pid, client=project.get("client") or "",
+         ok=bool(result.get("ok")), spots=len(rows["ready"]))
+
+    if not result.get("ok"):
+        # The three-shape answer is kept: a missing contact is a thing a rep
+        # can fix from the same screen, and flattening it into "Suite said no"
+        # is what makes it look like an outage.
+        return fail(result.get("reason") or "Smart 1 Suite refused the push.",
+                    422 if result.get("needs_contact") else 502,
+                    needs_contact=bool(result.get("needs_contact")),
+                    suggest=result.get("suggest") or {},
+                    delivery=project["suite"])
+    return jsonify({"ok": True, "delivery": project["suite"],
+                    "spots": rows, "created": bool(result.get("created"))})
 
 
 @app.route("/api/projects/<pid>/share", methods=["POST"])

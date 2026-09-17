@@ -46,7 +46,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 import secrets
 
 from sqlalchemy import (JSON, BigInteger, Boolean, Column, Date, DateTime,
-                        Integer, Numeric, String, Text, func)
+                        Integer, Numeric, String, Text, and_, func, or_)
 from sqlalchemy.orm import declarative_base
 
 from hub.extensions import (BootProbe, create_all_metadata, engine_for,
@@ -526,6 +526,19 @@ class ReportLink(Base):
     view_json = Column(JSON, default=dict)
     last_viewed_at = Column(DateTime(timezone=True), nullable=True)
     view_count = Column(Integer, default=0)
+    # The executive summary a staff member GENERATED, READ and SAVED for one
+    # month: {"<YYYY-MM>": {"text", "generated_at", "generated_by", "month"}}.
+    # It is written by a staff press and read by the client's page; the
+    # client's page never generates one. A public route that could reach an
+    # AI call is a stranger with our credit card, and a paragraph about a
+    # client's results that nobody read before it was published is the other
+    # half of the same problem. A LATE column -- _LATE_COLUMNS adds it to a
+    # live table.
+    exec_summary_json = Column(JSON, default=dict)
+
+    @property
+    def exec_summaries(self) -> dict:
+        return self.exec_summary_json if isinstance(self.exec_summary_json, dict) else {}
 
     @property
     def markups(self) -> dict:
@@ -544,6 +557,7 @@ class ReportLink(Base):
             "markup_json": self.markups, "view_json": self.view,
             "last_viewed_at": iso(self.last_viewed_at),
             "view_count": int(self.view_count or 0),
+            "exec_summary_json": self.exec_summaries,
         }
 
 
@@ -563,6 +577,7 @@ _LATE_COLUMNS = (
     ("reports_budget_lines", "status", "VARCHAR(20)"),
     ("reports_campaign_map", "confirmed_by", "VARCHAR(160)"),
     ("reports_campaign_map", "confirmed_at", "TIMESTAMP WITH TIME ZONE"),
+    ("reports_links", "exec_summary_json", "JSON"),
 )
 
 
@@ -1034,8 +1049,46 @@ def facts_for(client: str, start: date, end: date) -> list[dict]:
         db.close()
 
 
-def budget_lines_for(client: str) -> list[dict]:
-    return [b for b in budget_lines(limit=5000) if b["client"] == client]
+def budget_lines_for(clients, *, active_only: bool = False) -> list[dict]:
+    """Every budget line filed under these client keys, filtered IN THE
+    DATABASE. One key or many.
+
+    ``budget_lines()`` takes a global limit and orders by ``created_at``
+    descending, so filtering its result by client drops that client's OLDEST
+    lines once the book passes the cap -- and the oldest line of the
+    longest-standing client is the one somebody has been pacing for a year.
+    On the pacing board that line does not go wrong, it goes ABSENT: a sold,
+    funded, spending line simply is not on the board, and a line nobody can
+    see is a line nobody paces. Reproduced in ``test_reports_map_reads.py``,
+    which holds this whole defect class.
+    """
+    keys = [clients] if isinstance(clients, str) else list(clients or [])
+    keys = [_text(k, 200) for k in keys if _text(k, 200)]
+    if not keys:
+        return []
+    return _budget_rows(lambda q: _active(q, active_only).filter(BudgetLine.client.in_(keys)))
+
+
+def all_budget_lines(*, active_only: bool = False) -> list[dict]:
+    """The whole book, uncapped -- for the readings that genuinely need every
+    line and would be wrong about one client if they got most of them: the
+    pacing board, the cost report, the client-key index, the name dedupe.
+
+    Bounded by the number of lines sold, which is a number a person writes
+    one at a time; ``budget_line_count()`` is what a screen should print.
+    """
+    return _budget_rows(lambda q: _active(q, active_only))
+
+
+def budget_line_count(*, active_only: bool = False) -> int:
+    """Counted in SQL. A ``len()`` over a capped read is a count that stops
+    at the cap and goes on being printed as the total."""
+    db = SessionLocal()
+    try:
+        q = db.query(func.count()).select_from(BudgetLine)
+        return int(_active(q, active_only).scalar() or 0)
+    finally:
+        db.close()
 
 
 def _same_name(a: str, b: str) -> bool:
@@ -1076,11 +1129,118 @@ def budget_lines_named(name: str) -> list[dict]:
     name = _text(name, 300)
     if not name:
         return []
-    return [b for b in budget_lines(limit=5000) if _same_name(b.get("client_name") or "", name)]
+    return [b for b in all_budget_lines() if _same_name(b.get("client_name") or "", name)]
+
+
+def _map_row(db, m: "CampaignMap") -> dict:
+    """One CampaignMap as the dict every screen reads it as."""
+    from . import products as _products
+    name = _latest_name(db, m.platform, m.account_id, m.campaign_id)
+    return {
+        "platform": m.platform, "platform_label": platform_label(m.platform),
+        "account_id": m.account_id, "campaign_id": m.campaign_id,
+        "campaign_name": name,
+        "client": m.client, "client_name": m.client_name or "",
+        "product": m.product or "", "product_set": bool(m.product),
+        "display_name": m.display_name or _products.default_display_name(name, m.product),
+        "mapped_by": m.mapped_by or "",
+        "mapped_at": iso(m.mapped_at), "auto_rule": m.auto_rule or "",
+        "confirmed_by": m.confirmed_by or "", "confirmed_at": iso(m.confirmed_at),
+        "pending": m.confirmed_at is None,
+    }
+
+
+def campaign_maps_for(clients) -> list[dict]:
+    """Every mapping filed under these client keys, filtered IN THE DATABASE.
+
+    ``mapped_campaigns()`` takes a global limit and orders by ``mapped_at``
+    descending, so filtering its result by client drops that client's OLDEST
+    mappings once the table passes the cap -- and drops them silently, while
+    ``facts_for`` keeps returning their spend because it queries by client.
+    The money stayed right and the campaign count went wrong, which is the
+    quiet kind: a funded, spending budget line read ``unmapped`` on the
+    pacing board because the mapping covering it had aged out of a cap
+    nobody could see.
+
+    ``CampaignMap.client`` is indexed, so this is cheap, and it is bounded by
+    one client's own campaigns rather than by the whole book.
+    """
+    keys = [clients] if isinstance(clients, str) else list(clients or [])
+    keys = [_text(k, 200) for k in keys if _text(k, 200)]
+    if not keys:
+        return []
+    db = SessionLocal()
+    try:
+        rows = (db.query(CampaignMap)
+                  .filter(CampaignMap.client.in_(keys))
+                  .order_by(CampaignMap.mapped_at.desc()).all())
+        return [_map_row(db, m) for m in rows]
+    finally:
+        db.close()
 
 
 def mapped_campaigns_for(client: str) -> list[dict]:
-    return [m for m in mapped_campaigns(limit=5000) if m["client"] == client]
+    """One client's mappings, complete. See campaign_maps_for."""
+    return campaign_maps_for(client)
+
+
+def campaign_map(platform: str, account_id: str, campaign_id: str) -> dict | None:
+    """One mapping by its campaign key, or None.
+
+    (platform, account_id, campaign_id) is CampaignMap's PRIMARY KEY, so this
+    is one indexed lookup. Three callers used to sweep a capped
+    ``mapped_campaigns()`` list looking for exactly this, which past the cap
+    answers "not mapped" about a campaign that is -- and each of those
+    callers reads that answer as "nothing to do".
+    """
+    db = SessionLocal()
+    try:
+        row = db.get(CampaignMap, (check_platform(platform), _text(account_id, 80),
+                                   _text(campaign_id, 120)))
+        return _map_row(db, row) if row is not None else None
+    finally:
+        db.close()
+
+
+def campaign_maps_by_key(keys) -> list[dict]:
+    """Every mapping among these (platform, account_id, campaign_id) keys.
+
+    The reading for "which of the campaigns I just wrote rows for is mapped,
+    and to whom" -- a CSV upload clearing a client's cached page, a sync run
+    logging which clients it touched. Both used to sweep a capped
+    ``mapped_campaigns()`` list and keep the members of a ``touched`` set,
+    so past the cap a real mapping simply was not in the list: the client's
+    page kept serving a stale answer, and the sync never appeared on their
+    360 record. Nothing errored either time.
+
+    Queried by primary key, in chunks, so it cannot truncate.
+    """
+    want = []
+    seen = set()
+    for k in keys or ():
+        try:
+            platform, account_id, campaign_id = k
+        except (TypeError, ValueError):
+            continue
+        key = (_text(platform, 40), _text(account_id, 80), _text(campaign_id, 120))
+        if key[0] and key[2] and key not in seen:
+            seen.add(key)
+            want.append(key)
+    if not want:
+        return []
+    db = SessionLocal()
+    try:
+        out: list[dict] = []
+        for i in range(0, len(want), 200):
+            chunk = want[i:i + 200]
+            rows = db.query(CampaignMap).filter(
+                or_(*[and_(CampaignMap.platform == p,
+                           CampaignMap.account_id == a,
+                           CampaignMap.campaign_id == c) for p, a, c in chunk])).all()
+            out.extend(_map_row(db, m) for m in rows)
+        return out
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1216,6 +1376,97 @@ def _clean_view(raw: dict) -> dict:
     if raw.get("name_products"):
         out["name_products"] = True
     return out
+
+
+# How long a saved summary may be, so one cannot become the whole page.
+EXEC_SUMMARY_MAX = 4000
+
+
+def _month_key(value) -> str:
+    """A month as YYYY-MM, or "" -- never a guess at what was meant."""
+    text = _text(value, 7)
+    if len(text) == 7 and text[4] == "-":
+        try:
+            y, m = int(text[:4]), int(text[5:7])
+            if 2000 <= y <= 2100 and 1 <= m <= 12:
+                return f"{y:04d}-{m:02d}"
+        except ValueError:
+            return ""
+    return ""
+
+
+def save_exec_summary(token: str, *, month: str, text: str, by: str) -> dict:
+    """Keep one month's executive summary, reviewed and saved by a person.
+
+    ``by`` is required and is the record of WHO stood behind the words: the
+    text is written by a model and published to a client, and a paragraph
+    about somebody's results with nobody's name against it is the shape
+    docs/claude/48 is about. Saving bumps ``updated_at``, which is in the
+    client page's cache key, so the page picks it up on both workers rather
+    than fifteen minutes later on one of them.
+    """
+    token = _text(token, 64)
+    key = _month_key(month)
+    if not key:
+        raise ValueError("A summary needs the month it is about, as YYYY-MM")
+    body = " ".join(str(text or "").split())[:EXEC_SUMMARY_MAX]
+    if not body:
+        raise ValueError("A summary needs some text")
+    who = _text(by, 160)
+    if not who:
+        raise ValueError("A summary needs a name against it")
+    db = SessionLocal()
+    try:
+        row = db.query(ReportLink).filter(ReportLink.token == token).first()
+        if row is None:
+            raise ValueError("No such report link")
+        saved = dict(row.exec_summaries)
+        entry = {"month": key, "text": body, "generated_by": who,
+                 "generated_at": iso(now())}
+        saved[key] = entry
+        # Newest twelve months. A link that has run for years should not
+        # carry every paragraph it ever published on every read of its row.
+        row.exec_summary_json = {k: saved[k] for k in sorted(saved)[-12:]}
+        row.updated_at = now()
+        db.commit()
+        return entry
+    finally:
+        db.close()
+
+
+def clear_exec_summary(token: str, month: str) -> bool:
+    """Take one month's summary down. The client's page then shows none,
+    which is the state it was in before anybody pressed anything."""
+    token = _text(token, 64)
+    key = _month_key(month)
+    if not key:
+        return False
+    db = SessionLocal()
+    try:
+        row = db.query(ReportLink).filter(ReportLink.token == token).first()
+        if row is None or key not in row.exec_summaries:
+            return False
+        saved = dict(row.exec_summaries)
+        saved.pop(key, None)
+        row.exec_summary_json = saved
+        row.updated_at = now()
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def exec_summary_for(link, month: str) -> dict | None:
+    """The saved summary for one month, or None. Never raises: a client's
+    page must not be lost over a paragraph."""
+    try:
+        key = _month_key(month)
+        if not key:
+            return None
+        entry = link.exec_summaries.get(key)
+        return entry if isinstance(entry, dict) and entry.get("text") else None
+    except Exception:                  # noqa: BLE001
+        return None
 
 
 def note_view(token: str) -> None:
@@ -1471,8 +1722,22 @@ def refusals() -> dict[tuple, dict]:
 
 def pending_mappings(limit: int = 500) -> list[dict]:
     """The mappings the auto-mapper proposed and nobody has confirmed,
-    newest first -- the queue the Confirm / Not theirs buttons work down."""
-    return [m for m in mapped_campaigns(limit=max(limit, 5000)) if m["pending"]][:limit]
+    newest first -- the queue the Confirm / Not theirs buttons work down.
+
+    Filtered in the database. Taking the newest N mappings and keeping the
+    pending ones is a queue whose OLDEST items fall off it as the book grows,
+    and an item nobody can reach is an item nobody can confirm -- while
+    ``pending_count()``, which counts in SQL, goes on reporting it.
+    """
+    db = SessionLocal()
+    try:
+        rows = (db.query(CampaignMap)
+                  .filter(CampaignMap.confirmed_at.is_(None))
+                  .order_by(CampaignMap.mapped_at.desc())
+                  .limit(max(1, int(limit))).all())
+        return [_map_row(db, m) for m in rows]
+    finally:
+        db.close()
 
 
 def pending_count() -> int:
@@ -1522,27 +1787,15 @@ def set_display(platform: str, account_id: str, campaign_id: str, *,
 
 
 def mapped_campaigns(limit: int = 500) -> list[dict]:
-    from . import products as _products
+    """The newest ``limit`` mappings across every client -- a BOUNDED read for
+    a screen that shows recent activity. Never filter this by client: use
+    ``campaign_maps_for``, which filters in the database and cannot truncate
+    one client's oldest mappings away."""
     db = SessionLocal()
     try:
         rows = (db.query(CampaignMap).order_by(CampaignMap.mapped_at.desc())
                   .limit(max(1, int(limit))).all())
-        out = []
-        for m in rows:
-            name = _latest_name(db, m.platform, m.account_id, m.campaign_id)
-            out.append({
-                "platform": m.platform, "platform_label": platform_label(m.platform),
-                "account_id": m.account_id, "campaign_id": m.campaign_id,
-                "campaign_name": name,
-                "client": m.client, "client_name": m.client_name or "",
-                "product": m.product or "", "product_set": bool(m.product),
-                "display_name": m.display_name or _products.default_display_name(name, m.product),
-                "mapped_by": m.mapped_by or "",
-                "mapped_at": iso(m.mapped_at), "auto_rule": m.auto_rule or "",
-                "confirmed_by": m.confirmed_by or "", "confirmed_at": iso(m.confirmed_at),
-                "pending": m.confirmed_at is None,
-            })
-        return out
+        return [_map_row(db, m) for m in rows]
     finally:
         db.close()
 
@@ -1597,32 +1850,57 @@ def add_budget_line(*, client: str, product: str, monthly_budget,
         db.close()
 
 
+def _budget_line_row(b: "BudgetLine") -> dict:
+    """One BudgetLine as the dict every screen reads it as."""
+    source = b.source_json if isinstance(b.source_json, dict) else {}
+    return {
+        "id": b.id, "client": b.client, "client_name": b.client_name or "",
+        "product": b.product, "platform": b.platform or "",
+        "platform_label": platform_label(b.platform) if b.platform else "",
+        "monthly_budget": b.monthly_budget,
+        "flight_start": b.flight_start.isoformat() if b.flight_start else "",
+        "flight_end": b.flight_end.isoformat() if b.flight_end else "",
+        "notes": b.notes or "", "created_by": b.created_by or "",
+        "created_at": iso(b.created_at),
+        "manual": bool(source.get("manual")),
+        "sold_amount": b.sold_amount,
+        "owner": b.owner or "",
+        # A row written before the column existed is active: nothing else
+        # could have written a status then.
+        "status": b.status or "active",
+    }
+
+
+def _active(q, active_only: bool):
+    """The active filter, written once. A row predating the status column is
+    active -- so NULL counts, and ``status == 'active'`` alone would drop
+    every line filed before that migration."""
+    if not active_only:
+        return q
+    return q.filter(or_(BudgetLine.status == "active", BudgetLine.status.is_(None)))
+
+
+def _budget_rows(shape) -> list[dict]:
+    db = SessionLocal()
+    try:
+        q = shape(db.query(BudgetLine))
+        rows = q.order_by(BudgetLine.created_at.desc(), BudgetLine.id.desc()).all()
+        return [_budget_line_row(b) for b in rows]
+    finally:
+        db.close()
+
+
 def budget_lines(limit: int = 500) -> list[dict]:
+    """The newest ``limit`` lines across every client -- a BOUNDED read for a
+    screen that pages. Never filter this by client and never ``len()`` it:
+    use ``budget_lines_for``, ``all_budget_lines`` and ``budget_line_count``,
+    none of which can truncate one client's oldest lines away."""
     db = SessionLocal()
     try:
         rows = (db.query(BudgetLine)
                   .order_by(BudgetLine.created_at.desc(), BudgetLine.id.desc())
                   .limit(max(1, int(limit))).all())
-        out = []
-        for b in rows:
-            source = b.source_json if isinstance(b.source_json, dict) else {}
-            out.append({
-                "id": b.id, "client": b.client, "client_name": b.client_name or "",
-                "product": b.product, "platform": b.platform or "",
-                "platform_label": platform_label(b.platform) if b.platform else "",
-                "monthly_budget": b.monthly_budget,
-                "flight_start": b.flight_start.isoformat() if b.flight_start else "",
-                "flight_end": b.flight_end.isoformat() if b.flight_end else "",
-                "notes": b.notes or "", "created_by": b.created_by or "",
-                "created_at": iso(b.created_at),
-                "manual": bool(source.get("manual")),
-                "sold_amount": b.sold_amount,
-                "owner": b.owner or "",
-                # A row written before the column existed is active: nothing
-                # else could have written a status then.
-                "status": b.status or "active",
-            })
-        return out
+        return [_budget_line_row(b) for b in rows]
     finally:
         db.close()
 

@@ -112,10 +112,33 @@ def check_openai() -> Check:
 
 def check_cloudinary() -> Check:
     if not settings.cloudinary_ready:
+        # The count, not just the setting. "Cloudinary is off" is a
+        # configuration; "and 340 files are already sitting on this instance's
+        # disk" is what it has cost so far, and hub.storage.put() hands those
+        # back with no delivery URL, so nothing downstream links to them.
+        held = ""
+        try:
+            from hub import storage as _st
+            local = _st.local_assets()
+            if not local.get("measured"):
+                held = (" How many assets have already fallen back here is not "
+                        "measured — the local asset directory could not be read.")
+            elif local.get("files") or local.get("unreadable"):
+                held = (f" {local['files']} file(s), "
+                        f"{local['bytes'] // 1024} KB, are already on this "
+                        "instance's disk with no delivery URL.")
+                if local.get("unreadable"):
+                    # Said out loud rather than folded into the count: the
+                    # number above is a floor, not a total.
+                    held += (f" {local['unreadable']} more could not be read, "
+                             "so that is a minimum.")
+        except Exception:                   # noqa: BLE001 — a panel row, not a probe
+            held = " How much has fallen back here is not measured."
         return _off("cloudinary", "Cloudinary",
                     "CLOUDINARY_URL (or CLOUDINARY_CLOUD_NAME + CLOUDINARY_API_KEY "
                     "+ CLOUDINARY_API_SECRET)",
-                    "uploads go to local disk, which is wiped on every redeploy.")
+                    "uploads go to local disk, which is wiped on every redeploy, "
+                    "and hub.storage returns no URL for them." + held)
     def go():
         import cloudinary, cloudinary.api
         cloudinary.config(secure=True)
@@ -207,6 +230,52 @@ def check_microsoft_ads() -> Check:
     return Check("microsoft_ads", "Microsoft Ads", "ok",
                  f"Connected{env}; the refresh token is in the {st['refresh_token_source']}. "
                  "The pull's last outcome is on /reports/.", 0)
+
+
+def check_amazon_dsp() -> Check:
+    """Off, configured and unconsented, the last pull's own error, or ok --
+    read off the settings and the watermark, and deliberately never probed:
+    the only authenticated call is a token refresh against an entity, and
+    /tools/ads/settings and /reports/ already carry the pull's own last
+    outcome. The field map being unconfirmed is a warning and not an error:
+    the pull runs, and what it files is a claim until somebody has looked."""
+    try:
+        from modules.reports import amazon_dsp
+        st = amazon_dsp.status()
+    except Exception as exc:                            # noqa: BLE001
+        return Check("amazon_dsp", "Amazon DSP", "error",
+                     f"The reports module could not be read ({type(exc).__name__}).", 0)
+    if st["missing"]:
+        names = " / ".join(st["missing"])
+        return Check("amazon_dsp", "Amazon DSP", "off",
+                     f"Not configured — {names} unset; the reports module cannot pull Amazon DSP.", 0,
+                     False, f"Set {names} in the Render dashboard.")
+    if not st.get("connected"):
+        return Check("amazon_dsp", "Amazon DSP", "warn",
+                     "Credentials are set; nobody has consented to the DSP entity yet.", 0,
+                     fix="Open /tools/ads/settings and press Connect Amazon Ads, signed in as an "
+                         "admin on the entity — a rep's own Amazon login reaches nothing.")
+    if st.get("last_error"):
+        return Check("amazon_dsp", "Amazon DSP", "warn",
+                     f"Connected; the last pull said: {st['last_error'][:200]}", 0,
+                     fix="Open /reports/amazon-check: a 403 there is the Amazon Ads API "
+                         "application not being approved for this entity, not a wrong key.")
+    if st.get("stuck"):
+        hours = ", ".join(f"{h:g}h" for h in sorted(st["stuck"].values()))
+        return Check("amazon_dsp", "Amazon DSP", "warn",
+                     f"Connected; {len(st['stuck'])} report(s) have been preparing at Amazon "
+                     f"for {hours} and nothing has landed for them.", 0,
+                     fix="The next run asks Amazon for a fresh report rather than carrying that "
+                         "id again. If it keeps happening, /reports/amazon-check says which "
+                         "rung the connection reaches.")
+    if not st.get("confirmed"):
+        return Check("amazon_dsp", "Amazon DSP", "warn",
+                     f"Connected in {st['region']}; the field map is a transcription nobody has "
+                     "confirmed, so what the pull files is a claim.", 0,
+                     fix="Open /reports/amazon-check, compare a raw row to FIELD_MAP, and flip "
+                         "CONFIRMED in modules/reports/amazon_dsp.py.")
+    return Check("amazon_dsp", "Amazon DSP", "ok",
+                 f"Connected in {st['region']}; the pull's last outcome is on /reports/.", 0)
 
 
 def check_groundtruth() -> Check:
@@ -725,6 +794,41 @@ def check_lead_store() -> Check:
                      "shared between instances.")
 
 
+def check_google_token_store() -> Check:
+    """Where the Google refresh tokens are, and whether the import landed.
+
+    These were a SQLite file on the Render disk, which is outside the database
+    backup: losing it means every connected account has to reconnect, and
+    nothing on any screen would say why. The one-time import is reported
+    because a verification that failed leaves it unmarked and retrying -- and
+    a migration that is quietly still pending is one nobody chases.
+    """
+    def go():
+        from modules.google_finder import app as gf
+        st = gf.import_status()
+        if st.get("reason") == "verification failed":
+            v = st.get("verification") or {}
+            return ("warn",
+                    "The one-time import of the legacy token file did not "
+                    "verify, so it is unmarked and will run again. "
+                    f"Short: {v.get('short') or 'none'}; sequences behind: "
+                    f"{v.get('sequences_behind') or 'none'}.")
+        if st.get("ran"):
+            counts = st.get("counts") or {}
+            return ("ok", "In the database. Carried "
+                          f"{counts.get('google_accounts', 0)} account(s) "
+                          "across from the legacy file.")
+        reason = st.get("reason") or ""
+        if reason and reason != "no legacy database" and \
+                reason != "already imported":
+            return ("warn", f"In the database. The legacy import reported: {reason}")
+        return ("ok", "In the database.")
+    (state, detail), ms = _timed(go)
+    return Check("google_token_store", "Google · token store", state, detail, ms,
+                 fix="Set DATABASE_URL so the refresh tokens are in the backup "
+                     "and shared between instances.")
+
+
 def check_public_base_url() -> Check:
     if not settings.public_base_url:
         return Check("public_base_url", "Public base URL", "error",
@@ -816,7 +920,8 @@ def check_google_accounts() -> list[Check]:
         return [Check("google_accounts", "Google · connected accounts", "error",
                       f"Could not read the token store ({type(exc).__name__}).",
                       int((time.time() - started) * 1000),
-                      fix="Check TOKEN_DB_PATH is on a writable, persistent disk.")]
+                      fix="The tokens are in the Hub database now; check "
+                          "DATABASE_URL reaches this service.")]
     if early:
         state, detail = early
         return [Check("google_accounts", "Google · connected accounts", state,
@@ -893,9 +998,10 @@ def check_google_accounts() -> list[Check]:
 
 CHECKS = [
     check_database, check_json_backup, check_activity_log, check_lead_store,
+    check_google_token_store,
     check_public_base_url,
     check_openai, check_cloudinary,
-    check_brandfetch, check_places, check_youtube, check_microsoft_ads, check_groundtruth, check_insites,
+    check_brandfetch, check_places, check_youtube, check_microsoft_ads, check_groundtruth, check_amazon_dsp, check_insites,
     check_removebg, check_pexels,
     check_pixabay, check_unsplash, check_google_fonts, check_ghl,
     check_ghl_app, check_knack, check_quickbooks, check_google_oauth,

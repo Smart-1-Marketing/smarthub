@@ -320,13 +320,72 @@ def _entry(r) -> dict:
 
 
 def held(limit: int = 500) -> list[dict]:
-    """Every held row, newest day first."""
+    """The newest ``limit`` held rows, newest day first -- a BOUNDED read for
+    the queue screen. Never filter this and never count it: past the cap it
+    drops the OLDEST held rows, which are exactly the days that have been
+    missing from a client's page the longest. Use ``held_for_keys`` and
+    ``held_count``, which filter and count in the database."""
     db = store.SessionLocal()
     try:
         rows = (db.query(store.Quarantine).filter(store.Quarantine.status == "held")
                   .order_by(store.Quarantine.date.desc(), store.Quarantine.platform)
                   .limit(max(1, int(limit))).all())
         return [_entry(r) for r in rows]
+    finally:
+        db.close()
+
+
+def held_for_keys(keys) -> list[dict]:
+    """Every held row on these (platform, account_id, campaign_id) keys,
+    filtered in the database and uncapped. Bounded by the client's own
+    campaigns rather than by the whole book."""
+    want, seen = [], set()
+    for k in keys or ():
+        try:
+            platform, account_id, campaign_id = k
+        except (TypeError, ValueError):
+            continue
+        key = (str(platform or "")[:40], str(account_id or "")[:80], str(campaign_id or "")[:120])
+        if key[0] and key[2] and key not in seen:
+            seen.add(key)
+            want.append(key)
+    if not want:
+        return []
+    db = store.SessionLocal()
+    try:
+        out: list[dict] = []
+        for i in range(0, len(want), 200):
+            rows = (db.query(store.Quarantine)
+                      .filter(store.Quarantine.status == "held")
+                      .filter(store.or_(*[
+                          store.and_(store.Quarantine.platform == p,
+                                     store.Quarantine.account_id == a,
+                                     store.Quarantine.campaign_id == c)
+                          for p, a, c in want[i:i + 200]]))
+                      .order_by(store.Quarantine.date.desc(), store.Quarantine.platform).all())
+            out.extend(_entry(r) for r in rows)
+        return out
+    finally:
+        db.close()
+
+
+def held_count(platform: str = "", start=None, end=None) -> int:
+    """Held rows, counted in SQL, optionally for one platform and a date
+    range. A ``sum(1 for ...)`` over a capped ``held()`` is a count that
+    stops at the cap and goes on being printed as the total -- on the
+    reconcile screen, beside a platform's own monthly figure, which is the
+    one place an under-count reads as agreement."""
+    db = store.SessionLocal()
+    try:
+        q = (db.query(store.func.count()).select_from(store.Quarantine)
+               .filter(store.Quarantine.status == "held"))
+        if platform:
+            q = q.filter(store.Quarantine.platform == platform)
+        if start is not None:
+            q = q.filter(store.Quarantine.date >= start)
+        if end is not None:
+            q = q.filter(store.Quarantine.date <= end)
+        return int(q.scalar() or 0)
     finally:
         db.close()
 
@@ -367,7 +426,11 @@ def held_for_client(client: str) -> list[dict]:
             for m in store.mapped_campaigns_for(client) if not m.get("pending")}
     if not keys:
         return []
-    return [h for h in held() if (h["platform"], h["account_id"], h["campaign_id"]) in keys]
+    # Filtered in the database. Keeping the members of a capped ``held()``
+    # list under-reports the days missing from this client's page, and it
+    # under-reports the OLDEST ones -- the days that have been missing
+    # longest, which is the opposite of what a staff page should hide.
+    return held_for_keys(keys)
 
 
 def decide(platform: str, account_id: str, campaign_id: str, day, *, action: str, by: str) -> dict:

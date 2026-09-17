@@ -190,6 +190,66 @@
   </div>
 </div>
 
+{% if link and summary_month %}
+{# The executive summary: two presses, never one. Generate writes nothing --
+   the words come back here to be read and edited. Save publishes them under
+   the name of the person who pressed it. The client's own page renders only
+   what was saved and can reach no AI call at all. #}
+<form method="post" action="{{ request.script_root }}/client/{{ client }}/summary"
+      class="s1d-card" id="summaryForm">
+  <input type="hidden" name="month" value="{{ summary_month }}">
+  <div class="s1d-cardhead"><h2>Summary on the client's page</h2>
+    <span class="s1d-muted">{{ period.label }}</span></div>
+  <p class="s1d-hint">Ask SmartHub drafts this from the figures on this page. It is
+    <b>not published until you save it</b>, and nothing on the client's page asks for
+    a new one &mdash; they read exactly the words saved here.
+    {% if summary_saved %}<br>Published by <b>{{ summary_saved.generated_by }}</b>
+      on {{ (summary_saved.generated_at or '')[:10] }}.
+    {% else %}<br>Nothing is published for this month, so the client's page shows no
+      summary section at all.{% endif %}</p>
+  <div id="summaryError" class="s1d-hint" style="color:#a12626" hidden></div>
+  <textarea name="text" id="summaryText" rows="9" style="width:100%;padding:9px;
+    border:1px solid #cbd5e1;border-radius:8px;font:inherit"
+    maxlength="4000" placeholder="Press Draft with Ask SmartHub, then read it before saving."
+    >{{ summary_saved.text if summary_saved else '' }}</textarea>
+  <div class="s1d-actions" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+    <button type="button" class="s1d-btn" id="summaryDraft">Draft with Ask SmartHub</button>
+    <button type="submit" name="action" value="save" class="s1d-btn primary">Save and publish</button>
+    {% if summary_saved %}
+    <button type="submit" name="action" value="remove" class="s1d-btn">Take it down</button>
+    {% endif %}
+  </div>
+</form>
+<script>
+(function(){
+  var button=document.getElementById('summaryDraft');
+  var box=document.getElementById('summaryText');
+  var err=document.getElementById('summaryError');
+  if(!button||!box) return;
+  button.addEventListener('click',function(){
+    err.hidden=true; button.disabled=true; button.textContent='Drafting…';
+    fetch({{ (request.script_root ~ '/client/' ~ client ~ '/summary/draft')|tojson }},{
+      method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json','Accept':'application/json'},
+      body:JSON.stringify({month:{{ summary_month|tojson }}})
+    }).then(function(r){return r.json().then(function(d){
+      if(!r.ok||!d.ok) throw new Error(d.error||'Ask SmartHub could not answer.');
+      return d;})
+    }).then(function(d){
+      // Into the box, never straight to the client's page: the whole point
+      // of two presses is that a person reads this before anybody else does.
+      box.value=d.text||'';
+      box.focus();
+    }).catch(function(e){
+      err.textContent=e.message||'Ask SmartHub could not answer.'; err.hidden=false;
+    }).finally(function(){
+      button.disabled=false; button.textContent='Draft with Ask SmartHub';
+    });
+  });
+})();
+</script>
+{% endif %}
+
 {% if link %}
 <form method="post" action="{{ request.script_root }}/client/{{ client }}/link" class="s1d-card">
   <input type="hidden" name="action" value="save">

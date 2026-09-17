@@ -134,6 +134,20 @@ def _url_needle(value: str) -> str:
     return _squash(bare.rstrip("/"))
 
 
+def spoken_name(value: str) -> str:
+    """The business name as a script actually says it.
+
+    "Acme Plumbing, LLC" is called "Acme Plumbing" in every script anybody
+    would write -- the false positive `_LEGAL_SUFFIX` exists to close. Public
+    because `hub/radio_presets.py` needs the same reading for the opposite
+    job: finding this client's name in a saved read so it can be put back to a
+    placeholder. A second list of legal suffixes over there is how the two come
+    to disagree about whether "Acme Plumbing" is Acme Plumbing, LLC.
+    """
+    core = _LEGAL_SUFFIX.sub("", str(value or "").strip())
+    return core.strip().rstrip(",").strip()
+
+
 def says_company(copy: str, company: str) -> bool:
     needle = _company_needle(company)
     return bool(needle) and needle in _squash(_haystack(copy))

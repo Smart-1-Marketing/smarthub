@@ -162,6 +162,44 @@ def _account_url(customer_id: str) -> str:
     return f"{page}?customer_id={customer_id}" if customer_id else page
 
 
+# The five states one account's latest scan can be in, and what each is
+# called on a screen. Written down once: the dashboard card, the sweep panel
+# and Ask SmartHub's findings tool all name a state, and three vocabularies
+# for one thing is three answers to "is this account clean?".
+STATES = {
+    "never": "never scanned",
+    "failed": "last scan failed",
+    "stale": "reading is out of date",
+    "attention": "needs attention",
+    "clean": "clean",
+}
+
+
+def account_state(run: dict | None, cutoff) -> str:
+    """Which state one account's latest run is in, as a STATES key.
+
+    ``run`` is a row from ``store.latest_optimization_runs()`` or None when
+    the account has never been scanned; ``cutoff`` is the aware datetime a
+    reading is out of date before -- ``overdue_after_minutes()`` decides it.
+
+    The order is the point. "We could not look" outranks "we looked and
+    found things", because a failed scan's finding count is a count of what
+    the last SUCCESSFUL scan found and reading it as current is the
+    confidently wrong answer. A stale reading outranks findings for the same
+    reason: the number beside it describes an old day.
+    """
+    if run is None:
+        return "never"
+    if run.get("error"):
+        return "failed"
+    when = _parsed(run.get("scanned_at"))
+    if when is not None and cutoff is not None and when < cutoff:
+        return "stale"
+    if int(run.get("high_severity_count") or 0):
+        return "attention"
+    return "clean"
+
+
 def scoreboard(limit: int = ROW_LIMIT) -> dict:
     """What the twice-daily sweep found, for the dashboard.
 
@@ -174,7 +212,7 @@ def scoreboard(limit: int = ROW_LIMIT) -> dict:
         return _unavailable(exc)
 
     try:
-        accounts = store.deployed_accounts(limit=500)
+        accounts = store.deployed_accounts()
     except Exception as exc:                             # noqa: BLE001
         return _unavailable(exc)
 
@@ -192,8 +230,7 @@ def scoreboard(limit: int = ROW_LIMIT) -> dict:
                 "empty": "no_accounts"}
 
     try:
-        runs = {r["customer_id"]: r
-                for r in store.latest_optimization_runs(limit=len(accounts) + 20)}
+        runs = {r["customer_id"]: r for r in store.latest_optimization_runs()}
     except Exception as exc:                             # noqa: BLE001
         return _unavailable(exc)
 
@@ -214,7 +251,7 @@ def scoreboard(limit: int = ROW_LIMIT) -> dict:
 
         if run is None:
             counts["never"] += 1
-            card["state"] = "never scanned"
+            card["state"] = STATES["never"]
             rows.append(card)
             continue
 
@@ -227,7 +264,7 @@ def scoreboard(limit: int = ROW_LIMIT) -> dict:
             # different answers, and the second is fixed somewhere else
             # entirely -- access, a credential, a customer id that moved.
             counts["failed"] += 1
-            card["state"] = "last scan failed"
+            card["state"] = STATES["failed"]
             rows.append(card)
             continue
 
@@ -238,13 +275,13 @@ def scoreboard(limit: int = ROW_LIMIT) -> dict:
             # the daily operation budget keeps running out before it gets
             # here. Either way the number beside it describes an old reading.
             counts["stale"] += 1
-            card["state"] = "reading is out of date"
+            card["state"] = STATES["stale"]
 
         if card["high"]:
             counts["attention"] += 1
             findings += card["high"]
             if not card["state"]:
-                card["state"] = "needs attention"
+                card["state"] = STATES["attention"]
             rows.append(card)
         elif not card["state"]:
             counts["clean"] += 1

@@ -30,6 +30,7 @@ Read-only and cheap: it reads source, never runs it, and touches no API.
 from __future__ import annotations
 
 import ast
+import json
 import os
 import pathlib
 import re
@@ -707,6 +708,141 @@ def check_template_collisions() -> list[dict]:
         })
     return out
 
+#: What reads as a secret in a field's id, name or placeholder.
+#:
+#: Matched against the identifier split into WORDS rather than as a substring
+#: or with `\b`, and both of those were tried first:
+#:
+#:   * a plain substring reports `compass` and `bypass_cache`;
+#:   * `\bpass\b` fixes those and then MISSES `api_token` and `client_secret`,
+#:     because `_` is a word character — there is no boundary inside them —
+#:     and misses `wpPass` too, because camelCase has no boundary either.
+#:
+#: Splitting on non-letters and on a lower-to-upper transition gets both:
+#: `wpPass` -> wp, pass; `api_token` -> api, token; `compass` -> compass.
+#: `pw` is here because a field called `umPwValue` was found only by the word
+#: "password" in its PLACEHOLDER, and the fourth one -- the admin's "Set a
+#: password" box -- says "Leave blank and the Hub generates one" and so was
+#: matched by nothing. Leaning on the wording of a sentence somebody may edit
+#: is not a check. Across every template it newly matched exactly that field,
+#: which was a real finding rather than a false one.
+SECRET_WORDS = frozenset({"password", "passwd", "pass", "pw", "secret",
+                          "token", "apikey", "credential", "credentials"})
+
+_WORD_SPLIT = re.compile(r"[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])")
+
+#: Types that are not a text box, so masking does not apply. `password` is here
+#: because it is the fix, and the rest because a checkbox named "save_token" is
+#: not a place anybody types one.
+NON_TEXT_INPUT = frozenset({"password", "checkbox", "hidden", "radio",
+                            "submit", "button", "file", "range", "color"})
+
+_INPUT_TAG = re.compile(r"<input\b[^>]*>", re.I)
+
+
+def _attr(tag: str, name: str) -> str:
+    m = re.search(rf'{name}\s*=\s*"([^"]*)"', tag, re.I)
+    return m.group(1) if m else ""
+
+
+def _looks_secret(ident: str) -> bool:
+    """Whether this id/name/placeholder names a credential.
+
+    `api key` and `api_key` reach the same word here because the split drops
+    the separator and the pair is rejoined -- otherwise the one spelling
+    somebody used would decide whether the field is checked.
+    """
+    words = [w.lower() for w in _WORD_SPLIT.split(ident) if w]
+    if any(w in SECRET_WORDS for w in words):
+        return True
+    return any(a == "api" and b == "key"
+               for a, b in zip(words, words[1:]))
+
+
+def check_unmasked_secret_fields(root=None) -> list[dict]:
+    """A credential typed into a box that shows it.
+
+    Every one of the Hub's own *sign-in* fields was already `type="password"`,
+    and `modules/skills360` even keys masking off a declared `f.secret`. Four
+    were not, and the pattern in what they held is the point:
+
+      * `seo_client.html` `su_pass` — the **client's own website login**;
+      * `seo_client.html` `wpPass` — their WordPress application password;
+      * `users_admin.html` `umAddPw` — the starting password an admin types for
+        somebody else, which had no `type` at all and so defaulted to text;
+      * `users_admin.html` `umPwValue` — the same, on the "Set a password" box.
+
+    The passwords people type for THEMSELVES were protected and the ones they
+    type for other people were on screen. Neither of the last two was found by
+    reading the page; the third came from this check and the fourth from
+    widening its word list, which is the argument for having one.
+
+    Masking is not encryption and this does not pretend otherwise -- the value
+    is sealed at rest by `hub/cms_credentials.py`. What `type="password"` stops
+    is the shoulder, the screen share, the recorded call and the browser
+    offering to remember it as an ordinary field.
+
+    Read from the markup rather than from a rendered page, so a field built by
+    JavaScript inside a template is covered too -- `wpPass` is one, and a check
+    that only saw server-rendered HTML would have missed it.
+    """
+    # `root` is for the tests, and it is the whole reason they can be trusted:
+    # a check whose finding path is never taken has not been shown to fail, and
+    # this repo is fixed. A test that reimplemented the filtering to get at it
+    # would assert against a COPY -- the first draft of test_secret_fields.py
+    # did exactly that, and a mutation that made an untyped input count as safe
+    # left every check green. The same argument as
+    # `jsonstore.unmirrored_json_writers(root)`, and the same signature.
+    import pathlib as _pl
+    base = _pl.Path(root) if root else _pl.Path(ROOT)
+    roots = [base / "hub" / "templates"]
+    roots += sorted((base / "modules").glob("*/templates"))
+    out = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for f in sorted(root.rglob("*.html")):
+            try:
+                text = f.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            rel = f.relative_to(base).as_posix()
+            for tag in _INPUT_TAG.findall(text):
+                ident = " ".join((_attr(tag, "id"), _attr(tag, "name"),
+                                  _attr(tag, "placeholder")))
+                if not _looks_secret(ident):
+                    continue
+                kind = _attr(tag, "type").lower()
+                if kind in NON_TEXT_INPUT:
+                    continue
+                # A type the template computes -- skills360 writes
+                # `${f.secret?'type="password"':''}` -- is not something this
+                # can read, and guessing would report the file that already
+                # got it right. Only a literal non-password type, or none at
+                # all, counts.
+                if "${" in kind or "{{" in kind or "{%" in kind:
+                    continue
+                line = text[:text.index(tag)].count("\n") + 1
+                out.append({
+                    "file": rel, "module": _module_of_template(rel), "line": line,
+                    "detail": f"{rel}:{line} takes a credential in an input "
+                              f"that is {'type=' + kind if kind else 'untyped, so it defaults to text'}"
+                              f", so it is readable on screen — over a "
+                              f"shoulder, in a screen share, and in a recorded "
+                              f"call.",
+                    "fix": 'Give it type="password". That is about the screen '
+                           'rather than about storage: the value is sealed at '
+                           'rest by hub/cms_credentials.py, and masking is '
+                           'what stops it being read off the page.',
+                })
+    return out
+
+
+def _module_of_template(rel: str) -> str:
+    parts = rel.split("/")
+    return parts[1] if parts[0] == "modules" and len(parts) > 1 else "hub"
+
+
 def check_orphan_templates() -> list[dict]:
     """A template nothing renders.
 
@@ -913,6 +1049,251 @@ def check_unbacked_json() -> list[dict]:
                    "rebuildable, pass durable=False and say why.",
         })
     return out
+
+
+# Key names that mean a credential, and the reason the list is this short.
+# A name here is one whose value grants access to something if a person reads
+# it. `token` and `secret` alone are deliberately NOT here: a share token in
+# `hub/radio_share.py` is stored exactly so a customer's link keeps working,
+# and a check that reports it is a check people switch off. What is listed is
+# what nobody can defend having in a backup in the clear.
+CREDENTIAL_KEYS = (
+    "password", "passwd", "app_password", "application_password",
+    "api_key", "apikey", "client_secret", "refresh_token",
+    "private_key", "secret_key",
+)
+
+# Files under the data root this check does not read, with the reason. Empty,
+# which is the only way it was worth adding -- and `check_stale_json_exemptions`
+# above is there because an exemption outliving its file is the one finding
+# that fails in the wrong direction.
+CREDENTIALS_EXEMPT: dict[str, str] = {}
+
+
+def _credential_strings(node, path="") -> list[str]:
+    """Every credential-shaped key holding a bare non-empty string, by path.
+
+    **A sealed credential is a dict**, and that is what makes this precise
+    rather than a name search. `hub/cms_credentials.py` stores
+    `{"enc": true, "data": "<Fernet token>"}`, so a sealed record is skipped
+    by the shape of its value and never by being named in a list somebody has
+    to maintain. What is left -- a credential-shaped key whose value is a
+    plain string -- is a password somebody can read.
+    """
+    out = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            here = f"{path}.{key}" if path else str(key)
+            name = str(key).strip().lower()
+            if (name in CREDENTIAL_KEYS and isinstance(value, str)
+                    and value.strip()):
+                out.append(here)
+            else:
+                out.extend(_credential_strings(value, here))
+    elif isinstance(node, list):
+        # Indexed rather than flattened: "the third website record" is what
+        # somebody needs in order to go and look at it.
+        for i, item in enumerate(node):
+            out.extend(_credential_strings(item, f"{path}[{i}]"))
+    return out
+
+
+def check_plaintext_credentials() -> list[dict]:
+    """A credential sitting in a durable store as a readable string.
+
+    The check above asks whether a JSON store is mirrored into the database.
+    This asks the opposite question about the same files, and the SEO store is
+    why it exists: `setup.password` -- a client's real login to their real
+    website -- was written to `data/seo/<client>.json` as a plain string, and
+    it was **properly mirrored**, so `check_unbacked_json` was satisfied and
+    silent. Being mirrored is what made it worse: every one of those passwords
+    went verbatim into Postgres and into every database backup taken since.
+
+    So a store passing every other check here can still be the worst file on
+    the disk, and nothing asked.
+
+    **Read off the disk, not out of the source.** A dataflow rule would have
+    missed the defect it was written for: that password was not assigned under
+    a literal key but copied in a loop over a tuple of field names, which no
+    reasonable AST rule catches without reporting half the login routes too.
+    The files themselves cannot be wrong about what is in them.
+
+    Which means this finds nothing in CI, where the data root is empty, and
+    speaks on `/api/integrity` against the real disk -- the one place the
+    question has an answer. That is the trade: a check that cannot be green
+    for the wrong reason, in exchange for one that a pull request cannot
+    prove. `tools/integritycheck.py` says so when it reports it.
+
+    High severity, unlike the two backup checks above, which say in as many
+    words that a module they list "works exactly as it always has". This one
+    does not have that defence. A readable password in a backup is not a risk
+    of a future failure; it is the failure, already shipped, for as long as
+    the file sits there.
+    """
+    from . import jsonstore
+    out = []
+    try:
+        root = jsonstore.data_root()
+        if not os.path.isdir(root):
+            return out
+    except Exception:                                       # noqa: BLE001
+        # No data root here at all -- an ordinary CI checkout. Reported as
+        # nothing found, which is true: there is nothing to find.
+        return out
+    for dirpath, _dirs, files in os.walk(root):
+        for fname in sorted(files):
+            if not fname.endswith(".json"):
+                continue
+            full = os.path.join(dirpath, fname)
+            rel = os.path.relpath(full, root)
+            if rel in CREDENTIALS_EXEMPT:
+                continue
+            try:
+                with open(full, encoding="utf-8") as fh:
+                    data = json.load(fh)
+            except Exception:                               # noqa: BLE001
+                # Unreadable or not JSON. Skipped rather than reported: this
+                # check answers one question and "that file is malformed" is
+                # not it.
+                continue
+            for where in _credential_strings(data):
+                out.append({
+                    "file": os.path.join("data", rel), "module": rel.split(os.sep)[0],
+                    "detail": f"{rel} holds a credential at {where} as a "
+                              f"readable string. This store is mirrored into "
+                              f"Postgres, so that value is in the database and "
+                              f"in every backup taken since it was written.",
+                    "fix": "Seal it through hub/cms_credentials.py, which "
+                           "encrypts under TOKEN_ENCRYPTION_KEY and keeps the "
+                           "three states apart, and drop the plaintext key in "
+                           "the same save. hub/seo.py's seal_site_login() and "
+                           "seal_all_site_logins() are the worked example, "
+                           "including the rule that a deployment with no key "
+                           "must not move it at all.",
+                })
+    return out
+
+
+def check_disk_sqlite_stores() -> list[dict]:
+    """Modules that open their own SQLite database on the data disk.
+
+    The same risk as the check above and invisible to it: that one asks what
+    JSON is written without a mirror, and a SQLite file is not JSON. So for as
+    long as this page asked only the JSON question, a whole database on the
+    disk was outside every check on it. Two were --
+    ``modules/google_finder/app.py`` holding Google OAuth refresh tokens, and
+    ``modules/io_builder/submission_attempts.py`` holding the receipts that
+    stop a retried Suite delivery creating a second opportunity against a real
+    insertion order -- and both were found by a person grepping rather than by
+    anything here.
+
+    Not a defect on its own, for the reason the JSON check gives: a module
+    listed here works exactly as it always has, right up until the disk is
+    recreated.
+    """
+    from . import jsonstore
+    out = []
+    for hit in jsonstore.disk_sqlite_stores(ROOT):
+        rel, mod = hit["file"], hit["module"]
+        if rel in SELF:
+            continue
+        out.append({
+            "file": rel, "module": mod, "line": hit["line"],
+            "detail": f"{mod} opens a SQLite database directly on the "
+                      f"persistent disk. The disk is outside the database "
+                      f"backup and does not survive being recreated, so "
+                      f"whatever those tables hold is unrecoverable — and the "
+                      f"unbacked-JSON check cannot see it, because a SQLite "
+                      f"file is not JSON.",
+            "fix": "Move the tables onto the shared engine in "
+                   "hub/extensions.py, which is the Postgres everything else "
+                   "is backed up with. modules/smartforecast/db.py is the "
+                   "worked example: a sqlite3-shaped API over that engine, so "
+                   "the module's SQL stays the SQL it had.",
+        })
+    return out
+
+
+def check_stale_sqlite_exemptions() -> list[dict]:
+    """Exemptions from the check above that no longer name a real file.
+
+    The reason ``check_stale_json_exemptions`` gives, for the second list: a
+    path left in after its file is deleted goes on covering whatever is
+    written there next, and the audit stays green while doing it.
+    """
+    from . import jsonstore
+    return [{
+        "file": rel, "module": "hub",
+        "detail": f"hub/jsonstore.py exempts {rel} from the disk-SQLite "
+                  f"check, and that path no longer exists. The entry now "
+                  f"covers anything written there next.",
+        "fix": "Drop the entry from jsonstore.DISK_SQLITE_EXEMPT, or point it "
+               "at the path the code moved to.",
+    } for rel in jsonstore.stale_sqlite_exemptions(ROOT)]
+
+
+def check_disk_binary_stores() -> list[dict]:
+    """Modules that write bytes to the data disk with nothing else holding them.
+
+    The third question on this page, and the one the other two could not
+    reach. The JSON check asks what JSON is written without a mirror; the
+    SQLite check asks what opens a database. Neither can see a module that
+    writes a .webp, a .pdf or an .mp3 — which is most of what this suite
+    actually produces for a client.
+
+    The exemptions carry the weight here, because almost every binary write in
+    this repo is already fine and says why: a scratch file inside a tempfile
+    context, a cache rebuildable from a URL that is kept, or a Cloudinary-first
+    write whose disk copy is reached only when the upload could not happen and
+    is served by a route that module owns. What is left after those is a store
+    with no second copy anywhere.
+
+    Not a defect on its own, for the reason both checks above give: a module
+    listed here works exactly as it always has, right up until the disk is
+    recreated — or until this service runs more than one instance, which a
+    disk currently prevents and is the point of removing it.
+    """
+    from . import jsonstore
+    out = []
+    for hit in jsonstore.disk_binary_writers(ROOT):
+        rel, mod = hit["file"], hit["module"]
+        if rel in SELF:
+            continue
+        out.append({
+            "file": rel, "module": mod, "line": hit["line"],
+            "detail": f"{mod} writes bytes to the persistent disk with "
+                      f"{hit['how']}, and nothing else holds a copy. The disk "
+                      f"is outside the database backup, does not survive being "
+                      f"recreated, and is local to one instance — so these "
+                      f"bytes are unreachable from any other instance and "
+                      f"unrecoverable if the disk goes. Neither the "
+                      f"unbacked-JSON check nor the disk-SQLite check can see "
+                      f"this: it is neither.",
+            "fix": "Send the bytes through hub/storage.py, which puts them in "
+                   "Cloudinary and is what this repo uses for binary. Where "
+                   "they are genuinely rebuildable or never outlive the "
+                   "request, say so in jsonstore.DISK_BINARY_EXEMPT with a "
+                   "reason that names what losing them would cost.",
+        })
+    return out
+
+
+def check_stale_binary_exemptions() -> list[dict]:
+    """Exemptions from the check above that no longer name a real file.
+
+    The reason its two siblings give: a path left in after its file is deleted
+    goes on covering whatever is written there next, and the audit stays green
+    while doing it.
+    """
+    from . import jsonstore
+    return [{
+        "file": rel, "module": "hub",
+        "detail": f"hub/jsonstore.py exempts {rel} from the disk-binary "
+                  f"check, and that path no longer exists. The entry now "
+                  f"covers anything written there next.",
+        "fix": "Drop the entry from jsonstore.DISK_BINARY_EXEMPT, or point it "
+               "at the path the code moved to.",
+    } for rel in jsonstore.stale_binary_exemptions(ROOT)]
 
 
 def check_stale_json_exemptions() -> list[dict]:
@@ -1353,9 +1734,25 @@ CHECKS = [
     # were deleted in the same change, so it starts empty.
     ("orphan_templates", "A template nothing renders", "low",
      check_orphan_templates),
+    ("unmasked_secret_fields", "A credential typed into a box that shows it",
+     "medium", check_unmasked_secret_fields),
     ("unbacked_json", "JSON on the disk with no backup", "medium", check_unbacked_json),
     ("stale_json_exemptions", "Unbacked-JSON exemption names a missing file",
      "medium", check_stale_json_exemptions),
+    ("disk_sqlite", "A SQLite database on the disk with no backup", "medium",
+     check_disk_sqlite_stores),
+    # High, and for a different reason from the two backup checks beside it:
+    # those say a module they list works exactly as it always has. A readable
+    # password in a backup is not a risk of a later failure, it is the failure,
+    # already shipped, for as long as the file sits there.
+    ("plaintext_credentials", "A credential stored as readable text", "high",
+     check_plaintext_credentials),
+    ("stale_sqlite_exemptions", "Disk-SQLite exemption names a missing file",
+     "medium", check_stale_sqlite_exemptions),
+    ("disk_binary", "Bytes on the disk with no copy anywhere else", "medium",
+     check_disk_binary_stores),
+    ("stale_binary_exemptions", "Disk-binary exemption names a missing file",
+     "medium", check_stale_binary_exemptions),
     ("creative_medium_drift", "Creative gate lost a rate-card product", "high",
      check_creative_medium_drift),
     ("creative_spec_disagreement", "Creative gate and spec kit disagree", "high",

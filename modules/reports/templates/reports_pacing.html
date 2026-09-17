@@ -33,6 +33,8 @@
   <div class="s1d-tile"><b class="{{ 's1d-warn' if b.counts.alerts else '' }}">{{ b.counts.alerts }}</b><span>Alerts (3+ days off pace)</span></div>
 </div>
 
+{% with placement = 'reports_pacing' %}{% include "_reports_ask.html" %}{% endwith %}
+
 <div class="s1d-card">
   <div class="s1d-cardhead"><h2>{{ b.shown }} of {{ b.total }} line{{ '' if b.total == 1 else 's' }} {{ help_dot('reports.pacing.board') if help_dot is defined else '' }}</h2>
     <span class="s1d-muted">

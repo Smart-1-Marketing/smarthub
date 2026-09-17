@@ -261,6 +261,151 @@ LEAVES = {
     "website_audit":     ("/tools/website-audit", "&#128269;", "Website Audit"),
 }
 
+# ------------------------------------------------------------ what each does
+# One sentence or two per tool, fifty words at most (test_sidebar_departments
+# counts), shown under the tile on every /views/<slug> index page. Written
+# for the person opening the page for the first time, not for the person who
+# built the tool: what you get from it, in the words on the tool's own screen.
+# A leaf with no entry here renders with no description rather than an error.
+BLURBS = {
+    "acct_requests":     "Every request in the Accounting Requests pipeline, with the stage changeable right from the report.",
+    "active_clients":    "Every client with a live product or billing this month — partner, salesperson, monthly total and dashboard status.",
+    "activity":          "The system-wide record of who did what in the Hub, and when.",
+    "ad_assets":         "The creative assets each campaign has on file, and which campaigns are still missing what they need to run.",
+    "ads":               "Build and launch paid search campaigns in a client's own ad account — keywords, ad groups, copy and budget in one flow.",
+    "ads_grader":        "A public lead magnet: a prospect connects their Google Ads account read-only and gets a scored report; every run becomes a lead.",
+    "assign_clients":    "Who owns which client. Assign one at a time, a whole selection, or everything a media partner carries, and see who is holding nothing.",
+    "bg_remover":        "Cut the background out of a product or people photo and save a transparent PNG to the client's gallery.",
+    "billing_cmp":       "QuickBooks invoices per customer, this month against the last three — decreases first, biggest swings on top.",
+    "calc_audio":        "Size a streaming audio buy: budget in, impressions, reach and frequency out. The internal copy — no contact form, no lead written.",
+    "calc_ctv":          "Size a Connected TV buy the same way — budget to impressions, households and frequency, with nothing captured.",
+    "calc_dooh":         "Size a digital out-of-home buy: screens, plays and reach for a budget. Internal copy, nothing captured.",
+    "calc_ims":          "Plan an IMS barter media buy — trade dollars to impressions across channels. Internal copy, nothing captured.",
+    "campaign_assets":   "Every campaign on an insertion order still waiting on a clarification or on assets, grouped by media partner so the chase is one list per partner.",
+    "check_recon":       "Upload a check image, match the QuickBooks customer, allocate it to open invoices and post the payment. Owner only.",
+    "clients":           "The client, salesperson and partner lookup against Knack — who is who and what they buy.",
+    "commercial":        "Script, storyboard, voice and render a video commercial from a brief, with QC checks and a client review link.",
+    "commercial_lib":    "Every delivered commercial, searchable by client, format and date.",
+    "creative":          "The index of every image, video and audio tool. Approved work lands on the client's 360 record.",
+    "cs_ai_tools":       "The AI generators the Studio can call — video, voice, image and music — and which are live.",
+    "cs_approvals":      "Client review links awaiting a decision, with rounds, comments and who is holding the ball.",
+    "cs_brand_kits":     "A client's logos, colors, fonts and voice, loaded into every Studio tool automatically.",
+    "cs_campaigns":      "Group a client's creative projects into a campaign and track them together.",
+    "cs_dashboard":      "Start a new creative project: pick the client, the type of piece and a template.",
+    "cs_library":        "Every finished spot the Studio has produced, by client and format.",
+    "cs_media":          "Uploaded and generated media for each client — footage, stills, audio — ready to reuse.",
+    "cs_projects":       "Every Studio project with its status, client, format and who last touched it.",
+    "cs_templates":      "The template gallery by industry and creative type; a template row is what makes a tile appear.",
+    "cs_usage":          "What each AI provider cost this month, by client and tool.",
+    "customer_voices":   "Record or upload a real customer's voice and turn it into a testimonial spot.",
+    "dead_air":          "Trim silence and dead air out of a video clip automatically and save the tightened cut.",
+    "deptviews_manage":  "Curate what each department sees on My View, and put people on departments.",
+    "diagnostics":       "Integrations, quotas, scheduled jobs and integrity checks — where to look when something is wrong.",
+    "display_ads":       "Build display ad sets in every IAB size from a client's brand and photos, with spec QC and a client review link.",
+    "domains":           "Every domain Smart 1 bought for a client, by renewal month — whether QuickBooks invoiced it, and whether it should renew at all.",
+    "fan_radio":         "Sports-season radio spots for a client, trademark-safe and result-neutral, with the same mixing and QC as Radio Ad Creator.",
+    "ga4":               "Open a client's GA4 property, check its tags and pull the numbers, from the stored account index.",
+    "gbp":               "A client's Google Business Profile — listing, categories, posts and reviews.",
+    "ghl_billing_month": "Every Smart 1 Suite sub-account billing this month — client, plan and monthly price.",
+    "ghl_billing_none":  "Smart 1 Suite sub-accounts with active billing but no live Smart 1 product on file in Knack.",
+    "google":            "The Google Finder — which GA4, Tag Manager, Search Console and Business Profile each client has, and the tools for each.",
+    "google_access":     "Request and track access to a client's Google properties, and record what we hold.",
+    "google_accounts":   "Every GA4 property, GTM container, Search Console property and Business Profile we can reach, and which client each maps to.",
+    "google_finder":     "Search every connected Google account for a client's property, container or listing.",
+    "google_history":    "What the Google tools did and when — sweeps, changes and errors.",
+    "gpt_ads":           "Write ad copy for search, social and display from what the client actually authorized; anything unsupplied is a blocking flag.",
+    "gtm":               "A client's Tag Manager container — tags, triggers and the site check that says whether it fires.",
+    "house_urls":        "In-house websites added as clients with no products, so our own sites get audited too.",
+    "image_creator":     "Design social images and graphics on a canvas with stock photos, brand kits and AI generation, saved to the client's gallery.",
+    "image_opt":         "Resize, compress and convert images to web sizes in one pass.",
+    "image_picker":      "Upload a client's own photos and files into their gallery and Smart 1 Suite media library.",
+    "inactive_ga":       "GA4 properties and GTM containers with no activity for 60 days — skip or remove each.",
+    "industry_factory":  "Generate a new industry landing page and its lead flow from a template.",
+    "industry_prospects": "Prospect lists by industry, with the audit and outreach status of each.",
+    "invoice_off":       "Customers whose invoiced amount this month doesn't match their active-product monthly total.",
+    "io_builder":        "Turn a proposal into an insertion order — the chat-style builder that produces the signed IO.",
+    "io_money":          "Insertion orders whose Knack campaign is trafficked for different money than the order was written for.",
+    "io_not_in_knack":   "Insertion orders we sent that Knack has no campaign for, flights already started on top.",
+    "knack_field_map":   "Every Knack object and field the Hub reads or writes, which tool owns it, and whether the mapping is confirmed.",
+    "land_boat":         "The public boat-dealer lead page: a scored report in exchange for contact details.",
+    "land_hvac":         "The public HVAC lead page with its own industry report.",
+    "land_legal":        "The public law-firm lead page with its own industry report.",
+    "land_recruit":      "The public recruitment-marketing lead page.",
+    "land_restaurant":   "The public restaurant and bar lead page.",
+    "land_rv":           "The public RV-dealer lead page.",
+    "land_ski":          "The public ski-resort lead page, weather-triggered.",
+    "land_stadium":      "The public football-season page that turns a lead into a stadium-to-screen proposal.",
+    "land_tourism":      "The public tourism and destination lead page.",
+    "landing":           "Every public lead-capture page on one screen, with where each submission lands.",
+    "landing_ads":       "Generate the display and social ads that send traffic to a landing page.",
+    "landing_maker":     "Build a new lead-capture landing page for a client or an industry.",
+    "leads":             "Every lead from every landing page, scan widget and calculator, with its report attached and its Suite sync status.",
+    "leads_existing":    "Findings read off each active client's own website — what we could sell them next.",
+    "lost_by_partner":   "Clients that billed last month with nothing live this month, grouped by partner.",
+    "lsa":               "Set up and manage Google Local Services Ads for a client.",
+    "youtube_ads":       "Build YouTube video campaigns — targeting, formats and budget — in a client's account.",
+    "magic_resize":      "Resize one finished design into every ad size with the layout re-flowed, not stretched.",
+    "marketing_audit":   "The Accounting Partner Program's public audit — a bookkeeper's client answers questions and gets a marketing efficiency score.",
+    "match_google":      "Google properties that map to no client — searchable, with whoever they might belong to.",
+    "match_sites":       "Websites we hold that nobody is attached to; accepting a match writes the client record everywhere at once.",
+    "match_suite":       "Smart 1 Suite sub-accounts with no client recorded against them, matched on domain then name.",
+    "media_calcs":       "The public, gated media calculators — headline numbers first, the plan after a name, email and phone.",
+    "monthly_promises":  "What the open plans promise each month against what the activity log shows actually landed.",
+    "msa":               "The Master Services Agreement, ready to send.",
+    "myclients":         "Everything outstanding on the clients assigned to you, heaviest first — creative waiting, proposals unanswered, orders running out.",
+    "no_analytics":      "Active clients with no Google Analytics on file — search connected accounts and attach the right property.",
+    "no_dashboards":     "Active clients with no Smart 1 Dashboard link on any live product.",
+    "no_gtm":            "Active clients with no GTM container, split into tag-dependent products and suggested candidates.",
+    "page_images":       "Pull every image off a client's page, optimize it and hand back the replacements.",
+    "paint_animation":   "A hand-painted reveal animation of a client's image or logo.",
+    "partner_scorecard": "Active clients, live products and billing rolled up by media partner — who is growing and who is shrinking.",
+    "pdf":               "Shrink and clean a PDF for email or the web.",
+    "proposal_execution": "Read a client's proposal, map it to Hub tools, run them and report done, needs input or approved on one board.",
+    "qa":                "Every data-quality and billing check in one place.",
+    "qatasks":           "Ask somebody to check a page or tool, with instructions and a need-by date; their findings come back here.",
+    "radio_promo":       "Write, voice, mix and QC a radio spot — beds, variations and a push to Smart 1 Suite.",
+    "radio_scripts":     "Three script concepts in :60, :30 and :15 from a brief, with an optional voice demo and a client review link.",
+    "reports":           "Every platform's performance, campaigns not yet filed under a client, and the budgets they pace against.",
+    "reports_cost":      "What the month cost against what each client pays.",
+    "reports_pacing":    "How every sold line is spending against its budget, day by day.",
+    "sales_scorecard":   "Active clients, live products and billing per salesperson, with month-over-month new, lost, up and down.",
+    "salesb":            "Build a proposal from an audit and the rate card, and send it for review.",
+    "scan_all":          "Audit every client with a website on file — previews the credit cost and caps the run before anything is spent.",
+    "scan_widgets":      "An embeddable site-scan widget to paste on a client's website; every scan becomes a lead.",
+    "scans":             "Site audits: SEO, AEO, speed and fixes for any domain, with a shareable report.",
+    "sell_to_clients":   "Findings read off each active client's own website, out of audits already paid for — what we could sell each one.",
+    "seo":               "Each SEO client's record — schema, FAQs, blogs, alt text and llms.txt, per site.",
+    "seo_images":        "Pull, optimize and re-upload a site's images with proper alt text, in bulk.",
+    "seo_intelligence":  "The internal SEO overview across the book — rankings, coverage and what changed.",
+    "short_links":       "Masked, trackable client links on our own domain.",
+    "site_blocks":       "Reusable website sections to drop into Smart 1 Sites.",
+    "sites":             "The Smart 1 Sites admin — every website project, its status and its hosting.",
+    "sites_billing":     "Every Smart 1 Sites project against the QuickBooks hosting products — live sites nobody bills, dead sites still charged.",
+    "sites_builder":     "Generate a Smart 1 Sites website from a business name, type and goal.",
+    "skills360":         "Switch a client's skills on — Ecwid Ecommerce, Email Creator — which decides which cards Client 360 draws for them.",
+    "smartforecast":     "A weather-driven website block that changes its offer with the forecast.",
+    "social":            "A posting plan and captions built from what the client authorized, with a push to Smart 1 Suite's social planner.",
+    "stale_90":          "Clients gone quiet — last order ended 90+ days ago and nothing live now. Win-back candidates.",
+    "stale_creative":    "How long since we last produced creative for each active client, and who has never had any.",
+    "status":            "Is the Hub up, and is every integration answering.",
+    "stock_photos":      "Search Pexels, Unsplash, Pixabay and Smart 1's own Cloudinary library in one place.",
+    "studio":            "The Creative Studio front door — what am I making for this client, and where did I leave it.",
+    "suite":             "Smart 1 Suite sub-accounts, their apps and their billing.",
+    "tickets":           "Website change requests from Knack — what's open, what's gone stale, and per-client history.",
+    "tools":             "The full index of client tools, grouped by what they are for.",
+    "unattached_images": "Every image the Hub created or uploaded that names no client — attach one without leaving the row.",
+    "users":             "Hub accounts, roles and sign-in status.",
+    "utm":               "Build tagged campaign URLs to Google's spec, consistently across every client.",
+    "vertical_reframe":  "Reframe a landscape video to vertical with the subject kept in frame.",
+    "video_search":      "Search stock and Cloudinary video for backgrounds and b-roll.",
+    "vox_explainer":     "A narrated explainer video from a script, with captions and brand styling.",
+    "weather_setup":     "Set up a weather-triggered campaign for a lead — the trigger, the landing page and the ads it fires.",
+    "webmaster_reports": "Search Console reports per SEO client — queries, pages and coverage.",
+    "webmaster_tools":   "A client's Search Console property — indexing, sitemaps and errors.",
+    "website_audit":     "Audit a prospect's website before a proposal; the builder offers to run one if nobody has.",
+}
+
+
 # Reused groupings, so the same list is not typed twice.
 _CALCULATORS = ["calc_audio", "calc_ctv", "calc_dooh", "calc_ims"]
 _GOOGLE_TOOLS = ["google_access", "google_finder", "ga4", "gtm", "webmaster_tools",
@@ -277,6 +422,30 @@ _LANDING = ["land_boat", "land_hvac", "land_legal", "land_recruit", "land_restau
             "land_rv", "land_ski", "land_stadium", "land_tourism"]
 
 
+# One color per department, used on its index page (heading, section bars,
+# tile rule) so a person learns "green is Sales" and finds it faster next
+# time. Departments and Tools take different halves of the wheel. Chosen to
+# read on white at AA contrast for the heading text.
+DEPT_COLORS = {
+    "sales":           "#1d7a46",   # green
+    "client-success":  "#1a5fb4",   # blue
+    "product-success": "#7a3db8",   # purple
+    "seo":             "#c2410c",   # orange
+    "web-dev":         "#0e7490",   # teal
+    "accounting":      "#8a6d00",   # gold
+    "creative":        "#be185d",   # magenta
+    "studio":          "#9333ea",   # violet
+    "ad-tools":        "#b45309",   # amber
+    "leads":           "#15803d",   # leaf
+    "qa":              "#b91c1c",   # red
+    "utilities":       "#475569",   # slate
+}
+
+# Section headings on an index page cycle through these tints, in order,
+# so neighboring groups never share a color.
+GROUP_TINTS = ["#1a5fb4", "#1d7a46", "#c2410c", "#7a3db8", "#0e7490", "#be185d", "#8a6d00"]
+
+
 def _dept(slug, label, ico, groups, level=EVERYONE, blurb=""):
     """A department: `groups` is [(group label or "", [leaf keys])]. The index
     page is always /views/<slug> -- every department gets one, even the ones
@@ -284,6 +453,7 @@ def _dept(slug, label, ico, groups, level=EVERYONE, blurb=""):
     everything in it" is true of every row rather than most of them."""
     return {"key": "dept_" + slug.replace("-", "_"), "slug": slug, "label": label,
             "ico": ico, "href": "/views/" + slug, "level": level, "blurb": blurb,
+            "color": DEPT_COLORS.get(slug, "#1a2e58"),
             "groups": [(g, list(keys)) for g, keys in groups]}
 
 

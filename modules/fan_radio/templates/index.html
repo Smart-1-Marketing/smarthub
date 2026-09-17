@@ -137,6 +137,21 @@
         <input id="promo" type="text" placeholder="$99 fall tune-up, ends Sunday">
       </div>
       <div>
+        <label class="f" for="phone">Response phone number <span class="opt">— optional</span></label>
+        <input id="phone" type="tel" placeholder="(317) 555-0142">
+        <div class="hint"><label><input type="checkbox" id="include_phone">
+          The read has to say it</label> — tick this and a script that leaves the
+          number out is a finding before the record. A :10 tag cannot carry a
+          response somebody acts on, so leave it clear for one.</div>
+      </div>
+      <div>
+        <label class="f" for="disclaimer">Required disclaimer <span class="opt">— optional</span></label>
+        <input id="disclaimer" type="text" placeholder="Offer ends Sunday. See store for details.">
+        <div class="hint">Checked <b>word for word</b> against every script. A
+          disclaimer that did not quite make the cut is the whole reason it was
+          typed in.</div>
+      </div>
+      <div>
         <label class="f" for="team">Local team, for context only</label>
         <input id="team" type="text" placeholder="e.g. Cincinnati Bengals">
         <div class="hint"><b>This never appears in the copy.</b> It tells the writer
@@ -311,6 +326,30 @@
     <button class="btn sec sm" id="clearComments">Clear previous customer comments</button>
     <p class="hint">Clears comments from the customer page; the history is archived internally and approvals are kept.</p>
     <div id="feedback" style="margin-top:16px"></div>
+
+    <section class="settings-box" aria-label="Smart 1 Suite" style="margin-top:18px">
+      <h3>Send it to the Suite</h3>
+      <p class="hint">What the <b>client approved</b> goes to their opportunity in
+        Smart 1 Suite — the audio, the script and who signed it off. Pressing
+        again revises that opportunity rather than opening a second one.</p>
+      <div id="suiteBody"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="suitePush">File it in the Suite</button>
+        <span class="msg" id="suiteMsg"></span>
+      </div>
+      <div id="suiteContact" style="display:none;margin-top:10px">
+        <p class="hint">Smart 1 Suite has no contact for this client yet. A name
+          and an email or phone number creates both.</p>
+        <div class="grid3">
+          <div><label class="f" for="suiteName">Contact name</label>
+            <input id="suiteName" type="text"></div>
+          <div><label class="f" for="suiteEmail">Email</label>
+            <input id="suiteEmail" type="email"></div>
+          <div><label class="f" for="suitePhone">Phone</label>
+            <input id="suitePhone" type="tel"></div>
+        </div>
+      </div>
+    </section>
   </div>
 
   <div class="wizard-actions"><button class="btn sec" id="wizardBack" type="button" hidden>Back</button><button class="btn" id="wizardNext" type="button" hidden>Continue</button></div>
@@ -368,7 +407,9 @@
     if (writing) activeWrites++;
     return fetch(BASE + path, opts).then(function(r){
       return r.json().then(function(j){
-        if(!r.ok || j.ok === false) throw new Error(j.error || "That didn't work.");
+        if(!r.ok || j.ok === false){
+          var err = new Error(j.error || "That didn't work.");
+          err.payload = j; throw err; }
         if ((opts.method || 'GET').toUpperCase() !== 'GET') window.dispatchEvent(new Event('radio-library-changed'));
         return j; });
     }).finally(function(){ if (writing) activeWrites--; finishRadioWork(); });
@@ -401,6 +442,8 @@
       company:$('company').value.trim(), client:$('client').value.trim(), home_url:$('url').value.trim(),
       scope:document.querySelector('input[name=scope]:checked').value,
       promotion:$('promo').value, notes:$('notes').value, team_context:$('team').value, tone:$('tone').value,
+      phone:$('phone').value.trim(), include_phone:$('include_phone').checked,
+      disclaimer:$('disclaimer').value.trim(),
       brief:{summary:$('b_summary').value,audience:$('b_audience').value,offer:$('b_offer').value,
         callToAction:$('b_cta').value,mustSay:lines($('b_must').value),avoid:lines($('b_avoid').value)}
     }});
@@ -545,7 +588,10 @@
       scope: scope, client: $("client").value.trim(),
       company: $("company").value.trim(), home_url: $("url").value.trim(),
       promotion: $("promo").value.trim(), notes: $("notes").value.trim(),
-      team_context: $("team").value.trim(), tone: $("tone").value
+      team_context: $("team").value.trim(), tone: $("tone").value,
+      phone: $("phone").value.trim(),
+      include_phone: $("include_phone").checked,
+      disclaimer: $("disclaimer").value.trim()
     };
     if(!body.company){ say("startmsg","Enter the business name.","err"); return; }
     this.disabled = true; say("startmsg","Reading the site…","scan");
@@ -584,6 +630,8 @@
       .then(function(){ return loadQc(); })
       .then(drawMusic)
       .catch(function(){ drawMusic(); });
+    loadPresets().then(loadScriptQc).then(function(){ drawSpots(); });
+    loadSuite();
   }
 
   function fillBrief(){
@@ -633,6 +681,7 @@
           j.warning ? "warn" : "ok");
       $("rewriteall").style.display = "inline-block";
       drawSpots();
+      refreshScriptQc();
       showStep(!j.warning && (P.spots || []).length ? 3 : 2, true);
     }).catch(function(e){
       $("write").disabled = false; say("writemsg", e.message, "err"); });
@@ -678,6 +727,15 @@
     if(!P || !P.voice || !P.voice.voice_id) throw new Error('Choose a voice in Step 4 first.');
     return Object.assign({},P.voice,{speed:Number($('voiceSpeed').value),prompt_strength:Number($('promptStrength').value)/100,stability:Number($('voiceStability').value)/100,model_id:$('voiceMode').value});
   }
+  /* The length's own label, from the shared table. A local map of the two
+     lengths this tool used to build is how the :10 and the :60 came to be
+     drawn as bare numbers after the shared menu brought them in. */
+  function lengthLabel(seconds){
+    var len = ((CAT && CAT.lengths) || []).filter(function(l){
+      return Number(l.seconds) === Number(seconds); })[0];
+    return (len && len.label) || (":" + seconds);
+  }
+
   function timingBadge(seconds,target,measured){
     if(seconds == null || !Number.isFinite(Number(seconds))) return '<span class="timing">Duration unavailable</span>';
     var value=Number(seconds),gap=Number(target)-value;
@@ -687,6 +745,32 @@
   function tagControls(s){
     return '<label class="f" for="tag-'+esc(s.id)+'">Expression tag</label><select id="tag-'+esc(s.id)+'" data-tag><option value="">Choose a delivery…</option>'+['excited','curious','whispers','laughs','sighs','sarcastic','mischievously','short pause','long pause'].map(function(t){return '<option value="'+t+'">['+t+']</option>';}).join('')+'</select><button class="btn sec sm" data-a="insert-tag">Insert at cursor</button><p class="hint">Tags use Expressive mode and work with instant custom voices. Place them before the words they should affect.</p>';
   }
+  /* A saved read, inserted at the cursor. Same shape as the expression-tag
+     control above it, deliberately: two pickers on one card that behave
+     differently is two things to learn. Insert rather than replace, because
+     losing a written spot to a mis-click is the one outcome worth designing
+     against -- select the copy first to overwrite it. */
+  function presetControls(s){
+    var rows = (PRESETS.defaults || []).concat(PRESETS.custom || []);
+    if(!rows.length)
+      return '<p class="hint">No saved reads yet — write one and press '
+           + '<b>Save as a reusable read</b> to start the library.</p>'
+           + '<div class="row"><button class="btn sec sm" data-a="save-preset">'
+           + 'Save as a reusable read</button></div>';
+    return '<label class="f" for="pre-' + esc(s.id) + '">Reusable read</label>'
+      + '<select id="pre-' + esc(s.id) + '" data-preset>'
+      + '<option value="">Choose a saved read…</option>'
+      + rows.map(function(r){
+          return '<option value="' + esc(r.id) + '">' + esc(r.name)
+               + '</option>'; }).join("")
+      + '</select>'
+      + '<button class="btn sec sm" data-a="insert-preset">Insert at cursor</button>'
+      + '<button class="btn sec sm" data-a="save-preset">Save as a reusable read</button>'
+      + '<p class="hint">The library is shared with the Radio Ad Creator. A read '
+      + 'saved here has this client\'s name put back to a placeholder, so the '
+      + 'next project fills in its own.</p>';
+  }
+
   function drawSpots(){
     var spots = (P && P.spots) || [];
     if(!spots.length){
@@ -728,14 +812,17 @@
       return '<div class="spot' + ((sc.blocked||[]).length ? ' flag' : '')
         + '" data-id="' + esc(s.id) + '">'
         + '<div class="shead"><span class="len">'
-        + esc(({15:":15",30:":30"})[s.seconds] || s.seconds) + '</span>'
+        + esc(lengthLabel(s.seconds)) + '</span>'
         + '<b>' + esc((CAT.dayparts.filter(function(d){return d.id===s.daypart;})[0]
                        || {}).label || s.daypart) + '</b>'
         + '<span class="ver">' + esc(out) + '</span>' + tags + '</div>'
         + '<div class="hint">Music bed: '+esc(s.bed && s.bed.audio_url ? bedName(s.bed) : 'No bed')+'</div>'
         + why
+        + scriptQcRows(s.id)
+        + beatRail(s.seconds)
         + '<textarea class="sc">' + esc(s.script) + '</textarea>'
         + tagControls(s)
+        + presetControls(s)
         + '<div class="sfoot">'
         +   '<button class="btn sec sm" data-a="save">Save edit</button>'
         +   '<button class="btn sec sm" data-a="rewrite">Rewrite</button>'
@@ -743,16 +830,15 @@
               ? '<button class="btn sec sm" data-a="tighten">Tighten by '
                 + esc(g.delta) + '</button>' : '')
         +   '<button class="btn sec sm" data-a="record">Record</button>'
+        +   '<label class="btn sec sm" style="cursor:pointer">Upload a recording'
+        +     '<input type="file" accept="audio/*" data-a="voup5" data-s="' + esc(s.id)
+        +     '" style="display:none"></label>'
         +   '<button class="btn danger sm" data-a="delete">Delete</button>'
         +   '<span class="ver">' + ((s.versions||[]).length) + ' version(s)'
         +   (s.notes ? ' · ' + esc(s.notes) : '') + '</span>'
         +   '<span class="msg" data-m="1"></span>'
+        +   '<span class="msg" data-m="vo5-' + esc(s.id) + '"></span>'
         + '</div>'
-        + '<div class="sfoot"><label class="link" style="cursor:pointer">'
-        +   'Use a read you recorded yourself instead'
-        +   '<input type="file" accept="audio/*" data-a="voup5" data-s="' + esc(s.id)
-        +   '" style="display:none"></label>'
-        +   '<span class="msg" data-m="vo5-' + esc(s.id) + '"></span></div>'
         + audio + '</div>';
     }).join("");
 
@@ -765,10 +851,46 @@
         // The Music step reads the same spots. Redrawing one screen and not
         // the other is how a mix that has just been retired goes on being
         // offered on the panel below.
-        drawSpots(); drawMusic(); }
+        drawSpots(); drawMusic(); refreshScriptQc(); }
       card.querySelectorAll("button").forEach(function(b){
         b.onclick = function(){
           var a = b.getAttribute("data-a");
+          if(a === 'insert-preset'){
+            var sel = card.querySelector('[data-preset]');
+            var pid = sel ? sel.value : "";
+            if(!pid){msg.textContent='Choose a saved read first.';return;}
+            var rows = (PRESETS.defaults||[]).concat(PRESETS.custom||[]);
+            var row = rows.filter(function(r){return r.id===pid;})[0];
+            if(!row){msg.textContent='That read is no longer in the library.';return;}
+            var at = ta.selectionStart ?? ta.value.length;
+            ta.setRangeText(row.script, at, at, 'end'); ta.focus();
+            msg.className = "msg";
+            msg.textContent = 'Inserted. Save the edit to keep it, then the '
+              + 'script checks re-run.';
+            return;
+          }
+          if(a === 'save-preset'){
+            var text = ta.value.trim();
+            if(!text){msg.textContent='Write the spot first.';return;}
+            var name = prompt('Name this reusable read — how it appears in the '
+              + 'picker, here and in the Radio Ad Creator:');
+            if(name === null) return;
+            b.disabled = true; msg.className = "msg"; msg.textContent = "Saving…";
+            api("/api/script-presets?project=" + encodeURIComponent(P.id),
+                {method:"POST", body:{name:name, script:text}})
+              .then(function(j){
+                PRESETS = {defaults: j.defaults || PRESETS.defaults,
+                           custom: j.custom || PRESETS.custom};
+                b.disabled = false;
+                // Redrawn so every card's picker offers it, not just this one.
+                drawSpots();
+                say("wizardMsg", 'Saved as a reusable read. It is in the picker '
+                  + 'on every spot, and in the Radio Ad Creator.', "ok");
+              })
+              .catch(function(e){ b.disabled = false;
+                msg.className = "msg err"; msg.textContent = e.message; });
+            return;
+          }
           if(a === 'insert-tag'){
             var tag=card.querySelector('[data-tag]').value;
             if(!tag){msg.textContent='Choose an expression tag first.';return;}
@@ -801,11 +923,28 @@
               msg.textContent = ""; return; }
             p = api("/api/projects/"+P.id+"/spots/"+id, {method:"DELETE"})
                  .then(function(){ P.spots = P.spots.filter(function(x){
-                    return x.id !== id; }); drawSpots(); return null; });
+                    return x.id !== id; }); drawSpots(); refreshScriptQc();
+                    return null; });
           }
           p.then(function(j){ if(j && j.spot) done(j); })
            .catch(function(e){ b.disabled = false;
-             msg.className = "msg err"; msg.textContent = e.message; });
+             var panel = (e.payload || {}).qc_panel, note = msg;
+             if(panel){
+               // The refusal shipped the panel that refused. Drawing it is the
+               // difference between "fix the address" and a rep hunting for
+               // which of eleven rows the sentence came from.
+               SQC[id] = panel;
+               if((e.payload || {}).labels) SQC_LABELS = e.payload.labels;
+               drawSpots();
+               // drawSpots() replaces every card, so `msg` is now a detached
+               // node and writing to it would put the refusal on screen
+               // nowhere. The fresh card's own slot is the one to write to.
+               var fresh = $("spots").querySelector('.spot[data-id="'
+                            + (window.CSS && CSS.escape ? CSS.escape(id) : id)
+                            + '"] [data-m="1"]');
+               if(fresh) note = fresh;
+             }
+             note.className = "msg err"; note.textContent = e.message; });
         };
       });
       var voInput = card.querySelector('input[type=file][data-a="voup5"]');
@@ -988,6 +1127,15 @@
      duck their beds by the same amount, and the level this panel shows is the
      level that renders. */
   var MIXCFG = null, QCC = {}, RENDERED = {}, MUSIC_LIBRARY = [], BED_EDITORS = {};
+  // The script panel, keyed by spot, and the labels served with it. The
+  // labels are not restated here on purpose: a check absent from the map
+  // is skipped silently by the loop below, so the map comes from the
+  // server that ran the checks.
+  var SQC = {}, SQC_LABELS = {}, SQC_BLOCKS = [];
+  // The shared reusable-read library, the same rows the Radio Ad Creator
+  // offers. Loaded once a project exists, because the `{business}` placeholder
+  // is filled in server-side from that project's company name.
+  var PRESETS = {defaults: [], custom: []};
 
   function loadMixConfig(){
     return api("/api/mix/config").then(function(j){ MIXCFG = j; return j; });
@@ -1054,6 +1202,36 @@
                             the step down with it */ });
   }
 
+  /* The script panel. Cheap -- it reads the copy and reaches no provider --
+     so it is re-asked after every edit, rewrite and tighten rather than on a
+     button. Its own path, deliberately not /qc: that one judges the mix after
+     a render and this one judges the script before anybody pays for a voice. */
+  /* Re-ask and redraw. Every place the copy changes calls this one function:
+     a panel refreshed at four of the five edit points is a panel that
+     confidently reports the previous wording, which is worse than none. */
+  function refreshScriptQc(){
+    return loadScriptQc().then(function(){ drawSpots(); });
+  }
+
+  function loadPresets(){
+    if(!P || !P.id) return Promise.resolve();
+    return api("/api/script-presets?project=" + encodeURIComponent(P.id))
+      .then(function(j){ PRESETS = {defaults: j.defaults || [],
+                                    custom: j.custom || []}; })
+      .catch(function(){ /* the picker is left empty and says so; a library
+                            that cannot be read must not take the step down */ });
+  }
+
+  function loadScriptQc(){
+    if(!P || !P.id) return Promise.resolve();
+    return api("/api/projects/"+P.id+"/script-qc").then(function(j){
+      SQC = j.spots || {};
+      SQC_LABELS = j.labels || {};
+      SQC_BLOCKS = j.blocks_render || []; })
+      .catch(function(){ /* same rule as the mix panel: a failed check reports
+                            itself and must not take the step down with it */ });
+  }
+
   function dbGain(db){ return Math.pow(10, (Number(db)||0) / 20); }
 
   function decodeRef(sid, role, ctx){
@@ -1065,14 +1243,22 @@
       .then(function(buf){ return ctx.decodeAudioData(buf); });
   }
 
-  function buildMix(spot){
+  /* The second argument is the rate the read is played at, and 1 is every
+     read this tool recorded itself. Web Audio's playbackRate RESAMPLES — the
+     read gets shorter and higher together, because there is no pitch-
+     preserving time-stretch here and this Hub does not add a library from a
+     CDN for one feature. That is stated on the panel rather than hidden: a
+     spot that quietly came back a semitone up is the kind of thing nobody
+     notices until the client does. */
+  function buildMix(spot, speed){
+    var rate = Number(speed) > 1 ? Number(speed) : 1;
     var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
     if(!OAC) return Promise.reject(new Error("This browser cannot render audio "
       + "offline, so the mix cannot be made here. Chrome, Edge, Firefox and "
       + "Safari all can."));
     var M = Object.assign({},(MIXCFG && MIXCFG.mix) || {},selectedMixLevel());
-    var rate = M.sample_rate || 44100, chans = M.channels || 2;
-    var probe = new OAC(1, 1024, rate);
+    var sampleRate = M.sample_rate || 44100, chans = M.channels || 2;
+    var probe = new OAC(1, 1024, sampleRate);
     var hasBed = !!(spot.bed && spot.bed.audio_url);
     return decodeRef(spot.id, "vo", probe).then(function(vo){
       return (hasBed ? decodeRef(spot.id, "bed", probe)
@@ -1086,16 +1272,18 @@
           // would cut the end off a long one — and it is the phone number that
           // lives there. A read that overruns comes back measured and over,
           // which is what the length check is for.
-          var total = Math.max(spot.seconds || 30, lead + vo.duration);
-          var ctx = new OAC(chans, Math.max(1, Math.round(total*rate)), rate);
+          var voLen = vo.duration / rate;
+          var total = Math.max(spot.seconds || 30, lead + voLen);
+          var ctx = new OAC(chans, Math.max(1, Math.round(total*sampleRate)), sampleRate);
           var voSrc = ctx.createBufferSource();
-          voSrc.buffer = vo; voSrc.connect(ctx.destination); voSrc.start(lead);
+          voSrc.buffer = vo; voSrc.playbackRate.value = rate;
+          voSrc.connect(ctx.destination); voSrc.start(lead);
 
           var note = "";
           if(bed){
             var bedG = dbGain(M.bed_db), duckG = dbGain(M.ducked_db);
             var atk = (M.duck_attack_ms||0)/1000, rel = (M.duck_release_ms||0)/1000;
-            var voEnd = Math.min(total, lead + vo.duration);
+            var voEnd = Math.min(total, lead + voLen);
             var duck = ctx.createGain(), fade = ctx.createGain();
             var src = ctx.createBufferSource(); src.buffer = bed;
             src.connect(duck); duck.connect(fade); fade.connect(ctx.destination);
@@ -1127,7 +1315,8 @@
             }
           }
           return ctx.startRendering().then(function(out){
-            return {buffer: out, note: note}; });
+            return {buffer: out, note: note, speed: rate,
+                    voSeconds: vo.duration}; });
         });
     });
   }
@@ -1212,6 +1401,61 @@
       + '</div>';
   }
 
+  /* One row per named check, same shape as the mix panel above so a rep
+     reading both is reading one idea. The level decides the pill; nothing
+     here decides a level, because certainty rather than severity is what
+     separates a fail from a warning and the server holds that rule. */
+  var SQC_PILL = {pass:"ok", warn:"warn", fail:"bad", unknown:""};
+  var SQC_WORD = {pass:"Pass", warn:"Worth a look", fail:"Stops the record",
+                  unknown:"Not measured"};
+  function scriptQcRows(sid){
+    var r = SQC[sid];
+    if(!r) return "";
+    var keys = Object.keys(r.checks || {}).filter(function(k){
+      return SQC_LABELS[k]; });
+    if(!keys.length) return "";
+    var stopped = (r.failed || []).filter(function(k){
+      return SQC_BLOCKS.indexOf(k) >= 0; });
+    var head = stopped.length
+      ? '<div class="why"><b>This spot cannot be recorded yet.</b> '
+        + esc(stopped.length) + ' check'
+        + (stopped.length === 1 ? '' : 's') + ' below must be fixed first.</div>'
+      : "";
+    return '<details class="bank" style="margin-top:8px">'
+      + '<summary>Script checks — '
+      + (stopped.length ? esc(stopped.length) + ' stopping the record'
+         : (r.ready ? 'ready to record' : 'nothing stopping the record'))
+      + '</summary>' + head
+      + '<div class="hint" style="margin-top:8px">'
+      + keys.map(function(k){
+          var c = r.checks[k] || {};
+          return '<div style="margin:4px 0"><span class="tag '
+            + (SQC_PILL[c.level] || "info") + '">'
+            + esc(SQC_WORD[c.level] || c.level) + '</span> <b>'
+            + esc(SQC_LABELS[k]) + '</b> — ' + esc(c.message || "") + '</div>'; }).join("")
+      + '</div></details>';
+  }
+
+  /* The beats the read is built on, drawn beside the copy. The plan lived in
+     the prompt, where a rep could not see it -- so a script that had wandered
+     from the shape read exactly like one written to it. Same table the prompt
+     states, carried on the length by the catalog. */
+  function beatRail(seconds){
+    var len = ((CAT && CAT.lengths) || []).filter(function(l){
+      return Number(l.seconds) === Number(seconds); })[0] || {};
+    var beats = len.beats || [];
+    if(!beats.length) return "";
+    return '<details class="bank" style="margin-top:8px">'
+      + '<summary>The shape a ' + esc(len.label || seconds) + ' is planned around</summary>'
+      + '<table style="margin-top:6px"><tr><th>Beat</th><th>Where</th>'
+      + '<th>What it does</th></tr>'
+      + beats.map(function(b){
+          return '<tr><td><b>' + esc(b.label) + '</b></td><td>'
+            + esc(b.start_pct) + '–' + esc(b.end_pct) + '%</td><td>'
+            + esc(b.guidance) + '</td></tr>'; }).join("")
+      + '</table></details>';
+  }
+
   function drawMixConfig(){
     if(!MIXCFG) return;
     var bits = [];
@@ -1288,20 +1532,24 @@
       if(made){
         var clip = made.peak > -0.1;
         madeBlock = '<div class="hint" style="margin-top:8px">Rendered here: '
-          + made.seconds.toFixed(2) + 's · peak '
+          + made.seconds.toFixed(2) + 's'
+          + (made.speed > 1 ? ' at ' + made.speed.toFixed(2) + '×' : '') + ' · peak '
           + (made.peak === -Infinity ? "silent" : made.peak.toFixed(1) + " dBFS")
           + (clip ? ' <b style="color:var(--bad)">— clipping. Re-record the '
                   + 'read quieter.</b>' : "")
           + ' <span class="opt">measured in your browser, not on the server</span>'
           + '</div>'
           + (made.note ? '<div class="why warn">' + esc(made.note) + '</div>' : "")
-          + '<div class="audio-row"><audio controls src="' + made.url + '"></audio>'+timingBadge(made.seconds,s.seconds,true)+'</div>';
+          + '<div class="audio-row"><audio controls src="' + made.url + '"></audio>'+timingBadge(made.seconds,s.seconds,true)+'</div>'
+          + speedPanel(s, made);
       }
       var filedBlock = "";
       if(mix.audio_url){
         filedBlock = '<div class="hint" style="margin-top:8px"><b>Filed</b> at '
           + mix.seconds + 's, measured from the file · ' + esc(mix.level || "")
           + ' (' + mix.bed_db + ' / ' + mix.ducked_db + ' dB)'
+          + (mix.speed > 1 ? ' · the uploaded read was time-compressed to '
+              + Number(mix.speed).toFixed(2) + '×' : '')
           + (mix.override ? ' <b style="color:var(--bad)">· filed over findings by '
               + esc(mix.override_by) + ': “' + esc(mix.override_reason) + '”</b>' : "")
           + ' — this is what the client hears.</div>'
@@ -1324,7 +1572,10 @@
             + (blocked ? "File it anyway, with a reason" : "File this mix")
             + '</button>' : "")
         + (made ? '<a class="btn sec sm" href="' + made.url + '" download="mix-'
-            + esc(s.id) + '.wav">Download</a>' : "")
+            + esc(s.id) + (made.speed > 1 ? '-' + made.speed.toFixed(2) + 'x' : '')
+            + '.wav">Download</a>' : "")
+        + (made && made.speed > 1 ? '<button class="btn sec sm" data-a="unspeed" '
+            + 'data-s="' + esc(s.id) + '">Back to the original pace</button>' : "")
         + '<span class="msg" data-m="mix-' + esc(s.id) + '"></span></div>'
         + qcRows(s.id) + ownVo(s) + '</div>';
     }).join("");
@@ -1416,6 +1667,10 @@
           askToReuse(sid).catch(function(e){ say(msgSel, e.message, "err"); });
         } else if(a === "render"){
           makeMix(sid);
+        } else if(a === "speed"){
+          approveSpeed(sid);
+        } else if(a === "unspeed"){
+          resetSpeed(sid);
         } else if(a === "file"){
           fileMix(sid, !!(QCC[sid] && (QCC[sid].blocking||[]).length));
         }
@@ -1423,23 +1678,127 @@
     });
   }
 
-  function makeMix(sid){
+  /* An approved rate outlives the render it was approved for, but never the
+     READ it was approved against. Changing the bed volume clears RENDERED, and
+     having that also throw away a pace somebody signed off on would send them
+     round the whole offer again for a slider move — whereas a re-recorded or
+     re-uploaded read is a different length, so a rate worked out for the old
+     one is a number nobody can account for. It is keyed on the read rather
+     than cleared at each of the four places a read can change, because the
+     fifth one added later is the one that would not clear it. */
+  var APPROVED = {};
+  function readKey(spot){
+    return (spot.recorded_at || "") + "|" + (spot.audio_url || "");
+  }
+  function approvedSpeed(spot){
+    var a = APPROVED[spot.id];
+    if(a && a.read === readKey(spot)) return a;
+    delete APPROVED[spot.id];
+    return null;
+  }
+
+  function makeMix(sid, speed){
     var spot = spotById(sid);
     if(!spot) return;
     var sel = "[data-m='mix-" + sid + "']";
-    say(sel, "Rendering the mix…", "wait");
+    var kept = approvedSpeed(spot);
+    var rate = Number(speed) > 1 ? Number(speed) : (kept ? kept.speed : 1);
+    say(sel, rate > 1 ? "Re-rendering at " + rate.toFixed(2) + "×…"
+                      : "Rendering the mix…", "wait");
     localMixes++;
     var usedLevel=selectedMixLevel().label;
-    buildMix(spot).then(function(out){
+    buildMix(spot, rate).then(function(out){
       var blob = toWav(out.buffer);
       if(RENDERED[sid] && RENDERED[sid].url) URL.revokeObjectURL(RENDERED[sid].url);
       RENDERED[sid] = {blob: blob, level:usedLevel, url: URL.createObjectURL(blob),
-                       seconds: out.buffer.duration,
+                       seconds: out.buffer.duration, speed: out.speed,
+                       voSeconds: out.voSeconds,
+                       semitones: (APPROVED[sid] || {}).semitones,
                        peak: peakDbfs(out.buffer), note: out.note};
       drawMusic();
-      say(sel, "Rendered. Listen to it, then file it.", "ok");
+      say(sel, out.speed > 1
+          ? "Re-rendered at " + out.speed.toFixed(2) + "×. Listen to it, then "
+            + "save it below."
+          : "Rendered. Listen to it, then file it.", "ok");
+      return askSpeed(sid);
     }).catch(function(e){ say(sel, e.message, "err"); })
       .finally(function(){ localMixes--; finishRadioWork(); });
+  }
+
+  /* What rate would land this read inside its slot — decided on the server,
+     for the same reason the dB pair is: a second copy of "how fast is too
+     fast" in here is how the panel and the record come to disagree about what
+     was approved. Only asked when the render is actually long; the ±1s
+     tolerance is the server's call, not this line's. */
+  function askSpeed(sid){
+    var made = RENDERED[sid], spot = spotById(sid);
+    if(!made || !spot) return Promise.resolve();
+    if(made.seconds <= (spot.seconds || 30) + 0.05){
+      made.suggestion = null; made.speedError = ""; return Promise.resolve(); }
+    return api("/api/projects/"+P.id+"/spots/"+sid+"/speed", {method:"POST",
+      body:{vo_seconds: made.voSeconds, mixed_seconds: made.seconds}})
+      .then(function(j){
+        if(RENDERED[sid] !== made) return;           // a newer render won
+        made.suggestion = j.suggestion; made.uploaded = j.uploaded;
+        made.alternative = j.alternative; made.speedError = "";
+        drawMusic(); })
+      .catch(function(e){
+        // Reported, never swallowed. A panel that silently drops the one
+        // suggestion it had is the empty result this codebase keeps undoing.
+        if(RENDERED[sid] !== made) return;
+        made.suggestion = null;
+        made.speedError = "This mix is over its slot and the speed that would "
+          + "fix it could not be worked out: " + e.message;
+        drawMusic(); });
+  }
+
+  /* Approved. Re-render at the rate, and the save options follow it. */
+  function approveSpeed(sid){
+    var made = RENDERED[sid], sug = made && made.suggestion;
+    if(!sug || !sug.speed) return;
+    APPROVED[sid] = {speed: sug.speed, semitones: sug.semitones,
+                     read: readKey(spotById(sid) || {})};
+    makeMix(sid, sug.speed);
+  }
+
+  function resetSpeed(sid){
+    delete APPROVED[sid];
+    makeMix(sid, 1);
+  }
+
+  /* The offer, and — once it has been taken — what was done and how to keep
+     it. Only an uploaded read gets the offer: a read this tool recorded has a
+     re-record to ask for, and asking for it is the better answer. */
+  function speedPanel(s, made){
+    if(!made) return "";
+    if(made.speedError) return '<div class="why warn">' + esc(made.speedError) + '</div>';
+    var out = "";
+    if(made.speed > 1){
+      out += '<div class="why"><b>Read time-compressed to '
+        + made.speed.toFixed(2) + '×.</b> The uploaded read runs '
+        + made.voSeconds.toFixed(2) + 's on its own; at this rate the mix comes '
+        + 'back ' + made.seconds.toFixed(2) + 's against a ' + esc(s.seconds + "")
+        + 's slot'
+        + (made.semitones ? ', with the voice about ' + Number(made.semitones).toFixed(2)
+            + ' semitones higher — resampling is the only time-stretch here' : '')
+        + '. Listen to it before you keep it: this is the file the client hears.'
+        + '</div>'
+        + '<div class="hint"><b>Keep it:</b> <i>File this mix</i> below makes it '
+        + 'the client\'s copy and records the rate against it, <i>Download</i> '
+        + 'saves the WAV, and <i>Back to the original pace</i> undoes it.</div>';
+    }
+    var sug = made.suggestion;
+    if(!sug || !sug.needed) return out;
+    if(!made.uploaded)
+      return out + '<div class="why warn">' + esc(sug.note) + ' '
+        + esc(made.alternative || "") + '</div>';
+    if(!sug.speed)
+      return out + '<div class="why warn">' + esc(sug.note) + '</div>';
+    return out + '<div class="why warn">' + esc(sug.note) + '</div>'
+      + '<div class="sfoot"><button class="btn sm" data-a="speed" data-s="'
+      + esc(s.id) + '">Re-render at ' + sug.speed.toFixed(2) + '× and fit the slot'
+      + '</button><span class="opt">worked out from the length your browser '
+      + 'decoded — the filed length is still measured from the file</span></div>';
   }
 
   function fileMix(sid, blocked){
@@ -1449,6 +1808,7 @@
     var level = made.level || "";
     var fd = new FormData();
     fd.append("level", level);
+    fd.append("speed", String(made.speed || 1));
     fd.append("file", made.blob, "mix-" + sid + ".wav");
     if(blocked){
       var why = prompt("This mix has findings that stop it being filed. Why is "
@@ -1460,8 +1820,10 @@
     postForm("/api/projects/"+P.id+"/spots/"+sid+"/mix", fd).then(function(j){
       putSpot(j.spot); QCC[sid] = j.qc;
       drawMusic();
-      say(sel, "Filed. Measured at " + j.mix.seconds + "s — this is what the "
-        + "client hears now.", "ok");
+      say(sel, "Filed. Measured at " + j.mix.seconds + "s"
+        + (j.mix.speed > 1 ? " with the read at " + Number(j.mix.speed).toFixed(2)
+            + "×" : "")
+        + " — this is what the client hears now.", "ok");
     }).catch(function(e){
       var payload = e.payload || {};
       if(payload.blocked){ QCC[sid] = payload.qc; drawMusic();
@@ -1476,6 +1838,88 @@
     catch(e){say('sharemsg',e.message,'err');}finally{this.disabled=false;}
   };
   /* ------------------------------------------------------------ share */
+  /* Smart 1 Suite. Four answers rather than two, because "not configured",
+     "nothing the client approved yet", "Suite refused it" and "Suite has it"
+     send a rep to four different places and only one of them is a button. */
+  var SUITE = null;
+
+  function loadSuite(){
+    if(!P || !P.id) return Promise.resolve();
+    return api("/api/projects/" + P.id + "/suite")
+      .then(function(j){ SUITE = j; })
+      .catch(function(){ SUITE = null; })
+      .then(function(){ drawSuite(); });
+  }
+
+  function drawSuite(){
+    var box = $("suiteBody");
+    if(!box) return;
+    if(!SUITE){
+      box.innerHTML = '<p class="hint">Could not read what the Suite holds. '
+        + 'The rest of this page is unaffected.</p>';
+      $("suitePush").disabled = true; return;
+    }
+    var bits = [];
+    var d = SUITE.delivery || {};
+    if(d.pushed_at){
+      bits.push('<div class="why' + (d.ok ? '' : ' warn') + '"><b>'
+        + (d.ok ? 'Filed in the Suite' : 'Suite refused the last push')
+        + '</b> — ' + esc(d.spots || 0) + ' spot(s), by ' + esc(d.pushed_by || 'somebody')
+        + (d.contact_name ? ' against ' + esc(d.contact_name) : '')
+        + '. ' + esc(d.reason || '') + '</div>');
+    }
+    (SUITE.problems || []).forEach(function(p){
+      bits.push('<div class="why">' + esc(p) + '</div>'); });
+    (SUITE.blockers || []).forEach(function(b){
+      bits.push('<div class="why warn">' + esc(b) + '</div>'); });
+    var rows = (SUITE.spots || {}).ready || [];
+    if(rows.length){
+      bits.push('<label class="f">Going to the Suite</label>'
+        + rows.map(function(r){
+            return '<div class="hint"><b>' + esc(r.daypart_label) + ' '
+              + esc(r.length_label) + '</b> — '
+              + (r.is_mix ? 'with music' : 'straight read')
+              + (r.approved_by ? ', approved by ' + esc(r.approved_by) : '')
+              + '</div>'; }).join(""));
+    }
+    ((SUITE.spots || {}).held || []).forEach(function(h){
+      bits.push('<div class="why warn"><b>' + esc(h.daypart_label) + ' '
+        + esc(h.length_label) + ' held back</b> — ' + esc(h.why) + '</div>'); });
+    box.innerHTML = bits.join("") ||
+      '<p class="hint">Nothing to send yet.</p>';
+    // Disabled where it could only ever refuse -- except when a contact is
+    // what is missing, which is the one refusal a rep fixes from this screen.
+    $("suitePush").disabled = !(SUITE.can_push || (d.needs_contact && rows.length));
+    $("suiteContact").style.display = d.needs_contact ? "block" : "none";
+  }
+
+  $("suitePush").onclick = function(){
+    var b = this;
+    b.disabled = true; say("suiteMsg", "Filing it…", "wait");
+    var contact = {name: $("suiteName").value.trim(),
+                   email: $("suiteEmail").value.trim(),
+                   phone: $("suitePhone").value.trim()};
+    api("/api/projects/" + P.id + "/suite",
+        {method: "POST", body: {contact: contact}})
+      .then(function(j){
+        SUITE = Object.assign({}, SUITE, {delivery: j.delivery, spots: j.spots,
+                                          can_push: true});
+        drawSuite();
+        say("suiteMsg", j.created
+          ? "Filed, and a new contact was created for them."
+          : "Filed against their existing opportunity.", "ok");
+      })
+      .catch(function(e){
+        var payload = e.payload || {};
+        if(payload.delivery)
+          SUITE = Object.assign({}, SUITE, {delivery: payload.delivery});
+        if(payload.spots) SUITE = Object.assign({}, SUITE, {spots: payload.spots});
+        drawSuite();
+        b.disabled = false;
+        say("suiteMsg", e.message, "err");
+      });
+  };
+
   function drawShare(){
     var s = (P && P.share) || {};
     $("s_head").value = s.headline || "";
@@ -1541,6 +1985,8 @@
       $("company").value = P.company || ""; $("url").value = P.home_url || "";
       $("client").value = P.client || ""; $("team").value = P.team_context || "";
       $("promo").value = P.promotion || ""; $("notes").value = P.notes || "";
+      $("phone").value = P.phone || ""; $("disclaimer").value = P.disclaimer || "";
+      $("include_phone").checked = !!P.include_phone;
       if(P.tone) $("tone").value = P.tone;
       document.querySelector('input[name=scope][value="'+(P.scope === 'spec' ? 'spec' : 'client')+'"]').checked = true;
       fillBrief(); show();

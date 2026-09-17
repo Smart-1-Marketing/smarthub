@@ -1434,6 +1434,16 @@ def create_hub_app() -> Flask:
             out = {"measured": False, "state": "unread", "campaigns": [],
                    "error": f"The campaign store could not be read ({type(exc).__name__})."}
         out["sweep"] = suite_email_stats.sweep_state()
+        # ?raw=1 adds the stored raw statistics beside what the module made
+        # of them, so the key mapping is confirmed from the first live read
+        # (docs/claude/60). Staff only -- this route is behind _require_api()
+        # and a client's page is built by public_view(), which cannot reach it.
+        if request.args.get("raw") in ("1", "true", "yes"):
+            try:
+                out["raw"] = suite_email_stats.raw_view(name)
+            except Exception as exc:  # noqa: BLE001
+                out["raw"] = {"measured": False, "campaigns": [],
+                              "staff_note": f"The raw statistics could not be read ({type(exc).__name__})."}
         return jsonify(out)
 
     @app.route("/api/client/suite-email/refresh", methods=["POST"])
@@ -4060,18 +4070,30 @@ def create_hub_app() -> Flask:
         gate = _require_page()
         if gate:
             return gate
+        from . import ask_recipes
         from . import partner as partner_pages
         return render_template("dashboard.html", user=current_user(),
                                modules=MODULES, active="dashboard",
-                               partner_tiles=partner_pages.tiles())
+                               partner_tiles=partner_pages.tiles(),
+                               ask_chips=ask_recipes.chips(
+                                   "dashboard", _ask_role(_hub_user(), current_account()),
+                                   limit=1))
 
     @app.route("/client360")
     def client360():
         gate = _require_page()
         if gate:
             return gate
+        from . import ask_recipes
         return render_template("client360.html", user=current_user(), modules=MODULES,
-                               active="c360", q=request.args.get("q", ""))
+                               active="c360", q=request.args.get("q", ""),
+                               # The client is chosen in the browser, so the
+                               # chips are rendered there too: the recipes are
+                               # handed over as data and askChips() fills in
+                               # whichever client the record is showing.
+                               ask_chips=ask_recipes.chips(
+                                   "client360",
+                                   _ask_role(_hub_user(), current_account())))
 
     def _ask_role(user=None, account=None):
         """Role for Ask SmartHub, preserving the shared-password admin rule."""
@@ -4091,18 +4113,37 @@ def create_hub_app() -> Flask:
         gate = _require_page()
         if gate:
             return gate
+        from . import ask_recipes
         user = _hub_user()
         account = current_account()
+        role = _ask_role(user, account)
+        client = (request.args.get("client") or "").strip()[:180]
+        period = (request.args.get("period") or "").strip()[:40]
+        # A chip elsewhere in the Hub arrives as ?recipe=, and is asked once
+        # on load exactly as ?q= is. The recipe fills the question from the
+        # page's own context; a recipe this role may not run simply is not
+        # one, and the page opens empty rather than refusing.
+        recipe = ask_recipes.get((request.args.get("recipe") or "").strip()[:60])
+        if recipe is not None and not ask_recipes.allowed(recipe, role):
+            recipe = None
+        question = (request.args.get("q") or "").strip()[:1200]
+        if recipe is not None and not question:
+            question = ask_recipes.fill(
+                recipe, client, period,
+                (request.args.get("placement") or "").strip()[:60])
         return render_template(
             "ask_smarthub.html", user=current_user(), active="ask_smarthub",
-            role=_ask_role(user, account),
-            initial_client=(request.args.get("client") or "").strip()[:180],
+            role=role,
+            initial_client=client,
             context_path=(request.args.get("context_path") or "").strip()[:240],
             # The dashboard's own Ask SmartHub box sends the typed question
             # here rather than re-implementing the chat itself — a second
             # fetch-based Ask loop on the dashboard is the drift this file
             # already names a dozen times. `q` is asked once, on arrival.
-            initial_question=(request.args.get("q") or "").strip()[:1200],
+            initial_question=question,
+            initial_recipe=(recipe.key if recipe is not None else ""),
+            recipe_groups=ask_recipes.grouped("ask", role),
+            chip_for=ask_recipes.chip,
         )
 
     @app.route("/api/ask-smarthub", methods=["POST"])
@@ -4122,7 +4163,8 @@ def create_hub_app() -> Flask:
             from . import ask_smarthub
             result = ask_smarthub.ask(
                 body.get("question", ""), role=role, actor=actor,
-                context=body.get("context"), history=body.get("history"))
+                context=body.get("context"), history=body.get("history"),
+                recipe=str(body.get("recipe") or "")[:60])
             return jsonify(result)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
@@ -4404,15 +4446,53 @@ def create_hub_app() -> Flask:
         if not client:
             return jsonify({"error": "client is required."}), 400
         store = seo.load_store(client)
+        # First, before anything reads or rewrites `setup`: any plaintext this
+        # record still carries from before the change below is sealed and
+        # dropped, so saving the form is a second way out of it and not just
+        # the page read. It writes the store itself, hence ahead of the edits.
+        seo.seal_site_login(client, store)
         setup = store.setdefault("setup", {})
-        for k in ("access_method", "access_url", "login", "password",
+        # `password` is not in this list, and its absence is the point. It is
+        # the client's own login to their own website, and writing it here put
+        # it in `data/seo/<client>.json` in plain text -- and, through
+        # hub/jsonstore.py, verbatim into Postgres and every database backup.
+        # It goes to hub/cms_credentials.py instead, sealed, below.
+        for k in ("access_method", "access_url", "login",
                   "webmaster_status", "blogs_enabled", "blogs_per_month",
                   "blogs_frequency", "completed", "skipped_steps", "notes"):
             if k in body:
                 setup[k] = body[k]
+        # Belt and braces: a record the seal above could not move (no key on
+        # this deployment) keeps its plaintext, but nothing may add a new one.
+        if "password" in setup and "password" in body:
+            setup.pop("password", None)
         seo.save_store(client, store)
+
+        # After the SEO record is saved, never before. A credential store that
+        # cannot be written must not also cost the rep the setup answers they
+        # just typed -- the password field is one of eleven on that form.
+        login_saved = {}
+        if "password" in body or "login" in body:
+            try:
+                from . import cms_credentials
+                login_saved = cms_credentials.save_site_login(
+                    client,
+                    login=body.get("login", setup.get("login") or ""),
+                    password=body.get("password") or "",
+                    access_method=setup.get("access_method") or "",
+                    access_url=setup.get("access_url") or "",
+                    actor=current_user())
+            except Exception as exc:                      # noqa: BLE001
+                login_saved = {"error": f"The site login could not be stored: {exc}"}
         audit.log("seo", "seo_setup_saved", actor=current_user(), client=client)
-        return jsonify({"ok": True})
+        out = {"ok": True}
+        # Reported, not swallowed. "Saved" on a form where the password did not
+        # store is the shape this repo has paid for before.
+        if login_saved.get("error"):
+            out["site_login_error"] = login_saved["error"]
+        if login_saved.get("state"):
+            out["site_login"] = login_saved["state"]
+        return jsonify(out)
 
     @app.route("/api/seo/pages")
     def api_seo_pages():
@@ -5971,6 +6051,55 @@ def create_hub_app() -> Flask:
                       client=client)
         return jsonify({**out, "state": cms_credentials.state(client)})
 
+    @app.route("/api/seo/wordpress/plugin")
+    def api_seo_wordpress_plugin():
+        """Download the plugin that makes schema writable.
+
+        Two formats because there are two ways to install one and only the zip
+        is always available: a must-use plugin needs SFTP or a file manager,
+        and the zip goes in through Plugins -> Add New -> Upload. The file is
+        the same either way and carries nothing client-specific, so this is a
+        staff download rather than anything per client.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import wordpress
+        fmt = (request.args.get("format") or "zip").strip().lower()
+        if fmt == "php":
+            body, ctype, name = (wordpress.plugin_bytes(), "text/plain",
+                                 wordpress.PLUGIN_SLUG + ".php")
+        elif fmt == "zip":
+            body, ctype, name = (wordpress.plugin_zip(), "application/zip",
+                                 wordpress.PLUGIN_SLUG + ".zip")
+        else:
+            return jsonify({"error": "format must be zip or php."}), 400
+        resp = app.response_class(body, mimetype=ctype)
+        resp.headers["Content-Disposition"] = f'attachment; filename="{name}"'
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        return resp
+
+    @app.route("/api/seo/wordpress/verify", methods=["POST"])
+    def api_seo_wordpress_verify():
+        """Fetch each page as a visitor and say whether the block is really on it.
+
+        A POST and a button rather than a page load: it is one outbound fetch
+        per page against the client's own site, and what it answers changes
+        when somebody clears a cache rather than when somebody opens a screen.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import wordpress
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        urls = [str(u) for u in (body.get("urls") or []) if str(u).strip()]
+        if not urls:
+            return jsonify({"error": "Tick the pages you want to check."}), 400
+        return jsonify(wordpress.verify_schema(client, urls))
+
     @app.route("/api/seo/wordpress/publish", methods=["POST"])
     def api_seo_wordpress_publish():
         """Write the selection into WordPress. Blogs and alt text only.
@@ -5989,13 +6118,22 @@ def create_hub_app() -> Flask:
         kind = (body.get("kind") or "blogs").strip()
         if not client:
             return jsonify({"error": "client is required."}), 400
-        if kind in ("schema", "faqs"):
+        if kind == "faqs":
             return jsonify({"error":
-                            "Schema and FAQ blocks cannot be written over the "
-                            "WordPress API: the SEO plugins keep those fields "
-                            "out of REST, and JSON-LD in post content is "
-                            "stripped unless the user has unfiltered_html. Use "
-                            "the Claude → WordPress button for those."}), 400
+                            "The FAQ accordion carries its own FAQPage markup "
+                            "inside the block that goes on the page, so there "
+                            "is nothing separate to send: writing it from here "
+                            "would put two copies on the page, and writing it "
+                            "without the accordion would be FAQPage markup for "
+                            "questions a visitor cannot see. Placing the "
+                            "accordion is an edit to the page itself — use the "
+                            "Claude → WordPress button."}), 400
+        if kind == "schema":
+            urls = [str(u) for u in (body.get("urls") or []) if str(u).strip()]
+            if not urls:
+                return jsonify({"error": "Tick the pages you want to send."}), 400
+            out = wordpress.publish_schema(client, urls, actor=current_user())
+            return jsonify(out), (400 if out.get("error") else 200)
         if kind == "alt":
             out = wordpress.publish_alt(
                 client, [str(u) for u in (body.get("urls") or [])],
@@ -8589,6 +8727,23 @@ def create_hub_app() -> Flask:
             "ran": False, "reason": f"{type(_ld_exc).__name__}: {_ld_exc}"}
         try:
             errors.log_exception("leads", _ld_exc)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # And Google Finder's OAuth refresh tokens, which were a SQLite file on
+    # the same disk. Here rather than lazily because the first thing that
+    # reads them is usually the scheduler's index sweep rather than a person,
+    # and a sweep that runs before the import has an empty account table --
+    # which it reports as "no Google accounts are connected", the confident
+    # wrong answer that module's own docstring records an incident about.
+    try:
+        from modules.google_finder import app as _gf_boot
+        app.config["HUB_GOOGLE_TOKEN_IMPORT"] = _gf_boot.import_legacy()
+    except Exception as _gf_exc:  # noqa: BLE001
+        app.config["HUB_GOOGLE_TOKEN_IMPORT"] = {
+            "ran": False, "reason": f"{type(_gf_exc).__name__}: {_gf_exc}"}
+        try:
+            errors.log_exception("google_finder", _gf_exc)
         except Exception:  # noqa: BLE001
             pass
 

@@ -17,6 +17,7 @@ anyone should care.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 
@@ -29,6 +30,15 @@ class Help:
     selector: str = ""               # CSS target for the tour highlight
     link: str = ""
     link_text: str = ""
+    # Written for the Ask assistant rather than for a bubble on a screen.
+    # `hub/help_audit.py` reports a registered key that no template places,
+    # because until this flag existed every entry here was a bubble and an
+    # unplaced one meant somebody had written help nobody could reach. An
+    # answer to "how do I raise a web ticket" is reached by asking, so it is
+    # accounted for as this rather than as a bubble that was never put on a
+    # page -- and the audit still names it, the way it names every other
+    # thing it decided not to call a fault.
+    ask_only: bool = False
 
     @property
     def screen(self) -> str:
@@ -447,6 +457,78 @@ REGISTRY: list[Help] = [
        "config file. If it doesn't match what you last deployed, the deploy "
        "didn't take."),
 
+    # ---------------- Raising a request ----------------
+    # The five request routes on the dashboard's Tools & requests list had no
+    # written help of any kind, so the one place somebody types "how do I
+    # raise a web ticket" in plain English -- Ask SmartHub, which reads this
+    # registry -- had nothing to answer them with and said so about screens
+    # that merely contain the word "raise". Each entry says where the form
+    # opens and what the form will ask for, because the question behind "how
+    # do I" is usually "what will I need in front of me".
+    _h("hub.requests.web_ticket", "Raise a web ticket",
+       "A web ticket asks the website team for a change to a client's site. "
+       "Open Web Ticket from the dashboard's Tools & requests list, or raise "
+       "one against a client from their record. It asks for all eight fields "
+       "the ticket object carries: title, client organization, media partner, "
+       "the website URL the work is on, the type of ticket, whether the "
+       "revision requires billing, the description of the changes, and "
+       "whether you are ready to submit. That last one is a button rather "
+       "than a question -- it opens on yes, and turning it off files a ticket "
+       "you mean to finish later rather than one the website team will pick "
+       "up. The URL opens on the site the ticket was raised from, with the "
+       "client's other sites offered beside it, and stays free text because "
+       "the site needing the work is not always one we hold a record for.",
+       link="/tools/tickets/", link_text="Open Web Tickets", ask_only=True),
+    _h("hub.requests.ad_copy", "Request ad copy",
+       "Ad Copy Request asks the campaign team to write copy for a live "
+       "campaign. It opens as a drawer from the dashboard's Tools & requests "
+       "list and from a client's record, where it arrives with the client, "
+       "the campaign, the order number and the media partner already filled "
+       "in from the record you opened it on. The campaign team's form has "
+       "fourteen fields and the Hub sends all of them, so the request does "
+       "not come back as a question. Raise it from the client's record when "
+       "you can: that is what pre-fills the campaign and order.",
+       link="/client360", link_text="Open a client record", ask_only=True),
+    _h("hub.requests.campaign_change", "Request a campaign change",
+       "Campaign Change asks the campaign team to change something on a live "
+       "campaign -- budget, targeting, creative, scheduling. It opens as a "
+       "drawer from the dashboard's Tools & requests list and from a client's "
+       "record. Ad Copy is the same object with its subject pre-written, so "
+       "use Ad Copy when the change is the words in the ad and Campaign "
+       "Change for everything else.",
+       link="/", link_text="Open the dashboard", ask_only=True),
+    _h("hub.requests.campaign_support", "Request campaign support",
+       "Campaign Support asks for help on a campaign that is already "
+       "running: tracking that is not reporting, a pixel to place, a rush on "
+       "a deadline. It opens as a drawer from the dashboard's Tools & "
+       "requests list and from a client's record. The support object carries "
+       "twenty-three fields -- the insertion order, the due date, the kind of "
+       "support, the pixel URL, the timeline, whether it is a rush and why, "
+       "who to notify at the client and at the partner, the notes, the IO "
+       "number, the campaign and the product -- and the Hub sends them, so "
+       "have the IO and the due date to hand.",
+       link="/", link_text="Open the dashboard", ask_only=True),
+    _h("hub.requests.accounting", "Raise an accounting issue",
+       "Accounting Issues opens the accounting team's own form in a window "
+       "over the dashboard, from the Tools & requests list. It is their form "
+       "rather than a Hub object, so what it asks for is theirs to change, "
+       "and nothing about it is recorded on the client's Hub record. For a "
+       "question about what a client was invoiced, their record's billing "
+       "figures and the QuickBooks reports under QA answer without raising "
+       "anything.",
+       link="/", link_text="Open the dashboard", ask_only=True),
+    _h("hub.requests.ask", "Ask SmartHub, and what it can reach",
+       "Ask SmartHub answers questions in plain English about what the Hub "
+       "already holds: the client registry, recorded Google access, GA4 "
+       "properties and channel metrics, proposals, insertion orders, and -- "
+       "for admins -- QuickBooks. It reads and never writes: it cannot raise "
+       "a request, change a campaign or send anything. Ask how something is "
+       "done and it reads this help registry and offers the screen that "
+       "starts it. A question it cannot answer from any of that is written to "
+       "the activity log and shows up on the Questions With No Answer report "
+       "under QA, which is how the list of what it can read gets extended.",
+       link="/ask-smarthub", link_text="Open Ask SmartHub", ask_only=True),
+
     # ---------------- Client 360 ----------------
     _h("hub.client360.header", "Client 360 and its next action",
        "Client 360 brings together the client's products, website, scans, assets, proposals, advertising and connected accounts. The next-action line highlights the highest-priority finding from existing cards: urgent dated deadlines first, then cold leads and other flagged issues. Open its destination to review the evidence before acting. Nothing urgent on file means no urgent finding in the available readings; unmeasured data is labeled separately. Pipeline & leads reads the client's own Smart 1 Suite sub-account. Client Assets opens the shared home for Client Uploads, Creative and Hub Projects.", step=1,
@@ -502,7 +584,11 @@ REGISTRY: list[Help] = [
        "no campaigns are four different sentences here, because a nought "
        "printed over a refusal would say the client never emailed anyone. "
        "It needs the two email read scopes on the Hub app, granted by the "
-       "agency owner re-consenting once."),
+       "agency owner re-consenting once. Show raw statistics prints what "
+       "the sub-account actually sent beside what the Hub read from it: "
+       "the Suite does not publish the field names of its counts, so that "
+       "is how a count showing as a dash gets traced to the key it "
+       "arrived under."),
     _h("hub.client360.adperf", "What their advertising is doing",
        "What the Reports module holds for this client: the campaigns filed "
        "under them, this month's spend by platform beside what they are "
@@ -1069,6 +1155,19 @@ REGISTRY: list[Help] = [
        "the key to whoever answers there. Visits land under their own name "
        "and draw the client's Store visits tile; they are never counted as "
        "conversions."),
+    _h("reports.amazon.check", "Five claims, and four fail as a working setup",
+       "No live Amazon entity has answered this code, so every field name in "
+       "amazon_dsp.py is a transcription. This page walks the five things "
+       "that have to be true -- the variables set, the refresh token still "
+       "consented, the entity's profile visible to whoever pressed Connect, "
+       "the advertisers readable, and writes, which are never probed because "
+       "nothing here writes -- and prints one raw row against the field map. "
+       "The refusals it separates are the ones that look alike: an "
+       "invalid_grant is a consent to give again rather than a key to "
+       "rotate, and a 403 on the advertiser list is the Amazon Ads API "
+       "application not being approved for this entity. Until a person has "
+       "compared a row and flipped CONFIRMED, the Reports index says the "
+       "pull is reading a claim."),
     _h("reports.reconcile.states", "Our month against the platform's own",
        "Everything a client reads is campaign-days summed, and nothing else "
        "could say whether that sum is the month the platform would invoice. "
@@ -1530,6 +1629,19 @@ REGISTRY: list[Help] = [
        "under exactly the names set on Render, and a customer id that is "
        "not digits is refused here by name \u2014 the API answers a wrong id "
        "with the same bare failure as a bad token."),
+    _h("ads_builder.settings.amazon", "One consent, given by the entity admin",
+       "Connect signs in to Amazon and keeps its refresh token, the way the "
+       "Google and Microsoft connections do \u2014 and the one thing that is "
+       "different matters: the consent inherits the access of whoever presses "
+       "the button, so it has to be an admin on the DSP entity. A rep's own "
+       "Amazon login consents happily and then sees no entity at all. Nothing "
+       "here manages an Amazon campaign: what the connection buys is the "
+       "native pull on /reports/, nightly at 3 AM Eastern, for every advertiser "
+       "under "
+       "the entity. Reading the DSP API also needs the Amazon Ads API "
+       "application approved for this entity, which is a separate application "
+       "on Amazon's timetable \u2014 until it is, every call answers 403, which "
+       "reads exactly like a wrong key and is not one."),
     _h("ads_builder.settings.openai", "The key is the deployment\u2019s, not yours",
        "The generator reads OPENAI_API_KEY from this service at call time — the "
        "same key the SEO, FAQ and proposal tools use. This page will never ask "
@@ -2580,7 +2692,7 @@ REGISTRY: list[Help] = [
        "GA4 inactivity uses events and sessions in the displayed window. GTM has no traffic-reporting API: a completed scan lists a container as an inactive candidate unless linked GA4 activity is positively confirmed, even when the linked property is inaccessible. Needs Review covers scans that could not run. Inactive candidate is not proof that a tag is unused. For a GTM row, choose Check site, verify or correct the suggested website, then Check. This searches that page's raw HTML for the container ID; it does not measure traffic or execute the page. Not found on one page does not prove the container is unused elsewhere. Review the account, resource and evidence before deleting. GA4 goes to Analytics trash; GTM deletion is permanent.",
        link='/tools/google-access/qa-inactive/', link_text="Open tool"),
     _h('google_access.cleanup.bulk', 'Act on several rows at once',
-       "Each section works in bulk. Tick rows, or use the checkbox in the table header to take the whole section, and use the buttons above that table. A section offers in bulk only what its rows already offer: Inactive candidates can check sites, skip and delete; Needs Review can check sites and is never deleted here; Skipped can check sites and un-skip. Bulk skip records one shared reason against every row. Bulk delete lists every resource first and asks you to type DELETE and the count, because typing one name is no guard on twenty; GA4 goes to the Analytics trash and GTM deletion is permanent, and a row the Google login is refused for is reported by name while the rest still go. Bulk site check uses the site each container was last checked against, or an exact client match on its account name, and says so on a row it could not resolve one for; use Check site on that row to supply an address. A long selection is sent in several batches, so read the progress before leaving the page.",
+       "Each section works in bulk. Tick rows, or use the checkbox in the table header to take the whole section, and use the buttons above that table. Each section also has a filter box: type any part of a name, ID, account, Google login or the reason a row was flagged, and that section narrows to the rows that match, saying how many of how many it is showing. The filter decides what a bulk action touches. Select all takes the rows on screen, not the whole section, and a ticked row the filter then hides leaves the selection rather than being acted on out of sight — so what you see is what you skip, check or delete. A section offers in bulk only what its rows already offer: Inactive candidates can check sites, skip and delete; Needs Review can check sites and skip, and is never deleted here; Skipped can check sites and un-skip. Bulk skip records one shared reason against every row. Skipping a Needs Review row is how a container whose tag is genuinely live stops coming back every scan; a Google login that needs reconnecting is refused rather than skipped, because skipping it would hide every resource behind it. The Skipped table names which section each row was skipped from, and un-skipping returns it to whichever section the next scan puts it in. Bulk delete lists every resource first and asks you to type DELETE and the count, because typing one name is no guard on twenty; GA4 goes to the Analytics trash and GTM deletion is permanent, and a row the Google login is refused for is reported by name while the rest still go. Bulk site check lists every selected container with the site it would be fetched against — the one it was last checked against, or the website of an exact client match on its GTM account name — in a field you can correct. A container nothing could resolve a site for shows an empty field saying so; type one and it is checked with the rest, and remembered for next time. A container left blank is not checked rather than recorded as unreachable. A long selection is sent in several batches, so read the progress before leaving the page.",
        link='/tools/google-access/qa-inactive/', link_text="Open tool"),
     _h('google_access.cleanup.history', 'Read what this tool has already done',
        "Cleanup history lists every skip, un-skip, site check and deletion made here, newest first, with who made it and what Google answered. It loads when you open the panel and refreshes itself after an action. A failed row is shown in red with the reason rather than left out, so a deletion the Google login was refused for is visible instead of silently missing. Filter by resource name, ID, Google login or the person who acted. The panel holds the most recent entries and says so when the stored log is longer; a log that cannot be read says that rather than showing an empty table, because no history and no readable history are opposite answers.",
@@ -2671,26 +2783,47 @@ def screens() -> list[str]:
     return sorted({h.screen for h in REGISTRY})
 
 
+# One word of a question landing in one body is not a match. Three points is
+# a word in a title, or a word in a key and the same word in its body, or
+# three separate words of the question in one body.
+MIN_SCORE = 3
+
+
 def search(term: str, limit: int = 8) -> list[dict]:
-    """Backs the 'how do I…' half of the Ask box."""
+    """Backs the 'how do I…' half of the Ask box.
+
+    Scores the phrase, then each word, and then refuses anything that only
+    brushed one body: asked how to raise a web ticket, this used to answer
+    with four screens whose only connection was the word "raise" — which is
+    worse than saying nothing, because on a screen it reads as the answer.
+    Ranking by title and key first is what puts the screen somebody named
+    above every screen that mentions it in passing.
+    """
     t = (term or "").lower().strip()
     if not t:
         return []
+    words = {w for w in re.findall(r"[a-z0-9']+", t) if len(w) > 2}
     scored = []
     for h in REGISTRY:
+        title, body, key = h.title.lower(), h.body.lower(), h.key.lower()
         score = 0
-        if t in h.title.lower():
+        if t in title:
+            score += 8
+        if t in body:
+            score += 4
+        if t in key:
             score += 3
-        if t in h.body.lower():
-            score += 2
-        if t in h.key.lower():
-            score += 1
-        for word in t.split():
-            if len(word) > 3 and word in h.body.lower():
+        for word in words:
+            if word in title:
+                score += 3
+            if word in key:
+                score += 2
+            if word in body:
                 score += 1
-        if score:
+        if score >= MIN_SCORE:
             scored.append((score, h))
-    scored.sort(key=lambda x: -x[0])
+    # By key after score, so the same question asks the same way twice.
+    scored.sort(key=lambda pair: (-pair[0], pair[1].key))
     return [h.as_dict() for _, h in scored[:limit]]
 
 

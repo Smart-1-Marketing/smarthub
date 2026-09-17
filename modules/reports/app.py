@@ -34,6 +34,7 @@ import logging
 import os
 import threading
 import time as _time
+from datetime import date as _date, timedelta as _timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -161,14 +162,30 @@ def index():
         binding=store.binding(),
         markups=[m for m in store.markups()
                  if m["markup"] is not None or m["cpm"] is not None],
-        budgets=len(store.budget_lines(limit=1000)),
+        budgets=store.budget_line_count(),
         clients=store.clients_with_campaigns(),
         native=_native_status(),
         rate_card=products.rate_card_products(),
         health=_health_by_platform(),
         provider=_provider_gate(),
+        ask_chips=_ask_chips("reports_trends"),
         error=request.args.get("error", ""), saved=request.args.get("saved", ""),
     )
+
+
+def _ask_chips(placement: str, client: str = "") -> list:
+    """Ask SmartHub recipe chips for one of this module's pages.
+
+    Through hub.ask_recipes rather than a question typed into the template:
+    this module has its own Jinja environment and cannot see the hub globals,
+    so the list is built here and passed in as plain data. A Hub that could
+    not be imported costs the page its chips and nothing else.
+    """
+    try:
+        from hub import ask_recipes
+        return ask_recipes.staff_chips(placement, client)
+    except Exception:                                   # noqa: BLE001
+        return []
 
 
 def _provider_gate() -> dict:
@@ -198,7 +215,8 @@ def _health_by_platform() -> dict:
 
 NATIVE_PULLS = (("ttd", "ttd"), ("google", "google_ads_perf"),
                 ("stackadapt", "stackadapt"), ("audiogo", "audiogo"),
-                ("bing", "bing"), ("groundtruth", "groundtruth"))
+                ("bing", "bing"), ("groundtruth", "groundtruth"),
+                ("amazon_dsp", "amazon_dsp"))
 
 
 def _native_status() -> list[dict]:
@@ -352,12 +370,11 @@ def quarantine_decide():
     if row["status"] == "accepted":
         # The accepted row may be a confirmed campaign's, and the client's
         # page holds its answer for a quarter of an hour per worker.
-        for m in store.mapped_campaigns(limit=5000):
-            if (m["platform"], m["account_id"], m["campaign_id"]) == \
-                    (row["platform"], row["account_id"], row["campaign_id"]):
-                link = store.link_for_client(m["client"])
-                if link:
-                    client_view.forget(link.token)
+        m = store.campaign_map(row["platform"], row["account_id"], row["campaign_id"])
+        if m is not None:
+            link = store.link_for_client(m["client"])
+            if link:
+                client_view.forget(link.token)
     return redirect(back + f"?saved={row['status']}")
 
 
@@ -415,11 +432,10 @@ def upload_csv():
     # A written row may be a confirmed campaign's, and the client's page
     # holds its answer for a quarter of an hour per worker.
     touched = {(r["platform"], r["account_id"], r["campaign_id"]) for r in parsed["rows"]}
-    for m in store.mapped_campaigns(limit=5000):
-        if (m["platform"], m["account_id"], m["campaign_id"]) in touched:
-            link = store.link_for_client(m["client"])
-            if link:
-                client_view.forget(link.token)
+    for m in store.campaign_maps_by_key(touched):
+        link = store.link_for_client(m["client"])
+        if link:
+            client_view.forget(link.token)
     held = int(report.get("quarantined") or 0)
     _log("csv_uploaded", platform=platform, filename=name, rows=written,
          quarantined=held, skipped=int(parsed["skipped"]), size=len(data),
@@ -453,6 +469,19 @@ def groundtruth_check():
     sent to a host nobody has confirmed."""
     from . import groundtruth
     return render_template("reports_groundtruth_check.html", chk=groundtruth.check())
+
+
+@app.route("/amazon-check")
+def amazon_check():
+    """What the Amazon DSP entity actually answers, against what
+    amazon_dsp.FIELD_MAP expects -- the groundtruth-check pattern, for the
+    platform whose paths Amazon is mid-way through moving. Walks the
+    preflight ladder so an unmet claim is named as itself rather than as a
+    refusal, and calls nothing at all while the connection is unconfigured
+    or unconsented: a credential is not sent to find out whether it is set.
+    """
+    from . import amazon_dsp
+    return render_template("reports_amazon_check.html", chk=amazon_dsp.check())
 
 
 # ---------------------------------------------------------------- mapping
@@ -690,6 +719,7 @@ def markup_save():
 def budgets():
     limit = clamp_int(request.args.get("limit"), 200, 1, 1000)
     return render_template("reports_budgets.html", rows=store.budget_lines(limit=limit),
+                           total=store.budget_line_count(),
                            platforms=[(p, store.platform_label(p)) for p in store.PLATFORMS],
                            error=request.args.get("error", ""),
                            saved=request.args.get("saved", ""))
@@ -757,7 +787,9 @@ def pacing_board():
                         owner=(a.get("owner") or "")[:160], client=(a.get("client") or "")[:200],
                         sort=(a.get("sort") or "band")[:20])
     return render_template("reports_pacing.html", b=data, bands=pacing.BANDS,
-                           labels=pacing.BAND_LABELS, platform_label=store.platform_label)
+                           labels=pacing.BAND_LABELS, platform_label=store.platform_label,
+                           ask_chips=_ask_chips("reports_pacing",
+                                                (a.get("client") or "")[:200]))
 
 
 @app.route("/pacing.csv")
@@ -923,8 +955,18 @@ def client_page(client):
         seo=_seo_gate(client, _client_name_for(client)),
         youtube=youtube.staff_gate(client, _client_name_for(client)),
         email=suite_email.staff_gate(client, _client_name_for(client)),
+        summary_month=_summary_month_for(rng),
+        summary_saved=(store.exec_summary_for(link, _summary_month_for(rng))
+                       if link else None),
         error=request.args.get("error", ""), saved=request.args.get("saved", ""),
     )
+
+
+def _summary_month_for(rng: dict) -> str:
+    """Which month the summary box on the staff page is about -- the same
+    reading client_view uses, so the form and the client's page cannot
+    disagree about which month is being edited."""
+    return client_view._summary_month(rng, _date.today())
 
 
 def _seo_gate(client: str, name: str) -> dict:
@@ -1030,6 +1072,146 @@ def client_link(client):
         return redirect(back + "?saved=settings")
     except ValueError as exc:
         return redirect(back + "?error=" + str(exc).replace(" ", "+"))
+
+
+# --------------------------------------------------------- executive summary
+# Two presses, never one. Generating writes nothing; saving publishes what is
+# on the screen, under the name of the person who pressed it. The client's own
+# page reads the saved row and can reach no AI call at all -- a public route
+# that could is a stranger spending our credits, and a paragraph about a
+# client's results that nobody read before it was published is the worse half
+# of the same problem.
+
+@app.post("/client/<path:client>/summary/draft")
+def client_summary_draft(client):
+    """Ask SmartHub for this month's executive summary. Staff only, nothing
+    saved: the answer comes back to the screen for a person to read, edit or
+    throw away."""
+    link = store.link_for_client(client)
+    if link is None:
+        return jsonify({"ok": False, "error": "This client has no live link yet."}), 400
+    body = request.get_json(silent=True) or {}
+    month = str(request.form.get("month") or body.get("month") or "")[:7]
+    if not store._month_key(month):
+        return jsonify({"ok": False, "error": "Choose the month the summary is about."}), 400
+    try:
+        from hub import ask_recipes, ask_smarthub, demo as hub_demo
+        from hub import identity as hub_identity
+    except Exception as exc:                        # noqa: BLE001
+        return jsonify({"ok": False,
+                        "error": f"Ask SmartHub is unavailable ({type(exc).__name__})."}), 503
+    # This route reaches ask_smarthub.ask() directly rather than through
+    # /api/ask-smarthub, so it carries that route's demo gate itself: a demo
+    # session spending real AI credits is the thing hub/demo.py exists to
+    # stop, and a second door into the same call is how a gate gets bypassed
+    # while every screen reports success. The role comes off the cookie the
+    # mounted request already carries, because the environ holds the user's
+    # name and not their role.
+    try:
+        hub_demo.guard("openai.text", hub_identity.user_from_environ(request.environ))
+    except hub_demo.DemoBlocked as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 403
+    # Which recipe this button drafts is the `client_dashboard` PLACEMENT's
+    # answer, not a key typed here. The placement is then load-bearing rather
+    # than a claim in hub/ask_recipes.py that nothing reads -- and changing
+    # which recipe belongs on a client's dashboard changes this button.
+    offered = ask_recipes.for_placement("client_dashboard",
+                                        ask_recipes.BASELINE_STAFF)
+    if not offered:
+        return jsonify({"ok": False,
+                        "error": "No summary recipe is available for the "
+                                 "client dashboard."}), 503
+    recipe = offered[0]
+    name = _client_name_for(client)
+    question = ask_recipes.fill(recipe, name,
+                                period_text=_period_for_month(month))
+    try:
+        result = ask_smarthub.ask(
+            question, role="member", actor=actor_name(),
+            context={"client": name, "path": request.path,
+                     "page_title": "Client report"},
+            recipe=recipe.key)
+    except PermissionError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 403
+    except RuntimeError as exc:
+        text = str(exc)
+        if text.startswith("RATE_LIMIT:"):
+            return jsonify({"ok": False,
+                            "error": "Too many questions just now. Try again shortly."}), 429
+        return jsonify({"ok": False, "error": "Ask SmartHub could not answer."}), 503
+    except Exception as exc:                        # noqa: BLE001
+        return jsonify({"ok": False,
+                        "error": f"Ask SmartHub could not answer ({type(exc).__name__})."}), 503
+    _log("reports_summary_drafted", client=name, client_key=client, month=month)
+    return jsonify({"ok": True, "month": month, "text": result.get("answer") or "",
+                    "sources": result.get("sources") or [],
+                    "note": ("This is a draft. Read it, edit anything that is not "
+                             "right, and press Save to publish it on the client's "
+                             "page. Nothing is published until you do.")})
+
+
+@app.post("/client/<path:client>/summary")
+def client_summary_save(client):
+    """Publish, or take down, the words that are on the screen."""
+    link = store.link_for_client(client)
+    if link is None:
+        return _back(client, error="This client has no live link yet.")
+    f = request.form
+    month = (f.get("month") or "")[:7]
+    action = (f.get("action") or "save").strip()
+    try:
+        if action == "remove":
+            store.clear_exec_summary(link.token, month)
+            _log("reports_summary_removed", client=_client_name_for(client),
+                 client_key=client, month=month)
+            saved = "The summary was taken off the client's page."
+        else:
+            entry = store.save_exec_summary(
+                link.token, month=month, text=f.get("text", ""), by=actor_name())
+            _log("reports_summary_saved", client=_client_name_for(client),
+                 client_key=client, month=month, chars=len(entry["text"]))
+            saved = "The summary is on the client's page."
+    except ValueError as exc:
+        return _back(client, error=str(exc))
+    # The link's updated_at is in the client page's cache key, so the saved
+    # words reach both workers at once rather than one of them in fifteen
+    # minutes; forget() empties this worker's copy so the preview beside the
+    # form is right immediately.
+    client_view.forget(link.token)
+    return _back(client, saved=saved)
+
+
+def _back(client: str, *, error: str = "", saved: str = ""):
+    """Back to this client's staff page, carrying one sentence."""
+    from urllib.parse import quote
+    target = url_for("client_page", client=client)
+    if error:
+        return redirect(f"{target}?error={quote(error[:200])}")
+    return redirect(f"{target}?saved={quote(saved[:200])}")
+
+
+def _period_for_month(month: str) -> str:
+    """How a month is named in the question the summary is generated from.
+
+    Last month is called "last month", because hub/periods.py resolves that
+    name and the planner is told to use it. Any other month carries its own
+    ISO dates in the words, computed HERE -- the planner is told never to
+    compute a date, so a question about an arbitrary month has to hand over
+    the days it means rather than leave the model to work them out.
+    """
+    today = _date.today()
+    previous = today.replace(day=1) - _timedelta(days=1)
+    if month == f"{previous:%Y-%m}":
+        return "last month"
+    key = store._month_key(month)
+    if not key:
+        return "last month"
+    import calendar
+    year, number = int(key[:4]), int(key[5:7])
+    start = _date(year, number, 1)
+    end = _date(year, number, calendar.monthrange(year, number)[1])
+    return (f"{start:%B %Y} (the period from {start.isoformat()} "
+            f"to {end.isoformat()})")
 
 
 @app.route("/client/<path:client>/campaign", methods=["POST"])

@@ -32,6 +32,7 @@ So each check below destroys something and asserts the data came back:
   14. update_json                    — read-change-write as ONE step,
                                        across threads AND across workers
 """
+import ast
 import json
 import os
 import re
@@ -335,6 +336,78 @@ check("no exemption names a file that is gone",
 check("and the audit says so too", integrity.check_stale_json_exemptions(), [])
 
 
+# ------------- 13b. the opposite question about the same files
+# The audit above asks whether a store is MIRRORED. The SEO store was, which
+# is exactly what made it worse: `setup.password` -- a client's real login to
+# their real website -- sat in data/seo/<client>.json as a plain string, was
+# faithfully copied into Postgres, and went into every database backup taken
+# since. It passed every check on this page while doing it.
+#
+# So the check reads the files rather than the source, and the assertions are
+# on the paths planted here rather than on a count: other sections of this
+# harness write to the same disk, and a total would make this test about them.
+_cred_dir = os.path.join(DISK, "credcheck")
+os.makedirs(_cred_dir, exist_ok=True)
+
+
+def _plant(name, payload):
+    path = os.path.join(_cred_dir, name)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh)
+    return os.path.join("data", "credcheck", name)
+
+
+# The defect itself, in the shape it was really on the disk.
+_leaky = _plant("seo-client.json", {
+    "client": "Bayside Dental",
+    "setup": {"login": "admin@bayside.test", "password": "REAL-PASSWORD",
+              "completed": True}})
+# Sealed: a dict, not a string. It is skipped by the SHAPE of the value, not
+# by being named in a list somebody has to keep up to date.
+_sealed = _plant("sealed.json", {
+    "client": "Bayside Dental", "cms": "site_login", "login": "admin",
+    "secret": {"enc": True, "data": "gAAAAABfernet-token-here"}})
+# A share token is stored so a customer's link keeps working. Reporting it is
+# how a check gets switched off, so `token` is deliberately not a watched name.
+_share = _plant("share.json", {"token": "share-abc123", "spot": "60s"})
+# An empty value cannot leak anything.
+_empty = _plant("empty.json", {"setup": {"password": ""}})
+# Nested in a list, because "somewhere in this file" is not an answer somebody
+# can act on.
+_nested = _plant("nested.json", {
+    "websites": [{"domain": "a.test"}, {"domain": "b.test", "api_key": "KEY-9"}]})
+
+_found = {f["file"]: f for f in integrity.check_plaintext_credentials()}
+check("the plaintext password is reported", _leaky in _found, True)
+check("the finding names where in the file it is, not just the file",
+      "setup.password" in _found.get(_leaky, {}).get("detail", ""), True)
+check("the fix names the store that seals it",
+      "cms_credentials" in _found.get(_leaky, {}).get("fix", ""), True)
+check("a SEALED credential is not reported — a dict is not a readable string",
+      _sealed in _found, False)
+check("a share token is not reported", _share in _found, False)
+check("an empty password is not reported", _empty in _found, False)
+check("a credential nested in a list is reported", _nested in _found, True)
+check("and it is indexed, so somebody can go and look at it",
+      "websites[1].api_key" in _found.get(_nested, {}).get("detail", ""), True)
+
+# Severity matters here in a way it does not for the two backup checks beside
+# it: those say in as many words that a module they list works exactly as it
+# always has. A readable password in a backup has no such defence.
+_group = [g for g in integrity.run()["groups"]
+          if g["key"] == "plaintext_credentials"]
+check("the check is registered on /api/integrity", len(_group), 1)
+check("at high severity, so it fails a run rather than being reported",
+      _group[0]["severity"] if _group else None, "high")
+
+for _name in ("seo-client.json", "sealed.json", "share.json", "empty.json",
+              "nested.json"):
+    os.remove(os.path.join(_cred_dir, _name))
+os.rmdir(_cred_dir)
+check("the planted files are gone, so later sections see the disk they expect",
+      os.path.isdir(_cred_dir), False)
+
+
 # ------------------------------- 14a. an fsync a caller arrives holding
 section("Moving to the shared writer may not cost what the caller had")
 # _atomic_write's own docstring says every module that hand-rolled this got it
@@ -484,6 +557,235 @@ check("with the exemption naming where the fallback is reported",
       "diagnostics" in js_scan.UNMIRRORED_EXEMPT["hub/leads.py"], True)
 
 
+# ------------------------------------- the stores that are not JSON at all
+section("A SQLite file on the disk is the same risk, and the JSON check is blind to it")
+# The check above answers one question -- what is written to the Render disk
+# with no copy in the database -- and it is the only check that asked it. A
+# SQLite file is not JSON, so a store that is a whole database was outside it
+# by construction, whatever it held. Two were: Google's OAuth refresh tokens
+# in modules/google_finder, and the receipts in
+# modules/io_builder/submission_attempts.py that stop a retried Suite delivery
+# creating a second opportunity against a real insertion order. Both were
+# found by somebody grepping. The panel said nothing, and nothing is all it
+# could say.
+
+# The gap itself, asserted rather than described: run the JSON check over a
+# file that is unambiguously a store on the disk and watch it answer "no".
+_sqlite_src = ("import sqlite3\n"
+               "db = sqlite3.connect('/var/data/thing.sqlite3')\n"
+               "db.execute('CREATE TABLE t (a TEXT)')\n")
+check("the JSON check cannot see a SQLite store",
+      js_scan._writes_json_to_disk(_sqlite_src), "")
+check("...and the new one can",
+      bool(js_scan._disk_sqlite_exempt_reason("modules/x/app.py")), False)
+
+_sqlite_found = {h["file"] for h in js_scan.disk_sqlite_stores(REPO)}
+
+# Cross-checked against a second, cruder method rather than pinned to today's
+# list. Pinning the filenames would go red the moment somebody moves one --
+# which is the work this check exists to prompt -- and an empty-set assertion
+# is the shape that let the lead store hide. Two independent readings agreeing
+# catches the scanner quietly returning nothing, and survives the fix.
+_crude = set()
+for _p in REPO.rglob("*.py"):
+    _rel = _p.relative_to(REPO).as_posix()
+    if any(x in _p.parts for x in js_scan.SCAN_SKIP_DIRS):
+        continue
+    if js_scan._disk_sqlite_exempt_reason(_rel):
+        continue
+    try:
+        _lines = _p.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        continue
+    if any("sqlite3.connect(" in ln and not ln.lstrip().startswith("#")
+           for ln in _lines):
+        _crude.add(_rel)
+# The two readings disagree on exactly one file, and that disagreement is the
+# point rather than a wrinkle to paper over: this module's own prose names the
+# call at length, in the docstring explaining why the check is an AST walk. The
+# crude reader counts it; the check does not. So the difference is asserted
+# rather than excluded -- excluding it by name would have hidden the one piece
+# of evidence on real source that the AST walk buys anything.
+check("the two readings differ on exactly one file",
+      sorted(_crude - _sqlite_found), ["hub/jsonstore.py"])
+check("...which is the module whose prose names the call",
+      "sqlite3.connect" in (REPO / "hub" / "jsonstore.py").read_text(
+          encoding="utf-8").split("def disk_sqlite_stores")[1][:900], True)
+check("...and the check reads past it", "hub/jsonstore.py" in _sqlite_found, False)
+check("and otherwise they agree",
+      sorted(_sqlite_found), sorted(_crude - {"hub/jsonstore.py"}))
+# There is deliberately no `len(_sqlite_found) > 0` here, and the reason is the
+# whole subject of docs/claude/58. That assertion was in this file while both
+# stores were outstanding, and it would now be the wrong one: docs/claude/65
+# took the last of them, so an empty list is the true answer and a check
+# demanding a finding would go red because somebody did the work.
+#
+# What an empty list may NOT be allowed to mean is "the scan broke". That is
+# the failure the lead store hid behind, one screen further along. So the guard
+# moves off the count and onto the probe directly below, which puts a file the
+# scan MUST find in front of it whatever this repo happens to contain.
+#
+# The probe is doing that alone, which is worth being exact about rather than
+# claiming the pair. Neutering the scan to `return []` turns exactly ONE check
+# red, and it is the probe. The crude cross-check above survives it, because
+# with both stores moved `_crude` is down to this file and the assertion is
+# about a difference that is still empty either way. It earns its place on the
+# AST question -- swapping the walk for the substring turns it red -- and not
+# on this one. Two guards that would both go quiet together are one guard.
+
+# Every entry names a line, because "io_builder has one somewhere" is not a
+# finding somebody can open.
+check("each finding names the line it is on",
+      all(isinstance(h.get("line"), int) and h["line"] > 0
+          for h in js_scan.disk_sqlite_stores(REPO)), True)
+
+# Read by AST, for the reason the JSON check is: this module's own prose names
+# the call at length, and a check a comment can trip is one nobody trusts.
+_probe_dir = Path(tempfile.mkdtemp(prefix="sqlite-probe-"))
+(_probe_dir / "modules").mkdir()
+(_probe_dir / "modules" / "prose_only.py").write_text(
+    "# this module used to call sqlite3.connect(path) and no longer does\n"
+    "x = 1\n", encoding="utf-8")
+(_probe_dir / "modules" / "really_opens_one.py").write_text(
+    "import sqlite3\n"
+    "def f(p):\n"
+    "    return sqlite3.connect(p)\n", encoding="utf-8")
+check("prose naming the call is not a call, and a real one is found",
+      sorted(h["file"] for h in js_scan.disk_sqlite_stores(_probe_dir)),
+      ["modules/really_opens_one.py"])
+shutil.rmtree(_probe_dir, ignore_errors=True)
+
+# The one exemption, checked against the file rather than assumed -- the rule
+# UNMIRRORED_EXEMPT's own comment gives, because an exemption that outlives
+# the code it covered is how a real finding later gets swallowed.
+_sf = (REPO / "modules" / "smartforecast" / "store.py").read_text(encoding="utf-8")
+check("smartforecast is exempt from a finding it would otherwise be",
+      "sqlite3.connect(" in _sf, True)
+check("...and the exemption says why",
+      len(js_scan.DISK_SQLITE_EXEMPT["modules/smartforecast/store.py"]) > 60, True)
+check("...and it still names a file that exists",
+      js_scan.stale_sqlite_exemptions(REPO), [])
+
+# On the page, not just in a function. The whole failure being fixed is a
+# store nothing reports, so a scanner nobody renders would be the same bug
+# with an extra step.
+_ctx = (REPO / "hub" / "client_context.py").read_text(encoding="utf-8")
+check("the structure panel asks the question",
+      "disk_sqlite_stores(" in _ctx, True)
+_integ = (REPO / "hub" / "integrity.py").read_text(encoding="utf-8")
+check("and /api/integrity has a check of its own",
+      '("disk_sqlite"' in _integ, True)
+check("with the stale-exemption half beside it",
+      '("stale_sqlite_exemptions"' in _integ, True)
+
+
+# ------------------------------- 14b. the third question: bytes on the disk
+section("Bytes on the disk, which neither other check can see")
+# Driven the same way as the SQLite block above: put a file that is
+# unambiguously a binary store in front of the other two checks and watch both
+# answer "no". A .webp on the disk is not JSON and is not a database, and for
+# as long as this page asked only those two questions it was most of what this
+# suite produces sitting outside every check on it.
+_bin_src = ("def save(p, data):\n"
+            "    with open(p, 'wb') as fh:\n"
+            "        fh.write(data)\n")
+check("the JSON check cannot see a binary store",
+      js_scan._writes_json_to_disk(_bin_src), "")
+check("...nor can the SQLite one",
+      "sqlite3.connect(" in _bin_src, False)
+
+_bin_found = {h["file"] for h in js_scan.disk_binary_writers(REPO)}
+
+# Cross-checked against a cruder second reading, for the reason the SQLite
+# block gives: pinning today's filenames goes red when somebody does the work,
+# and asserting the set is empty is the shape that let the lead store hide.
+_bcrude = set()
+for _p in REPO.rglob("*.py"):
+    _rel = _p.relative_to(REPO).as_posix()
+    if any(x in _p.parts for x in js_scan.SCAN_SKIP_DIRS):
+        continue
+    if js_scan._disk_binary_exempt_reason(_rel):
+        continue
+    try:
+        _lines = _p.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        continue
+    if any(('"wb"' in ln or "'wb'" in ln or "write_bytes(" in ln)
+           and not ln.lstrip().startswith("#") for ln in _lines):
+        _bcrude.add(_rel)
+# Same one-file disagreement as its sibling, and asserted for the same reason:
+# this module's own prose names the spelling, in the docstring explaining why
+# the check is an AST walk. Excluding that file by name would throw away the
+# one piece of evidence on real source that the walk buys anything.
+check("the two readings differ on exactly one file",
+      sorted(_bcrude - _bin_found), ["hub/jsonstore.py"])
+check("...which is the module whose prose names the spelling",
+      '"wb"' in (REPO / "hub" / "jsonstore.py").read_text(
+          encoding="utf-8").split("def disk_binary_writers")[1][:1600], True)
+check("...and the check reads past it", "hub/jsonstore.py" in _bin_found, False)
+check("and otherwise they agree",
+      sorted(_bin_found), sorted(_bcrude - {"hub/jsonstore.py"}))
+
+check("each finding names the line it is on",
+      all(isinstance(h.get("line"), int) and h["line"] > 0
+          for h in js_scan.disk_binary_writers(REPO)), True)
+check("...and how the bytes are written, so the finding can be opened",
+      all(h.get("how") for h in js_scan.disk_binary_writers(REPO)), True)
+
+# The anti-neutering guard, which is what stops an empty list ever meaning
+# "the scan broke". A probe the scan MUST find, whatever this repo contains.
+# It also pins the two readings the AST walk has to tell apart: prose naming
+# the spelling is not a write, and "rb" is a read.
+_bprobe = Path(tempfile.mkdtemp(prefix="binary-probe-"))
+(_bprobe / "modules").mkdir()
+(_bprobe / "modules" / "prose_only.py").write_text(
+    '# this used to open(path, "wb") and no longer does\n'
+    "x = 1\n", encoding="utf-8")
+(_bprobe / "modules" / "reads_only.py").write_text(
+    "def f(p):\n"
+    "    with open(p, 'rb') as fh:\n"
+    "        return fh.read()\n", encoding="utf-8")
+(_bprobe / "modules" / "really_writes.py").write_text(
+    "def f(p, data):\n"
+    "    with open(p, 'wb') as fh:\n"
+    "        fh.write(data)\n", encoding="utf-8")
+(_bprobe / "modules" / "pathlib_writes.py").write_text(
+    "from pathlib import Path\n"
+    "def f(p, data):\n"
+    "    Path(p).write_bytes(data)\n", encoding="utf-8")
+check("prose is not a write, a read is not a write, and both real ones are found",
+      sorted(h["file"] for h in js_scan.disk_binary_writers(_bprobe)),
+      ["modules/pathlib_writes.py", "modules/really_writes.py"])
+shutil.rmtree(_bprobe, ignore_errors=True)
+
+# The exemptions are where this check's weight is: sixteen files write bytes
+# and fifteen of them are fine. Each reason is checked against the file rather
+# than assumed, the rule UNMIRRORED_EXEMPT's own comment gives -- an exemption
+# that outlives the code it covered is how a real finding later gets swallowed.
+check("every binary exemption says why, at length",
+      [rel for rel, why in js_scan.DISK_BINARY_EXEMPT.items()
+       if len(str(why).strip()) < 60], [])
+check("...and every one still names a file that exists",
+      js_scan.stale_binary_exemptions(REPO), [])
+# Each exempted file must actually contain the write it is excused for.
+# Without this an entry could excuse a file that never wrote bytes at all,
+# which reads as diligence and is noise.
+check("...and every exempted file really does write bytes",
+      sorted(rel for rel in js_scan.DISK_BINARY_EXEMPT
+             if not js_scan._binary_write_line(
+                 ast.parse((REPO / rel).read_text(encoding="utf-8",
+                                                  errors="ignore")))), [])
+
+# On the page, not just in a function -- a scanner nobody renders is the same
+# bug with an extra step.
+check("the structure panel asks the third question",
+      "disk_binary_writers(" in _ctx, True)
+check("and /api/integrity has a check of its own",
+      '("disk_binary"' in _integ, True)
+check("with the stale-exemption half beside it",
+      '("stale_binary_exemptions"' in _integ, True)
+
+
 # ------------------------------- 15. a resolved risk is not an amber finding
 section("The structure panel's own colors")
 # The client-key row is the *resolved* case: the columns still differ and
@@ -506,7 +808,29 @@ check("and the header pill ignores resolved rows",
 # it", and that is the pressure that produced the hole in the first place.
 outstanding = sorted((r["level"], r["title"]) for r in report["risks"]
                      if r["level"] != "low")
-check("nothing is outstanding on the panel now", outstanding, [])
+# Derived from the live scan rather than transcribed, for both halves of the
+# rule above. Written as a literal it would go red the moment somebody moves a
+# store -- punishing the fix -- and written as `== []` it would go quiet the
+# moment a scan broke. This way the row has to be there while the work is, and
+# has to be gone when it is done, and neither is something a person retypes.
+_left = len(js_scan.disk_sqlite_stores(REPO))
+_want = [] if not _left else [(
+    "medium",
+    f"{_left} module opens its own SQLite file on the data disk" if _left == 1
+    else f"{_left} modules open their own SQLite files on the data disk")]
+# The binary row, derived the same way and for the same reason. It is a
+# separate term rather than a third branch of the one above because the two
+# rows answer different questions and can be outstanding independently -- and
+# because folding them into one count would let a binary store hide behind a
+# SQLite one being fixed, which is the shape of every hole this file records.
+_bleft = len(js_scan.disk_binary_writers(REPO))
+_want += [] if not _bleft else [(
+    "medium",
+    (f"{_bleft} module writes bytes" if _bleft == 1
+     else f"{_bleft} modules write bytes")
+    + " to the data disk with no copy elsewhere")]
+check("the panel names the work that is left, and nothing else",
+      outstanding, sorted(_want))
 check("and nothing is high", [r for r in report["risks"]
                               if r["level"] == "high"], [])
 
@@ -755,7 +1079,7 @@ out = {"root": jsonstore.data_root(),
        "sqlite": extensions.database_url().replace("sqlite:///", ""),
        "lock": scheduler._lock_path(),
        "landing_ads": landing_ads.data_dir(),
-       "tokens": gfinder.TOKEN_DB_PATH}
+       "tokens": gfinder._token_db_path()}
 os.environ["HUB_LEADS_FILE"] = "/tmp/named-leads.jsonl"
 import importlib; importlib.reload(leads)
 out["leads_named"] = leads._path()

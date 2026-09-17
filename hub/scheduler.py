@@ -279,6 +279,31 @@ def job_refresh_knack_products(app) -> dict:
     return knack_products.refresh()
 
 
+def job_seal_site_logins(app) -> dict:
+    """Seal any client website login still sitting in an SEO record as text.
+
+    `setup.password` on `data/seo/<client>.json` is the client's own login to
+    their own website, and it was written there as a plain string. Sealing it
+    when somebody opens that client's SEO page covers the clients people look
+    at; this covers the rest, which are in the database backup all the same and
+    are most of them.
+
+    Local disk only -- no network, no model, no provider. It is bounded by the
+    number of SEO stores and finds nothing to do from the second pass on,
+    because each record loses its plaintext key in the same save. On a
+    deployment with no TOKEN_ENCRYPTION_KEY it seals nothing on purpose and
+    says so, rather than moving plaintext into a second plaintext file and
+    reporting a number.
+    """
+    from hub import seo
+    with app.app_context():
+        out = seo.seal_all_site_logins()
+    if out.get("checked") and not out.get("sealed"):
+        out["note"] = ("Nothing could be sealed — check that "
+                       "TOKEN_ENCRYPTION_KEY is set on this service.")
+    return out
+
+
 def job_backup_json(app) -> dict:
     """Mirror the durable JSON on the disk into the database.
 
@@ -978,8 +1003,8 @@ def job_reports_normalize(app) -> dict:
 
 
 def job_reports_native_pull(app, *, completed_platforms=()) -> dict:
-    """Pull the Trade Desk, Google Ads, StackAdapt, AudioGo, Microsoft Ads and
-    GroundTruth from their own APIs, then automap.
+    """Pull the Trade Desk, Google Ads, StackAdapt, AudioGo, Microsoft Ads,
+    GroundTruth and Amazon DSP from their own APIs, then automap.
 
     The provider normalize (above) reads a copy of these figures a day late;
     this reads them from the platforms themselves, nightly at 3 AM Eastern, and the
@@ -994,15 +1019,16 @@ def job_reports_native_pull(app, *, completed_platforms=()) -> dict:
     state for Google Ads on this deployment and it is a sentence on
     ``/reports/``, never a traceback here; so is not configured for
     StackAdapt and AudioGo until their keys are set, so is Microsoft Ads
-    until somebody presses Connect on /tools/ads/settings, and so is
-    GroundTruth until its API origin is named beside the key.
+    until somebody presses Connect on /tools/ads/settings, so is GroundTruth
+    until its API origin is named beside the key, and so is Amazon DSP until
+    an admin on the DSP entity presses Connect there too.
 
     Safe to run late, skip and repeat: every row is an upsert by key, so a
     day read twice is the same spend.
     """
     try:
-        from modules.reports import (audiogo, automap, bing, google_ads_perf, groundtruth,
-                                     stackadapt, ttd)
+        from modules.reports import (amazon_dsp, audiogo, automap, bing, google_ads_perf,
+                                     groundtruth, stackadapt, ttd)
     except Exception as exc:                            # noqa: BLE001
         return {"skipped": f"unavailable ({type(exc).__name__})"}
     out: dict = {"platforms": {}, "rows": 0, "errors": {}, "skipped": [], "pending": []}
@@ -1012,7 +1038,13 @@ def job_reports_native_pull(app, *, completed_platforms=()) -> dict:
         # Google sweep reporting an empty book from a background thread.
         for name, fn in (("ttd", ttd.pull), ("google", google_ads_perf.pull),
                          ("stackadapt", stackadapt.pull), ("audiogo", audiogo.pull),
-                         ("bing", bing.pull), ("groundtruth", groundtruth.pull)):
+                         ("bing", bing.pull), ("groundtruth", groundtruth.pull),
+                         # Amazon DSP carries its own pending reportIds between
+                         # ticks in the module's note, so this is wired like every
+                         # other pull and the carrying still happens: a report the
+                         # entity is still preparing is collected next tick rather
+                         # than paid for again.
+                         ("amazon_dsp", amazon_dsp.pull)):
             if name in completed_platforms:
                 out['platforms'][name] = {'ok': True, 'rows': 0, 'already_refreshed': True}
                 continue
@@ -1181,6 +1213,11 @@ JOBS = {
                            "Approved or Converted in the Proposal Builder."),
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
+    # Ahead of nothing in particular and cheap: it reads this Hub's own disk
+    # and, once every record is sealed, does no work at all.
+    "site_logins":       (720, job_seal_site_logins,
+                          "Seal any client website login still stored as plain "
+                          "text on an SEO record."),
     "clear_stuck_scans": (15, job_clear_stuck_scans,
                           "Resolve or error scans running past 30 minutes."),
     "rotate_audit_log":  (720, job_rotate_audit_log,

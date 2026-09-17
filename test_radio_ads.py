@@ -1069,6 +1069,301 @@ check("and the refusal names the word",
       "Bengals" in (_tm.get_json().get("error") or ""), True)
 
 
+section("An uploaded read that overruns, and the speed that gets it back")
+# =====================================================================
+# A read this tool RECORDED and that overruns has two levers already on the
+# screen -- tighten the script, drop the voice speed, record it again -- and
+# both produce a fresh read at the right pace. A read somebody UPLOADED has
+# neither: it is a finished file made by talent who has gone home, and with no
+# ffmpeg in this runtime the only lever left is the one the browser already
+# has, which is to play it faster. So the length check stopped being a dead
+# end for the one case that could not act on it.
+#
+# The arithmetic is `hub/radio_spec`'s, for the same reason the dB pair is: a
+# second copy of "how fast is too fast" in the template is how the panel and
+# the filed record come to disagree about what was approved.
+
+# --- the rate itself ----------------------------------------------------
+_fits = radio_spec.speed_suggestion(vo_seconds=29.0, target_seconds=30)
+check("a read that already fits is offered nothing",
+      (_fits["needed"], _fits["speed"]), (False, None))
+# 30.4 + a 0.3s lead-in is 30.7 against a :30 -- over, but inside the tolerance
+# the length check itself uses. Offering a speed there would be a fix for a
+# finding nobody has.
+_tol = radio_spec.speed_suggestion(vo_seconds=30.4, target_seconds=30)
+check("nor is one inside the same tolerance the length check allows",
+      (_tol["needed"], _tol["over_seconds"] > 0), (False, True))
+
+_over = radio_spec.speed_suggestion(vo_seconds=31.8, target_seconds=30)
+check("an over-long read is given a rate", _over["speed"], 1.08)
+check("and the rate lands the mix ON the slot, never one rounding short",
+      _over["lands_seconds"], 30.0)
+check("...because it is rounded up rather than to nearest",
+      radio_spec.speed_suggestion(vo_seconds=30.9, target_seconds=30)["speed"],
+      1.05)
+check("what the speed costs is quoted, not glossed", _over["semitones"], 1.33)
+check("and the note says why the pitch moves at all",
+      "resampling" in _over["note"], True)
+check("under 5% is named as the rate nobody hears",
+      radio_spec.speed_suggestion(vo_seconds=62.5, target_seconds=60)["comfort"],
+      "clean")
+check("and above it as audible but inside what a station does",
+      _over["comfort"], "audible")
+
+# The ceiling is the point of the whole thing. "Speed it up" is not an answer
+# to a read five seconds too long, and a tool that offered 1.35x would ship a
+# commercial nobody can listen to with every screen reporting success.
+_far = radio_spec.speed_suggestion(vo_seconds=40.0, target_seconds=30)
+check("past the ceiling no rate is offered at all",
+      (_far["needed"], _far["speed"], _far["comfort"]),
+      (True, None, "too_far"))
+check("...and the refusal says how much has to come out of the read instead",
+      _far["trim_seconds"], 5.85)
+check("a read with no length asks for none",
+      radio_spec.speed_suggestion(vo_seconds=None, target_seconds=30)["available"],
+      False)
+check("nor does a spot with no slot on it",
+      radio_spec.speed_suggestion(vo_seconds=31.0, target_seconds=0)["available"],
+      False)
+check("a slot shorter than the bed's own lead-in has no runway to fit into",
+      radio_spec.speed_suggestion(vo_seconds=1.0, target_seconds=10,
+                                  lead_in_ms=20000)["available"], False)
+
+# What a caller may send back. The ceiling lives here rather than in the route,
+# so the offer, the render and the filing cannot disagree about what is allowed.
+check("no rate at all means the read played at its own pace",
+      radio_spec.speed_ok(None), (1.0, ""))
+check("an approved rate comes back as a number", radio_spec.speed_ok("1.08")[0], 1.08)
+check("a rate past the ceiling is refused by name",
+      (radio_spec.speed_ok("1.4")[0], "1.15x" in radio_spec.speed_ok("1.4")[1]),
+      (1.0, True))
+check("and one below 1 is refused, because a mix is never short of its slot",
+      radio_spec.speed_ok("0.9")[0], 1.0)
+check("something that is not a number is refused rather than coerced",
+      radio_spec.speed_ok("fast")[0], 1.0)
+
+# --- the check says so, which is the honesty half -----------------------
+# A mix that only fits because the read was played faster reads, on the panel,
+# exactly like one that landed on the clock. The next person to re-cut the spot
+# would expect it to land there again at 1.00x.
+_plain = radio_spec.qc(script="Call 555-123-4567.", target_seconds=30,
+                       mixed_seconds=30.0)
+_compressed = radio_spec.qc(script="Call 555-123-4567.", target_seconds=30,
+                            mixed_seconds=30.0, speed=1.08)
+_row_plain = [c for c in _plain["checks"] if c["id"] == "length_match"][0]
+_row_comp = [c for c in _compressed["checks"] if c["id"] == "length_match"][0]
+check("a mix that fits at its own pace says nothing about speed",
+      ("time-compressed" in _row_plain["detail"], _row_plain["speed"]),
+      (False, 1.0))
+check("one that only fits because it was sped up says so on the row",
+      ("time-compressed to 1.08x" in _row_comp["detail"], _row_comp["speed"]),
+      (True, 1.08))
+check("and both still pass -- the rate is a disclosure, not a finding",
+      (_row_plain["level"], _row_comp["level"]), ("pass", "pass"))
+
+# --- the route, and what it knows that the page does not ----------------
+_proj = fr_store.load(FRID)
+_sp3 = fr_store.get_spot(_proj, SID)
+_sp3["script"] = ("Northgate Tire has your winter set ready today. "
+                  "Call 555-123-4567 or find them at northgatetire.com.")
+_sp3["audio_url"] = "audio/their-own-read.mp3"
+_sp3["audio_provider"] = "upload"
+_sp3["bed"] = {"audio_url": "audio/bed.mp3", "kind": "upload"}
+fr_app.decorate(_proj, _sp3)
+fr_store.save(_proj)
+
+
+def _ask_speed(**body):
+    return fr.post(f"/api/projects/{FRID}/spots/{SID}/speed", json=body)
+
+
+_ask = _ask_speed(vo_seconds=31.8, mixed_seconds=32.1).get_json()
+check("the route answers with a rate for an uploaded read",
+      (_ask["uploaded"], _ask["suggestion"]["speed"]), (True, 1.08))
+check("and the rate is the shared module's, not the route's",
+      _ask["suggestion"]["speed"],
+      radio_spec.speed_suggestion(vo_seconds=31.8, mixed_seconds=32.1,
+                                  target_seconds=30,
+                                  lead_in_ms=radio_spec.MIX_LEAD_IN_MS)["speed"])
+# The lead-in only exists where there is a bed to lead in with, and every
+# millisecond of it is a millisecond of the slot the voice does not get. A
+# straight read has the whole :30 to fit into, so it needs less of a push --
+# 1.06x here against the 1.08x above, on the same read.
+_sp3["bed"] = None
+fr_store.save(_proj)
+check("a straight read is given the whole slot, with no lead-in taken off it",
+      _ask_speed(vo_seconds=31.8, mixed_seconds=31.8).get_json()["suggestion"]["speed"],
+      1.06)
+_sp3["bed"] = {"audio_url": "audio/bed.mp3", "kind": "upload"}
+fr_store.save(_proj)
+
+# Whose read it is decides which advice is the right advice, and only the route
+# knows: `audio_provider` is set by the upload and by nothing else. Telling
+# somebody to time-compress a read this tool can simply record again at the
+# right pace is the worse of the two answers.
+_sp3["audio_provider"] = ""
+fr_store.save(_proj)
+_recorded = _ask_speed(vo_seconds=31.8, mixed_seconds=32.1).get_json()
+check("a read recorded here is sent to the re-record rather than the rate",
+      (_recorded["uploaded"], "record it again" in _recorded["alternative"]),
+      (False, True))
+check("...and the rate is still worked out, so the panel can say how far over",
+      _recorded["suggestion"]["over_seconds"], 2.1)
+_sp3["audio_provider"] = "upload"
+fr_store.save(_proj)
+check("a spot nobody has is a 404, not an empty suggestion",
+      fr.post(f"/api/projects/{FRID}/spots/nope/speed", json={}).status_code, 404)
+
+# --- and it is actually reachable from the page -------------------------
+# A route with no button on it is the failure this repo keeps having to undo:
+# six tools were invisible for weeks. So the page is checked for the offer, the
+# approval, the undo and the rate riding along on the filing.
+_fr_page = fr.get("/").get_data(as_text=True)
+check("the builder asks the server for the rate rather than working one out",
+      ("/speed\"" in _fr_page and "speed_suggestion" not in _fr_page), True)
+check("the offer, the approval and the undo are all on the panel",
+      ('data-a="speed"' in _fr_page, 'data-a="unspeed"' in _fr_page,
+       "approveSpeed" in _fr_page and "resetSpeed" in _fr_page),
+      (True, True, True))
+check("the approved rate reaches the voice source, not the bed",
+      "voSrc.playbackRate.value = rate" in _fr_page, True)
+# A rate is approved against a particular READ. Re-recording or re-uploading
+# one makes it a different length, so a rate worked out for the old one is a
+# number nobody can account for -- and keying it on the read rather than
+# clearing it at each of the four places a read can change is what stops the
+# fifth one added later being the one that forgets.
+check("and it is held against the read it was approved for",
+      ("function readKey(" in _fr_page and "a.read === readKey(spot)" in _fr_page),
+      True)
+check("and rides along when the mix is filed",
+      'fd.append("speed"' in _fr_page, True)
+
+# --- filing it ----------------------------------------------------------
+# The approved rate is recorded against the mix. Without it the file is a
+# commercial at a pace nobody can account for -- and it plays perfectly well,
+# which is what makes it worth recording rather than inferring.
+_filed = _file_mix(30.0, speed="1.08")
+check("a mix filed at an approved rate records the rate",
+      (_filed.status_code, _filed.get_json()["mix"]["speed"]), (200, 1.08))
+check("and what it cost in pitch, beside it",
+      _filed.get_json()["mix"]["speed_semitones"], 1.33)
+check("the stored check says the same thing the panel did",
+      "time-compressed to 1.08x" in [
+          c["detail"] for c in _filed.get_json()["qc"]["checks"]
+          if c["id"] == "length_match"][0], True)
+check("a mix filed at its own pace records 1.0 rather than nothing",
+      _file_mix(30.0).get_json()["mix"]["speed"], 1.0)
+_bad_rate = _file_mix(30.0, speed="1.6")
+check("a rate past the ceiling is refused at the door",
+      (_bad_rate.status_code, "1.15x" in (_bad_rate.get_json().get("error") or "")),
+      (400, True))
+check("...and the mix filed before it is untouched",
+      fr_store.get_spot(fr_store.load(FRID), SID)["mix"]["speed"], 1.0)
+
+
+section("The Radio Ad Creator answers the same read the same way")
+# =====================================================================
+# The whole point of `hub/radio_spec` is that the second builder does not get a
+# second answer. Both tools now hand an over-long uploaded read to the same
+# `speed_suggestion()`, so what is asserted here is the reading rather than the
+# resemblance -- a local copy with today's ceiling in it would pass every
+# behavioural check below and fail the identity one, which is exactly the state
+# the two tools were already in before the lengths moved.
+
+# Put a known read on the slot so the numbers below are the read's, not a
+# leftover's. `provider` is what the upload route sets and the render route
+# does not, and it is the whole basis of which advice a slot gets.
+_rp_row = rp_store.get(PID)
+_rp_spots = [dict(sp) for sp in (_rp_row.get("spots") or [])]
+for _sp in _rp_spots:
+    if _sp["slot"] == "thirty":
+        _sp.update(provider="upload", audio_url="audio/their-own-read.mp3",
+                   measured_seconds=None, measured=False)
+rp_store.update(PID, {"spots": _rp_spots})
+
+
+def _rp_speed(**payload):
+    return client.post(f"/api/projects/{PID}/speed",
+                       json={"slot": "thirty", **payload})
+
+
+_rp = _rp_speed(vo_seconds=31.8, mixed_seconds=32.1).get_json()
+check("the Radio Ad Creator answers with a rate for an uploaded read",
+      (_rp["uploaded"], _rp["suggestion"]["speed"]), (True, 1.08))
+check("and the slot it answered for comes back with it", _rp["slot"], "thirty")
+# The identity check. Fan Radio asked the same question of the same read two
+# sections ago and got 1.08 with a 0.3s lead-in taken off the runway; a second
+# copy of the arithmetic is how the two would start disagreeing.
+check("both builders give the same read the same rate, from the one module",
+      _rp["suggestion"]["speed"],
+      radio_spec.speed_suggestion(vo_seconds=31.8, mixed_seconds=32.1,
+                                  target_seconds=30,
+                                  lead_in_ms=radio_spec.MIX_LEAD_IN_MS)["speed"])
+check("...and the same refusal past the ceiling",
+      _rp_speed(vo_seconds=40.0, mixed_seconds=40.3).get_json()["suggestion"]["comfort"],
+      "too_far")
+check("a slot nobody sells is refused rather than answered",
+      client.post(f"/api/projects/{PID}/speed",
+                  json={"slot": "ninety", "vo_seconds": 31.8}).status_code, 400)
+
+# A read this tool recorded has a re-record to ask for, and asking for it is
+# the better answer -- the booth's own speed control makes a fresh read at the
+# right pace, where time compression only makes the finished one shorter.
+for _sp in _rp_spots:
+    if _sp["slot"] == "thirty":
+        _sp.pop("provider", None)
+rp_store.update(PID, {"spots": _rp_spots})
+_rp_rec = _rp_speed(vo_seconds=31.8, mixed_seconds=32.1).get_json()
+check("a read recorded here is sent to the booth rather than to the rate",
+      (_rp_rec["uploaded"], "booth" in _rp_rec["alternative"]), (False, True))
+check("...and the rate is still worked out, so the panel can say how far over",
+      _rp_rec["suggestion"]["over_seconds"], 2.1)
+for _sp in _rp_spots:
+    if _sp["slot"] == "thirty":
+        _sp["provider"] = "upload"
+rp_store.update(PID, {"spots": _rp_spots})
+
+# Filing it. The rate is recorded on the mix and in the project's own version
+# history -- a commercial going out at a pace the record cannot name is the
+# thing this whole disclosure exists to stop.
+_rp_filed = file_mix(30.0, speed="1.08")
+check("a mix filed at an approved rate records the rate",
+      (_rp_filed.status_code, _rp_filed.get_json()["mix"]["speed"]), (200, 1.08))
+check("and what it cost in pitch, beside it",
+      _rp_filed.get_json()["mix"]["speed_semitones"], 1.33)
+check("the stored check says the same thing the panel did",
+      "time-compressed to 1.08x" in [
+          c["detail"] for c in _rp_filed.get_json()["qc"]["checks"]
+          if c["id"] == "length_match"][0], True)
+check("the version history carries it too",
+      [v for v in rp_store.get(PID)["versions"]
+       if v.get("kind") == "mix"][-1]["payload"]["speed"], 1.08)
+check("a mix filed at its own pace records 1.0 rather than nothing",
+      file_mix(30.0).get_json()["mix"]["speed"], 1.0)
+_rp_bad = file_mix(30.0, speed="1.6")
+check("a rate past the ceiling is refused at the door",
+      (_rp_bad.status_code, "1.15x" in (_rp_bad.get_json().get("error") or "")),
+      (400, True))
+check("...and the mix filed before it is untouched",
+      rp_store.get(PID)["mixes"]["thirty"]["speed"], 1.0)
+
+# And it is reachable from the page. A route with no button on it is the
+# failure this repo keeps having to undo.
+_rp_page = client.get("/").get_data(as_text=True)
+check("the builder asks the server for the rate rather than working one out",
+      ("/speed'" in _rp_page and "speed_suggestion" not in _rp_page), True)
+check("the offer, the approval and the undo are all on the panel",
+      ("approveSpeed(" in _rp_page and "resetSpeed(" in _rp_page
+       and "speedPanel(" in _rp_page), True)
+check("the approved rate reaches the voice source, not the bed",
+      "voSrc.playbackRate.value = playRate" in _rp_page, True)
+check("it rides along when the mix is filed",
+      "fd.append('speed'" in _rp_page, True)
+check("and it is held against the read it was approved for",
+      ("function readKey(" in _rp_page and "a.read === readKey(slot)" in _rp_page),
+      True)
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 if _failed:
     sys.exit(1)

@@ -6,13 +6,25 @@ since 4.7 and **Application Passwords** since 5.6, so nothing has to be
 installed on the client's site for this to work. `hub/cms_credentials.py`
 holds what the calls are made with; this makes them.
 
-What it deliberately does **not** cover is schema and FAQ accordions. Yoast and
-Rank Math both keep their fields in postmeta that is not `show_in_rest`, and
-JSON-LD inside post content is stripped by `wp_kses` for any user without
-`unfiltered_html`. Those two stay on the Claude-in-Chrome path until either a
-must-use plugin of ours is acceptable on client sites or the user we
-authenticate as is an administrator -- and the decision is named here rather
-than discovered by a rep at the moment they press the button.
+**Page schema needs one thing installed, and that is the whole of what the
+plugin buys.** Yoast and Rank Math keep their schema fields in postmeta that is
+not `show_in_rest`, and JSON-LD inside post content is stripped by `wp_kses`
+for any user without `unfiltered_html`, so core alone has nowhere to put a
+block. `hub/wordpress_plugin/smart-1-hub.php` registers one `show_in_rest` post
+meta and prints it from `wp_head` -- and that is deliberately the smaller of
+the two ways past this. The other was authenticating as an administrator and
+writing the block into the page *body*, which needs no plugin and edits a live
+page a client wrote; a head block that never touches content is the one worth
+having even where the credential would allow both.
+
+**FAQ accordions stay on the Claude path, and not because REST cannot reach
+them.** The accordion `hub/faq.py` produces carries its own FAQPage JSON-LD
+inside the block that goes on the page. Writing that schema again from here
+would put two copies of it on one page; writing it *without* the accordion
+would be FAQPage markup for questions no visitor can see, which is a
+structured-data violation rather than a shortcut. The deliverable there is the
+visible accordion, and placing it is an edit to the page body that a person
+makes.
 
 ## The rules, each of which is a way this goes quietly wrong
 
@@ -70,6 +82,7 @@ activity row. `_call()` builds the Authorization header and it goes no further.
 from __future__ import annotations
 
 import base64
+import json
 
 import os
 import re
@@ -78,7 +91,7 @@ import urllib.parse
 
 import requests
 
-from . import audit, blog_spec, cms_credentials
+from . import audit, blog_spec, cms_credentials, outbound
 
 TIMEOUT = 25
 # Bounded on both axes. A post is up to three calls (terms, media, the post
@@ -97,6 +110,37 @@ SEO_NAMESPACES = {
     "rankmath/v1": "Rank Math",
 }
 
+# ---------------------------------------------------------------- the plugin
+# Blogs and alt text need nothing installed on the client's site. Schema does,
+# and `hub/wordpress_plugin/smart-1-hub.php` is that one file: it registers a
+# single `show_in_rest` post meta and prints it from `wp_head`. The names below
+# are the wire contract between the two halves and are asserted against the PHP
+# in `test_wordpress_schema.py`, because a key spelled one way here and another
+# way there is a write that answers 200 and stores nothing.
+PLUGIN_SLUG = "smart-1-hub"
+PLUGIN_VERSION = "1.1.0"
+PLUGIN_NAMESPACE = "s1hub/v1"
+SCHEMA_META = "_s1hub_schema"
+PLUGIN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "wordpress_plugin", PLUGIN_SLUG + ".php")
+
+# A schema run is one resolve and one write per page against a host we do not
+# control, so it is bounded like the other two.
+MAX_SCHEMA_PAGES_PER_RUN = 20
+
+# Google truncates a search snippet around 155-160 characters. It is a
+# DISPLAY limit and not a rejection -- nothing refuses a longer description --
+# so a description over it is written and named rather than cut. Shortening
+# the client's own approved copy to fit somebody else's snippet is the
+# clamp `config.music_length_ms()` refuses one provider over.
+META_DESCRIPTION_SNIPPET = 160
+
+# The marker the plugin prints its block behind. Matched as well as the JSON,
+# because a page can carry somebody else's JSON-LD and this has to be able to
+# say whether OURS is on it.
+SCHEMA_MARKER = "<!-- Smart 1 Hub structured data -->"
+MAX_VERIFY_PAGES_PER_RUN = 20
+
 
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -107,7 +151,17 @@ class Refused(Exception):
 
     Carries no credential and no raw provider body: `modules/fan_radio.fail()`
     and the two file optimizers' rule, one provider further out.
+
+    `status` is the HTTP status behind it where there was one, because one
+    caller has to tell a 404 apart from every other refusal: a route that is
+    not there means the plugin is not installed, which is a thing somebody
+    fixes in two minutes, and reading it off the sentence would make the
+    wording of an error message load-bearing.
     """
+
+    def __init__(self, message: str = "", status: int = 0):
+        super().__init__(message)
+        self.status = int(status or 0)
 
 
 # ---------------------------------------------------------------- discovery
@@ -146,28 +200,29 @@ def discover(site_url: str) -> dict:
                          "application passwords over an unencrypted connection, "
                          "so the site needs HTTPS before it can be connected."}
     candidates: list[tuple[str, str]] = []
-    try:
-        r = requests.get(origin + "/", headers=UA, timeout=TIMEOUT,
-                         allow_redirects=True)
-        link = (r.links.get("https://api.w.org/") or {}).get("url")
-        if link:
-            candidates.append((link, "advertised in the site's own Link header"))
-        else:
-            m = _REST_LINK.search(r.text[:200000] or "")
-            if m:
-                candidates.append((m.group(1), "advertised in the page head"))
-    except requests.RequestException:
-        pass
+    # Through `hub/outbound.py`, because this is the first thing that happens
+    # to an address somebody typed into a form -- and the address it settles on
+    # is the one every later call sends the application password to.
+    r, why = outbound.fetch(origin + "/")
+    if r is None:
+        return {"error": f"Could not read that site. {why}"}
+    link = (r.headers.get("Link") or "")
+    m_link = re.search(r'<([^>]+)>;\s*rel="https://api\.w\.org/"', link)
+    if m_link:
+        candidates.append((m_link.group(1), "advertised in the site's own Link header"))
+    else:
+        m = _REST_LINK.search(r.text[:200000] or "")
+        if m:
+            candidates.append((m.group(1), "advertised in the page head"))
     candidates.append((origin + "/wp-json/", "the default address"))
     candidates.append((origin + "/?rest_route=/", "the plain-permalinks address"))
 
     tried = []
     for url, how in candidates:
         root = url if url.endswith("/") else url + "/"
-        try:
-            r = requests.get(root, headers=UA, timeout=TIMEOUT)
-        except requests.RequestException as exc:            # noqa: BLE001
-            tried.append(f"{root} ({type(exc).__name__})")
+        r, why = outbound.fetch(root)
+        if r is None:
+            tried.append(f"{root} ({why})")
             continue
         if r.status_code != 200:
             tried.append(f"{root} ({r.status_code})")
@@ -261,6 +316,15 @@ def _call(cred: dict, method: str, path: str, *, json_body=None,
     if filename:
         headers["Content-Disposition"] = f'attachment; filename="{filename}"'
     url = _endpoint(root, path)
+    # The guard matters most here, not least. This request carries the client's
+    # application password in an Authorization header, and the address comes
+    # from a stored REST root -- which was checked at connect time, and DNS
+    # moves afterwards. Sending a credential to whatever a hostname resolves to
+    # today is the thing worth refusing.
+    ok, why = outbound.safe_url(url)
+    if not ok:
+        raise Refused("This site's saved address is not one we send "
+                      f"credentials to. {why}")
     try:
         r = requests.request(method, url, headers=headers, params=params,
                              json=json_body, data=data, timeout=TIMEOUT)
@@ -274,7 +338,8 @@ def _call(cred: dict, method: str, path: str, *, json_body=None,
         body = {}
     if r.status_code >= 400:
         raise Refused(_explain(r.status_code, body if isinstance(body, dict) else {},
-                               sent_auth=True))
+                               sent_auth=True),
+                      status=r.status_code)
     return {"body": body, "headers": r.headers, "status": r.status_code}
 
 
@@ -306,11 +371,12 @@ def probe(client: str) -> dict:
     can_post = bool(caps.get("publish_posts") or caps.get("edit_posts"))
     can_media = bool(caps.get("upload_files"))
     namespaces: list[str] = []
-    try:
-        root = requests.get(cred["rest_root"], headers=UA, timeout=TIMEOUT)
-        namespaces = list((root.json() or {}).get("namespaces") or [])
-    except Exception:                                       # noqa: BLE001
-        namespaces = []
+    root, _why = outbound.fetch(cred.get("rest_root") or "")
+    if root is not None:
+        try:
+            namespaces = list((json.loads(root.text) or {}).get("namespaces") or [])
+        except Exception:                                   # noqa: BLE001
+            namespaces = []
     plugin = next((SEO_NAMESPACES[n] for n in namespaces if n in SEO_NAMESPACES), "")
     out = {
         "ok": True,
@@ -331,21 +397,471 @@ def probe(client: str) -> dict:
         out["warnings"].append(
             "This user cannot upload files, so featured images will be skipped "
             "and the post still written.")
-    if not plugin:
-        out["warnings"].append(
-            "No Yoast or Rank Math REST namespace was found, so meta "
-            "descriptions are written into the post's Excerpt field instead.")
-    else:
-        out["warnings"].append(
-            f"{plugin} is installed, but it does not expose its meta "
-            "description over the API, so the description is written into the "
-            "Excerpt field and should be copied across by hand.")
+    # The meta description sentence is decided AFTER the plugin has been asked,
+    # below, because what is true about it depends on whether the Smart 1 Hub
+    # plugin is there to make that field writable.
+    # Schema does not ride on `unfiltered_html` any more -- it goes in the head
+    # through our own plugin and never into post content -- so the capability
+    # is still reported, because it is the difference between a post body we
+    # can write verbatim and one WordPress will filter, and it no longer says
+    # anything about schema.
     if not out["unfiltered_html"]:
         out["warnings"].append(
-            "This user does not have unfiltered_html, so JSON-LD pasted into "
-            "post content would be stripped. Schema and FAQ blocks stay on the "
-            "Claude-in-Chrome path for this site.")
+            "This user does not have unfiltered_html, so anything unusual in a "
+            "post body may be filtered on the way in. Schema is unaffected: it "
+            "goes in the page head through the Smart 1 Hub plugin.")
+    try:
+        out["plugin"] = plugin_status(cred)
+    except Exception as exc:                                # noqa: BLE001
+        # A probe that raises over an optional half is worse than one that
+        # cannot answer about it. Nothing below the plugin depends on this.
+        out["plugin"] = {"installed": False, "measured": False,
+                         "error": f"{type(exc).__name__}"}
+    if not out["plugin"].get("installed"):
+        out["warnings"].append(
+            "The Smart 1 Hub plugin is not installed, so page schema cannot be "
+            "written to this site yet. Blogs and alt text do not need it."
+            if out["plugin"].get("measured") is not False else
+            "We could not tell whether the Smart 1 Hub plugin is installed.")
+    else:
+        out["warnings"] += list(out["plugin"].get("warnings") or [])
+
+    # Four true sentences about where a blog post's meta description ends up,
+    # and which one holds depends on two facts rather than one. Collapsing them
+    # would put "copy it across by hand" in front of somebody on a site where
+    # it now goes across by itself.
+    described_by = str(out["plugin"].get("description_by") or "")
+    out["description_field"] = described_by
+    if described_by:
+        out["warnings"].append(
+            f"A blog post's meta description goes into {described_by}'s own "
+            "field, and into the Excerpt. Nothing has to be copied across.")
+    elif plugin and out["plugin"].get("installed"):
+        out["warnings"].append(
+            f"{plugin} is installed, and it keeps its meta description "
+            "somewhere this cannot write to — the description goes into the "
+            "Excerpt field and should be copied across in WordPress.")
+    elif plugin:
+        out["warnings"].append(
+            f"{plugin} is installed. Its meta description field becomes "
+            "writable once the Smart 1 Hub plugin is on the site; until then "
+            "the description goes into the Excerpt and is copied across by "
+            "hand.")
+    else:
+        out["warnings"].append(
+            "No SEO plugin was found on this site, so a blog post's meta "
+            "description goes into the post's Excerpt field.")
     return out
+
+
+# -------------------------------------------------------------- the plugin
+def plugin_bytes() -> bytes:
+    """The plugin file as it sits in this repo."""
+    with open(PLUGIN_FILE, "rb") as fh:
+        return fh.read()
+
+
+def plugin_zip() -> bytes:
+    """The same file, wrapped so it installs from Plugins -> Add New -> Upload.
+
+    Two ways in, because the two have different costs and only one of them is
+    always available. A must-use plugin cannot be deactivated by anybody, which
+    is not ours to decide on a client's site, and installing one needs SFTP or
+    a file manager. The zip needs neither: a webmaster uploads it and can turn
+    it off again. WordPress requires the file inside a folder, so it is written
+    at `<slug>/<slug>.php` rather than at the root of the archive.
+    """
+    import io as _io
+    import zipfile
+    buf = _io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(f"{PLUGIN_SLUG}/{PLUGIN_SLUG}.php", plugin_bytes())
+    return buf.getvalue()
+
+
+def plugin_status(cred: dict) -> dict:
+    """Is our plugin on this site, and is it the version this Hub expects.
+
+    Asked before anything is written, because core **drops an unregistered meta
+    key without complaining**: the write answers 200, the response carries no
+    such key, and nothing anywhere says the schema is not on the site. That is
+    the silent success this whole module is written against, so the absence is
+    established up front and confirmed again by reading the value back.
+    """
+    try:
+        body = _call(cred, "GET", PLUGIN_NAMESPACE + "/status")["body"]
+    except Refused as exc:
+        if getattr(exc, "status", 0) == 404:
+            return {"installed": False,
+                    "note": "The Smart 1 Hub plugin is not on this site."}
+        # Not determinable is not the same answer as not installed: a site that
+        # refused the credential or did not answer tells us nothing about what
+        # is installed on it, and reporting it as missing sends somebody to
+        # install a plugin that may already be there.
+        return {"installed": False, "measured": False, "error": str(exc)}
+    if not isinstance(body, dict) or body.get("plugin") != PLUGIN_SLUG:
+        return {"installed": False, "measured": False,
+                "error": "Something else is answering at "
+                         f"{PLUGIN_NAMESPACE}/status on this site."}
+    version = str(body.get("version") or "")
+    out = {
+        "installed": True,
+        "measured": True,
+        "version": version,
+        "current": version == PLUGIN_VERSION,
+        "expected": PLUGIN_VERSION,
+        "meta_key": str(body.get("meta_key") or ""),
+        "post_types": [str(t) for t in (body.get("post_types") or [])],
+        "seo_plugins": [str(x) for x in (body.get("seo_plugins") or [])],
+        # Which SEO plugin's description field this site accepts a write to,
+        # and whose it is. Empty is a real answer and not a failure: the
+        # Excerpt fallback is what the module did before any of this.
+        "description_key": str(body.get("description_key") or ""),
+        "description_by": str(body.get("description_by") or ""),
+        "must_use": bool(body.get("must_use")),
+        "warnings": [],
+    }
+    if not out["current"]:
+        out["warnings"].append(
+            f"This site has version {version or '(unknown)'} of the plugin and "
+            f"this Hub expects {PLUGIN_VERSION}. Schema still writes; install "
+            "the current file when convenient.")
+    # The key is the whole wire contract. An older plugin that spells it
+    # differently would take the write, store nothing under the name we read
+    # back, and the run would report every page as rejected with no reason a
+    # rep could act on -- so it is named here instead.
+    if out["meta_key"] and out["meta_key"] != SCHEMA_META:
+        out["warnings"].append(
+            f"The plugin on this site stores schema under "
+            f"'{out['meta_key']}' and this Hub writes '{SCHEMA_META}'. "
+            "Install the current plugin file.")
+    if out["seo_plugins"]:
+        out["warnings"].append(
+            ", ".join(out["seo_plugins"])
+            + " also emits structured data on this site. Two blocks on one page "
+              "is legal, and two that describe the business differently is not "
+              "something either of them can resolve — worth a look at a page "
+              "once the first block is live.")
+    return out
+
+
+def resolve_url(cred: dict, url: str) -> dict:
+    """Which post this URL is, asked of WordPress rather than guessed.
+
+    Core's REST API has no resolver, so the alternative is searching by slug --
+    and a slug is unique neither across post types nor across a page hierarchy.
+    The plugin calls `url_to_postid()`, which is the site's own answer.
+    """
+    try:
+        body = _call(cred, "GET", PLUGIN_NAMESPACE + "/resolve",
+                     params={"url": url})["body"]
+    except Refused as exc:
+        return {"id": 0, "error": str(exc)}
+    if not isinstance(body, dict):
+        return {"id": 0, "error": "The site answered the resolver with "
+                                  "something that is not a record."}
+    out = {"id": int(body.get("id") or 0),
+           "type": str(body.get("type") or ""),
+           "rest_base": str(body.get("rest_base") or ""),
+           "status": str(body.get("status") or ""),
+           "title": str(body.get("title") or ""),
+           "link": str(body.get("link") or ""),
+           "registered": bool(body.get("registered"))}
+    if not out["id"]:
+        out["error"] = str(body.get("reason") or
+                           "WordPress does not resolve that address to a post.")
+    elif not out["rest_base"]:
+        out["error"] = (f"That address is a '{out['type']}', which this site "
+                        "does not serve over the REST API, so nothing can be "
+                        "written to it.")
+    elif not out["registered"]:
+        out["error"] = (f"The plugin does not register the schema field for "
+                        f"'{out['type']}'. Install the current plugin file.")
+    return out
+
+
+def _schema_blockers(page: dict) -> str:
+    """Why this saved page must not be written, before a call is made."""
+    if not page.get("approved"):
+        return ("This page's schema has not been approved yet. Approve it on "
+                "the Schema Builder first — the whole point of the approval is "
+                "that nothing unreviewed reaches the client's live site.")
+    block = page.get("schema")
+    if not isinstance(block, (dict, list)) or not block:
+        return "There is no schema saved for this page."
+    return ""
+
+
+def _schema_text(block) -> str:
+    import json as _json
+    return _json.dumps(block, ensure_ascii=False, separators=(",", ":"))
+
+
+def publish_schema(client: str, urls: list[str] | None = None, *,
+                   actor: str = "") -> dict:
+    """Write approved page schema onto the site through the plugin.
+
+    Every page reports its own outcome, and each one is **read back**: the
+    response to the write carries the registered meta, so comparing it to what
+    was sent is what separates "WordPress answered 200" from "the block is on
+    the site". Without that a missing plugin, a post type the plugin does not
+    cover and JSON the site rejected all look like a clean run.
+    """
+    from . import seo
+    try:
+        cred = _credential(client)
+    except Refused as exc:
+        return {"error": str(exc)}
+    state = cms_credentials.state(client)
+    probe_row = state.get("probe") or {}
+    if probe_row.get("ok") is False:
+        return {"error": "The last connection check on this site failed: "
+                         + str(probe_row.get("error") or "")}
+
+    plugin = plugin_status(cred)
+    if not plugin.get("installed"):
+        return {"error": (str(plugin.get("error") or "")
+                          or "Schema needs the Smart 1 Hub plugin on the "
+                             "client's site — core WordPress keeps schema "
+                             "fields out of the REST API, so there is nothing "
+                             "for this to write to until it is installed.")
+                          + " Download it from the WordPress connection panel "
+                            "and install it under Plugins → Add New → Upload.",
+                "plugin": plugin, "needs_plugin": True}
+
+    store = seo.load_store(client)
+    pages = store.get("pages") or {}
+    wanted = [u for u in (urls or []) if u in pages]
+    missing = [u for u in (urls or []) if u not in pages]
+    todo, deferred = (wanted[:MAX_SCHEMA_PAGES_PER_RUN],
+                      wanted[MAX_SCHEMA_PAGES_PER_RUN:])
+
+    started = time.time()
+    results, written = [], 0
+    for url in missing:
+        results.append({"url": url, "ok": False,
+                        "error": "No schema is saved for this page."})
+    for url in todo:
+        page = pages[url]
+        row = {"url": url, "title": str(page.get("title") or ""), "ok": False,
+               "notes": []}
+        if time.time() - started > BUDGET_SECONDS:
+            deferred.append(url)
+            continue
+        blocker = _schema_blockers(page)
+        if blocker:
+            row["error"] = blocker
+            results.append(row)
+            continue
+        target = resolve_url(cred, url)
+        if target.get("error"):
+            row["error"] = target["error"]
+            results.append(row)
+            continue
+        text = _schema_text(page.get("schema"))
+        try:
+            made = _call(cred, "POST",
+                         f"wp/v2/{target['rest_base']}/{int(target['id'])}",
+                         json_body={"meta": {SCHEMA_META: text}})["body"]
+        except Refused as exc:
+            row["error"] = str(exc)
+            results.append(row)
+            continue
+        landed = ""
+        if isinstance(made, dict) and isinstance(made.get("meta"), dict):
+            landed = str(made["meta"].get(SCHEMA_META) or "")
+        if landed != text:
+            # Three different faults land here and the response cannot tell
+            # them apart, so the sentence names all three rather than picking
+            # the likeliest and sending somebody to the wrong one.
+            row["error"] = (
+                "WordPress took the request and did not store the block. That "
+                "is the plugin missing on this post type, a plugin older than "
+                "this Hub, or the site rejecting the JSON. Run the connection "
+                "check, then install the current plugin file."
+                if landed == "" else
+                "WordPress stored something different from what was sent, so "
+                "the block on the page is not the one that was approved.")
+            results.append(row)
+            continue
+        row.update({"ok": True, "post_id": target["id"],
+                    "post_type": target["type"],
+                    "link": target.get("link") or url,
+                    "edit_url": _edit_link(cred, target["id"]),
+                    "bytes": len(text)})
+        if target.get("status") and target["status"] != "publish":
+            row["notes"].append(
+                f"That page is '{target['status']}' rather than published, so "
+                "the block is on it but nothing is serving it yet.")
+        page["wordpress"] = {"post_id": target["id"],
+                             "post_type": target["type"],
+                             "link": target.get("link") or "",
+                             "at": _now(), "by": str(actor or ""),
+                             "bytes": len(text)}
+        # The table's own column for this. Stamped only where the write landed,
+        # because a date saying the schema is on the site is exactly the field
+        # somebody reads instead of going to look.
+        if not page.get("added_to_site"):
+            page["added_to_site"] = time.strftime("%Y-%m-%d")
+        page["updated"] = time.strftime("%Y-%m-%d %H:%M")
+        written += 1
+        results.append(row)
+
+    if written:
+        seo.save_store(client, store)
+        audit.log("seo", "wordpress_schema_published", actor=actor or None,
+                  client=client, detail=f"{written} page(s)")
+    note = _left_note(len(deferred), "page")
+    for warning in plugin.get("warnings") or []:
+        note = (note + " " if note else "") + warning
+    return {"ok": True, "results": results, "written": written,
+            "left": len(deferred), "note": note, "plugin": plugin,
+            "reminder": "The block goes in the page head. No page content was "
+                        "changed and nothing was published."}
+
+
+# ------------------------------------------------- is it actually on the page
+_LD_BLOCK = re.compile(
+    re.escape(SCHEMA_MARKER)
+    + r"\s*<script[^>]*application/ld\+json[^>]*>(.*?)</script>",
+    re.I | re.S)
+
+
+def _fetch_public(url: str) -> tuple[str, str]:
+    """The page as a stranger gets it. Returns (html, why-not).
+
+    Deliberately unauthenticated: the whole question is what a visitor -- and
+    therefore a crawler -- sees, and sending the credential would ask a
+    different one. A logged-in request also bypasses most page caches, which
+    is exactly the fault this is looking for.
+    """
+    r, why = outbound.fetch(url)
+    if r is None:
+        return "", why
+    if r.status_code == 404:
+        return "", ("That address answers 404 to somebody not signed in. A "
+                    "draft or private page is not public, so nothing on it is "
+                    "visible to a crawler either.")
+    if r.status_code >= 400:
+        return "", f"That page answered {r.status_code} to a visitor."
+    ctype = str(r.headers.get("Content-Type") or "")
+    if "html" not in ctype.lower():
+        return "", f"That address served {ctype or 'something that is not a page'}."
+    return r.text or "", ""
+
+
+def verify_schema(client: str, urls: list[str] | None = None) -> dict:
+    """Fetch each page as a visitor and say whether our block is really on it.
+
+    `publish_schema()` reads the value back out of the write, which proves
+    **WordPress stored it** -- and that is not the same claim as a visitor
+    seeing it. Three ordinary things break the second without touching the
+    first: the plugin deactivated, a caching plugin still serving HTML from
+    before the write, and a theme that never calls `wp_head()`. All three
+    leave the Hub saying the schema is on the site, with an added-to-site date
+    against it, and nothing anywhere disagreeing.
+
+    So this is the hop `hub/llms_hosting.verify()` already makes one tool over:
+    ask the page itself, unauthenticated, and report what came back.
+
+    ## The verdicts
+
+    **live** -- our block is on the page and is the JSON we stored.
+
+    **stale** -- our block is on the page and is *different* from what we
+    stored. Almost always a page cache serving HTML from before the last
+    write; occasionally somebody editing the field in WordPress. Named as a
+    difference rather than as either cause, because the page cannot tell us
+    which.
+
+    **absent** -- the page came back and our block is not in it. The plugin
+    deactivated, a theme with no `wp_head()`, or a cache old enough to predate
+    the plugin.
+
+    **not_measured** -- we could not fetch the page, or there is nothing
+    stored to compare against. Never a verdict about the page.
+    """
+    from . import seo
+    store = seo.load_store(client)
+    pages = store.get("pages") or {}
+    wanted = [u for u in (urls or []) if u in pages]
+    todo, deferred = (wanted[:MAX_VERIFY_PAGES_PER_RUN],
+                      wanted[MAX_VERIFY_PAGES_PER_RUN:])
+
+    started = time.time()
+    results = {"live": 0, "stale": 0, "absent": 0, "not_measured": 0}
+    rows = []
+    for url in (u for u in (urls or []) if u not in pages):
+        rows.append({"url": url, "verdict": "not_measured",
+                     "note": "No schema is saved for this page, so there is "
+                             "nothing to compare what is on it against."})
+        results["not_measured"] += 1
+    for url in todo:
+        page = pages[url]
+        if time.time() - started > BUDGET_SECONDS:
+            deferred.append(url)
+            continue
+        row = {"url": url, "title": str(page.get("title") or ""),
+               "verdict": "not_measured", "note": ""}
+        stored = page.get("schema")
+        if not isinstance(stored, (dict, list)) or not stored:
+            row["note"] = "There is no schema saved for this page."
+            rows.append(row)
+            results["not_measured"] += 1
+            continue
+        html, why = _fetch_public(url)
+        if why:
+            row["note"] = why
+            rows.append(row)
+            results["not_measured"] += 1
+            continue
+        found = _LD_BLOCK.search(html)
+        if not found:
+            row["verdict"] = "absent"
+            row["note"] = (
+                "The page loaded and our block is not in it. That is the "
+                "plugin deactivated, a page cache still serving HTML from "
+                "before it was written, or a theme that does not call "
+                "wp_head(). Nothing here can tell those apart from outside.")
+            rows.append(row)
+            results["absent"] += 1
+            continue
+        try:
+            import json as _json
+            on_page = _json.loads(found.group(1))
+        except ValueError:
+            # Not the same finding as a stale cache. The plugin escapes `<` to
+            # its \u003c JSON escape precisely so a `</script>` in the data
+            # cannot end the block early, so unreadable JSON here means the
+            # block on the page was not written by a plugin that does that --
+            # an old one, or somebody's optimizer rewriting the head.
+            row["verdict"] = "stale"
+            row["note"] = (
+                "Our marker is on the page and what follows it is not readable "
+                "JSON. The block was cut short, which is a plugin older than "
+                "the one that escapes it, or something on the site rewriting "
+                "the page head.")
+            rows.append(row)
+            results["stale"] += 1
+            continue
+        if on_page == stored:
+            row["verdict"] = "live"
+            row["note"] = "Our block is on the page, and it is what was sent."
+        else:
+            row["verdict"] = "stale"
+            row["note"] = (
+                "Our block is on the page and is not what was last sent. "
+                "Usually a page cache serving HTML from before the last write "
+                "— clear the site's cache and check again. It can also be "
+                "somebody editing the field in WordPress.")
+        rows.append(row)
+        results[row["verdict"]] += 1
+
+    return {"ok": True, "results": rows, "counts": results,
+            "left": len(deferred), "note": _left_note(len(deferred), "page"),
+            "reminder": "Each page was fetched the way a visitor gets it — "
+                        "signed out, and through whatever cache the site has "
+                        "in front of it."}
 
 
 def connect(client: str, *, site_url: str, username: str, app_password: str,
@@ -452,8 +968,19 @@ def _author_id(cred: dict, name: str, probe_row: dict) -> tuple[int | None, str]
 
 # ------------------------------------------------------------------- media
 def _fetch_bytes(url: str) -> tuple[bytes, str]:
-    r = requests.get(url, headers=UA, timeout=TIMEOUT)
-    r.raise_for_status()
+    """The approved featured image, fetched from wherever it is stored.
+
+    Through the guard like everything else: this is a URL off a stored record
+    rather than one this code chose, and the bytes are about to be uploaded
+    into the client's own media library.
+    """
+    r, why = outbound.fetch(url)
+    if r is None:
+        raise Refused(why)
+    if r.status_code >= 400:
+        raise Refused(f"That image answered {r.status_code}.")
+    if r.truncated:
+        raise Refused("That image is larger than this uploads.")
     return r.content, (r.headers.get("Content-Type") or "").split(";")[0].strip()
 
 
@@ -499,7 +1026,7 @@ def _upload_featured(cred: dict, post: dict) -> tuple[int | None, str]:
 
 # -------------------------------------------------------------------- posts
 def _post_payload(post: dict, *, category_ids, tag_ids, author_id,
-                  media_id) -> dict:
+                  media_id, description_key: str = "") -> dict:
     body = {
         "title": str(post.get("title") or ""),
         "content": str(post.get("content") or ""),
@@ -509,7 +1036,14 @@ def _post_payload(post: dict, *, category_ids, tag_ids, author_id,
         "status": "draft",
     }
     if post.get("meta_description"):
+        # The Excerpt is written either way, and that is deliberate. It was
+        # only ever a CARRIER for the meta description, but it is also a real
+        # field a theme prints under the title on a blog index -- so dropping
+        # it now that the description has somewhere better to go would change
+        # how the client's own blog index renders, which nobody asked for.
         body["excerpt"] = str(post["meta_description"])
+        if description_key:
+            body["meta"] = {description_key: str(post["meta_description"])}
     if category_ids:
         body["categories"] = category_ids
     if tag_ids:
@@ -561,6 +1095,21 @@ def publish_posts(client: str, ids: list, *, actor: str = "") -> dict:
     wanted = [i for i in ids if i in posts]
     todo, deferred = wanted[:MAX_POSTS_PER_RUN], wanted[MAX_POSTS_PER_RUN:]
 
+    # Asked ONCE for the run rather than per post: it is one round trip, and
+    # the answer cannot change between two posts in the same press.
+    #
+    # And nothing about it may cost somebody a blog post. Writing the
+    # description into the SEO plugin's own field is an improvement on this
+    # path rather than a precondition for it -- a site with no plugin, or one
+    # that answered this oddly, publishes exactly as it did before and falls
+    # back to the Excerpt.
+    try:
+        plugin = plugin_status(cred)
+    except Exception:                                       # noqa: BLE001
+        plugin = {}
+    description_key = str(plugin.get("description_key") or "")
+    description_by = str(plugin.get("description_by") or "")
+
     author_name = (settings.get("author") or {}).get("name") or ""
     author_id, author_note = (None, "")
     if author_name:
@@ -602,7 +1151,8 @@ def publish_posts(client: str, ids: list, *, actor: str = "") -> dict:
             if author_note:
                 row["notes"].append(author_note)
             body = _post_payload(post, category_ids=cats, tag_ids=tags,
-                                 author_id=author_id, media_id=media_id)
+                                 author_id=author_id, media_id=media_id,
+                                 description_key=description_key)
             existing = (post.get("wordpress") or {}).get("post_id")
             path = f"wp/v2/posts/{int(existing)}" if existing else "wp/v2/posts"
             made = _call(cred, "POST", path, json_body=body)["body"]
@@ -619,14 +1169,47 @@ def publish_posts(client: str, ids: list, *, actor: str = "") -> dict:
                              "updated": bool(existing)}
         row.update({"ok": True, "post_id": wp_id, "link": link,
                     "edit_url": edit, "updated": bool(existing)})
-        if not post.get("meta_description"):
+        description = str(post.get("meta_description") or "")
+        if not description:
             row["notes"].append("No meta description has been written for this "
                                 "post, so the Excerpt is empty.")
-        elif probe_row.get("seo_plugin"):
+        elif description_key:
+            # A 200 is not evidence a meta key landed: core drops one nothing
+            # registered without complaining, which on this path would be an
+            # older plugin on the site. Read it back off the same response.
+            landed = ""
+            if isinstance(made.get("meta"), dict):
+                landed = str(made["meta"].get(description_key) or "")
+            if landed == description:
+                row["meta_description_field"] = description_by
+                row["notes"].append(
+                    f"The meta description went into {description_by}'s own "
+                    "field, and into the Excerpt. Nothing to copy across.")
+            else:
+                row["notes"].append(
+                    f"The Excerpt has the meta description, but {description_by}'s "
+                    "own field would not take it — that is a plugin on the site "
+                    "older than this Hub. Install the current plugin file, or "
+                    "copy the description across in WordPress.")
+        elif plugin.get("seo_plugins") or probe_row.get("seo_plugin"):
+            # The plugin's answer is read live, this press; the probe row is
+            # what was stored whenever somebody last pressed Check. Where they
+            # disagree the live one is the newer fact.
+            named = (", ".join(plugin.get("seo_plugins") or [])
+                     or probe_row.get("seo_plugin"))
             row["notes"].append(
-                f"The meta description went into the Excerpt field — "
-                f"{probe_row['seo_plugin']} does not accept one over the API, "
-                "so copy it across in WordPress.")
+                f"The meta description went into the Excerpt field. {named} "
+                "keeps its own description somewhere this cannot write to, so "
+                "copy it across in WordPress.")
+        if len(description) > META_DESCRIPTION_SNIPPET:
+            # Reported, never cut. Google truncates the snippet; it does not
+            # refuse the page, and shortening the client's approved copy to fit
+            # is not this module's call.
+            row["notes"].append(
+                f"That description is {len(description)} characters. Google "
+                f"truncates a snippet around {META_DESCRIPTION_SNIPPET}, so the "
+                "end of it will not show. It was written as approved rather "
+                "than cut.")
         published += 1
         results.append(row)
 

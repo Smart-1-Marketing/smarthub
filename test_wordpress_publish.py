@@ -208,6 +208,13 @@ class Site:
         self.calls.append((method, path, json_body, params))
         if path in self.fail_on:
             raise wordpress.Refused(self.fail_on[path])
+        if path == wordpress.PLUGIN_NAMESPACE + "/status":
+            # This site has no Smart 1 Hub plugin, which is the ordinary case
+            # for blogs and alt text: neither needs one. What it asserts is
+            # that the blog path still publishes without it, and still falls
+            # back to the Excerpt for the meta description.
+            raise wordpress.Refused("WordPress answered 404 for that endpoint.",
+                                    status=404)
         if path == "wp/v2/categories" and method == "GET":
             q = (params or {}).get("search", "").lower()
             return {"body": [c for c in self.categories if q in c["name"].lower()]}
@@ -342,8 +349,14 @@ check("every item reports its own outcome", len(out["results"]) == 3)
 check("the count is of what actually went", out["published"] == 1, out)
 check("and the panel is reminded nothing was published",
       "DRAFT" in out["reminder"], out["reminder"])
-check("an SEO plugin that cannot take a meta description says so",
+check("with no plugin on the site, the description falls back to the Excerpt",
       any("Excerpt" in n for n in rows[1]["notes"]), rows[1]["notes"])
+check("and it still says to copy it across, because on this site it is true",
+      any("copy it across" in n for n in rows[1]["notes"]), rows[1]["notes"])
+check("the Excerpt really carries it",
+      site.posts[rows[1]["post_id"]]["excerpt"] == "How to care for a roof.")
+check("and nothing was written to a meta key nothing reads",
+      "meta" not in site.posts[rows[1]["post_id"]], site.posts[rows[1]["post_id"]])
 check("the draft carries a link back into wp-admin",
       "post.php?post=" in rows[1]["edit_url"], rows[1]["edit_url"])
 
@@ -368,6 +381,111 @@ check("a post that fails carries the reason rather than a status code",
       broke["results"][0])
 site.fail_on.clear()
 
+
+# ------------------------------------------- the description, where it can go
+# The last step of publishing a blog post that a person still had to do twice.
+print("\nthe meta description, once the plugin makes the field writable")
+
+
+class SiteWithSEO(Site):
+    """The same site, with Yoast and the current plugin on it."""
+
+    def __init__(self, *, key="_yoast_wpseo_metadesc", by="Yoast SEO",
+                 swallow=False, version=None):
+        super().__init__()
+        self.key, self.by, self.swallow = key, by, swallow
+        self.version = version or wordpress.PLUGIN_VERSION
+
+    def __call__(self, cred, method, path, **kw):
+        if path == wordpress.PLUGIN_NAMESPACE + "/status":
+            self.calls.append((method, path, None, None))
+            return {"body": {"plugin": "smart-1-hub", "version": self.version,
+                             "meta_key": wordpress.SCHEMA_META,
+                             "post_types": ["post", "page"],
+                             "seo_plugins": [self.by] if self.by else [],
+                             "description_key": self.key,
+                             "description_by": self.by, "must_use": False}}
+        out = super().__call__(cred, method, path, **kw)
+        if path.startswith("wp/v2/posts") and method == "POST":
+            body = kw.get("json_body") or {}
+            sent = (body.get("meta") or {})
+            # Core drops an unregistered meta key without complaining, which
+            # is what an older plugin on the site looks like from here.
+            out["body"]["meta"] = {} if self.swallow else dict(sent)
+        return out
+
+
+def publish_one(site_obj, description="How to care for a roof."):
+    wordpress._call = site_obj
+    st = seo.load_store(CLIENT)
+    post = st["blogs"]["posts"][0]
+    post["meta_description"] = description
+    post.pop("wordpress", None)
+    seo.save_store(CLIENT, st)
+    res = wordpress.publish_posts(CLIENT, [1], actor="Tester")
+    return res["results"][0], site_obj
+
+
+row, s_ok = publish_one(SiteWithSEO())
+sent = [c for c in s_ok.calls if c[1].startswith("wp/v2/posts")][0][2]
+check("the description goes into the SEO plugin's own field",
+      (sent.get("meta") or {}).get("_yoast_wpseo_metadesc")
+      == "How to care for a roof.", sent.get("meta"))
+check("and into the Excerpt as well, because a theme prints that on the index",
+      sent.get("excerpt") == "How to care for a roof.", sent.get("excerpt"))
+check("the row names whose field it was", row.get("meta_description_field")
+      == "Yoast SEO", row)
+check("and says there is nothing to copy across",
+      any("Nothing to copy across" in n for n in row["notes"]), row["notes"])
+check("the plugin is asked once for the run, not once per post",
+      sum(1 for c in s_ok.calls
+          if c[1] == wordpress.PLUGIN_NAMESPACE + "/status") == 1,
+      [c[1] for c in s_ok.calls])
+
+row, _ = publish_one(SiteWithSEO(swallow=True))
+check("a 200 that stored no description is not reported as written",
+      row.get("meta_description_field") is None, row)
+check("and it names an older plugin as the cause, with what to do",
+      any("older than this Hub" in n for n in row["notes"]), row["notes"])
+check("the post itself still went in — the description is an improvement on "
+      "this path, not a precondition for it", row["ok"] is True, row)
+
+row, _ = publish_one(SiteWithSEO(key="", by="All in One SEO"))
+check("a plugin whose field this cannot reach falls back to the Excerpt",
+      any("Excerpt" in n for n in row["notes"]), row["notes"])
+check("and names it rather than saying nothing",
+      any("All in One SEO" in n for n in row["notes"]), row["notes"])
+
+class SiteThatBreaksOnStatus(SiteWithSEO):
+    """A status route that raises something other than a Refused.
+
+    plugin_status() catches a Refused, so the guard around it in
+    publish_posts() only earns its keep against everything else -- and what it
+    protects is somebody's blog post. The description is an improvement on
+    this path, not a precondition for it.
+    """
+
+    def __call__(self, cred, method, path, **kw):
+        if path == wordpress.PLUGIN_NAMESPACE + "/status":
+            raise ValueError("something nobody anticipated")
+        return Site.__call__(self, cred, method, path, **kw)
+
+
+row, _ = publish_one(SiteThatBreaksOnStatus())
+check("a status route that raises does not cost somebody the blog post",
+      row["ok"] is True, row)
+check("and the description still falls back to the Excerpt",
+      any("Excerpt" in n for n in row["notes"]), row["notes"])
+
+LONG = "A roof is a thing. " * 12
+row, _ = publish_one(SiteWithSEO(), description=LONG)
+sent = [c for c in _.calls if c[1].startswith("wp/v2/posts")][0][2]
+check("a description past the snippet length is written as approved",
+      (sent.get("meta") or {}).get("_yoast_wpseo_metadesc") == LONG)
+check("...and reported rather than cut",
+      any("truncates a snippet" in n for n in row["notes"]), row["notes"])
+
+wordpress._call = site
 
 # ---------------------------------------------------------------- alt text
 print("\nalt text")
@@ -442,14 +560,17 @@ with app.test_client() as c:
     check("the state route answers", r.status_code == 200, r.status_code)
     check("and carries no secret",
           "abcdEFGH" not in body and SECRET not in body, body[:200])
-    for kind in ("schema", "faqs"):
-        r = c.post("/api/seo/wordpress/publish",
-                   json={"client": CLIENT, "kind": kind})
-        msg = r.get_json().get("error", "")
-        check(f"{kind} is refused by name, not as an unknown kind",
-              "unfiltered_html" in msg or "REST" in msg, msg)
-        check(f"{kind} points at the path that does work",
-              "Claude" in msg, msg)
+    # Schema moved onto the plugin path and is asserted in
+    # test_wordpress_schema.py. What stays here is the FAQ refusal, because it
+    # is the one that is NOT about what REST can reach: the accordion carries
+    # its own FAQPage markup, so there is nothing separate to send.
+    r = c.post("/api/seo/wordpress/publish", json={"client": CLIENT, "kind": "faqs"})
+    msg = r.get_json().get("error", "")
+    check("faqs are refused by name, not as an unknown kind",
+          "FAQPage" in msg, msg)
+    check("and the refusal is the real reason rather than 'REST cannot'",
+          "two copies" in msg and "cannot see" in msg, msg)
+    check("faqs point at the path that does work", "Claude" in msg, msg)
     r = c.post("/api/seo/wordpress/publish", json={"client": CLIENT, "kind": "blogs"})
     check("publishing nothing is refused rather than reporting a clean run",
           r.status_code == 400, r.status_code)

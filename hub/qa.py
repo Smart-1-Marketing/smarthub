@@ -2954,6 +2954,65 @@ EXTRAS = [
             "ico": "&#128197;", "href": "/tools/domains"}),]
 
 
+def ask_gaps() -> dict:
+    """What people asked Ask SmartHub that it could read nothing for.
+
+    Every question is already written to the activity log with the tools it
+    used, so the questions that used none are recoverable and always were --
+    they were just never looked at. That list is the honest answer to "what
+    should Ask SmartHub be able to read next": the tools it has were chosen
+    by whoever built it, and these were chosen by the people using it.
+
+    A question that only needed a client named is not in here. It got an
+    answer -- "which of these did you mean" -- and the reader who came to
+    this report for a missing capability should not have to scroll past it.
+    """
+    columns = ["Question", "Times asked", "Last asked", "Who asked last"]
+    try:
+        from . import audit
+        rows = audit.read(limit=3000, module="ask_smarthub", type_="question")
+    except Exception as exc:                                  # noqa: BLE001
+        return _unmeasured(columns, f"The activity log could not be read: "
+                                    f"{type(exc).__name__}.")
+
+    asked: dict[str, dict] = {}
+    for row in rows:
+        question = str(row.get("question") or "").strip()
+        if not question:
+            continue
+        # source_count is what the module writes for the number of reads that
+        # answered; zero is the whole finding. A clarification is an answer,
+        # and is logged with its own match_status.
+        if row.get("source_count") or row.get("match_status") == "clarification":
+            continue
+        key = " ".join(question.lower().split())
+        seen = asked.setdefault(key, {"question": question, "count": 0,
+                                      "last": "", "actor": ""})
+        seen["count"] += 1
+        when = str(row.get("time") or "")
+        if when > seen["last"]:                # audit rows are ISO-8601 UTC
+            seen["last"] = when
+            seen["actor"] = str(row.get("actor") or "")
+
+    # Newest first, then most-asked first over the top of it: two stable
+    # sorts, because the tie-break wanted is "the newest of the equally
+    # asked" and a date reads the wrong way round inside a negated key.
+    out = sorted(asked.values(), key=lambda r: r["last"], reverse=True)
+    out.sort(key=lambda r: -r["count"])
+    table = [[r["question"], r["count"], (r["last"] or "")[:16].replace("T", " "),
+              r["actor"] or "Not recorded"] for r in out[:200]]
+    if not table:
+        note = ("Every question in the log was answered from something the Hub "
+                "could read. Nothing to add.")
+    else:
+        note = (f"{len(table)} question(s) Ask SmartHub could read nothing for, "
+                f"most-asked first. Each one is either a tool it does not have "
+                f"yet or a screen with no written help — a question it answered "
+                f"from the help registry counts as answered and is not here.")
+    return {"columns": columns, "rows": table, "row_styles": [],
+            "measured": True, "note": note}
+
+
 REPORTS = {
     "prospect-queue": {
         "title": "Prospects To Chase",
@@ -2980,6 +3039,19 @@ REPORTS = {
         "ico": "&#9679;",
         "fn": active_clients,
         "group": "Clients",
+    },
+    # Placed among the Data Quality reports rather than first, because
+    # /qa orders its groups by the first report it sees in here and
+    # test_prospect_queue.py pins Sales to the top of that page on purpose.
+    "ask-gaps": {
+        "title": "Questions With No Answer",
+        "desc": "What people asked Ask SmartHub that it could read nothing "
+                "for, most-asked first — the list of what it should be able "
+                "to read next, chosen by the people asking rather than by "
+                "whoever built it.",
+        "ico": "&#10067;",
+        "fn": ask_gaps,
+        "group": "Data Quality",
     },
     "knack-field-map": {
         "title": "Knack Field Map",

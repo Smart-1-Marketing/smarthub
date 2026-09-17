@@ -33,6 +33,14 @@ W = PAGE_W - M * 2
 BOTTOM = PAGE_H - 60
 
 
+def _conv(value) -> str:
+    """A conversion count for the table, or a dash where the platform reports
+    none. client_view.py leaves it None rather than nought precisely so this
+    does not print a measured zero about a metric nobody measured; the PDF is
+    the same page on paper and says the same thing."""
+    return f"{value:,}" if value is not None else "-"
+
+
 def _clean(text) -> str:
     s = "" if text is None else str(text)
     s = (s.replace("’", "'").replace("‘", "'").replace("“", '"')
@@ -402,7 +410,7 @@ def build(agg: dict) -> bytes:
                  ("Impressions", 70, True), ("Clicks", 70, True), ("CTR", 70, True),
                  ("Conversions", 70, True)],
                 [[r["label"], r["campaign"], f"{r['impressions']:,}", f"{r['clicks']:,}",
-                  r["ctr"], f"{r['conversions']:,}"] for r in table])
+                  r["ctr"], _conv(r["conversions"])] for r in table])
     else:
         d.text("Nothing delivered in this period yet.", size=9.5, color=MUTED)
     d.space(12)
