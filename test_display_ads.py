@@ -306,10 +306,21 @@ def test_a_size_can_be_approved_and_locked():
     check("saving names the sizes still unapproved", "unapprovedSizes()" in screen)
 
 
-def test_moving_on_asks_about_unsaved_work():
-    screen = BUILD_HTML.read_text()
-    check("switching size asks before losing edits", "Save your changes first?" in screen)
-    check("so does switching campaign or concept", "leaveIfSafe" in screen)
+def test_moving_on_saves_and_goes():
+    """Autosave writes within two seconds, so "save first?" was never a real
+    question -- it was a dialog on every click between sizes. The click saves
+    and goes now, and the only dialog left is the one for a save that failed,
+    which is the only case where leaving costs anything."""
+    screen = strip_comments(BUILD_HTML.read_text())
+    check("switching size no longer asks", "Save your changes first?" not in screen)
+    check("it saves, then advises, then goes",
+          "saveCampaign()\n      .then(function () {\n        flashSaved();\n        return adviseBeforeLeaving(size);" in screen)
+    check("a failed save is the one thing that stops it", "so nothing has moved. Your edits are still on screen" in screen)
+    check("switching campaign or concept saves and goes too",
+          "leaveIfSafe" in screen and "'Leave without saving', 'go'" in screen)
+    check("and the copy fields never ask either: every size by default",
+          "state.copyScope[field] = 'all';\n    return Promise.resolve('all');" in screen
+          and "Apply this to every size?" not in screen)
 
 
 def test_a_duplicate_is_the_next_lettered_concept():
@@ -2202,6 +2213,75 @@ def test_the_build_screen_follows_the_operators_list():
     check("the Hub lists the gallery's logos", '"/logos"' in link and "def client_logos" in link)
     check("a folder called logos is the default view", '"logos" in f.lower()' in link)
     check("the screen offers it beside Choose file", "logoFromGallery" in screen and "'/_hub/logos?client='" in said and "default_folder" in said)
+
+
+def test_the_second_list_smoother_and_bulletproof():
+    """The follow-up list: fewer questions, one big next button, a start-here
+    strip, a note that is not a warning, a preview drawn no larger than it
+    is looked at, and a browser test that actually clicks the thing."""
+    screen = BUILD_HTML.read_text()
+    said = strip_comments(screen)
+    qa = (MODULE / "src" / "qa.ts").read_text()
+    types = (MODULE / "src" / "types.ts").read_text()
+    plain = (MODULE / "src" / "plain-checks.ts").read_text()
+    render = RENDER_TS.read_text()
+    diag = (MODULE / "src" / "diagnostics.ts").read_text()
+    workflow = (ROOT / ".github" / "workflows" / "checks.yml").read_text()
+
+    # 3. Done with this size -> next
+    check("one button under the checks finishes a size", 'id="doneSize"' in screen and "function finishSize" in said)
+    check("it waits for the preview to settle before approving", "function whenPreviewSettled" in said and "state.previewBusy" in said)
+    check("a fail is never approved through it", "'Stay and fix it', null" in said)
+    check("warnings can be accepted on the way", "acceptWarnings: true" in said)
+    check("approval returns a promise the button can wait on", "return Promise.resolve(false);" in said)
+
+    # 4. Start here
+    check("the six steps are drawn above the sections", "function startHere" in said and 'class="steps"' in screen)
+    check("a step is done when the campaign says so or it was opened",
+          "function stepDone" in said and "state.visited[id]" in said and "!!effective('headline')" in said)
+
+    # 5. One Render dialog
+    check("the usual job is one press", "data-act=\"render-file-all\"" in screen)
+    check("everything else is behind More options", "More options" in screen)
+    check("and the one press asks no second question", "if (act === 'render-file-all') return startRender(null, true);" in said)
+
+    # 6. The AI wait can be skipped
+    check("the wait carries the mark and a way out", 'id="adviceSkip"' in screen and "adviceSeq" in said)
+
+    # 7. A new logo resets the tone
+    check("a new logo goes back to full color on every concept", "delete k.logoTone;" in said)
+
+    # 8. A note, not a warning
+    check("findings can be notes", "'pass' | 'warn' | 'fail' | 'info'" in types)
+    check("Meta's text guideline is one", "info(\n        'text-coverage'" in qa)
+    check("a note never decides the verdict", "`info` is a note and never a verdict" in qa)
+    check("the screen draws it as a note", 'class="qnote"' in screen)
+    check("and the advice never leads with one", "i.status !== 'info'" in plain)
+
+    # 9. Half-size preview
+    check("the live preview is drawn no larger than it is looked at", "PREVIEW_MAX_EDGE" in render and "density: 72 * previewScale" in render)
+    check("the background pass stays at delivery scale for the contrast samples", "which stays at delivery scale" in render)
+    check("the screen shows it at the delivered width", "$('preview').style.width = res.b.width" in said)
+
+    # 10. Fonts diagnostics
+    check("diagnostics names a missing family", "knownGoogleFamilies().filter((f) => !families.includes(f))" in diag)
+
+    # 11. Brief changed
+    check("the build screen notices a changed brief", "function checkBriefChanged" in said and "visibilitychange" in said)
+    check("and offers a reload rather than applying it", 'id="briefReload"' in screen)
+
+    # 12. The ink suggestion is checked before it is made
+    check("contrast records what was behind each low block", "data: { low: lowBehind }" in qa)
+    check("the advice chooses the ink that reads", "export function inkSuggestion" in plain and "reads: ratio >= 4.5" in plain)
+    check("and says when neither does", "Neither brand ink reads well here" in plain)
+
+    # 13. A browser test that clicks
+    e2e = MODULE / "tests-browser" / "build.e2e.ts"
+    check("there is a browser test", e2e.exists())
+    check("it skips by name without a browser rather than passing", "skip: executable ? false :" in e2e.read_text())
+    check("CI runs it after the render service has downloaded Chrome",
+          "Display ad renderer — browser test" in workflow and "npm run test:browser" in workflow)
+    check("it fails on any page error", "pageerror" in e2e.read_text())
 
 
 def main():
