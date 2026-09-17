@@ -445,6 +445,52 @@ def customer_by_id(customer_id) -> dict | None:
     return _customer_dict(rows[0]) if rows else None
 
 
+def _contact_fields(c: dict) -> dict:
+    """The person on a QuickBooks customer, as a Hub contact row would hold
+    it. QuickBooks keeps the billing contact's name in GivenName/FamilyName
+    beside the DisplayName (which is usually the company); the email is the
+    one invoices go to, and the phone is whichever of the three the customer
+    record carries first. Every field may be blank -- a customer entered as
+    a company with no person on it is normal, and a blank here is not an
+    error, it is the field QuickBooks did not have."""
+    def _s(v):
+        return " ".join(str(v or "").split())
+    name = " ".join(x for x in (_s(c.get("GivenName")), _s(c.get("MiddleName")),
+                                _s(c.get("FamilyName"))) if x)
+    if not name:
+        # A DisplayName that is plainly a person ("Jane Doe") and not the
+        # company is still the best name QuickBooks has; only use it when it
+        # differs from the company name it would otherwise duplicate.
+        display, company = _s(c.get("DisplayName")), _s(c.get("CompanyName"))
+        if display and company and display.lower() != company.lower():
+            name = display
+    phone = ""
+    for key in ("PrimaryPhone", "Mobile", "AlternatePhone"):
+        phone = _s((c.get(key) or {}).get("FreeFormNumber")) if isinstance(c.get(key), dict) else ""
+        if phone:
+            break
+    return {
+        "id": str(c.get("Id") or ""),
+        "customer": _s(c.get("DisplayName")),
+        "company": _s(c.get("CompanyName")),
+        "name": name,
+        "email": _s((c.get("PrimaryEmailAddr") or {}).get("Address")
+                    if isinstance(c.get("PrimaryEmailAddr"), dict) else ""),
+        "phone": phone,
+    }
+
+
+def customer_contact(customer_id) -> dict | None:
+    """Name, email and phone of the billing contact on one customer, or
+    None when the id matches nothing. Raises like every other read here
+    when QuickBooks itself refuses, so a caller can tell "no such customer"
+    from "could not ask"."""
+    rows = _query(
+        f"SELECT * FROM Customer WHERE Id = '{_esc(customer_id)}'"
+    ).get("Customer", [])
+    return _contact_fields(rows[0]) if rows else None
+
+
 def invoices_for_customer(customer_id, limit: int = 8) -> list[dict]:
     rows = _query(
         f"SELECT Id, DocNumber, TxnDate, DueDate, TotalAmt, Balance FROM Invoice "

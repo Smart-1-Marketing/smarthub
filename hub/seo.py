@@ -759,16 +759,44 @@ def apply_website_overrides(client: str, websites: list[dict]) -> list[dict]:
 
 
 # -------------------------------------------------- client profile & notes
+# Who a contact is to us. `primary` stays its own flag (exactly one contact
+# carries it); the role is what the rest of the row means. Client 360's
+# Client Info modal offers these in a dropdown, and the QuickBooks sync files
+# what it finds under `accounting`.
+CONTACT_ROLES = (
+    ("communicate", "Communicate"),
+    ("owner", "Owner"),
+    ("accounting", "Accounting"),
+    ("reporting", "Reporting"),
+    ("consultant", "Consultant"),
+    ("do_not_email", "Do not email"),
+    ("other", "Other"),
+)
+CONTACT_ROLE_KEYS = tuple(k for k, _ in CONTACT_ROLES)
+
+
 def get_profile(client: str) -> dict:
     """Editable client profile shared across the whole Hub:
-    {contacts:[{name,email,phone,primary}], address, category, notes:[...]}
-    Seeded from Brandfetch / business info when empty."""
+    {contacts:[{name,email,phone,primary,role,source}], address, category,
+    notes:[...]}
+    Seeded from Brandfetch / business info when empty. `category` is
+    `hub.industry.display_label()` -- the same string the header pill
+    shows, so the two cannot disagree -- with the stored text as the fallback
+    when the industry module cannot answer."""
     store = load_store(client)
     prof = dict(store.get("profile") or {})
     prof.setdefault("contacts", [])
     prof.setdefault("address", "")
     prof.setdefault("category", "")
     prof.setdefault("notes", [])
+    prof["contacts"] = [_clean_contact(c) for c in prof["contacts"]
+                        if isinstance(c, dict)]
+    try:
+        from hub import industry
+        if store.get("industry"):
+            prof["category"] = industry.display_label(client, store.get("industry"))
+    except Exception:                                    # noqa: BLE001
+        pass
     if not prof["address"] or not prof["category"]:
         bi = store.get("business_info", {})
         b = store.get("brandfetch") or {}
@@ -782,26 +810,63 @@ def get_profile(client: str) -> dict:
     return prof
 
 
-def set_profile(client: str, updates: dict) -> dict:
+def _clean_contact(c: dict) -> dict:
+    """One contact row, every field a string, the role one of CONTACT_ROLES
+    or empty. `source`/`source_id` say which system filed the row (the
+    QuickBooks sync writes "quickbooks" and the customer id) so a later run
+    can find its own row again rather than adding a second."""
+    entry = {k: str(c.get(k) or "").strip() for k in ("name", "email", "phone")}
+    entry["primary"] = bool(c.get("primary"))
+    role = str(c.get("role") or "").strip().lower().replace(" ", "_")
+    entry["role"] = role if role in CONTACT_ROLE_KEYS else ""
+    entry["source"] = str(c.get("source") or "").strip()[:40]
+    entry["source_id"] = str(c.get("source_id") or "").strip()[:64]
+    return entry
+
+
+def clean_contacts(rows: list, limit: int = 20) -> list[dict]:
+    """The contact list as it is stored: blanks dropped, exactly one primary."""
+    clean = []
+    for c in list(rows or [])[:limit]:
+        if not isinstance(c, dict):
+            continue
+        entry = _clean_contact(c)
+        if any(entry[k] for k in ("name", "email", "phone")):
+            clean.append(entry)
+    primaries = [i for i, c in enumerate(clean) if c["primary"]]
+    if clean and not primaries:
+        clean[0]["primary"] = True
+    for i in primaries[1:]:
+        clean[i]["primary"] = False
+    return clean
+
+
+def set_profile(client: str, updates: dict, actor: str = "") -> dict:
     store = load_store(client)
     prof = store.setdefault("profile", {})
     if isinstance(updates.get("contacts"), list):
-        clean = []
-        for c in updates["contacts"][:10]:
-            if not isinstance(c, dict):
-                continue
-            entry = {k: str(c.get(k) or "").strip()
-                     for k in ("name", "email", "phone")}
-            entry["primary"] = bool(c.get("primary"))
-            if any(entry[k] for k in ("name", "email", "phone")):
-                clean.append(entry)
-        if clean and not any(c["primary"] for c in clean):
-            clean[0]["primary"] = True
-        prof["contacts"] = clean
-    for k in ("address", "category"):
-        if k in updates:
-            prof[k] = str(updates[k] or "").strip()
+        prof["contacts"] = clean_contacts(updates["contacts"])
+    if "address" in updates:
+        prof["address"] = str(updates["address"] or "").strip()
     save_store(client, store)
+    # The category is the industry record's label, kept in one place: a
+    # typed category that differs from what the header shows becomes the
+    # client's manual industry pick (resolved onto the taxonomy so the Image
+    # Picker follows), and hub.industry writes it back onto this field. An
+    # empty submission changes nothing -- clearing the field is not a pick.
+    if "category" in updates:
+        typed = " ".join(str(updates["category"] or "").split())
+        if typed:
+            try:
+                from hub import industry
+                if typed.lower() != industry.display_label(client).lower():
+                    industry.set_manual(client, "", actor=actor, custom_label=typed)
+                elif not (store.get("industry") or {}).get("key"):
+                    industry.set_manual(client, "", actor=actor, custom_label=typed)
+            except Exception:                            # noqa: BLE001
+                store = load_store(client)
+                store.setdefault("profile", {})["category"] = typed
+                save_store(client, store)
     return get_profile(client)
 
 

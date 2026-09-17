@@ -4980,6 +4980,7 @@ def create_hub_app() -> Flask:
         if not name:
             return jsonify({"profile": {}})
         prof = seo.get_profile(name)
+        prof["contact_roles"] = [{"key": k, "label": v} for k, v in seo.CONTACT_ROLES]
         # What their own website publishes, offered into the fields nobody has
         # filled in. Suggested, never saved: the profile is what a person
         # typed and it wins from the moment they press Save — the overlay rule
@@ -5014,9 +5015,42 @@ def create_hub_app() -> Flask:
         client = (body.get("client") or "").strip()
         if not client:
             return jsonify({"error": "client is required."}), 400
-        prof = seo.set_profile(client, body)
+        prof = seo.set_profile(client, body, actor=current_user() or "")
         audit.log("hub", "client_profile_saved", actor=current_user(), detail=client)
         return jsonify({"ok": True, "profile": prof})
+
+    @app.route("/api/client/profile/qb-sync", methods=["POST"])
+    def api_client_profile_qb_sync():
+        """File the attached QuickBooks customer's billing contact now.
+
+        The same pass the Sunday job makes (hub/qb_contacts.py), for one
+        client, behind a button -- a weekly job alone means a week before
+        anybody can see it work. Under /api/client/ for the reason every
+        other Client 360 write is.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import seo, qb_contacts
+        body = request.get_json(silent=True) or {}
+        client = (body.get("client") or "").strip()
+        if not client:
+            return jsonify({"error": "client is required."}), 400
+        res = qb_contacts.sync_client(client, actor=current_user() or "")
+        prof = seo.get_profile(client)
+        prof["contact_roles"] = [{"key": k, "label": v} for k, v in seo.CONTACT_ROLES]
+        return jsonify({"ok": res.get("ok", False), "result": res, "profile": prof})
+
+    @app.route("/api/client/screenshots")
+    def api_client_screenshots():
+        """The desktop and mobile captures from the client's newest scan --
+        hub/scan_facts.screenshots(). Read-only; `found: False` with no URL
+        is the page's cue to draw nothing rather than a broken image."""
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import scan_facts
+        return jsonify(scan_facts.screenshots((request.args.get("domain") or "").strip()))
 
     # ------------- industry: hub/industry.py, the one canonical taxonomy
     @app.route("/api/client/industry")
@@ -5033,7 +5067,11 @@ def create_hub_app() -> Flask:
             result = industry.resolve_industry(client=name)
         ind = industry.industry(result.get("key") or "") or {}
         result = dict(result)
-        result["label"] = ind.get("label") or "General Business"
+        result["canonical_label"] = ind.get("label") or "General Business"
+        # The one string both the header pill and Client Info show; a
+        # person's own wording ("Winery") wins over the taxonomy's row.
+        result["label"] = industry.display_label(name, result)
+        result["custom_label"] = str(result.get("custom_label") or "")
         options = [{"key": i["key"], "label": i["label"],
                     "subtypes": sorted((i.get("subtypes") or {}).keys())}
                    for i in industry.INDUSTRIES]
@@ -5048,14 +5086,18 @@ def create_hub_app() -> Flask:
         body = request.get_json(silent=True) or {}
         client = str(body.get("client") or "").strip()
         key = str(body.get("key") or "").strip()
-        if not client or not key:
-            return jsonify({"error": "client and key are required."}), 400
+        # `custom` is the "add your own" wording; with no key it is resolved
+        # onto the taxonomy so every module keyed on it follows the change.
+        custom = " ".join(str(body.get("custom") or "").split())
+        if not client or not (key or custom):
+            return jsonify({"error": "client and a key or custom label are required."}), 400
         ok = industry.set_manual(client, key, str(body.get("subtype") or ""),
-                                 actor=current_user() or "")
+                                 actor=current_user() or "", custom_label=custom)
         if not ok:
             return jsonify({"error": "Could not save that industry."}), 400
-        return jsonify({"ok": True,
-                        "industry": industry._stored_industry(client)})  # noqa: SLF001
+        stored = industry._stored_industry(client)  # noqa: SLF001
+        return jsonify({"ok": True, "industry": stored,
+                        "label": industry.display_label(client, stored)})
 
     # ------------- client groups: one company, several client records
     # Why this exists, and every rule it enforces: hub/client_groups.py.

@@ -3715,6 +3715,14 @@ jobs:
         if: matrix.group == 8
         run: python3 test_industry_consumers.py
 
+      # hub/qb_contacts.py: the QuickBooks billing contact filed onto the
+      # client record under Accounting -- the merge that never writes over a
+      # typed value, the Sunday 2pm Eastern weekly window decided inside the
+      # sweep, a refusal that stops the pass, and the scheduler entry.
+      - name: QuickBooks billing contact on the client record
+        if: matrix.group == 8
+        run: python3 test_qb_contacts.py
+
       # WO-3a: hub/schema_prefill.py prefills the Schema Builder's Business
       # Info step from the client brief -- offered into empty fields only,
       # a saved value that disagrees is a note rather than an overwrite, and

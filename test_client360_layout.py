@@ -277,6 +277,85 @@ check("an unassigned client can still receive its first assignment",
 # owner card no longer draws or fetches it.
 check("renderRoles no longer draws an outstanding-issues container",
       'c-owner-issues' in assigned, False)
+# The header used to say Salesperson and Partner under the name AND in the
+# roles row. One place: the roles row, now titled Smart 1 Internal, with the
+# assignment's "since <date> by <user>" and "managed from" text gone and a
+# Client Warnings column on the right.
+check("the header no longer repeats Salesperson / Partner under the name",
+      "'Salesperson: '" in REC, False)
+check("the roles row is titled Smart 1 Internal", "Smart 1 Internal" in assigned)
+check("and carries the salesperson", "Salesperson" in assigned)
+check("an assigned client no longer reads 'managed from Client Assignments'",
+      "managed from Client Assignments" in assigned, False)
+check("nor 'since <date>'", "since " in assigned, False)
+check("the row has a Client Warnings column",
+      "Client Warnings" in assigned and 'id="c360Warnings"' in assigned)
+
+# ------------------------------------------------------------------------
+section("4. The Client Warnings column, driven in node")
+wa = REC.find("/* ---- c360 warnings (lifted")
+wb = REC.find("/* ---- end c360 warnings ----")
+WARN_SRC = REC[wa:wb] if 0 < wa < wb else ""
+check("the warnings block is marked for lifting", bool(WARN_SRC))
+warn_driver = """
+const esc=s=>String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
+const c360RefreshButton=()=>'<button class="c360-refresh">Refresh</button>';
+""" + WARN_SRC + """
+const out={
+  pending: renderC360WarningsHtml(null, []),
+  clear: renderC360WarningsHtml([], []),
+  queue: renderC360WarningsHtml([
+    {level:'warn', section:'overview', title:'6 products ending within 21 days', detail:'Display in 9 days'},
+    {level:'bad', section:'billing', title:'Live products with no monthly amount on file'}], []),
+  local: renderC360WarningsHtml([], [{level:'warn', section:'overview', title:'No contact on file'}]),
+  unread: renderC360WarningsHtml({error:'HTTP 502'}, []),
+};
+console.log(JSON.stringify(out));
+"""
+warn_run = subprocess.run(["node", "-"], input=warn_driver, capture_output=True, text=True)
+check("the warnings block runs on its own", warn_run.returncode, 0)
+w = json.loads(warn_run.stdout or "{}") if warn_run.returncode == 0 else {}
+check("before the health strip answers it says so", "Checking" in w.get("pending", ""))
+check("a clean record says nothing is flagged", "Nothing flagged" in w.get("clear", ""))
+check("the health queue's ending-soon warning is drawn",
+      "6 products ending within 21 days" in w.get("queue", ""))
+check("worst first: the bad row precedes the warn row",
+      w.get("queue", "").find("no monthly amount") < w.get("queue", "").find("ending within"))
+check("each row jumps to its section", 'data-go="billing"' in w.get("queue", ""))
+check("the record's own contact warning is drawn", "No contact on file" in w.get("local", ""))
+check("a health strip that could not be read says so, with a Refresh",
+      "could not be read" in w.get("unread", "") and "c360-refresh" in w.get("unread", ""))
+
+# ------------------------------------------------------------------------
+section("5. The rest of the header work")
+sec_run = subprocess.run(["node", "-"], input=SRC + "\nconsole.log(C360_SECTIONS[1].key);\n",
+                         capture_output=True, text=True)
+check("Work & requests sits directly under Overview in the rail",
+      (sec_run.stdout or "").strip(), "work")
+check("a failed request offers a Refresh button, not a hint",
+      "function c360Refresh()" in REC and "c360RefreshButton()" in REC
+      and "showC360RequestFailure" in REC)
+check("Create display ads and Email client & history are styled as buttons",
+      ".c360-actions button,.c360-actions a{" in REC)
+check("the scan's screenshots load beside the name and hide when the image fails",
+      'id="c360Shots"' in REC and "function loadScreenshots(name)" in REC
+      and "img.onerror=()=>{ b.remove();" in REC and "/api/client/screenshots?domain=" in REC)
+check("clicking a screenshot opens the lightbox",
+      'id="shotLightbox"' in REC and "function openShot(url, caption, scanUrl)" in REC)
+check("the category pill is editable, with a dropdown and your-own wording",
+      "__custom" in REC and "body.custom=text" in REC and "function c360EditIndustry()" in REC)
+check("saving the category refreshes the Client Info strip too",
+      "window.__c360reloadProfile" in REC)
+check("the Client Info category opens the same editor",
+      'onclick="c360EditIndustry();return false"' in REC)
+check("a record with no contact shows a warning with an Add contact button",
+      "c360-contact-warn" in REC and 'id="profAddFirst"' in REC)
+check("contacts carry a level dropdown with Make primary",
+      'class="pc-role"' in REC and "Make primary" in REC)
+check("the QuickBooks contact can be pulled from the strip",
+      "/api/client/profile/qb-sync" in REC)
+check("the creative table's third column has room between its controls",
+      'class="c360-cre-acts"' in REC)
 check("and the page no longer defines the disclosure renderer",
       "function renderClientIssues" in REC, False)
 check("nor fetches the route that fed it",
