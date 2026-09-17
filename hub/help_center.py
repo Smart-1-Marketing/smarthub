@@ -188,6 +188,62 @@ def qa_notifications():
     return items, ''
 
 
+def asset_notifications():
+    """Files that landed in, or were finished for, the clients on my book.
+
+    The actor filter in `inbox()` is right for renders -- one person's
+    inbox must never show another person's work -- and wrong for this: a
+    client uploading through their share link has no staff actor at all,
+    and the person who needs to know is whoever is attached to the account.
+    So these rows are picked by CLIENT: the ones `modules/image_picker/
+    notices.attached()` names for the signed-in person, read off the same
+    activity log every other panel reads. `(items, error)`, never raises.
+    """
+    try:
+        from hub import identity
+        user = identity.user_from_environ(request.environ)
+        email = (user.email if user else '') or ''
+        if not email:
+            return [], ''
+        from modules.image_picker import notices
+        from hub import client_key
+        rows = audit.tail(limit=400, module='image_picker')
+    except Exception as exc:  # noqa: BLE001
+        return [], f'Asset notifications could not be read ({type(exc).__name__}).'
+    wanted = {'client_upload': ('New files from the client', 'uploaded'),
+              'internal_upload': ('Files added by our team', 'uploaded'),
+              'optimized_all': ('SEO copies finished', 'completed')}
+    mine: dict[str, bool] = {}
+    items = []
+    for row in rows:
+        kind = row.get('type')
+        client = str(row.get('client') or '').strip()
+        if kind not in wanted or not client:
+            continue
+        key = client_key.resolve(name=client)['key'] if client else ''
+        if key not in mine:
+            try:
+                mine[key] = email.lower() in notices.attached(client)
+            except Exception:  # noqa: BLE001
+                mine[key] = False
+        if not mine[key]:
+            continue
+        label, state = wanted[kind]
+        detail = client + (' · ' + str(row.get('filename')) if row.get('filename') else '')
+        if kind == 'optimized_all' and row.get('count') is not None:
+            detail = f"{client} · all {row['count']} images"
+        if row.get('folder'):
+            detail += ' · ' + str(row['folder'])
+        from urllib.parse import quote
+        items.append(dict(
+            id=hashlib.sha256(json.dumps(row, sort_keys=True).encode()).hexdigest()[:24],
+            title=label, detail=detail, time=row.get('time'), status=state,
+            url='/tools/image-picker/gallery/for-client?name=' + quote(client)))
+        if len(items) >= 20:
+            break
+    return items, ''
+
+
 @bp.get('/api/hub-inbox')
 @signed_in
 def inbox():
@@ -243,6 +299,7 @@ def inbox():
         if len(items) >= 30:
             break
     qa_items, qa_error = qa_notifications()
-    items = items[:30] + qa_items
+    asset_items, _asset_error = asset_notifications()
+    items = items[:30] + qa_items + asset_items
     items.sort(key=lambda item: item.get('time') or '', reverse=True)
     return jsonify(user=who, items=items, qa_error=qa_error)

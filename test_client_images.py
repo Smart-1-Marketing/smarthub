@@ -144,8 +144,12 @@ found = gclient.get("/api/gallery?q=riverside").get_json()
 check("a search totals its own results", found["total"], 2)
 
 # The Client 360 card must read the filtered figure, never the archive one.
+# It used to add the brand logos on top; those are filed into the gallery's
+# Logos folder now (autoFileLogos) and counted there, never spliced in.
 check("Client 360 reads d.total for the count",
-      "const total=(d.total||0)+" in C360, True)
+      "const total=d.total||0;" in C360, True)
+check("and no longer splices brand logos into the count",
+      "BRAND_LOGOS" in C360, False)
 
 
 # =====================================================================

@@ -354,6 +354,76 @@ class ImageDescription(Base):
         }
 
 
+class ImageOptimization(Base):
+    """The SEO-optimized copy of one uploaded image, and how far along it is.
+
+    Its own table, for the reason `ImageDescription` gives above: a column
+    added to `image_picker_images` exists on every local SQLite run and is
+    silently absent on the live Postgres. One row per saved image, written
+    by `modules/image_picker/optimize.py` from a scheduled job, never from
+    the request that recorded the upload -- a client sending forty phone
+    photographs must not wait on forty re-encodes.
+
+    The original is never touched. `optimized_url` is a second Cloudinary
+    asset, capped, converted to WebP and named for search, sitting beside the
+    original under `<gallery folder>/optimized`; the gallery row keeps its own
+    URL, its own bytes and its own filename, because the file the client sent
+    is the file they sent.
+
+    `state` is one of pending, done, failed, given_up or skipped. "skipped"
+    is a file this does not apply to (a PDF, a video, an SVG); "given_up" is
+    an image that failed MAX_ATTEMPTS times and is left alone rather than
+    retried every five minutes for ever -- the rule `ImageDescription` works
+    to for a vision call.
+    """
+
+    __tablename__ = "image_picker_optimizations"
+
+    id = Column(Integer, primary_key=True)
+    image_id = Column(Integer,
+                      ForeignKey("image_picker_images.id", ondelete="CASCADE"),
+                      nullable=False, unique=True, index=True)
+    client_id = Column(Integer, nullable=False, index=True)
+
+    state = Column(String(20), nullable=False, default="pending", index=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    last_error = Column(Text, nullable=True)
+
+    optimized_public_id = Column(String(400), nullable=True)
+    optimized_url = Column(Text, nullable=True)
+    seo_filename = Column(String(200), nullable=True)
+    alt_text = Column(Text, nullable=True)
+    bytes_before = Column(Integer, nullable=True)
+    bytes_after = Column(Integer, nullable=True)
+    width = Column(Integer, nullable=True)
+    height = Column(Integer, nullable=True)
+    # "ai" when the model named it, "fallback" when the name was built from
+    # the client and the original filename. Said on the row so a screen can
+    # tell copy written for this image from a name we made up without looking.
+    named_by = Column(String(20), nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    def to_dict(self) -> dict:
+        return {
+            "image_id": self.image_id,
+            "state": self.state or "pending",
+            "attempts": int(self.attempts or 0),
+            "url": self.optimized_url or "",
+            "public_id": self.optimized_public_id or "",
+            "seo_filename": self.seo_filename or "",
+            "alt_text": self.alt_text or "",
+            "bytes_before": self.bytes_before,
+            "bytes_after": self.bytes_after,
+            "width": self.width,
+            "height": self.height,
+            "named_by": self.named_by or "",
+            "last_error": self.last_error or "",
+            "updated_at": iso(self.updated_at),
+        }
+
+
 def _preview(url, resource_type=""):
     """A derived thumbnail where one is possible, and the original otherwise."""
     try:
