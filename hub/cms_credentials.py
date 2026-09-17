@@ -6,13 +6,24 @@ write API since 4.7 and Application Passwords since 5.6, so a client's blog
 posts and image alt text can be written directly. `hub/wordpress.py` is the
 half that makes the calls; this is the half that holds what they are made with.
 
-**It is an application password, never the site login, and that is a security
-property rather than a preference.** A WordPress application password is minted
-per integration at Users -> Profile, it cannot be used to sign in to wp-admin
-interactively, and the client revokes it from their own Users screen without
-changing anybody's password or telling us. Storing the human's real login would
-give this Hub a book of credentials that open every one of those sites to
-anything, including the parts of them this tool has no business in.
+**What the API calls are made with is an application password, never the site
+login, and that is a security property rather than a preference.** A WordPress
+application password is minted per integration at Users -> Profile, it cannot
+be used to sign in to wp-admin interactively, and the client revokes it from
+their own Users screen without changing anybody's password or telling us.
+Nothing in this Hub authenticates as the human, and nothing should.
+
+**And the human's login is here too, because it already existed and was worse
+off where it was.** The paragraph below describes `setup.password` on the SEO
+record -- the client's real website login -- being written to
+`data/seo/<client>.json` in plain text and mirrored into every database backup
+that way. That is the value this file was written *about*, and a second module
+to hold it would have been a second copy of the sealing, the three states and
+the one-file-per-client rule, which is the drift `hub/storage.py` exists to
+stop. It is the `SITE_LOGIN` kind here: same sealing, same three answers, same
+file-per-client, and deliberately **not** something any API call authenticates
+with. Which of the two a caller wants is the difference between `WORDPRESS`
+and `SITE_LOGIN`, and no code path reaches for the second.
 
 **It is sealed, and the state it was found in is one of three.** The Hub has
 had `TOKEN_ENCRYPTION_KEY` and Fernet since Google Finder -- `modules/skills360`
@@ -55,7 +66,13 @@ import time
 from . import jsonstore
 
 WORDPRESS = "wordpress"
-CMS_KEYS = (WORDPRESS,)
+# The client's own login to their website -- what a rep signs in with by hand,
+# which is the credential `hub/cms_publish.py`'s prompts tell them to use
+# before pasting anything. Held apart from WORDPRESS because they are not
+# interchangeable: one authenticates an API call and the other is a person's
+# password, and only the first is ever sent anywhere.
+SITE_LOGIN = "site_login"
+CMS_KEYS = (WORDPRESS, SITE_LOGIN)
 
 
 def _slug(name: str) -> str:
@@ -193,6 +210,115 @@ def save(client: str, cms: str, *, rest_root: str, username: str,
     jsonstore.write_json(_path(client, cms), record, indent=1)
     return {"ok": True, "sealed": bool(sealed.get("enc")),
             "state": state(client, cms)}
+
+
+def save_site_login(client: str, *, login: str, password: str,
+                    access_method: str = "", access_url: str = "",
+                    actor: str = "") -> dict:
+    """Seal the client's own website login.
+
+    Separate from `save()` because the two records are not the same shape and
+    must not be able to be mistaken for one another: this one carries no REST
+    root, is never handed to `hub/wordpress.py`, and nothing authenticates
+    with it.
+
+    A blank password **keeps** whatever is stored rather than clearing it --
+    the setup form sends the field only when somebody typed in it, and the
+    alternative is a form somebody edits for an unrelated reason quietly
+    throwing away a credential.
+    """
+    client = str(client or "").strip()
+    if not client:
+        return {"error": "client is required."}
+    rec = _load(client, SITE_LOGIN) or {}
+    secret = str(password or "")
+    if secret:
+        rec["secret"] = _seal(secret)
+        rec["saved_by"] = str(actor or "") or "unknown"
+        rec["saved_at"] = _now()
+    elif "secret" not in rec:
+        rec["secret"] = {}
+    rec["client"] = client
+    rec["cms"] = SITE_LOGIN
+    for key, value in (("login", login), ("access_method", access_method),
+                       ("access_url", access_url)):
+        if value is not None:
+            rec[key] = str(value or "").strip()
+    jsonstore.write_json(_path(client, SITE_LOGIN), rec, indent=1)
+    return {"ok": True, "state": site_login_state(client)}
+
+
+def site_login_state(client: str) -> dict:
+    """What a screen may know about it. A subset, never the password.
+
+    The three states are the same three, and the third one matters as much
+    here: a rotated key reading as "no login on file" is what sends somebody
+    to type a client's password in again when the one on file was fine.
+    """
+    rec = _load(client, SITE_LOGIN)
+    enc = encryption_state()
+    if not rec or not (rec.get("secret") or {}).get("data"):
+        return {"has_password": False, "login": (rec or {}).get("login") or "",
+                "sealed": False, "readable": False, "error": "",
+                "saved_by": "", "saved_at": "", "encryption": enc}
+    _secret, err = _unseal(rec.get("secret"))
+    return {"has_password": True,
+            "login": rec.get("login") or "",
+            "sealed": bool((rec.get("secret") or {}).get("enc")),
+            "readable": not err,
+            "error": err,
+            "saved_by": rec.get("saved_by") or "",
+            "saved_at": rec.get("saved_at") or "",
+            "encryption": enc}
+
+
+def adopt_plaintext_site_login(client: str, setup: dict) -> bool:
+    """Move a plaintext `setup.password` into the sealed store. Once.
+
+    The SEO store held the client's real website login in the clear, and
+    because that store goes through `hub/jsonstore.py` it was mirrored into
+    Postgres and into every database backup that way -- the whole book of them.
+
+    This is the `hub/ad_assets.py` migration shape and its warning: the old
+    value is read only while the new store is empty, and the caller deletes it
+    from the SEO record in the same save, so this runs exactly once per client
+    and never again. It returns whether there was anything to move, so the
+    caller knows whether it has a write to make -- a migration that rewrites
+    the source on every read is the defect that file records paying for.
+
+    **It refuses to run on a deployment that cannot seal.** Moving a plaintext
+    password out of `data/seo/<client>.json` and into
+    `data/cms_credentials/<client>__site_login.json` changes which file in the
+    backup it is in and nothing else -- `_seal()` falls back to storing the raw
+    value when there is no key, by design, so that a save can still say so.
+    Migrating under that fallback would spend the client's one plaintext copy
+    on no improvement and leave the SEO panel reading from a store that cannot
+    answer. So an unset or invalid `TOKEN_ENCRYPTION_KEY` leaves the record
+    exactly where it is, and `/status` keeps saying why.
+
+    Never raises. A seal that cannot happen must not cost somebody the page
+    they were opening.
+    """
+    try:
+        legacy = str((setup or {}).get("password") or "")
+        if not legacy:
+            return False
+        rec = _load(client, SITE_LOGIN) or {}
+        if not encryption_state().get("configured") and not (
+                rec.get("secret") or {}).get("data"):
+            return False
+        if (rec.get("secret") or {}).get("data"):
+            # Already sealed; the plaintext is a leftover for the caller to
+            # drop rather than something to copy over a newer value.
+            return True
+        save_site_login(client, login=(setup or {}).get("login") or "",
+                        password=legacy,
+                        access_method=(setup or {}).get("access_method") or "",
+                        access_url=(setup or {}).get("access_url") or "",
+                        actor="migrated from the SEO record")
+        return True
+    except Exception:                                       # noqa: BLE001
+        return False
 
 
 def get(client: str, cms: str = WORDPRESS) -> dict:

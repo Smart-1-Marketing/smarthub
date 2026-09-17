@@ -242,6 +242,15 @@ python3 test_wordpress_publish.py  # the other publishing path: a credential
                                    #   category matched exactly or created, and
                                    #   two pages wanting two alts on one image
                                    #   named rather than last-one-wins
+python3 test_site_login.py         # the client's own website login, sealed:
+                                   #   the plaintext leaves the SEO record and
+                                   #   the assertion is on the bytes on the
+                                   #   disk, it moves exactly once, a
+                                   #   deployment with no TOKEN_ENCRYPTION_KEY
+                                   #   refuses to move plaintext into an
+                                   #   identical file, and a rotated key reads
+                                   #   as "cannot be read" rather than as no
+                                   #   login on file
 python3 test_outbound.py           # what this Hub may fetch: the check is
                                    #   on the resolved address rather than the
                                    #   hostname, every redirect hop is
