@@ -139,10 +139,10 @@ check("a date object is accepted as well as a string",
 
 section("A platform outside PLATFORMS is refused")
 
-check("PLATFORMS is the thirteen the work order names",
+check("PLATFORMS is the thirteen the work order names, plus call tracking",
       store.PLATFORMS,
       ("ttd", "google", "bing", "linkedin", "tiktok", "audiogo", "stackadapt",
-       "meta", "groundtruth", "x", "amazon_sa", "amazon_dsp", "suite"))
+       "meta", "groundtruth", "x", "amazon_sa", "amazon_dsp", "suite", "callrail"))
 msg = raises(store.upsert_rows, [dict(ROW, platform="facebook")])
 check("'facebook' is refused with the list in the message",
       "facebook" in msg and "meta" in msg)
@@ -160,7 +160,7 @@ check("nothing is nothing", store.upsert_rows([]), 0)
 
 section("Every platform is listed on the status board, synced or not")
 status = store.platform_status()
-check("thirteen rows", len(status), 13)
+check("fourteen rows", len(status), 14)
 google = next(r for r in status if r["platform"] == "google")
 check("Google shows its rows and a sync time",
       google["rows"] >= 4 and bool(google["synced_at"]))
@@ -274,7 +274,7 @@ check("a negative markup is refused", "negative" in raises(store.set_markup, "bi
 check("a zero CPM is refused", "zero" in raises(store.set_markup, "bing", cpm="0"))
 check("an unknown platform is refused", bool(raises(store.set_markup, "fb", cpm="1")))
 rows = store.markups()
-check("every platform is listed, set or not", len(rows), 13)
+check("every platform is listed, set or not", len(rows), 14)
 bing = next(r for r in rows if r["platform"] == "bing")
 check("an unset platform reads as unset rather than as zero",
       (bing["markup"], bing["cpm"], bing["updated_at"]), (None, None, None))

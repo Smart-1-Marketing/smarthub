@@ -76,8 +76,8 @@ H = {"Host": "localhost"}
 section("Every platform is one of four states, and a store that refuses is not measured")
 
 f = health.feeds(TODAY)
-check("measured, thirteen platforms", (f["measured"], len(f["platforms"])), (True, 13))
-check("nothing has synced: every platform is 'never'", f["never"], 13)
+check("measured, fourteen platforms", (f["measured"], len(f["platforms"])), (True, 14))
+check("nothing has synced: every platform is 'never'", f["never"], 14)
 check("...which is a fact, not a fault: no failing, no stale", (f["failing"], f["stale"]), (0, 0))
 check("the binding is reported", f["binding"] in ("reports", "hub", "sqlite"))
 

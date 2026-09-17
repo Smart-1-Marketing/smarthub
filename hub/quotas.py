@@ -208,6 +208,17 @@ QUOTAS: dict[str, Quota] = {
         "Reporting calls made by the native pull and the check page. "
         "GroundTruth publishes no per-call price and no ceiling this Hub can "
         "read; no limit until GROUND_TRUTH_MONTHLY_LIMIT is set."),
+    # CallRail meters requests per minute (120 per account, by its
+    # reference) and publishes no monthly ceiling or per-call price, so the
+    # native pull's calls are counted and the row reads *not measured*
+    # against a limit until CALLRAIL_MONTHLY_LIMIT is set.
+    "callrail": Quota(
+        "callrail", "CallRail", "calls", 0, 0,
+        "CALLRAIL_WARN_AT", "CALLRAIL_MONTHLY_LIMIT",
+        "Account and call-list requests made by the native call-tracking "
+        "pull and its check page. CallRail charges nothing per request and "
+        "publishes no monthly ceiling this Hub can read; no limit until "
+        "CALLRAIL_MONTHLY_LIMIT is set."),
     # Google costs nothing and is limited by requests per day, so a monthly
     # allowance would be the wrong shape entirely -- google_estimate() does
     # the per-day, per-API comparison. This row is the monthly total, for
@@ -434,6 +445,17 @@ def record_groundtruth(url: str, *, module: str, api: str = "",
     check page. Never raises."""
     try:
         record("groundtruth", module=module, units=1, api=api or "",
+               detail=str(url or "")[:120], ok=ok)
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
+def record_callrail(url: str, *, module: str, api: str = "",
+                    ok: bool = True) -> None:
+    """One request to CallRail's API, by the native pull or the check
+    page. Never raises."""
+    try:
+        record("callrail", module=module, units=1, api=api or "",
                detail=str(url or "")[:120], ok=ok)
     except Exception:                                   # noqa: BLE001
         pass
@@ -1626,6 +1648,20 @@ _PROVIDER_MARKERS = {
                   "so the pull's calls never reach the usage page.",
         "fix": "Call through groundtruth.call(), which records every request, "
                "or add quotas.record_groundtruth(url, module=..., api=...) after "
+               "the response.",
+    },
+    "callrail": {
+        # The API origin is a setting (CALLRAIL_API_BASE) rather than a
+        # literal, so the marker is the domain any spelling of it carries.
+        "calls": lambda src: "callrail.com" in src and "requests." in src,
+        "recorded": ("record_callrail", 'record("callrail"',
+                     "from modules.reports import callrail",
+                     "modules.reports.callrail"),
+        "detail": "Calls CallRail's API outside modules/reports/callrail.py "
+                  "and without recording it, so the pull's calls never reach "
+                  "the usage page.",
+        "fix": "Call through callrail.call(), which records every request, "
+               "or add quotas.record_callrail(url, module=..., api=...) after "
                "the response.",
     },
     "pickaxe": {

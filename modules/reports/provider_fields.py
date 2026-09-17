@@ -3,8 +3,8 @@ pull expects, what the platform documents that the pull does not read, and
 what has to be true on Render for the pull to run at all.
 
 ``/reports/provider-check`` is the overview -- every platform's raw table
-against ``provider_map.py`` -- and the three live check pages (AudioGo,
-GroundTruth, Amazon DSP) call an endpoint and print what came back. What
+against ``provider_map.py`` -- and the four live check pages (AudioGo,
+GroundTruth, Amazon DSP, CallRail) call an endpoint and print what came back. What
 neither answered was the question a person asks with a key in hand:
 *which fields does the Hub read from this platform, which does the
 platform offer that the Hub leaves on the table, and what do I set on the
@@ -46,7 +46,7 @@ from . import provider_map, store
 # The order the submenu lists them in: the native pulls first, in the order
 # the nightly job runs them, then the platforms that arrive only through
 # the managed provider's tables.
-NATIVE = ("ttd", "google", "bing", "stackadapt", "audiogo", "groundtruth", "amazon_dsp")
+NATIVE = ("ttd", "google", "bing", "stackadapt", "audiogo", "groundtruth", "amazon_dsp", "callrail")
 WINDSOR_ONLY = tuple(p for p in store.PLATFORMS if p not in NATIVE and p != "suite")
 ORDER = NATIVE + WINDSOR_ONLY
 
@@ -56,11 +56,12 @@ CHECK_PAGES = {
     "audiogo": "/reports/audiogo-check",
     "groundtruth": "/reports/groundtruth-check",
     "amazon_dsp": "/reports/amazon-check",
+    "callrail": "/reports/callrail-check",
 }
 # What the link to each is called, as the buttons that used to sit on every
 # Reports screen called them.
 CHECK_LABELS = {"audiogo": "AudioGo check", "groundtruth": "GroundTruth check",
-                "amazon_dsp": "Amazon check"}
+                "amazon_dsp": "Amazon check", "callrail": "CallRail check"}
 
 
 def _env(name: str, unset: str, *, required: bool = True, source: str = "") -> dict:
@@ -152,6 +153,25 @@ ENV: dict[str, list[dict]] = {
         _env("AMAZON_ADS_REFRESH_TOKEN", "the consent lives in the database instead; set to pin it "
              "across a redeploy.", required=False),
     ],
+    "callrail": [
+        _env("CALLRAIL_API_KEY", "the pull refuses by name. An API key from a CallRail user's "
+             "settings (Account > API Keys); the reference sends it as Authorization: Token "
+             "token=\"<key>\".", source="apidocs.callrail.com"),
+        _env("CALLRAIL_API_BASE", "nothing is called and the key is sent nowhere. The reference's "
+             "own examples call https://api.callrail.com; setting it to that origin is what lets "
+             "the check page make its first call.", source="apidocs.callrail.com"),
+        _env("CALLRAIL_ACCOUNT_ID", "every account the key sees is read; set to read one account "
+             "and skip the accounts call.", required=False),
+        _env("CALLRAIL_CALLS_PATH", "the placeholder path /v3/a/{account_id}/calls.json is called; "
+             "CALLRAIL_ACCOUNTS_PATH beside it for /v3/a.json.", required=False,
+             source="apidocs.callrail.com"),
+        _env("CALLRAIL_REQUEST_FIELDS", "the request asks for company_id, company_name, source, "
+             "first_call and lead_status beyond the default fields.", required=False),
+        _env("CALLRAIL_AUTH_FORMAT", "defaults to Token token=\"{key}\" on the Authorization "
+             "header, the reference's shape; CALLRAIL_AUTH_HEADER beside it.", required=False),
+        _env("CALLRAIL_MONTHLY_LIMIT", "calls are counted and read as not measured against a "
+             "limit.", required=False),
+    ],
 }
 
 # How the key reaches the platform, in a sentence, and where the reference
@@ -183,6 +203,12 @@ HOW: dict[str, dict] = {
     "amazon_dsp": {"line": "Amazon Ads API: Login with Amazon consent, the DSP entity's profile, and an "
                            "asynchronous daily ORDER + LINE_ITEM report per advertiser.",
                    "docs": "advertising.amazon.com/API/docs (DSP reports)", "verified": False},
+    "callrail": {"line": "CallRail API v3, JSON, with the key in an Authorization: Token header. The "
+                         "accounts the key sees, then every call in the window per account, paged "
+                         "250 at a time, counted here by company, source and day. Not media: a row "
+                         "is calls, never spend. The reference is on a host the Hub's environment "
+                         "cannot reach, so the shape is a transcription.",
+                 "docs": "apidocs.callrail.com", "verified": False},
 }
 
 # Documented by the platform and not read by any pull here. Each block is
@@ -292,6 +318,25 @@ DOCUMENTED: dict[str, dict] = {
                "would double-count beside it. Purchases and detail-page views ride in extras and are "
                "never folded into conversions, which this platform does not report.",
     },
+    "callrail": {
+        "source": "apidocs.callrail.com's API v3 reference for calls, as the search index shows it; "
+                  "no page has been read whole",
+        "fields": [
+            "customer_name, customer_phone_number, customer_city, customer_state, customer_country",
+            "tracking_phone_number, business_phone_number, tracker_id",
+            "recording, recording_duration, recording_player, transcription, keywords_spotted, call_highlights",
+            "medium, campaign, keywords, referring_url, landing_page_url, referrer_domain",
+            "utm_source, utm_medium, utm_campaign, utm_term, utm_content, gclid, fbclid, msclkid",
+            "device_type, value, tags, note, agent_email, prior_calls, total_calls",
+            "calls/summary.json and calls/timeseries.json (totals grouped by one key)",
+            "form_submissions.json (web forms a tracker captured) and text_messages.json",
+        ],
+        "why": "A row is a count per company, source and day, so anything about one caller -- who they "
+               "are, where they called from, what was said -- is neither asked for nor kept; the check "
+               "page masks it. Attribution finer than the source (medium, campaign, keyword, UTMs) "
+               "waits on a screen that would draw it. Form submissions and texts are other outcomes "
+               "with no tile yet.",
+    },
 }
 
 
@@ -317,6 +362,11 @@ def field_map(platform: str) -> dict:
         from . import groundtruth_map
         c = groundtruth_map.config()
         return {"rows": _rows(c["fields"].items()), "source": "modules/reports/groundtruth_map.py",
+                "placeholder": bool(c.get("placeholder")), "requested_unread": []}
+    if platform == "callrail":
+        from . import callrail_map
+        c = callrail_map.config()
+        return {"rows": _rows(c["fields"].items()), "source": "modules/reports/callrail_map.py",
                 "placeholder": bool(c.get("placeholder")), "requested_unread": []}
     if platform == "amazon_dsp":
         from . import amazon_dsp
@@ -449,7 +499,8 @@ def _status(platform: str) -> dict:
     """The pull's own status line and missing() -- the measurement beside
     the list of what has to be true. {} for a platform with no pull."""
     mod = {"ttd": "ttd", "google": "google_ads_perf", "bing": "bing", "stackadapt": "stackadapt",
-           "audiogo": "audiogo", "groundtruth": "groundtruth", "amazon_dsp": "amazon_dsp"}.get(platform)
+           "audiogo": "audiogo", "groundtruth": "groundtruth", "amazon_dsp": "amazon_dsp",
+           "callrail": "callrail"}.get(platform)
     if not mod:
         return {}
     try:

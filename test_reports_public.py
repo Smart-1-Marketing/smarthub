@@ -396,8 +396,12 @@ check("...with AudioGo's",
 check("...and with the Amazon DSP pull, which maps no conversion field at all",
       "conversions" not in _amazon_dsp.FIELD_MAP
       and "amazon_dsp" in client_view.NO_CONVERSIONS)
+from modules.reports import callrail_map                                   # noqa: E402
+check("...and with CallRail's, which files a call under its own name and never as a conversion",
+      callrail_map.FIELDS.get("conversions") is None
+      and "callrail" in client_view.NO_CONVERSIONS)
 check("...and names nothing else: every other platform's zero is a measurement",
-      client_view.NO_CONVERSIONS, {"amazon_dsp", "audiogo", "groundtruth"})
+      client_view.NO_CONVERSIONS, {"amazon_dsp", "audiogo", "groundtruth", "callrail"})
 
 NOCONV = "n:no-conversion-client"
 store.upsert_rows([

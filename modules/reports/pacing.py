@@ -497,6 +497,11 @@ def cost(month: str | None = None, today: date | None = None) -> dict:
                 ex = f.get("extras") or {}
                 appts += int(ex.get("appointments") or ex.get("bookings") or 0)
                 continue
+            if f["platform"] in store.OUTCOME_PLATFORMS:
+                # Phone calls are outcomes with no spend: a $0 platform
+                # column on the cost report would read as a media buy that
+                # cost nothing, which is not what a call is.
+                continue
             by_plat[f["platform"]] = by_plat.get(f["platform"], Decimal(0)) + Decimal(f["spend"])
         platforms_seen.update(by_plat)
         spend = sum(by_plat.values(), Decimal(0))

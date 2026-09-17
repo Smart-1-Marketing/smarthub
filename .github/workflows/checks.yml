@@ -3879,6 +3879,15 @@ jobs:
       - name: The config-driven GroundTruth pull and its check page
         if: matrix.group == 8
         run: python3 test_reports_groundtruth.py
+      # CallRail: call tracking as outcomes -- the call shaped by
+      # callrail_map.py's placeholders, nothing sent to a host nobody
+      # confirmed, accounts then paged calls counted by company, source and
+      # day, outbound left out, calls under their own name and never in
+      # conversions, the client's Phone calls tile, the check page masking
+      # the caller, and every request recorded.
+      - name: The config-driven CallRail pull and its check page
+        if: matrix.group == 8
+        run: python3 test_reports_callrail.py
       # Amazon DSP: five separate claims told apart (a revoked consent, a
       # consent given by somebody who does not administer the entity, an
       # API application not approved for the entity, and write access never
@@ -4032,7 +4041,7 @@ jobs:
                    test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
                    test_reports_confirmations.py test_reports_quarantine.py \
                    test_reports_reconcile.py test_reports_bing.py test_reports_groundtruth.py \
-                   test_reports_amazon_dsp.py \
+                   test_reports_amazon_dsp.py test_reports_callrail.py \
                    test_v2_performance.py test_reports_exec_summary.py \
                    test_reports_map_reads.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1

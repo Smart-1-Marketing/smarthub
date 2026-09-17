@@ -1176,6 +1176,18 @@ REGISTRY: list[Help] = [
        "the key to whoever answers there. Visits land under their own name "
        "and draw the client's Store visits tile; they are never counted as "
        "conversions."),
+    _h("reports.callrail.check", "Calls by source, from a reference nobody here could read",
+       "CallRail is call tracking, not media: a row is a client's inbound "
+       "calls by source by day, with no spend behind it, and the client's "
+       "page draws them as a Phone calls tile rather than as conversions. "
+       "The API reference sits on a host the Hub's environment cannot "
+       "reach, so the paths, the auth header and the field names in "
+       "callrail_map.py are transcriptions marked as placeholders. This "
+       "page lists the accounts the key sees, reads one page of yesterday's "
+       "calls, and prints the keys it answered with, the caller's own "
+       "details masked and the key never among them. It calls nothing "
+       "until CALLRAIL_API_BASE is set: a guessed host would hand the key "
+       "to whoever answers there."),
     _h("reports.amazon.check", "Five claims, and four fail as a working setup",
        "No live Amazon entity has answered this code, so every field name in "
        "amazon_dsp.py is a transcription. This page walks the five things "

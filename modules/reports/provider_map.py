@@ -109,6 +109,10 @@ PLATFORM_SOURCES: dict[str, dict] = {
     "x":          _source("twitter_ads"),
     "amazon_sa":  _source("amazon_sponsored_ads", restate_days=28),
     "amazon_dsp": _source("amazon_dsp", restate_days=28, extras=("video_views", "completes")),
+    # Call tracking: a row is calls by source by day, and the managed
+    # provider's CallRail table -- if one is ever landed -- carries counts,
+    # never spend. Placeholders like the rest.
+    "callrail":   _source("callrail", conversions=None, extras=("calls", "answered", "missed")),
 }
 
 # Every platform except suite is mapped, and nothing else is: a platform

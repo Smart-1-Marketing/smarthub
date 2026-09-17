@@ -117,6 +117,7 @@ check("the module serves the staff screens, the picker's search and the client's
       sorted(["/", "/unmapped", "/unmapped/alias/forget", "/unmapped/confirm", "/unmapped/refuse",
               "/markup", "/budgets", "/budgets/1", "/provider-check", "/provider-check/x", "/provider-check/confirm",
               "/provider-check/withdraw", "/audiogo-check", "/groundtruth-check", "/amazon-check",
+              "/callrail-check",
               "/quarantine", "/quarantine/decide",
               "/reconcile", "/reconcile/run",
               "/pacing", "/pacing.csv", "/cost", "/cost.csv",
@@ -204,7 +205,7 @@ body = r.get_data(as_text=True)
 check("the markup page renders", r.status_code, 200)
 check("...with the two columns labeled as the work order says",
       "<th>Markup %</th>" in body and "<th>Fixed CPM</th>" in body)
-check("...one row per platform", body.count('name="markup_'), 13)
+check("...one row per platform", body.count('name="markup_'), 14)
 
 r = staff.get("/reports/budgets")
 check("the budgets page renders", r.status_code, 200)

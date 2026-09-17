@@ -299,7 +299,7 @@ blind = quotas.untracked_provider_calls(force=True)
 # generation, were recorded nowhere, and had no marker here — so no check
 # could ever have named them, which is why it stood.
 check("every provider is scanned", sorted(blind),
-      ["amazon_ads", "brandfetch", "cloudinary", "creatomate", "elevenlabs",
+      ["amazon_ads", "brandfetch", "callrail", "cloudinary", "creatomate", "elevenlabs",
        "google", "groundtruth", "heygen", "microsoft_ads", "pickaxe", "runway"])
 # This is the point of the check: the repository is expected to be clean, and
 # the moment a new module calls one of these without recording it, this fails
