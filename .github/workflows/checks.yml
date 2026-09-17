@@ -2439,6 +2439,15 @@ jobs:
       # renders, the link resolves, the English is correct. This is green, so
       # a new "colour" is a failing build rather than something a client finds
       # on a proposal.
+      - name: A credential is typed into a box that masks it
+        if: matrix.group == 5
+        # Every field somebody types their OWN password into was already
+        # type="password". Four holding somebody else's were not: a client's
+        # website login, their WordPress application password, and the two
+        # boxes an admin sets another person's password in. Two of the four
+        # were found by the check rather than by reading the page.
+        run: python3 test_secret_fields.py
+
       - name: The docs/claude index matches the directory
         if: matrix.group == 5
         # CLAUDE.md tells every session to open that index before editing a

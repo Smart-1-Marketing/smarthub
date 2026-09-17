@@ -78,8 +78,9 @@
         <option value="admin">Admin</option>
       </select>
     </label>
-    <input id="umAddPw" placeholder="Leave blank and the Hub generates a starting password"
-           autocomplete="off">
+    <input id="umAddPw" type="password"
+           placeholder="Leave blank and the Hub generates a starting password"
+           autocomplete="new-password">
     <p class="um-warn" id="umAddErr" hidden></p>
     <div class="um-modal-actions">
       <button class="um-btn primary" onclick="submitAdd()">Add user</button>
@@ -92,8 +93,9 @@
   <div class="um-modal-box">
     <h3>Set a password</h3>
     <p class="um-sub" id="umPwSub"></p>
-    <input id="umPwValue" placeholder="Leave blank and the Hub generates one"
-           autocomplete="off">
+    <input id="umPwValue" type="password"
+           placeholder="Leave blank and the Hub generates one"
+           autocomplete="new-password">
     <p class="um-hint">Whatever you set here, they are made to replace it at
       their next sign-in &mdash; a password two people know is not a password.
       A generated one avoids everyone getting the same season and year.</p>

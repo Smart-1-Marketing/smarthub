@@ -684,7 +684,8 @@
         <input id="su_url" placeholder="URL for site access (login page)">
         <div class="seoc-2col">
           <input id="su_login" placeholder="Login">
-          <input id="su_pass" type="text" placeholder="Password">
+          <input id="su_pass" type="password" autocomplete="off"
+                 placeholder="Password">
         </div>
         <div id="su_passState" class="seoc-passstate" style="display:none"></div>
         <label class="seoc-skip"><input type="checkbox" data-skip="access"> Skip this step for later</label>
@@ -3143,7 +3144,7 @@ table.seoc-t input[type=date]{padding:4px 6px;border:1px solid #e2e8f0;border-ra
       +'<div class="seoc-pubfield"><b>WordPress username</b>'
       +'<input id="wpUser" style="grid-column:2/4" value="'+esc(d.username||'')+'"></div>'
       +'<div class="seoc-pubfield"><b>Application password</b>'
-      +'<input id="wpPass" style="grid-column:2/4" type="text" spellcheck="false" '
+      +'<input id="wpPass" style="grid-column:2/4" type="password" spellcheck="false" '
       +'autocomplete="off" placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"></div>'
       +'<div class="seoc-pubfield"><b>Site URL</b>'
       +'<input id="wpSite" style="grid-column:2/4" placeholder="(the website on this client’s record)"></div>'
