@@ -696,17 +696,21 @@ ANSWERS.extend([
     _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme", "currency": "USD"}]}),
     _Resp(200, {"reportId": "page-1"}),
     _Resp(200, {"status": "IN_PROGRESS"}),
+    _Resp(200, {"status": "IN_PROGRESS"}),
 ])
 slept.clear()
 chk = amazon_dsp.check(today=date(2026, 9, 16))
 check("a report the check page asks for is written down, so the pull collects it",
       amazon_dsp.pending_reports(), {"A1": "page-1"})
+check("...and the page says so rather than showing a row it does not have",
+      ("is pending" in chk["error"], chk["sample"]), (True, None))
 check("...and it waits inside the page's own budget, not the nightly job's",
       sum(slept) <= amazon_dsp.CHECK_BUDGET_SECONDS, True, note=slept)
 CALLS.clear()
 ANSWERS.extend([
     _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
     _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme", "currency": "USD"}]}),
+    _Resp(200, {"status": "IN_PROGRESS"}),
     _Resp(200, {"status": "IN_PROGRESS"}),
 ])
 amazon_dsp.check(today=date(2026, 9, 16))
