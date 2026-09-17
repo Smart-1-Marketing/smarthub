@@ -124,6 +124,7 @@ python tools/linkcheck.py          # every internal URL resolves, every url_for 
 python tools/pagecheck.py          # the page the browser actually receives
 python tools/integritycheck.py     # known defect patterns
 python tools/spellcheck.py         # American English in everything a person reads
+python tools/claudedocs.py         # the docs/claude index matches the directory
 ```
 
 Then run the test scripts for the modules you touched. The full list, with
