@@ -1875,7 +1875,9 @@ def refresh_note() -> dict:
             note["running"] = age < REFRESH_STALE_MINUTES
             note["stalled"] = not note["running"]
         except ValueError:
-            pass
+            # A start time that does not parse is a note this code did not
+            # write: not running, not stalled, just a line with no timing.
+            note["stalled"] = False
     return note
 
 

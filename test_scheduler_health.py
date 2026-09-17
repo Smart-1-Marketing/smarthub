@@ -349,7 +349,7 @@ _fake.age_seconds = lambda: _fake.age
 _fake.build = lambda force=True: (_fake.built.append(force) or {"ok": True, "built": True})
 _real_gi = _sys.modules.get("hub.google_index")
 _sys.modules["hub.google_index"] = _fake
-import hub as _hub                                                # noqa: E402
+_hub = _sys.modules["hub"]                     # already imported above, as a package
 _real_attr = getattr(_hub, "google_index", None)
 _hub.google_index = _fake
 _real_hour = sched._eastern_hour                                  # noqa: SLF001
