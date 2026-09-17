@@ -1,9 +1,11 @@
 """Boundaries for the read-only Ask SmartHub planner and executor."""
+import inspect
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 from hub import ask_smarthub
+from mcp_gateway import v2_tools
 
 
 class AskPermissionsTests(unittest.TestCase):
@@ -383,8 +385,121 @@ class AskClientChoiceUiTests(unittest.TestCase):
     def test_template_renders_clickable_clarification_choices(self):
         template = Path("hub/templates/ask_smarthub.html").read_text()
         self.assertIn("clarification.choices", template)
-        self.assertIn("ask(choice.question)", template)
         self.assertIn("ask-choice", template)
+        # Picking a client re-asks THAT choice's question, and carries the
+        # recipe with it: the person answered "which client", not "never
+        # mind the table I asked for".
+        self.assertIn("ask(choice.question,recipeKey)", template)
+
+
+class CatalogAgreementTests(unittest.TestCase):
+    """The two catalogs a V2 read tool has to appear in, kept in step.
+
+    A tool lives in `mcp_gateway/v2_tools.py` and is declared twice: in
+    `register()` for the MCP server, and in `ask_smarthub.TOOLS` for the
+    planner. Adding it to one and not the other passes every test that only
+    looks at one of them -- which is exactly how this branch shipped two
+    tools that `mcp_gateway/test_v2.py`'s closed set then failed on.
+    """
+
+    def _registered(self):
+        class FakeMCP:
+            def __init__(self):
+                self.tools = {}
+
+            def tool(self, **kw):
+                def wrap(fn):
+                    self.tools[fn.__name__] = fn
+                    return fn
+                return wrap
+
+        fake = FakeMCP()
+        v2_tools.register(fake)
+        return fake.tools
+
+    def test_every_v2_backed_planner_tool_is_registered_with_mcp(self):
+        registered = self._registered()
+        for name, tool in ask_smarthub.TOOLS.items():
+            if "v2_tools" not in str(getattr(tool.fn, "__module__", "")):
+                continue
+            with self.subTest(tool=name):
+                self.assertIn(
+                    name, registered,
+                    f"{name} is in the planner's catalog but not in "
+                    f"v2_tools.register(); an MCP client cannot reach it.")
+
+    def test_every_declared_argument_is_one_the_function_accepts(self):
+        """A planner argument the function has no parameter for is silently
+        dropped by `execute()`, so the read runs with a filter nobody applied
+        -- and reports success.
+
+        `actor` is the deliberate exception on a `needs_actor` tool: it is
+        injected from the session AFTER the argument filter, so the planner
+        cannot reach it. That is the point of those tools, not a gap.
+        """
+        for name, tool in ask_smarthub.TOOLS.items():
+            try:
+                params = set(inspect.signature(tool.fn).parameters)
+            except (TypeError, ValueError):       # a lambda adapter
+                continue
+            supplied = {"actor"} if getattr(tool, "needs_actor", False) else set()
+            with self.subTest(tool=name):
+                self.assertEqual(
+                    set(tool.arguments) - params, set(),
+                    f"{name} declares arguments its function cannot take")
+                self.assertEqual(
+                    params - set(tool.arguments) - supplied, set(),
+                    f"{name} has parameters the planner can never send")
+
+    def test_the_planner_can_never_supply_whose_desk_is_read(self):
+        """`actor` decides whose work a "my clients" read returns, and it is
+        settled at sign-in. A tool that let the planner pass it would let a
+        question -- or a sentence inside a client's own record -- ask on
+        somebody else's behalf."""
+        for name, tool in ask_smarthub.TOOLS.items():
+            with self.subTest(tool=name):
+                self.assertNotIn(
+                    "actor", tool.arguments,
+                    f"{name} lets the planner supply the actor")
+        source = Path("hub/ask_smarthub.py").read_text()
+        # Injected after the filter that keeps only declared arguments.
+        self.assertIn('arguments["actor"] = actor', source)
+        self.assertLess(
+            source.index("arguments = {key: incoming[key]"),
+            source.index('arguments["actor"] = actor'),
+            "actor is injected before the argument filter, so the planner "
+            "could overwrite it")
+
+    def test_no_tool_is_reachable_by_a_role_outside_the_catalog(self):
+        for role in ("client", "", "anonymous", "viewer"):
+            with self.subTest(role=role):
+                self.assertEqual(ask_smarthub.allowed_tools(role), {})
+
+
+class AskRecipeUiTests(unittest.TestCase):
+    def test_chips_come_from_the_recipe_library_not_the_template(self):
+        template = Path("hub/templates/ask_smarthub.html").read_text()
+        self.assertIn("recipe_groups", template)
+        self.assertIn("data-recipe=", template)
+        # The chip asks its own filled-in question rather than its label.
+        self.assertIn("data-question", template)
+
+    def test_the_recipe_key_is_sent_with_the_question(self):
+        template = Path("hub/templates/ask_smarthub.html").read_text()
+        self.assertIn("recipe:recipeKey", template)
+
+    def test_a_recipe_never_widens_the_tool_catalog(self):
+        from hub import ask_recipes
+        for recipe in ask_recipes.RECIPES:
+            for role in recipe.roles:
+                reachable = ask_smarthub.allowed_tools(role)
+                for tool in recipe.tools:
+                    self.assertIn(tool, reachable, f"{recipe.key} / {role}")
+
+    def test_a_role_outside_a_recipe_gets_neither_hint_nor_guidance(self):
+        from hub import ask_recipes
+        self.assertEqual(ask_recipes.tool_hint("performance_summary", "client"), ())
+        self.assertEqual(ask_recipes.render_for("performance_summary", "client"), "")
 
     def test_template_renders_where_to_start_links(self):
         """The answer is escaped text, so a path inside it is not clickable.

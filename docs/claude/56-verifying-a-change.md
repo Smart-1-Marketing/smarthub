@@ -654,10 +654,51 @@ python3 test_reports_confirmations.py # a campaign filed from its name waiting f
 python3 test_reports_quarantine.py # a fact row that cannot be true held, not filed
 python3 test_reports_reconcile.py  # each platform's month against the platform's own
                                    #   total, independent or re-read, through yesterday
+python3 test_reports_exec_summary.py # the summary on a client's dashboard: staff
+                                   #   generate it, staff read it, staff save it, and
+                                   #   the client's page renders it and can reach no
+                                   #   AI call at all
                                    #   (checks.yml runs all of these a second time
                                    #   against Postgres, through _reports_testdb.py)
+python3 test_periods.py            # the named reporting windows, so no model writes a
+                                   #   date: every period on a fixed today, the quarter
+                                   #   boundaries, the leap day, and custom's refusals
+python3 test_reports_flags.py      # the deterministic flag rules, asserted from BOTH
+                                   #   sides of every threshold -- 14.9% raises nothing,
+                                   #   15.1% raises one
+python3 test_v2_performance.py     # the ad-performance read Ask SmartHub answers from:
+                                   #   two spellings summed once, pending spend excluded,
+                                   #   and pacing equal to the board field for field
+python3 test_v2_insights.py        # the GA4 breakdown and the optimization-sweep read
+python3 test_ask_recipes.py        # the recipe library and every placement its chips
+                                   #   appear in, through wsgi.application so a mounted
+                                   #   page's chips are actually checked
 python3 test_ci_gate.py            # the gate runs every check a person runs
 ```
+
+### The MCP gateway's tests are not in the sweep above
+
+`mcp_gateway/` has its own tests and its own workflow
+(`.github/workflows/mcp-gateway.yml`, the **smoke** check). They are
+`unittest` modules rather than root-level `test_*.py` scripts, so nothing in
+the list above runs them, `test_ci_gate.py` does not govern them, and they
+need the separately deployed MCP SDK the Hub's own runtime does not install:
+
+```bash
+pip install -r mcp_gateway/requirements.txt     # the SDK, once
+export MCP_API_TOKEN=ci-test-token-not-for-production HUB_DATA_DIR=/tmp/smarthub-mcp-ci
+python3 -m unittest mcp_gateway.test_server     # V1 identity and security boundary
+python3 -m unittest mcp_gateway.test_v2         # V2 identity and connector boundary
+python3 -m unittest test_ask_smarthub           # the role and tool boundary
+```
+
+**Run them after editing `mcp_gateway/v2_tools.py`, `hub/ask_smarthub.py`, or
+the Ask SmartHub page or widget** — the workflow's own path filter names
+exactly those files. `test_v2.ToolMetadataTests` asserts the V2 tool set as a
+**closed set**: adding a tool without adding its name there fails the smoke
+check, which is the point. A tool the gateway exposes and nobody wrote down
+is the surface growing without anybody agreeing to it, so the fix is to add
+the name, never to loosen the assertion.
 
 The test files need no pytest and no new dependencies; each runs against a
 temporary data directory and a throwaway SQLite database, so none of them

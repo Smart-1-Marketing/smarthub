@@ -526,6 +526,19 @@ class ReportLink(Base):
     view_json = Column(JSON, default=dict)
     last_viewed_at = Column(DateTime(timezone=True), nullable=True)
     view_count = Column(Integer, default=0)
+    # The executive summary a staff member GENERATED, READ and SAVED for one
+    # month: {"<YYYY-MM>": {"text", "generated_at", "generated_by", "month"}}.
+    # It is written by a staff press and read by the client's page; the
+    # client's page never generates one. A public route that could reach an
+    # AI call is a stranger with our credit card, and a paragraph about a
+    # client's results that nobody read before it was published is the other
+    # half of the same problem. A LATE column -- _LATE_COLUMNS adds it to a
+    # live table.
+    exec_summary_json = Column(JSON, default=dict)
+
+    @property
+    def exec_summaries(self) -> dict:
+        return self.exec_summary_json if isinstance(self.exec_summary_json, dict) else {}
 
     @property
     def markups(self) -> dict:
@@ -544,6 +557,7 @@ class ReportLink(Base):
             "markup_json": self.markups, "view_json": self.view,
             "last_viewed_at": iso(self.last_viewed_at),
             "view_count": int(self.view_count or 0),
+            "exec_summary_json": self.exec_summaries,
         }
 
 
@@ -563,6 +577,7 @@ _LATE_COLUMNS = (
     ("reports_budget_lines", "status", "VARCHAR(20)"),
     ("reports_campaign_map", "confirmed_by", "VARCHAR(160)"),
     ("reports_campaign_map", "confirmed_at", "TIMESTAMP WITH TIME ZONE"),
+    ("reports_links", "exec_summary_json", "JSON"),
 )
 
 
@@ -1216,6 +1231,97 @@ def _clean_view(raw: dict) -> dict:
     if raw.get("name_products"):
         out["name_products"] = True
     return out
+
+
+# How long a saved summary may be, so one cannot become the whole page.
+EXEC_SUMMARY_MAX = 4000
+
+
+def _month_key(value) -> str:
+    """A month as YYYY-MM, or "" -- never a guess at what was meant."""
+    text = _text(value, 7)
+    if len(text) == 7 and text[4] == "-":
+        try:
+            y, m = int(text[:4]), int(text[5:7])
+            if 2000 <= y <= 2100 and 1 <= m <= 12:
+                return f"{y:04d}-{m:02d}"
+        except ValueError:
+            return ""
+    return ""
+
+
+def save_exec_summary(token: str, *, month: str, text: str, by: str) -> dict:
+    """Keep one month's executive summary, reviewed and saved by a person.
+
+    ``by`` is required and is the record of WHO stood behind the words: the
+    text is written by a model and published to a client, and a paragraph
+    about somebody's results with nobody's name against it is the shape
+    docs/claude/48 is about. Saving bumps ``updated_at``, which is in the
+    client page's cache key, so the page picks it up on both workers rather
+    than fifteen minutes later on one of them.
+    """
+    token = _text(token, 64)
+    key = _month_key(month)
+    if not key:
+        raise ValueError("A summary needs the month it is about, as YYYY-MM")
+    body = " ".join(str(text or "").split())[:EXEC_SUMMARY_MAX]
+    if not body:
+        raise ValueError("A summary needs some text")
+    who = _text(by, 160)
+    if not who:
+        raise ValueError("A summary needs a name against it")
+    db = SessionLocal()
+    try:
+        row = db.query(ReportLink).filter(ReportLink.token == token).first()
+        if row is None:
+            raise ValueError("No such report link")
+        saved = dict(row.exec_summaries)
+        entry = {"month": key, "text": body, "generated_by": who,
+                 "generated_at": iso(now())}
+        saved[key] = entry
+        # Newest twelve months. A link that has run for years should not
+        # carry every paragraph it ever published on every read of its row.
+        row.exec_summary_json = {k: saved[k] for k in sorted(saved)[-12:]}
+        row.updated_at = now()
+        db.commit()
+        return entry
+    finally:
+        db.close()
+
+
+def clear_exec_summary(token: str, month: str) -> bool:
+    """Take one month's summary down. The client's page then shows none,
+    which is the state it was in before anybody pressed anything."""
+    token = _text(token, 64)
+    key = _month_key(month)
+    if not key:
+        return False
+    db = SessionLocal()
+    try:
+        row = db.query(ReportLink).filter(ReportLink.token == token).first()
+        if row is None or key not in row.exec_summaries:
+            return False
+        saved = dict(row.exec_summaries)
+        saved.pop(key, None)
+        row.exec_summary_json = saved
+        row.updated_at = now()
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def exec_summary_for(link, month: str) -> dict | None:
+    """The saved summary for one month, or None. Never raises: a client's
+    page must not be lost over a paragraph."""
+    try:
+        key = _month_key(month)
+        if not key:
+            return None
+        entry = link.exec_summaries.get(key)
+        return entry if isinstance(entry, dict) and entry.get("text") else None
+    except Exception:                  # noqa: BLE001
+        return None
 
 
 def note_view(token: str) -> None:

@@ -4,6 +4,14 @@ The shared help script mounts the signed-in name, initials, Help link and person
 
 `/help` searches the existing help registry and walkthrough catalogue. The assistant uses retrieved help entries through the existing configured AI client and usage accounting. It cannot operate tools. Missing documentation or unavailable AI is shown explicitly. Every accepted question is saved before a paid call, with the answer, source keys and outcome added afterwards. Records live under the persistent data root in `help-questions/<user-key>/<id>.json`, using the existing JSON store/database mirror. Five questions per minute per user is the normal request limit.
 
+A guided walkthrough, `ask_smarthub.client_performance`, covers reading a
+client's campaign performance out of the reports fact table: naming a period
+rather than dates, reading what is *not* in a total (pending campaigns,
+quarantined days), treating a flag as a computed reading rather than the
+assistant's opinion, taking "not measured" as missing rather than zero, and
+the two presses that publish a monthly summary on a client's own page. It is
+in `hub/demos.py` with the rest.
+
 The 18 recorded product lessons come from the existing partner Learning Library (`hub/partner_pages/learning-library.html`). All 18 YouTube links returned valid video metadata on September 8, 2026; results are in `help-tutorial-link-check.json`. Additional tutorials can be supplied through `help-tutorials.json` in the persistent data root, as an array with `title`, `url` (HTTPS), and optional `description`. Custom entries override duplicate URLs. Product lessons and Hub guided walkthroughs are labelled separately.
 
 The Help Center embeds the same LeadConnector feedback form already opened by the bottom-right feedback tab. Questions and answers are retained for manual product/support review; they do not automatically train or change the model.

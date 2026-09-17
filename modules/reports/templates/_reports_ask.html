@@ -1,0 +1,25 @@
+{# Ask SmartHub recipe chips: a front door to /ask-smarthub, never a second
+   copy of the chat. hub/ask_recipes.py owns the question; the URL is built by
+   /assets/ask-recipes.js, root-absolute because a relative one would resolve
+   under this module's own mount and 404. #}
+{% if ask_chips %}
+<div class="s1d-card s1d-ask">
+  <div class="s1d-cardhead"><h2>Ask SmartHub</h2>
+    <span class="s1d-muted">Answered from the fact table on this page, read-only.</span></div>
+  <div class="s1d-askchips">
+    {% for c in ask_chips %}
+      <a class="s1d-askchip" data-recipe="{{ c.key }}"
+         {% if c.client %}data-client="{{ c.client }}"{% endif %}
+         data-period="{{ c.period }}" data-placement="{{ placement }}"
+         title="{{ c.question }}">{{ c.title }}</a>
+    {% endfor %}
+  </div>
+</div>
+<style>
+.s1d-askchips{display:flex;flex-wrap:wrap;gap:8px;padding:12px 14px}
+.s1d-askchip{border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:999px;
+  padding:7px 12px;font-size:12px;cursor:pointer;text-decoration:none;display:inline-block}
+.s1d-askchip:hover{border-color:#1769aa;color:#1769aa}
+</style>
+<script defer src="/assets/ask-recipes.js?v=recipes-1"></script>
+{% endif %}

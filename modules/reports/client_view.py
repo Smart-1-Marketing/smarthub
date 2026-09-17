@@ -437,10 +437,34 @@ def build(link, period: str, today: date | None = None) -> dict:
         # page) otherwise, and None while nothing sent has been read.
         "email": _safe("email", lambda: suite_email.public_view(
             suite_email.section(link, today)), None),
+        # The executive summary a staff member generated, READ and saved for
+        # this month. The client's page renders the saved words and never
+        # asks for new ones: a public route that could reach an AI call is a
+        # stranger spending our credits, and a paragraph about a client's
+        # results that nobody read before publishing is the worse half.
+        # None -- and the section left off the page entirely -- when none was
+        # saved for the month being shown.
+        "exec_summary": _safe(
+            "exec_summary",
+            lambda: store.exec_summary_for(link, _summary_month(rng, today)), None),
     }
     if show:
         out["investment"] = {"total": money(total_inv), "delivery_only": unpriced}
     return out
+
+
+def _summary_month(rng: dict, today: date) -> str:
+    """Which month a saved summary would be about, for the period on screen.
+
+    A month-to-date view is about the month it is in; an explicit month or
+    "last month" is about that month. The 90-day view is about no single
+    month, so it shows none rather than the most recent one -- a summary of
+    September on a page showing July to September is a paragraph that does
+    not describe the figures beside it.
+    """
+    if rng["key"] == "90d":
+        return ""
+    return f"{rng['start']:%Y-%m}"
 
 
 def blank_products(client: str) -> list[dict]:

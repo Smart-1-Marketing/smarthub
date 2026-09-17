@@ -3798,6 +3798,24 @@ jobs:
       - name: Reports reconcile
         if: matrix.group == 8
         run: python3 test_reports_reconcile.py
+      - name: Named reporting periods
+        if: matrix.group == 8
+        run: python3 test_periods.py
+      - name: The deterministic flag rules
+        if: matrix.group == 8
+        run: python3 test_reports_flags.py
+      - name: Ask SmartHub ad-performance read
+        if: matrix.group == 8
+        run: python3 test_v2_performance.py
+      - name: Ask SmartHub traffic and sweep reads
+        if: matrix.group == 8
+        run: python3 test_v2_insights.py
+      - name: The Ask SmartHub recipe library and its placements
+        if: matrix.group == 8
+        run: python3 test_ask_recipes.py
+      - name: The client dashboard executive summary
+        if: matrix.group == 8
+        run: python3 test_reports_exec_summary.py
       - name: The reports tests against Postgres
         if: matrix.group == 8
         env:
@@ -3809,7 +3827,8 @@ jobs:
                    test_reports_audiogo.py test_reports_google_perf.py test_reports_health.py \
                    test_reports_confirmations.py test_reports_quarantine.py \
                    test_reports_reconcile.py test_reports_bing.py test_reports_groundtruth.py \
-                   test_reports_amazon_dsp.py; do
+                   test_reports_amazon_dsp.py \
+                   test_v2_performance.py test_reports_exec_summary.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1
           done
 
