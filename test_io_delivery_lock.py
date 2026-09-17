@@ -27,7 +27,6 @@ import os
 import sys
 import tempfile
 import threading
-import time
 import unittest
 
 REPO = os.path.dirname(os.path.abspath(__file__))

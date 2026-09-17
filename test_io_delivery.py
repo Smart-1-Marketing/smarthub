@@ -14,7 +14,7 @@ os.environ["HUB_DATA_DIR"] = tmp.name
 os.environ["DATABASE_URL"] = (os.environ.get("IO_DELIVERY_TEST_DATABASE_URL")
                               or "sqlite:///" + tmp.name + "/mirror.db")
 os.environ["AUDIT_LOG_PATH"] = tmp.name + "/audit.jsonl"
-from hub import dbshim, jsonstore  # warm imports before the timed assertions
+from hub import dbshim  # imported after the environment above, not before
 
 # A fresh temp directory is a fresh database on the SQLite fallback and is NOT
 # one on a shared Postgres: the order ids below are fixed, so a second run
