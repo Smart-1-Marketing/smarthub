@@ -114,7 +114,7 @@ def _generation_error(exc: GenerationError):
 @app.context_processor
 def _inject():
     try:
-        open_count = len([p for p in store.list_proposals() if p["status"] in store.OPEN_STATUSES])
+        open_count = store.open_proposal_count()
     except Exception:  # noqa: BLE001 — a template must never 500 over a badge count
         open_count = 0
     return {
