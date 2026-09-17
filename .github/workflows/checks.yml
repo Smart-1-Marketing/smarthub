@@ -2658,7 +2658,10 @@ jobs:
       # costs in pitch, refuses past 1.15x -- "speed it up" is not an answer to
       # a read five seconds too long -- and records the approved rate on the
       # mix, because a mix that only fits because it was sped up otherwise
-      # reads exactly like one that landed on the clock.
+      # reads exactly like one that landed on the clock. Both builders do it
+      # now, and the step holds that it is the SAME function answering: a
+      # second copy of the ceiling is how the two tools would start giving one
+      # read two rates, which is the state their length menus were already in.
       - name: Radio Ad Creator — beds composed, the mix measured off the file
         if: matrix.group == 6
         run: python3 test_radio_ads.py

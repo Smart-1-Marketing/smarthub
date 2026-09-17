@@ -426,7 +426,10 @@ python3 test_radio_ads.py          # the Radio Ad Creator's second half: a bed
                                    #   gets an over-long UPLOADED read back
                                    #   inside its slot, its 1.15x ceiling, and
                                    #   the rate being recorded on the mix rather
-                                   #   than inferred later
+                                   #   than inferred later -- asserted in both
+                                   #   builders, and asserted as the SAME
+                                   #   function answering rather than two that
+                                   #   agree today
 python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
                                    #   and the :60 that were unbuildable, the
                                    #   cost note said at pick time rather than

@@ -836,7 +836,15 @@ async function decodeRef(ref, ctx){
   return await ctx.decodeAudioData(await res.arrayBuffer());
 }
 
-async function buildMix(slot){
+/* The second argument is the rate the read is played at, and 1 is every read
+   this tool recorded itself. Web Audio's playbackRate RESAMPLES — the read gets
+   shorter and higher together, because there is no pitch-preserving
+   time-stretch here and this Hub does not add a library from a CDN for one
+   feature. That is stated on the panel rather than hidden: a spot that quietly
+   came back a semitone up is the kind of thing nobody notices until the client
+   does. */
+async function buildMix(slot, speed){
+  const playRate = Number(speed) > 1 ? Number(speed) : 1;
   const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   if(!OAC) throw new Error('This browser cannot render audio offline, so the mix '
     + 'cannot be made here. Chrome, Edge, Firefox and Safari all can.');
@@ -853,17 +861,19 @@ async function buildMix(slot){
   // cut the end off a long read — and it is the phone number that lives
   // there. A read that overruns comes back measured and over, which is what
   // the length check is for.
-  const total = Math.max(slotSeconds(slot), lead + vo.duration);
+  const voLen = vo.duration / playRate;
+  const total = Math.max(slotSeconds(slot), lead + voLen);
   const ctx = new OAC(chans, Math.max(1, Math.round(total*rate)), rate);
 
   const voSrc = ctx.createBufferSource(); voSrc.buffer = vo;
+  voSrc.playbackRate.value = playRate;
   voSrc.connect(ctx.destination); voSrc.start(lead);
 
   let note = '';
   if(bed){
     const bedG = dbGain(M.bed_db), duckG = dbGain(M.ducked_db);
     const atk = (M.duck_attack_ms||0)/1000, rel = (M.duck_release_ms||0)/1000;
-    const voEnd = Math.min(total, lead + vo.duration);
+    const voEnd = Math.min(total, lead + voLen);
     const duck = ctx.createGain(), fade = ctx.createGain();
     const src = ctx.createBufferSource(); src.buffer = bed;
     src.connect(duck); duck.connect(fade); fade.connect(ctx.destination);
@@ -892,7 +902,7 @@ async function buildMix(slot){
     }
   }
   const out = await ctx.startRendering();
-  return {buffer: out, note};
+  return {buffer: out, note, speed: playRate, voSeconds: vo.duration};
 }
 
 /* Peak, measured off the very buffer that is about to be encoded. Reported as
@@ -926,20 +936,119 @@ function toWav(buf){
   return new Blob([ab], {type:'audio/wav'});
 }
 
-async function makeMix(slot){
-  say('mixMsg', 'Rendering the '+slotName(slot)+' mix…', 'wait');
+/* An approved rate outlives the render it was approved for, but never the READ
+   it was approved against. `discardMixes()` clears RENDERED on a bed change or
+   a volume move, and having that also throw away a pace somebody signed off on
+   would send them round the whole offer again for a slider move — whereas a
+   re-recorded or re-uploaded read is a different length, so a rate worked out
+   for the old one is a number nobody can account for. It is keyed on the read
+   rather than cleared at each of the places a read can change, because the
+   next one added is the one that would not clear it. */
+const APPROVED = {};        // slot -> {speed, semitones, read}
+function readKey(slot){
+  const spot = (P.spots||[]).find(s => s.slot===slot) || {};
+  return (spot.at||'') + '|' + (spot.audio_url||'');
+}
+function approvedSpeed(slot){
+  const a = APPROVED[slot];
+  if(a && a.read === readKey(slot)) return a;
+  delete APPROVED[slot];
+  return null;
+}
+
+async function makeMix(slot, speed){
+  const kept = approvedSpeed(slot);
+  const playRate = Number(speed) > 1 ? Number(speed) : (kept ? kept.speed : 1);
+  say('mixMsg', playRate > 1
+      ? 'Re-rendering the '+slotName(slot)+' mix at '+playRate.toFixed(2)+'×…'
+      : 'Rendering the '+slotName(slot)+' mix…', 'wait');
   try{
     const usedLevel = selectedMixLevel().label, revision=mixRevision;
-    const {buffer, note} = await buildMix(slot);
+    const {buffer, note, speed: usedRate, voSeconds} = await buildMix(slot, playRate);
     if(revision!==mixRevision){say('mixMsg','The voice or bed changed. Render the mix again.','err');return false;}
     const blob = toWav(buffer);
     if(RENDERED[slot] && RENDERED[slot].url) URL.revokeObjectURL(RENDERED[slot].url);
     RENDERED[slot] = {blob, url: URL.createObjectURL(blob),
-                      seconds: buffer.duration, peak: peakDbfs(buffer), note, level:usedLevel};
+                      seconds: buffer.duration, peak: peakDbfs(buffer), note, level:usedLevel,
+                      speed: usedRate, voSeconds, semitones: (APPROVED[slot]||{}).semitones};
     renderMixPanel();
-    say('mixMsg', 'Preview ready. Save this mix for the customer after listening.', 'ok');
+    say('mixMsg', usedRate > 1
+        ? 'Re-rendered at '+usedRate.toFixed(2)+'×. Listen to it, then save it below.'
+        : 'Preview ready. Save this mix for the customer after listening.', 'ok');
+    await askSpeed(slot);
     return true;
   }catch(e){ say('mixMsg', e.message, 'err'); return false; }
+}
+
+/* What rate would land this read inside its slot — decided on the server, for
+   the same reason the dB pair is: a second copy of "how fast is too fast" in
+   here is how the panel and the record come to disagree about what was
+   approved. Only asked when the render is actually long; the ±1s tolerance is
+   the server's call, not this line's. */
+async function askSpeed(slot){
+  const made = RENDERED[slot];
+  if(!made) return;
+  if(made.seconds <= slotSeconds(slot) + 0.05){
+    made.suggestion = null; made.speedError = ''; return; }
+  try{
+    const d = await api('/api/projects/'+P.id+'/speed', {method:'POST',
+      body: JSON.stringify({slot, vo_seconds: made.voSeconds, mixed_seconds: made.seconds})});
+    if(RENDERED[slot] !== made) return;            // a newer render won
+    made.suggestion = d.suggestion; made.uploaded = d.uploaded;
+    made.alternative = d.alternative; made.speedError = '';
+  }catch(e){
+    // Reported, never swallowed. A panel that silently drops the one
+    // suggestion it had is the empty result this codebase keeps undoing.
+    if(RENDERED[slot] !== made) return;
+    made.suggestion = null;
+    made.speedError = 'This mix is over its slot and the speed that would fix '
+      + 'it could not be worked out: ' + e.message;
+  }
+  renderMixPanel();
+}
+
+/* Approved. Re-render at the rate, and the save options follow it. */
+async function approveSpeed(slot){
+  const sug = (RENDERED[slot]||{}).suggestion;
+  if(!sug || !sug.speed) return;
+  APPROVED[slot] = {speed: sug.speed, semitones: sug.semitones, read: readKey(slot)};
+  await makeMix(slot, sug.speed);
+}
+
+async function resetSpeed(slot){
+  delete APPROVED[slot];
+  await makeMix(slot, 1);
+}
+
+/* The offer, and — once it has been taken — what was done and how to keep it.
+   Only an uploaded read gets the offer: a read this tool recorded has a
+   re-record to ask for, and asking for it is the better answer. */
+function speedPanel(slot, made){
+  if(!made) return '';
+  if(made.speedError) return `<div class="hint err">${esc(made.speedError)}</div>`;
+  let out = '';
+  if(made.speed > 1){
+    out += `<div class="hint"><b>Read time-compressed to ${made.speed.toFixed(2)}×.</b>
+        The uploaded read runs ${made.voSeconds.toFixed(2)}s on its own; at this rate the
+        mix comes back ${made.seconds.toFixed(2)}s against a ${slotSeconds(slot)}s slot${
+        made.semitones ? `, with the voice about ${Number(made.semitones).toFixed(2)} semitones
+        higher — resampling is the only time-stretch here` : ''}.
+        Listen to it before you keep it: this is the file the customer hears.</div>
+      <div class="hint"><b>Keep it:</b> <i>Save mix for customer</i> below makes it the
+        customer's copy and records the rate against it, <i>Download</i> saves the WAV,
+        and <i>Back to the original pace</i> undoes it.</div>`;
+  }
+  const sug = made.suggestion;
+  if(!sug || !sug.needed) return out;
+  if(!made.uploaded)
+    return out + `<div class="hint err">${esc(sug.note)} ${esc(made.alternative||'')}</div>`;
+  if(!sug.speed)
+    return out + `<div class="hint err">${esc(sug.note)}</div>`;
+  return out + `<div class="hint err">${esc(sug.note)}</div>
+    <div class="rowbar"><button class="btn sm" onclick="approveSpeed('${slot}')">Re-render at
+      ${sug.speed.toFixed(2)}× and fit the slot</button>
+      <span class="opt">worked out from the length your browser decoded — the filed length
+      is still measured from the file</span></div>`;
 }
 
 async function fileMix(slot, override){
@@ -948,6 +1057,7 @@ async function fileMix(slot, override){
   const level = made.level || '';
   const fd = new FormData();
   fd.append('slot', slot); fd.append('level', level);
+  fd.append('speed', String(made.speed || 1));
   fd.append('file', made.blob, 'mix-'+slot+'.wav');
   if(override){
     const why = prompt('This mix has findings that stop it being filed. '
@@ -960,7 +1070,9 @@ async function fileMix(slot, override){
     const d = await post('/api/projects/'+P.id+'/mix', fd);
     P = d.project; QCC[slot]=d.qc;
     URL.revokeObjectURL(made.url); delete RENDERED[slot]; renderMixPanel();
-    say('mixMsg', 'Saved for the customer. Measured at '+d.mix.seconds+'s.', 'ok');
+    say('mixMsg', 'Saved for the customer. Measured at '+d.mix.seconds+'s'
+      + (d.mix.speed > 1 ? ' with the read at '+Number(d.mix.speed).toFixed(2)+'×' : '')
+      + '.', 'ok');
     return true;
   }catch(e){
     const payload = e.payload || {};
@@ -1006,18 +1118,21 @@ function renderMixPanel(){
     let madeBlock = '';
     if(made){
       const clip = made.peak > -0.1;
-      madeBlock = `<div class="hint" style="margin-top:6px">Rendered here: ${made.seconds.toFixed(2)}s ·
+      madeBlock = `<div class="hint" style="margin-top:6px">Rendered here: ${made.seconds.toFixed(2)}s${
+          made.speed>1?` at ${made.speed.toFixed(2)}×`:''} ·
           peak ${made.peak===-Infinity?'silent':made.peak.toFixed(1)+' dBFS'}
           ${clip?'<b class="err">— clipping. Re-record the read quieter.</b>':''}
           <span class="opt">measured in your browser, not on the server</span></div>
         ${made.note?`<div class="hint err">${esc(made.note)}</div>`:''}
-        <div class="clip"><audio controls src="${made.url}"></audio>${timingBadge(made.seconds,slotSeconds(k),true)}</div>`;
+        <div class="clip"><audio controls src="${made.url}"></audio>${timingBadge(made.seconds,slotSeconds(k),true)}</div>
+        ${speedPanel(k, made)}`;
     }
     let filedBlock = '';
     if(filed){
       filedBlock = `<div class="hint" style="margin-top:6px"><b>Filed</b> at
           ${filed.seconds}s, measured from the file · ${esc(filed.level||'')} level
-          (${filed.bed_db} / ${filed.ducked_db} dB)
+          (${filed.bed_db} / ${filed.ducked_db} dB)${
+          filed.speed>1?` · the uploaded read was time-compressed to ${Number(filed.speed).toFixed(2)}×`:''}
           ${filed.override?`<b class="err">· filed over findings by ${esc(filed.override_by)}: “${esc(filed.override_reason)}”</b>`:''}</div>
         <div class="clip"><audio controls preload="none" src="${MOUNT}/api/projects/${P.id}/audio?ref=mix:${k}"></audio>${timingBadge(filed.seconds,slotSeconds(k),filed.measured)}</div>`;
     }
@@ -1031,7 +1146,9 @@ function renderMixPanel(){
         <button class="btn sm" onclick="makeMix('${k}')">${made?'Render again':'Render the mix'}</button>
         ${made?`<button class="btn ${blocked?'sec':''} sm" onclick="fileMix('${k}', ${blocked?'true':'false'})">${
           blocked?'Save with a reason':'Save mix for customer'}</button>`:''}
-        ${made?`<a class="btn sec sm" href="${made.url}" download="mix-${k}.wav">Download</a>`:''}
+        ${made?`<a class="btn sec sm" href="${made.url}" download="mix-${k}${
+          made.speed>1?'-'+made.speed.toFixed(2)+'x':''}.wav">Download</a>`:''}
+        ${made&&made.speed>1?`<button class="btn sec sm" onclick="resetSpeed('${k}')">Back to the original pace</button>`:''}
       </div>
       ${qcRows(k)}
     </div>`;
