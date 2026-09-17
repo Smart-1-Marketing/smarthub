@@ -135,6 +135,36 @@ not in it: a share token in `hub/radio_share.py` is stored precisely so a
 customer's link keeps working, and a check that reports it is a check people
 learn to switch off.
 
+## And something has to run the check
+
+A high-severity check nothing runs is not a check. `integrity.run()` had
+exactly one caller — the `/api/integrity` JSON route, fetched by
+`/diagnostics`. That is a page somebody has to remember to open, which is the
+phrase `tools/integritycheck.py` uses about the state it was written to fix.
+
+The command line fixed it **for the checks that read the source**, because CI
+runs those on every pull request. It could not fix it for
+`check_plaintext_credentials`, which reads the JSON stores on the data disk:
+in CI that disk is empty by construction, so the one check whose answer exists
+only in production was the one nothing in production ever ran.
+
+`job_integrity_audit` runs the sweep under the leader lock, twelve-hourly.
+Three rules make it worth having:
+
+- **Transitions, not a heartbeat.** A finding is written when it *appears*,
+  and a `cleared` row when one that was there is gone. A steady state writes
+  nothing, so any row in that module is worth looking at. Logging every open
+  finding twice a day is how the activity log fills until nobody reads it —
+  the failure `rotate_audit_log` beside it exists because of.
+- **The fingerprint is the check plus where it points, never the prose.** A
+  detail string reworded in a later release would otherwise read as the old
+  finding clearing and a new one appearing.
+- **No row carries the credential.** The activity log is itself mirrored into
+  Postgres, so a credential detector that logged the credential would put the
+  password into the backup it was written to keep it out of. `finding` rows
+  carry the check, the label and the file — never the value. This is asserted
+  directly, because it is the one mistake that would undo the whole chain.
+
 ## The open question, for Todd
 
 **Nothing in the Hub can retrieve this password.** That was true before this

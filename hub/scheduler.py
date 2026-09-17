@@ -279,6 +279,95 @@ def job_refresh_knack_products(app) -> dict:
     return knack_products.refresh()
 
 
+def _integrity_fingerprints(groups) -> dict:
+    """{fingerprint: row} for findings at a severity that fails a run.
+
+    The fingerprint is the check key plus where it points, never the prose:
+    a detail string reworded in a later release would otherwise read as the
+    old finding clearing and a new one appearing, which is exactly the false
+    movement this job exists to avoid reporting.
+    """
+    out = {}
+    for group in groups or []:
+        if str(group.get("severity") or "") != "high":
+            continue
+        key = str(group.get("key") or "")
+        for finding in group.get("findings") or []:
+            where = str(finding.get("file") or finding.get("module") or "-")
+            out[f"{key}|{where}"] = {
+                "check": key, "label": group.get("label") or key,
+                "where": where, "detail": finding.get("detail") or "",
+            }
+    return out
+
+
+def job_integrity_audit(app) -> dict:
+    """Run the Hub's own defect checks here, where some of them can answer.
+
+    `tools/integritycheck.py` opens by saying the check "lived behind a login
+    on a page somebody had to remember to open, which is the same as not
+    having it", and the command line was the answer. That answer is complete
+    only for the checks that read the source, because CI runs those on every
+    pull request.
+
+    **It is not complete for the checks that read this deployment.**
+    `plaintext_credentials` reads the JSON stores on the data disk, and in CI
+    that disk is empty by construction -- so the one check whose answer exists
+    only in production was the one nothing in production ever ran. It was
+    rendered on `/diagnostics`, which is a page somebody has to remember to
+    open: the phrase that file uses about the state it was written to fix.
+
+    **Transitions, not a heartbeat.** Logging every open finding twice a day
+    fills the activity log with the same rows until nobody reads it, which is
+    the failure `rotate_audit_log` beside this exists because of. So a finding
+    is written when it **appears**, and a `cleared` row is written when one
+    that was here last time is gone. A steady state writes nothing at all,
+    which makes any row in this module worth looking at.
+
+    **High severity only.** That is the repo's own line for a pattern that
+    broke production outright, and the two backup checks say in as many words
+    that a module they list "works exactly as it always has". Medium and low
+    are counted in the summary so the number is never silently zero, but they
+    do not write rows.
+
+    Twelve-hourly. It reads the source and the local disk -- no network, no
+    model, no provider -- and the whole sweep is about a minute.
+    """
+    from hub import audit, integrity, jsonstore
+
+    path = os.path.join(jsonstore.data_dir("scheduler"), "integrity_seen.json")
+    with app.app_context():
+        report = integrity.run()
+
+    groups = report.get("groups") or []
+    current = _integrity_fingerprints(groups)
+    previous = jsonstore.read_json(path, default={}) or {}
+    if not isinstance(previous, dict):
+        previous = {}
+
+    appeared = [f for f in current if f not in previous]
+    cleared = [f for f in previous if f not in current]
+
+    for fingerprint in appeared:
+        row = current[fingerprint]
+        audit.log("integrity", "finding", check=row["check"],
+                  label=row["label"], where=row["where"], detail=row["detail"])
+    for fingerprint in cleared:
+        was = previous.get(fingerprint) or {}
+        audit.log("integrity", "cleared", check=was.get("check") or "",
+                  label=was.get("label") or "", where=was.get("where") or "")
+
+    jsonstore.write_json(path, current, indent=1)
+
+    # Counted rather than logged, so "no rows this run" can never be mistaken
+    # for "nothing was measured".
+    lower = sum(int(g.get("count") or 0) for g in groups
+                if str(g.get("severity") or "") != "high")
+    return {"checks": len(groups), "blocking": len(current),
+            "appeared": len(appeared), "cleared": len(cleared),
+            "reported": lower}
+
+
 def job_seal_site_logins(app) -> dict:
     """Seal any client website login still sitting in an SEO record as text.
 
@@ -1215,6 +1304,11 @@ JOBS = {
                           "Mirror disk JSON into the database backup."),
     # Ahead of nothing in particular and cheap: it reads this Hub's own disk
     # and, once every record is sealed, does no work at all.
+    # Beside the sealing job on purpose: that one moves a plaintext credential
+    # out of a store, and this one is what notices if it could not.
+    "integrity_audit":   (720, job_integrity_audit,
+                          "Run the Hub's own defect checks and record what "
+                          "appeared or cleared since the last pass."),
     "site_logins":       (720, job_seal_site_logins,
                           "Seal any client website login still stored as plain "
                           "text on an SEO record."),

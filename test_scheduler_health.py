@@ -210,6 +210,84 @@ except Exception as exc:                                              # noqa: BL
 check("status() survives being called with and without an app", ok is True, ok)
 
 
+# ---------------------------------------------------------------------------
+print("\nThe integrity sweep runs where some of its checks can answer")
+# ---------------------------------------------------------------------------
+# tools/integritycheck.py exists because the check "lived behind a login on a
+# page somebody had to remember to open, which is the same as not having it",
+# and the command line answered that -- for the checks that read the SOURCE,
+# which CI runs on every pull request. `plaintext_credentials` reads the JSON
+# stores on the data disk, and in CI that disk is empty by construction. So
+# the one check whose answer exists only in production was the one nothing in
+# production ran.
+os.environ["HUB_SKIP_SCHEDULER"] = "1"
+from hub import (audit as _audit, create_hub_app,                 # noqa: E402
+                 seo as _seo)
+
+_app = create_hub_app()
+SECRET = "PLAINTEXT-LOGIN-IN-PROD"
+
+check("the sweep is a registered job", "integrity_audit" in sched.JOBS)
+check("it runs on the leader like every other job, not a raw timer",
+      sched.JOBS["integrity_audit"][1].__name__ == "job_integrity_audit")
+
+# Plant the exact defect #692 fixed, in the shape it was really on the disk.
+_seo.save_store("Leaky Client", {
+    "client": "Leaky Client",
+    "setup": {"login": "rep@leaky.test", "password": SECRET},
+    "business_info": {}, "questions": [], "answers": {},
+    "pages": {}, "sitemap": []})
+
+_first = sched.job_integrity_audit(_app)
+check("a credential left readable on the disk is found", _first["blocking"] >= 1,
+      _first)
+check("and is reported as newly appeared, so it writes a row",
+      _first["appeared"] >= 1, _first)
+check("the sweep says how many checks it ran, so a zero is never bare",
+      _first["checks"] > 10, _first)
+check("and counts the medium/low findings rather than dropping them",
+      "reported" in _first, _first)
+
+# A heartbeat fills the activity log until nobody reads it -- which is the
+# failure rotate_audit_log beside it exists because of.
+_second = sched.job_integrity_audit(_app)
+check("an unchanged finding is NOT written again",
+      _second["appeared"] == 0, _second)
+check("and it is still counted as open, so silence is not 'resolved'",
+      _second["blocking"] == _first["blocking"], _second)
+
+# Fixing it is a transition too: a finding that goes away says so.
+os.remove(os.path.join(_TMP, "seo", "leaky-client.json"))
+_third = sched.job_integrity_audit(_app)
+check("a finding that is gone is recorded as cleared", _third["cleared"] >= 1,
+      _third)
+check("and is no longer counted as open", _third["blocking"] < _first["blocking"],
+      _third)
+# High severity is the whole selection rule, and it was unasserted until a
+# mutation removing the filter stayed green. This repo carries standing
+# medium/low findings, so with the leak gone `blocking` must be nought while
+# `reported` is not -- which is only true if the filter is doing its job.
+check("medium and low are counted, never treated as blocking",
+      _third["blocking"] == 0 and _third["reported"] > 0, _third)
+
+with _app.app_context():
+    _rows = _audit.read(200, module="integrity")
+_types = [r.get("type") for r in _rows]
+check("the activity log carries the finding", "finding" in _types, _types)
+check("and the clearing", "cleared" in _types, _types)
+check("each row names the check, so it can be looked up",
+      all(r.get("check") for r in _rows), _rows[:1])
+check("and no medium/low check ever wrote one",
+      {r.get("check") for r in _rows} == {"plaintext_credentials"},
+      {r.get("check") for r in _rows})
+
+# The one that would undo the whole point: the activity log is itself mirrored
+# into Postgres, so a credential detector that logged the credential would put
+# the password in the backup it was written to keep it out of.
+check("NO row carries the password itself",
+      not any(SECRET in str(r) for r in _rows))
+
+
 print("\n" + "-" * 60)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)
