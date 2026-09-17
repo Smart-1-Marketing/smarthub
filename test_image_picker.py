@@ -55,6 +55,7 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
@@ -231,7 +232,10 @@ cid, token = make_gallery("Testy Marine Trim")
 r = http.get(f"/tools/image-picker/c/{cid}")
 check("staff pick page answers 200", r.status_code, 200)
 body = r.data.decode()
-check("with the widget's sources in it", '"instagram"' in body, True)
+# The widget is opened by one shared script now, and the source tabs come
+# back with the signature rather than being written into each page.
+check("with the shared upload script on it", "picker-upload.js" in body, True)
+check("and a folder chooser", 'id="uploadFolder"' in body, True)
 
 r = http.get(f"/tools/image-picker/pick/{token}")
 check("so does the client's own link", r.status_code, 200)
@@ -407,6 +411,79 @@ check("a chip nobody offered resolves to nothing",
 check("an empty answer is refused",
       http.post(f"/tools/image-picker/api/profile?t={token}",
                 json={"category": "", "profile": ""}).status_code, 400)
+
+
+# =====================================================================
+section("The two questions are answered from what the Hub already knows")
+# =====================================================================
+
+# A client opening their link finds their business described and a "Change
+# this" button, not a form -- worked out once, from the site scan and the
+# record, and marked as ours so the page says where the words came from.
+auto_cid, auto_token = make_gallery("Lakeside Marine Canvas")
+_calls = []
+
+
+def fake_answer_and_build(messages, **kw):
+    _calls.append(kw.get("purpose"))
+    if kw.get("purpose") == "business_profile_autofill":
+        check("the Hub's facts are in the prompt",
+              "Muskegon" in messages[-1]["content"], True)
+        return {"category": "marine canvas and upholstery shop",
+                "profile": "Bimini tops, boat covers and seat re-covering for lake boats."}
+    check("the location anchors the topic terms",
+          "Where they are: Muskegon, MI" in messages[-1]["content"], True)
+    check("and the industry", "Industry on file: Marine" in messages[-1]["content"], True)
+    return {"topics": [{"label": "On the lake", "queries": ["boat on lake summer"]}],
+            "services": [{"label": "Bimini tops", "queries": ["boat bimini top canvas"]}]}
+
+
+_db = session()
+auto_client = _db.get(PickerClient, auto_cid)
+with patch.object(profile, "hub_context",
+                  return_value=("Client: Lakeside Marine Canvas\nCity: Muskegon, MI\nIndustry: Marine",
+                                {"industry": "Marine", "city": "Muskegon", "state": "MI"})), \
+        patch.object(hub_ai, "chat_json", side_effect=fake_answer_and_build):
+    auto_out = profile.autofill(_db, auto_client)
+check("the answers were worked out", auto_out["filled"], True)
+check("two model calls, one per question set", _calls,
+      ["business_profile_autofill", "business_profile_topics"])
+_db = session()
+auto_client = _db.get(PickerClient, auto_cid)
+check("the category is on the row", auto_client.business_category, "marine canvas and upholstery shop")
+pub = profile.public(auto_client)
+check("the page is told the words were ours", pub["auto"], True)
+check("and gets the chips", pub["topics"][0]["label"], "On the lake")
+check("the model's context is kept, not invented",
+      json.loads(auto_client.ai_collections)["context"]["city"], "Muskegon")
+
+# Once. A second open spends nothing; so does a gallery whose client typed.
+with patch.object(hub_ai, "chat_json", side_effect=AssertionError("must not be asked")):
+    check("a second open asks the model nothing", profile.autofill(_db, auto_client)["attempted"], False)
+    typed = _db.get(PickerClient, cid)
+    check("a client who already answered is left alone", profile.autofill(_db, typed)["attempted"], False)
+
+# A failure is marked so the next page load does not try again for ever, and
+# the client still gets the form.
+fail_cid, fail_token = make_gallery("Nothing Known Co")
+fail_client = _db.get(PickerClient, fail_cid)
+with patch.object(profile, "hub_context", return_value=("", {})):
+    first = profile.autofill(_db, fail_client)
+check("with nothing on file the questions are left for the client", first["filled"], False)
+check("and the attempt is written down", first["attempted"], True)
+check("so it is not repeated", profile.autofill(_db, fail_client)["attempted"], False)
+check("the form still opens for them", profile.public(fail_client).get("topics", []), [])
+r = http.get(f"/tools/image-picker/pick/{fail_token}")
+check("and the share link renders", r.status_code, 200)
+r = http.get(f"/tools/image-picker/pick/{auto_token}")
+check("the described client's link says the words were worked out",
+      "worked out from your website" in r.data.decode(), True)
+
+# A real trade never gets the General Business questions answered for it.
+hvac_cid, _ = make_gallery("Riverside HVAC", industry="hvac")
+with patch.object(hub_ai, "chat_json", side_effect=AssertionError("must not be asked")):
+    check("a curated trade is not auto-described",
+          profile.autofill(_db, _db.get(PickerClient, hvac_cid))["attempted"], False)
 
 
 # =====================================================================
@@ -755,13 +832,133 @@ check("and their choice is not acted on", client_say.get("action"), None)
 check("so nothing moved", rows_for(WIDGET)[0].project_name, "Autumn sale")
 sign_in()
 
-# The panel itself, on the page it is included on: the project box is a staff
-# control, and a client's share link must not grow one.
+# The panel itself, on the page it is included on: the folder chooser is on
+# BOTH pages now, by request -- a client sending "the new logo versions"
+# wants them beside the logos they sent last month -- while the duplicate
+# question (keep / copy / move) stays a staff control.
 gallery_page = http.get(f"/tools/image-picker/gallery/{dup_id}").data.decode()
-check("the staff panel asks for a project", 'id="uploadProject"' in gallery_page, True)
+check("the staff panel asks for a folder", 'id="uploadFolder"' in gallery_page, True)
 check("and has somewhere to ask the question", 'id="uploadDupes"' in gallery_page, True)
 share_page = http.get(f"/tools/image-picker/pick/{dup_token}").data.decode()
-check("the client's page has no project box", 'id="uploadProject"' in share_page, False)
+check("the client's page offers the folder chooser too", 'id="uploadFolder"' in share_page, True)
+
+# --- A client's folder lands, and the folders they see are their own -------
+with http.session_transaction() as s:
+    s.clear()
+LOGO_UP = f"smart1-client-images/duplicate-choice-co/uploads/mark-blue"
+client_folder = http.post("/tools/image-picker/api/uploads",
+                          json=dict(UPLOAD, public_id=LOGO_UP,
+                                    secure_url="https://res.cloudinary.com/demo/image/upload/v1/" + LOGO_UP,
+                                    original_filename="mark-blue.png",
+                                    token=dup_token, folder="Logos")).get_json()
+check("a client's upload into a named folder is recorded", client_folder.get("ok"), True)
+check("under the folder they chose", rows_for(LOGO_UP)[0].project_name, "Logos")
+check("as a client upload, never internal",
+      rows_for(LOGO_UP)[0].collection_kind, "upload")
+folders = http.get(f"/tools/image-picker/api/folders?t={dup_token}").get_json()
+check("the share link can read its own folders", folders.get("ok"), True)
+by_label = {f["label"]: f for f in folders["folders"]}
+check("the five sections are always offered",
+      [f["label"] for f in folders["folders"] if f["default"]],
+      ["Client Uploads", "Creative", "Hub Projects", "Logos", "Internal"])
+check("and a logo typed into 'Logos' counts in the Logos section",
+      by_label["Logos"]["count"], 1)
+check("a client cannot claim the internal flag",
+      http.post("/tools/image-picker/api/uploads",
+                json=dict(UPLOAD, public_id=LOGO_UP + "-2",
+                          secure_url="https://res.cloudinary.com/demo/image/upload/v1/" + LOGO_UP + "-2",
+                          token=dup_token, internal=True)).get_json()["image"]["collection_kind"],
+      "upload")
+sign_in()
+INTERNAL_UP = f"smart1-client-images/duplicate-choice-co/uploads/drive-logo"
+staff_internal = http.post("/tools/image-picker/api/uploads",
+                           json=dict(UPLOAD, public_id=INTERNAL_UP,
+                                     secure_url="https://res.cloudinary.com/demo/image/upload/v1/" + INTERNAL_UP,
+                                     original_filename="drive-logo.png",
+                                     client_id=dup_id, internal=True, folder="Logos")).get_json()
+check("a staff upload from our own resources is internal",
+      staff_internal["image"]["collection_kind"], "internal")
+from modules.image_picker import catalog as _catalog                # noqa: E402
+organized = _catalog.organize(staff_internal["image"])
+check("but a folder named Logos still lands in the Logos section",
+      organized["section"], "logos")
+check("under the one Logos folder", organized["folder"], "Logos")
+
+# --- Every upload is queued for its SEO copy, and never made here ---------
+from modules.image_picker import optimize as _optimize              # noqa: E402
+from modules.image_picker.models import ImageOptimization           # noqa: E402
+_db = session()
+queued = _db.execute(_select(ImageOptimization).where(
+    ImageOptimization.image_id == staff_internal["image"]["id"])).scalar_one_or_none()
+check("the upload queued an SEO copy", queued is not None and queued.state, "pending")
+check("and nothing was made in the request", queued.optimized_url, None)
+prog = _optimize.progress(_db, dup_id)
+check("progress is measured", prog["measured"], True)
+check("and counts the pending copies", prog["pending"] >= 1, True)
+check("a document is skipped rather than queued",
+      _optimize.applies(SavedImage(resource_type="raw", filename="brochure",
+                                   cloudinary_url="https://x.test/brochure")), False)
+check("an SVG mark is left alone",
+      _optimize.applies(SavedImage(resource_type="image", filename="mark.svg",
+                                   cloudinary_url="https://x.test/mark.svg")), False)
+check("a photograph applies",
+      _optimize.applies(SavedImage(resource_type="image", filename="IMG_1.jpg",
+                                   cloudinary_url="https://x.test/IMG_1.jpg")), True)
+# Under load the sweep steps aside and says so, rather than running or
+# silently doing nothing.
+with patch.object(_optimize, "busy", return_value=(True, "load average 9.00 is above 3.00 on 2 cores")), \
+        patch.object(_optimize, "_configured", return_value=True):
+    deferred = _optimize.run_backlog()
+check("the sweep defers under load", deferred.get("deferred"), True)
+check("and names why", "load average" in deferred.get("why", ""), True)
+check("without touching a row", _optimize.progress(session(), dup_id)["pending"], prog["pending"])
+check("an unconfigured Hub skips rather than errors",
+      "skipped" in _optimize.run_backlog(), True)
+
+
+class _Stored:
+    public_id = "smart1-client-images/duplicate-choice-co/optimized/blue-mark-1"
+    url = "https://res.cloudinary.com/demo/image/upload/v1/optimized/blue-mark-1.webp"
+    note = ""
+
+
+def _png_bytes():
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (3000, 2000), (20, 90, 160)).save(buf, "JPEG", quality=95)
+    return buf.getvalue()
+
+
+told = []
+with patch.object(_optimize, "_configured", return_value=True), \
+        patch.object(_optimize, "busy", return_value=(False, "")), \
+        patch.object(_optimize, "_fetch", return_value=(_png_bytes(), "")), \
+        patch("hub.storage.put", return_value=_Stored()), \
+        patch("modules.image_picker.notices.optimized_all",
+              side_effect=lambda name, n: told.append((name, n)) or 1):
+    ran = _optimize.run_backlog(limit=50)
+check("the sweep makes the copies", ran.get("optimized", 0) >= 1, True)
+_db = session()
+done = _db.execute(_select(ImageOptimization).where(
+    ImageOptimization.image_id == staff_internal["image"]["id"])).scalar_one()
+check("the row is done", done.state, "done")
+check("with a web-ready name", done.seo_filename.endswith(".webp"), True)
+check("a delivery URL", done.optimized_url.startswith("https://"), True)
+check("and a smaller file than it started with",
+      (done.bytes_after or 0) < (done.bytes_before or 0), True)
+check("named by the fallback with no key set", done.named_by, "fallback")
+original = _db.get(SavedImage, staff_internal["image"]["id"])
+check("the original's URL is untouched",
+      original.cloudinary_url, "https://res.cloudinary.com/demo/image/upload/v1/" + INTERNAL_UP)
+check("and its filename", original.filename, "drive-logo.png")
+check("the people on the account are told when every copy is made",
+      told and told[0][0], "Duplicate Choice Co")
+after = _optimize.progress(_db, dup_id)
+check("the counter reads all done", after["pending"], 0)
+copies = _optimize.copies_for(_db, [original.id])
+check("the gallery can draw the copy beside the original",
+      copies[original.id]["url"], _Stored.url)
 
 
 # ---------------------------------------------------------------------------

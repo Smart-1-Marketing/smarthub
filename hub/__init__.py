@@ -905,9 +905,13 @@ def create_hub_app() -> Flask:
         client = str(body.get("name") or "").strip()
         if not client:
             return jsonify({"error": "No client named."}), 400
+        # `auto` is Client 360 filing on its own as the brand card loads: a
+        # logo the Hub holds belongs in the gallery without a press, and
+        # only_missing keeps that to one query when nothing is new.
         res = client_logos.file_logos(
             client, str(body.get("domain") or "").strip(),
-            actor=current_user() or "system")
+            actor=current_user() or "system",
+            only_missing=bool(body.get("auto")))
         return jsonify({**res, "summary": client_logos.summary(res)})
 
     @app.route("/api/client/scan-facts")

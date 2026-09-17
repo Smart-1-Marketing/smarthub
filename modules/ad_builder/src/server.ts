@@ -2945,7 +2945,11 @@ const server = http.createServer(async (req, res) => {
             size, fontSizes: out.fontSizes, copy,
             backgroundImage: !!concept.backgroundImage,
             families: [...loadTemplates().keys()],
+            brandColors: campaign.brand?.colors,
           }),
+          // The PNG is drawn no larger than the column that shows it; this
+          // is how much smaller than the delivered size it is.
+          previewScale: out.previewScale,
           // The type size each block fitted at, so advice can say "try 48px"
           // from the number the composer used rather than a guess.
           fontSizes: out.fontSizes,

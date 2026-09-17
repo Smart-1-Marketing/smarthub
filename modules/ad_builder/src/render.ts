@@ -49,6 +49,11 @@ export interface RenderOneOptions {
   emitSvg?: boolean;
 }
 
+/** The longest edge a live preview is rasterised at. The build screen's
+ *  canvas column is never wider than this, so more pixels are more bytes and
+ *  nothing else. */
+export const PREVIEW_MAX_EDGE = 900;
+
 export function copyForSize(concept: CreativeConcept, size: SizeKey): CopySet {
   const specific = concept.copy[size];
   const fallback = concept.copy.default;
@@ -206,6 +211,9 @@ export async function renderPreview(opts: {
   platform: string;
   size: SizeKey;
   assetRoot?: string;
+  /** Draw the PNG at the delivered size whatever the canvas. For a test that
+   *  asserts pixels; the build screen never asks for it. */
+  fullSize?: boolean;
 }): Promise<{
   png: Buffer; width: number; height: number; qa: QaFinding[];
   status: 'pass' | 'warn' | 'fail'; wordCount: number;
@@ -215,6 +223,9 @@ export async function renderPreview(opts: {
   fontSizes: Partial<Record<string, number>>;
   /** Which family drew this size -- the concept's, or its per-size pick. */
   layoutFamily: string;
+  /** The PNG's scale against the delivered size: 1 for a banner, smaller
+   *  for a 1080x1920 story drawn for a column 400px wide. */
+  previewScale: number;
 }> {
   const { brand, concept, platform, size, assetRoot } = opts;
   const template = templateFor(concept, size);
@@ -256,7 +267,19 @@ export async function renderPreview(opts: {
 
   // Preview is always PNG: the editor cares about layout, not the compression
   // ladder, and re-running that ladder on every keystroke would be wasteful.
-  const png = await sharp(Buffer.from(composed.svg)).png().toBuffer();
+  //
+  // And it is drawn no larger than it is looked at. A 1080x1920 story
+  // rasterised at full size on every keystroke is two megabytes of base64
+  // per edit into a column 400px wide; the SVG is rendered at a lower
+  // density instead, which is the same picture with fewer pixels. Nothing
+  // QA reads changes: every check works from the composed geometry and the
+  // background pass, which stays at delivery scale because the contrast
+  // samples are taken at that scale. The final files never pass through
+  // here.
+  const fullW = layout.canvas.w * scale;
+  const fullH = layout.canvas.h * scale;
+  const previewScale = opts.fullSize ? 1 : Math.min(1, PREVIEW_MAX_EDGE / Math.max(fullW, fullH));
+  const png = await sharp(Buffer.from(composed.svg), { density: 72 * previewScale }).png().toBuffer();
   const raster = { buffer: png, format: 'png' as const, bytes: png.length, overweight: false, attempts: 1 };
 
   const qa = await runQa({
@@ -281,6 +304,7 @@ export async function renderPreview(opts: {
     wordCount: composed.wordCount,
     fontSizes,
     layoutFamily: template.id,
+    previewScale,
   };
 }
 
