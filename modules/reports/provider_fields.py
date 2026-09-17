@@ -195,8 +195,8 @@ DOCUMENTED: dict[str, dict] = {
         "source": "The Trade Desk MyReports standard performance template, as the exports on the "
                   "ad-ops inbox and the parser's alias list describe it",
         "fields": [
-            "TTD Cost", "Data Cost", "Media Cost", "Partner Cost (USD) (read only as a fallback for "
-            "Advertiser Cost)", "Bids", "Win Rate", "CTR", "CPM", "CPC", "eCPA",
+            "TTD Cost", "Data Cost", "Media Cost", "Partner Cost (USD), read only as a fallback for Advertiser Cost",
+            "Bids", "Win Rate", "CTR", "CPM", "CPC", "eCPA",
             "Player 25% Views", "Player 50% Views", "Player 75% Views", "Player Muted", "Player Unmuted",
             "Viewable Impressions", "Measurable Impressions", "Ad Group ID", "Ad Group", "Creative ID",
             "Creative", "Device Type", "Site", "Supply Vendor", "Ad Format",
@@ -269,9 +269,8 @@ DOCUMENTED: dict[str, dict] = {
         "source": "api-docs.groundtruth.com's endpoint list and help.groundtruth.com's reporting "
                   "articles, as the search index shows them; no page has been read whole",
         "fields": [
-            "cost per visit", "observed visits vs projected visits", "secondary actions and secondary "
-            "action rate (click to call, click for directions)", "ad group timeseries", "creative "
-            "timeseries", "day-of-week series", "time-of-day series",
+            "cost per visit", "observed visits vs projected visits", "secondary actions and secondary action rate (click to call, click for directions)",
+            "ad group timeseries", "creative timeseries", "day-of-week series", "time-of-day series",
             "geographic breakdowns (state, DMA, county, zip, drive-to-store)", "DOOH ad groups",
             "campaign and ad group settings (Get Campaigns, Get Adgroups)",
         ],
