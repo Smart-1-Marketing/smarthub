@@ -358,8 +358,23 @@ export interface PlatformConfig {
 
 export interface QaFinding {
   check: string;
-  status: 'pass' | 'warn' | 'fail';
+  /**
+   * `info` is a note: true, worth knowing, and not a reason to hold a size.
+   * Meta's text guideline is the case -- it is a delivery signal, not a
+   * rejection, and it fires on most designs here by design. As a warning it
+   * put an amber chip on nearly every Meta ad and made approval ask for an
+   * acknowledgement every time, which is how amber comes to mean nothing.
+   * rollUp() ignores it; the screens draw it grey.
+   */
+  status: 'pass' | 'warn' | 'fail' | 'info';
   detail: string;
+  /**
+   * Measured facts behind the sentence, for a reader that has to act on them
+   * rather than print them. The contrast check records the luminance behind
+   * each low block so the advice layer can pick the ink that actually reads,
+   * instead of guessing "light over a photo".
+   */
+  data?: Record<string, unknown>;
   /** Machine-readable hint the AI copy-shortener can act on. */
   fix?: { action: 'shorten'; role: BoxRole; maxWords?: number };
   /**

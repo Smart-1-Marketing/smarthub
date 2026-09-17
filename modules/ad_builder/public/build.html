@@ -628,6 +628,27 @@
   .acts .btn.primary span { font-size: 11px; line-height: 1.3; color: #0B1220; opacity: .8; }
   .acts .nsbtn[disabled] { opacity: .5; cursor: not-allowed; }
 
+  /* Start here: the six sections as steps, with a tick once each has been
+     looked at. A first-time user lands on a column of six closed folds and
+     a rail of eight sizes with nothing saying which comes first. */
+  .steps { display: flex; flex-wrap: wrap; gap: 5px; padding: 10px 14px;
+    border-bottom: 1px solid var(--line); background: var(--bg); align-items: center; }
+  .steps .stepsttl { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-2); font-weight: 700; margin-right: 4px; width: 100%; }
+  .steps button { font: inherit; font-size: 11px; padding: 3px 9px; border-radius: 20px;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--ink-2); cursor: pointer;
+    display: inline-flex; gap: 5px; align-items: center; }
+  .steps button:hover { border-color: var(--signal); color: var(--ink); }
+  .steps button.done { color: var(--pass); border-color: rgba(53,192,137,.4); }
+  .steps button.here { background: var(--signal); color: #fff; border-color: var(--signal); }
+  .steps button .n { font-weight: 700; }
+
+  /* A note is true and worth knowing, and never a reason to hold a size. */
+  .qa li.info { border-left-color: var(--line); opacity: .85; }
+  .qa li .qnote { display: inline-block; font-size: 9.5px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--ink-2); border: 1px solid var(--line);
+    border-radius: 3px; padding: 0 5px; margin-bottom: 3px; }
+
   /* A picked color waits for Use. */
   .colorpick { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; margin: 3px 0 4px; }
   .colorpick .cpbtn { font: inherit; font-size: 10.5px; padding: 3px 8px; border-radius: 5px;
@@ -866,6 +887,10 @@
     /** Undo and redo: JSON snapshots of the campaign, oldest first. */
     undo: [],
     redo: [],
+    /** Sections opened this sitting, for the start-here strip. */
+    visited: {},
+    /** True while a preview is on its way back, so "done" can wait for it. */
+    previewBusy: false,
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -1058,7 +1083,9 @@
      left behind would keep winning over the value just typed everywhere it
      existed -- which looks exactly like the edit not having worked. */
   function scopeOf(field) {
-    return state.copyScope[field] || null;
+    // Unset reads as "every size": that is what the first edit lands on,
+    // so the toggle shows the truth before anything has been typed.
+    return state.copyScope[field] || 'all';
   }
 
   function setCopy(field, value) {
@@ -1190,11 +1217,56 @@
       '<div class="navbody">' + body + '</div></details>';
   }
 
+  /* The six steps, and whether each has been looked at.
+
+     "Looked at" is the fact the campaign can tell where it can -- there is
+     copy, there is a real logo -- and "opened this sitting" where it
+     cannot: nothing on a saved file says whether anybody considered the
+     layout. Click a step to open that section. */
+  var STEPS = [
+    ['layout', 'Layout'], ['copy', 'Copy'], ['background', 'Background'],
+    ['type', 'Type/Fonts'], ['text', 'Text Boxes'], ['logo', 'Logo'],
+  ];
+  function stepDone(id) {
+    var c = concept(); if (!c) return false;
+    var b = state.doc.campaign.brand || {};
+    if (state.visited[id]) return true;
+    if (id === 'copy') return !!effective('headline');
+    if (id === 'background') return !!c.backgroundImage || c.hideHero === true;
+    if (id === 'logo') return !!(b.logos && b.logos.primary) && !/placeholder/i.test(String(b.logos.primary));
+    return false;
+  }
+  function startHere() {
+    if (!state.doc) return '';
+    var done = STEPS.filter(function (st) { return stepDone(st[0]); }).length;
+    return '<div class="steps" aria-label="Start here">' +
+      '<span class="stepsttl">Start here \u2014 ' + done + ' of ' + STEPS.length + ' looked at</span>' +
+      STEPS.map(function (st, i) {
+        var d = stepDone(st[0]);
+        return '<button type="button" data-step="' + st[0] + '" class="' +
+          (openNav === st[0] ? 'here' : d ? 'done' : '') + '" title="' +
+          (d ? 'Looked at. Click to open it again.' : 'Not looked at yet. Click to open it.') + '">' +
+          '<span class="n">' + (d ? '\u2713' : (i + 1)) + '</span>' + esc(st[1]) + '</button>';
+      }).join('') + '</div>';
+  }
+
   function wireNav() {
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-nav]'), function (el) {
       el.addEventListener('toggle', function () {
         if (!el.open) { if (openNav === el.dataset.nav) openNav = null; return; }
         openNav = el.dataset.nav;
+        if (!state.visited[openNav]) {
+          state.visited[openNav] = true;
+          // Repaint the strip alone: a full redraw here would close the
+          // section that was just opened.
+          var strip = $('controls').querySelector('.steps');
+          if (strip) strip.outerHTML = startHere();
+          Array.prototype.forEach.call($('controls').querySelectorAll('[data-step]'), function (b) {
+            b.addEventListener('click', function () {
+              openNav = b.dataset.step; state.visited[openNav] = true; drawControls();
+            });
+          });
+        }
         Array.prototype.forEach.call($('controls').querySelectorAll('[data-nav]'),
           function (other) { if (other !== el) other.open = false; });
       });
@@ -1376,6 +1448,7 @@
       blockStyleControls() + panelControls();
 
     $('controls').innerHTML =
+      startHere() +
       lockedBanner() +
       navSection('layout', 'Layout', esc(familyName(familyFor(state.size))), layoutBody) +
       navSection('copy', 'Copy', 'for ' + esc(state.size), copyBody) +
@@ -1394,6 +1467,15 @@
 
     wireDraftCopy();
     wireNav();
+    Array.prototype.forEach.call($('controls').querySelectorAll('[data-step]'), function (el) {
+      el.addEventListener('click', function () {
+        openNav = el.dataset.step;
+        state.visited[openNav] = true;
+        drawControls();
+        var sec = $('controls').querySelector('[data-nav="' + openNav + '"]');
+        if (sec && sec.scrollIntoView) sec.scrollIntoView({ block: 'start' });
+      });
+    });
 
     Array.prototype.forEach.call($('controls').querySelectorAll('[data-copy]'), function (el) {
       el.addEventListener('input', function () {
@@ -1680,18 +1762,19 @@
     if (btn) btn.addEventListener('click', function () { setApproved(state.size, false); });
   }
 
-  function setApproved(size, approved) {
+  function setApproved(size, approved, opts) {
+    opts = opts || {};
     var pid = projectIdOf();
     if (!pid) {
       showNextSteps('This build has no project record yet, so sizes cannot be ' +
                     'approved. Render the set once and it will have one.', true);
-      return;
+      return Promise.resolve(false);
     }
     if (approved && (size !== state.size || !state.previewReady)) {
       showNextSteps('Open this size and wait for a successful preview before approving it.', true);
-      return;
+      return Promise.resolve(false);
     }
-    if (state.approving) return;
+    if (state.approving) return Promise.resolve(false);
     function submit(acceptWarnings) {
       return post('/api/project/' + encodeURIComponent(pid) + '/approve-size', {
         conceptId: state.conceptId, platform: platformsForSize(size)[0],
@@ -1707,35 +1790,36 @@
       });
     }
     var start = state.dirty && approved
-      ? ask('Save and approve this size?', 'Approval checks the saved artwork for every platform delivering this size.',
-          [['Save and check', true], ['Keep editing', false]])
-        .then(function (yes) { if (!yes) return false; return saveCampaign().then(function () { return true; }); })
+      ? saveCampaign().then(function () { return true; })
       : Promise.resolve(true);
-    start.then(function (yes) {
+    return start.then(function (yes) {
       if (!yes) return null;
       state.approving = true;
       $('controls').inert = true;
       $('campaignPick').disabled = true;
       $('conceptPick').disabled = true;
-      showNextSteps(approved ? 'Rendering and checking the saved artwork…' : 'Removing approval…');
-      return submit(false);
+      showNextSteps(approved ? 'Rendering and checking the saved artwork\u2026' : 'Removing approval\u2026');
+      return submit(!!opts.acceptWarnings);
     }).then(function (d) {
-        if (!d) return;
+        if (!d) return false;
         if (!d || !d.approvals) {
           // A refused write must not be read as "no approvals": that would
           // silently unlock every size somebody had signed off.
           showNextSteps((d && d.error) ||
             'That approval did not save. Nothing has changed.', true);
-          return;
+          return false;
         }
         // The server's list, not a local guess: two people can be in here.
         state.approvals = d.approvals;
         drawControls(); drawRail();
         preview();
-        showNextSteps(approved ? 'This size is approved for every platform that delivers it. Its saved artwork is locked.' : 'Approval removed. This size can be edited.');
+        if (!opts.quiet) showNextSteps(approved ? 'This size is approved for every platform that delivers it. Its saved artwork is locked.' : 'Approval removed. This size can be edited.');
+        else if (approved) showNextSteps(state.size + ' is approved.');
+        return true;
       })
       .catch(function (err) {
         showNextSteps(err.message || 'That approval did not save. Nothing has changed.', true);
+        return false;
       }).finally(function () {
         state.approving = false;
         $('controls').inert = false;
@@ -1796,18 +1880,12 @@
      chosen -- so nobody has to retype what they just typed. */
   function ensureScope(field, label) {
     if (scopeOf(field)) return Promise.resolve(scopeOf(field));
-    return ask(
-      'Apply this to every size?',
-      'You are editing the ' + label.toLowerCase() + '. The set has ' +
-      (railSizes().length || 'several') + ' sizes in it. Change this one ' +
-      'design, or change all of them?',
-      [['Every size', 'all'], ['Just ' + state.size, 'size']],
-    ).then(function (choice) {
-      // Escape means "not now". Defaulting to either answer here would put
-      // the edit somewhere nobody chose.
-      state.copyScope[field] = choice || 'size';
-      return state.copyScope[field];
-    });
+    // Every size, unless the toggle under the field says otherwise. This
+    // used to be a dialog on the first keystroke of each of the five
+    // fields, and a question asked mid-word is one people answer wrong to
+    // make it go away. The toggle is on screen the whole time instead.
+    state.copyScope[field] = 'all';
+    return Promise.resolve('all');
   }
 
   /* --------------------------------------------------- text box styling
@@ -3793,6 +3871,10 @@
     if (d.reverse) brand.logos.reverse = d.reverse;
     delete brand.logos.white;
     delete brand.logos.black;
+    // The white and black versions were the OLD mark's, and a concept still
+    // set to one of them would quietly draw the full-color new logo while
+    // the panel said White. Back to full color on every concept.
+    (state.doc.campaign.concepts || []).forEach(function (k) { delete k.logoTone; });
     state.dirty = true;
     rememberLogo(up);
     logoSay('New logo applied to every size. Save to keep it.');
@@ -4069,6 +4151,7 @@
     state.platform = platformsForSize(state.size)[0] || state.platform;
     invalidatePreview();
     var mine = inflight;
+    state.previewBusy = true;
     $('canvas').classList.add('busy');
     fetch('/api/preview', {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -4080,9 +4163,13 @@
       .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
       .then(function (res) {
         if (mine !== inflight) return;               // a newer edit already won
+        state.previewBusy = false;
         $('canvas').classList.remove('busy');
         if (!res.ok) { $('dims').textContent = 'Preview unavailable'; drawQa([{ check: 'preview', status: 'fail', detail: res.b.error }]); return; }
         $('preview').src = res.b.image;
+        // The PNG is drawn smaller than the delivered size on the big
+        // canvases; shown at the delivered width so nothing looks shrunken.
+        $('preview').style.width = res.b.width ? res.b.width + 'px' : '';
         $('preview').alt = (res.b.replacement ? 'Actual replacement for ' : 'Preview for ') + state.size;
         state.previewReady = res.b.status !== 'fail';
         $('dims').textContent = res.b.width + ' x ' + res.b.height;
@@ -4097,8 +4184,9 @@
       })
       .catch(function () {
         if (mine !== inflight) return;
+        state.previewBusy = false;
         $('canvas').classList.remove('busy');
-        $('dims').textContent = 'Preview unavailable — try again';
+        $('dims').textContent = 'Preview unavailable \u2014 try again';
         drawQa([{ check: 'preview', status: 'fail', detail: 'The preview could not load. Your edits are still on screen. Change a field or select this size again to retry.' }]);
       });
   }
@@ -4168,24 +4256,20 @@
   function goToSize(size) {
     if (size === state.size) { preview(); return; }
     if (!state.dirty) return showSize(size);
-    ask(
-      'Save your changes first?',
-      'You have edits to ' + state.size + ' that are not saved yet. Moving to ' +
-      size + ' keeps them on screen, but nothing is written down until you save.',
-      [['Save, then go', 'save'], ['Go without saving', 'go'], ['Stay here', null]],
-    ).then(function (choice) {
-      if (!choice) return;
-      if (choice === 'go') return showSize(size);
-      saveCampaign()
-        .then(function () {
-          flashSaved();
-          return adviseBeforeLeaving(size);
-        })
-        .catch(function () {
-          showNextSteps('That did not save, so nothing has moved. Your edits ' +
-                        'are still on screen.', true);
-        });
-    });
+    // Autosave already writes within two seconds of an edit, so the only
+    // honest question here was never "save?" -- it was "wait a moment". The
+    // click saves and goes; a save that fails is the one case that stops it,
+    // and it says so rather than moving on with edits nowhere but here.
+    saveCampaign()
+      .then(function () {
+        flashSaved();
+        return adviseBeforeLeaving(size);
+      })
+      .catch(function (err) {
+        showNextSteps(((err && err.message) || 'That did not save') +
+                      ' \u2014 so nothing has moved. Your edits are still on screen; ' +
+                      'press Save now to retry.', true);
+      });
   }
 
   /* Saved, and about to move on: the moment to say what the checks found on
@@ -4197,37 +4281,40 @@
      undo; No saves and continues to the next size. Nothing to say, or no
      model to say it, and the move happens as before. */
   function adviseBeforeLeaving(next) {
-    var open = (state.lastQa || []).filter(function (f) { return f.status !== 'pass'; });
+    var open = (state.lastQa || []).filter(function (f) { return f.status !== 'pass' && f.status !== 'info'; });
     if (!open.length) return showSize(next);
-    showNextSteps('Saved. Checking ' + state.size + ' before moving on…');
+    // A billed call with a real wait behind it, so it carries the mark and
+    // a way out: "Skip, just continue" opens the next size and whatever the
+    // model says afterwards is dropped.
+    var seq = ++adviceSeq;
+    showNextSteps('Saved. Checking ' + state.size + ' before moving on\u2026');
+    var mark = waitIn($('nsMsg'), 'Checking ' + state.size + ' before moving on\u2026', 'ai');
+    $('nsActs').innerHTML = '<button type="button" class="nsbtn" id="adviceSkip"><b>Skip, just continue</b>' +
+      '<span>Open ' + esc(next) + ' now. The checks stay on the rail.</span></button>';
+    $('adviceSkip').addEventListener('click', function () {
+      adviceSeq++; mark.done(); $('nextStep').hidden = true; showSize(next);
+    });
     return adviseOn(open).then(function (a) {
+      if (seq !== adviceSeq) return;              // skipped, or a newer move
+      mark.done();
       var lead = a && a.lead;
       if (!lead || !lead.apply) {
         if (a && a.summary) showNextSteps('Saved. ' + a.summary + ' Opening ' + next + '.');
+        else $('nextStep').hidden = true;
         return showSize(next);
       }
+      $('nextStep').hidden = true;
       return ask(
         lead.title,
         lead.what + ' ' + lead.how + ' Would you like to see what this would look like?',
         [['Yes, show me', 'yes'], ['No, save and continue', 'no']],
       ).then(function (choice) {
         if (choice !== 'yes') return showSize(next);
-        return applySuggestion(lead.apply).then(function () {
-          showNextSteps('Tried: ' + (lead.applyLabel || lead.how) + '. Keep it, or put it back.');
-          $('nsActs').insertAdjacentHTML('afterbegin',
-            '<button type="button" class="nsbtn" id="adviceKeep"><b>Keep it and continue to ' + esc(next) + '</b>' +
-              '<span>Saves this change and opens the next size.</span></button>' +
-            '<button type="button" class="nsbtn" id="adviceUndo"><b>Undo</b>' +
-              '<span>Put it back the way it was and stay here.</span></button>');
-          $('adviceKeep').addEventListener('click', function () {
-            saveCampaign().then(function () { flashSaved(); showSize(next); $('nextStep').hidden = true; })
-              .catch(function () { showNextSteps('That did not save, so nothing has moved.', true); });
-          });
-          $('adviceUndo').addEventListener('click', function () { undo(); $('nextStep').hidden = true; });
-        });
+        return tryLead(lead, next);
       });
     });
   }
+  var adviceSeq = 0;
 
   function showSize(size) {
     if (state.approving) return;
@@ -4308,7 +4395,11 @@
     (state.doc.notes || []).filter(function (note) {
       return /copy|model|openai/i.test(note) && /fell back|form answers|no .*key|fail|not configured|error/i.test(note);
     }).forEach(function (note) { list.push({ check: 'Copy needs review', status: 'warn', detail: note + ' Review the copy manually or use “Draft the copy from their website” to retry.' }); });
-    if (!list || !list.length) { el.innerHTML = '<h3>Checks</h3><div class="clean">All checks pass.</div>'; return; }
+    if (!list || !list.length) {
+      el.innerHTML = '<h3>Checks</h3><div class="clean">All checks pass.</div>' + doneButton();
+      wireDone();
+      return;
+    }
     /* Words first, numbers behind a click. Each finding carries `plain` --
        the problem, what it means and what to do -- written by the renderer
        (plain-checks.ts) beside the measurement, and the measurement is what
@@ -4320,6 +4411,7 @@
         '<button type="button" class="fix" id="qaAdvise">' + (advised ? 'Ask AI again' : 'Ask AI what to do') + '</button>' +
         '<button type="button" class="fix" id="qaNumbers" aria-pressed="false">Show the measurements</button>' +
       '</div>' +
+      doneButton() +
       '<ul>' + list.map(function (f, i) {
       var plain = f.plain || { title: f.check, what: f.detail, how: '' };
       var fixBtn = f.fix && f.fix.action === 'shorten'
@@ -4331,6 +4423,7 @@
           esc(plain.applyLabel || 'Try it') + '</button>'
         : '';
       return '<li class="' + esc(f.status) + '">' +
+        (f.status === 'info' ? '<span class="qnote">Note</span>' : '') +
         '<span class="qt">' + esc(plain.title) + '</span>' +
         (plain.what ? '<span class="qw">' + esc(plain.what) + '</span>' : '') +
         (plain.how ? '<span class="qh">' + esc(plain.how) + '</span>' : '') +
@@ -4368,12 +4461,145 @@
     });
     var advise = $('qaAdvise');
     if (advise) advise.addEventListener('click', function () {
-      var mark = waitBtn(advise, 'Asking…', 'ai');
+      var mark = waitBtn(advise, 'Asking\u2026', 'ai');
       adviseOn(list).then(function (a) {
         mark.done();
         if (!a) return;
         drawQa(a.items.length ? a.items : list, a);
       });
+    });
+    wireDone();
+  }
+
+  /* ------------------------------------------------ done with this size
+     One big button under the checks, because the approval tick in the rail
+     is small and most people never found it. It saves, asks the advice
+     layer about anything the checks found, approves the size when it is
+     clean (or when the warnings are accepted), and opens the next size
+     that is not approved yet. Eight sizes, eight presses. */
+  function doneButton() {
+    if (!state.doc) return '';
+    var next = nextUnapproved();
+    var label = isApproved()
+      ? (next ? 'Approved \u2014 go to ' + next : 'Approved \u2014 every size is done')
+      : (next ? 'Done with this size \u2192 ' + next : 'Done with this size');
+    return '<button type="button" class="btn primary" id="doneSize" style="width:100%;margin-bottom:10px">' +
+      esc(label) + '</button>';
+  }
+
+  function wireDone() {
+    var b = $('doneSize');
+    if (b) b.addEventListener('click', finishSize);
+  }
+
+  /* The next size after this one that nobody has approved, wrapping round,
+     or null when this is the last. */
+  function nextUnapproved() {
+    var sizes = railSizes();
+    var at = sizes.indexOf(state.size);
+    for (var i = 1; i <= sizes.length; i++) {
+      var sz = sizes[(at + i) % sizes.length];
+      if (sz !== state.size && !isApproved(sz)) return sz;
+    }
+    return null;
+  }
+
+  /* Approval reads the saved artwork, so the preview on screen has to have
+     settled first -- a "done" pressed while the last keystroke is still
+     rendering would approve the version before it. */
+  var PREVIEW_WAIT_MS = 25 * 1000;   // longer than any preview has ever taken
+  function whenPreviewSettled() {
+    return new Promise(function (resolve) {
+      var waited = 0;
+      (function tick() {
+        if (!state.previewBusy || waited > PREVIEW_WAIT_MS) return resolve();
+        waited += 100; setTimeout(tick, 100);
+      })();
+    });
+  }
+
+  function finishSize() {
+    var next = nextUnapproved();
+    var btn = $('doneSize');
+    if (isApproved()) { if (next) showSize(next); return; }
+    var mark = waitBtn(btn, 'Checking\u2026', 'ai');
+    var done = function () { if (mark) mark.done(); };
+    Promise.resolve(state.dirty ? saveCampaign() : null)
+      .then(whenPreviewSettled)
+      .then(function () {
+        var open = (state.lastQa || []).filter(function (f) { return f.status !== 'pass' && f.status !== 'info'; });
+        var fails = open.filter(function (f) { return f.status === 'fail'; });
+        if (!open.length) {
+          return setApproved(state.size, true, { quiet: true }).then(function (ok) {
+            done();
+            afterApproval(ok, next);
+          });
+        }
+        return adviseOn(open).then(function (a) {
+          done();
+          var lead = a && a.lead;
+          var summary = (a && a.summary) || (open.length + ' thing' + (open.length === 1 ? '' : 's') + ' worth a look.');
+          if (fails.length) {
+            // A fail is never approvable; the choice is to look at the fix
+            // or move on and come back.
+            var choices = [];
+            if (lead && lead.apply) choices.push(['Yes, show me', 'yes']);
+            if (next) choices.push(['Skip it for now, go to ' + next, 'no']);
+            choices.push(['Stay and fix it', null]);
+            return ask(
+              (fails[0].plain && fails[0].plain.title) || 'This size cannot be approved yet.',
+              summary + (lead && lead.apply ? ' ' + lead.how + ' Would you like to see what this would look like?' : ''),
+              choices,
+            ).then(function (choice) {
+              if (choice === 'yes') return tryLead(lead, next);
+              if (choice === 'no' && next) showSize(next);
+            });
+          }
+          var choices2 = [];
+          if (lead && lead.apply) choices2.push(['Yes, show me', 'yes']);
+          choices2.push([next ? 'Approve and go to ' + next : 'Approve it', 'approve']);
+          if (next) choices2.push(['Go to ' + next + ' without approving', 'no']);
+          choices2.push(['Stay here', null]);
+          return ask(
+            (lead && lead.title) || 'Worth a look before you approve ' + state.size,
+            summary + (lead && lead.apply ? ' ' + lead.how + ' Would you like to see what this would look like?' : ''),
+            choices2,
+          ).then(function (choice) {
+            if (choice === 'yes') return tryLead(lead, next);
+            if (choice === 'approve') {
+              return setApproved(state.size, true, { quiet: true, acceptWarnings: true })
+                .then(function (ok) { afterApproval(ok, next); });
+            }
+            if (choice === 'no' && next) showSize(next);
+          });
+        });
+      })
+      .catch(function (err) {
+        done();
+        showNextSteps((err && err.message) || 'That did not go through. Nothing has changed.', true);
+      });
+  }
+
+  function afterApproval(ok, next) {
+    if (!ok) return;                       // setApproved already said why
+    if (next) { showSize(next); return; }
+    showNextSteps('Every size is approved. Next: review all sizes, then send.');
+  }
+
+  /* Apply the advice's one change, show it, and offer keep / undo. */
+  function tryLead(lead, next) {
+    return applySuggestion(lead.apply).then(function () {
+      showNextSteps('Tried: ' + (lead.applyLabel || lead.how) + '. Keep it, or put it back.');
+      $('nsActs').insertAdjacentHTML('afterbegin',
+        '<button type="button" class="nsbtn" id="adviceKeep"><b>Keep it' + (next ? ' and continue to ' + esc(next) : '') + '</b>' +
+          '<span>Saves this change' + (next ? ' and opens the next size' : '') + '.</span></button>' +
+        '<button type="button" class="nsbtn" id="adviceUndo"><b>Undo</b>' +
+          '<span>Put it back the way it was and stay here.</span></button>');
+      $('adviceKeep').addEventListener('click', function () {
+        saveCampaign().then(function () { flashSaved(); $('nextStep').hidden = true; if (next) showSize(next); })
+          .catch(function () { showNextSteps('That did not save, so nothing has moved.', true); });
+      });
+      $('adviceUndo').addEventListener('click', function () { undo(); $('nextStep').hidden = true; });
     });
   }
 
@@ -4509,29 +4735,75 @@
         // anything.
         var rail = railSizes();
         if (rail.length && rail.indexOf(state.size) < 0) state.size = rail[0];
+        state.visited = {};
+        if (openNav) state.visited[openNav] = true;
+        briefSeen = briefSignature(doc);
         drawControls(); drawRail(); preview(); refreshCarry();
         refreshDeliver(); refreshOverrideNote(); refreshStage();
         loadApprovals();
       });
   }
 
+  /* ------------------------------------------------- the brief, changed
+     The brief is edited on the overview page, and a build screen already
+     open goes on reading the old one until it is reopened. When this tab
+     comes back into view it asks the server for the campaign and compares
+     the brief fields; a change is offered as a reload rather than applied
+     under somebody's hands. Never more than once a minute. */
+  var briefSeen = '', briefCheckedAt = 0;
+  var BRIEF_FIELDS = ['campaignName', 'promoting', 'objective', 'benefit', 'offer', 'cta', 'audience', 'geography'];
+  function briefSignature(doc) {
+    var c = (doc && doc.campaign) || {};
+    return JSON.stringify(BRIEF_FIELDS.map(function (k) { return c[k] || ''; }).concat([doc && doc.landingPage || '']));
+  }
+  function checkBriefChanged() {
+    if (!state.requestId || !state.doc) return;
+    if (Date.now() - briefCheckedAt < 60000) return;
+    briefCheckedAt = Date.now();
+    var id = state.requestId;
+    fetch('/api/campaign/' + encodeURIComponent(id))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (doc) {
+        if (!doc || id !== state.requestId) return;
+        var now = briefSignature(doc);
+        if (!briefSeen || now === briefSeen) return;
+        briefSeen = now;
+        showNextSteps('The brief for this campaign was changed on the overview page.' +
+          (state.dirty ? ' Save your edits, then reload to pick it up.' : ' Reload to pick it up?'));
+        $('nsActs').insertAdjacentHTML('afterbegin',
+          '<button type="button" class="nsbtn" id="briefReload"' + (state.dirty ? ' disabled' : '') +
+          '><b>Reload the brief</b><span>Reopens this campaign with the new brief. Your saved work is kept.</span></button>');
+        var b = $('briefReload');
+        if (b) b.addEventListener('click', function () {
+          leaveIfSafe('the updated brief', function () { $('nextStep').hidden = true; loadCampaign(id); });
+        });
+      })
+      .catch(function () { /* the next look will try again */ });
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') checkBriefChanged();
+  });
+  window.addEventListener('focus', checkBriefChanged);
+
   /* Leaving unsaved work behind is asked about wherever it can happen, not
      only when moving between sizes: the campaign and concept pickers throw
      away exactly the same edits. */
   function leaveIfSafe(what, then) {
     if (!state.dirty) return then();
-    ask(
-      'Save your changes first?',
-      'You have edits that are not saved yet. Opening ' + what + ' will lose them.',
-      [['Save, then open', 'save'], ['Open without saving', 'go'], ['Stay here', null]],
-    ).then(function (choice) {
-      if (!choice) return;
-      if (choice === 'go') { state.dirty = false; return then(); }
-      saveCampaign().then(function () { flashSaved(); then(); })
-        .catch(function () {
-          showNextSteps('That did not save, so nothing has moved.', true);
+    // Same rule as switching size: save and go. The question is asked only
+    // when the save fails, because that is the only case where leaving
+    // costs anything.
+    return saveCampaign().then(function () { flashSaved(); then(); })
+      .catch(function (err) {
+        return ask(
+          'That did not save',
+          ((err && err.message) || 'The campaign could not be written.') +
+          ' Opening ' + what + ' now would lose the edits on screen.',
+          [['Stay here', null], ['Leave without saving', 'go']],
+        ).then(function (choice) {
+          if (choice === 'go') { state.dirty = false; then(); }
         });
-    });
+      });
   }
 
   $('campaignPick').addEventListener('change', function () {
@@ -4751,10 +5023,13 @@
      and the first is the two people do together.  */
   function askRenderAction() {
     var count = railSizes().length;
+    // The usual job is one button. Everything else -- a subset of sizes,
+    // render without filing, package what is built -- is behind "More
+    // options", so the common press is one press and the rest is still
+    // there.
     var opts = [
-      ['render-file', 'Render and save to the client', true,
-       'Build the files, then file them onto ' + clientLabel() + '\u2019s record. ' +
-       'The usual answer.'],
+      ['render-file', 'Render some sizes and save to the client', true,
+       'Pick which sizes to build, then file them onto ' + clientLabel() + '\u2019s record.'],
       ['render', 'Render only', true,
        'Build the files and leave them here. Nothing reaches the client record.'],
       ['file', 'Save to the client', state.rendered,
@@ -4772,15 +5047,22 @@
       var wrap = document.createElement('div');
       wrap.className = 'ask';
       wrap.innerHTML = '<div class="askbox" role="dialog" aria-modal="true">' +
-        '<h4>What would you like to do?</h4>' +
-        '<p>The preview on screen is a live sketch. These act on real files.</p>' +
+        '<h4>Render this set</h4>' +
+        '<p>The preview on screen is a live sketch. This builds the real files.</p>' +
         '<div class="nsacts" style="flex-direction:column">' +
+          '<button type="button" class="nsbtn" style="max-width:none;border-color:var(--signal)" data-act="render-file-all">' +
+            '<b>Render every size and save to the client</b>' +
+            '<span>Build all ' + count + ' files, then file them onto ' + esc(clientLabel()) + '\u2019s record. The usual answer.</span></button>' +
+        '</div>' +
+        '<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12.5px;color:var(--ink-2)">More options</summary>' +
+        '<div class="nsacts" style="flex-direction:column;margin-top:8px">' +
           opts.map(function (o) {
             return '<button type="button" class="nsbtn" style="max-width:none" data-act="' +
               o[0] + '"' + (o[2] ? '' : ' disabled') + '><b>' + esc(o[1]) +
               '</b><span>' + esc(o[3]) + '</span></button>';
           }).join('') +
-        '</div><div class="askacts"><button type="button" class="btn" data-cancel>Cancel</button></div></div>';
+        '</div></details>' +
+        '<div class="askacts" style="margin-top:12px"><button type="button" class="btn" data-cancel>Cancel</button></div></div>';
       function done(v) { document.removeEventListener('keydown', onKey); wrap.remove(); resolve(v); }
       function onKey(e) { if (e.key === 'Escape') done(null); }
       wrap.addEventListener('click', function (e) { if (e.target === wrap) done(null); });
@@ -4918,6 +5200,8 @@
       if (act === 'zip') return packageZip('draft');
       if (act === 'final') return packageZip('final');
       if (act === 'file') return fileOnlyStep();
+      // The one-press answer: every size, filed. No second question.
+      if (act === 'render-file-all') return startRender(null, true);
       chooseSizes().then(function (sizes) {
         if (sizes === false) return;
         startRender(sizes, act === 'render-file');

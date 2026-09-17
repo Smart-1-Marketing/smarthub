@@ -41,6 +41,7 @@
  */
 
 import type { QaFinding } from './types';
+import { contrastRatio, hexLuminance } from './raster';
 
 /** One change the build screen knows how to make -- and undo. */
 export type Suggestion =
@@ -72,10 +73,45 @@ export interface ExplainContext {
   /** Px at 1x, per block, as the composer fitted them. */
   fontSizes?: Partial<Record<string, number>>;
   copy?: Partial<Record<string, string>>;
-  /** Whether the ad has a photo behind it: decides which ink to suggest. */
+  /** Whether the ad has a photo behind it: the fallback for which ink to
+   *  suggest when the finding carries no measurement. */
   backgroundImage?: boolean;
   /** Families the renderer has, so a layout suggestion names a real one. */
   families?: string[];
+  /** The brand's five roles as hex, so an ink suggestion is checked against
+   *  what is actually behind the block before it is made. */
+  brandColors?: Record<string, string>;
+}
+
+/**
+ * Which brand ink to suggest for a block that does not read.
+ *
+ * The contrast check records the luminance it measured behind each low
+ * block. With that and the brand's light and dark, this is a subtraction:
+ * whichever of the two clears 4.5:1 is the answer, the better one when
+ * neither does. Without the measurement it falls back to the old guess --
+ * light over a photo, dark on a flat layout -- and says so in the label.
+ */
+export function inkSuggestion(
+  role: string, ctx: ExplainContext, low?: Array<{ role: string; behind: number }>,
+): { value: 'light' | 'dark'; ratio?: number; reads: boolean; measured: boolean } {
+  const guess: 'light' | 'dark' = ctx.backgroundImage ? 'light' : 'dark';
+  const entry = low?.find((l) => l.role === role);
+  const colors = ctx.brandColors ?? {};
+  const light = colors.light, dark = colors.dark;
+  if (!entry || typeof entry.behind !== 'number' || !light || !dark) {
+    return { value: guess, reads: true, measured: false };
+  }
+  let lightRatio = 0, darkRatio = 0;
+  try {
+    lightRatio = contrastRatio(hexLuminance(light), entry.behind);
+    darkRatio = contrastRatio(hexLuminance(dark), entry.behind);
+  } catch {
+    return { value: guess, reads: true, measured: false };
+  }
+  const value: 'light' | 'dark' = lightRatio >= darkRatio ? 'light' : 'dark';
+  const ratio = Math.max(lightRatio, darkRatio);
+  return { value, ratio, reads: ratio >= 4.5, measured: true };
 }
 
 const ROLE_NAMES: Record<string, string> = {
@@ -153,17 +189,27 @@ export function explainFinding(f: QaFinding, ctx: ExplainContext = {}): PlainAdv
       const roles = rolesIn(d).filter((r) => r !== 'panel' && r !== 'hero' && r !== 'logo');
       const who = roles.length ? list(roles) : 'some of the text';
       const first = roles[0];
-      const ink = ctx.backgroundImage ? 'light' : 'dark';
+      const low = (f.data?.low as Array<{ role: string; behind: number }> | undefined);
+      const pick = first && first !== 'cta' ? inkSuggestion(first, ctx, low) : null;
+      // A suggestion that the checks would refuse a second later is worse
+      // than none: when neither brand ink clears the bar, the fix is the
+      // overlay, and the button says so.
+      const suggestInk = !!pick && (pick.reads || !pick.measured);
       return done({
         title: `${CAP(who)} ${roles.length > 1 ? 'are' : 'is'} hard to read against what is behind ${roles.length > 1 ? 'them' : 'it'}.`,
         what: 'The text color and the background are too close in tone, so the words fade into it.',
         how: first === 'cta'
           ? 'Pick a button color that stands out from the button text, in Text Boxes > Button.'
-          : `Pick a lighter or darker text color for the ${who} in Text Boxes, or darken the overlay behind it in Background.`,
-        apply: first && first !== 'cta'
-          ? { kind: 'style', block: first as any, prop: 'color', value: ink }
+          : pick && pick.measured && !pick.reads
+            ? `Neither brand ink reads well here. Darken the overlay behind the ${who} in Background, or move it onto the card.`
+            : `Pick a lighter or darker text color for the ${who} in Text Boxes, or darken the overlay behind it in Background.`,
+        apply: suggestInk
+          ? { kind: 'style', block: first as any, prop: 'color', value: pick!.value }
           : undefined,
-        applyLabel: first && first !== 'cta' ? `Try the ${ink} brand color on the ${roleName(first)}` : undefined,
+        applyLabel: suggestInk
+          ? `Use the ${pick!.value} brand color on the ${roleName(first)}` +
+            (pick!.measured ? '' : ' (a guess — the checks will say)')
+          : undefined,
       });
     }
     case 'legibility': {
@@ -275,9 +321,9 @@ export function explainFinding(f: QaFinding, ctx: ExplainContext = {}): PlainAdv
       });
     case 'text-coverage':
       return done({
-        title: 'There is a lot of text over the picture.',
-        what: 'Meta shows text-heavy images to fewer people. It is not a rejection.',
-        how: 'Shorten the copy, or pick a layout that gives the picture more room.',
+        title: 'Note: there is a lot of text over the picture.',
+        what: 'Meta may show text-heavy images to fewer people. It is not a rejection and does not hold this size.',
+        how: 'If reach matters more than the copy, shorten it or pick a layout that gives the picture more room.',
       });
     case 'pressure-language': {
       const m = d.match(/\("([^"]+)"/);
@@ -368,6 +414,7 @@ export function explainFinding(f: QaFinding, ctx: ExplainContext = {}): PlainAdv
 
 /** Every finding, with its plain reading attached. Passes are left alone. */
 export function withPlain(findings: QaFinding[], ctx: ExplainContext = {}): QaFinding[] {
+  // A note is explained like anything else; only its weight differs.
   return findings.map((f) => (f.status === 'pass' ? f : { ...f, plain: explainFinding(f, ctx) }));
 }
 
@@ -444,14 +491,19 @@ function ruleAdvice(input: AdviceInput, warnings: string[]): Advice {
     .filter((f) => f.status !== 'pass')
     .map((f) => ({ ...f, plain: f.plain ?? explainFinding(f, input) }));
   const fails = items.filter((i) => i.status === 'fail').length;
+  const notes = items.filter((i) => i.status === 'info').length;
+  const looks = items.length - fails - notes;
   const summary = !items.length
     ? 'Everything checks out on this size.'
     : fails
-      ? `${fails} thing${fails === 1 ? '' : 's'} must be fixed before this size can ship, and ${items.length - fails} ${items.length - fails === 1 ? 'is' : 'are'} worth a look.`
-      : `Nothing blocks this size. ${items.length} thing${items.length === 1 ? '' : 's'} worth a look.`;
+      ? `${fails} thing${fails === 1 ? '' : 's'} must be fixed before this size can ship` +
+        (looks ? `, and ${looks} ${looks === 1 ? 'is' : 'are'} worth a look.` : '.')
+      : looks
+        ? `Nothing blocks this size. ${looks} thing${looks === 1 ? '' : 's'} worth a look.`
+        : 'Nothing blocks this size.';
   return {
     summary, items,
-    lead: items.find((i) => i.plain.apply)?.plain,
+    lead: items.find((i) => i.plain.apply && i.status !== 'info')?.plain,
     source: 'rule', warnings,
   };
 }
@@ -546,7 +598,7 @@ export async function adviseFindings(
     return {
       summary: String(parsed.summary || floor.summary).trim(),
       items,
-      lead: items.find((i) => i.plain.apply)?.plain,
+      lead: items.find((i) => i.plain.apply && i.status !== 'info')?.plain,
       source: 'ai',
       warnings,
     };
