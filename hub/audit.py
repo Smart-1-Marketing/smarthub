@@ -42,6 +42,7 @@ whole entry is stored as its payload and handed back verbatim.
 """
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -49,13 +50,13 @@ from datetime import datetime, timezone
 
 try:                                                     # pragma: no cover
     from sqlalchemy import (BigInteger, Column, DateTime, Index, Integer,
-                            MetaData, String, Table, Text, delete, insert,
-                            select)
+                            MetaData, String, Table, Text, delete, func,
+                            insert, select)
     _SA_ERROR = ""
 except Exception as _exc:                                # noqa: BLE001
     BigInteger = Column = DateTime = Index = Integer = None
     MetaData = None
-    String = Table = Text = delete = insert = select = None
+    String = Table = Text = delete = func = insert = select = None
     _SA_ERROR = f"{type(_exc).__name__}: {_exc}"
 
 _lock = threading.Lock()
@@ -190,12 +191,23 @@ def _init() -> bool:
                 Column("module", String(80), nullable=False, index=True),
                 Column("type", String(80), nullable=False, index=True),
                 Column("actor", String(60)),
+                # The client this row is about, normalised by client_key().
+                # A LATE column: create_all() never adds one to a live table,
+                # so _add_client_column() below ALTERs it in, and every row
+                # written before that reads NULL until the backfill reaches
+                # it. NULL is "nobody has looked at this row yet" and "" is
+                # "looked at, names no client" -- collapsing those two is
+                # exactly the silent truncation this column exists to end.
+                Column("client", String(200), nullable=True),
                 Column("payload", Text, nullable=False),
             )
             # Narrowing by module is what /activity's own dropdown does and
             # what client_brand's work index does per client, so the pair is
             # the index that matters rather than either column alone.
             Index("ix_hub_activity_module_id", _table.c.module, _table.c.id)
+            # The pair the client work log reads: one client's rows, newest
+            # first. `id` is what "newest" means here, as _db_read explains.
+            Index("ix_hub_activity_client_id", _table.c.client, _table.c.id)
             # Advisory-locked through extensions, so two workers racing to
             # create it is not the pg_type_typname_nsp_index violation on
             # every deploy. retry=False for jsonstore's reason: this is
@@ -206,6 +218,7 @@ def _init() -> bool:
                 _init_error = _one_line(err)
                 _engine = None
                 return False
+            _add_client_column()
             _ready = True
             _init_error = ""
             return True
@@ -234,12 +247,168 @@ def _when(entry: dict) -> datetime:
     return dt
 
 
+# The keys a tool may name a client under, in the order they are read. This
+# lived in hub/client_brand.py, beside the walk that checks them -- and it has
+# to live HERE now, because the `client` column is written from it on the way
+# in and queried by it on the way out. Two spellings of "which key names the
+# client" is the two-readings failure this repo names most often, and a column
+# filled by one rule and searched by another is that failure made durable.
+# client_brand reads these rather than keeping its own copy.
+CLIENT_KEYS = ("client", "client_name", "company", "business_name",
+               "tool_client")
+
+
+def client_key(name) -> str:
+    """A client's name reduced to the key the `client` column holds.
+
+    One function, used by the writer, the backfill and every reader. If the
+    write normalised differently from the query, the column would answer
+    "nothing filed" about rows it holds -- silently, and only for the clients
+    whose names differ in punctuation or case, which is the hardest kind of
+    wrong to notice.
+    """
+    return re.sub(r"[^a-z0-9]+", "", str(name or "").lower())
+
+
+def client_key_of(entry: dict) -> str:
+    """The client key an activity-log entry carries, or "" for one that names
+    no client. Empty string, never None: NULL in the column means "this row
+    has not been backfilled yet", and a row that genuinely names nobody is a
+    different answer from one nobody has looked at."""
+    for key in CLIENT_KEYS:
+        if entry.get(key):
+            return client_key(entry[key])[:200]
+    return ""
+
+
+def _add_client_column() -> None:
+    """ALTER the `client` column onto a table that predates it.
+
+    create_all() adds tables, never columns, so a Hub that has been running
+    since before this column exists would otherwise insert against a table
+    without it and fail every write. Never raises: the other worker may have
+    won the race, and a log that cannot add a column must still take rows.
+    """
+    try:
+        from sqlalchemy import inspect as _inspect, text as _text
+        have = {c["name"] for c in _inspect(_engine).get_columns("hub_activity")}
+        if "client" in have:
+            return
+        with _engine.begin() as cx:
+            cx.execute(_text("ALTER TABLE hub_activity ADD COLUMN client VARCHAR(200)"))
+        try:
+            with _engine.begin() as cx:
+                cx.execute(_text("CREATE INDEX IF NOT EXISTS "
+                                 "ix_hub_activity_client_id ON hub_activity (client, id)"))
+        except Exception:                               # noqa: BLE001 - raced
+            pass
+    except Exception:                                   # noqa: BLE001 - raced, or no table
+        pass
+
+
+# How many rows one backfill pass rewrites. The table is capped at MAX_ROWS
+# (400_000), and this runs on a schedule rather than at boot: a migration that
+# holds the write path while it walks a third of a million rows is an outage,
+# and an outage on the path that RECORDS outages is the worst place for one.
+BACKFILL_BATCH = 5000
+
+
+def backfill_state() -> dict:
+    """How far the `client` backfill has reached.
+
+    ``{"measured", "pending", "done", "horizon_id", "horizon", "error"}``.
+
+    Self-describing rather than a stored watermark: `client` is NULL on a row
+    nobody has looked at and "" on one looked at that names nobody, so the
+    table itself says where the backfill is. A watermark in another store is
+    a second reading of one fact, and the two drift the first time a backfill
+    is interrupted.
+
+    ``pending`` is rows still NULL. ``horizon_id`` is the oldest row that HAS
+    been filled -- anything below it is unanswered, which is what a reader
+    needs to know before it prints "nothing was ever filed for this client".
+    """
+    if not _init():
+        return {"measured": False, "error": _init_error or "the activity log "
+                "database could not be reached", "pending": None, "done": False}
+    try:
+        with _engine.connect() as cx:
+            pending = int(cx.execute(
+                select(func.count()).select_from(_table)
+                .where(_table.c.client.is_(None))).scalar() or 0)
+            row = cx.execute(
+                select(func.min(_table.c.id)).where(
+                    _table.c.client.isnot(None))).scalar()
+            when = None
+            if row is not None:
+                when = cx.execute(select(_table.c.at)
+                                  .where(_table.c.id == row)).scalar()
+    except Exception as exc:                            # noqa: BLE001
+        return {"measured": False, "error": _reason(exc), "pending": None,
+                "done": False}
+    return {"measured": True, "pending": pending, "done": pending == 0,
+            "horizon_id": row,
+            "horizon": when.isoformat() if hasattr(when, "isoformat") else "",
+            "error": ""}
+
+
+def backfill_clients(batch: int = BACKFILL_BATCH) -> dict:
+    """Fill `client` on one batch of rows, newest first. Idempotent.
+
+    Newest first so the rows a reader is most likely to want are covered
+    first, and so ``backfill_state()["horizon_id"]`` moves steadily backwards
+    -- a reader can always say "answered from the column back to here".
+
+    The client is read from the row's own payload through ``client_key_of``,
+    the same function the write path uses, so a backfilled row and a row
+    written today cannot disagree about which key named the client.
+    """
+    if not _init():
+        return {"measured": False, "written": 0,
+                "error": _init_error or "the activity log database could not be reached"}
+    try:
+        with _engine.connect() as cx:
+            rows = cx.execute(
+                select(_table.c.id, _table.c.payload)
+                .where(_table.c.client.is_(None))
+                .order_by(_table.c.id.desc())
+                .limit(max(1, int(batch)))).fetchall()
+    except Exception as exc:                            # noqa: BLE001
+        return {"measured": False, "written": 0, "error": _reason(exc)}
+    if not rows:
+        return {"measured": True, "written": 0, "done": True, "error": ""}
+
+    written = 0
+    try:
+        with _engine.begin() as cx:
+            for row_id, raw in rows:
+                try:
+                    entry = json.loads(raw)
+                except Exception:                       # noqa: BLE001
+                    entry = {}
+                # A payload that will not parse still gets "" rather than
+                # being left NULL: leaving it unreadable means the backfill
+                # never finishes and every reader stays in the "there is more
+                # underneath" branch for ever, over one corrupt row.
+                cx.execute(_table.update().where(_table.c.id == row_id)
+                           .values(client=client_key_of(entry)))
+                written += 1
+    except Exception as exc:                            # noqa: BLE001
+        return {"measured": False, "written": written, "error": _reason(exc)}
+    state = backfill_state()
+    return {"measured": True, "written": written,
+            "done": bool(state.get("done")), "pending": state.get("pending"),
+            "error": ""}
+
+
 def _row_for(entry: dict) -> dict:
     return {
         "at": _when(entry),
         "module": str(entry.get("module") or "")[:80],
         "type": str(entry.get("type") or "")[:80],
         "actor": (str(entry.get("actor"))[:60] if entry.get("actor") else None),
+        # "" rather than None on purpose -- see client_key_of().
+        "client": client_key_of(entry),
         "payload": json.dumps(entry, ensure_ascii=False),
     }
 
@@ -262,7 +431,7 @@ def _db_write(entries: list[dict]) -> bool:
 
 
 def _db_read(limit: int, module: str | None, type_: str | None,
-             actor: str | None = None, modules=None):
+             actor: str | None = None, modules=None, clients=None):
     """The newest rows, or None where the database could not be asked.
 
     None rather than `[]`, because *we could not look* and *nothing has been
@@ -283,6 +452,8 @@ def _db_read(limit: int, module: str | None, type_: str | None,
             q = q.where(_table.c.module == str(module)[:80])
         if modules:
             q = q.where(_table.c.module.in_([str(m)[:80] for m in modules]))
+        if clients:
+            q = q.where(_table.c.client.in_([str(c)[:200] for c in clients]))
         if type_:
             q = q.where(_table.c.type == str(type_)[:80])
         if actor:
@@ -505,9 +676,13 @@ _FILE_ROWS_ALL = sys.maxsize
 
 
 def _file_rows(limit: int, module: str | None, type_: str | None,
-               actor: str | None = None, modules=None) -> list[dict]:
+               actor: str | None = None, modules=None, clients=None) -> list[dict]:
     """The newest matching rows across the fallback and the legacy file."""
     want_modules = {str(m) for m in modules} if modules else None
+    # The file has no `client` column, so the key is derived from the entry
+    # with the SAME function the column is written from -- a fallback that
+    # matched differently would answer differently during an outage.
+    want_clients = {str(c) for c in clients} if clients else None
     out: list[dict] = []
     for path in (_pending_path(), _path()):
         for e in reversed(_file_entries(path)):
@@ -519,6 +694,8 @@ def _file_rows(limit: int, module: str | None, type_: str | None,
                 continue
             if actor and e.get("actor") != actor:
                 continue
+            if want_clients is not None and client_key_of(e) not in want_clients:
+                continue
             out.append(e)
             if len(out) >= limit:
                 return out
@@ -527,7 +704,7 @@ def _file_rows(limit: int, module: str | None, type_: str | None,
 
 def read(limit: int = 300, module: str | None = None,
          type_: str | None = None, actor: str | None = None,
-         modules=None) -> list[dict]:
+         modules=None, clients=None) -> list[dict]:
     """The newest entries, narrowed to one module, action and/or actor.
 
     `modules` narrows to a SET of module names in one `IN`, for a caller
@@ -557,10 +734,10 @@ def read(limit: int = 300, module: str | None = None,
     the two somebody reached for was never a decision about the answer.
     """
     limit = max(1, int(limit))
-    rows = _db_read(limit, module, type_, actor, modules)
+    rows = _db_read(limit, module, type_, actor, modules, clients)
     if rows is None:
-        return _file_rows(limit, module, type_, actor, modules)
-    pend = _pending_rows(limit, module, type_, actor, modules)
+        return _file_rows(limit, module, type_, actor, modules, clients)
+    pend = _pending_rows(limit, module, type_, actor, modules, clients)
     if pend:
         # In front, not behind. These were written while the table was
         # refusing, so they are newer than everything in it -- and left out
@@ -574,14 +751,15 @@ def read(limit: int = 300, module: str | None = None,
 
 def tail(limit: int = 300, module: str | None = None,
          type_: str | None = None, actor: str | None = None,
-         modules=None) -> list[dict]:
+         modules=None, clients=None) -> list[dict]:
     """read(), under the name ten call sites already use. See read()."""
     return read(limit=limit, module=module, type_=type_, actor=actor,
-                modules=modules)
+                modules=modules, clients=clients)
 
 
 def _pending_rows(limit: int, module: str | None, type_: str | None,
-                  actor: str | None = None, modules=None) -> list[dict]:
+                  actor: str | None = None, modules=None,
+                  clients=None) -> list[dict]:
     """The fallback file's newest matching rows, newest first.
 
     Sized first, so the ordinary path -- a database that is answering and a
@@ -595,6 +773,7 @@ def _pending_rows(limit: int, module: str | None, type_: str | None,
     except OSError:
         return []
     want_modules = {str(m) for m in modules} if modules else None
+    want_clients = {str(c) for c in clients} if clients else None
     out = []
     for e in reversed(_file_entries(path)):
         if module and e.get("module") != module:
@@ -604,6 +783,8 @@ def _pending_rows(limit: int, module: str | None, type_: str | None,
         if type_ and e.get("type") != type_:
             continue
         if actor and e.get("actor") != actor:
+            continue
+        if want_clients is not None and client_key_of(e) not in want_clients:
             continue
         out.append(e)
         if len(out) >= limit:

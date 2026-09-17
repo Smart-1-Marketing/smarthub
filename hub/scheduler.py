@@ -232,6 +232,32 @@ def job_rotate_audit_log(app) -> dict:
     return {"rotated": bool(audit.rotate(max_mb=64, keep=5))}
 
 
+def job_backfill_activity_clients(app) -> dict:
+    """Fill `hub_activity.client` on rows written before the column existed.
+
+    One batch a run, newest first, until nothing is left -- and then it is a
+    no-op for ever, costing one COUNT per run. A migration that walks a third
+    of a million rows inside a deploy is an outage on the path that RECORDS
+    outages, so it runs here instead, where it can be interrupted and picked
+    up again without losing its place.
+
+    It keeps no watermark. `client` is NULL on a row nobody has looked at and
+    "" on one looked at that names nobody, so the table says where the
+    backfill is; a watermark in another store is a second reading of one fact,
+    and the two drift the first time a run is interrupted.
+    """
+    from hub import audit
+    state = audit.backfill_state()
+    if state.get("measured") and state.get("done"):
+        return {"done": True, "written": 0, "pending": 0}
+    out = audit.backfill_clients()
+    if out.get("error"):
+        return {"done": False, "written": out.get("written") or 0,
+                "error": out["error"]}
+    return {"done": bool(out.get("done")), "written": out.get("written") or 0,
+            "pending": out.get("pending")}
+
+
 def job_quota_warnings(app) -> dict:
     """Record any provider past its monthly warning mark.
 
@@ -1358,6 +1384,13 @@ JOBS = {
                           "Resolve or error scans running past 30 minutes."),
     "rotate_audit_log":  (720, job_rotate_audit_log,
                           "Roll the activity log before it fills the disk."),
+    # Every 15 minutes until it is done, then a COUNT and nothing else. Short
+    # rather than nightly because the client work log reads as INCOMPLETE
+    # while rows remain unfilled -- which is honest, and still a card saying
+    # less than it could, so the sooner it finishes the better.
+    "backfill_activity_clients": (15, job_backfill_activity_clients,
+                          "Fill the activity log's client column on rows "
+                          "written before it existed."),
     "quota_warnings":    (240, job_quota_warnings,
                           "Record providers past their monthly warning mark."),
     "knack_products":    (180, job_refresh_knack_products,

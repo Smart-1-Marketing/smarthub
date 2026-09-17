@@ -112,6 +112,17 @@ finally:
 check("_work_entries narrows to the work modules in the query",
       set(_seen_kwargs.get("modules") or ()), set(client_brand.WORK_KINDS))
 
+# And work_log narrows to the CLIENT in the query, against hub_activity.client
+# -- the column that turns this from a window into a question with an answer.
+_seen_kwargs.clear()
+audit.tail = _spy
+try:
+    client_brand.work_log(CLIENT)
+finally:
+    audit.tail = _real_tail
+check("work_log narrows to this client's key in the query",
+      set(_seen_kwargs.get("clients") or ()), {audit.client_key(CLIENT)})
+
 
 # ------------------------------------------------------------ work_log
 section("work_log: the client's row, and what the read reached")
@@ -147,20 +158,26 @@ check("a limit past the end shows everything and claims no more",
 
 
 # ------------------------------------------- an incomplete read may not claim
-section("A read that did not reach the end may not say 'nothing'")
+section("An empty answer from an incomplete read may not say 'nothing'")
 
-SHALLOW = 3
-for i in range(SHALLOW + 4):
-    audit.log(OTHER_WORK, "made", actor="Todd", client="Someone Else Inc",
-              detail=f"later work {i}")
-
+# Driven through the reading itself rather than through a shallow window,
+# because a shallow window can no longer PRODUCE this: `work_log` narrows on
+# `hub_activity.client` in the query now, so a small limit truncates this
+# client's own rows and can never hide them behind somebody else's. The way an
+# answer is genuinely incomplete today is the backfill boundary -- rows nobody
+# has looked at yet -- and test_activity_client_column.py drives that end to
+# end. What belongs HERE is the readers' half of the contract: given an empty
+# answer that does not claim to be complete, none of them may print it as a
+# fact about the whole history.
 _real_entries = client_brand._work_entries
-client_brand._work_entries = lambda limit=SHALLOW: _real_entries(SHALLOW)
+client_brand._work_entries = lambda limit=None, clients=None: {
+    "entries": [], "horizon": "2026-05-01T09:00:00+00:00", "scanned": 0,
+    "complete": False, "backfilled": False, "error": ""}
 try:
     shallow = client_brand.work_log(CLIENT)
-    check("the shallow read does not reach this client's row", shallow["count"], 0)
+    check("the answer is empty", shallow["count"], 0)
     check("...and it does NOT claim to be complete", shallow["complete"], False)
-    check("...it names the oldest entry it reached", bool(shallow["horizon"]))
+    check("...it names how far back it can speak for", bool(shallow["horizon"]))
 
     act = client_upcoming.last_activity(CLIENT, "", None)
     check("the health pill is NOT measured, so it cannot read 'idle'",
@@ -178,8 +195,23 @@ finally:
     client_brand._work_entries = _real_entries
 
 act = client_upcoming.last_activity(CLIENT, "", None)
-check("with the real window the pill is measured again", act["measured"], True)
+check("with the real reading the pill is measured again", act["measured"], True)
 check("...and the client is not idle", act["state"] != "idle")
+
+
+# ------------------------------------------- and a limit still pages, at most
+section("A limit truncates this client's OWN rows now, and says so")
+
+_real_entries = client_brand._work_entries
+client_brand._work_entries = (
+    lambda limit=None, clients=None: _real_entries(3, clients))
+try:
+    capped = client_brand.work_log(CLIENT)
+    check("a window smaller than this client's history truncates it",
+          capped["count"], 3)
+    check("...and refuses to call that complete", capped["complete"], False)
+finally:
+    client_brand._work_entries = _real_entries
 
 
 # ------------------------------------------ genuinely nothing is still idle

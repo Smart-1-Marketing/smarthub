@@ -152,9 +152,24 @@ check("the client keys are declared",
       CLIENT_KEYS,
       ("client", "client_name", "company", "business_name", "tool_client"))
 
-src = (ROOT / "hub" / "client_brand.py").read_text()
+# One LIST, not two copies that happen to agree: the keys are declared in
+# hub/audit.py because the `client` column is written from them on the way in
+# and queried by them on the way out, and client_brand imports that same
+# object. This used to grep client_brand.py for each key as a string, which
+# is a text match on a file -- it passed while the list was there and would
+# have gone on passing if a second, drifting copy had been added beside it.
+from hub import audit as _audit_mod                                  # noqa: E402
+
+check("the keys are one object, so a key cannot be added to one and not "
+      "the other", CLIENT_KEYS is _audit_mod.CLIENT_KEYS, True)
+audit_src = (ROOT / "hub" / "audit.py").read_text()
 for key in CLIENT_KEYS:
-    check(f"work_log() reads {key!r}", f'"{key}"' in src, True)
+    check(f"{key!r} is declared where the column is written",
+          f'"{key}"' in audit_src, True)
+# And each one is actually READ -- driven, not grepped.
+for key in CLIENT_KEYS:
+    check(f"a row naming the client under {key!r} yields its key",
+          _audit_mod.client_key_of({key: "Acme Tyre"}), "acmetyre")
 
 
 # =====================================================================
@@ -288,8 +303,9 @@ check("at high, beside the check it is the other half of",
 # differently, and both answers end up on the same panel.
 check("all three read one walker",
       client_brand.__dict__["_log_call_sites"].__doc__ is not None, True)
+brand_src = (ROOT / "hub" / "client_brand.py").read_text()
 check("and there is only one of it",
-      src.count("for folder in (\"hub\", \"modules\")"), 1)
+      brand_src.count("for folder in (\"hub\", \"modules\")"), 1)
 
 
 print(f"\n{_passed} passed, {_failed} failed")
