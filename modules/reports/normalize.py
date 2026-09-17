@@ -388,14 +388,13 @@ def _log_clients(touched: set, platforms: int, rows: int, actor: str) -> None:
     except Exception:                     # noqa: BLE001 - standalone
         return
     seen = {}
-    for m in store.mapped_campaigns(limit=5000):
+    for m in store.campaign_maps_by_key(touched):
         # A pending auto-mapping is a proposal, not yet a fact about whose
         # campaign it is: a sync row on that client's record would say we
         # synced their campaigns before anybody had agreed they were theirs.
         if m.get("pending"):
             continue
-        if (m["platform"], m["account_id"], m["campaign_id"]) in touched:
-            seen.setdefault(m["client"], m["client_name"] or m["client"])
+        seen.setdefault(m["client"], m["client_name"] or m["client"])
     for key, name in seen.items():
         if _SYNC_LOGGED.get(key) == date.today():
             continue

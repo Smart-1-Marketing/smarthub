@@ -1194,3 +1194,88 @@ enough to fix this goes wrong in the other direction just as quietly.
 `female-18-34` is a working calculator with no page. `test_calculator_embeds.py`
 names both as known absences rather than leaving them implicit, so building one
 makes the assertion the reminder to point the page at it.
+
+**A capped global read, filtered in Python, silently drops the OLDEST rows —
+and drops them from one client at a time.** Every campaign-map reading in
+`modules/reports` used to go through `store.mapped_campaigns(limit=N)`, which
+orders by `mapped_at` descending and truncates. Callers then filtered that
+list: `[m for m in mapped_campaigns(limit=10000) if m["client"] == c]` on the
+pacing board, in `client_card.summary`, in `v2_tools.client_performance`; `if
+(platform, account_id, campaign_id) in touched` on the CSV upload's cache
+clear and in `normalize._log_clients`; `if m["pending"]` in
+`pending_mappings`. Every one of them is correct until the map table passes
+N, and then wrong about the longest-standing client only, which is the client
+whose numbers somebody has been reading for a year.
+
+It goes wrong asymmetrically, which is what made it worth a file of its own.
+`facts_for` queries **by client**, so the spend keeps coming back; only the
+campaign list truncates. The money reads right and the campaign count reads
+zero. On the pacing board that combination is `band='unmapped'`,
+`actual_to_date=0.00` for a funded, spending line — printed on a page a
+client's rep reads, with nothing logged and nothing raised.
+`pending_mappings` had the same shape one layer up: a confirmation queue
+whose oldest items fall off it as the book grows, while `pending_count()`,
+which counts in SQL, goes on reporting them.
+
+The fix is not a bigger cap. `store.campaign_maps_for(clients)` filters on the
+indexed `CampaignMap.client` in the database; `store.campaign_map(platform,
+account_id, campaign_id)` is a primary-key `db.get`; `store.campaign_maps_by_key(keys)`
+queries the touched keys in chunks; `pending_mappings` filters on
+`confirmed_at IS NULL` in SQL. `mapped_campaigns(limit=N)` stays, with a
+docstring saying never to filter it by client — it is the bounded read for the
+recent-activity list on `/reports/mappings`, which genuinely wants the newest N.
+
+`test_reports_map_reads.py` reproduces the truncation rather than asserting it
+from the source, asserts the pacing band that follows from it, and holds the
+guard that matters: it replaces `store.mapped_campaigns` with a **counting
+spy** and asserts no filtering reader reaches it. A spy rather than a raise
+because `pacing._overlay_pending` catches every exception on purpose — a guard
+that raised would be swallowed there and the test would pass on the broken
+code.
+
+**The same cap sat on the budget book, where the consequence is absence
+rather than a wrong number.** `store.budget_lines(limit=N)` orders by
+`created_at` descending and truncates, and `pacing.compute`,
+`client_card.summary`, `client_card._filed`, `v2_tools.client_performance`,
+`budget_lines_for` and `budget_lines_named` all filtered its result in Python.
+A budget line is what *puts* a row on the pacing board, so a truncated line
+does not pace wrongly — it is **not on the board at all**, and a line nobody
+sees is a line nobody paces. Reproduced: with the cap reached, the oldest
+client's sold, funded, spending Streaming TV line vanished from
+`pacing.compute` entirely while every newer filler line stayed.
+
+Two counts went with it. `/reports` printed
+`len(store.budget_lines(limit=1000))` in the "Budget lines" tile, so past 1000
+the tile would have read `1000` forever; `/reports/budgets` printed
+`rows|length` as its heading, which past the page size is the *page size*
+printed as the book. Both are the house rule — never print a figure this Hub
+did not measure — and both now go through `store.budget_line_count()`, counted
+in SQL, with the budgets page saying "Showing the newest N" when it is showing
+fewer than the total.
+
+`store.budget_lines_for(clients, active_only=)` filters in the database for one
+key or many, `all_budget_lines(active_only=)` is the uncapped read for the four
+callers that genuinely need every line, and `budget_lines(limit=N)` stays for
+the page that pages. `_active()` writes the active filter once, and it treats a
+**NULL** status as active: a row written before that column existed is active
+because nothing else could have written a status then, and `status == 'active'`
+alone would have dropped every line filed before that migration — a second
+silent-absence bug inside the fix for the first. `test_reports_map_reads.py`
+asserts that case directly.
+
+**And a third time on the quarantine queue, where the cap drops the days that
+have been missing longest.** `quarantine.held(limit=N)` orders by `date`
+descending, so `held_for_client` — "the days missing from their page, which is
+the thing the staff page should say" — kept the members of a capped list and
+under-reported exactly the oldest ones. Its default limit was **500**, not
+5000. `reconcile._held_in` was worse in kind: `sum(1 for h in held(limit=5000)
+if ...)`, a count over a capped read, printed beside a platform's own monthly
+total on the reconcile screen — the one place an under-count reads as
+*agreement* rather than as a gap. `held_for_keys(keys)` filters in the
+database and `held_count(platform, start, end)` counts in SQL; `held(limit=N)`
+stays for the queue screen with the same docstring warning.
+
+Three tables, three screens, one shape. If you are about to write
+`[x for x in some_read(limit=N) if ...]` or `len(some_read(limit=N))`, the
+question is not whether N is big enough — it is whether the database can do the
+filtering or the counting, and it nearly always can.

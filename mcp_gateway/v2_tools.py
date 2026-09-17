@@ -899,11 +899,8 @@ def client_performance(client_name: str, period: str = "last_30",
                         continue
                     seen_prior.add(ident)
                     prior.append(row)
-        campaigns_filed = [m for m in store.mapped_campaigns(limit=10000)
-                           if m["client"] in keys]
-        budget_lines = [b for b in store.budget_lines(limit=5000)
-                        if b["client"] in keys
-                        and (b.get("status") or "active") == "active"]
+        campaigns_filed = store.campaign_maps_for(keys)
+        budget_lines = store.budget_lines_for(keys, active_only=True)
         links = [l for l in (store.link_for_client(k) for k in keys) if l is not None]
     except Exception as exc:                                # noqa: BLE001
         return _perf_unavailable(identity, exc)

@@ -445,13 +445,22 @@ check("a confirmed client with no spend this period says so, not 'nothing filed'
       (d["state"], d["campaigns"]["confirmed"]), ("nothing_this_period", 1))
 
 # The store would not answer: measured False with the reason, never a
-# healthy-looking empty.
-_real = store.mapped_campaigns
-store.mapped_campaigns = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down"))
+# healthy-looking empty. Both mapping readers are broken, not one -- the
+# card reads by client through campaign_maps_for, and a guard aimed at
+# whichever function it used last is a guard that lapses the next time
+# that changes.
+_real = (store.mapped_campaigns, store.campaign_maps_for)
+
+
+def _down(*a, **k):
+    raise RuntimeError("down")
+
+
+store.mapped_campaigns = store.campaign_maps_for = _down
 try:
     d = client_card.summary(["Acme Co"])
 finally:
-    store.mapped_campaigns = _real
+    store.mapped_campaigns, store.campaign_maps_for = _real
 check("a store that will not answer is not measured",
       (d["measured"], d["state"]), (False, "unread"))
 check("...and the sentence names the store", "could not be read" in d["error"])

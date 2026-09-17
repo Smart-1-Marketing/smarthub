@@ -67,7 +67,17 @@
 </div>
 
 <div class="s1d-card">
-  <div class="s1d-cardhead"><h2>{{ rows|length }} budget line{{ '' if rows|length == 1 else 's' }}</h2></div>
+  {# The heading used to print rows|length as the total, which past the
+     page size is the page size printed as the book. The total is counted in
+     SQL; what is listed says so when it is less. #}
+  <div class="s1d-cardhead">
+    <h2>{{ total }} budget line{{ '' if total == 1 else 's' }}</h2>
+    {% if total > rows|length %}
+    <p class="s1d-muted">Showing the newest {{ rows|length }}.
+      <a href="?limit={{ [total, 1000]|min }}">Show up to {{ [total, 1000]|min }}</a>{% if total > 1000 %},
+      the most this page lists at once{% endif %}.</p>
+    {% endif %}
+  </div>
   {% if rows %}
   <div class="s1d-scroll">
   <table class="s1d-t">
