@@ -4009,3 +4009,82 @@ jobs:
         run: |
           python test_reporting.py
           REPORTING_TEST_DATABASE_URL="$DATABASE_URL" python test_reporting.py
+
+  # ---------------------------------------------------------------------------
+  # The image this repo actually deploys.
+  #
+  # Nothing built it. `checks.yml` is called the single gate and it installs
+  # requirements.txt onto an Ubuntu runner with setup-python -- which is not
+  # what ships. What ships is the Dockerfile: a different base, apt packages,
+  # Node 20, three `npm ci` runs and two TypeScript builds, none of which any
+  # check touched. A change that breaks the image is green here and fails on
+  # Render, which is the shape CLAUDE.md warns about in its own words -- a
+  # merged change sitting dead in production with every screen reporting
+  # success.
+  #
+  # It is also what makes the open `python:3.12-slim -> 3.14-slim` bump
+  # unassessable: CI pins setup-python to 3.12, so a green run on that PR is
+  # evidence that 3.12 still works, and says nothing at all about the 3.14 the
+  # container would run. test_ci_gate.py now refuses that skew outright.
+  #
+  # PATH-FILTERED, because it is expensive and the cost has to be honest: the
+  # layers before `COPY . .` are apt, pip and three npm installs, so a
+  # Python-only change cannot break the build and should not pay for one. What
+  # CAN break it is listed below, and nothing else triggers this.
+  image:
+    name: the image that actually deploys
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # Full history, because the step below compares against the base commit
+      # and the default shallow checkout has no merge base to compare with.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Which files can change the image
+        id: touched
+        run: |
+          set -eu
+          BASE="${{ github.event.pull_request.base.sha }}"
+          [ -n "$BASE" ] || BASE="${{ github.event.before }}"
+          # WHEN IT CANNOT TELL, IT BUILDS. A build that runs when it need not
+          # costs runner minutes; one that is skipped when it was needed is the
+          # exact failure this job exists to prevent, so the two are not
+          # weighed equally. A first push to a branch, a force-push and a
+          # workflow_dispatch all land here.
+          if [ -z "$BASE" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "could not resolve a base commit — building rather than guessing"
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CHANGED=$(git diff --name-only "$BASE" HEAD)
+          echo "$CHANGED" | sed 's/^/  changed: /'
+          if echo "$CHANGED" | grep -qE '^(Dockerfile|docker-start\.sh|requirements\.txt|\.dockerignore|\.github/workflows/checks\.yml|modules/(ad_builder|hf_render_service|marketing_audit)/package(-lock)?\.json)$'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build it
+        if: steps.touched.outputs.run == 'true'
+        run: docker build -t smarthub-ci:${{ github.sha }} .
+
+      # An IMPORT smoke test, and deliberately not a full boot. docker-start.sh
+      # brings up gunicorn and two Node services; polling that in CI buys
+      # realism and a flake rate, and the failures this exists to catch -- a
+      # missing system library, a requirement that will not install on the
+      # base, a module that cannot import on this Python -- all show up here.
+      # Said plainly rather than left to read as "the container was proved to
+      # serve traffic", because it was not.
+      - name: The app imports inside it
+        if: steps.touched.outputs.run == 'true'
+        run: |
+          docker run --rm -e SECRET_KEY=ci-only smarthub-ci:${{ github.sha }} \
+            python -c "import wsgi; assert wsgi.application; print('wsgi.application imported inside the image')"
+
+      - name: Nothing that can change the image was touched
+        if: steps.touched.outputs.run != 'true'
+        run: |
+          echo "Skipped — the layers before COPY . . are apt, pip and npm, and"
+          echo "none of their inputs changed, so the build cannot differ."
