@@ -45,11 +45,11 @@
         <td>{{ m.platform_label }}</td>
         <td><b>{{ m.campaign_name or '(unnamed)' }}</b><br><span class="s1d-muted mono">{{ m.campaign_id }}</span></td>
         <td><a href="/reports/client/{{ m.client }}">{{ m.client_name or m.client }}</a> <span class="s1d-muted mono">{{ m.client }}</span>
-            {% if 'fuzzy_v1' in m.auto_rule %}<span class="why">{% if m.match %}{{ m.match.pct }}% alike: {{ m.match.why }}{% else %}filed by likeness of the name{% endif %}</span>{% endif %}</td>
+            {% if m.by_evidence %}<span class="why">{% if m.match %}{{ m.match.pct }}%: {{ m.match.why }}{% else %}filed on evidence the page can no longer see; check it{% endif %}</span>{% endif %}</td>
         <td>{% if m.product %}{{ m.product }}{% else %}<span class="s1d-pill warn">no product set</span>{% endif %}
             {% if 'unknown_product' in m.auto_rule %}<br><span class="s1d-muted">the name's product segment is not in the catalog</span>{% endif %}</td>
         <td>{{ m.display_name }}</td>
-        <td><time datetime="{{ m.mapped_at }}">{{ m.mapped_at }}</time><br><span class="s1d-muted">{{ 'by likeness' if 'fuzzy_v1' in m.auto_rule else 'from the S1M name' }} ({{ m.auto_rule }})</span></td>
+        <td><time datetime="{{ m.mapped_at }}">{{ m.mapped_at }}</time><br><span class="s1d-muted">{{ 'by its ad account' if 'account_v1' in m.auto_rule else 'by likeness' if m.by_evidence else 'from the S1M name' }} ({{ m.auto_rule }})</span></td>
         <td>
           <form class="decide" method="post" action="/reports/unmapped/confirm">
             <input type="hidden" name="platform" value="{{ m.platform }}">
@@ -85,9 +85,9 @@
   {% else %}
     <div class="empty">Nothing is waiting: every campaign the auto-mapper filed has been confirmed or refused.</div>
   {% endif %}
-  <p class="s1d-hint">The auto-mapper reads a campaign's name and files it under the client the name says
-    &mdash; the <span class="mono">S1M</span> shape, or a name that is plainly one client's ({{ file_pct }}% alike or better,
-    with no other client close). A name is somebody's typing in somebody else's platform, so the filing is a proposal:
+  <p class="s1d-hint">The auto-mapper files a campaign under the client the evidence says
+    &mdash; the <span class="mono">S1M</span> shape in its name; an ad account whose confirmed campaigns are all one client's;
+    or a campaign or account name that is plainly one client's ({{ file_pct }}% alike or better, with no other client close). A name is somebody's typing in somebody else's platform, so the filing is a proposal:
     Confirm puts the campaign on the client's page from now, Not theirs deletes the proposal and
     sends the campaign back to the list below for a person to file &mdash; and the auto-mapper
     will not file that name under that client again. Move files it under the client you pick instead,
@@ -113,7 +113,8 @@
     {% for r in rows %}
       <tr>
         <td>{{ r.platform_label }}</td>
-        <td class="mono">{{ r.account_id }}</td>
+        <td><span class="mono">{{ r.account_id }}</span>{% if r.account_name %}<br><span class="s1d-muted">{{ r.account_name }}</span>{% endif %}
+            {% for c in r.suggestions if c.rule == 'account_v1' %}<br><span class="why">{{ c.why }} ({{ c.name }})</span>{% endfor %}</td>
         <td><b>{{ r.campaign_name or '(unnamed)' }}</b><br>
             <span class="s1d-muted mono">{{ r.campaign_id }}</span>
             {% if r.last_seen %}<br><span class="s1d-muted">last seen {{ r.last_seen }}</span>{% endif %}
@@ -158,10 +159,12 @@
     filed under one product are one bar on their page. The box offers the Smart 1 catalog
     and opens on the platform's default; anything else may be typed. A mapping with no
     product shows under a generic label and is flagged on the client's page.</p>
-  <p class="s1d-hint">"Looks like" is the client whose name the campaign name resembles &mdash; the client's name
-    or domain in it, or a near spelling &mdash; and the picker opens on the likeliest one so Map is one press.
-    Two clients alike, or a likeness under {{ file_pct }}%, is why the auto-mapper left the row here rather than
-    filing it: it is a suggestion for a person, and the client somebody refused is never suggested again.</p>
+  <p class="s1d-hint">"Looks like" is what the book and the names say: the client the ad account's other campaigns
+    are confirmed as, the client whose name the campaign name resembles &mdash; the client's name or domain in it, or
+    a near spelling &mdash; and the client the account's own name resembles. The picker opens on the likeliest one so
+    Map is one press. Two clients alike (an account saying one and a name saying another counts), or a likeness under
+    {{ file_pct }}%, is why the auto-mapper left the row here rather than filing it: it is a suggestion for a person,
+    and the client somebody refused is never suggested again.</p>
   <p class="s1d-hint">The rename hint is the name shape the auto-mapper reads:
     <span class="mono">{{ shape }}</span>. A campaign named that way is filed
     without anybody opening this page, and waits above for a confirmation.

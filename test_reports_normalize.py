@@ -25,6 +25,11 @@ What it holds:
     domain label or near spelling; filed (as a proposal, rule fuzzy_v1)
     only on a clear best, shown beside the queue row otherwise, never
     under a client somebody refused;
+  * an ad account whose confirmed campaigns are all one client's files the
+    next campaign on it (account_v1); a mixed account, a proposal-only
+    account and a refusal on the account file nothing; the platform's own
+    account name is read for a likeness (account_name_v1); an account
+    saying one client and a name another files neither;
   * the scheduler job is registered and returns the shape the panel reads.
 """
 import json
@@ -445,6 +450,105 @@ check("a row like nobody carries an empty list, not a missing key", q["f-none"][
 pend = {m["campaign_id"]: m for m in pending}
 check("a pending likeness filing says why", pend["g-2"]["match"] and pend["g-2"]["match"]["pct"], 100)
 check("...and a pending S1M filing carries no likeness", pend.get("t-typo", {}).get("match"), None)
+
+# ------------------------------------------------------- the account
+section("Filing on the ad account")
+
+# Acme Roofing's Meta account: one campaign confirmed as theirs, so the
+# next campaign on it -- named like nobody -- is filed as theirs.
+store.map_campaign("meta", "act_r", "r-1", client="d:acmeroofing.com", client_name="Acme Roofing",
+                   product="Paid Social", mapped_by="Todd", campaign_name="Spring - Leads")
+store.upsert_rows([
+    {"platform": "meta", "account_id": "act_r", "campaign_id": "r-2",
+     "campaign_name": "Summer promo 2026",
+     "date": TODAY - timedelta(days=1), "spend": 5, "impressions": 50, "clicks": 1, "source": "csv"},
+    # ...and one whose name says Acme Plumbing, on Acme Roofing's account.
+    {"platform": "meta", "account_id": "act_r", "campaign_id": "r-3",
+     "campaign_name": "Acme Plumbing - Leads",
+     "date": TODAY - timedelta(days=1), "spend": 5, "impressions": 50, "clicks": 1, "source": "csv"},
+    # A mixed account: campaigns confirmed as two clients.
+    {"platform": "meta", "account_id": "act_mixed", "campaign_id": "x-3",
+     "campaign_name": "Fall promo 2026",
+     "date": TODAY - timedelta(days=1), "spend": 5, "impressions": 50, "clicks": 1, "source": "csv"},
+    # An account with only a pending proposal on it.
+    {"platform": "meta", "account_id": "act_p", "campaign_id": "p-2",
+     "campaign_name": "Winter promo 2026",
+     "date": TODAY - timedelta(days=1), "spend": 5, "impressions": 50, "clicks": 1, "source": "csv"},
+    # An account whose platform name is the client's.
+    {"platform": "stackadapt", "account_id": "adv-77", "campaign_id": "s-1",
+     "campaign_name": "Q4 push", "extras_json": {"advertiser_name": "Buckeye Lake Winery"},
+     "date": TODAY - timedelta(days=1), "spend": 5, "impressions": 50, "clicks": 1, "source": "csv"},
+])
+store.map_campaign("meta", "act_mixed", "x-1", client="d:acme.com", client_name="Acme Plumbing",
+                   product="Paid Social", mapped_by="Todd", campaign_name="a")
+store.map_campaign("meta", "act_mixed", "x-2", client="d:acmeroofing.com", client_name="Acme Roofing",
+                   product="Paid Social", mapped_by="Todd", campaign_name="b")
+store.map_campaign("meta", "act_p", "p-1", client="d:acme.com", client_name="Acme Plumbing",
+                   product="Paid Social", mapped_by="auto", auto_rule="fuzzy_v1", campaign_name="Acme Plumbing x")
+
+ev = store.account_evidence()
+check("the evidence names the confirmed client on the account, with a count",
+      ev[("meta", "act_r")]["confirmed"], {"d:acmeroofing.com": 1})
+check("...and both clients on the mixed one",
+      sorted(ev[("meta", "act_mixed")]["confirmed"]), ["d:acme.com", "d:acmeroofing.com"])
+check("a pending proposal is listed as pending, not confirmed",
+      (ev[("meta", "act_p")]["confirmed"], ev[("meta", "act_p")]["pending"]), ({}, {"d:acme.com": 1}))
+check("the refusal on Acme Roofing's likeness filing is on its account",
+      ev[("meta", "act_f")]["refused"], {"d:acmeroofing.com": "Todd"})
+
+check("one client's account suggests that client at 100%",
+      (lambda h: h and (h["key"], h["pct"], h["rule"]))(
+          automap.account_suggestion({"platform": "meta", "account_id": "act_r"}, ev)),
+      ("d:acmeroofing.com", 100, "account_v1"))
+check("a mixed account suggests nobody", automap.account_suggestion({"platform": "meta", "account_id": "act_mixed"}, ev), None)
+check("a proposal is not evidence", automap.account_suggestion({"platform": "meta", "account_id": "act_p"}, ev), None)
+check("an account nobody has mapped on suggests nobody", automap.account_suggestion({"platform": "meta", "account_id": "act_new"}, ev), None)
+check("a refusal on the account blocks that client",
+      automap.account_suggestion({"platform": "meta", "account_id": "act_f"}, ev), None)
+
+am8 = automap.run(actor="test")
+filed = {(m["platform"], m["campaign_id"]): m for m in store.mapped_campaigns(limit=300)}
+r2 = filed.get(("meta", "r-2"))
+check("a campaign named like nobody on one client's account is filed as theirs",
+      r2 and (r2["client"], r2["auto_rule"], r2["pending"]), ("d:acmeroofing.com", "account_v1+default_product", True))
+check("...counted under its rule", am8["by_rule"].get("account_v1"), 1)
+check("the account saying one client and the name another files neither", ("meta", "r-3") not in filed)
+check("...and is counted as conflicted", am8["conflicted"], 1)
+check("a mixed account files nothing", ("meta", "x-3") not in filed)
+check("an account with only a proposal files nothing", ("meta", "p-2") not in filed)
+s1 = filed.get(("stackadapt", "s-1"))
+check("the platform's own account name is read for a likeness",
+      s1 and (s1["client"], s1["auto_rule"]), ("n:buckeye-lake-winery", "account_name_v1+default_product"))
+entries = list(reversed(audit.read(limit=3000)))
+by_acct = [e for e in entries if e.get("action") == "campaign_automapped" and e.get("campaign_id") == "r-2"]
+check("the activity row says the account decided",
+      bool(by_acct) and "by its ad account (100%: 1 other campaign on this ad account is confirmed as theirs)" in by_acct[0]["detail"])
+
+queue = store.unmapped_campaigns(days=30, limit=100)
+automap.annotate(queue)
+q = {r["campaign_id"]: r for r in queue}
+check("the queue shows both leads on the conflicted row, each saying which evidence",
+      [(c["name"], c["rule"], c["pct"]) for c in q["r-3"]["suggestions"]],
+      [("Acme Plumbing", "fuzzy_v1", 100), ("Acme Roofing", "account_v1", 100)])
+store.upsert_rows([{"platform": "stackadapt", "account_id": "adv-88", "campaign_id": "s-2",
+                    "campaign_name": "Q4 push", "extras_json": {"advertiser_name": "Nobody Ltd"},
+                    "date": TODAY - timedelta(days=1), "spend": 5, "impressions": 50, "clicks": 1,
+                    "source": "csv"}])
+check("the queue carries the platform's own name for the account",
+      {r["campaign_id"]: r["account_name"] for r in store.unmapped_campaigns(days=30, limit=100)}.get("s-2"),
+      "Nobody Ltd")
+pend = {m["campaign_id"]: m for m in store.pending_mappings()}
+automap.annotate([], list(pend.values()))
+check("a pending account filing says why on the page",
+      pend["r-2"]["by_evidence"] and pend["r-2"]["match"] and pend["r-2"]["match"]["rule"], "account_v1")
+check("a pending S1M filing is not by evidence", pend["t-typo"]["by_evidence"], False)
+
+# Refusing the account filing, the account is no longer solely theirs.
+store.refuse_mapping("meta", "act_r", "r-2", by="Todd")
+am9 = automap.run(actor="test")
+check("refused, the account no longer files under that client",
+      ("meta", "r-2") not in {(m["platform"], m["campaign_id"]) for m in store.mapped_campaigns(limit=300)}
+      and am9["by_rule"].get("account_v1", 0) == 0)
 
 # A registry that cannot be read: nothing suggested, nothing filed, named.
 clients_registry.all_clients = _boom

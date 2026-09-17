@@ -1527,11 +1527,19 @@ def unmapped_campaigns(days: int = 30, limit: int = 200) -> list[dict]:
             # The channel type Google reports on the campaign, off its
             # newest row: what the queue's product box opens on and what
             # the auto-mapper files under when the name says no product.
-            channel = str((extras or {}).get("channel_type") or "") if isinstance(extras, dict) else ""
+            ex = extras if isinstance(extras, dict) else {}
+            channel = str(ex.get("channel_type") or "")
             out[key] = {
                 "platform": p, "platform_label": platform_label(p),
                 "account_id": a, "campaign_id": c,
                 "campaign_name": name or "",
+                # What the platform calls the account the campaign sits in
+                # (StackAdapt and Amazon DSP's advertiser, Microsoft's account
+                # name, AudioGO's and GroundTruth's organization), off the
+                # newest row: the auto-mapper reads it for a likeness too,
+                # since it is the client's own name more often than the
+                # campaign's is.
+                "account_name": str(ex.get("advertiser_name") or ex.get("account_name") or "").strip(),
                 "last_seen": when.isoformat() if when else None,
                 "spend_30d": recent.get(key, Decimal(0)),
                 "refused": None,
@@ -1718,6 +1726,56 @@ def refusals() -> dict[tuple, dict]:
         return {}
     finally:
         db.close()
+
+
+def account_evidence() -> dict[tuple, dict]:
+    """What the book already says about each ad account: per (platform,
+    account_id), the clients its CONFIRMED campaigns are filed under with a
+    count each, the clients with only pending proposals there, and the
+    clients somebody refused a filing under on that account.
+
+    The auto-mapper's account rule reads it: an account whose confirmed
+    campaigns all belong to one client is that client's account, and a new
+    campaign on it is theirs until a person says otherwise. Pending
+    proposals are not evidence -- a proposal resting on a proposal is how
+    one wrong filing becomes an account's worth -- and a refusal on the
+    account counts against the client it named. Never raises past the
+    store: a table not there yet is an empty book.
+    """
+    out: dict[tuple, dict] = {}
+
+    def acct(platform, account_id):
+        key = (platform, account_id)
+        if key not in out:
+            out[key] = {"confirmed": {}, "pending": {}, "refused": {}, "names": {}}
+        return out[key]
+
+    db = SessionLocal()
+    try:
+        rows = (db.query(CampaignMap.platform, CampaignMap.account_id, CampaignMap.client,
+                         func.max(CampaignMap.client_name), func.count(),
+                         func.count(CampaignMap.confirmed_at))
+                  .group_by(CampaignMap.platform, CampaignMap.account_id, CampaignMap.client)
+                  .all())
+        for platform, account_id, client, name, total, confirmed in rows:
+            a = acct(platform, account_id)
+            a["names"][client] = name or client
+            if int(confirmed or 0):
+                a["confirmed"][client] = int(confirmed)
+            if int(total or 0) - int(confirmed or 0):
+                a["pending"][client] = int(total) - int(confirmed or 0)
+        for r in db.query(MapRefusal.platform, MapRefusal.account_id, MapRefusal.client,
+                          MapRefusal.client_name, MapRefusal.refused_by).all():
+            platform, account_id, client, name, by = r
+            if client:
+                a = acct(platform, account_id)
+                a["refused"][client] = by or ""
+                a["names"].setdefault(client, name or client)
+    except Exception:                  # noqa: BLE001 - no table yet
+        return {}
+    finally:
+        db.close()
+    return out
 
 
 def pending_mappings(limit: int = 500) -> list[dict]:
