@@ -21,12 +21,45 @@ number is kept for the settings row and sent nowhere.
 
 **The spellings are exactly as set on Render.** `BING_AD_CLIENT_ID`,
 `BING_AD_CLIENT_SECRET`, `BING_AD_DEVELOPER_TOKEN`, `BING_MANAGER_ACCOUNT_ID`,
-`BING_MANAGER_ACCOUNT_NUMBER` -- five fields on `hub/config.py`, read at
+`BING_MANAGER_ACCOUNT_NUMBER` -- fields on `hub/config.py`, read at
 call time through `config._s()` rather than once at import, and **no
 `BING_ADS_` twin beside any of them**: `ALIASES` is only spellings in use,
 and a speculative second name is how thirteen correct modules once became
-findings. `test_reports_bing.py` reads the ALIASES block and requires it to
-name none of them.
+findings.
+
+**The app registration has two spellings in use, and only it.** The day
+the first Connect was pressed (September 2026) Render carried the
+registration as `MICROSOFT_ADS_CLIENT_ID` / `MICROSOFT_ADS_CLIENT_SECRET`
+beside `MICROSOFT_ADS_REDIRECT_URI` and `MICROSOFT_ADS_TENANT`, and the
+code read `BING_AD_CLIENT_ID` / `BING_AD_CLIENT_SECRET` only -- so the
+settings card reported the pair missing with both plainly set, Connect
+never appeared, and the callback opened by hand answered *"Microsoft did
+not return an authorization code"*, which read as Microsoft failing when
+nothing had been sent. Both spellings are in use, which is the one
+condition for an `ALIASES` row: `bing_client_id` and `bing_client_secret`
+name exactly the two, `BING_AD_` first, and `bing_ads.ALIAS_KEYS` reads
+the pair through the same rows so the client and `/status` cannot
+disagree. `env_report()` on `/diagnostics` says which spelling answered
+and which was set and ignored. `test_reports_bing.py` now requires the
+alias block to name exactly those two and no other Bing name. The
+callback opened with no code says where sign-in starts and what a
+redirect mismatch looks like.
+
+**`MICROSOFT_ADS_TENANT` and `MICROSOFT_ADS_REDIRECT_URI` are read, both
+optional.** The tenant is the identity platform's path segment --
+`common` when unset, and a tenant id or `organizations` for a
+registration limited to one directory, because `/common/` against a
+single-tenant registration is refused (AADSTS50194) before any consent
+screen; a value that is not a tenant shape (a pasted URL) falls back to
+`common` rather than being sent inside the hostname path. The redirect
+URI pins the callback to the exact string pasted into the Azure portal,
+the `AMAZON_ADS_REDIRECT_URI` arrangement, for the deployment that
+registered the `onrender.com` hostname rather than the domain; the panel
+row carries `pin` so it prints the same string. A pin whose path is not
+`/tools/ads/oauth/bing/callback` is **refused by name** on the card, on
+`/diagnostics`, on the reports line and at Connect -- Microsoft would
+send the code to a page this Hub does not answer -- and the code builds
+from `PUBLIC_BASE_URL` meanwhile rather than sending the wrong string.
 
 **The callback is `PUBLIC_BASE_URL`'s origin plus the mount's path, and it
 is one reading.** `bing_ads.redirect_uri()` builds

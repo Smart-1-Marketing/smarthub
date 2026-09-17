@@ -202,12 +202,16 @@ FLOWS = (
         "label": "Smart 1 Ads — Microsoft Advertising (Bing)",
         "path": "/tools/ads/oauth/bing/callback",
         # PUBLIC_BASE_URL, like the Suite app: the string pasted into the
-        # Azure portal must be the string the code sends, and the Google
-        # Ads flow beside it, built from a whole-URL variable of its own,
-        # is the shape this one deliberately does not repeat.
+        # Azure portal must be the string the code sends. MICROSOFT_ADS_
+        # REDIRECT_URI pins it, the Amazon arrangement, for the deployment
+        # that registered the onrender.com hostname rather than the
+        # domain; bing_ads.redirect_uri() reads the same variable.
         "source": "PUBLIC_BASE_URL",
+        "pin": "MICROSOFT_ADS_REDIRECT_URI",
         "console": MICROSOFT_CONSOLE,
-        "client": ("BING_AD_CLIENT_ID",),
+        # Both spellings are set on Render; hub/config.py ALIASES reads
+        # the pair under either.
+        "client": ("BING_AD_CLIENT_ID", "MICROSOFT_ADS_CLIENT_ID"),
         "where": "modules/ads_builder/bing_ads.py",
         # The developer token is the credential Microsoft issues on its own
         # timetable; without it there is nothing to connect for.
