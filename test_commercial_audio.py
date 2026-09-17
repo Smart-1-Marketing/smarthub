@@ -611,6 +611,158 @@ os.environ.pop("ELEVENLABS_API", None)
 check("and the key comes back off", audio.is_live(), False)
 
 
+# ---------------------------------------------------------------------------
+section("The narration's length, and the pace that gets it inside the spot")
+# ---------------------------------------------------------------------------
+# Three things were wrong here and each was invisible from the screen.
+#
+#   1. The Speed slider did nothing. `generate_voiceover` took `speed`,
+#      divided it into a word-count estimate, and sent a payload without it —
+#      while both radio builders have always put it in `voice_settings`. A rep
+#      dropped the pace and got byte-identical audio.
+#   2. "Estimated 34.1s of narration" was the script's word count over 150,
+#      reported about a file nobody had looked at, on the number somebody uses
+#      to decide whether a read fits a :30.
+#   3. And an overrun here does not run long, it gets CUT. The voice element
+#      goes on the timeline at `time: 0` with no duration, inside a
+#      composition whose length is the spot's, so the end is dropped — and the
+#      end is the call to action.
+from modules.commercial_builder.services import elevenlabs_service as vo   # noqa: E402
+from hub import radio_spec                                                 # noqa: E402
+
+# --- the rate reaches the provider -------------------------------------
+check("the read pace is clamped to the window ElevenLabs honors",
+      (vo.clamp_speed(1.4), vo.clamp_speed(0.4)), (1.2, 0.7))
+check("...which is the same window both radio builders clamp to",
+      (vo.SPEED_MIN, vo.SPEED_MAX), (0.7, 1.2))
+check("a pace that is not a number reads at 1.0 rather than raising",
+      vo.clamp_speed("brisk"), 1.0)
+check("and the slider on the page cannot ask for one the provider ignores",
+      'id="voice-speed" min="0.7" max="1.2"' in
+      (ROOT / "modules/commercial_builder/templates/commercial_voice.html").read_text(),
+      True)
+
+
+class _Sent:
+    """One captured request, answering with a CBR MP3 of a chosen length."""
+
+    def __init__(self, seconds=30.0, ctype="audio/mpeg"):
+        self.seconds, self.ctype, self.payload, self.params = seconds, ctype, None, None
+
+    def post(self, url, headers=None, params=None, json=None, timeout=None):
+        self.payload, self.params = json, params
+        nbytes = int(self.seconds * cb_config.AUDIO_OUTPUT_KBPS * 1000 / 8)
+        return types.SimpleNamespace(
+            content=b"\x00" * nbytes, headers={"Content-Type": self.ctype},
+            raise_for_status=lambda: None)
+
+
+_real_vo_requests = vo.requests
+os.environ["ELEVENLABS_API"] = "test-key"
+_sent = _Sent(seconds=31.8)
+vo.requests = _sent
+_take = vo.generate_voiceover("word " * 80, "voice-1", speed=1.08)
+check("the pace is actually SENT, in voice_settings",
+      _sent.payload["voice_settings"]["speed"], 1.08)
+_fast = _Sent()
+vo.requests = _fast
+vo.generate_voiceover("x", "v", speed=1.4)
+check("and one outside the window is sent clamped rather than dropped",
+      _fast.payload["voice_settings"]["speed"], 1.2)
+vo.requests = _sent
+
+# --- and the length is derived from the file, not the word count -------
+check("the take's length comes off the bytes that came back",
+      (_take["seconds"], _take["measured"]), (31.8, True))
+check("...at the bitrate the request itself named",
+      _sent.params["output_format"], cb_config.AUDIO_OUTPUT_FORMAT)
+check("and it says where the number came from",
+      "byte count" in _take["length_note"], True)
+# The word-count guess survives as the fallback and is labelled one. Deleting
+# it would leave mock mode with no answer at all, which reads as broken.
+check("the words-per-minute guess is still there, beside it",
+      _take["duration_estimate"] > 0, True)
+_notmp3 = _Sent(seconds=30.0, ctype="application/json")
+vo.requests = _notmp3
+_odd = vo.generate_voiceover("x", "v")
+check("a response that is not the MP3 asked for is NOT measured",
+      (_odd["seconds"], _odd["measured"]), (None, False))
+check("and it says which type came back instead",
+      "application/json" in _odd["length_note"], True)
+os.environ.pop("ELEVENLABS_API", None)
+_mock = vo.generate_voiceover("word " * 80, "voice-1", speed=1.08)
+check("mock mode measures nothing and says the number is the script's",
+      (_mock["seconds"], _mock["measured"],
+       "words-per-minute" in _mock["length_note"]), (None, False, True))
+vo.requests = _real_vo_requests
+
+# --- the rate itself is the shared module's, in its own mode -----------
+# A generated read is re-recorded at the pace rather than resampled, so the
+# semitones a resample pays are a cost this mode does not have -- and quoting
+# one would be inventing a price.
+_reread = radio_spec.speed_suggestion(vo_seconds=31.8, target_seconds=30,
+                                      lead_in_ms=0, mode="reread")
+_resample = radio_spec.speed_suggestion(vo_seconds=31.8, target_seconds=30,
+                                        lead_in_ms=0)
+check("both modes work the same rate out", _reread["speed"], _resample["speed"])
+check("...and it is the rate that lands the read on the spot",
+      _reread["lands_seconds"], 30.0)
+check("a re-read quotes no pitch shift, because it has none",
+      _reread["semitones"], None)
+check("and says what it does cost instead",
+      "paid take" in _reread["note"], True)
+check("a resample still quotes the semitones", _resample["semitones"] is not None, True)
+check("and still says resampling is why",
+      "resampling" in _resample["note"], True)
+check("resample is the default, so neither radio builder changed",
+      _resample["mode"], "resample")
+# The ceiling is shared for one reason in radio and two here: past 1.15x a
+# read sounds hurried either way, and 1.15 also sits inside the 0.7-1.2 the
+# provider honors, so the ceiling never becomes a number quietly ignored.
+check("the ceiling is inside what ElevenLabs will actually read",
+      radio_spec.SPEED_MAX <= vo.SPEED_MAX, True)
+check("past it no rate is offered, in either mode",
+      radio_spec.speed_suggestion(vo_seconds=40.0, target_seconds=30,
+                                  lead_in_ms=0, mode="reread")["speed"], None)
+
+# --- the check that stops it, which is the point -----------------------
+# A suggestion with no check behind it stops nothing. `voice_fits` was a word
+# count alone: 95 words read briskly can land inside a :30 and 70 read slowly
+# can miss it, and the number that decides is the length of the file going on
+# the timeline.
+def _fits(words=95, **music):
+    return qc_service._check_voice_fits(
+        {"script": {"word_count": words}, "length_seconds": 30, "music": music})
+
+
+check("with no take, the word count answers exactly as before",
+      _fits()["passed"], False)
+_on_target = _fits(words=65)
+check("an on-target word count still passes before any take exists",
+      _on_target["passed"], True)
+check("...and says it is a word count rather than a length",
+      "word count rather than a length" in _on_target["message"], True)
+_measured_ok = _fits(voice_seconds=29.4, voice_measured=True)
+check("a measured take that fits passes on an off-target word count",
+      _measured_ok["passed"], True)
+check("and the message is the length, with the words beside it",
+      ("29.4s" in _measured_ok["message"], "95 words" in _measured_ok["message"]),
+      (True, True))
+_measured_over = _fits(voice_seconds=33.1, voice_measured=True)
+check("a measured take past the spot fails", _measured_over["passed"], False)
+check("...and names what an overrun actually costs here",
+      "cuts it off" in _measured_over["message"], True)
+check("a length nobody measured is not judged as one",
+      "33.1" in _fits(voice_seconds=33.1, voice_measured=False)["message"], False)
+check("a take read faster says so on the row",
+      "1.08x" in _fits(voice_seconds=29.8, voice_measured=True,
+                       voice_speed=1.08)["message"], True)
+# It stays a fail rather than an advisory: a render that silently drops the
+# phone number is the failure the gate is for.
+check("and it still refuses the render rather than advising",
+      "voice_fits" in qc_service.ADVISORY_CHECKS, False)
+
+
 print("\n" + "-" * 62)
 print(f"{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)

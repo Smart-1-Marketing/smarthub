@@ -119,6 +119,10 @@ a.cb-btn-primary:hover{color:#fff;}
 label.cb-label{display:block;font-weight:600;font-size:12.5px;margin-bottom:5px;color:var(--cb-text);}
 .cb-field{margin-bottom:16px;}
 .cb-hint{font-size:12px;color:var(--cb-text-muted);margin-top:4px;}
+/* A narration that will not fit the spot, in the module's own amber
+   rather than an inline color -- `--cb-warn` is the same variable the
+   QC icons and the provider chips read. */
+.cb-fit-warn{color:var(--cb-warn);}
 input[type=text], input[type=url], input[type=tel], input[type=search], input[type=number], textarea, select{
   width:100%;padding:9px 11px;border:1px solid var(--cb-border);border-radius:var(--cb-radius-sm);
   font-family:var(--cb-font);font-size:13.5px;color:var(--cb-text);background:#fff;

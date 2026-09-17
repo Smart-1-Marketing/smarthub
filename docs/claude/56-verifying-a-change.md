@@ -561,7 +561,14 @@ python3 test_commercial_audio.py   # generated sound effects and music: a publis
                                    #   retry that cannot re-spend on either worker, a
                                    #   length derived or not measured, a generation
                                    #   counted apart from a character of speech, and
-                                   #   an effect capped to the shot it sits on
+                                   #   an effect capped to the shot it sits on;
+                                   #   plus the narration's own length: the read
+                                   #   pace actually SENT rather than divided into
+                                   #   an estimate, the take measured off the MP3's
+                                   #   byte count instead of words over 150, and
+                                   #   voice_fits judging that length where one
+                                   #   exists -- the render cuts an over-long read
+                                   #   off at the end, which is where the CTA is
 python3 test_commercial_library.py # what a spot is versus how it is made, the
                                    #   twelve archetypes and what each one needs
 python3 test_commercial_compliance.py # which published rules a spot engages, whose
@@ -591,7 +598,10 @@ python3 test_commercial_wizard.py  # the seven steps, the batch an approval open
                                    #   the client join, the spec check,
                                    #   the QR destination and who owns the scan; the :06,
                                    #   shots inside beats with their grammar, the published
-                                   #   thresholds and whose each is, and the Amazon warning
+                                   #   thresholds and whose each is, and the Amazon warning;
+                                   #   plus the Voice step's fit route, read-only and
+                                   #   surviving a reload, offering the re-read pace
+                                   #   from the one shared radio_spec function
 python3 test_commercial_explainer.py # the bubbles, the per-screen tours, and a
                                    #   walkthrough that drives the page it is on
 python3 test_io_start.py           # starting an IO from a proposal, a client or a file
