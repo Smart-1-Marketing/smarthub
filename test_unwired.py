@@ -283,5 +283,48 @@ check("...nor one reached only from a template",
       "hub/sidebar.py:render_sidebar" in FOUND, False)
 
 
+# ---------------------------------------------------------------------------
+section("Called by its own tests, and by nothing else")
+# ---------------------------------------------------------------------------
+# The shape THIS file cannot see. It counts every identifier-shaped word in the
+# repo and a test file is part of the repo, so a function called five times
+# from test_x.py and nowhere else reads as thoroughly wired.
+#
+# hub/keyring.needs_reseal() is what found it: it shipped with a test proving
+# it worked and no caller at all, and what it does is FINISH a key rotation --
+# without it the old key can never be dropped. This file was green throughout.
+# The check lives in hub/integrity.py at low severity, because it went in with
+# 21 findings behind it and a check red on the day it is switched on is a check
+# people learn to ignore.
+from hub import integrity as _integrity                            # noqa: E402
+
+_tbu = _integrity.check_tested_but_unwired()
+_tbu_keys = {f"{f['file']}:{f['detail'].split('(')[0]}" for f in _tbu}
+
+check("the allowlist is read from this file, not copied into the checker",
+      len(_integrity._unwired_allow()) == len(ALLOW), True)
+check("...and it is not silently empty, which would make the check report "
+      "everything or nothing",
+      bool(_integrity._unwired_allow()), True)
+
+_allowed_reported = [k for k in _tbu_keys if k in ALLOW]
+check("nothing ALLOW already accounts for is reported twice",
+      _allowed_reported, [])
+
+# needs_reseal is the one this was written for, and it is wired now: get() and
+# site_login_state() re-seal through it. If it comes back, the rotation has
+# quietly stopped being completable again.
+check("hub/keyring.py:needs_reseal is no longer among them — it has a caller",
+      "hub/keyring.py:needs_reseal" in _tbu_keys, False)
+
+# An empty answer and a scan that stopped running read the same, so the check
+# is shown finding something rather than trusted to be looking.
+check("the check still finds the shape it is for", bool(_tbu), True)
+check("and every finding says what a green test over it does not prove",
+      all("proves the function works" in f["detail"] for f in _tbu), True)
+check("and offers the allowlist as one of the three ways out",
+      all("test_unwired.ALLOW" in f["fix"] for f in _tbu), True)
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

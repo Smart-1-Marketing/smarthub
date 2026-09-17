@@ -1305,6 +1305,116 @@ KEYRING_EXEMPT = {
 }
 
 
+def check_tested_but_unwired() -> list[dict]:
+    """A public function whose only callers are its own tests.
+
+    `test_unwired.py` exists for "declared and never wired", which it opens by
+    calling the single failure this codebase has paid for most often. It could
+    not see this shape: it counts every identifier-shaped word in the repo, and
+    a test file is part of the repo -- so a function called five times from
+    `test_x.py` and nowhere else reads as thoroughly wired.
+
+    `keyring.needs_reseal()` is what found it. It shipped with a test proving
+    it worked and no caller at all, and what it does is finish a key rotation:
+    without it the old key can never be dropped, so the rotation survives
+    forever instead of ending. The test was green the whole time.
+
+    **Low severity, and it must stay low.** This went in with 21 findings
+    behind it, and this repo's own rule is that a check red on the day it is
+    switched on is a check people learn to ignore. A function here is not a
+    defect on its own -- several are a named reading of a table, kept
+    deliberately, and `test_unwired.ALLOW` already carries that argument for
+    35 of them. What this gives is the number, visible and shrinking, rather
+    than a shape nobody can see at all.
+    """
+    import collections
+    prod, tests = collections.Counter(), collections.Counter()
+    word = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    for path in ROOT.rglob("*"):
+        rel = path.relative_to(ROOT)
+        if path.is_dir() or any(part in SKIP_DIRS for part in rel.parts):
+            continue
+        if path.suffix not in (".py", ".html", ".js", ".ts", ".json",
+                               ".yml", ".yaml"):
+            continue
+        try:
+            found = word.findall(path.read_text(encoding="utf-8",
+                                                errors="ignore"))
+        except OSError:
+            continue
+        (tests if rel.name.startswith("test_") else prod).update(found)
+
+    allow = _unwired_allow()
+    defined: dict[str, list[str]] = {}
+    for rel, src in _sources():
+        base = os.path.basename(rel)
+        if base.startswith("test_") or rel.split("/")[0] == "tools":
+            continue
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            # Undecorated only, the same rule test_unwired.py works to: a
+            # route or a CLI command is called by its framework and named
+            # nowhere, which is normal rather than a finding.
+            if node.name.startswith("_") or node.decorator_list:
+                continue
+            defined.setdefault(node.name, []).append(rel)
+
+    out = []
+    for name, places in sorted(defined.items()):
+        # Referenced no more often than it is defined = no call site anywhere
+        # outside its own `def`. A test reference on top of that is what makes
+        # it this finding rather than the one test_unwired.py already reports.
+        if prod[name] > len(places) or not tests[name]:
+            continue
+        for rel in places:
+            if f"{rel}:{name}" in allow:
+                continue
+            out.append({
+                "file": rel, "module": _module_of(rel),
+                "detail": f"{name}() in {rel} is called by its tests and by "
+                          f"nothing else. A green test over a function no "
+                          f"caller reaches proves the function works and not "
+                          f"that anything uses it.",
+                "fix": "Wire it where it belongs, delete it, or add "
+                       f"'{rel}:{name}' to test_unwired.ALLOW with the reason "
+                       "it is kept — the allowlist that already carries that "
+                       "argument for the ones held on purpose.",
+            })
+    return out
+
+
+def _unwired_allow() -> set:
+    """`test_unwired.ALLOW`'s keys, read from the file rather than copied.
+
+    Two lists of what is deliberately unwired would drift, and the one that
+    drifts silently is the one in the checker -- `check_unbacked_json` says
+    the same about keeping its rule in `hub/jsonstore.py`.
+    """
+    path = ROOT / "test_unwired.py"
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"))
+    except (OSError, SyntaxError):
+        return set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(getattr(t, "id", "") == "ALLOW" for t in node.targets):
+            continue
+        keys = set()
+        for key in getattr(node.value, "keys", []):
+            try:
+                keys.add(ast.literal_eval(key))
+            except Exception:                               # noqa: BLE001
+                continue
+        return keys
+    return set()
+
+
 def check_own_fernet() -> list[dict]:
     """A module building its own single-key Fernet instead of the key ring.
 
@@ -2019,6 +2129,11 @@ CHECKS = [
     # exactly as it always has. What it cannot do is survive a key rotation.
     ("own_fernet", "A module sealing with its own single key", "low",
      check_own_fernet),
+    # Low, and it must stay low: it went in with 21 findings behind it, and a
+    # check red on the day it is switched on is a check people learn to
+    # ignore. What it buys is the number being visible at all.
+    ("tested_but_unwired", "A function only its own tests call", "low",
+     check_tested_but_unwired),
     ("stale_sqlite_exemptions", "Disk-SQLite exemption names a missing file",
      "medium", check_stale_sqlite_exemptions),
     ("disk_binary", "Bytes on the disk with no copy anywhere else", "medium",
