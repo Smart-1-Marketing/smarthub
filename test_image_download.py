@@ -407,11 +407,11 @@ def _c360_source():
     """The Client 360 record as one text: the template plus its script modules
     (hub/client360_assets.MODULES), because the record's JavaScript lives in
     files now and a check that asks what the record does reads all of it."""
-    import importlib, os as _os, sys as _sys
+    _os, _sys = __import__("os"), __import__("sys")
     _root = _os.path.dirname(_os.path.abspath(__file__))
     if _root not in _sys.path:
         _sys.path.insert(0, _root)
-    return importlib.import_module("hub.client360_assets").source_text()
+    return __import__("hub.client360_assets", fromlist=["source_text"]).source_text()
 
 _c360 = _c360_source()
 check("the client record's tiles draw the preview",
@@ -523,17 +523,16 @@ _files = [f for _dir in ("hub/templates", "modules")
           for f in pathlib.Path(os.path.join(ROOT, _dir)).rglob("*.html")]
 _files += list(pathlib.Path(os.path.join(ROOT, "hub", "static")).glob("client360-*.js"))
 for _f in sorted(_files):
-    if True:
-        _rel = _f.relative_to(ROOT).as_posix()
-        for _line in _f.read_text(encoding="utf-8", errors="ignore").split("\n"):
-            if not _BOUND.search(_line) or "thumb" in _line:
-                continue
-            _hit = next((k for k in FULL_ASSET_ON_PURPOSE
-                         if k[0] == _rel and k[1] in _line), None)
-            if _hit:
-                _found.add(_hit)
-            else:
-                _unexplained.append(f"{_rel}: {_line.strip()[:90]}")
+    _rel = _f.relative_to(ROOT).as_posix()
+    for _line in _f.read_text(encoding="utf-8", errors="ignore").split("\n"):
+        if not _BOUND.search(_line) or "thumb" in _line:
+            continue
+        _hit = next((k for k in FULL_ASSET_ON_PURPOSE
+                     if k[0] == _rel and k[1] in _line), None)
+        if _hit:
+            _found.add(_hit)
+        else:
+            _unexplained.append(f"{_rel}: {_line.strip()[:90]}")
 
 check("no tile draws the full asset without a reason on file",
       not _unexplained, "\n         ".join(_unexplained))
