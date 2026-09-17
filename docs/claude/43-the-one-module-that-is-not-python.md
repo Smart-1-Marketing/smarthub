@@ -893,3 +893,43 @@ same against a staging Hub once the repository variables
 `STAGING_HUB_PASSWORD` exist; there is no staging service today, so it does
 nothing until then, and it must never be pointed at production because the
 test edits the campaign it opens.
+
+**The fourth round: the failure paths.** With the features in, "bulletproof"
+meant what the screen does when something under it fails, and three of those
+failures happen on ordinary days. Every merge restarts the container, so a
+person mid-edit meets a renderer that is not there for a minute or two; a Hub
+session ends; a connection drops. All three surfaced as "could not save" and
+"preview unavailable" with nothing saying why.
+
+*The link, read once.* A fetch wrapper at the top of `build.html` reads every
+API answer before any caller sees it. A redirect to `/login` is a sign-out,
+named, with the way back in (a link that opens the login in a new tab and
+comes back to the same screen); an HTML page with a 5xx on an API route is
+the proxy saying the renderer is not answering, named, with what happens to
+the edits (kept on this device, and saving retries by itself). The notice
+clears on the next answer that is what it should be. The standalone renderer
+never redirects and never speaks HTML on an API route, so outside the Hub the
+wrapper does nothing.
+
+*Saving and previewing recover on their own.* A blocked autosave retries at
+a widening interval (10s, 20s, 40s, 60s) and the hint says when the next try
+is -- except after a conflict with somebody else's save or a sign-out, which
+a person has to settle. A failed preview retries once, quietly, before saying
+anything; the second failure carries a "Try the preview again" button.
+
+*The public proof routes have a ceiling.* Whoever holds a proof link can
+call the note and decision routes with no token, and a budget keyed on the
+exact path would have given every link a fresh allowance. `auth.budgetKey()`
+replaces the token or project id in the path with a placeholder, so one
+budget covers every proof: 30 notes and 20 decisions an hour per address on
+the client proof, 20 on the older `/api/proof` pair. A body that is not JSON
+answers 400 rather than a logged 500, and a note that did not send says so
+under the button rather than in a dialog.
+
+*The nightly walk goes further.* The seeded campaign has the project record
+every real build has (`seed.ts`), so the browser test can play both outages
+through request interception -- one 503 HTML answer on a preview, one
+redirect on a save -- and assert the notice, the quiet retry and the
+clearing. With `E2E_FULL` set (the nightly jobs), it then builds the contact
+sheet on `/review` and waits for every size, reads the health line on
+`/projects`, and behind a Hub loads the start form.
