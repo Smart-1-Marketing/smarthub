@@ -70,13 +70,19 @@ npx tsx src/cli.ts --campaign campaigns/bella-vista-catering.json --platform goo
 ### Fonts are the one hard constraint
 
 The renderer converts glyphs to paths from real font files, so it can only use
-families in the registry in `src/fonts.ts` — currently Montserrat, Open Sans,
-Poppins and DejaVu Sans. **A brand font that is not registered is a validation
-error, not a silent fallback.** That is deliberate: a proof rendered in the
-wrong typeface looks finished, so nobody checks it.
+families in the registry in `src/fonts.ts` — the Google Fonts vendored through
+`@fontsource` packages (Montserrat, Open Sans, Poppins, Lato, Raleway, Playfair
+Display and about thirty more; `GET /api/build/options` lists exactly what a
+build has). **A brand font that is not registered is a validation error, not a
+silent fallback.** That is deliberate: a proof rendered in the wrong typeface
+looks finished, so nobody checks it.
 
-To add a client's font, vendor the licensed files into the repo and add an
-entry to `REGISTRY`. Do not accept customer-uploaded font files.
+To add a Google family, `npm install @fontsource/<pkg>` and add one line to
+`GOOGLE_FAMILIES`. Every file is probed at load: opentype.js cannot draw some
+families at all (Roboto, Inter, Nunito, Oswald, Rubik, Lora, Merriweather among
+them — a GSUB lookup it does not implement), and those are left off the list
+rather than offered and swapped for Poppins mid-render. Do not accept
+customer-uploaded font files.
 
 ### Validation runs before every render
 

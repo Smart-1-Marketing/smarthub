@@ -46,12 +46,130 @@ class MasterGalleryTests(unittest.TestCase):
                        cloudinary_public_id="legacy/" + name, resource_type="image", **extra)
         self.db.add(r); self.db.commit(); return r
 
-    def test_three_empty_sections_without_creating_or_enabling_sharing(self):
+    def test_five_empty_sections_without_creating_or_enabling_sharing(self):
         out = catalog.catalog(self.db, self.client, self.client.name)
-        self.assertEqual([s["key"] for s in out["sections"]], ["uploads", "creative", "projects"])
+        self.assertEqual([s["key"] for s in out["sections"]],
+                         ["uploads", "creative", "projects", "logos", "internal"])
         self.assertEqual(out["total"], 0)
+        # The five folders are offered at zero, never dropped for being empty.
+        self.assertEqual([f["label"] for f in out["folders"]],
+                         ["Client Uploads", "Creative", "Hub Projects", "Logos", "Internal"])
+        self.assertTrue(all(f["count"] == 0 for f in out["folders"]))
+        self.assertTrue(out["optimization"]["measured"])
+        self.assertEqual(out["optimization"]["total"], 0)
         self.assertFalse(self.client.share_enabled)
         self.assertEqual(len(self.db.scalars(select(PickerClient)).all()), 2)
+
+    def test_logos_and_internal_are_their_own_sections(self):
+        from hub import client_logos
+        # hub/client_logos.py files under the label "Logo"; an upload panel
+        # types "Logos"; a rep's Drive import is internal. One Logos folder.
+        brand = catalog.organize({"collection_kind": "logo", "provider": "logo_brand",
+                                  "collection_label": "Logo", "collection_key": "brand"})
+        typed = catalog.organize({"collection_kind": "upload", "provider": "local",
+                                  "collection_label": "logos", "project_name": "logos"})
+        internal = catalog.organize({"collection_kind": "internal", "provider": "google_drive",
+                                     "collection_label": "Store photos", "project_name": "Store photos"})
+        self.assertEqual((brand["section"], brand["folder"]), ("logos", "Logos"))
+        self.assertEqual((typed["section"], typed["folder"]), ("logos", "Logos"))
+        self.assertEqual((internal["section"], internal["folder"]), ("internal", "Store photos"))
+        self.assertEqual(client_logos.KIND, "logo")
+        self.assertEqual(catalog.section_for_folder("LOGOS"), "logos")
+        self.assertEqual(catalog.section_for_folder("Spring refresh"), "")
+
+    def test_folder_index_lists_named_folders_after_the_defaults(self):
+        self.asset("a.png", collection_kind="upload", collection_label="Spring refresh",
+                   project_name="Spring refresh")
+        self.asset("b.png", collection_kind="upload", collection_label="Spring refresh",
+                   project_name="Spring refresh")
+        self.asset("mark.png", collection_kind="internal", collection_label="Logos",
+                   project_name="Logos")
+        self.asset("private.png", self.other, collection_kind="upload",
+                   collection_label="Their folder", project_name="Their folder")
+        folders = catalog.folder_index(self.db, self.client)
+        labels = [f["label"] for f in folders]
+        self.assertEqual(labels[:5], ["Client Uploads", "Creative", "Hub Projects", "Logos", "Internal"])
+        self.assertIn("Spring refresh", labels)
+        self.assertNotIn("Their folder", labels)
+        by = {f["label"]: f for f in folders}
+        self.assertEqual(by["Spring refresh"]["count"], 2)
+        self.assertEqual(by["Client Uploads"]["count"], 2)
+        self.assertEqual(by["Logos"]["count"], 1)
+        self.assertEqual(by["Internal"]["count"], 0)
+        # A gallery that does not exist yet still offers the five.
+        self.assertEqual([f["label"] for f in catalog.folder_index(self.db, None)],
+                         ["Client Uploads", "Creative", "Hub Projects", "Logos", "Internal"])
+
+    def test_folders_api_is_scoped_to_the_token_or_the_staff_session(self):
+        self.asset("a.png", collection_kind="upload", collection_label="Spring refresh",
+                   project_name="Spring refresh")
+        self.other.share_enabled = True; self.db.commit()
+        # A share token sees its own gallery's folders and nobody else's.
+        anon = self.app.test_client()
+        r = anon.get(f"/tools/image-picker/api/folders?t={self.other.share_token}")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("Spring refresh", [f["label"] for f in r.json["folders"]])
+        # Sharing off means the token is dead for this too.
+        self.assertEqual(anon.get(f"/tools/image-picker/api/folders?t={self.client.share_token}").status_code, 404)
+        # Staff by id.
+        r = self.http.get(f"/tools/image-picker/api/folders?client_id={self.client.id}")
+        self.assertIn("Spring refresh", [f["label"] for f in r.json["folders"]])
+        self.assertEqual(self.app.test_client().get(
+            f"/tools/image-picker/api/folders?client_id={self.client.id}").status_code, 401)
+
+    def test_catalog_carries_the_seo_copy_beside_the_original(self):
+        from modules.image_picker import optimize
+        from modules.image_picker.models import ImageOptimization
+        row = self.asset("photo.jpg", collection_kind="upload")
+        queued = optimize.enqueue(self.db, row)
+        self.assertEqual(queued.state, "pending")
+        self.assertEqual(optimize.enqueue(self.db, row).id, queued.id)   # idempotent
+        out = catalog.catalog(self.db, self.client, self.client.name)
+        self.assertEqual(out["optimization"]["pending"], 1)
+        self.assertNotIn("optimized", out["images"][0])
+        queued.state = "done"; queued.optimized_url = "https://example.test/photo-1.webp"
+        queued.seo_filename = "blue-storefront.webp"; self.db.commit()
+        out = catalog.catalog(self.db, self.client, self.client.name)
+        self.assertEqual(out["images"][0]["optimized"]["url"], "https://example.test/photo-1.webp")
+        self.assertEqual(out["images"][0]["url"], "https://example.test/photo.jpg")
+        self.assertEqual(out["optimization"]["done"], 1)
+        # Deleting the original takes the copy's row with it.
+        with patch("modules.image_picker.cloudinary_sink.destroy", return_value=True) as gone:
+            optimize.forget(self.db, row)
+        self.db.commit()
+        self.assertIsNone(self.db.get(ImageOptimization, queued.id))
+        gone.assert_not_called()          # no public_id was stored for the copy
+
+    def test_notices_reach_everyone_attached_and_nobody_else(self):
+        from modules.image_picker import notices
+        with patch("hub.client_owner.owner_of", return_value={"email": "Owner@Smart1.test"}), \
+                patch("hub.client_owner.followers_of", return_value=[{"email": "fan@smart1.test"}, {"email": "owner@smart1.test"}]), \
+                patch("hub.client_owner.client_success_of", return_value={"email": "cs@smart1.test"}):
+            self.assertEqual(notices.attached("Example Co"),
+                             ["owner@smart1.test", "fan@smart1.test", "cs@smart1.test"])
+            registered = []
+            with patch("hub.job_notify.register", side_effect=lambda **kw: registered.append(kw) or kw):
+                n = notices.uploads_recorded("Example Co", count=3, by="client", folder="Logos")
+        self.assertEqual(n, 3)
+        self.assertEqual({r["owner"] for r in registered},
+                         {"owner@smart1.test", "fan@smart1.test", "cs@smart1.test"})
+        self.assertTrue(all(r["status"] == "done" for r in registered))
+        self.assertIn("3 new files for Example Co into Logos", registered[0]["label"])
+        self.assertIn("from the client", registered[0]["label"])
+        self.assertIn("for-client?name=Example%20Co", registered[0]["return_url"])
+        # The same hour re-registers the same pointer, so forty files is one card.
+        with patch("hub.client_owner.owner_of", return_value={"email": "owner@smart1.test"}), \
+                patch("hub.client_owner.followers_of", return_value=[]), \
+                patch("hub.client_owner.client_success_of", return_value={}), \
+                patch("hub.job_notify.register", side_effect=lambda **kw: registered.append(kw) or kw):
+            notices.uploads_recorded("Example Co", count=40, by="staff")
+        self.assertEqual(registered[-1]["id"], registered[0]["id"])
+        self.assertIn("added by our team", registered[-1]["label"])
+        with patch("hub.client_owner.owner_of", return_value=None), \
+                patch("hub.client_owner.followers_of", return_value=[]), \
+                patch("hub.client_owner.client_success_of", return_value={}):
+            self.assertEqual(notices.attached("Nobody Co"), [])
+            self.assertEqual(notices.optimized_all("Nobody Co", 4), 0)
 
     def test_staff_api_never_returns_other_clients_files(self):
         self.asset(); self.asset("private.png", self.other)

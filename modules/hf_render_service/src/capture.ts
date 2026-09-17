@@ -77,6 +77,15 @@ export interface CaptureOptions {
 
 let sharedBrowser: Browser | null = null;
 
+// Exported for resolve.ts, which drives the same headless Chromium against
+// a third party's page rather than one of this service's own templates --
+// a second `puppeteer.launch()` would be a second Chromium in a container
+// that already pays for one, for no reason beyond the two files not sharing
+// this singleton.
+export async function getBrowser(): Promise<Browser> {
+  return browser();
+}
+
 async function browser(): Promise<Browser> {
   // One Chromium instance for the process's lifetime rather than one per
   // job: launching is the most expensive single step (roughly a second),

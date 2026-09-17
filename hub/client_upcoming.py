@@ -166,6 +166,24 @@ def last_activity(name: str, url: str = "", today: _dt.date | None = None) -> di
         return {"measured": False, "error": f"The activity log could not be read ({type(exc).__name__})."}
     rows = (log.get("items") if isinstance(log, dict) else log) or []
     if not rows:
+        # "Nothing was ever made for this client" and "nothing in the window I
+        # could see" are different answers, and only the first is `idle`.
+        # work_log() reaches the end of the log when `complete`; short of that
+        # the oldest row it saw is `horizon`, and claiming idle there turns a
+        # long-standing client whose last deliverable predates the window into
+        # one who reads as though nothing has ever been done -- and quietly
+        # replaces the 90-day churn warning they had earned with "Nothing
+        # logged", which nobody chases.
+        info = log if isinstance(log, dict) else {}
+        if info.get("error"):
+            return {"measured": False, "error": info["error"]}
+        if not info.get("complete", True):
+            since = str(info.get("horizon") or "")[:10]
+            return {"measured": False,
+                    "error": ("nothing logged for this client back to "
+                              + since + ", and the log goes further back than "
+                              "this read reached") if since else
+                             "the activity log could not be read back far enough"}
         return {"measured": True, "when": "", "days": None, "state": "idle", "kind": "", "actor": ""}
     top = rows[0]
     when = _date(top.get("when"))

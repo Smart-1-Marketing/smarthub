@@ -106,6 +106,65 @@ tick:
 And a credential store that cannot be written no longer reads as "Saved" — the
 setup answers still store, and the answer says which half did not.
 
+## And a check, so it cannot come back quietly
+
+`check_plaintext_credentials` on `/api/integrity`, at high severity. It is the
+mirror image of `check_unbacked_json` sitting beside it: that one asks whether
+a store is copied into the database, and this store **was** — being mirrored is
+what carried every password into every backup. A store can pass every other
+check on that page and still be the worst file on the disk, and until this
+nothing asked.
+
+Two decisions inside it are worth keeping:
+
+- **It reads the files, not the source.** A dataflow rule would have missed the
+  defect it was written for: the password was not assigned under a literal key
+  but copied in a loop over a tuple of field names, which no reasonable AST
+  rule catches without reporting half the login routes too. The consequence is
+  that it finds nothing in CI, where the data root is empty, and answers for
+  real on `/api/integrity`. `tools/integritycheck.py` prints how many stores it
+  actually read, so an "ok" on a machine with no data cannot be mistaken for a
+  clean bill of health.
+- **A sealed credential is a dict.** `{"enc": true, "data": "..."}` is skipped
+  by the *shape* of the value rather than by being named in an exemption list
+  somebody has to maintain. Only a credential-shaped key holding a bare string
+  is reported.
+
+`CREDENTIAL_KEYS` is deliberately short. `token` and `secret` on their own are
+not in it: a share token in `hub/radio_share.py` is stored precisely so a
+customer's link keeps working, and a check that reports it is a check people
+learn to switch off.
+
+## And something has to run the check
+
+A high-severity check nothing runs is not a check. `integrity.run()` had
+exactly one caller — the `/api/integrity` JSON route, fetched by
+`/diagnostics`. That is a page somebody has to remember to open, which is the
+phrase `tools/integritycheck.py` uses about the state it was written to fix.
+
+The command line fixed it **for the checks that read the source**, because CI
+runs those on every pull request. It could not fix it for
+`check_plaintext_credentials`, which reads the JSON stores on the data disk:
+in CI that disk is empty by construction, so the one check whose answer exists
+only in production was the one nothing in production ever ran.
+
+`job_integrity_audit` runs the sweep under the leader lock, twelve-hourly.
+Three rules make it worth having:
+
+- **Transitions, not a heartbeat.** A finding is written when it *appears*,
+  and a `cleared` row when one that was there is gone. A steady state writes
+  nothing, so any row in that module is worth looking at. Logging every open
+  finding twice a day is how the activity log fills until nobody reads it —
+  the failure `rotate_audit_log` beside it exists because of.
+- **The fingerprint is the check plus where it points, never the prose.** A
+  detail string reworded in a later release would otherwise read as the old
+  finding clearing and a new one appearing.
+- **No row carries the credential.** The activity log is itself mirrored into
+  Postgres, so a credential detector that logged the credential would put the
+  password into the backup it was written to keep it out of. `finding` rows
+  carry the check, the label and the file — never the value. This is asserted
+  directly, because it is the one mistake that would undo the whole chain.
+
 ## The open question, for Todd
 
 **Nothing in the Hub can retrieve this password.** That was true before this
@@ -123,3 +182,81 @@ There are two honest answers and this change deliberately picks neither:
   nobody reads looks like.
 
 Collecting it and never showing it is the one answer that has no case for it.
+
+## Postscript: the key that protected all of it could not be changed
+
+Sealing the site login made `TOKEN_ENCRYPTION_KEY` the thing standing between
+a database backup and every client credential in it. Which raised the question
+nobody had asked: what happens when that key has to change?
+
+Seven files in this repo each wrote their own `Fernet(key)` —
+`cms_credentials`, `ghl_oauth`, `google_finder`, `skills360`,
+`youtube_studio`, `check_reconciliation`, and the SEO store reading through
+the first. Six read the same variable. Every one takes **exactly one key**.
+
+So rotating it — after a leak, a staff departure, an accidental commit, which
+is precisely when it must be rotated — would simultaneously lock out every
+client's WordPress application password, every client's own website login, the
+GoHighLevel OAuth tokens and the Google OAuth tokens behind Google Finder. The
+recovery is per module, per record, by hand: re-consent every Google account,
+ask every client for their password again. `hub/cms_credentials.py` states the
+remedy in its own error text — "Save the application password again" — honest
+about the state and silent about its scale.
+
+The key protecting everything was the key nobody could ever change.
+
+`hub/keyring.py` is `MultiFernet`, which ships with `cryptography` and is
+therefore no new dependency: an ordered list where **the newest key seals and
+any key opens**. A rotation becomes three ordinary deploys — put the new key in
+front, let the stores re-seal, drop the old one — and at no point is a
+credential unreadable.
+
+Two details worth keeping:
+
+- **`TOKEN_ENCRYPTION_KEY` is kept, never replaced, when `TOKEN_ENCRYPTION_KEYS`
+  is set.** A deployment part-way through a rotation has the new key in the
+  list and everything on disk still sealed under the old singular. Dropping it
+  because somebody set the new variable would cause the outage the module
+  exists to prevent.
+- **One unusable key beside one good one still seals.** Refusing would put
+  credentials in the clear over a typo in a variable nobody is using yet. The
+  bad one is counted and named as ignored.
+
+`check_own_fernet` lists what has not moved across, at low severity for the
+reason the backup checks give: a module there works exactly as it always has.
+What it cannot do is survive a rotation, and the rotation is the event nobody
+schedules. All three that
+remained — `google_finder`, `skills360`, `youtube_studio` — have since moved
+across, so the list is empty. An empty audit is worth nothing on its own,
+because "everything moved" and "the scan stopped scanning" render identically:
+`test_keyring.py` plants a file with the defect in it, confirms the check finds
+it, and removes it again.
+
+**Moving them did not flatten what each had decided.** `youtube_studio` and
+`google_finder` *refuse* to run without a key rather than write an OAuth token
+in the clear, and that refusal is exactly what a shared helper smooths away
+without anybody noticing — `hub/keyring.py` degrades and says so, which is
+right for a panel that must still render and wrong for a refresh token. Both
+keep raising; what changed is only which keys can open a token. Both mutations
+that soften the refusal are red.
+
+Two things fell out of the migration:
+
+- **`google_finder`'s `/health` reported the wrong thing.** It read
+  `bool(TOKEN_ENCRYPTION_KEY)` — the singular spelling only — so a deployment
+  part-way through a rotation, with the keys in `TOKEN_ENCRYPTION_KEYS` and
+  everything sealing correctly, would have had its health check report a fault
+  that was not there. It asks the ring now.
+- **A module-level key captured at import is gone.** `TOKEN_ENCRYPTION_KEY` was
+  read once when `google_finder` loaded, so setting the environment afterwards
+  reached nothing — and two tests had to poke the module attribute to drive
+  behaviour, with a comment in one explaining why. The key ring re-reads the
+  environment on every call, so both tests now drive the environment, which is
+  the thing that is actually true.
+
+`hub/ghl_oauth.py` gained something else on the way past. Its `_load()`
+returned `None` when the key could not open the token, and `status()` rendered
+that as *"Not authorized yet — connect once as the agency owner"* — sending an
+agency owner to re-consent to a marketplace app that was installed and fine,
+over an encryption key nobody mentioned. That is `connected_accounts_result()`'s
+failure, in this repo, today. It now says which of the two it is.

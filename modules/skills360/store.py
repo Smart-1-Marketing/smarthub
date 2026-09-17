@@ -36,7 +36,7 @@ import re
 import secrets as _secrets
 from datetime import datetime, timezone
 
-from hub import jsonstore
+from hub import jsonstore, keyring
 
 MAX_EVENTS = 100
 MAX_SHARES = 20
@@ -83,38 +83,27 @@ def _blank(client: str) -> dict:
 
 
 # ------------------------------------------------------------------ secrets
-def _fernet():
-    key = (os.environ.get("TOKEN_ENCRYPTION_KEY") or "").strip()
-    if not key:
-        return None
-    try:
-        from cryptography.fernet import Fernet
-        return Fernet(key.encode("utf-8"))
-    except Exception:                                      # noqa: BLE001
-        return None
-
-
+# The keys are hub/keyring.py. This file built its own single-key Fernet over
+# TOKEN_ENCRYPTION_KEY, which meant rotating that variable made every secret
+# here unreadable at once with no way back but re-entering each one. The ring
+# takes an ordered list -- the newest seals, any of them opens -- so a rotation
+# is survivable. The stored shape is identical, {"enc": bool, "data": str}, so
+# nothing needed migrating.
 def seal(value: str) -> dict:
-    raw = str(value or "")
-    f = _fernet()
-    if f:
-        return {"enc": True, "data": f.encrypt(raw.encode("utf-8")).decode("ascii")}
-    return {"enc": False, "data": raw}
+    return keyring.seal(value)
 
 
 def unseal(blob) -> str:
-    if not isinstance(blob, dict):
-        return ""
-    data = blob.get("data") or ""
-    if not blob.get("enc"):
-        return str(data)
-    f = _fernet()
-    if not f:
-        return ""                    # key rotated away: re-enter the secret
-    try:
-        return f.decrypt(str(data).encode("ascii")).decode("utf-8")
-    except Exception:                                      # noqa: BLE001
-        return ""
+    """The value, or "" when it cannot be read.
+
+    The empty string keeps this module's existing contract, and the
+    distinction the Google Finder lesson is about is already drawn one layer
+    up: `_public_skill()` reports `token_readable` separately from
+    `token_set`, so a secret that is stored and unopenable does not render as
+    one that was never entered.
+    """
+    value, _err = keyring.unseal(blob)
+    return value
 
 
 def mask(value: str) -> str:

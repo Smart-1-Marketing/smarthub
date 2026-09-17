@@ -72,15 +72,63 @@ def cfg() -> dict:
     return {"key": _key(), **groundtruth_map.config()}
 
 
+def base_problem(base: str = "") -> str:
+    """Why this origin cannot be sent the key, or "".
+
+    The key travels in an Authorization header on a job that runs nightly
+    with nobody watching, so the origin has to be one that encrypts it. An
+    ``http://`` value is a set variable that looks configured on every screen
+    and puts a credential on the wire in clear -- refused here by name rather
+    than discovered in a packet capture. Loopback is allowed, because that is
+    somebody testing against a stub on their own machine.
+    """
+    value = (base or cfg()["base"] or "").strip()
+    if not value:
+        return ""
+    if value.startswith("https://"):
+        return ""
+    host = value.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0].lower()
+    if value.startswith("http://") and host in ("localhost", "127.0.0.1", "::1"):
+        return ""
+    if value.startswith("http://"):
+        return ("is http://, which would send the key in clear on a nightly "
+                "unattended job. GroundTruth is reached over https.")
+    return "has no scheme; it is an origin such as https://api.example.com"
+
+
+def not_configured_line() -> str:
+    """One sentence for what is owed, and never "unset" about a variable that
+    is set. An origin that is set and cannot carry a credential is a
+    correction, not an omission, and saying "unset" sends somebody to look at
+    a variable they can plainly see has a value in it."""
+    c = cfg()
+    unset = [KEY_ENV] if not c["key"] else []
+    problems = []
+    if not c["base"]:
+        unset.append(BASE_ENV)
+    else:
+        problem = base_problem(c["base"])
+        if problem:
+            problems.append(f"{BASE_ENV} {problem}")
+    if not problems:
+        # The ordinary sentence, unchanged: everything owed is simply unset.
+        return "not configured: " + ", ".join(unset) + " unset"
+    return "not configured: " + "; ".join(
+        ([", ".join(unset) + " unset"] if unset else []) + problems)
+
+
 def missing() -> list[str]:
     """What has to be set before anything is called: the key, and the
     origin -- named apart, because a deployment with the key and no origin
-    is the ordinary one and its sentence has to say which half is owed."""
+    is the ordinary one and its sentence has to say which half is owed.
+
+    An origin that is set and cannot carry a credential counts as owed too:
+    the key is sent nowhere until it is corrected."""
     c = cfg()
     out = []
     if not c["key"]:
         out.append(KEY_ENV)
-    if not c["base"]:
+    if not c["base"] or base_problem(c["base"]):
         out.append(BASE_ENV)
     return out
 
@@ -144,7 +192,7 @@ def call(start: date, end: date):
     is unset."""
     miss = missing()
     if miss:
-        raise GroundTruthError("not configured: " + ", ".join(miss) + " unset")
+        raise GroundTruthError(not_configured_line())
     c = cfg()
     shape = request_shape(start, end)
     try:
@@ -213,8 +261,18 @@ def check_map(body) -> dict:
         return {"resolved": False, "missing": list(groundtruth_map.required_fields(c["fields"])),
                 "rows": 0, "why": f"no rows under rows_path {c['rows_path']!r}"}
     sample = rows[0]
-    missing_ = [c["fields"][k] for k in groundtruth_map.REQUIRED
-                if c["fields"].get(k) and _dig(sample, c["fields"][k]) is None]
+    # A REQUIRED field whose name has been blanked is UNRESOLVED, not skipped.
+    # Skipping it read as resolved, and _dig(row, None) answers the whole row
+    # -- so the check page gave a green light to a map that then filed the
+    # row's own dict repr into account_id, which is part of the fact key.
+    # Named by the fact column here, since there is no response field to name.
+    missing_ = []
+    for k in groundtruth_map.REQUIRED:
+        name = c["fields"].get(k)
+        if not name:
+            missing_.append(f"{k} (no response field is named for it)")
+        elif _dig(sample, name) is None:
+            missing_.append(name)
     return {"resolved": not missing_, "missing": missing_, "rows": len(rows), "why": ""}
 
 
@@ -240,7 +298,14 @@ def to_facts(body, source: str = "native") -> dict:
                           + f" -- correct groundtruth_map.py from {CHECK_PAGE}")}
     out, skipped = [], 0
     for r in rows_of(body):
-        day = store.parse_date(_dig(r, f["date"])) if _dig(r, f["date"]) else None
+        try:
+            day = store.parse_date(_dig(r, f["date"])) if _dig(r, f["date"]) else None
+        except ValueError:
+            # store.parse_date raises on a value it cannot read rather than
+            # answering None, so the skip two lines down was unreachable: one
+            # "09/16/2026" among a thousand good rows threw out of this loop
+            # and discarded the whole nightly pull with it.
+            day = None
         acct = str(_dig(r, f["account_id"]) or "").strip()
         cid = str(_dig(r, f["campaign_id"]) or "").strip()
         if day is None or not acct or not cid:
@@ -274,7 +339,7 @@ def pull(days: int = DAYS, today: date | None = None) -> dict:
     out = {"ok": False, "rows": 0, "skipped": 0, "error": ""}
     miss = missing()
     if miss:
-        out["error"] = "not configured: " + ", ".join(miss) + " unset"
+        out["error"] = not_configured_line()
         return out
     today = today or date.today()
     start = today - timedelta(days=max(1, int(days)) - 1)
@@ -308,7 +373,7 @@ def check(today: date | None = None) -> dict:
            "request": request_shape(day, day), "map": groundtruth_map.config(),
            "answer": None, "resolves": None, "error": ""}
     if not out["configured"]:
-        out["error"] = "not configured: " + ", ".join(out["missing"]) + " unset"
+        out["error"] = not_configured_line()
         return out
     try:
         body = call(day, day)
@@ -333,7 +398,7 @@ def status() -> dict:
         line = (f"GroundTruth: key set; {BASE_ENV} unset -- the API origin is not known here "
                 f"and the key is sent nowhere until it is. Set it and confirm the field map on {CHECK_PAGE}.")
     elif miss:
-        line = "GroundTruth: not configured: " + ", ".join(miss) + " unset"
+        line = "GroundTruth: " + not_configured_line()
     else:
         line = (f"GroundTruth: configured (field map is placeholder until confirmed on {CHECK_PAGE}), "
                 "last pull " + (native.get("last_run_at") or "never"))

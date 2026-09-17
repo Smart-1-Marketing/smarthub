@@ -430,6 +430,80 @@ with app.app_context():
           "https://www.awesomescreenshot.com/image/1?key=x")
     requests_mod.get = _orig_get
 
+    print("\n-- actually running the page, when the free reads find nothing --")
+    from hub import hyperframes as hub_hyperframes
+
+    class _FakePostResp:
+        def __init__(self, body, status=200):
+            self._body = body
+            self.status_code = status
+            self.ok = 200 <= status < 400
+
+        def json(self):
+            return self._body
+
+    _orig_is_configured = hub_hyperframes.is_configured
+    _orig_base_url = hub_hyperframes.base_url
+    _orig_post = requests_mod.post
+
+    hub_hyperframes.is_configured = lambda: False
+
+    def fake_post_never_called(url, **kw):
+        raise AssertionError("must not reach the render service when unconfigured")
+    requests_mod.post = fake_post_never_called
+    check("with no render service configured, resolve_via_render_service "
+          "does nothing and makes no request",
+          qa_tasks._resolve_via_render_service(
+              "https://www.awesomescreenshot.com/image/1?key=x"),
+          None)
+
+    hub_hyperframes.is_configured = lambda: True
+    hub_hyperframes.base_url = lambda: "http://127.0.0.1:8792"
+
+    def fake_post_found(url, **kw):
+        assert url == "http://127.0.0.1:8792/resolve-image"
+        assert kw.get("json") == {"url": "https://www.awesomescreenshot.com/image/1?key=x"}
+        return _FakePostResp({"url": "https://resource.awesomescreenshot.com/real/shot.png"})
+    requests_mod.post = fake_post_found
+    check("a render service that finds a real image hands it back",
+          qa_tasks._resolve_via_render_service(
+              "https://www.awesomescreenshot.com/image/1?key=x"),
+          "https://resource.awesomescreenshot.com/real/shot.png")
+
+    def fake_post_error(url, **kw):
+        return _FakePostResp({"error": "the page loaded but no real image ever appeared"}, status=422)
+    requests_mod.post = fake_post_error
+    check("a render service that could not find one returns None, not the error body",
+          qa_tasks._resolve_via_render_service(
+              "https://www.awesomescreenshot.com/image/1?key=x"),
+          None)
+
+    def fake_post_raises(url, **kw):
+        raise requests_mod.ConnectionError("sidecar not listening")
+    requests_mod.post = fake_post_raises
+    check("a render service that cannot be reached returns None rather than raising",
+          qa_tasks._resolve_via_render_service(
+              "https://www.awesomescreenshot.com/image/1?key=x"),
+          None)
+
+    # And the whole chain: two free reads find nothing, the render service
+    # finds the real image, and _resolve_screenshot_url hands it straight
+    # back rather than falling all the way through to the original URL.
+    def fake_post_found_2(url, **kw):
+        return _FakePostResp({"url": "https://resource.awesomescreenshot.com/rendered.png"})
+    requests_mod.post = fake_post_found_2
+    requests_mod.get = fake_get_no_og
+    check("a page with no tag and no loose URL, resolved by actually "
+          "rendering it, returns the real image",
+          qa_tasks._resolve_screenshot_url(
+              "https://www.awesomescreenshot.com/image/1?key=x"),
+          "https://resource.awesomescreenshot.com/rendered.png")
+
+    hub_hyperframes.is_configured = _orig_is_configured
+    hub_hyperframes.base_url = _orig_base_url
+    requests_mod.post = _orig_post
+    requests_mod.get = _orig_get
+
     print("\n-- reading a screenshot for somebody --")
     from hub import ai as hub_ai
 

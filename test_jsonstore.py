@@ -336,6 +336,78 @@ check("no exemption names a file that is gone",
 check("and the audit says so too", integrity.check_stale_json_exemptions(), [])
 
 
+# ------------- 13b. the opposite question about the same files
+# The audit above asks whether a store is MIRRORED. The SEO store was, which
+# is exactly what made it worse: `setup.password` -- a client's real login to
+# their real website -- sat in data/seo/<client>.json as a plain string, was
+# faithfully copied into Postgres, and went into every database backup taken
+# since. It passed every check on this page while doing it.
+#
+# So the check reads the files rather than the source, and the assertions are
+# on the paths planted here rather than on a count: other sections of this
+# harness write to the same disk, and a total would make this test about them.
+_cred_dir = os.path.join(DISK, "credcheck")
+os.makedirs(_cred_dir, exist_ok=True)
+
+
+def _plant(name, payload):
+    path = os.path.join(_cred_dir, name)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh)
+    return os.path.join("data", "credcheck", name)
+
+
+# The defect itself, in the shape it was really on the disk.
+_leaky = _plant("seo-client.json", {
+    "client": "Bayside Dental",
+    "setup": {"login": "admin@bayside.test", "password": "REAL-PASSWORD",
+              "completed": True}})
+# Sealed: a dict, not a string. It is skipped by the SHAPE of the value, not
+# by being named in a list somebody has to keep up to date.
+_sealed = _plant("sealed.json", {
+    "client": "Bayside Dental", "cms": "site_login", "login": "admin",
+    "secret": {"enc": True, "data": "gAAAAABfernet-token-here"}})
+# A share token is stored so a customer's link keeps working. Reporting it is
+# how a check gets switched off, so `token` is deliberately not a watched name.
+_share = _plant("share.json", {"token": "share-abc123", "spot": "60s"})
+# An empty value cannot leak anything.
+_empty = _plant("empty.json", {"setup": {"password": ""}})
+# Nested in a list, because "somewhere in this file" is not an answer somebody
+# can act on.
+_nested = _plant("nested.json", {
+    "websites": [{"domain": "a.test"}, {"domain": "b.test", "api_key": "KEY-9"}]})
+
+_found = {f["file"]: f for f in integrity.check_plaintext_credentials()}
+check("the plaintext password is reported", _leaky in _found, True)
+check("the finding names where in the file it is, not just the file",
+      "setup.password" in _found.get(_leaky, {}).get("detail", ""), True)
+check("the fix names the store that seals it",
+      "cms_credentials" in _found.get(_leaky, {}).get("fix", ""), True)
+check("a SEALED credential is not reported — a dict is not a readable string",
+      _sealed in _found, False)
+check("a share token is not reported", _share in _found, False)
+check("an empty password is not reported", _empty in _found, False)
+check("a credential nested in a list is reported", _nested in _found, True)
+check("and it is indexed, so somebody can go and look at it",
+      "websites[1].api_key" in _found.get(_nested, {}).get("detail", ""), True)
+
+# Severity matters here in a way it does not for the two backup checks beside
+# it: those say in as many words that a module they list works exactly as it
+# always has. A readable password in a backup has no such defence.
+_group = [g for g in integrity.run()["groups"]
+          if g["key"] == "plaintext_credentials"]
+check("the check is registered on /api/integrity", len(_group), 1)
+check("at high severity, so it fails a run rather than being reported",
+      _group[0]["severity"] if _group else None, "high")
+
+for _name in ("seo-client.json", "sealed.json", "share.json", "empty.json",
+              "nested.json"):
+    os.remove(os.path.join(_cred_dir, _name))
+os.rmdir(_cred_dir)
+check("the planted files are gone, so later sections see the disk they expect",
+      os.path.isdir(_cred_dir), False)
+
+
 # ------------------------------- 14a. an fsync a caller arrives holding
 section("Moving to the shared writer may not cost what the caller had")
 # _atomic_write's own docstring says every module that hand-rolled this got it

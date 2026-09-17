@@ -145,6 +145,32 @@ export async function makeReversed(input: string, outFile: string): Promise<stri
 }
 
 /**
+ * A one-colour version of the mark: every opaque pixel painted `tone`, the
+ * alpha kept exactly. The white one is `makeReversed` by another name and
+ * stays there for its callers; the black one is the same operation for a
+ * light photograph. Together they are the industry's answer to a logo that
+ * cannot be read on this background -- the mark's shape is untouched, which
+ * is the one rule about logos.
+ */
+export async function makeMono(
+  input: string,
+  outFile: string,
+  tone: 'white' | 'black',
+): Promise<string> {
+  fs.mkdirSync(path.dirname(outFile), { recursive: true });
+  const img = sharp(input).ensureAlpha();
+  const { data, info } = await img.raw().toBuffer({ resolveWithObject: true });
+  const { width, height, channels } = info;
+  const out = Buffer.from(data);
+  const v = tone === 'white' ? 255 : 0;
+  for (let i = 0; i < out.length; i += channels) {
+    if (out[i + 3] > 20) { out[i] = v; out[i + 1] = v; out[i + 2] = v; }
+  }
+  await sharp(out, { raw: { width, height, channels } }).png().toFile(outFile);
+  return outFile;
+}
+
+/**
  * "AI rework" that preserves brand integrity: enforce transparency, trim dead
  * space, and (optionally) generate a reversed version. Deliberately does not
  * call an image model — the safest rework of a logo is a clean-up, not a

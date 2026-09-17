@@ -51,6 +51,10 @@ class YouTubeTests(unittest.TestCase):
             "id": CID, "title": "Alpha channel", "url": "https://www.youtube.com/channel/" + CID}}))
 
     def tearDown(self):
+        from hub import extensions
+        for engine in list(extensions._engines.values()):
+            if str(engine.url.database or '').startswith(self.tmp.name):
+                engine.dispose()
         self.mirror_write.stop(); self.mirror_read.stop()
         self.cfg.stop(); self.auth.stop(); self.env.stop(); self.tmp.cleanup()
 
@@ -296,6 +300,58 @@ class YouTubeTests(unittest.TestCase):
         self.assertEqual(result.status_code, 200)
         self.assertIn("Repairs", store.public_client("Alpha")["launch"]["about"])
         self.assertEqual(store.public_client("Beta")["launch"], {})
+
+
+class OptimizationTests(unittest.TestCase):
+    setUp = YouTubeTests.setUp
+    tearDown = YouTubeTests.tearDown
+    post = YouTubeTests.post
+
+    def test_scan_requires_csrf_and_keeps_unknown_metrics_unknown(self):
+        self.assertEqual(self.client.get('/tools/youtube/api/optimization').status_code, 405)
+        denied = self.client.post('/tools/youtube/api/optimization', json={'client': 'Alpha'})
+        self.assertEqual(denied.status_code, 403)
+        result = self.post('optimization', {}).json
+        self.assertEqual(result['selected_channel_id'], '')
+        self.assertNotIn('views_last_7d', result['channels'][0])
+        self.assertFalse(result['ai_enabled'])
+
+    def test_scan_rejects_ai_choice_without_recent_activity(self):
+        store.update(lambda state: store.client(state, 'Alpha')['channels'].update({
+            CID: {'id': CID, 'title': 'Active', 'refresh_token': 'saved'},
+            OTHER: {'id': OTHER, 'title': 'Idle', 'refresh_token': 'saved'}}))
+        def measured(name, cid):
+            return {'analytics_available': True, 'running_now': cid == CID,
+                    'views_last_7d': 10 if cid == CID else 0}
+        with patch('modules.youtube_studio.optimization.activity', side_effect=measured), \
+                patch('hub.ai.ready', return_value=True), \
+                patch('hub.ai.chat_json', return_value={'selected_channel_id': OTHER, 'reason': 'Choose idle', 'next_steps': []}):
+            result = self.post('optimization', {}).json
+        self.assertEqual(result['selected_channel_id'], CID)
+        self.assertFalse(result['ai_enabled'])
+
+    def test_scan_isolates_client_and_provider_failure(self):
+        store.update(lambda state: store.client(state, 'Beta')['channels'].update({OTHER: {'id': OTHER, 'refresh_token': 'secret'}}))
+        store.update(lambda state: store.client(state, 'Alpha')['channels'][CID].update(refresh_token='secret'))
+        with patch('modules.youtube_studio.optimization.activity', side_effect=requests.Timeout('private-token')):
+            result = self.post('optimization', {}).json
+        self.assertEqual([c['id'] for c in result['channels']], [CID])
+        self.assertNotIn('private-token', str(result))
+        self.assertEqual(result['selected_channel_id'], '')
+
+    def test_activity_uses_calendar_window_not_last_seven_rows(self):
+        from datetime import datetime, timezone, timedelta
+        from modules.youtube_studio.optimization import activity
+        end = datetime.now(timezone.utc).date() - timedelta(days=2)
+        report = {'columnHeaders': [{'name': key} for key in
+                  ['day', 'views', 'estimatedMinutesWatched', 'subscribersGained', 'subscribersLost']],
+                  'rows': [[(end-timedelta(days=10)).isoformat(), 900, 400, 20, 0],
+                           [end.isoformat(), 3, 1.5, 1, 0]]}
+        with patch.object(yt, 'access_token', return_value='a'), \
+                patch.object(yt, 'record_google_request', return_value=response(report)):
+            result = activity('Alpha', CID)
+        self.assertEqual(result['views_last_7d'], 3)
+        self.assertEqual(result['watch_minutes_last_7d'], 1.5)
 
 
 if __name__ == "__main__":

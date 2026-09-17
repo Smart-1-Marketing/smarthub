@@ -74,10 +74,15 @@
 
     <div id="profileDone" hidden>
       <p class="hint" style="margin:0">
-        Your topics are built from <strong id="profileCat"></strong>.
+        Your topics are built from <strong id="profileCat"></strong><span id="profileAuto" hidden>
+        &mdash; worked out from your website and what we have on file, so check it</span>.
         <button class="btn quiet small" id="profileEdit" type="button">Change this</button>
       </p>
+      <p class="hint" id="profileAutoText" style="margin:6px 0 0" hidden></p>
     </div>
+    {% if is_staff and autofill_note %}
+    <p class="hint" style="margin:8px 0 0">{{ autofill_note }}</p>
+    {% endif %}
   </section>
 
 <style>
@@ -215,6 +220,13 @@
     $("profileHead").textContent = has ? "About your business"
                                        : "Tell us about your business";
     if (has) $("profileCat").textContent = PROFILE.category || "what you told us";
+    /* Said when the answers were ours rather than theirs: a client reading
+       "your topics are built from marine upholstery" about words they never
+       typed should know where they came from, and be one press from fixing
+       them. */
+    $("profileAuto").hidden = !(has && PROFILE.auto);
+    $("profileAutoText").hidden = !(has && PROFILE.auto && PROFILE.profile);
+    if (has && PROFILE.auto && PROFILE.profile) $("profileAutoText").textContent = PROFILE.profile;
   }
 
   function api(path, opts){

@@ -1,0 +1,27 @@
+<!doctype html>
+<!--
+  Stands in for awesomescreenshot.com's real share page: a bare shell that
+  answers navigation immediately and only draws its actual content a moment
+  later, after its own script runs -- the shape that made a plain
+  `requests.get()` find nothing (no image ever server-rendered) and is what
+  `extractLargestImage()`'s waitForFunction exists to wait past. Two images
+  land after the delay: a small one under /static/, standing in for the
+  site's own favicon/spinner assets, and a larger one that is the "real"
+  screenshot -- so the test proves both that hydration is waited for and
+  that the larger, non-/static/ image is the one chosen.
+-->
+<html lang="en">
+<head><meta charset="UTF-8"></head>
+<body>
+<script>
+  setTimeout(function () {
+    var icon = document.createElement('img');
+    icon.src = 'static/icon.svg';
+    document.body.appendChild(icon);
+    var shot = document.createElement('img');
+    shot.src = 'shot.svg';
+    document.body.appendChild(shot);
+  }, 200);
+</script>
+</body>
+</html>

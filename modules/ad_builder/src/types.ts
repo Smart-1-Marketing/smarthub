@@ -47,7 +47,22 @@ export interface Brand {
     /** Absolute or project-relative path to a PNG/SVG with transparency. */
     primary: string;
     reverse?: string;
+    /**
+     * One-colour versions of the mark, made by the renderer from `primary`
+     * on request (POST /api/logo/mono). A dark logo on a dark photo has no
+     * palette fix -- the mark is the one asset nobody may recolour by hand,
+     * but a white or black version of it is the industry's own answer, and
+     * a concept picks one with `logoTone`.
+     */
+    white?: string;
+    black?: string;
   };
+  /**
+   * Colours somebody chose with a picker and asked to keep, as upper-case
+   * hex, so the next block or the next size can reuse them from a chip
+   * rather than re-mixing them. Deduplicated on write; never a brand role.
+   */
+  savedColors?: string[];
 }
 
 /* --------------------------------------------------------------- creative */
@@ -123,6 +138,25 @@ export interface CreativeConcept {
   name: string;
   /** Which template family renders this concept, e.g. 'T01'. */
   layoutFamily: string;
+  /**
+   * A different family for one size.
+   *
+   * `layoutFamily` is the set's answer and decides which sizes exist. A
+   * layout that suits a 300x250 is often wrong on a 728x90, and the only way
+   * to change it was to change every size with it -- which read as the
+   * control not working once somebody had tuned the first size. A size named
+   * here renders from that family instead; everything else (copy, style,
+   * carry) is unchanged. `registry.familyFor()` is the one reading, and a
+   * family that does not draw the size falls back to `layoutFamily` rather
+   * than 422ing the preview.
+   */
+  layoutBySize?: Partial<Record<SizeKey, string>>;
+  /**
+   * Which version of the mark this concept draws: the full-colour primary
+   * (default, with the reverse chosen automatically on dark panels), or the
+   * white or black one-colour version. See Brand.logos.
+   */
+  logoTone?: 'auto' | 'white' | 'black';
   /**
    * `default` carries the full copy set. A size key overrides it field by
    * field, so a 320x50 entry can supply only a shorter headline and inherit
@@ -203,6 +237,12 @@ export interface TextBox extends Box {
   /** Uppercase the copy before measuring (common for CTAs / offers). */
   uppercase?: boolean;
   letterSpacing?: number;
+  /**
+   * Draw `color` even over a full-bleed photo. Set by block-style.ts when the
+   * ink was chosen by a person; a template's own colour is still replaced by
+   * whichever ink survives the overlay.
+   */
+  keepColorOnBg?: boolean;
 }
 
 export interface CtaBox extends TextBox {
@@ -318,10 +358,32 @@ export interface PlatformConfig {
 
 export interface QaFinding {
   check: string;
-  status: 'pass' | 'warn' | 'fail';
+  /**
+   * `info` is a note: true, worth knowing, and not a reason to hold a size.
+   * Meta's text guideline is the case -- it is a delivery signal, not a
+   * rejection, and it fires on most designs here by design. As a warning it
+   * put an amber chip on nearly every Meta ad and made approval ask for an
+   * acknowledgement every time, which is how amber comes to mean nothing.
+   * rollUp() ignores it; the screens draw it grey.
+   */
+  status: 'pass' | 'warn' | 'fail' | 'info';
   detail: string;
+  /**
+   * Measured facts behind the sentence, for a reader that has to act on them
+   * rather than print them. The contrast check records the luminance behind
+   * each low block so the advice layer can pick the ink that actually reads,
+   * instead of guessing "light over a photo".
+   */
+  data?: Record<string, unknown>;
   /** Machine-readable hint the AI copy-shortener can act on. */
   fix?: { action: 'shorten'; role: BoxRole; maxWords?: number };
+  /**
+   * The same finding for a person: what is wrong, in words with no ratios
+   * in them, and what to do about it. Added by plain-checks.ts on the way
+   * to a screen; `detail` stays the measured sentence for the proof and the
+   * manifest.
+   */
+  plain?: import('./plain-checks').PlainAdvice;
 }
 
 /**

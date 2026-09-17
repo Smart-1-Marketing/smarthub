@@ -478,6 +478,19 @@ export function animationSupport(platform: string, size: SizeKey): AnimationSupp
   if (!rule) {
     return { supported: false, reason: `${cfg.label} does not run a ${size}.` };
   }
+  // Meta never runs an animated image: a GIF uploaded there is converted to
+  // a video and served as one, with the frame timing and loop count this
+  // module verifies thrown away. The format list already says so (no `gif`
+  // on any Meta size), but the operator's rule -- "animate should never
+  // apply to Meta sizes" -- is stated here in its own words so a Meta config
+  // edited to list gif next year still refuses.
+  if (cfg.platform === 'meta') {
+    return {
+      supported: false,
+      reason: `${cfg.label} never takes an animated image at ${size} -- Meta converts a GIF to a video -- so this size always ships as the still ad.`,
+      maxFileBytes: rule.maxFileBytes,
+    };
+  }
   if (!rule.formats.includes('gif')) {
     return {
       supported: false,

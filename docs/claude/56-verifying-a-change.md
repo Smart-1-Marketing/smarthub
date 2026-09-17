@@ -28,7 +28,11 @@ python3 test_jsonstore.py          # the mirror restores, one answer on who is o
                                    #   JSON has no mirror, what opens a database, and
                                    #   what writes bytes -- each cross-checked against
                                    #   a cruder second reading so an empty answer
-                                   #   cannot mean the scan broke
+                                   #   cannot mean the scan broke; and the opposite
+                                   #   question about those same files -- a credential
+                                   #   sitting in a mirrored store as a readable
+                                   #   string, which every other check here passed
+                                   #   while it was true
 python3 test_jsonstore_locking.py  # two real processes with two real data roots:
                                    #   a flock each instance takes on its own disk
                                    #   serialises nothing, and the read half of a
@@ -44,7 +48,11 @@ python3 test_db_boot.py            # a database blip at boot is not a verdict fo
                                    #   so in words rather than answering 500
 python3 test_scheduler_health.py   # the jobs working, not just the loop alive:
                                    #   overdue, failure streaks, and the worker
-                                   #   that cannot see the timings
+                                   #   that cannot see the timings; and the
+                                   #   integrity sweep that runs the defect
+                                   #   checks HERE -- transitions rather than a
+                                   #   heartbeat, and no row carrying the
+                                   #   credential it was written to find
 python3 test_smartforecast.py      # weather lifecycle rules, immutable history,
                                    #   public embeds and Render disk recovery
 python3 test_smartforecast_store.py # the move off its own SQLite file: a forward
@@ -272,6 +280,13 @@ python3 test_wordpress_publish.py  # the other publishing path: a credential
                                    #   category matched exactly or created, and
                                    #   two pages wanting two alts on one image
                                    #   named rather than last-one-wins
+python3 test_keyring.py            # the keys that open a sealed value: a value
+                                   #   sealed under the OLD key still opens once
+                                   #   the new one leads, a new seal uses the
+                                   #   newest so the old can be dropped, a blob
+                                   #   nothing opens is an error and never an
+                                   #   empty value, and no answer carries key
+                                   #   material
 python3 test_site_login.py         # the client's own website login, sealed:
                                    #   the plaintext leaves the SEO record and
                                    #   the assertion is on the bytes on the
@@ -378,7 +393,7 @@ python3 test_client_images.py      # every module that logs client work is one t
                                    #   card, the contact details offered into the strip,
                                    #   the display-ads work log, and the way back
 python3 test_client_uploads.py     # the client upload link, and the client an IO creates
-python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
+python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions, folders, the SEO copy sweep
 python3 test_image_creator.py      # the "Client gallery" chip reads the real shared
                                    #   gallery, searches it, and always offers the link
                                    #   to the full one
@@ -443,6 +458,12 @@ python3 test_activity_logging.py   # every module's work is attributable: an
                                    #   import is not a call, a module's own
                                    #   log() wrapper is resolved, and the
                                    #   remainder is declared with its reason
+python3 test_client_work_log.py    # the client work log's horizon: narrowed to
+                                   #   the 47 work modules in the query, a count
+                                   #   that describes the client rather than the
+                                   #   page, and no reader allowed to print
+                                   #   "nothing has ever been made" off a read
+                                   #   that stopped at a window
 python3 test_hub_capped_reads.py   # readings in hub/ that have to be COMPLETE
                                    #   and were a window: the image audit swept
                                    #   a fifth of the archive, "this module
@@ -647,6 +668,9 @@ python3 test_industry.py           # one taxonomy, resolve()'s matching, and
                                    #   with no Knack tier in this pass
 python3 test_industry_consumers.py # every INDUSTRIES/INDUSTRY_PACKS literal is
                                    #   canonical or in LEGACY_MAP
+python3 test_qb_contacts.py        # the QuickBooks billing contact filed under
+                                   #   Accounting: never over a typed value,
+                                   #   Sunday 2pm Eastern, a refusal stops the pass
 python3 test_client_logos.py       # a logo we found reaches the client's gallery,
                                    #   once, labeled with where it came from
 python3 test_ai_proposals.py       # the model proposes, the code decides, a person
@@ -906,6 +930,16 @@ which is the only reason it read as fine: **"main is green" was not protecting
 production**, because production was not waiting for it.
 
 The dashboard switch is now *After CI checks pass* — the Render API reports
+**And until 17 September 2026 nothing built the image that deploys.** The gate
+installs `requirements.txt` onto an Ubuntu runner with `setup-python`; the
+service runs the `Dockerfile` — different base, apt packages, Node 20, three
+`npm ci` runs, two TypeScript builds. A grep for `docker` across every workflow
+found only comments about it. There is a path-filtered `image` job now that
+builds it and imports `wsgi` inside it, and `test_ci_gate.py` refuses a
+Dockerfile whose Python version differs from the one CI tests on — which is
+what made the open `3.12 -> 3.14` base bump unassessable. Written up in
+`docs/claude/72`.
+
 `autoDeployTrigger: checksPass` on smart1-hub as of 16 September 2026, checked
 against the live service rather than against `render.yaml`, which is the whole
 point of the paragraph below. So green main protects production again, at the
@@ -1025,3 +1059,8 @@ one that has been green is one a new finding actually interrupts.
 Then boot through `wsgi.application` (not just the hub app — that's how mount
 shadowing hides) and request the pages you touched. `/api/integrity` reports
 known defect patterns; `/login/health` diagnoses sign-in without a session.
+
+`python test_reporting.py` verifies canonical Trade Desk ingestion, replacement
+upserts, failure rollback, client mapping, currency separation, and admin guards.
+CI also runs it on the disposable PostgreSQL service via
+`REPORTING_TEST_DATABASE_URL`; never set that override to a production database.

@@ -112,8 +112,9 @@ services:
         sync: false
       - key: TTD_PARTNER_ID
         sync: false
-      # The MyReports template the pull's daily report schedule is created
-      # from, once; and the API base (production by default).
+      # Optional: overrides the MyReports template the pull picks by name
+      # (the standard Performance report) when it creates its partner-wide
+      # daily schedule, once; and the API base (production by default).
       - key: TTD_REPORT_TEMPLATE_ID
         sync: false
       - key: TTD_API_BASE

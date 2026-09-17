@@ -170,7 +170,7 @@ _PROMPT = """This business describes itself as: {category}
 
 What they sell, in their own words:
 {profile}
-
+{context}
 Write the photo categories THIS business would want pictures of. Two lists:
 
   "topics"   — {n} moods and moments that sell what they do: the customer's
@@ -219,7 +219,32 @@ def _fallback(category: str, profile: str) -> dict:
     return built
 
 
-def build(*, category: str, profile: str, client_name: str = "") -> tuple[dict, str]:
+def _context_block(context: dict | None) -> str:
+    """The facts a search should be anchored to, as lines for the prompt.
+
+    Location and industry are what make "our team" return a Michigan
+    marina's crew rather than an office nobody works in. Facts only, each
+    one held by the Hub; nothing here is for the model to invent from.
+    """
+    context = context or {}
+    lines = []
+    if context.get("industry"):
+        lines.append(f"Industry on file: {clean_text(context['industry'], 120)}")
+    place = ", ".join(clean_text(context.get(k), 80) for k in ("city", "state")
+                      if context.get(k))
+    if place:
+        lines.append(f"Where they are: {place}")
+    if context.get("customer"):
+        lines.append(f"Who their customers are: {clean_text(context['customer'], 300)}")
+    if not lines:
+        return ""
+    return ("\nAlso on file (use these to anchor the terms to their customers, "
+            "their location and their industry; never as place names inside a "
+            "search term):\n" + "\n".join(lines) + "\n")
+
+
+def build(*, category: str, profile: str, client_name: str = "",
+          context: dict | None = None) -> tuple[dict, str]:
     """(collections, error). The error is for staff, never for the client.
 
     Returns collections either way — `source` says which. `(data, error)`
@@ -227,6 +252,10 @@ def build(*, category: str, profile: str, client_name: str = "") -> tuple[dict, 
     in Google Finder: "we built these from their own words" and "we could not
     ask the model" are different answers, and only one of them is worth
     somebody pressing the button again.
+
+    `context` is what the Hub already holds -- industry, city, state, who
+    their customers are -- so the terms relate to the customer, the business,
+    the location and the industry rather than to the category alone.
     """
     category = clean_text(category, QUESTIONS[0]["max"])
     profile = clean_text(profile, QUESTIONS[1]["max"])
@@ -243,6 +272,7 @@ def build(*, category: str, profile: str, client_name: str = "") -> tuple[dict, 
              {"role": "user", "content": _PROMPT.format(
                  category=category or "(not given)",
                  profile=profile or "(not given)",
+                 context=_context_block(context),
                  n=MAX_COLLECTIONS, label_chars=MAX_LABEL_CHARS)}],
             module="image_picker", purpose="business_profile_topics",
             max_tokens=1400, temperature=0.5,
@@ -272,7 +302,177 @@ def build(*, category: str, profile: str, client_name: str = "") -> tuple[dict, 
         "source": source,
         "generated_at": _now(),
         "for_name": clean_text(client_name, 200),
+        "context": {k: clean_text(v, 300) for k, v in (context or {}).items() if v},
     }, error)
+
+
+# --------------------------------------------------------------------------- #
+# Answering the two questions from what the Hub already knows
+# --------------------------------------------------------------------------- #
+
+_ANSWER_SYSTEM = (
+    "You read what a marketing agency knows about a small business and "
+    "answer two intake questions on the business's behalf, in plain words "
+    "the owner would use. You reply with JSON and nothing else."
+)
+
+_ANSWER_PROMPT = """Business: {name}
+{facts}
+Answer these two questions about the business, from the facts above only.
+Never invent a service, a product, a place or a claim that is not in them.
+If the facts say almost nothing, answer as briefly as they allow rather than
+guessing.
+
+1. "What kind of business is this?" -- at most {cat_max} characters, a few
+   words, e.g. "marine upholstery shop", "family law firm".
+2. "What do you sell, or what's on your website?" -- one to three sentences,
+   at most {prof_max} characters, naming the actual services and products
+   and who they are for.
+
+Reply as {{"category": "...", "profile": "..."}}"""
+
+AUTO_MARK = "auto_attempted_at"
+
+
+def hub_context(client_name: str, domain: str = "") -> tuple[str, dict]:
+    """``(facts block, context)`` from the Hub's own records. Never raises.
+
+    The facts block is `hub.client_brief.for_prompt()` -- everything the
+    last site scan, the brand record and the industry resolver hold, each
+    line attributed -- and the context dict is the handful of fields the
+    topic prompt anchors to. Both empty when nothing is on file, so the
+    caller can tell "we know nothing" from "we could not look".
+    """
+    facts, context = "", {}
+    try:
+        from hub import client_brief
+        facts = client_brief.for_prompt(client_name, domain) or ""
+    except Exception as exc:                            # noqa: BLE001
+        log.warning("image_picker: client brief unavailable for %s: %s", client_name, exc)
+    try:
+        from hub import industry as _industry
+        res = _industry.resolve_industry(client_name, domain) or {}
+        entry = _industry.industry(res.get("key")) if res.get("key") else None
+        if entry and res.get("key") != "general":
+            context["industry"] = entry.get("label") or res.get("key")
+    except Exception:                                   # noqa: BLE001
+        pass
+    try:
+        from hub import client_context
+        ctx = client_context.context(client_name, domain)
+        for key in ("city", "state"):
+            if ctx.get(key):
+                context[key] = ctx[key]
+        if not domain and ctx.get("website"):
+            context["website"] = client_context.canonical_domain(ctx["website"])
+    except Exception:                                   # noqa: BLE001
+        pass
+    try:
+        from hub import audience_spec
+        # The audience somebody confirmed on Client 360, and only that: a
+        # confirmed answer is a fact, a proposal is not.
+        who = audience_spec.for_prompt(client_name)
+        if who:
+            context["customer"] = who
+    except Exception:                                   # noqa: BLE001
+        pass
+    return facts, context
+
+
+def answer_from_hub(client_name: str, domain: str = "") -> tuple[dict, str]:
+    """``({category, profile, context}, error)`` -- the two answers, written
+    by the model from the Hub's facts about the business.
+
+    Empty when the Hub holds nothing to write from: a picker that asks the
+    client is better than one that invents a business for them. The error
+    is for staff, never shown to a client.
+    """
+    facts, context = hub_context(client_name, domain)
+    if not facts.strip():
+        return ({}, "Nothing is on file about this business yet, so the "
+                    "questions were left for the client.")
+    try:
+        from hub import ai
+        data = ai.chat_json(
+            [{"role": "system", "content": _ANSWER_SYSTEM},
+             {"role": "user", "content": _ANSWER_PROMPT.format(
+                 name=clean_text(client_name, 200), facts=facts,
+                 cat_max=QUESTIONS[0]["max"], prof_max=QUESTIONS[1]["max"])}],
+            module="image_picker", purpose="business_profile_autofill",
+            max_tokens=600, temperature=0.3)
+    except Exception as exc:                            # noqa: BLE001
+        log.warning("image_picker autofill failed for %s: %s", client_name, exc)
+        return ({}, "We couldn't reach the writing model just now.")
+    if not isinstance(data, dict):
+        return ({}, "The model answered, but nothing in it was usable.")
+    category = clean_text(data.get("category"), QUESTIONS[0]["max"])
+    profile = clean_text(data.get("profile"), QUESTIONS[1]["max"])
+    if not category and not profile:
+        return ({}, "The model answered, but nothing in it was usable.")
+    return ({"category": category, "profile": profile, "context": context}, "")
+
+
+def autofill(db, client, *, domain: str = "", force: bool = False) -> dict:
+    """Answer the two questions for a General Business gallery, once.
+
+    Called when the picker opens and the gallery has nothing described yet.
+    The attempt is marked on the row BEFORE the model is asked, so a failure
+    -- or two workers opening the same link at once -- does not spend a call
+    on every page load for ever; "Change this" on the page is the way to ask
+    again. Never raises. Returns what happened, for the staff view.
+    """
+    out = {"attempted": False, "filled": False, "note": ""}
+    try:
+        if not force:
+            if (client.industry_key or "general") != "general":
+                return out
+            stored_now = stored(client)
+            if stored_now.get("topics") or stored_now.get("services"):
+                return out
+            if stored_now.get(AUTO_MARK):
+                out["note"] = "Already tried; edit the answers to try again."
+                return out
+        marker = dict(stored(client) or {})
+        marker[AUTO_MARK] = _now()
+        client.ai_collections = dumps(marker)
+        db.commit()
+        out["attempted"] = True
+
+        answers, error = answer_from_hub(client.name, domain)
+        if not answers:
+            out["note"] = error
+            return out
+        built, build_error = build(category=answers["category"],
+                                   profile=answers["profile"],
+                                   client_name=client.name,
+                                   context=answers.get("context"))
+        if not built:
+            out["note"] = build_error or "Nothing to build from."
+            return out
+        built[AUTO_MARK] = marker[AUTO_MARK]
+        built["auto"] = True
+        client.business_category = answers["category"] or None
+        client.business_profile = answers["profile"] or None
+        client.ai_collections = dumps(built)
+        db.commit()
+        out["filled"] = True
+        out["note"] = build_error or ""
+        try:
+            from hub import audit
+            audit.log("image_picker", "business_profile", actor="system",
+                      client=client.name, category=answers["category"],
+                      built=built.get("source"), by="auto")
+        except Exception:                               # noqa: BLE001
+            pass
+    except Exception as exc:                            # noqa: BLE001
+        log.warning("image_picker autofill errored for %s: %s",
+                    getattr(client, "name", "?"), exc)
+        try:
+            db.rollback()
+        except Exception:                               # noqa: BLE001
+            pass
+        out["note"] = "The answers could not be worked out just now."
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -337,6 +537,9 @@ def public(client) -> dict:
         "category": data.get("category") or "",
         "profile": data.get("profile") or "",
         "source": data.get("source") or "",
+        # Whether the answers were worked out from the Hub's own records
+        # rather than typed, so the page can say so and offer to change them.
+        "auto": bool(data.get("auto")),
         "generated_at": data.get("generated_at") or "",
         "topics": [{"key": c.get("key"), "label": c.get("label")}
                    for c in data.get("topics", []) if c.get("key")],

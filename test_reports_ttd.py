@@ -13,8 +13,14 @@ What it holds:
   * every call carries the token as the TTD-Auth header and nothing else
     carries it -- no result, no error, no watermark, no status;
   * advertisers are paged on PageStartIndex until a page comes back short;
-  * the schedule is found by name or created once from the template, and
-    the executions query names the schedule;
+  * the schedule is found by name or created once, partner-wide (no
+    AdvertiserFilters, so a client added later is in it), from the template
+    the pull picks by name from the partner's MyReports templates -- the
+    standard Performance report, never an hourly or creative breakout, never
+    "the first one" -- with TTD_REPORT_TEMPLATE_ID winning when set and a
+    refusal that lists the names when nothing fits; a schedule found pinned
+    to an advertiser list is refused by name; and the executions query names
+    the schedule;
   * the MyReports CSV parser reads the documented columns, sums a split
     row, drops and counts a row with no key, refuses a file with no key
     columns by naming what it has, and a restated day upserts over the
@@ -160,7 +166,7 @@ os.environ["TTD_PARTNER_ID"] = "partner-x"
 os.environ["TTD_API_BASE"] = "https://sandbox.example.test/v3/"
 
 calls = []
-STATE = {"schedule": None, "fail_download": False}
+STATE = {"schedule": None, "fail_download": False, "templates": []}
 
 
 class _Resp:
@@ -185,12 +191,15 @@ def fake_http(method, url, *, headers, body=None, timeout=60):
         ids = [f"adv{i}" for i in range(150)][start:start + body["PageSize"]]
         return _Resp(200, {"Result": [{"AdvertiserId": i, "AdvertiserName": i.upper()} for i in ids],
                            "ResultCount": len(ids)})
+    if path == ttd.TEMPLATE_QUERY:
+        return _Resp(200, {"Result": list(STATE["templates"])})
     if path == ttd.SCHEDULE_QUERY:
         found = [STATE["schedule"]] if STATE["schedule"] else []
         return _Resp(200, {"Result": found})
     if path == ttd.SCHEDULE_CREATE:
         STATE["schedule"] = {"ReportScheduleId": 777, "ReportScheduleName": body["ReportScheduleName"],
-                             "ReportTemplateId": body["ReportTemplateId"]}
+                             "ReportTemplateId": body["ReportTemplateId"],
+                             "AdvertiserFilters": list(body.get("AdvertiserFilters") or [])}
         return _Resp(200, STATE["schedule"])
     if path == ttd.EXECUTION_QUERY:
         return _Resp(200, {"Result": [
@@ -218,7 +227,7 @@ check("...and the line says connected", st["line"].startswith("Trade Desk: conne
 check("the status carries no token", TOKEN not in json.dumps(st))
 
 res = ttd.pull()
-check("with no template id the pull refuses rather than landing", res["ok"], False)
+check("with no template id and no templates the pull refuses rather than landing", res["ok"], False)
 check("...150 advertisers, paged, were read first", res["advertisers"], 150)
 adv_calls = [c for c in calls if c["url"].endswith(ttd.ADVERTISER_QUERY)]
 check("...in two pages on PageStartIndex", [c["body"]["PageStartIndex"] for c in adv_calls], [0, 100])
@@ -227,22 +236,66 @@ check("every API call carries the token as TTD-Auth",
       all(c["headers"].get("TTD-Auth") == TOKEN for c in calls if "sandbox.example.test" in c["url"]))
 check("...and no other header carries it",
       all(TOKEN not in v for c in calls for k, v in c["headers"].items() if k != "TTD-Auth"))
-# The run above had no template id: the schedule cannot be created and the
-# pull says which variable would let it. Set one and run again.
+# The run above had no template id and the partner listed no templates:
+# the schedule cannot be created and the pull says which variable would
+# let it, with the (empty) list it saw.
 calls.clear()
 STATE["schedule"] = None
 res0 = ttd.pull()
-check("with no template id the pull refuses naming the variable",
-      res0["ok"] is False and "TTD_REPORT_TEMPLATE_ID" in res0["error"])
+check("with nothing to pick from the pull refuses naming the variable",
+      res0["ok"] is False and "TTD_REPORT_TEMPLATE_ID" in res0["error"] and res0["error"].endswith(": none"))
 check("...and the watermark carries that refusal", "TTD_REPORT_TEMPLATE_ID" in store.sync_status()["ttd"]["error"])
-os.environ["TTD_REPORT_TEMPLATE_ID"] = "4242"
+check("...after asking the platform for its templates, by partner",
+      [c["body"]["PartnerId"] for c in calls if c["url"].endswith(ttd.TEMPLATE_QUERY)], ["partner-x"])
+
+# The template pick, by name and never by position.
+section("The template is picked by name")
+
+TEMPLATES = [
+    {"ReportTemplateId": 1, "ReportTemplateName": "Hourly Performance Report"},
+    {"ReportTemplateId": 2, "ReportTemplateName": "Creative Performance Report"},
+    {"ReportTemplateId": 3, "ReportTemplateName": "Site List Report"},
+    {"ReportTemplateId": 4, "ReportTemplateName": "Performance Report (Adv Currency)"},
+    {"ReportTemplateId": 4242, "ReportTemplateName": "Performance Report"},
+    {"ReportTemplateId": 5, "ReportTemplateName": "Campaign Performance - Todd's copy"},
+    {"ReportTemplateId": 6, "ReportTemplateName": "Geo Report"},
+]
+pick = ttd.pick_template([{"id": str(t["ReportTemplateId"]), "name": t["ReportTemplateName"]} for t in TEMPLATES])
+check("the standard Performance Report wins over its variants and the breakouts", pick["id"], "4242")
+check("a campaign performance template is next",
+      ttd.pick_template([{"id": "5", "name": "Campaign Performance - copy"},
+                         {"id": "7", "name": "Ad Group Performance"}])["id"], "5")
+check("then any plain performance template", ttd.pick_template([{"id": "7", "name": "Ad Group Performance"}])["id"], "7")
+check("an hourly or creative breakout is never picked, whatever else is on the list",
+      ttd.pick_template([{"id": "1", "name": "Hourly Performance Report"},
+                         {"id": "2", "name": "Creative Performance"}]), None)
+check("...nor the first thing on the list", ttd.pick_template([{"id": "9", "name": "Frequency Report"},
+                                                               {"id": "8", "name": "Data Element Report"}]), None)
+STATE["templates"] = [{"ReportTemplateHeaderId": 1, "Name": "Performance Report"}]
+try:
+    ttd.list_templates()
+    shape = None
+except ttd.TTDError as exc:
+    shape = str(exc)
+check("a template list with no ReportTemplateId is refused naming its keys",
+      shape, "The template list carried no ReportTemplateId; the rows have Name, ReportTemplateHeaderId")
+
+STATE["templates"] = TEMPLATES
 calls.clear()
 res = ttd.pull()
-check("with a template id the schedule is created", STATE["schedule"]["ReportTemplateId"], 4242)
+check("with templates to pick from the schedule is created from the standard report",
+      STATE["schedule"]["ReportTemplateId"], 4242)
+check("...and the result says which template, and that it was picked",
+      (res["template"]["id"], res["template"]["name"], res["template"]["source"]),
+      ("4242", "Performance Report", "auto"))
 created = [c for c in calls if c["url"].endswith(ttd.SCHEDULE_CREATE)]
-check("...once, daily, as CSV, over every advertiser",
-      (len(created), created[0]["body"]["ReportFrequency"], created[0]["body"]["ReportFileFormat"],
-       len(created[0]["body"]["AdvertiserFilters"])), (1, "Daily", "CSV", 150))
+check("...once, daily, as CSV",
+      (len(created), created[0]["body"]["ReportFrequency"], created[0]["body"]["ReportFileFormat"]), (1, "Daily", "CSV"))
+check("...partner-wide: no AdvertiserFilters on it, so a client added later is in it",
+      "AdvertiserFilters" not in created[0]["body"] and created[0]["body"]["PartnerId"] == "partner-x")
+st = ttd.status()
+check("the status carries the template picked",
+      (st["template_id"], st["template_name"], st["template_source"]), ("4242", "Performance Report", "auto"))
 check("...and the executions query names it", [c["body"]["ReportScheduleIds"] for c in calls
                                                 if c["url"].endswith(ttd.EXECUTION_QUERY)], [[777]])
 check("the newest complete execution's file is the one read",
@@ -251,9 +304,38 @@ check("the pull landed", (res["ok"], res["rows"], res["executions"]), (True, 3, 
 check("the download carries no auth header at all",
       [c["headers"] for c in calls if "files.example.test" in c["url"]], [{}])
 calls.clear()
-ttd.pull()
+res = ttd.pull()
 check("a second pull finds the schedule rather than creating another",
       not [c for c in calls if c["url"].endswith(ttd.SCHEDULE_CREATE)])
+check("...without asking for the templates again", not [c for c in calls if c["url"].endswith(ttd.TEMPLATE_QUERY)])
+check("...and reports the schedule's own template", (res["template"]["id"], res["template"]["source"]), ("4242", "schedule"))
+
+# The env variable wins over the pick, and no template query is made.
+os.environ["TTD_REPORT_TEMPLATE_ID"] = "9999"
+STATE["schedule"] = None
+calls.clear()
+res = ttd.pull()
+check("TTD_REPORT_TEMPLATE_ID, when set, wins over the pick", STATE["schedule"]["ReportTemplateId"], 9999)
+check("...without asking for the templates", not [c for c in calls if c["url"].endswith(ttd.TEMPLATE_QUERY)])
+check("...and says so", res["template"]["source"], "env")
+check("...on the status too", (ttd.status()["template_id"], ttd.status()["template_source"]), ("9999", "env"))
+os.environ.pop("TTD_REPORT_TEMPLATE_ID")
+
+# A schedule the earlier pull created, pinned to that day's advertisers.
+STATE["schedule"] = {"ReportScheduleId": 778, "ReportScheduleName": ttd.SCHEDULE_NAME,
+                     "ReportTemplateId": 4242, "AdvertiserFilters": ["adv0", "adv1"]}
+calls.clear()
+res = ttd.pull()
+check("a schedule pinned to an advertiser list is refused rather than read", res["ok"], False)
+check("...naming the schedule, the count and the fix",
+      ttd.SCHEDULE_NAME in res["error"] and "2 advertisers" in res["error"] and "Delete that schedule" in res["error"])
+check("...and nothing was downloaded", not [c for c in calls if "files.example" in c["url"]])
+STATE["schedule"] = None
+calls.clear()
+res = ttd.pull()
+check("with it gone the next pull recreates it partner-wide and lands",
+      (res["ok"], "AdvertiserFilters" not in [c for c in calls if c["url"].endswith(ttd.SCHEDULE_CREATE)][0]["body"]),
+      (True, True))
 
 wm = store.sync_status()["ttd"]
 check("the watermark is native", (wm["source"], wm["rows"], wm["error"]), ("native", 3, ""))
@@ -282,6 +364,7 @@ check("the module never logs the token (no log call names it)",
       "log." not in src.split("def request")[1].split("def _paged")[0])
 check("the endpoints are documented in the module docstring",
       all(p in (ttd.__doc__ or "") for p in ("/v3/advertiser/query/partner", "/v3/myreports/reportschedule",
+                                              "/v3/myreports/reporttemplate/query/partner",
                                               "/v3/myreports/reportexecution/query/partners", "TTD-Auth")))
 for f in ("env.example", "render.yaml"):
     text = (ROOT / f).read_text(encoding="utf-8")

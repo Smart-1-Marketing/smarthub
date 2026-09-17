@@ -790,6 +790,69 @@ def _image_urls(text: str) -> list[str]:
     return sorted(cleaned)[:4]
 
 
+_RENDER_SERVICE_TIMEOUT = 20
+
+
+def _resolve_via_render_service(url: str) -> str | None:
+    """Actually run the page, the way a person opening the link would.
+
+    A plain HTTP fetch never sees Awesome Screenshot's real image -- the
+    share page is a client-rendered app shell that draws it only after its
+    own JavaScript runs, and confirmed by two rounds of logged evidence: no
+    preview tag is ever server-rendered, and no image URL is ever embedded
+    as literal text in the raw body either. There is nothing left to read
+    without a browser.
+
+    `modules/hf_render_service` already runs one, as a sidecar in this same
+    container, for HyperFrames -- Puppeteer driving headless Chrome, reached
+    over loopback via `hub.hyperframes.base_url()`. `/resolve-image` is that
+    service's own endpoint for exactly this: given a URL, it opens the page,
+    waits for a real loaded image to appear, and hands back the largest one
+    it finds. Reusing that sidecar rather than adding a second Chromium
+    process here is the same reasoning `hub/hyperframes.py`'s own docstring
+    gives for the render service existing as one process rather than two.
+
+    Returns `None` on anything short of a clean, usable URL -- unconfigured,
+    unreachable, refused, or a page with no real image to find -- and the
+    reason is logged rather than raised, because a screenshot host being
+    unavailable must never take the rest of this sweep down with it.
+    """
+    from hub import hyperframes
+
+    if not hyperframes.is_configured():
+        return None
+    try:
+        resp = requests.post(f"{hyperframes.base_url()}/resolve-image",
+                              json={"url": url}, timeout=_RENDER_SERVICE_TIMEOUT)
+    except Exception as exc:                            # noqa: BLE001
+        _warn(f"_resolve_via_render_service({url}) could not reach the render service", exc)
+        return None
+
+    try:
+        body = resp.json()
+    except Exception as exc:                            # noqa: BLE001
+        _warn(f"_resolve_via_render_service({url}) got an unreadable "
+              f"response from the render service (HTTP {resp.status_code})", exc)
+        return None
+
+    resolved = body.get("url") if isinstance(body, dict) else None
+    if not resp.ok or not resolved:
+        reason = (body.get("error") if isinstance(body, dict) else None) or f"HTTP {resp.status_code}"
+        _warn(f"_resolve_via_render_service({url}) could not find a real "
+              f"image on the rendered page: {reason}", "")
+        return None
+
+    # A found candidate is worth a line too -- _warn() is for a failure
+    # reaching the log, and this is neither the failure that fetch() logs
+    # nor a warning of its own, so it goes through the logger directly
+    # rather than borrowing a helper named for the other case.
+    import logging
+    logging.getLogger(__name__).info(
+        "qa_tasks: _resolve_via_render_service(%s) rendered the page and "
+        "found a real image: %r", url, resolved)
+    return resolved
+
+
 def _resolve_screenshot_url(url: str) -> str:
     """A share link (`awesomescreenshot.com/image/<id>`) is an HTML viewer
     page, not the screenshot itself. `hub.ai.vision()` hands the URL straight
@@ -809,23 +872,32 @@ def _resolve_screenshot_url(url: str) -> str:
     Awesome Screenshot's own share pages turned out to publish neither tag,
     ever -- logged snippets showed a bare client-rendered app shell with
     nothing past its own `<head>`, so there was never a server-rendered
-    preview tag to find. The fallback for exactly that case is still reading
-    rather than guessing: an app shell commonly carries its own hydration
-    data as literal JSON in the page, which is there in the raw HTML whether
-    or not the bundle that would render it ever runs, so a bare image URL
-    sitting anywhere in the body (excluding the page's own `/static/` asset
+    preview tag to find. The first fallback for that is still reading rather
+    than guessing: an app shell commonly carries its own hydration data as
+    literal JSON in the page, which is there in the raw HTML whether or not
+    the bundle that would render it ever runs, so a bare image URL sitting
+    anywhere in the body (excluding the page's own `/static/` asset
     directory) is taken as the real one.
+
+    That read nothing either, on every real task this has ever seen -- the
+    image genuinely is not in the raw HTML, which is what a client-rendered
+    app fetching it via an API call after load looks like from here. So the
+    second fallback actually runs the page: `_resolve_via_render_service()`
+    hands it to the headless-Chrome sidecar this Hub already runs for
+    HyperFrames, which waits for the real image to appear and reads it back.
+    That is real network and CPU work on a shared sidecar, which is why it
+    only runs once the two free reads have already failed.
 
     A URL that already ends in an image extension needs none of this and is
     returned unchanged. Everything else falls back to the *original* URL --
     still wrong in the way it always was, never worse for having tried --
-    and the four ways this can go are told apart in the log rather than
-    collapsed into one silence: a network failure or non-2xx status (an
+    and every branch is told apart in the log rather than collapsed into one
+    silence: a network failure or non-2xx status fetching the share page (an
     exception), a real image URL found loose in the body (used, and named),
-    a page that answered but carried none of that (nothing to read, which
-    drew no warning at all until this said so), and a preview tag whose
-    content is not usable as an image URL once resolved against the page's
-    own address.
+    a preview tag whose content is not usable as an image URL once resolved
+    against the page's own address, and the render service's own outcome
+    (used and named, unconfigured, unreachable, or the page rendered but
+    carried no real image either).
     """
     if _IMAGE_URL_RE.fullmatch(url):
         return url
@@ -870,6 +942,15 @@ def _resolve_screenshot_url(url: str) -> str:
                   "")
             return candidates[0]
 
+        # Two free reads found nothing -- confirmed, over real tasks, to be
+        # the ordinary case rather than a fluke of one page: the image is
+        # genuinely not present anywhere in the raw HTML, because the app
+        # fetches it via an API call after the page loads. Actually running
+        # the page is the one read left that can still find it.
+        rendered = _resolve_via_render_service(url)
+        if rendered:
+            return rendered
+
         # Every fetch since the meta-tag fix deployed has landed here --
         # never a network failure, never a mismatched attribute order, just
         # a 200 with neither tag on it, every time. That is not what a
@@ -886,7 +967,7 @@ def _resolve_screenshot_url(url: str) -> str:
         # confirmed the shell and told us nothing about what follows it.
         snippet = " ".join(resp.text.split())[:1200]
         _warn(f"_resolve_screenshot_url({url}) found no og:image, "
-              f"twitter:image or bare image URL on the page it fetched -- "
+              f"twitter:image, bare image URL or render-service result -- "
               f"body starts: {snippet!r}", "")
         return url
 
