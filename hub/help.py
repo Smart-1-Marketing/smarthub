@@ -1072,6 +1072,13 @@ REGISTRY: list[Help] = [
        "it is wrong, press Map. Or rename the campaign in the platform to "
        "the shape shown and the auto-mapper files it on the next sync "
        "without anybody opening this page."),
+    _h("reports.unmapped.bulk", "Confirm ticked",
+       "Tick the proposals you stand behind and confirm them in one press: "
+       "each is confirmed on its own activity row, as if pressed one by "
+       "one. 'Tick the 100% ones' picks the proposals whose evidence was "
+       "exact -- an S1M name, a whole client name, a client's own ad "
+       "account, a name taught twice -- and leaves the near spellings for "
+       "a look. Nothing is confirmed that was not ticked."),
     _h("reports.unmapped.pending", "A filing from a name is a proposal",
        "The auto-mapper files a campaign under the client the evidence says -- "
        "the S1M shape in its name, an ad account whose confirmed campaigns "
