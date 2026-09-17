@@ -432,22 +432,26 @@ check("...and carries the accounts", len(accounts), 1)
 
 # A rotated TOKEN_ENCRYPTION_KEY leaves rows that will not decrypt. Skipping
 # them in silence turns a key rotation into "nobody has ever connected one".
+# Driven through the ENVIRONMENT alone. `gf._fernet()` reads hub/keyring.py,
+# which re-reads the environment on every call, so the module attribute this
+# used to set as well is no longer consulted -- and leaving it in would make
+# the "no key at all" case below pass while the real key was still on the ring.
 _real_key = os.environ["TOKEN_ENCRYPTION_KEY"]
 os.environ["TOKEN_ENCRYPTION_KEY"] = Fernet.generate_key().decode()
-gf.TOKEN_ENCRYPTION_KEY = os.environ["TOKEN_ENCRYPTION_KEY"]
 accounts, why = gf.connected_accounts_result()
 check("a row that will not decrypt is not silently dropped", bool(why), True)
 check("...and the reason names the key", "TOKEN_ENCRYPTION_KEY" in why, True)
 check("...and the list really is empty, so it must not read as 'none'",
       accounts, [])
 os.environ["TOKEN_ENCRYPTION_KEY"] = _real_key
-gf.TOKEN_ENCRYPTION_KEY = _real_key
 
 # No key at all is the same shape of answer.
-gf.TOKEN_ENCRYPTION_KEY = ""
+os.environ.pop("TOKEN_ENCRYPTION_KEY", None)
 _, why = gf.connected_accounts_result()
 check("an unreadable table is reported, not answered with none", bool(why), True)
-gf.TOKEN_ENCRYPTION_KEY = _real_key
+check("...and it says the key is the reason, not that nobody has connected",
+      "TOKEN_ENCRYPTION_KEY" in why, True)
+os.environ["TOKEN_ENCRYPTION_KEY"] = _real_key
 
 
 section("Nothing connected and could not look are different answers")

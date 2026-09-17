@@ -15,7 +15,9 @@ from bs4 import BeautifulSoup
 from flask import (Flask, redirect, render_template, request, session,
                    url_for, jsonify)
 from flask_session import Session
-from cryptography.fernet import Fernet, InvalidToken
+# InvalidToken only: the key ring builds the cipher now, and MultiFernet
+# raises the same exception, so the decrypt sites below are unchanged.
+from cryptography.fernet import InvalidToken
 from werkzeug.middleware.proxy_fix import ProxyFix
 from hub import dbshim
 from hub.webargs import clamp_int
@@ -121,7 +123,11 @@ def _token_db_path() -> str:
         return "/var/data/google_tokens.db"
 
 
-TOKEN_ENCRYPTION_KEY = os.environ.get("TOKEN_ENCRYPTION_KEY", "")
+# The key itself is not held here any more. It was captured at import, so a
+# deployment that set the variable after this module loaded kept the empty
+# string -- and two tests had to poke the module attribute to drive
+# behaviour because the environment no longer reached it. hub/keyring.py
+# re-reads the environment on every call, so there is nothing to capture.
 
 ALLOWED_EMAILS = {
     x.strip().lower()
@@ -152,12 +158,37 @@ CACHE = {}
 
 
 def _fernet():
-    if not TOKEN_ENCRYPTION_KEY:
-        raise RuntimeError("TOKEN_ENCRYPTION_KEY is not configured.")
+    """The key ring, and this module still REFUSES to run without one.
+
+    `hub/keyring.py` degrades to storing in the clear and saying so, which is
+    right for a panel that must still render. It is wrong here: these are
+    Google **OAuth refresh tokens**, and one written unencrypted to a table
+    that is in every database backup is worse than a module that will not
+    start. So the refusal below stays exactly as it was, and what changes is
+    only WHICH keys can open a token.
+
+    `MultiFernet` carries the same `.encrypt()` / `.decrypt()` interface, so
+    both call sites are untouched -- they just gain "the previous key still
+    opens this" on the way past. Before this, rotating TOKEN_ENCRYPTION_KEY
+    meant every connected Google account had to re-consent, which is the
+    outage connected_accounts_result() below already counts and names.
+    """
+    from hub import keyring
+    got = keyring.ring()
+    if got is None:
+        if not keyring.key_values():
+            raise RuntimeError("TOKEN_ENCRYPTION_KEY is not configured.")
+        raise RuntimeError("TOKEN_ENCRYPTION_KEY must be a valid Fernet key.")
+    return got
+
+
+def _keyring_configured() -> bool:
+    """Whether ANY configured key can seal, under either spelling."""
     try:
-        return Fernet(TOKEN_ENCRYPTION_KEY.encode("utf-8"))
-    except Exception as exc:
-        raise RuntimeError("TOKEN_ENCRYPTION_KEY must be a valid Fernet key.") from exc
+        from hub import keyring
+        return keyring.available()
+    except Exception:                                   # noqa: BLE001
+        return False
 
 
 _schema_ready = False
@@ -2896,7 +2927,12 @@ def health():
     checks = {
         "google_client_id_configured": bool(GOOGLE_CLIENT_ID),
         "google_client_secret_configured": bool(GOOGLE_CLIENT_SECRET),
-        "token_encryption_key_configured": bool(TOKEN_ENCRYPTION_KEY),
+        # Asked of the key ring, not of one spelling. This read
+        # bool(TOKEN_ENCRYPTION_KEY) and so answered False on a deployment
+        # part-way through a rotation, where the keys are in
+        # TOKEN_ENCRYPTION_KEYS and everything is sealing correctly -- a
+        # health check reporting a fault that is not there.
+        "token_encryption_key_configured": _keyring_configured(),
         "backend": "database",
         "legacy_token_db_path": _token_db_path(),
         "legacy_import": import_status(),
