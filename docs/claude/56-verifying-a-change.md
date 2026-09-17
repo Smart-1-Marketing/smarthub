@@ -388,7 +388,7 @@ python3 test_client_images.py      # every module that logs client work is one t
                                    #   card, the contact details offered into the strip,
                                    #   the display-ads work log, and the way back
 python3 test_client_uploads.py     # the client upload link, and the client an IO creates
-python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions
+python3 test_image_picker.py       # upload sources, deleting a gallery, the two questions, folders, the SEO copy sweep
 python3 test_image_creator.py      # the "Client gallery" chip reads the real shared
                                    #   gallery, searches it, and always offers the link
                                    #   to the full one
@@ -453,6 +453,12 @@ python3 test_activity_logging.py   # every module's work is attributable: an
                                    #   import is not a call, a module's own
                                    #   log() wrapper is resolved, and the
                                    #   remainder is declared with its reason
+python3 test_client_work_log.py    # the client work log's horizon: narrowed to
+                                   #   the 47 work modules in the query, a count
+                                   #   that describes the client rather than the
+                                   #   page, and no reader allowed to print
+                                   #   "nothing has ever been made" off a read
+                                   #   that stopped at a window
 python3 test_hub_capped_reads.py   # readings in hub/ that have to be COMPLETE
                                    #   and were a window: the image audit swept
                                    #   a fifth of the archive, "this module
@@ -919,6 +925,16 @@ which is the only reason it read as fine: **"main is green" was not protecting
 production**, because production was not waiting for it.
 
 The dashboard switch is now *After CI checks pass* — the Render API reports
+**And until 17 September 2026 nothing built the image that deploys.** The gate
+installs `requirements.txt` onto an Ubuntu runner with `setup-python`; the
+service runs the `Dockerfile` — different base, apt packages, Node 20, three
+`npm ci` runs, two TypeScript builds. A grep for `docker` across every workflow
+found only comments about it. There is a path-filtered `image` job now that
+builds it and imports `wsgi` inside it, and `test_ci_gate.py` refuses a
+Dockerfile whose Python version differs from the one CI tests on — which is
+what made the open `3.12 -> 3.14` base bump unassessable. Written up in
+`docs/claude/72`.
+
 `autoDeployTrigger: checksPass` on smart1-hub as of 16 September 2026, checked
 against the live service rather than against `render.yaml`, which is the whole
 point of the paragraph below. So green main protects production again, at the

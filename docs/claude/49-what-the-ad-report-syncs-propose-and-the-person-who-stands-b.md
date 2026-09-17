@@ -246,6 +246,32 @@ finished. ``PROGRESS_TRIES`` still caps the polls whatever the clock says,
 since a platform answering Progress instantly for ever must not be polled
 for ever either.
 
+**Then a review found three more in that pull, and each read as a working
+feed.** The ASSUMED names in the module docstring were always the risk; what
+was missing was what happens when one of them is wrong.
+
+* **A record with no advertiser id was filed under `advertiser:unknown`**, so
+  the row still landed and the unmapped queue showed it -- a deliberate
+  decision, and wrong, because `account_id` is part of `store._FACT_KEY`. The
+  moment the platform did name the advertiser, the thirty-day re-read wrote a
+  SECOND row for the same campaign-day, and a client's report added them
+  together: fifty dollars of delivery read as a hundred, on a page somebody is
+  invoiced against. It is skipped and counted now, like every other row that
+  cannot be keyed. A row absent and counted is worse than a row present; a row
+  that doubles a spend is worse than both.
+* **Records read and none filed answered `ok`.** If `startTime` or `records`
+  is not what the platform calls it, every record is skipped -- and the pull
+  stamped a clean watermark, the index said *connected*, and
+  `report_schedule` marked the platform complete for the day. Two hundred
+  records in, nothing out, and nothing on any screen saying so. That case is
+  now a failure that names the count and points at the docstring's assumed
+  names.
+* **A run that landed nothing overwrote the note's counts with its own
+  zeroes**, so one pending tick turned *connected, 7 advertisers, last pull
+  03:00* into *connected, 0 advertisers, last pull now* -- about a feed that
+  had read seven the night before and had not been asked since. The counts and
+  the stamp are kept for any run that landed nothing.
+
 **A name without the mark is read for a likeness, and the likeness is
 shown before it is trusted (September 17, 2026).** Most campaigns were
 named before the `S1M` shape existed, and the unmapped queue held them

@@ -31,7 +31,12 @@
     .screen:after{z-index:31;box-shadow:inset 0 0 90px #000,inset 0 0 220px rgba(0,0,0,.7);border-radius:3vw}
     .noise{z-index:29;opacity:.03;background-image:radial-gradient(rgba(255,255,255,.6) .5px,transparent .5px);background-size:3px 3px;animation:noise .18s infinite}
 
-    .pane{position:relative;display:flex;flex-direction:column;padding:clamp(24px,3.4vw,54px) clamp(20px,3.2vw,52px) clamp(22px,2.6vw,40px);overflow:hidden}
+    /* The vertical padding is measured in vh, not vw. Reading the top and
+       bottom of the screen off the viewport's width is what made a wide,
+       short window overflow: at 600px tall the content came to 603px at
+       1280 wide and 639px at 1600, the same height budget buying more and
+       more padding as the window got wider. */
+    .pane{position:relative;display:flex;flex-direction:column;padding:clamp(20px,3.4vh,44px) clamp(20px,3.2vw,52px) clamp(18px,2.4vh,34px);overflow:hidden}
     .pane-l{background:radial-gradient(circle at 28% 32%,rgba(37,99,235,.3),transparent 58%),linear-gradient(165deg,#061631,#03091a 72%)}
     /* The seam: a hairline the left pane's glow spills across. */
     .pane-r{background:linear-gradient(200deg,#08203f,#040d1e 78%);border-left:1px solid var(--edge);box-shadow:-2px 0 44px rgba(37,99,235,.3);justify-content:center}
@@ -39,7 +44,7 @@
     .grid:before{content:"";position:absolute;inset:-20%;background-image:linear-gradient(rgba(96,165,250,.14) 1px,transparent 1px),linear-gradient(90deg,rgba(96,165,250,.14) 1px,transparent 1px);background-size:50px 50px;transform:perspective(500px) rotateX(62deg) scale(1.3);transform-origin:center bottom;animation:grid 13s linear infinite}
     .pane>*{position:relative;z-index:2}
 
-    .brand strong{display:block;font-family:Arial,sans-serif;font-size:clamp(38px,4.4vw,68px);font-weight:900;line-height:.82;letter-spacing:-4px;color:#a9d4ff}
+    .brand strong{display:block;font-family:Arial,sans-serif;font-size:clamp(32px,min(4.4vw,9vh),68px);font-weight:900;line-height:.82;letter-spacing:-4px;color:#a9d4ff}
     .brand small{display:block;margin-top:10px;font-size:12px;letter-spacing:4px}
     .rulebar{height:1px;margin:20px 0 18px;background:linear-gradient(90deg,var(--edge),transparent)}
     .title strong{display:block;font-size:clamp(20px,2.1vw,32px);letter-spacing:2px;color:var(--bright)}
@@ -93,7 +98,10 @@
     .sys-core strong{display:block;font-size:15px;color:var(--bright);text-shadow:0 0 14px rgba(147,197,253,.8)}
     .sys-core small{display:block;margin-top:6px;font-size:10px;color:var(--dim)}
 
-    .quip{margin-top:clamp(18px,2.4vh,30px);padding:9px 12px;border:1px solid rgba(96,165,250,.42);background:rgba(4,17,38,.72);font-size:clamp(9px,.82vw,12px);text-align:center;color:var(--dim)}
+    /* Two lines' worth of box whether the message needs one or two. The
+       messages differ in length and swap every 6.2 seconds, so a box that
+       fits itself to the text re-lays the pane out on a timer. */
+    .quip{display:flex;align-items:center;justify-content:center;min-height:calc(3.2em + 18px);margin-top:clamp(18px,2.4vh,30px);padding:9px 12px;border:1px solid rgba(96,165,250,.42);background:rgba(4,17,38,.72);font-size:clamp(9px,.82vw,12px);line-height:1.45;text-align:center;color:var(--dim)}
 
     /* The right half holds one card and nothing that competes with it. */
     .terminal{width:100%;max-width:470px;margin:0 auto;padding:clamp(22px,2.3vw,34px);border:1px solid var(--edge);background:linear-gradient(180deg,rgba(10,35,70,.86),rgba(3,12,26,.92));box-shadow:0 0 14px rgba(37,99,235,.35),0 0 80px rgba(37,99,235,.12),inset 0 0 30px rgba(59,130,246,.05)}
@@ -126,6 +134,27 @@
     @keyframes online{from{opacity:0}to{opacity:1}}
     @keyframes confirm{to{box-shadow:0 0 20px rgba(96,165,250,.7),0 0 90px rgba(37,99,235,.2)}}
 
+    /* The split is exactly one screen, and the page itself cannot scroll.
+       It used to be min-height alone, which let the left pane's content push
+       the document a few pixels past the viewport -- and a few pixels is the
+       worst amount. With a classic scrollbar (Windows, or "always show" on a
+       Mac) that overflow puts one up, the scrollbar takes 15px of width, the
+       width-driven sizes this screen used to have shrink with it, the content
+       drops back under the viewport, the scrollbar goes away and it repeats:
+       the page shakes several times a second. Measured before this: at
+       1280x600 the document was 603px against a 600px viewport, and at
+       1250 wide the same content came to exactly 600 -- the loop's two
+       states, 15px of scrollbar apart. Panes clip their own overflow, so
+       nothing here can grow the document; the sign-in pane keeps its own
+       scrollbar for windows too short to hold the card. */
+    @media(min-width:981px){
+      html,body{height:100%;overflow:hidden}
+      .screen{height:100svh}
+      /* safe center: a card taller than the pane must still start at the top
+         where it can be scrolled to, rather than centered with its head cut
+         off out of reach. */
+      .pane-r{overflow-y:auto;justify-content:safe center}
+    }
     /* Below 1180px the two halves still hold, but the boot log goes: the
        systems panel is the half of the left pane that says something. */
     @media(max-width:1180px){.pane-cols{grid-template-columns:1fr}.boot{display:none}

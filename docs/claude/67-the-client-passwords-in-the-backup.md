@@ -225,8 +225,34 @@ Two details worth keeping:
 `check_own_fernet` lists what has not moved across, at low severity for the
 reason the backup checks give: a module there works exactly as it always has.
 What it cannot do is survive a rotation, and the rotation is the event nobody
-schedules. Three remain — `google_finder`, `skills360`, `youtube_studio` — so
-the number is visible and shrinking rather than forgotten.
+schedules. All three that
+remained — `google_finder`, `skills360`, `youtube_studio` — have since moved
+across, so the list is empty. An empty audit is worth nothing on its own,
+because "everything moved" and "the scan stopped scanning" render identically:
+`test_keyring.py` plants a file with the defect in it, confirms the check finds
+it, and removes it again.
+
+**Moving them did not flatten what each had decided.** `youtube_studio` and
+`google_finder` *refuse* to run without a key rather than write an OAuth token
+in the clear, and that refusal is exactly what a shared helper smooths away
+without anybody noticing — `hub/keyring.py` degrades and says so, which is
+right for a panel that must still render and wrong for a refresh token. Both
+keep raising; what changed is only which keys can open a token. Both mutations
+that soften the refusal are red.
+
+Two things fell out of the migration:
+
+- **`google_finder`'s `/health` reported the wrong thing.** It read
+  `bool(TOKEN_ENCRYPTION_KEY)` — the singular spelling only — so a deployment
+  part-way through a rotation, with the keys in `TOKEN_ENCRYPTION_KEYS` and
+  everything sealing correctly, would have had its health check report a fault
+  that was not there. It asks the ring now.
+- **A module-level key captured at import is gone.** `TOKEN_ENCRYPTION_KEY` was
+  read once when `google_finder` loaded, so setting the environment afterwards
+  reached nothing — and two tests had to poke the module attribute to drive
+  behaviour, with a comment in one explaining why. The key ring re-reads the
+  environment on every call, so both tests now drive the environment, which is
+  the thing that is actually true.
 
 `hub/ghl_oauth.py` gained something else on the way past. Its `_load()`
 returned `None` when the key could not open the token, and `status()` rendered

@@ -776,3 +776,54 @@ already recorded, fifteen times over. A family that throws is left off rather
 than offered and swapped for Poppins mid-render; `tests/fonts-google.test.ts`
 asserts the named ones are absent and every offered weight draws. The probe
 costs about 350ms once, on first use, and keeps nothing parsed.
+
+**The second list, the same week: fewer questions, one next button.** With
+the first list live, the remaining friction was mostly questions the screen
+asked that it already knew the answer to. The copy fields asked "every size
+or just this one?" on the first keystroke of each of five fields; the answer
+is "every size" and the toggle under the field is there for the tenth time.
+Switching size asked "save first?" while autosave was two seconds from
+writing anyway; a click saves and goes, and the only dialog left is for a
+save that failed, which is the one case where leaving costs something.
+Render asked what to do and then which sizes; the usual answer is one button
+and the rest is under "More options". The approval tick in the rail was the
+control most people never found, so there is a **Done with this size** button
+under the checks: it saves, waits for the preview to settle (approval reads
+the saved artwork), asks the advice layer about anything open, approves when
+clean or when the warnings are accepted, and opens the next unapproved size.
+A **start-here strip** shows the six sections as steps with a tick once each
+has been looked at -- known from the campaign where it can be (copy, a real
+logo) and from "opened this sitting" where it cannot.
+
+Two things were quietly wrong. Meta's text-coverage guideline fired as a
+warning on nearly every Meta ad, which put amber on every one and demanded
+an acknowledgement at every approval -- the state the word-count check was
+removed for. `QaFinding.status` has `info` now: a note, drawn grey, never a
+verdict (`rollUp` ignores it), never the lead of the advice. And the advice
+suggested "try the light brand color" without knowing whether the brand's
+light reads on this background: the contrast check records the luminance it
+measured behind each low block on the finding's `data`, and
+`inkSuggestion()` picks whichever brand ink clears 4.5:1 against it, saying
+"neither reads, darken the overlay" when neither does, and labelling a guess
+as one when there is no measurement to go on.
+
+The rest: the AI wait on the way to the next size carries the mark and a
+"Skip, just continue"; a new logo resets every concept's tone to full colour
+(the white and black files were the old mark's); the live preview is drawn
+at no more than 900px on its longer edge (`PREVIEW_MAX_EDGE`, a lower SVG
+density rather than a resize, with the background pass and every QA sample
+still at delivery scale) so a story is not two megabytes of base64 per
+keystroke; `/diagnostics` names any known font family that failed to load;
+and a build screen that comes back into view compares the brief with the
+server's and offers a reload when the overview page changed it.
+
+**And a test that clicks.** `tests-browser/build.e2e.ts` starts the renderer
+against a copy of the sample campaign, opens the build screen in a headless
+Chromium through `puppeteer-core`, and walks the first minute of a build:
+the six sections, a copy edit with no dialog, Undo, a colour Use and save,
+an arrow at Fast, a switch of size with no dialog, the Done button -- and
+fails on any page error, console error or 5xx. It is its own npm script
+(`test:browser`), not part of `npm test`, because it needs a browser: CI
+runs it after the HyperFrames render service's `npm ci` has downloaded
+Chrome and borrows that binary, and without one it is **skipped by name**
+rather than passed.

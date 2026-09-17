@@ -1,21 +1,24 @@
 {# Cloudinary upload widget, shared by the staff gallery and the client's own
    share link.
 
-   Every variable it needs comes from app._widget_ctx(), so the staff gallery
-   and the client's own share link cannot drift apart:
+   The widget itself is opened by static/picker-upload.js, which asks
+   /api/upload-signature for everything it needs (cloud name, folder, source
+   tabs, formats, ceiling) -- so the staff gallery, the client's link and
+   Client 360's "Add more images" all open the same widget the same way, and
+   nothing here has to be kept in step with a second copy.
+
+   What this template still owns is the panel around it:
      upload_token    the gallery's share token (client-facing), or "" for staff
      client_id       the gallery id, used when staff upload on a client's behalf
-     sources         which upload tabs to draw, from upload_sources.configured()
-     source_options  per-source credentials, only where one is actually set
-     source_line     the sentence naming those sources, built from the live list
-     formats         what the widget will accept
-     max_bytes       the per-file ceiling
+     source_line     the sentence naming the switched-on sources, from
+                     upload_sources.client_line(), built from the live list
+     is_staff        whether the duplicate choice (keep / copy / move) is offered
 
-   The widget is loaded from Cloudinary's CDN because it is the widget — there
-   is no self-hosted build of it — and it is the one third-party script on the
-   page. Uploads are signed by /api/upload-signature, so this script cannot
-   place a file anywhere except this gallery's own folder no matter what is
-   typed into the console. #}
+   The folder chooser is on BOTH pages by request: a client sending "the new
+   logo versions" wants them beside the logos they sent last month, and the
+   only way to get that is to offer them the folders that already exist and
+   a box for a new one. What stays staff-only is the duplicate choice, which
+   is a filing decision about a file already here. #}
 <section class="panel" id="uploadPanel">
   <div class="panel-head">
     <h2>Add your own files</h2>
@@ -30,16 +33,12 @@
     sees that password. Nothing is published anywhere — it goes straight into
     your gallery for our team.
   </p>
-  {# Staff only. "Project" is our word rather than the client's, and the
-     client's own share link is a page whose whole job is that the
-     photographs reach us -- a filing question on it is a question they
-     have no way to answer and one more thing between them and the button. #}
-  {% if is_staff %}
-  <label class="proj-field">Project or folder <span class="hint">(optional — where these belong)</span>
-    <input id="uploadProject" type="text" maxlength="200"
-           placeholder="e.g. Spring refresh, Store photos, October flight">
+  <label class="proj-field" for="uploadFolder">Which folder should these go in?
+    <span class="hint">(optional — pick one that exists, or name a new one)</span>
+    <select id="uploadFolder" aria-label="Folder"><option value="">Choose a folder (optional)</option></select>
+    <input id="uploadFolderNew" type="text" maxlength="200" hidden
+           placeholder="e.g. Logos, Store photos, Spring refresh" aria-label="New folder name">
   </label>
-  {% endif %}
   <button type="button" class="btn" id="openUpload">Upload files</button>
   <span class="hint" id="uploadState" style="margin-left:10px"></span>
   {# One card per file the gallery already has, each asking what to do about
@@ -48,6 +47,10 @@
      away among the thumbnails of the files that did. #}
   <div id="uploadDupes"></div>
   <div id="uploadJustAdded" class="upload-strip"></div>
+  <p class="hint" id="uploadAfter" style="margin:10px 0 0" hidden>
+    Your originals are kept as sent. A web-ready copy of each photo — smaller,
+    named for search, with alt text — is made in the background.
+  </p>
 </section>
 
 <style>
@@ -60,9 +63,10 @@
 .upload-strip figcaption{font-size:10.5px;color:var(--ink-3);margin-top:4px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .proj-field{display:block;margin:0 0 12px;font-size:12px;color:var(--ink-3)}
-.proj-field input{display:block;margin-top:4px;width:100%;max-width:420px;
+.proj-field select,.proj-field input{display:block;margin-top:4px;width:100%;max-width:420px;
   box-sizing:border-box;padding:8px 10px;border:1px solid var(--line);
-  border-radius:8px;font:14px inherit}
+  border-radius:8px;font:14px inherit;background:#fff;color:inherit}
+.proj-field input{margin-top:6px}
 .dupe{border:1px solid var(--line);border-left:3px solid #C9922B;border-radius:8px;
   padding:10px 12px;margin:10px 0;background:#FFFDF6}
 .dupe h3{margin:0 0 4px;font-size:13.5px}
@@ -71,43 +75,53 @@
 .dupe .why{display:block;margin-top:7px;font-size:11.5px;color:var(--ink-3)}
 </style>
 
-<script src="https://upload-widget.cloudinary.com/global/all.js" defer></script>
+<script src="{{ url_for('image_picker.static', filename='picker-upload.js') }}"></script>
 <script>
 (function () {
   var TOKEN = {{ (upload_token or "")|tojson }};
   var CLIENT_ID = {{ (client_id or 0)|tojson }};
+  var IS_STAFF = {{ (is_staff or false)|tojson }};
   /* The module root, with no trailing slash. `image_picker.admin` is the
-     blueprint's own "/" -- there is no /admin to strip, so the old
-     replace() matched nothing and left the slash on, and every signed
-     upload was posted to "//api/upload-signature". Werkzeug answers that
-     with a 308, which a browser replays as a POST, so it worked by luck:
-     anything that downgrades the redirect to a 302 turns the upload into
-     a GET with no body, on the one page a client uses. */
+     blueprint's own "/" -- there is no /admin to strip. */
   var BASE = {{ url_for('image_picker.admin')|tojson }}.replace(/\/$/, "");
+  var U = window.S1PickerUpload;
   var btn = document.getElementById('openUpload');
   var state = document.getElementById('uploadState');
   var strip = document.getElementById('uploadJustAdded');
   var dupes = document.getElementById('uploadDupes');
-  var projectBox = document.getElementById('uploadProject');
-  var widget = null;
-  var lastSource = '';
+  var after = document.getElementById('uploadAfter');
+  var folderSel = document.getElementById('uploadFolder');
+  var folderNew = document.getElementById('uploadFolderNew');
+  var esc = U ? U.esc : function (s) { return String(s == null ? '' : s); };
 
   function say(msg) { state.textContent = msg || ''; }
+  function folder() { return U ? U.chosenFolder(folderSel, folderNew) : ''; }
 
-  function esc(s) {
-    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  }
+  var opts = {
+    base: BASE, token: TOKEN, clientId: CLIENT_ID, folder: folder,
+    onState: say,
+    onAdded: added,
+    onDuplicate: IS_STAFF ? askAboutDuplicate : null,
+    onQueueEnd: function () {
+      /* Not over "one file is already in this gallery": that line is a
+         question waiting on an answer, and "Done." over it reads as the
+         question having answered itself. */
+      if (!(dupes && dupes.children.length)) { say('Done.'); }
+      loadFolders();
+    }
+  };
 
-  function project() {
-    return projectBox ? String(projectBox.value || '').trim() : '';
-  }
-
-  function body(extra) {
-    var b = extra || {};
-    if (TOKEN) { b.token = TOKEN; } else { b.client_id = CLIENT_ID; }
-    if (project()) { b.project = project(); }
-    return b;
+  function loadFolders() {
+    if (!U || !folderSel) { return; }
+    var keep = folder();
+    U.folders(opts).then(function (list) {
+      U.fillChooser(folderSel, folderNew, list);
+      if (keep) {
+        var has = Array.prototype.some.call(folderSel.options, function (o) { return o.value === keep; });
+        if (has) { folderSel.value = keep; }
+        else { folderSel.value = '__new__'; folderNew.hidden = false; folderNew.value = keep; }
+      }
+    });
   }
 
   function added(info) {
@@ -120,6 +134,7 @@
       + '<figcaption>' + esc((info.original_filename || 'file') + '').slice(0, 22)
       + '</figcaption>';
     strip.appendChild(fig);
+    if (after && isImg) { after.hidden = false; }
     say('Added ' + strip.children.length + ' file'
         + (strip.children.length === 1 ? '' : 's') + '.');
   }
@@ -129,7 +144,8 @@
      it belongs here INSTEAD -- and reporting "already added" answers only the
      first one and only by accident. The three are described in
      modules/image_picker/filing.py; the server decides what each does, and
-     this asks. */
+     this asks. Staff only: the server answers a client's link with no
+     choices, and the panel then stays as it was. */
   function askAboutDuplicate(info, d) {
     var card = document.createElement('div');
     card.className = 'dupe';
@@ -138,39 +154,28 @@
       '<h3>' + esc(name) + ' is already in this gallery</h3>'
       + '<p>It is filed under <strong>' + esc(d.filed_under || 'the gallery')
       + '</strong>. What should happen to it?</p>'
-      + '<button type="button" class="btn quiet small" data-do="keep">Keep it with this project too</button>'
+      + '<button type="button" class="btn quiet small" data-do="keep">Keep it in this folder too</button>'
       + '<button type="button" class="btn quiet small" data-do="duplicate">Make a separate copy</button>'
-      + '<button type="button" class="btn quiet small" data-do="move">Move it to this project</button>'
+      + '<button type="button" class="btn quiet small" data-do="move">Move it to this folder</button>'
       + '<span class="why"></span>';
     var why = card.querySelector('.why');
     Array.prototype.forEach.call(card.querySelectorAll('button[data-do]'), function (b) {
       b.onclick = function () {
         var choice = b.getAttribute('data-do');
-        /* Keeping it "with this project" and moving it "to this project"
-           both need a project. With the box empty there is nowhere to put
-           it, so say that rather than quietly filing it into the default
-           group and reporting success for having done nothing. */
-        if (choice !== 'duplicate' && !project()) {
-          why.textContent = 'Name a project above first — that is where it would go.';
-          if (projectBox) { projectBox.focus(); }
+        /* Keeping it "in this folder" and moving it "to this folder" both
+           need a folder. With none chosen there is nowhere to put it, so say
+           that rather than quietly filing it into the default group and
+           reporting success for having done nothing. */
+        if (choice !== 'duplicate' && !folder()) {
+          why.textContent = 'Choose a folder above first — that is where it would go.';
+          if (folderSel) { folderSel.focus(); }
           return;
         }
         Array.prototype.forEach.call(card.querySelectorAll('button'), function (x) {
           x.disabled = true;
         });
         why.textContent = 'Working…';
-        fetch(BASE + '/api/uploads', {
-          method: 'POST', credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body({
-            public_id: info.public_id, secure_url: info.secure_url,
-            resource_type: info.resource_type,
-            source: info.source || lastSource || 'local',
-            original_filename: info.original_filename, width: info.width,
-            height: info.height, bytes: info.bytes,
-            on_duplicate: choice
-          }))
-        }).then(function (r) { return r.json(); })
+        U.record(opts, info, { on_duplicate: choice })
           .then(function (res) {
             if (!res || !res.ok) {
               why.textContent = (res && res.error) || 'That did not work.';
@@ -195,124 +200,10 @@
     dupes.appendChild(card);
   }
 
-  /* Cloudinary asks for a signature per upload. Returning it from our own
-     endpoint is what keeps this a signed upload: the browser never holds the
-     API secret, and the folder is decided server-side. */
-  function sign(cb, paramsToSign) {
-    fetch(BASE + '/api/upload-signature', {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body({ params: paramsToSign }))
-    }).then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (!d.ok) { say(d.error || 'Uploads are unavailable.'); return; }
-        cb(d.signature);
-      })
-      .catch(function () { say('Could not start the upload.'); });
-  }
-
-  function record(info) {
-    fetch(BASE + '/api/uploads', {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body({
-        public_id: info.public_id, secure_url: info.secure_url,
-        resource_type: info.resource_type,
-        source: info.source || lastSource || 'local',
-        original_filename: info.original_filename, width: info.width,
-        height: info.height, bytes: info.bytes
-      }))
-    }).then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (!d.ok) { say(d.error || 'That file did not save.'); return; }
-        /* `choices` is empty for anyone who cannot act on them -- a client on
-           their share link -- so this stays exactly what it was there: the
-           file is reported as already present and nothing is asked. */
-        if (d.duplicate && d.choices && d.choices.length && dupes) {
-          askAboutDuplicate(info, d);
-          say('One file is already in this gallery — see below.');
-          return;
-        }
-        added(info);
-      })
-      .catch(function () { say('That file did not save.'); });
-  }
-
-  function open() {
-    if (!window.cloudinary) { say('Still loading — try again in a moment.'); return; }
-    say('');
-    /* Ask the server first: it holds the cloud name and which folder this
-       gallery writes to, and the widget needs both before it can open. */
-    fetch(BASE + '/api/upload-signature', {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body({}))
-    }).then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (!d.ok) { say(d.error || 'Uploads are unavailable.'); return; }
-        var opts = {
-          cloudName: d.cloud_name,
-          apiKey: d.api_key,
-          uploadSignatureTimestamp: d.timestamp,
-          uploadSignature: sign,
-          folder: d.folder,
-          tags: (d.tags || '').split(','),
-          /* Decided server-side, in modules/image_picker/upload_sources.py.
-             Not "everything the widget knows about": a billed add-on the
-             account has no subscription for draws a tab that consents and then
-             fails, which is exactly the failure Google Access was redesigned
-             to avoid. */
-          sources: {{ sources|tojson }},
-          multiple: true,
-          maxFiles: 40,
-          maxFileSize: {{ max_bytes|tojson }},
-          clientAllowedFormats: {{ formats|tojson }},
-          resourceType: 'auto',
-          showAdvancedOptions: false,
-          showPoweredBy: false,
-          singleUploadAutoClose: false,
-          styles: {
-            palette: {
-              window: '#FFFFFF', windowBorder: '#DCE3EA', tabIcon: '#0A6E8C',
-              menuIcons: '#46586E', textDark: '#0E1B2B', textLight: '#FFFFFF',
-              link: '#0A6E8C', action: '#0A6E8C', inactiveTabIcon: '#7C8B9C',
-              error: '#A33327', inProgress: '#0A6E8C', complete: '#1B6E52',
-              sourceBg: '#F4F6F8'
-            }
-          }
-        };
-
-        /* Per-source credentials, and only the ones actually set. An empty
-           dropboxAppKey is worse than none: the widget takes it at its word and
-           the tab then fails against an app key of "". Copied in rather than
-           spread, to stay in the same ES5 this file is written in. */
-        var keys = {{ source_options|tojson }};
-        for (var k in keys) { if (keys.hasOwnProperty(k)) opts[k] = keys[k]; }
-
-        widget = window.cloudinary.createUploadWidget(opts, function (error, result) {
-          if (error) { say('Upload failed. Please try again.'); return; }
-          if (!result) { return; }
-          /* Which tab the file came from. The success payload does not
-             reliably carry it, so the last source-changed event is what we
-             have — and it is worth having: without it every Instagram and
-             Dropbox file in the gallery is filed as "local", and the one thing
-             that column exists for is to say where a client keeps their
-             photos. */
-          if (result.event === 'source-changed' && result.info && result.info.source) {
-            lastSource = String(result.info.source);
-          }
-          if (result.event === 'success') { record(result.info); }
-          /* Not over "one file is already in this gallery": that line is a
-             question waiting on an answer, and "Done." over it reads as the
-             question having answered itself. */
-          if (result.event === 'queues-end'
-              && !(dupes && dupes.children.length)) { say('Done.'); }
-        });
-        widget.open();
-      })
-      .catch(function () { say('Could not start the upload.'); });
-  }
-
-  btn.addEventListener('click', open);
+  btn.addEventListener('click', function () {
+    if (!U) { say('Still loading — try again in a moment.'); return; }
+    U.open(opts);
+  });
+  loadFolders();
 })();
 </script>

@@ -1325,11 +1325,47 @@ And one that was **already right**, worth copying rather than fixing:
 `client_brand.work_index()` is a window too, and it says so — it returns
 `horizon` and `scanned` alongside its rows, and `hub/proposal_promises.py`
 reads them ("a month the log cannot answer for is not a miss"). A bounded read
-that reports its own bound is not this defect. `client_brand.work_log()` is the
-same window WITHOUT that reporting — it returns a bare `count` — and it cannot
-be narrowed the way the others were, because `hub_activity` has `module`,
-`type` and `actor` columns but no `client`. Giving it a horizon, or the column,
-is its own change.
+that reports its own bound is not this defect.
+
+**`client_brand.work_log()` was the same window WITHOUT that reporting**, and
+it is fixed now. It is worth reading as the fullest example of the class,
+because the cap was only half of it.
+
+*The window was the wrong shape.* It read the newest 6000 entries HUB-WIDE and
+kept the client's. But the log is mostly housekeeping — sign-ins, jsonstore
+mirrors, scheduler ticks — so 6000 rows of everything is a few hours of a busy
+day, while 6000 rows of the 47 modules in `WORK_KINDS` is months.
+`audit.read()/tail()` take `modules=` now and the narrowing happens in the
+query. Reading the wide window and keeping the narrow one is how a client whose
+last deliverable was in the spring came to read as though nothing had ever been
+made for them.
+
+*It claimed more than it had looked at.* Four readers turned that empty answer
+into a statement about the whole history: the Client 360 card said "Nothing
+recorded yet", `client_upcoming.last_activity()` returned `idle` ("nothing was
+ever logged"), the prospect card said "Nothing has been produced for this
+prospect yet", and Ask SmartHub handed a model `count: 0` as a measured figure.
+The health-strip one is the worst: `idle` silently *replaces* the 90-day churn
+warning that client had earned, so the account most at risk stops being chased.
+
+*`count` described the page.* It broke out of the walk at `limit`, so a client
+with 400 deliverables and a limit of 60 reported 60, and the `by_source`
+breakdown under it was the sources of whichever 60 came first.
+
+The shape of the fix is the general answer wherever a read genuinely cannot be
+narrowed to one row: **`complete` is what `horizon` alone cannot say.** Fewer
+entries than asked for means the read reached the end of the log, so an empty
+answer really is "nothing was ever filed". A full window means there is more
+underneath, and no caller may print absence as a fact. An error is never
+`complete` — failing to read the log and reaching its end must not collapse
+into one answer.
+
+What is still not done: `hub_activity` has `module`, `type` and `actor` columns
+but **no `client`**, so this remains a window rather than a query for one
+client. Adding that column needs a backfill of up to `MAX_ROWS` rows, and a
+half-backfilled column is the same silent truncation with a new boundary — rows
+written before it would read as "no client". Do it with a batched backfill and
+a reader that knows where the backfill has reached, or not at all.
 
 `audit.read()/tail()` now narrow by **actor** in the query, which is what fixed
 `hub/help_center`'s personal inbox: it filtered the newest 2000 rows HUB-WIDE

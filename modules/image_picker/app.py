@@ -42,8 +42,8 @@ from flask import (
 )
 from sqlalchemy import func, select
 
-from . import (cloudinary_sink, filing, ghl, profile, providers, taxonomy,
-               upload_sources)
+from . import (cloudinary_sink, filing, ghl, notices, optimize, profile,
+               providers, taxonomy, upload_sources)
 from .models import (
     DB_BOOT_ERROR, PickerClient, SavedImage, already_saved, get_client,
     get_client_by_token, init_db, new_token, session, slugify, unique_slug,
@@ -324,6 +324,7 @@ def staff_picker(client_id: int):
     client = get_client(db, client_id)
     if not client:
         abort(404)
+    auto = profile.autofill(db, client)
     return render_template(
         "picker.html",
         client=client.to_dict(include_secrets=True),
@@ -333,6 +334,7 @@ def staff_picker(client_id: int):
         providers_on=providers.configured_providers(),
         profile_questions=profile.QUESTIONS,
         client_profile=profile.public(client),
+        autofill_note=auto.get("note", ""),
         **_widget_ctx(client, token=""),
     )
 
@@ -347,6 +349,11 @@ def client_picker(token: str):
             "picker_error.html",
             message="This image link is no longer active. Ask your Smart 1 contact for a new one.",
         ), 404
+    # The two questions answered from the Hub's own records before the client
+    # sees them, once per gallery -- modules/image_picker/profile.autofill.
+    # A client who opens the link finds their business already described and
+    # a "Change this" button, rather than a form.
+    profile.autofill(db, client)
     return render_template(
         "picker.html",
         client=client.to_dict(),
@@ -356,6 +363,7 @@ def client_picker(token: str):
         providers_on=providers.configured_providers(),
         profile_questions=profile.QUESTIONS,
         client_profile=profile.public(client),
+        autofill_note="",
         **_widget_ctx(client, token=token),
     )
 
@@ -482,6 +490,49 @@ def api_master_gallery():
 # API
 # --------------------------------------------------------------------------- #
 
+@bp.route("/api/folders")
+@db_guard
+def api_folders():
+    """The folders of one gallery, for an upload panel to offer.
+
+    Open to a share token as well as staff, because the client picking
+    "Logos" for their new logo versions is the whole reason folders are
+    offered on their link. It reads the gallery's own rows and nothing else.
+    """
+    from . import catalog
+    db, client, _is_staff = resolve_scope()
+    return jsonify({"ok": True, "client": client.name,
+                    "folders": catalog.folder_index(db, client),
+                    "sections": catalog.SECTIONS})
+
+
+@bp.route("/api/optimize/status")
+@staff_only
+@db_guard
+def api_optimize_status():
+    """How far one gallery's SEO copies have got -- the Client 360 counter."""
+    db = session()
+    raw = request.args.get("client_id")
+    if raw:
+        try:
+            client = get_client(db, int(raw))
+        except (TypeError, ValueError):
+            client = None
+    else:
+        from . import provisioning
+        found, _ = provisioning.find(db, str(request.args.get("name") or "").strip())
+        client = found[0] if len(found) == 1 else None
+    if client is None:
+        return jsonify({"ok": True, "measured": True, "total": 0, "done": 0,
+                        "pending": 0, "failed": 0, "gallery": False})
+    out = optimize.progress(db, client.id)
+    if request.args.get("queue") == "1":
+        # A press on the counter queues anything filed before this existed.
+        out["queued"] = optimize.enqueue_missing(db, client.id)
+        out = {**optimize.progress(db, client.id), "queued": out["queued"]}
+    return jsonify({"ok": True, "gallery": True, "client_id": client.id, **out})
+
+
 @bp.route("/api/health")
 def api_health():
     return jsonify({
@@ -519,8 +570,11 @@ def api_profile():
         return jsonify({"ok": False,
                         "error": "Tell us what the business does first."}), 400
 
+    # The Hub's own facts anchor the terms to the customer, the location and
+    # the industry; a typed answer still wins on what the business is.
+    _facts, context = profile.hub_context(client.name)
     built, error = profile.build(category=category, profile=business,
-                                 client_name=client.name)
+                                 client_name=client.name, context=context)
     if not built:
         return jsonify({"ok": False, "error": error or "Nothing to build from."}), 400
 
@@ -910,6 +964,7 @@ def api_delete(image_id: int):
         return jsonify({"ok": False, "error": "That image isn't in this gallery."}), 404
     if row.cloudinary_public_id and not row.external:
         cloudinary_sink.destroy(row.cloudinary_public_id, row.resource_type)
+    optimize.forget(db, row)
     db.delete(row)
     db.commit()
     # The Suite copy is intentionally left alone: once it is in the client's
@@ -951,6 +1006,7 @@ def api_bulk_delete():
             continue
         if row.cloudinary_public_id:
             cloudinary_sink.destroy(row.cloudinary_public_id, row.resource_type)
+        optimize.forget(db, row)
         db.delete(row)
         removed.append(image_id)
     db.commit()
@@ -1153,9 +1209,18 @@ def api_upload_signature():
     }
     signature = cloudinary.utils.api_sign_request(
         params, os.environ.get("CLOUDINARY_API_SECRET", ""))
+    # The widget's own configuration travels with the signature, so the one
+    # script that opens it (static/picker-upload.js) needs nothing from a
+    # template: Client 360 opens the same widget from a page this module
+    # does not render.
+    widget = _widget_ctx(client, token=str(body.get("token") or ""))
     return jsonify({"ok": True, "signature": signature,
                     "api_key": os.environ.get("CLOUDINARY_API_KEY", ""),
                     "cloud_name": os.environ.get("CLOUDINARY_CLOUD_NAME", ""),
+                    "sources": widget["sources"],
+                    "source_options": widget["source_options"],
+                    "formats": widget["formats"],
+                    "max_bytes": widget["max_bytes"],
                     **params})
 
 
@@ -1193,15 +1258,20 @@ def api_record_upload():
     if not upload_sources.known(source):
         source = "local"
 
-    # Which project this upload is being filed into, when somebody said. Staff
-    # only, and deliberately: "project" is our word rather than the client's,
-    # and a client on their share link is sending photographs in rather than
-    # filing them -- offering them a choice between keeping, duplicating and
-    # moving would be asking a question they have no way to answer, on the one
-    # page whose whole job is that they get the photographs to us.
+    # Which folder this upload is being filed into, when somebody said. Open
+    # to the client on their share link as well as staff, by request: a
+    # client sending "the new logo versions" wants them beside the logos
+    # they sent last month, and the only way to get that is to let them
+    # pick the folder -- offered as the folders that already exist, plus a
+    # box for a new one. What stays staff-only is the duplicate choice below:
+    # keep, copy or move is a filing decision about a file already here.
     is_staff = not str(body.get("token") or "").strip() and hub_login_ok()
-    project = str(body.get("project") or "").strip()[:200] if is_staff else ""
+    project = str(body.get("folder") or body.get("project") or "").strip()[:200]
     project_key = slugify(project)[:80] if project else ""
+    # A file our team added from Drive, Dropbox or a desk is "internal", the
+    # section Client 360's "Add more images" files into. A client's share
+    # link can never claim it: the flag is read only from a staff session.
+    internal = bool(body.get("internal")) and is_staff
 
     db = session()
     existing = already_saved(db, client.id, source, public_id)
@@ -1244,18 +1314,22 @@ def api_record_upload():
         # this Hub, so every staff upload used to be recorded against
         # "client" -- the one column that says who to ask about a file.
         saved_by=(hub_user() if is_staff else "client"),
-        collection_kind="upload",
-        # The project, where one was named. Carried on the same two fields
+        collection_kind="internal" if internal else "upload",
+        # The folder, where one was named. Carried on the same two fields
         # every other folder in this gallery uses (filing.folders_for() reads
         # them), so an upload filed into "Spring refresh" groups with the
         # stock and the banners filed under that name rather than needing a
         # table of its own.
         collection_key=project_key or None,
-        collection_label=(project or "Client upload")[:200],
+        collection_label=(project or ("Internal" if internal else "Client upload"))[:200],
         project_name=project or None,
     )
     db.add(img)
     db.commit()
+    # Queued, never done here: the SEO copy is made by the scheduler
+    # (modules/image_picker/optimize.py), so the person uploading forty
+    # photographs waits on none of them.
+    optimize.enqueue(db, img)
 
     # Straight on to Suite, same as a picked image. A file the client sent is
     # the one most likely to be wanted in their media library, and leaving it
@@ -1274,9 +1348,30 @@ def api_record_upload():
         db.commit()
     except Exception:                                   # noqa: BLE001
         db.rollback()
-    _audit("client_upload", client=client.name, source=source,
+    _audit("internal_upload" if internal else "client_upload",
+           client=client.name, source=source, folder=project,
            filename=img.filename or public_id)
+    _announce_uploads(db, client, by=("staff" if is_staff else "client"), folder=project)
     return jsonify({"ok": True, "image": img.to_dict()})
+
+
+def _announce_uploads(db, client, *, by: str, folder: str = "") -> None:
+    """One card per person on the account, saying how many landed this hour.
+
+    Counted off the rows rather than incremented, so the fortieth upload of
+    a batch re-registers the same card reading forty. Never raises.
+    """
+    try:
+        from datetime import datetime, timezone
+        since = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+        n = db.execute(
+            select(func.count(SavedImage.id))
+            .where(SavedImage.client_id == client.id,
+                   SavedImage.created_at >= since.replace(tzinfo=None))
+        ).scalar() or 1
+        notices.uploads_recorded(client.name, count=int(n), by=by, folder=folder)
+    except Exception:                                   # noqa: BLE001
+        log.warning("image_picker: could not announce uploads for %s", client.name)
 
 
 def _client_from_token_or_staff(token):

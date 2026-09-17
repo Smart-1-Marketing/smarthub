@@ -262,7 +262,7 @@ def _db_write(entries: list[dict]) -> bool:
 
 
 def _db_read(limit: int, module: str | None, type_: str | None,
-             actor: str | None = None):
+             actor: str | None = None, modules=None):
     """The newest rows, or None where the database could not be asked.
 
     None rather than `[]`, because *we could not look* and *nothing has been
@@ -281,6 +281,8 @@ def _db_read(limit: int, module: str | None, type_: str | None,
         q = select(_table.c.payload).order_by(_table.c.id.desc())
         if module:
             q = q.where(_table.c.module == str(module)[:80])
+        if modules:
+            q = q.where(_table.c.module.in_([str(m)[:80] for m in modules]))
         if type_:
             q = q.where(_table.c.type == str(type_)[:80])
         if actor:
@@ -503,12 +505,15 @@ _FILE_ROWS_ALL = sys.maxsize
 
 
 def _file_rows(limit: int, module: str | None, type_: str | None,
-               actor: str | None = None) -> list[dict]:
+               actor: str | None = None, modules=None) -> list[dict]:
     """The newest matching rows across the fallback and the legacy file."""
+    want_modules = {str(m) for m in modules} if modules else None
     out: list[dict] = []
     for path in (_pending_path(), _path()):
         for e in reversed(_file_entries(path)):
             if module and e.get("module") != module:
+                continue
+            if want_modules is not None and e.get("module") not in want_modules:
                 continue
             if type_ and e.get("type") != type_:
                 continue
@@ -521,8 +526,17 @@ def _file_rows(limit: int, module: str | None, type_: str | None,
 
 
 def read(limit: int = 300, module: str | None = None,
-         type_: str | None = None, actor: str | None = None) -> list[dict]:
+         type_: str | None = None, actor: str | None = None,
+         modules=None) -> list[dict]:
     """The newest entries, narrowed to one module, action and/or actor.
+
+    `modules` narrows to a SET of module names in one `IN`, for a caller
+    whose question is about a closed group of them -- client_brand's work
+    kinds are 47 names out of everything this Hub logs. Narrowing there is
+    not an optimisation: the newest N rows of EVERYTHING is a few hours of a
+    busy day, and the same N rows of the 47 that make client work is months.
+    A window that shallow is why a client whose last deliverable was in the
+    spring read as "nothing has ever happened".
 
     `actor` narrows in the same place the other two do -- the query. A caller
     that wants one person's rows and reads a window of everybody's instead is
@@ -543,10 +557,10 @@ def read(limit: int = 300, module: str | None = None,
     the two somebody reached for was never a decision about the answer.
     """
     limit = max(1, int(limit))
-    rows = _db_read(limit, module, type_, actor)
+    rows = _db_read(limit, module, type_, actor, modules)
     if rows is None:
-        return _file_rows(limit, module, type_, actor)
-    pend = _pending_rows(limit, module, type_, actor)
+        return _file_rows(limit, module, type_, actor, modules)
+    pend = _pending_rows(limit, module, type_, actor, modules)
     if pend:
         # In front, not behind. These were written while the table was
         # refusing, so they are newer than everything in it -- and left out
@@ -559,13 +573,15 @@ def read(limit: int = 300, module: str | None = None,
 
 
 def tail(limit: int = 300, module: str | None = None,
-         type_: str | None = None, actor: str | None = None) -> list[dict]:
+         type_: str | None = None, actor: str | None = None,
+         modules=None) -> list[dict]:
     """read(), under the name ten call sites already use. See read()."""
-    return read(limit=limit, module=module, type_=type_, actor=actor)
+    return read(limit=limit, module=module, type_=type_, actor=actor,
+                modules=modules)
 
 
-def _pending_rows(limit: int, module: str | None,
-                  type_: str | None, actor: str | None = None) -> list[dict]:
+def _pending_rows(limit: int, module: str | None, type_: str | None,
+                  actor: str | None = None, modules=None) -> list[dict]:
     """The fallback file's newest matching rows, newest first.
 
     Sized first, so the ordinary path -- a database that is answering and a
@@ -578,9 +594,12 @@ def _pending_rows(limit: int, module: str | None,
             return []
     except OSError:
         return []
+    want_modules = {str(m) for m in modules} if modules else None
     out = []
     for e in reversed(_file_entries(path)):
         if module and e.get("module") != module:
+            continue
+        if want_modules is not None and e.get("module") not in want_modules:
             continue
         if type_ and e.get("type") != type_:
             continue

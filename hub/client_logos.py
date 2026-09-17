@@ -184,7 +184,33 @@ def candidates(client: str, domain: str = "") -> tuple[list[dict], list[str]]:
     return found, notes
 
 
-def file_logos(client: str, domain: str = "", *, actor: str = "system") -> dict:
+def filed_sources(client: str) -> set[str]:
+    """Which sources already have a logo row in this client's gallery.
+
+    A read of the gallery's own rows, so the automatic call Client 360 makes
+    on every load costs one query and no fetch when there is nothing new --
+    the rows `file_logos` writes carry the source as their collection key.
+    Empty when there is no gallery yet, or it cannot be read.
+    """
+    try:
+        from sqlalchemy import select
+        from modules.image_picker import filing
+        from modules.image_picker.models import SavedImage, session
+        db = session()
+        gallery = filing.gallery_for_name(db, client)
+        if gallery is None:
+            return set()
+        rows = db.execute(
+            select(SavedImage.collection_key)
+            .where(SavedImage.client_id == gallery.id,
+                   SavedImage.collection_kind == KIND)).all()
+        return {str(r[0] or "") for r in rows if r[0]}
+    except Exception:                                     # noqa: BLE001
+        return set()
+
+
+def file_logos(client: str, domain: str = "", *, actor: str = "system",
+               only_missing: bool = False) -> dict:
     """File every logo we hold for this client into their gallery, once each.
 
     Returns what happened, in the shape the panels in this Hub already read:
@@ -194,11 +220,16 @@ def file_logos(client: str, domain: str = "", *, actor: str = "system") -> dict:
     "this client has no logo" and "we could not look for one" are different
     answers and only the first means go and ask them for one.
 
+    `only_missing` is the automatic call: a source that already has a logo
+    in the gallery is not fetched again, so a page load that finds nothing
+    new costs one query. The button leaves it off and re-checks every
+    source, which is what a button is for.
+
     Never raises.
     """
     client = _clean(client)
     out = {"client": client, "filed": [], "duplicate": [], "failed": [],
-           "notes": [], "sources_agreed": False}
+           "notes": [], "sources_agreed": False, "skipped": []}
     if not client:
         out["notes"].append("No client named, so nothing was filed.")
         return out
@@ -209,6 +240,11 @@ def file_logos(client: str, domain: str = "", *, actor: str = "system") -> dict:
         out["notes"].append(f"Nothing could be read ({type(exc).__name__}).")
         return out
     out["notes"] = notes
+    if only_missing and found:
+        have = filed_sources(client)
+        kept = [item for item in found if item["source"] not in have]
+        out["skipped"] = sorted({item["source"] for item in found} - {i["source"] for i in kept})
+        found = kept
 
     try:
         from hub import storage

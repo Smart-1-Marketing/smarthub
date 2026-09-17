@@ -323,6 +323,74 @@ for f in ("env.example", "render.yaml"):
     check(f"{f} documents STACKADAPT_API_KEY", "STACKADAPT_API_KEY" in (ROOT / f).read_text(encoding="utf-8"))
 check("the index prints the status line", "NATIVE_PULLS" in (ROOT / "modules" / "reports" / "app.py").read_text())
 
+# ------------------------------------------- what a review found afterwards
+section("The failures that used to read as a working feed")
+
+os.environ["STACKADAPT_API_KEY"] = KEY      # the status-line section unset it
+
+# A record with no advertiser id was filed under "advertiser:unknown", which
+# is part of store._FACT_KEY -- so the same campaign-day arrived twice once
+# the platform named the advertiser, and a client's report added them.
+node = lambda adv: {"campaign": {"id": "c-dup", "name": "Acme CTV", "advertiser": adv},
+                    "granularity": {"startTime": "2026-09-16T00:00:00Z"},
+                    "metrics": {"impressions": 1000, "clicks": 10, "cost": "50.00"}}
+anon = stackadapt.parse_records([node({})])
+check("a record with no advertiser id is skipped and counted, never keyed on a sentinel",
+      (anon["rows"], anon["skipped"]), ([], 1))
+store.upsert_rows(anon["rows"] + stackadapt.parse_records(
+    [node({"id": "adv-7", "name": "Acme"})])["rows"])
+from modules.reports.store import SessionLocal, AdPerfDaily                # noqa: E402
+_db = SessionLocal()
+try:
+    held = _db.query(AdPerfDaily).filter_by(platform="stackadapt", campaign_id="c-dup").all()
+finally:
+    _db.close()
+check("...so one campaign-day is one row, whatever the platform left out",
+      (len(held), float(held[0].spend), held[0].account_id), (1, 50.0, "adv-7"))
+
+# Records read and none filed is the ASSUMED names being wrong. It answered
+# ok with an empty error: a clean watermark, "connected" on the index, and
+# report_schedule marking the day complete.
+WRONG = [{"campaign": {"id": f"c{i}", "name": "n", "advertiser": {"id": "a1"}},
+          "granularity": {"beginsAt": "2026-09-16T00:00:00Z"},   # not startTime
+          "metrics": {"impressions": 100, "clicks": 2, "cost": "5.00"}} for i in range(200)]
+parsed = stackadapt.parse_records(WRONG)
+check("every record unreadable parses to nothing, and counts them",
+      (parsed["rows"], parsed["skipped"]), ([], 200))
+_real_fetch = stackadapt.fetch
+stackadapt.fetch = lambda *a, **kw: {"rows": [], "skipped": 200, "pages": 1, "progress_waits": 0}
+try:
+    res = stackadapt.pull()
+finally:
+    stackadapt.fetch = _real_fetch
+check("a pull that read 200 records and filed none is NOT ok", res["ok"], False)
+check("...saying the names this file assumes are wrong",
+      ("could file none of them" in res["error"], "200" in res["error"]), (True, True))
+check("...and the watermark carries it rather than reading clean",
+      "could file none" in (store.sync_status()["stackadapt"]["error"] or ""))
+check("...and nothing in it carries the key",
+      KEY in json.dumps([res, stackadapt.status()], default=str), False)
+
+# A run that landed nothing must not overwrite last night's counts with zero.
+stackadapt._remember({"ok": True, "rows": 120, "advertisers": 7, "campaigns": 30,
+                      "at": "2026-09-16T03:00:00+00:00"})
+def _pending(*a, **kw):
+    raise stackadapt.ReportPending("the report was still preparing after 20s")
+stackadapt.fetch = _pending
+try:
+    res = stackadapt.pull()
+finally:
+    stackadapt.fetch = _real_fetch
+line = stackadapt.status()["line"]
+check("a pending tick keeps last night's advertiser count rather than printing zero",
+      ("7 advertisers" in line, "0 advertisers" in line), (True, False))
+note = stackadapt._remembered()
+check("...and keeps when the last pull actually was, rather than stamping now",
+      (note["at"], note["rows"], note["campaigns"]), ("2026-09-16T03:00:00+00:00", 120, 30))
+check("...while the run itself still reports pending, and stamps no watermark",
+      (res["pending"], res["ok"], "preparing" in res["error"]), (True, False, True))
+
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
