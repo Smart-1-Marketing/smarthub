@@ -243,7 +243,7 @@ test('type moves up and down but never across; only the button moves on both axe
   // people write most after "nudge the logo", and it had nowhere to go.
   const out = applyBlockStyles(layout(), { headline: { x: 5, y: 5 } as any });
   assert.equal((out as any).headline.x, 20, 'across is untouched');
-  assert.equal((out as any).headline.y, 5, 'up and down is honoured');
+  assert.equal((out as any).headline.y, 5, 'up and down is honored');
   // And clamped to the canvas like the button, so a held arrow cannot walk
   // a line off the bottom.
   const low = applyBlockStyles(layout(), { headline: { y: 9999 } });
@@ -261,7 +261,7 @@ test('a chosen text color is drawn over a photo, and says so to the composer', (
   assert.equal((out as any).headline.color, '#ABCDEF');
   assert.equal((out as any).headline.keepColorOnBg, true);
   const plain = applyBlockStyles(layout(), { headline: { size: 40 } });
-  assert.equal((plain as any).headline.keepColorOnBg, undefined, 'only a chosen colour sets it');
+  assert.equal((plain as any).headline.keepColorOnBg, undefined, 'only a chosen color sets it');
 });
 
 test('the panel behind the copy takes a fill and an opacity', () => {

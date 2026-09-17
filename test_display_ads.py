@@ -2122,7 +2122,7 @@ def test_the_build_screen_follows_the_operators_list():
 
     # The text color: chosen means drawn, over a photo too.
     check("a chosen ink is flagged as chosen", "patched.keepColorOnBg = true" in style)
-    check("and the composer honours the flag", "keepColorOnBg" in svg)
+    check("and the composer honors the flag", "keepColorOnBg" in svg)
 
     # Use, Use and save, once.
     check("a picked color waits for Use", 'data-cpact="use"' in screen and "function stagePick" in said)

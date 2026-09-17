@@ -55,7 +55,7 @@ test('the carry reads the departure against the authored size\'s own family', ()
   // `getTemplate(concept.layoutFamily)` for both sides gets wrong.
   const expected = styleForSize(concept.styleOverrides, getTemplate('T04'), '728x90', getTemplate('T01'));
   assert.deepEqual(styleFor(concept, '728x90'), expected);
-  assert.equal(styleFor(concept, '728x90')?.headline?.color, '#FF0000', 'colour carries verbatim');
+  assert.equal(styleFor(concept, '728x90')?.headline?.color, '#FF0000', 'color carries verbatim');
   assert.ok(carryFor(concept, '728x90').carried);
   assert.deepEqual(carryFor(concept, '728x90').from, '300x250');
   // On the authored size nothing is carried.
