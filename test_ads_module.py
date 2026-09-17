@@ -1027,6 +1027,7 @@ def run():
     check("the Hub shell outside the mount is untouched", "Hub shell" in r.text)
 
     gallery_background_source()
+    gallery_logo_source()
     basepath_shim()
 
     server.shutdown()
@@ -1312,6 +1313,79 @@ def basepath_shim():
           out["fetches"][0] == "/tools/display-ads/api/render", out["fetches"][0])
     check("but leaves a Hub asset alone",
           out["fetches"][1] == "/hub-help.js", out["fetches"][1])
+
+
+def gallery_logo_source():
+    """Logos the client already has, offered to the logo picker.
+
+    The logo chooser had one button, Choose file, so a logo filed last month
+    under a folder called "logos" had to be downloaded and uploaded again to
+    reach an ad. The Hub lists what is already there -- every row filed under
+    a logo kind plus any row whose folder or name says "logo" -- and names the
+    "logos" folder as the default view when the gallery has one. A photograph
+    is never offered as a logo, however it is named.
+    """
+    print("\nthe client gallery as a logo source")
+    print("-" * 60)
+
+    from hub import ad_builder_link
+    from modules.image_picker import models as ip
+
+    ip.init_db()
+    if ip.DB_BOOT_ERROR:
+        check("the image gallery tables exist", False, ip.DB_BOOT_ERROR)
+        return
+
+    name = "Northside Signs"
+    db = ip.session()
+    try:
+        gallery = ip.PickerClient(name=name, slug=ip.slugify(name),
+                                 industry_key="homeservices",
+                                 share_token=ip.new_token())
+        db.add(gallery)
+        db.commit()
+
+        def add(pid, kind, **kw):
+            row = ip.SavedImage(
+                client_id=gallery.id, provider="test", provider_image_id=pid,
+                cloudinary_public_id=pid,
+                cloudinary_url=f"https://res.cloudinary.com/demo/image/upload/v1/{pid}.png",
+                collection_kind=kind, **kw)
+            db.add(row)
+            return row
+
+        add("crew-photo", "upload", width=1600, height=900)
+        add("ad-logo", ad_builder_link.LOGO_KIND, width=600, height=200)
+        add("site-logo", "logo", width=400, height=120)
+        add("wordmark", "upload", width=800, height=200,
+            asset_folder="Northside Signs / Logos", filename="wordmark.png")
+        add("van-logo-wrap", "upload", width=1200, height=800,
+            filename="van-logo-wrap.jpg")
+        db.commit()
+    finally:
+        db.close()
+
+    res = ad_builder_link.client_logos(name)
+    offered = {l["public_id"]: l for l in res["logos"]}
+    check("a logo filed by the builder is offered", "ad-logo" in offered, str(list(offered)))
+    check("a logo filed from the site scan is offered", "site-logo" in offered)
+    check("a file in the client\'s Logos folder is offered", "wordmark" in offered)
+    check("...and flagged as being in that folder",
+          offered.get("wordmark", {}).get("in_logo_folder") is True)
+    check("a photo whose name says logo is offered too, since the name is the only clue",
+          "van-logo-wrap" in offered)
+    check("a plain photograph is not", "crew-photo" not in offered)
+    check("the logos folder is the default view",
+          "Logos" in res["default_folder"], res["default_folder"])
+    check("every row carries a preview and its full asset",
+          all(l["thumb"] and l["url"].endswith(l["public_id"] + ".png")
+              for l in res["logos"]))
+
+    empty = ad_builder_link.client_logos("Nobody We Know Ltd")
+    check("an unknown client is an empty list with a note, not an error",
+          empty["ok"] and empty["logos"] == [] and "no image gallery" in empty["note"])
+    check("and no client at all says so",
+          ad_builder_link.client_logos("")["logos"] == [])
 
 
 if __name__ == "__main__":

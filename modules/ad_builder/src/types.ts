@@ -47,7 +47,22 @@ export interface Brand {
     /** Absolute or project-relative path to a PNG/SVG with transparency. */
     primary: string;
     reverse?: string;
+    /**
+     * One-colour versions of the mark, made by the renderer from `primary`
+     * on request (POST /api/logo/mono). A dark logo on a dark photo has no
+     * palette fix -- the mark is the one asset nobody may recolour by hand,
+     * but a white or black version of it is the industry's own answer, and
+     * a concept picks one with `logoTone`.
+     */
+    white?: string;
+    black?: string;
   };
+  /**
+   * Colours somebody chose with a picker and asked to keep, as upper-case
+   * hex, so the next block or the next size can reuse them from a chip
+   * rather than re-mixing them. Deduplicated on write; never a brand role.
+   */
+  savedColors?: string[];
 }
 
 /* --------------------------------------------------------------- creative */
@@ -123,6 +138,25 @@ export interface CreativeConcept {
   name: string;
   /** Which template family renders this concept, e.g. 'T01'. */
   layoutFamily: string;
+  /**
+   * A different family for one size.
+   *
+   * `layoutFamily` is the set's answer and decides which sizes exist. A
+   * layout that suits a 300x250 is often wrong on a 728x90, and the only way
+   * to change it was to change every size with it -- which read as the
+   * control not working once somebody had tuned the first size. A size named
+   * here renders from that family instead; everything else (copy, style,
+   * carry) is unchanged. `registry.familyFor()` is the one reading, and a
+   * family that does not draw the size falls back to `layoutFamily` rather
+   * than 422ing the preview.
+   */
+  layoutBySize?: Partial<Record<SizeKey, string>>;
+  /**
+   * Which version of the mark this concept draws: the full-colour primary
+   * (default, with the reverse chosen automatically on dark panels), or the
+   * white or black one-colour version. See Brand.logos.
+   */
+  logoTone?: 'auto' | 'white' | 'black';
   /**
    * `default` carries the full copy set. A size key overrides it field by
    * field, so a 320x50 entry can supply only a shorter headline and inherit
@@ -203,6 +237,12 @@ export interface TextBox extends Box {
   /** Uppercase the copy before measuring (common for CTAs / offers). */
   uppercase?: boolean;
   letterSpacing?: number;
+  /**
+   * Draw `color` even over a full-bleed photo. Set by block-style.ts when the
+   * ink was chosen by a person; a template's own colour is still replaced by
+   * whichever ink survives the overlay.
+   */
+  keepColorOnBg?: boolean;
 }
 
 export interface CtaBox extends TextBox {
@@ -322,6 +362,13 @@ export interface QaFinding {
   detail: string;
   /** Machine-readable hint the AI copy-shortener can act on. */
   fix?: { action: 'shorten'; role: BoxRole; maxWords?: number };
+  /**
+   * The same finding for a person: what is wrong, in words with no ratios
+   * in them, and what to do about it. Added by plain-checks.ts on the way
+   * to a screen; `detail` stays the measured sentence for the proof and the
+   * manifest.
+   */
+  plain?: import('./plain-checks').PlainAdvice;
 }
 
 /**

@@ -104,30 +104,30 @@ def _store_path() -> str:
         _data_dir(), "ghl_oauth.json")
 
 
-def _fernet():
-    """Reuse the key Google Finder already encrypts its refresh tokens with.
+# Why this token could not be read, or "" when it could. A module-level note
+# rather than a change to _load()'s contract: five callers treat None as "not
+# connected" and widening that return would touch all of them, but exactly one
+# place -- status() -- renders a REASON, and that is the place that was wrong.
+_read_error = ""
 
-    Optional: without it the file is still written, just unencrypted. A refresh
-    token in the clear on the private disk is no worse than the Private
-    Integration Token sitting in an environment variable, and refusing to work
-    without the key would make this harder to adopt than the thing it replaces.
-    """
-    key = (os.environ.get("TOKEN_ENCRYPTION_KEY") or "").strip()
-    if not key:
-        return None
-    try:
-        from cryptography.fernet import Fernet
-        return Fernet(key.encode("utf-8"))
-    except Exception:  # noqa: BLE001 — bad key means store in the clear
-        return None
+
+# Sealing is optional here and always has been: without a key the file is
+# still written, just unencrypted. A refresh token in the clear on the private
+# disk is no worse than the Private Integration Token sitting in an
+# environment variable, and refusing to work without the key would make this
+# harder to adopt than the thing it replaces.
+#
+# What changed is WHICH keys can open it. Reads go through `hub/keyring.py`,
+# so a token sealed under the previous TOKEN_ENCRYPTION_KEY still opens while
+# the new one sits in front of it -- the difference between rotating that
+# variable and making an agency owner re-consent to the marketplace app.
 
 
 def _save(record: dict) -> None:
-    raw = json.dumps(record).encode("utf-8")
-    f = _fernet()
-    blob = {"enc": bool(f)}
-    blob["data"] = (f.encrypt(raw).decode("ascii") if f
-                    else raw.decode("utf-8"))
+    from . import keyring
+    # Sealed with the NEWEST key on the ring, always -- that is what lets an
+    # old key be dropped once every store has been written once.
+    blob = keyring.seal(json.dumps(record))
     # Through hub.jsonstore, which keeps the same atomic write and adds the
     # database mirror. This file is the only copy of the agency refresh token:
     # if the disk is recreated it cannot be re-derived from anywhere, and every
@@ -147,17 +147,25 @@ def _load() -> dict | None:
     data = blob.get("data")
     if not data:
         return None
+    global _read_error
+    _read_error = ""
     if blob.get("enc"):
-        f = _fernet()
-        if not f:
-            return None                      # key rotated away; re-consent
-        try:
-            data = f.decrypt(data.encode("ascii")).decode("utf-8")
-        except Exception:  # noqa: BLE001
+        from . import keyring
+        data, err = keyring.unseal(blob)
+        if err:
+            # NOT silently None-as-absent. status() used to render this as
+            # "Not authorized yet -- connect once as the agency owner", which
+            # sends an agency owner to re-consent to a marketplace app that is
+            # installed and fine, over an encryption key nobody mentioned.
+            # That is the failure connected_accounts_result() cost Google
+            # Finder months over, in this module, today.
+            _read_error = err
             return None
     try:
         return json.loads(data)
     except ValueError:
+        _read_error = ("The stored token file is not readable JSON. Connect "
+                       "again as the agency owner.")
         return None
 
 
@@ -384,6 +392,13 @@ def status() -> dict:
                 "detail": "GHL_CLIENT_ID and GHL_CLIENT_SECRET are not set. "
                           "Create the Marketplace app, then add them."}
     if not record:
+        # "Not authorized yet" is true only when nothing is stored. A token
+        # that IS stored and cannot be opened is a different problem with a
+        # different fix, and saying the first about the second is what makes
+        # somebody re-consent instead of restoring a key.
+        if _read_error:
+            return {"configured": True, "connected": False,
+                    "readable": False, "detail": _read_error}
         return {"configured": True, "connected": False,
                 "detail": "Not authorized yet — connect once as the agency owner."}
     from . import ghl_scopes

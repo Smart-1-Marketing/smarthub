@@ -98,6 +98,40 @@ export function acceptPlatforms(
   return { platforms: platforms.length ? platforms : fallback, refused };
 }
 
+/**
+ * The family that draws this concept at this size.
+ *
+ * `layoutFamily` is the set's answer and decides which sizes exist;
+ * `layoutBySize` names a different family for one canvas. This is the one
+ * reading of the two, and every render path asks it -- a path that reads
+ * `concept.layoutFamily` directly renders the size somebody re-laid out
+ * exactly as it was before they did.
+ *
+ * A per-size family that does not exist, or does not draw this size, falls
+ * back to the set's family rather than 422ing: the build screen refuses to
+ * offer such a family, so this is a guard against an edited file, not a
+ * second control.
+ */
+export function familyFor(
+  concept: { layoutFamily: string; layoutBySize?: Partial<Record<string, string>> },
+  size: string,
+): string {
+  const pick = concept.layoutBySize?.[size];
+  if (pick && pick !== concept.layoutFamily) {
+    const t = loadTemplates().get(pick);
+    if (t && (t.sizes as Record<string, unknown>)[size]) return pick;
+  }
+  return concept.layoutFamily;
+}
+
+/** `getTemplate(familyFor(concept, size))`, which is what every render path wants. */
+export function templateFor(
+  concept: { layoutFamily: string; layoutBySize?: Partial<Record<string, string>> },
+  size: string,
+): TemplateSpec {
+  return getTemplate(familyFor(concept, size));
+}
+
 /** Sizes a given template can actually render for a given platform. */
 export function renderableSizes(templateId: string, platformId: string): SizeKey[] {
   const t = getTemplate(templateId);

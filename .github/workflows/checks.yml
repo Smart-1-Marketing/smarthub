@@ -1730,6 +1730,24 @@ jobs:
             echo "test_wordpress_publish.py not on this branch — nothing to run."
           fi
 
+      - name: The keys that open a sealed value, and rotation
+        if: matrix.group == 4
+        # Seven modules each built their own single-key Fernet, six over the
+        # same TOKEN_ENCRYPTION_KEY -- which made that variable unrotatable:
+        # changing it locked out every client credential, the GoHighLevel
+        # tokens and the Google tokens at once. hub/keyring.py takes an
+        # ordered list, newest seals and any opens. The assertion that carries
+        # the weight is that a value sealed under the OLD key still opens once
+        # the new one leads, and that a new seal uses the newest key so the
+        # old one can actually be dropped. Guarded like the steps around it so
+        # this workflow stays mergeable on a branch that predates the file.
+        run: |
+          if [ -f test_keyring.py ]; then
+            python test_keyring.py
+          else
+            echo "test_keyring.py not on this branch — nothing to run."
+          fi
+
       - name: The client's own website login, sealed
         if: matrix.group == 4
         # `setup.password` on the SEO record is a client's real login to their
@@ -3696,6 +3714,14 @@ jobs:
       - name: Every industry key literal is canonical or legacy
         if: matrix.group == 8
         run: python3 test_industry_consumers.py
+
+      # hub/qb_contacts.py: the QuickBooks billing contact filed onto the
+      # client record under Accounting -- the merge that never writes over a
+      # typed value, the Sunday 2pm Eastern weekly window decided inside the
+      # sweep, a refusal that stops the pass, and the scheduler entry.
+      - name: QuickBooks billing contact on the client record
+        if: matrix.group == 8
+        run: python3 test_qb_contacts.py
 
       # WO-3a: hub/schema_prefill.py prefills the Schema Builder's Business
       # Info step from the client brief -- offered into empty fields only,

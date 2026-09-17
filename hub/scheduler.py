@@ -500,6 +500,27 @@ def job_industry_resolve(app) -> dict:
         return industry.sweep(limit=200)
 
 
+def job_qb_contacts(app) -> dict:
+    """File each attached QuickBooks customer's billing contact onto its
+    client record, once a week (hub/qb_contacts.py).
+
+    Ticks hourly; the module decides inside the Sunday 2pm Eastern window
+    from its own last completed run, so a redeploy cannot run it twice in
+    a week and a leader that restarted through Sunday afternoon picks the
+    week up on its next tick. Per-client error isolation, and the first
+    QuickBooks refusal ends the pass rather than repeating it per client.
+    """
+    try:
+        from hub import qb_contacts
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        res = qb_contacts.sweep(force=False)
+    if not res.get("ran"):
+        return {"skipped": res.get("skipped") or "not due"}
+    return res
+
+
 def job_youtube_snapshot(app) -> dict:
     """Read every confirmed YouTube channel once a night (hub/youtube.py).
 
@@ -1354,6 +1375,9 @@ JOBS = {
                           "or below the top source tier."),
     "youtube_snapshot":  (60, job_youtube_snapshot,
                           "Read every confirmed YouTube channel once a night."),
+    "qb_contacts":       (60, job_qb_contacts,
+                          "File each attached QuickBooks customer's billing contact "
+                          "onto the client record, Sundays at 2pm Eastern."),
     "suite_email_snapshot": (60, job_suite_email_snapshot,
                           "Read every linked client's sent email campaigns once a night."),
     "video_backlog":     (60, job_index_video_backlog,

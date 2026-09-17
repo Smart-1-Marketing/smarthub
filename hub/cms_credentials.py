@@ -63,7 +63,7 @@ import os
 import re
 import time
 
-from . import jsonstore
+from . import jsonstore, keyring
 
 WORDPRESS = "wordpress"
 # The client's own login to their website -- what a rep signs in with by hand,
@@ -90,49 +90,30 @@ def _now() -> str:
 
 
 # ------------------------------------------------------------------ sealing
-def _fernet():
-    """The shared key, or None. Never raises -- a store that cannot seal must
-    still be able to say so, and raising here would take the panel down with
-    the encryption rather than reporting on it."""
-    key = (os.environ.get("TOKEN_ENCRYPTION_KEY") or "").strip()
-    if not key:
-        return None
-    try:
-        from cryptography.fernet import Fernet
-        return Fernet(key.encode("utf-8"))
-    except Exception:                                       # noqa: BLE001
-        return None
-
-
+# The keys themselves are `hub/keyring.py`, and this file deliberately holds
+# none of the reading. It had its own `Fernet(TOKEN_ENCRYPTION_KEY)`, which was
+# the sixth copy of that line in this repo -- and a single-key one, so rotating
+# that variable locked out every credential here at once with no way back but
+# asking each client for their password again. The key ring takes an ordered
+# list: the newest seals, any of them opens, which is what makes a rotation
+# three ordinary deploys instead of an outage.
+#
+# The stored shape is unchanged -- {"enc": bool, "data": str} -- so a record
+# written before this and one written after it are the same bytes, and nothing
+# had to be migrated.
 def encryption_state() -> dict:
     """Whether a credential saved right now would be sealed.
 
     Asked before the save as well as reported after it, because "we stored
     your client's website password in plain text" is worth saying in advance
-    rather than discovering in a panel afterwards.
+    rather than discovering in a panel afterwards. Read from the key ring so
+    this panel and `/status` cannot drift into two answers.
     """
-    key = (os.environ.get("TOKEN_ENCRYPTION_KEY") or "").strip()
-    if not key:
-        return {"configured": False,
-                "note": "TOKEN_ENCRYPTION_KEY is not set on this deployment, "
-                        "so a credential saved here is stored in the clear and "
-                        "is mirrored into the database backup that way. Set it "
-                        "before connecting a client's site."}
-    if _fernet() is None:
-        return {"configured": False,
-                "note": "TOKEN_ENCRYPTION_KEY is set but is not a valid Fernet "
-                        "key, so nothing can be sealed with it. A credential "
-                        "saved now would be stored in the clear."}
-    return {"configured": True,
-            "note": "Credentials are sealed with TOKEN_ENCRYPTION_KEY."}
+    return keyring.state()
 
 
 def _seal(value: str) -> dict:
-    raw = str(value or "")
-    f = _fernet()
-    if f is None:
-        return {"enc": False, "data": raw}
-    return {"enc": True, "data": f.encrypt(raw.encode("utf-8")).decode("ascii")}
+    return keyring.seal(value)
 
 
 def _unseal(blob) -> tuple[str, str]:
@@ -142,22 +123,7 @@ def _unseal(blob) -> tuple[str, str]:
     re-connect a site that is connected, and it hides the one fact that would
     have explained it.
     """
-    if not isinstance(blob, dict):
-        return "", "No credential is stored."
-    data = str(blob.get("data") or "")
-    if not blob.get("enc"):
-        return data, ""
-    f = _fernet()
-    if f is None:
-        return "", ("This credential is sealed and TOKEN_ENCRYPTION_KEY is not "
-                    "set on this deployment, so it cannot be read. Set the key "
-                    "it was saved under, or save the application password again.")
-    try:
-        return f.decrypt(data.encode("ascii")).decode("utf-8"), ""
-    except Exception:                                       # noqa: BLE001
-        return "", ("This credential cannot be decrypted with the current "
-                    "TOKEN_ENCRYPTION_KEY — the key has been rotated since it "
-                    "was saved. Save the application password again.")
+    return keyring.unseal(blob)
 
 
 # ------------------------------------------------------------------- store

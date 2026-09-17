@@ -275,6 +275,13 @@ python3 test_wordpress_publish.py  # the other publishing path: a credential
                                    #   category matched exactly or created, and
                                    #   two pages wanting two alts on one image
                                    #   named rather than last-one-wins
+python3 test_keyring.py            # the keys that open a sealed value: a value
+                                   #   sealed under the OLD key still opens once
+                                   #   the new one leads, a new seal uses the
+                                   #   newest so the old can be dropped, a blob
+                                   #   nothing opens is an error and never an
+                                   #   empty value, and no answer carries key
+                                   #   material
 python3 test_site_login.py         # the client's own website login, sealed:
                                    #   the plaintext leaves the SEO record and
                                    #   the assertion is on the bytes on the
@@ -650,6 +657,9 @@ python3 test_industry.py           # one taxonomy, resolve()'s matching, and
                                    #   with no Knack tier in this pass
 python3 test_industry_consumers.py # every INDUSTRIES/INDUSTRY_PACKS literal is
                                    #   canonical or in LEGACY_MAP
+python3 test_qb_contacts.py        # the QuickBooks billing contact filed under
+                                   #   Accounting: never over a typed value,
+                                   #   Sunday 2pm Eastern, a refusal stops the pass
 python3 test_client_logos.py       # a logo we found reaches the client's gallery,
                                    #   once, labeled with where it came from
 python3 test_ai_proposals.py       # the model proposes, the code decides, a person
