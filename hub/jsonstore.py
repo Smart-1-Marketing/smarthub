@@ -1463,20 +1463,30 @@ DISK_BINARY_EXEMPT: dict[str, str] = {
         "stored URL when it is missing -- the pack's image is in Cloudinary and "
         "this is a local copy of it",
 
+    # Rewritten when the bytes moved. The entry it replaces was a considered
+    # decision -- it got the Cloudinary half right, and that half is kept
+    # below -- but it named the cross-instance cost and accepted it:
+    #
+    #     a scan on one instance and a save on another reads as that same
+    #     expiry message, which is why the two workers this service runs
+    #     share a disk rather than a dict
+    #
+    # That is the defect, stated plainly and left in place. The bytes are in
+    # the database now, so the write this file still makes is a FALLBACK, and
+    # the exemption has to say the new thing rather than the old one.
     "modules/page_image_optimizer/store.py":
-        "put_bytes(), the optimized .webp and its .preview, written between "
-        "the scan that produced them and the save that keeps them. Cloudinary "
-        "holds the durable copy: save reads these back and hands them to "
-        "archive.upload(), which is the smart1-seo-images folder. They are "
-        "swept on a 45-minute TTL (PAGE_IMAGES_TTL_MINUTES) and the save path "
-        "already answers their absence with \"The optimized file expired "
-        "before saving\", so losing them costs one re-scan of a page the "
-        "caller still has the URL of -- never a saved image. Uploading them "
-        "on the way in would put every scanned image into Cloudinary "
-        "including the ones nobody keeps. What is per-instance is the job "
-        "directory itself: a scan on one instance and a save on another reads "
-        "as that same expiry message, which is why the two workers this "
-        "service runs share a disk rather than a dict",
+        "put_bytes() writes the optimized .webp and its .preview to the "
+        "page_image_bytes table first; this open() is reached only when the "
+        "database refused, and is kept for Fan Radio's reason -- a render that "
+        "cost a download and real CPU is not thrown away because a backend "
+        "would not answer. get_bytes() reads the disk second for one TTL after "
+        "a deploy, because a batch the previous release scanned is there and "
+        "in no table. Both are swept on the 45-minute TTL "
+        "(PAGE_IMAGES_TTL_MINUTES). Cloudinary still holds the durable copy of "
+        "an image somebody KEEPS -- save hands it to archive.upload() -- and "
+        "uploading on the way in would put every scanned image into the "
+        "account including the ones nobody keeps, which is why these go to the "
+        "database instead",
 
     # ---- Cloudinary first, disk only when the upload could not happen ----
     # These are NOT the hub/storage.py defect. Each one tries Cloudinary, keeps
