@@ -297,10 +297,9 @@ check("and it does not re-report the records it already moved",
 # ------------------------------------------------------------- the route
 print("\nthe setup route")
 os.environ["HUB_SKIP_SCHEDULER"] = "1"
-import hub                                                   # noqa: E402
-from hub import auth as _auth                                # noqa: E402
+from hub import auth as _auth, create_hub_app                # noqa: E402
 
-app = hub.create_hub_app()
+app = create_hub_app()
 app.config["TESTING"] = True
 client_http = app.test_client()
 # current_user() reads the signed cookie, not the Flask session — the
@@ -404,8 +403,9 @@ os.environ["TOKEN_ENCRYPTION_KEY"] = KEY_A
 
 # ------------------------------------------------------------- the page
 print("\nthe page")
-html = open(os.path.join(ROOT, "hub", "templates", "seo_client.html"),
-            encoding="utf-8").read()
+with open(os.path.join(ROOT, "hub", "templates", "seo_client.html"),
+          encoding="utf-8") as _fh:
+    html = _fh.read()
 check("the setup panel has a row for what is on file",
       'id="su_passState"' in html)
 check("it reads the sealed state rather than a bare boolean",
