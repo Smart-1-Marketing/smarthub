@@ -16,6 +16,8 @@ import os
 
 import requests
 
+from ..config import AUDIO_OUTPUT_FORMAT, AUDIO_OUTPUT_KBPS
+
 BASE_URL = "https://api.elevenlabs.io/v1"
 # Named only so usage reporting can price the render: the Flash and Turbo
 # models bill half a credit per character and the rest bill one, so a spend
@@ -147,11 +149,46 @@ def apply_pronunciation_dict(text, pronunciation_dict):
     return out
 
 
+# The window ElevenLabs reads in. Both radio builders clamp to exactly this
+# before sending, and a value outside it is not refused by the API -- it is
+# ignored, which is a slider that moves and changes nothing.
+SPEED_MIN, SPEED_MAX = 0.7, 1.2
+
+
+def clamp_speed(speed):
+    """The read pace, inside the window the provider actually honors."""
+    try:
+        return round(min(SPEED_MAX, max(SPEED_MIN, float(speed))), 3)
+    except (TypeError, ValueError):
+        return 1.0
+
+
 def generate_voiceover(text, voice_id, stability=0.5, style=0.5, speed=1.0,
                         pronunciation_dict=None, out_path=None):
-    """
-    Returns {"audio_path": local file path, "duration_estimate": seconds} or,
-    when running live, writes the MP3 to out_path and returns its path.
+    """One voiceover take.
+
+    Returns the audio plus how long it is and **how well that is known**:
+
+    * ``seconds`` / ``measured`` -- derived from the byte count of the MP3 we
+      asked for, through `elevenlabs_audio_service.cbr_seconds()`. The same
+      reading the bed already uses, at the bitrate this request names, and
+      `None` for anything that did not come back as that MP3.
+    * ``duration_estimate`` -- the words-per-minute guess, kept because it is
+      the only answer available in mock mode and because callers read it.
+
+    Those were one field before, named `duration_estimate` and computed only
+    from the word count -- so the Voice step reported "Estimated 34.1s of
+    narration" for a file nobody had looked at, on the number a rep uses to
+    decide whether the read fits a :30. It reads like a measurement of the
+    take and was a division.
+
+    ``speed`` is now **sent**, which it was not. It was accepted, divided into
+    the estimate, and dropped: the Voice step's Speed slider moved the number
+    on screen and produced byte-identical audio, while both radio builders
+    have always put it in `voice_settings`. Clamped to the window the provider
+    honors rather than passed through, for the reason
+    `hub/quote_validity.py` gives about a silent clamp -- except here the
+    silence was the provider's.
     """
     from hub.customer_voices import ensure_usable, LibraryError
     try:
@@ -160,20 +197,33 @@ def generate_voiceover(text, voice_id, stability=0.5, style=0.5, speed=1.0,
         return {"error": str(exc)}
     spoken_text = apply_pronunciation_dict(text, pronunciation_dict)
     word_count = len(spoken_text.split())
-    # ~150 wpm average commercial VO pace, adjusted by requested speed
-    duration_estimate = round((word_count / 150.0) * 60.0 / max(speed, 0.5), 2)
+    rate = clamp_speed(speed)
+    # ~150 wpm average commercial VO pace, adjusted by requested speed. The
+    # fallback reading, never the one to prefer -- see the docstring.
+    duration_estimate = round((word_count / 150.0) * 60.0 / max(rate, 0.5), 2)
 
     if not is_live():
-        return {"audio_path": None, "audio_url": None, "duration_estimate": duration_estimate,
+        return {"audio_path": None, "audio_url": None,
+                "duration_estimate": duration_estimate,
+                "seconds": None, "measured": False, "speed": rate,
+                "length_note": ("Mock mode — no audio was produced, so this "
+                                "length is a words-per-minute estimate of the "
+                                "script rather than a reading of a file."),
                 "_mock": True}
 
     payload = {
         "text": spoken_text,
         "voice_settings": {"stability": stability, "similarity_boost": 0.75, "style": style,
-                            "use_speaker_boost": True},
+                            "speed": rate, "use_speaker_boost": True},
     }
     try:
-        r = requests.post(f"{BASE_URL}/text-to-speech/{voice_id}", headers=_headers(),
+        # The output format is named rather than left to the account default,
+        # because the length below is arithmetic on the byte count and that is
+        # only true at a bitrate we chose. Radio's own render asks for the
+        # same one.
+        r = requests.post(f"{BASE_URL}/text-to-speech/{voice_id}",
+                           headers=_headers(),
+                           params={"output_format": AUDIO_OUTPUT_FORMAT},
                            json=payload, timeout=30)
         r.raise_for_status()
         # ElevenLabs bills the character, so the unit is len(spoken_text) —
@@ -185,10 +235,39 @@ def generate_voiceover(text, voice_id, stability=0.5, style=0.5, speed=1.0,
                           model=MODEL, voice=voice_id)
         except Exception:                                 # noqa: BLE001
             pass
+        length = _take_seconds(r, r.content)
+        common = {"duration_estimate": duration_estimate, "speed": rate, **length}
         if out_path:
             with open(out_path, "wb") as f:
                 f.write(r.content)
-            return {"audio_path": out_path, "duration_estimate": duration_estimate}
-        return {"audio_bytes": r.content, "duration_estimate": duration_estimate}
+            return {"audio_path": out_path, **common}
+        return {"audio_bytes": r.content, **common}
     except Exception as e:
-        return {"audio_path": None, "duration_estimate": duration_estimate, "error": str(e)}
+        return {"audio_path": None, "duration_estimate": duration_estimate,
+                "seconds": None, "measured": False, "speed": rate,
+                "length_note": "", "error": str(e)}
+
+
+def _take_seconds(response, data):
+    """How long the take is, and whether that is a reading or a guess.
+
+    One reading of "how long is this MP3", borrowed from the bed rather than
+    written again: `elevenlabs_audio_service.cbr_seconds()` is the module's own
+    answer and it already refuses anything that is not the constant-bitrate
+    MP3 it asked for. A second copy here is how the bed and the voice come to
+    disagree about the length of the same kind of file.
+    """
+    ctype = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+    if ctype not in ("audio/mpeg", "audio/mp3"):
+        return {"seconds": None, "measured": False,
+                "length_note": (f"The take came back as {ctype or 'an unnamed type'} "
+                                "rather than the MP3 that was asked for, so its "
+                                "length is not measured.")}
+    from .elevenlabs_audio_service import cbr_seconds
+    seconds = cbr_seconds(len(data or b""), AUDIO_OUTPUT_KBPS)
+    if seconds is None:
+        return {"seconds": None, "measured": False,
+                "length_note": "The take is empty, so there is no length to read."}
+    return {"seconds": seconds, "measured": True,
+            "length_note": (f"{seconds}s, from the byte count of the "
+                            f"{AUDIO_OUTPUT_KBPS} kbps MP3 that came back.")}

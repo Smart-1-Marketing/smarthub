@@ -213,7 +213,15 @@ def run_full_voiceover(project, client, voice_id, *, stability=0.5, style=0.5, s
             and cached.get("url") == music.get("voice_track_url")):
         from .usage import record
         record("elevenlabs", operation="full_voice", cached=True)
-        return {**cached["result"], "store_note": "Using the saved narration. Choose a new take to regenerate it.", "reused": True}
+        # A reused take is still a take with a length, and still the one on
+        # the timeline — so it answers the fit question too. Left off, the
+        # offer would appear on a fresh generation and vanish on the reload
+        # that follows it.
+        reused = {**cached["result"],
+                  "store_note": "Using the saved narration. Choose a new take to regenerate it.",
+                  "reused": True}
+        reused["speed_suggestion"] = voice_speed_suggestion(project, reused)
+        return reused
     result = elevenlabs_service.generate_voiceover(
         text=full_text, voice_id=voice_id, stability=stability, style=style,
         speed=speed, pronunciation_dict=pronunciation)
@@ -228,7 +236,59 @@ def run_full_voiceover(project, client, voice_id, *, stability=0.5, style=0.5, s
     if stored.get("stored"):
         project.music = {**(project.music or {}), "voice_take": {"key": key, "url": stored.get("voice_track_url"), "result": result}}
         db.session.commit()
+    result["speed_suggestion"] = voice_speed_suggestion(project, result)
     return result
+
+
+def voice_speed_suggestion(project, take=None) -> dict:
+    """Whether this take fits the spot, and the read pace that would.
+
+    The Commercial Builder's own failure here is worse than radio's and
+    quieter. `creatomate_service.build_source` puts the voice on the timeline
+    as one element at `time: 0` with **no duration**, inside a composition
+    whose length is the spot's -- so a read that runs long is not reported
+    over, it is **cut off**, and what gets cut is the end, where the phone
+    number and the address live. Every screen says the render succeeded.
+
+    So the arithmetic is `hub/radio_spec.speed_suggestion()`, the same
+    function both radio builders ask, in ``reread`` mode: every read here is
+    generated, so the lever is ElevenLabs reading it again at the pace rather
+    than a finished file played faster, and the note says that cost instead of
+    a pitch shift. ``lead_in_ms=0`` because this voice element starts on the
+    first frame -- there is no bed lead-in taken off the runway, which is a
+    radio arrangement.
+
+    Returns ``{"available": False, ...}`` rather than nothing when there is no
+    length to work from, so the panel says which and never draws a rate over a
+    number nobody read.
+    """
+    try:
+        from hub import radio_spec
+    except Exception as exc:                              # noqa: BLE001
+        return {"available": False, "needed": False, "speed": None,
+                "reason": f"The shared length rules could not be read: {exc}"}
+    music = project.music or {}
+    take = take or {}
+    # MEASURED or nothing, at both ends. A length that is not a reading of the
+    # file is the words-per-minute guess wearing the same field name, and a
+    # rate worked out from a division is precisely the confident wrong answer
+    # this whole path exists to stop -- the same rule `_check_voice_fits`
+    # applies one module over, and `music_length_mismatch` before that.
+    seconds = take.get("seconds") if take.get("measured") else None
+    measured = seconds is not None
+    if seconds is None and music.get("voice_measured"):
+        seconds, measured = music.get("voice_seconds"), True
+    if seconds is None:
+        return {"available": False, "needed": False, "speed": None,
+                "reason": ("The narration's length has not been read off a "
+                           "take, so there is no rate to work out. Generate "
+                           "the narration and this answers from the file.")}
+    out = radio_spec.speed_suggestion(
+        vo_seconds=seconds, target_seconds=project.length_seconds,
+        lead_in_ms=0, mode="reread")
+    out["measured"] = measured
+    out["current_speed"] = float(music.get("voice_speed") or take.get("speed") or 1.0)
+    return out
 
 
 def _timeline_signature(scenes):
@@ -281,7 +341,15 @@ def _store_voice_track(project, client, result, signature=None):
 
     music = dict(project.music or {})
     music.update(voice_track_url=url, voice_mode="full", voice_signature=signature,
-                 voice_track_stale=False)
+                 voice_track_stale=False,
+                 # The length and the pace of the take that is actually on the
+                 # timeline. Without them the panel has to re-derive both from
+                 # a guess after a reload, and the QC length check has nothing
+                 # to judge but a word count.
+                 voice_seconds=result.get("seconds"),
+                 voice_measured=bool(result.get("measured")),
+                 voice_length_note=result.get("length_note") or "",
+                 voice_speed=float(result.get("speed") or 1.0))
     project.music = music
     db.session.commit()
     return {"stored": True, "store_note": "Voice track saved.", "voice_track_url": url}
