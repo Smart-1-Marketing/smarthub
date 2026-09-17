@@ -232,6 +232,46 @@
     for two clients is a lead for each and files neither. Not theirs forgets what that campaign's name taught.</p>
 </div>
 
+<div class="s1d-card" id="scorecard">
+  <div class="s1d-cardhead">
+    <h2>How the auto-mapper's filings have fared {{ help_dot('reports.unmapped.scorecard') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">Per rule: what people confirmed, refused, or have not decided.</span>
+  </div>
+  {% if not scorecard.measured %}
+    <div class="empty"><span class="s1d-pill warn">not measured</span> The reports store could not be read.</div>
+  {% elif scorecard.rules %}
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr><th>Rule</th><th>Reads</th><th class="num">Confirmed</th><th class="num">Refused</th><th class="num">Confirmed of decided</th><th class="num">Waiting</th></tr></thead>
+    <tbody>
+    {% set words = {'name_v1': 'the S1M shape in the campaign name', 'account_v1': "the client's own ad account",
+                    'account_name_v1': "the ad account's own name", 'alias_v1': 'a name people taught', 'fuzzy_v1': 'a likeness of the campaign name',
+                    'hand': 'a mapping a person made (refusals only)'} %}
+    {% for r in scorecard.rules %}
+      <tr>
+        <td class="mono">{{ r.rule }}</td>
+        <td>{{ words.get(r.rule, r.rule) }}</td>
+        <td class="num">{{ r.confirmed }}</td>
+        <td class="num {{ 's1d-warn' if r.refused and r.refused >= r.confirmed else '' }}">{{ r.refused }}</td>
+        <td class="num">{% if r.confirmed_pct is not none %}{{ r.confirmed_pct }}%{% else %}<span class="s1d-muted">none decided</span>{% endif %}</td>
+        <td class="num">{{ r.pending }}</td>
+      </tr>
+    {% endfor %}
+      <tr><td><b>All rules</b></td><td></td><td class="num"><b>{{ scorecard.total.confirmed }}</b></td><td class="num"><b>{{ scorecard.total.refused }}</b></td>
+        <td class="num">{% set d = scorecard.total.confirmed + scorecard.total.refused %}{% if d %}<b>{{ (100 * scorecard.total.confirmed / d)|round|int }}%</b>{% else %}<span class="s1d-muted">none decided</span>{% endif %}</td>
+        <td class="num"><b>{{ scorecard.total.pending }}</b></td></tr>
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+    <div class="empty">The auto-mapper has filed nothing yet, so there is nothing to score.</div>
+  {% endif %}
+  <p class="s1d-hint">Confirmed and refused are people's decisions on the auto-mapper's filings; waiting is what nobody has
+    decided. A rule whose refusals keep pace with its confirmations is filing wrong more than it should: say so, and
+    its bar goes up. The near-spelling rule is the one to watch; the S1M shape and a client's own account should read
+    close to all confirmed.</p>
+</div>
+
 <div class="s1d-card">
   <div class="s1d-cardhead"><h2>Recently mapped</h2></div>
   {% if recent %}

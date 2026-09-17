@@ -338,6 +338,11 @@ check("...and names what it could not", "2 not confirmed" in body and "nope" in 
 check("...back on the same client's queue", "Showing <b>Acme Co</b>" in body and body.count('name="keys" value="') == 0)
 check("the store agrees", [store.campaign_map("meta", "act_b", c)["pending"] for c in ("b-1", "b-2")], [False, False])
 check("...and the third is still waiting", store.campaign_map("meta", "act_z", "z-1")["pending"], True)
+body = staff.get("/reports/unmapped").get_data(as_text=True)
+check("the scorecard card is on the queue, with the batch's confirmations under their rule",
+      'id="scorecard"' in body and "fuzzy_v1" in body and "Confirmed of decided" in body)
+_sc = {r["rule"]: r for r in store.automap_scorecard()["rules"]}
+check("...counting the two confirmed and the one waiting", (_sc["fuzzy_v1"]["confirmed"], _sc["fuzzy_v1"]["pending"]), (2, 1))
 entries = list(reversed(_audit.read(limit=3000)))
 _bulk = [e for e in entries if e.get("type") == "campaign_confirmed" and e.get("campaign_id") in ("b-1", "b-2")]
 check("each confirmation is its own activity row, saying it was a batch",

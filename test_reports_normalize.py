@@ -555,6 +555,34 @@ check("refused, the account no longer files under that client",
       ("meta", "r-2") not in {(m["platform"], m["campaign_id"]) for m in store.mapped_campaigns(limit=300)}
       and am9["by_rule"].get("account_v1", 0) == 0)
 
+# ----------------------------------------------------------- the scorecard
+section("The scorecard")
+
+_real_session = store.SessionLocal
+def _no_db():
+    raise RuntimeError("down")
+
+sc = store.automap_scorecard()
+check("the scorecard is measured", sc["measured"], True)
+by_rule = {r["rule"]: r for r in sc["rules"]}
+check("the S1M filings confirmed so far are counted under name_v1",
+      by_rule.get("name_v1", {}).get("confirmed", 0) >= 1)
+check("a refused likeness filing counts as refused under fuzzy_v1",
+      by_rule.get("fuzzy_v1", {}).get("refused", 0) >= 1)
+check("a refused account filing counts under account_v1",
+      by_rule.get("account_v1", {}).get("refused", 0) >= 1)
+check("the product suffix does not split a rule", all("+" not in r["rule"] for r in sc["rules"]))
+check("confirmed of decided is a percentage, or None with nothing decided",
+      all((r["confirmed_pct"] is None) == (r["decided"] == 0) for r in sc["rules"]))
+check("the total adds the rules up",
+      sc["total"]["refused"], sum(r["refused"] for r in sc["rules"]))
+store.SessionLocal = _no_db
+try:
+    check("an unreadable store is not measured, never a scorecard of noughts",
+          store.automap_scorecard()["measured"], False)
+finally:
+    store.SessionLocal = _real_session
+
 # ------------------------------------------------- the product box hint
 section("What the name says the product is")
 
@@ -653,9 +681,6 @@ check("the store's forget drops one row", automap.forget("ACR | Search | Brand",
 check("...and the other client's lesson stands", [(a["alias"], a["client"]) for a in store.campaign_aliases()],
       [("acr", "d:acme.com")])
 check("forgetting what was never taught is False", automap.forget("ZZZ - Search", client="d:acme.com"), False)
-_real_session = store.SessionLocal
-def _no_db():
-    raise RuntimeError("down")
 store.SessionLocal = _no_db
 try:
     check("an unreadable store is an empty book of aliases, not an error", store.campaign_aliases(), [])

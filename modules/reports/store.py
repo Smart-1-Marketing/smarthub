@@ -1773,6 +1773,53 @@ def refuse_mapping(platform: str, account_id: str, campaign_id: str, *,
         db.close()
 
 
+AUTO_RULE_FAMILIES = ("name_v1", "account_v1", "account_name_v1", "alias_v1", "fuzzy_v1")
+
+
+def automap_scorecard() -> dict:
+    """How each of the auto-mapper's rules has fared with people: per rule
+    family (the part of ``auto_rule`` before any ``+``), how many of its
+    filings a person confirmed, how many are still waiting, how many were
+    refused. Confirmed and pending are read off CampaignMap, refused off
+    MapRefusal (whose ``rule`` is the filing's). A mapping a person made
+    by hand carries no rule and is not a filing; a refusal of a hand
+    mapping (rule None) is counted under ``"hand"`` so nothing is lost.
+    Never raises past the store: no tables is an empty scorecard."""
+    def family(rule) -> str:
+        return (str(rule or "").split("+", 1)[0] or "hand")
+
+    rows: dict[str, dict] = {}
+
+    def slot(f):
+        return rows.setdefault(f, {"rule": f, "confirmed": 0, "pending": 0, "refused": 0})
+
+    db = None
+    try:
+        db = SessionLocal()
+        for rule, confirmed, n in (db.query(CampaignMap.auto_rule, CampaignMap.confirmed_at.isnot(None), func.count())
+                                     .filter(CampaignMap.auto_rule.isnot(None))
+                                     .group_by(CampaignMap.auto_rule, CampaignMap.confirmed_at.isnot(None)).all()):
+            slot(family(rule))["confirmed" if confirmed else "pending"] += int(n or 0)
+        for rule, n in db.query(MapRefusal.rule, func.count()).group_by(MapRefusal.rule).all():
+            slot(family(rule))["refused"] += int(n or 0)
+    except Exception:                  # noqa: BLE001 - no table yet, or no database
+        return {"rules": [], "total": {"confirmed": 0, "pending": 0, "refused": 0}, "measured": False}
+    finally:
+        if db is not None:
+            db.close()
+    out = []
+    for f in list(AUTO_RULE_FAMILIES) + sorted(k for k in rows if k not in AUTO_RULE_FAMILIES):
+        r = rows.get(f)
+        if r is None:
+            continue
+        decided = r["confirmed"] + r["refused"]
+        r["decided"] = decided
+        r["confirmed_pct"] = int(round(100 * r["confirmed"] / decided)) if decided else None
+        out.append(r)
+    total = {k: sum(r[k] for r in out) for k in ("confirmed", "pending", "refused")}
+    return {"rules": out, "total": total, "measured": True}
+
+
 def refusals() -> dict[tuple, dict]:
     """{(platform, account_id, campaign_id): {...}} for every refused
     auto-mapping. The auto-mapper reads it before it files; the unmapped
