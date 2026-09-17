@@ -48,7 +48,11 @@ python3 test_db_boot.py            # a database blip at boot is not a verdict fo
                                    #   so in words rather than answering 500
 python3 test_scheduler_health.py   # the jobs working, not just the loop alive:
                                    #   overdue, failure streaks, and the worker
-                                   #   that cannot see the timings
+                                   #   that cannot see the timings; and the
+                                   #   integrity sweep that runs the defect
+                                   #   checks HERE -- transitions rather than a
+                                   #   heartbeat, and no row carrying the
+                                   #   credential it was written to find
 python3 test_smartforecast.py      # weather lifecycle rules, immutable history,
                                    #   public embeds and Render disk recovery
 python3 test_smartforecast_store.py # the move off its own SQLite file: a forward
