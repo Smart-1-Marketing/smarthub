@@ -326,6 +326,30 @@
     <button class="btn sec sm" id="clearComments">Clear previous customer comments</button>
     <p class="hint">Clears comments from the customer page; the history is archived internally and approvals are kept.</p>
     <div id="feedback" style="margin-top:16px"></div>
+
+    <section class="settings-box" aria-label="Smart 1 Suite" style="margin-top:18px">
+      <h3>Send it to the Suite</h3>
+      <p class="hint">What the <b>client approved</b> goes to their opportunity in
+        Smart 1 Suite — the audio, the script and who signed it off. Pressing
+        again revises that opportunity rather than opening a second one.</p>
+      <div id="suiteBody"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="suitePush">File it in the Suite</button>
+        <span class="msg" id="suiteMsg"></span>
+      </div>
+      <div id="suiteContact" style="display:none;margin-top:10px">
+        <p class="hint">Smart 1 Suite has no contact for this client yet. A name
+          and an email or phone number creates both.</p>
+        <div class="grid3">
+          <div><label class="f" for="suiteName">Contact name</label>
+            <input id="suiteName" type="text"></div>
+          <div><label class="f" for="suiteEmail">Email</label>
+            <input id="suiteEmail" type="email"></div>
+          <div><label class="f" for="suitePhone">Phone</label>
+            <input id="suitePhone" type="tel"></div>
+        </div>
+      </div>
+    </section>
   </div>
 
   <div class="wizard-actions"><button class="btn sec" id="wizardBack" type="button" hidden>Back</button><button class="btn" id="wizardNext" type="button" hidden>Continue</button></div>
@@ -607,6 +631,7 @@
       .then(drawMusic)
       .catch(function(){ drawMusic(); });
     loadPresets().then(loadScriptQc).then(function(){ drawSpots(); });
+    loadSuite();
   }
 
   function fillBrief(){
@@ -1813,6 +1838,88 @@
     catch(e){say('sharemsg',e.message,'err');}finally{this.disabled=false;}
   };
   /* ------------------------------------------------------------ share */
+  /* Smart 1 Suite. Four answers rather than two, because "not configured",
+     "nothing the client approved yet", "Suite refused it" and "Suite has it"
+     send a rep to four different places and only one of them is a button. */
+  var SUITE = null;
+
+  function loadSuite(){
+    if(!P || !P.id) return Promise.resolve();
+    return api("/api/projects/" + P.id + "/suite")
+      .then(function(j){ SUITE = j; })
+      .catch(function(){ SUITE = null; })
+      .then(function(){ drawSuite(); });
+  }
+
+  function drawSuite(){
+    var box = $("suiteBody");
+    if(!box) return;
+    if(!SUITE){
+      box.innerHTML = '<p class="hint">Could not read what the Suite holds. '
+        + 'The rest of this page is unaffected.</p>';
+      $("suitePush").disabled = true; return;
+    }
+    var bits = [];
+    var d = SUITE.delivery || {};
+    if(d.pushed_at){
+      bits.push('<div class="why' + (d.ok ? '' : ' warn') + '"><b>'
+        + (d.ok ? 'Filed in the Suite' : 'Suite refused the last push')
+        + '</b> — ' + esc(d.spots || 0) + ' spot(s), by ' + esc(d.pushed_by || 'somebody')
+        + (d.contact_name ? ' against ' + esc(d.contact_name) : '')
+        + '. ' + esc(d.reason || '') + '</div>');
+    }
+    (SUITE.problems || []).forEach(function(p){
+      bits.push('<div class="why">' + esc(p) + '</div>'); });
+    (SUITE.blockers || []).forEach(function(b){
+      bits.push('<div class="why warn">' + esc(b) + '</div>'); });
+    var rows = (SUITE.spots || {}).ready || [];
+    if(rows.length){
+      bits.push('<label class="f">Going to the Suite</label>'
+        + rows.map(function(r){
+            return '<div class="hint"><b>' + esc(r.daypart_label) + ' '
+              + esc(r.length_label) + '</b> — '
+              + (r.is_mix ? 'with music' : 'straight read')
+              + (r.approved_by ? ', approved by ' + esc(r.approved_by) : '')
+              + '</div>'; }).join(""));
+    }
+    ((SUITE.spots || {}).held || []).forEach(function(h){
+      bits.push('<div class="why warn"><b>' + esc(h.daypart_label) + ' '
+        + esc(h.length_label) + ' held back</b> — ' + esc(h.why) + '</div>'); });
+    box.innerHTML = bits.join("") ||
+      '<p class="hint">Nothing to send yet.</p>';
+    // Disabled where it could only ever refuse -- except when a contact is
+    // what is missing, which is the one refusal a rep fixes from this screen.
+    $("suitePush").disabled = !(SUITE.can_push || (d.needs_contact && rows.length));
+    $("suiteContact").style.display = d.needs_contact ? "block" : "none";
+  }
+
+  $("suitePush").onclick = function(){
+    var b = this;
+    b.disabled = true; say("suiteMsg", "Filing it…", "wait");
+    var contact = {name: $("suiteName").value.trim(),
+                   email: $("suiteEmail").value.trim(),
+                   phone: $("suitePhone").value.trim()};
+    api("/api/projects/" + P.id + "/suite",
+        {method: "POST", body: {contact: contact}})
+      .then(function(j){
+        SUITE = Object.assign({}, SUITE, {delivery: j.delivery, spots: j.spots,
+                                          can_push: true});
+        drawSuite();
+        say("suiteMsg", j.created
+          ? "Filed, and a new contact was created for them."
+          : "Filed against their existing opportunity.", "ok");
+      })
+      .catch(function(e){
+        var payload = e.payload || {};
+        if(payload.delivery)
+          SUITE = Object.assign({}, SUITE, {delivery: payload.delivery});
+        if(payload.spots) SUITE = Object.assign({}, SUITE, {spots: payload.spots});
+        drawSuite();
+        b.disabled = false;
+        say("suiteMsg", e.message, "err");
+      });
+  };
+
   function drawShare(){
     var s = (P && P.share) || {};
     $("s_head").value = s.headline || "";

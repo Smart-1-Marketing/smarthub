@@ -2710,6 +2710,24 @@ jobs:
         if: matrix.group == 6
         run: python3 test_radio_presets.py
 
+      # The last difference between the two radio builders nobody had recorded
+      # a decision about: an approved Radio Ad Creator spot could be filed as
+      # the client's Suite opportunity and a finished Fan Radio spot could not,
+      # so it reached the CRM only if somebody pasted a link in by hand. It
+      # goes through hub/suite_opportunity.push_proposal rather than a webhook
+      # of its own -- hub/ghl_contacts.py is the Hub's one contact write path,
+      # and commercial_builder/routes/suite.py wrote down its refusal to add a
+      # second; this would have been the fourth. Asserted off the AST, because
+      # the module explains in prose why it does not post to the old hook and
+      # a substring search reports that explanation as the defect. What may be
+      # filed is what the CLIENT approved on the share page -- a stronger
+      # record than the staff press the other tool gates on -- never the naked
+      # read behind an unrendered mix, and never with a URL a salesperson
+      # cannot open.
+      - name: Fan Radio to the Suite — the client's approval, one write path
+        if: matrix.group == 6
+        run: python3 test_fan_radio_suite.py
+
       # The sample campaigns both radio builders open empty without. Two
       # things about the seeder are worth holding to an assertion. It must not
       # write a script the tool would flag -- four of the first eight were
