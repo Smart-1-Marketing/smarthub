@@ -415,7 +415,7 @@ function c360Traffic(propertyId,googleLogin){
         h+=`<div class="muted" style="font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Top ${br.length} source / medium — ${esc((d.period||{}).current||'')}</div>`;
         h+='<table><thead><tr><th>Source / Medium</th><th>Sessions</th><th>Engaged</th><th>Avg engagement</th><th>Events</th><th>Key events</th></tr></thead><tbody>';
         br.forEach(b=>{
-          const c=b.current||{},p=b.previous||{};
+          const c=b.current||{};
           h+=`<tr><td><b>${esc(b.source_medium||'—')}</b></td>
             <td>${Number(c.sessions||0).toLocaleString()} ${deltaPill(b.delta_sessions)}</td>
             <td>${Number(c.engaged_sessions||0).toLocaleString()}</td>
@@ -681,7 +681,7 @@ function renderBrand(d){
     ? '<a class="gbtn" href="#" onclick="lookupBrand();return false" '
       + 'title="Asks the brand service about '+esc(d.lookup_domain||'')
       + '. This call is billed, which is why it is a button.">'
-      + (d&&d.found?'Refresh brand':'Look up the brand')+'</a>'
+      + (d.found?'Refresh brand':'Look up the brand')+'</a>'
     : '';
   const obs = (d&&d.observed)||{};
   /* "We could not look" is never drawn as "there is nothing" — the rule
