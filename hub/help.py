@@ -553,6 +553,7 @@ REGISTRY: list[Help] = [
        "Uploads keep their original and get a web-ready SEO copy in the "
        "background — the counter in the card header says how far that has "
        "got.", step=4, ask_only=True,
+       link="/client360", link_text="Open a client record",
        selector="[data-tour='client-images']"),
     _h("hub.client360.places", "Their Google listing, read last night",
        "The rating and review count Google Places answered for the listing "
