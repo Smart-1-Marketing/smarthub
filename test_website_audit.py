@@ -487,7 +487,17 @@ check("the client route is reachable from inside the Suite frame",
 check("and the audit tool's own route is deliberately not",
       any("/api/website-audit".startswith(p) for p in suite_embed.EMBEDDABLE), False)
 
-c360 = (ROOT / "hub" / "templates" / "client360.html").read_text()
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    _os, _sys = __import__("os"), __import__("sys")
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return __import__("hub.client360_assets", fromlist=["source_text"]).source_text()
+
+c360 = _c360_source()
 check("Client 360 reads the client route rather than the tool's",
       "/api/client/audit?domain=" in c360, True)
 check("and no longer reads the thin one",
