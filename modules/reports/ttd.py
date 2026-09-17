@@ -48,10 +48,28 @@ one is a refusal by name, never a guess.
     named ``SCHEDULE_NAME``; ``POST /v3/myreports/reportschedule`` creates
     it once if it is absent -- daily, CSV, the trailing window
     ``TTD_REPORT_DATE_RANGE`` (default ``LastThirtyDays``, which covers the
-    28 days the platform restates), template ``TTD_REPORT_TEMPLATE_ID``.
-    The template is the partner's own MyReports template (the standard
-    Performance report, by campaign and day) and it is not guessed at: a
-    template of the wrong shape files nothing, and the pull says so.
+    28 days the platform restates). The schedule is **partner-wide**: it
+    carries no ``AdvertiserFilters``, so it covers every advertiser under
+    the partner, including the ones added after it was created. Clients are
+    added all the time, and a schedule pinned to the advertiser list of the
+    day it was created would silently miss every one of them. A schedule
+    found with a filter on it (one the earlier version of this pull
+    created) is refused by name rather than read: delete it in the platform
+    and the next pull recreates it partner-wide.
+  * **The template.** ``POST /v3/myreports/reporttemplate/query/partner``
+    (``{"PartnerId", "NameContains", "PageStartIndex", "PageSize"}``) lists
+    the templates the partner can run, read as ``Result[]`` of
+    ``{"ReportTemplateId", "ReportTemplateName"}``. ``pick_template()``
+    takes the standard Performance report by name (``TEMPLATE_PREFERENCE``,
+    most specific first: "Performance Report", then a campaign performance
+    template, then any performance template that is not an hourly, creative,
+    site, geo or device breakout). Extra dimensions are harmless -- the
+    parser sums rows for the same campaign-day -- but a template with no
+    campaign or day column files nothing, which is why the pick is by name
+    and never "the first one". ``TTD_REPORT_TEMPLATE_ID``, when set, wins
+    over the pick; when nothing is picked the pull refuses and lists the
+    template names it saw, so the variable can be set from that list. The
+    pick is only made once: after that the schedule carries the template.
   * ``POST /v3/myreports/reportexecution/query/partners``
     (``{"PartnerIds", "ReportScheduleIds", "ExecutionSpansStartDate",
     "ExecutionSpansEndDate", "PageStartIndex", "PageSize"}``) lists the
@@ -90,6 +108,7 @@ SCHEDULE_NAME = "Smart 1 Hub - daily campaign performance"
 RESTATE_DAYS = 28
 
 ADVERTISER_QUERY = "/advertiser/query/partner"
+TEMPLATE_QUERY = "/myreports/reporttemplate/query/partner"
 SCHEDULE_QUERY = "/myreports/reportschedule/query"
 SCHEDULE_CREATE = "/myreports/reportschedule"
 EXECUTION_QUERY = "/myreports/reportexecution/query/partners"
@@ -99,6 +118,19 @@ EXECUTION_QUERY = "/myreports/reportexecution/query/partners"
 # PEXELS_API / PEXELS_API_KEY.
 TOKEN_ENV = ("TTD_API_TOKEN", "TRADE_DESK_API", "TRADE_DESK_API_KEY", "TRADE_DESK_API_TOKEN", "TTD_API")
 NOT_CONFIGURED = "not configured: TTD_API_TOKEN (or TRADE_DESK_API) unset"
+
+# How a template is chosen when TTD_REPORT_TEMPLATE_ID is unset: the first
+# rule with a match wins, and within a rule the shortest name (the plainest
+# template) wins. A name matching a word in TEMPLATE_AVOID is a breakout the
+# daily campaign pull does not want, whatever else it is called.
+TEMPLATE_PREFERENCE = (
+    ("performance report",),
+    ("campaign", "performance"),
+    ("performance",),
+)
+TEMPLATE_AVOID = ("hourly", "creative", "site", "geo", "device", "frequency",
+                  "data element", "audience", "conversion", "attribution",
+                  "publisher", "deal", "inventory")
 
 
 def _first_env(names) -> str:
@@ -201,6 +233,66 @@ def list_advertisers() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# The template
+# ---------------------------------------------------------------------------
+
+def _template_name(row: dict) -> str:
+    return str(row.get("ReportTemplateName") or row.get("Name") or "").strip()
+
+
+def list_templates() -> list[dict]:
+    """Every MyReports template the partner can run: ``[{"id", "name"}]``.
+    A response with rows but no ``ReportTemplateId`` on any of them is
+    refused naming the keys it did carry, so a changed shape reads as a
+    changed shape and never as "the partner has no templates"."""
+    c = cfg()
+    rows = _paged(TEMPLATE_QUERY, {"PartnerId": c["partner_id"], "NameContains": ""})
+    out = [{"id": str(r.get("ReportTemplateId") or "").strip(), "name": _template_name(r)}
+           for r in rows]
+    out = [t for t in out if t["id"]]
+    if rows and not out:
+        keys = sorted({k for r in rows for k in r})[:12]
+        raise TTDError("The template list carried no ReportTemplateId; the rows have "
+                       + ", ".join(keys))
+    return out
+
+
+def _norm_name(name: str) -> str:
+    return " ".join(str(name or "").lower().replace("_", " ").replace("-", " ").split())
+
+
+def pick_template(templates: list[dict]) -> dict | None:
+    """The template the daily campaign schedule should run, by name and
+    never by position: the first TEMPLATE_PREFERENCE rule with a match, the
+    plainest name within it, skipping the breakouts in TEMPLATE_AVOID."""
+    usable = [t for t in templates
+              if t.get("id") and not any(w in _norm_name(t.get("name")) for w in TEMPLATE_AVOID)]
+    for words in TEMPLATE_PREFERENCE:
+        hits = [t for t in usable if all(w in _norm_name(t["name"]) for w in words)]
+        if hits:
+            hits.sort(key=lambda t: (len(_norm_name(t["name"])), _norm_name(t["name"])))
+            return hits[0]
+    return None
+
+
+def resolve_template() -> dict:
+    """``{"id", "name", "source"}``: the env override (``source="env"``) or
+    the automatic pick (``source="auto"``). Raises, naming the templates it
+    saw, when nothing fits -- the variable is set from that list."""
+    c = cfg()
+    if c["template_id"]:
+        return {"id": c["template_id"], "name": "", "source": "env"}
+    templates = list_templates()
+    picked = pick_template(templates)
+    if picked:
+        return {**picked, "source": "auto"}
+    names = ", ".join(sorted(t["name"] or t["id"] for t in templates)) or "none"
+    raise TTDError("No MyReports template reads as the campaign-by-day performance report, "
+                   "so the schedule cannot be created. Set TTD_REPORT_TEMPLATE_ID to one of "
+                   "the partner's templates: " + names)
+
+
+# ---------------------------------------------------------------------------
 # The schedule and its executions
 # ---------------------------------------------------------------------------
 
@@ -213,37 +305,45 @@ def find_schedule() -> dict | None:
     return None
 
 
-def schedule_body(advertiser_ids: list[str]) -> dict:
-    """What the schedule is created with. A function so the test reads it."""
+def schedule_body(template_id: str) -> dict:
+    """What the schedule is created with. A function so the test reads it.
+    No ``AdvertiserFilters``: the schedule is the partner's, so it covers
+    every advertiser under the partner, now and later."""
     c = cfg()
+    template_id = str(template_id or "").strip()
     return {
         "ReportScheduleName": SCHEDULE_NAME,
-        "ReportTemplateId": int(c["template_id"]) if c["template_id"].isdigit() else c["template_id"],
+        "ReportTemplateId": int(template_id) if template_id.isdigit() else template_id,
         "ReportFileFormat": "CSV",
         "ReportFrequency": "Daily",
         "ReportDateRange": c["date_range"],
         "ReportDateFormat": "Sortable",
         "TimeZone": "UTC",
         "PartnerId": c["partner_id"],
-        "AdvertiserFilters": list(advertiser_ids),
         "ReportStartDateInclusive": date.today().isoformat(),
     }
 
 
-def ensure_schedule(advertiser_ids: list[str]) -> dict:
-    """The schedule this pull reads, found or created once."""
+def ensure_schedule() -> dict:
+    """The schedule this pull reads, found or created once. Returns the
+    schedule with ``template`` beside it: ``{"id", "name", "source"}`` for a
+    schedule created now, or ``{"id": <the schedule's>, "source":
+    "schedule"}`` for one found."""
     found = find_schedule()
     if found:
-        return found
-    c = cfg()
-    if not c["template_id"]:
-        raise TTDError("No report schedule named %r exists yet and TTD_REPORT_TEMPLATE_ID is "
-                       "unset, so one cannot be created: set it to the MyReports template "
-                       "(campaign by day) the pull should run." % SCHEDULE_NAME)
-    created = request("POST", SCHEDULE_CREATE, schedule_body(advertiser_ids))
+        filters = found.get("AdvertiserFilters") or []
+        if filters:
+            raise TTDError("The report schedule %r is pinned to %d advertisers, so clients "
+                           "added since would be missing from it. Delete that schedule in the "
+                           "platform (Reports, My Reports, Schedules) and the next pull "
+                           "recreates it partner-wide." % (SCHEDULE_NAME, len(filters)))
+        return {**found, "template": {"id": str(found.get("ReportTemplateId") or ""),
+                                      "name": "", "source": "schedule"}}
+    template = resolve_template()
+    created = request("POST", SCHEDULE_CREATE, schedule_body(template["id"]))
     if not created.get("ReportScheduleId"):
         raise TTDError("The Trade Desk accepted the schedule without a ReportScheduleId")
-    return created
+    return {**created, "template": template}
 
 
 def list_executions(schedule_id, days: int = RESTATE_DAYS) -> list[dict]:
@@ -313,14 +413,18 @@ def _remembered() -> dict:
 def pull(days: int = RESTATE_DAYS) -> dict:
     """Read the schedule's newest complete file and land its rows."""
     out = {"ok": False, "rows": 0, "advertisers": 0, "skipped": 0,
-           "executions": 0, "error": ""}
+           "executions": 0, "error": "", "template": {}}
     if not configured():
         out["error"] = "not configured: " + ", ".join(missing()) + " unset"
         return out
     try:
+        # The advertiser list is the count the index prints and the first
+        # call that proves the token and partner id agree; the schedule no
+        # longer carries it.
         advertisers = list_advertisers()
         out["advertisers"] = len(advertisers)
-        schedule = ensure_schedule([a["id"] for a in advertisers])
+        schedule = ensure_schedule()
+        out["template"] = schedule.get("template") or {}
         sched_id = schedule.get("ReportScheduleId")
         executions = list_executions(sched_id, days)
         out["executions"] = len(executions)
@@ -360,13 +464,17 @@ def status() -> dict:
     remembered = _remembered()
     sync = store.sync_status().get("ttd") or {}
     native = sync if sync.get("source") == "native" else {}
+    template = remembered.get("template") or {}
     return {
         "configured": not miss,
         "connected": not miss,
         "missing": miss,
         "base": c["base"],
         "partner_id": c["partner_id"],
-        "template_id": c["template_id"],
+        # The env override when set; else what the last pull picked or found.
+        "template_id": c["template_id"] or str(template.get("id") or ""),
+        "template_name": str(template.get("name") or ""),
+        "template_source": "env" if c["template_id"] else str(template.get("source") or ""),
         "schedule_name": SCHEDULE_NAME,
         "advertisers": int(remembered.get("advertisers") or 0) if remembered else None,
         "last_pull": native.get("last_run_at") or remembered.get("at"),
