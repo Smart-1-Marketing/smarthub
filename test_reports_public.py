@@ -374,6 +374,92 @@ check("a video platform mapped but silent this month draws no completion tile",
 check("...and a Suite mapping with no outcome rows draws no leads tile", "leads" not in old_tiles)
 check("...while the reach tiles are still there", old_tiles[:2], ["impressions", "clicks"])
 
+# ------------------------------------------------- a nought nobody measured
+section("A platform that reports no conversion draws a dash, not a nought")
+
+# The third place this rule applies. The completes tile is gated on a platform
+# that serves completions and the visits tile on a row that carries a visit;
+# the Product detail table printed 0 for Amazon DSP, AudioGo and GroundTruth,
+# whose own field maps say they report no conversion at all. On a client's
+# page that nought reads as "nobody converted", about a metric never measured.
+# The set is a claim about each platform's feed, so it is held against what
+# each of those feeds actually declares. A map that starts carrying
+# conversions fails here rather than quietly printing a dash over a real one.
+from modules.reports import audiogo_map, groundtruth_map                 # noqa: E402
+from modules.reports import amazon_dsp as _amazon_dsp                    # noqa: E402
+check("the no-conversion set agrees with GroundTruth's own map",
+      groundtruth_map.FIELDS.get("conversions") is None
+      and "groundtruth" in client_view.NO_CONVERSIONS)
+check("...with AudioGo's",
+      audiogo_map.FIELDS.get("conversions") is None
+      and "audiogo" in client_view.NO_CONVERSIONS)
+check("...and with the Amazon DSP pull, which maps no conversion field at all",
+      "conversions" not in _amazon_dsp.FIELD_MAP
+      and "amazon_dsp" in client_view.NO_CONVERSIONS)
+check("...and names nothing else: every other platform's zero is a measurement",
+      client_view.NO_CONVERSIONS, {"amazon_dsp", "audiogo", "groundtruth"})
+
+NOCONV = "n:no-conversion-client"
+store.upsert_rows([
+    {"platform": "amazon_dsp", "account_id": "A1", "campaign_id": "o-1",
+     "campaign_name": "Evening CTV flight", "date": D1, "spend": "50.00",
+     "impressions": 40_000, "clicks": 60, "completes": 30_000, "source": "native"},
+    {"platform": "audiogo", "account_id": "au-1", "campaign_id": "a-1",
+     "campaign_name": "Audio spot", "date": D1, "spend": "10.00",
+     "impressions": 5_000, "clicks": 4, "source": "native"},
+    {"platform": "groundtruth", "account_id": "gt-1", "campaign_id": "gt-c1",
+     "campaign_name": "Geofence", "date": D1, "spend": "20.00",
+     "impressions": 9_000, "clicks": 12, "source": "native"},
+    # A real measured zero, from a platform that does report conversions.
+    {"platform": "google", "account_id": "123", "campaign_id": "g-zero",
+     "campaign_name": "Search, nobody converted", "date": D1, "spend": "5.00",
+     "impressions": 800, "clicks": 9, "conversions": 0, "source": "native"},
+])
+for plat, acct, camp, product in (("amazon_dsp", "A1", "o-1", "Streaming TV"),
+                                  ("audiogo", "au-1", "a-1", "Streaming Audio"),
+                                  ("groundtruth", "gt-1", "gt-c1", "Geofencing"),
+                                  ("google", "123", "g-zero", "Paid Search")):
+    store.map_campaign(plat, acct, camp, client=NOCONV, client_name="No Conversion Client",
+                       product=product, mapped_by="Todd")
+nc_link = store.create_link(NOCONV, client_name="No Conversion Client", created_by="Todd")
+nc = client_view.aggregate(nc_link, "mtd")
+by_campaign = {r["campaign"]: r for r in nc["table"]}
+check("an Amazon DSP order reports no conversion rather than nought",
+      by_campaign["Evening CTV flight"]["conversions"], None)
+check("...an AudioGo spot the same", by_campaign["Audio spot"]["conversions"], None)
+check("...and a GroundTruth geofence the same", by_campaign["Geofence"]["conversions"], None)
+check("a platform that DOES report conversions still prints its measured zero",
+      by_campaign["Search, nobody converted"]["conversions"], 0)
+by_product = {r["product"]: r for r in nc["products"]}
+check("the product rows say the same", (by_product["Streaming TV"]["conversions"],
+                                        by_product["Paid Search"]["conversions"]), (None, 0))
+
+html = anon.get(f"/reports/r/c/{nc_link.token}").get_data(as_text=True)
+rows = re.findall(r"<tr><td>[^<]*</td><td>([^<]*)</td>(.*?)</tr>", html, re.S)
+cells = {name: re.findall(r'<td class="n">(.*?)</td>', body, re.S) for name, body in rows}
+check("the page prints a dash for the platform that reports none",
+      cells["Evening CTV flight"][-1].strip(), "—")
+check("...and the real zero as a zero", cells["Search, nobody converted"][-1].strip(), "0")
+detail = html.split("Product detail")[1].split("</table>")[0]
+check("...both inside the Product detail table itself",
+      ("—" in detail, '<td class="n">0</td>' in detail), (True, True))
+
+pdf = client_pdf.build(nc)
+check("the PDF is the same page on paper, and renders rather than raising",
+      pdf[:4], b"%PDF")
+
+# A provider table that DOES carry conversions for one of those platforms is
+# never hidden: the rule refuses a zero it cannot tell from silence, not a
+# figure somebody measured.
+store.upsert_rows([{"platform": "audiogo", "account_id": "au-1", "campaign_id": "a-1",
+                    "campaign_name": "Audio spot", "date": D1, "spend": "10.00",
+                    "impressions": 5_000, "clicks": 4, "conversions": 3, "source": "windsor"}])
+client_view.forget(nc_link.token)
+again = {r["campaign"]: r for r in client_view.aggregate(nc_link, "mtd")["table"]}
+check("a conversion a provider really reported is shown, not hidden by the rule",
+      again["Audio spot"]["conversions"], 3)
+
+
 # ----------------------------------------------------------- rate limit
 section("The rate limit")
 

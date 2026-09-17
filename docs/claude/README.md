@@ -66,7 +66,7 @@ say "above" or "below" mean earlier or later files in this list.
 | [`58-the-check-that-reported-no-json-on-the-disk.md`](58-the-check-that-reported-no-json-on-the-disk.md) | The check that reported no JSON on the disk | 147 |
 | [`59-leads-in-a-table-not-a-file-on-one-instance.md`](59-leads-in-a-table-not-a-file-on-one-instance.md) | Leads in a table, not a file on one instance | 136 |
 | [`60-a-clients-email-campaigns-read-from-their-own-sub-account.md`](60-a-clients-email-campaigns-read-from-their-own-sub-account.md) | A client's email campaigns, read from their own sub-account | 65 |
-| [`61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md`](61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md) | Amazon DSP: five claims, and four of them fail as a working configuration | 133 |
+| [`61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md`](61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md) | Amazon DSP: five claims, and four of them fail as a working configuration | 146 |
 | [`62-a-scanned-business-that-is-not-a-client-is-a-lead.md`](62-a-scanned-business-that-is-not-a-client-is-a-lead.md) | A scanned business that is not a client is a lead | 119 |
 | [`63-the-google-tokens-off-their-own-sqlite-file.md`](63-the-google-tokens-off-their-own-sqlite-file.md) | The Google tokens, off their own SQLite file | 120 |
 | [`64-ask-smarthub-reads-the-fact-table.md`](64-ask-smarthub-reads-the-fact-table.md) | Ask SmartHub reads the fact table: named periods, decided flags, recipes | 174 |

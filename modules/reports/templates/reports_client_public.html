@@ -176,7 +176,10 @@
       {% for r in a.table %}
         <tr><td>{{ r.label }}</td><td>{{ r.campaign }}</td>
           <td class="n">{{ '{:,}'.format(r.impressions) }}</td><td class="n">{{ '{:,}'.format(r.clicks) }}</td>
-          <td class="n">{{ r.ctr }}</td><td class="n">{{ '{:,}'.format(r.conversions) }}</td></tr>
+          <td class="n">{{ r.ctr }}</td>
+          {# A dash, never a nought: this product's platform reports no conversion at all,
+             and a zero here reads as "nobody converted" about a metric never measured. #}
+          <td class="n">{{ '{:,}'.format(r.conversions) if r.conversions is not none else '—' }}</td></tr>
       {% endfor %}
       </tbody>
     </table>

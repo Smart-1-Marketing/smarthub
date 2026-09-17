@@ -80,15 +80,28 @@ order-day now, `ttd_myreports`'s rule for a split row, and the regression
 test is two line items on one order-day asserting the sum rather than the
 survivor.
 
-**Purchases are not conversions**, and the limit of that is written down
-rather than implied. `totalPurchases` and `totalDetailPageViews` are
+**Purchases are not conversions**, and the limit of that is now closed rather
+than merely written down. `totalPurchases` and `totalDetailPageViews` are
 Amazon-storefront metrics: they land in `extras` under their own names and
-nothing writes either into `conversions`. What this does not do is stop a
-client page printing *Conversions 0* for this platform -- the fact table's
-conversions column defaults to zero and cannot say "not reported", which is
-the state AudioGo and GroundTruth are already in. Suppressing that tile is
-one change to the client view for every such platform at once; it is not made
-here rather than made for one platform and left inconsistent for the others.
+nothing writes either into `conversions`. The fact table's column still
+defaults to zero and has no way to say "not reported", so the refusal lives at
+the reading end, where `client_view.py` already refuses the same shape twice --
+the completes tile gated on a platform that serves completions, the visits
+tile on a row that carries a visit. `NO_CONVERSIONS` is the third: Amazon DSP,
+AudioGo and GroundTruth, whose own field maps declare they report none, print
+a dash in the Product detail table instead of a nought, on the page and in the
+PDF alike.
+
+Declared, not observed, and that is the whole care in it. `flags.py` answers a
+neighbouring question -- did this platform report any conversion in THIS
+window -- which is right for *spent with no conversions* and would be wrong
+here: a Paid Search campaign that genuinely converted nobody this month must
+still print its nought, because that nought is the finding. And a figure a
+provider really did report for one of the three is never hidden; what is
+refused is only the zero that cannot be told apart from silence. The set is
+held against each platform's own map in `test_reports_public.py`, so a map
+that starts carrying conversions fails there rather than quietly printing
+dashes over real figures.
 
 **Spend is `totalCost` with no divisor**, in the advertiser's own currency
 (which rides in `extras`). A first live row a thousand times too big means
