@@ -73,6 +73,34 @@ def main():
             if f.get("fix"):
                 print(f"          fix: {f['fix']}")
 
+    # One check here is answered by the data disk rather than by the source,
+    # and an "ok" from it on a machine with no data root means "nothing to
+    # read", not "verified clean". Said out loud, because the whole point of
+    # plaintext_credentials is that it speaks about production, and a green
+    # line nobody can tell apart from a real pass is how a check stops
+    # counting.
+    try:
+        sys.path.insert(0, ROOT)
+        from hub import jsonstore
+        root = jsonstore.data_root()
+        stores = 0
+        if os.path.isdir(root):
+            for _dir, _subs, files in os.walk(root):
+                stores += sum(1 for f in files if f.endswith(".json"))
+        if not quiet:
+            print()
+            if stores:
+                print(f"  note  the credential check read {stores} JSON store(s) "
+                      f"under {root}")
+            else:
+                print(f"  note  no JSON stores under {root} — the credential "
+                      f"check had nothing to read here, which is the ordinary "
+                      f"case in CI. It answers for real on /api/integrity.")
+    except Exception as exc:                            # noqa: BLE001
+        if not quiet:
+            print(f"\n  note  could not say what the credential check read "
+                  f"({type(exc).__name__})")
+
     print()
     if blocking:
         print(f"{blocking} finding(s) at a severity that fails this run.")

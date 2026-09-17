@@ -30,6 +30,7 @@ Read-only and cheap: it reads source, never runs it, and touches no API.
 from __future__ import annotations
 
 import ast
+import json
 import os
 import pathlib
 import re
@@ -915,6 +916,129 @@ def check_unbacked_json() -> list[dict]:
     return out
 
 
+# Key names that mean a credential, and the reason the list is this short.
+# A name here is one whose value grants access to something if a person reads
+# it. `token` and `secret` alone are deliberately NOT here: a share token in
+# `hub/radio_share.py` is stored exactly so a customer's link keeps working,
+# and a check that reports it is a check people switch off. What is listed is
+# what nobody can defend having in a backup in the clear.
+CREDENTIAL_KEYS = (
+    "password", "passwd", "app_password", "application_password",
+    "api_key", "apikey", "client_secret", "refresh_token",
+    "private_key", "secret_key",
+)
+
+# Files under the data root this check does not read, with the reason. Empty,
+# which is the only way it was worth adding -- and `check_stale_json_exemptions`
+# above is there because an exemption outliving its file is the one finding
+# that fails in the wrong direction.
+CREDENTIALS_EXEMPT: dict[str, str] = {}
+
+
+def _credential_strings(node, path="") -> list[str]:
+    """Every credential-shaped key holding a bare non-empty string, by path.
+
+    **A sealed credential is a dict**, and that is what makes this precise
+    rather than a name search. `hub/cms_credentials.py` stores
+    `{"enc": true, "data": "<Fernet token>"}`, so a sealed record is skipped
+    by the shape of its value and never by being named in a list somebody has
+    to maintain. What is left -- a credential-shaped key whose value is a
+    plain string -- is a password somebody can read.
+    """
+    out = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            here = f"{path}.{key}" if path else str(key)
+            name = str(key).strip().lower()
+            if (name in CREDENTIAL_KEYS and isinstance(value, str)
+                    and value.strip()):
+                out.append(here)
+            else:
+                out.extend(_credential_strings(value, here))
+    elif isinstance(node, list):
+        # Indexed rather than flattened: "the third website record" is what
+        # somebody needs in order to go and look at it.
+        for i, item in enumerate(node):
+            out.extend(_credential_strings(item, f"{path}[{i}]"))
+    return out
+
+
+def check_plaintext_credentials() -> list[dict]:
+    """A credential sitting in a durable store as a readable string.
+
+    The check above asks whether a JSON store is mirrored into the database.
+    This asks the opposite question about the same files, and the SEO store is
+    why it exists: `setup.password` -- a client's real login to their real
+    website -- was written to `data/seo/<client>.json` as a plain string, and
+    it was **properly mirrored**, so `check_unbacked_json` was satisfied and
+    silent. Being mirrored is what made it worse: every one of those passwords
+    went verbatim into Postgres and into every database backup taken since.
+
+    So a store passing every other check here can still be the worst file on
+    the disk, and nothing asked.
+
+    **Read off the disk, not out of the source.** A dataflow rule would have
+    missed the defect it was written for: that password was not assigned under
+    a literal key but copied in a loop over a tuple of field names, which no
+    reasonable AST rule catches without reporting half the login routes too.
+    The files themselves cannot be wrong about what is in them.
+
+    Which means this finds nothing in CI, where the data root is empty, and
+    speaks on `/api/integrity` against the real disk -- the one place the
+    question has an answer. That is the trade: a check that cannot be green
+    for the wrong reason, in exchange for one that a pull request cannot
+    prove. `tools/integritycheck.py` says so when it reports it.
+
+    High severity, unlike the two backup checks above, which say in as many
+    words that a module they list "works exactly as it always has". This one
+    does not have that defence. A readable password in a backup is not a risk
+    of a future failure; it is the failure, already shipped, for as long as
+    the file sits there.
+    """
+    from . import jsonstore
+    out = []
+    try:
+        root = jsonstore.data_root()
+        if not os.path.isdir(root):
+            return out
+    except Exception:                                       # noqa: BLE001
+        # No data root here at all -- an ordinary CI checkout. Reported as
+        # nothing found, which is true: there is nothing to find.
+        return out
+    for dirpath, _dirs, files in os.walk(root):
+        for fname in sorted(files):
+            if not fname.endswith(".json"):
+                continue
+            full = os.path.join(dirpath, fname)
+            rel = os.path.relpath(full, root)
+            if rel in CREDENTIALS_EXEMPT:
+                continue
+            try:
+                with open(full, encoding="utf-8") as fh:
+                    data = json.load(fh)
+            except Exception:                               # noqa: BLE001
+                # Unreadable or not JSON. Skipped rather than reported: this
+                # check answers one question and "that file is malformed" is
+                # not it.
+                continue
+            for where in _credential_strings(data):
+                out.append({
+                    "file": os.path.join("data", rel), "module": rel.split(os.sep)[0],
+                    "detail": f"{rel} holds a credential at {where} as a "
+                              f"readable string. This store is mirrored into "
+                              f"Postgres, so that value is in the database and "
+                              f"in every backup taken since it was written.",
+                    "fix": "Seal it through hub/cms_credentials.py, which "
+                           "encrypts under TOKEN_ENCRYPTION_KEY and keeps the "
+                           "three states apart, and drop the plaintext key in "
+                           "the same save. hub/seo.py's seal_site_login() and "
+                           "seal_all_site_logins() are the worked example, "
+                           "including the rule that a deployment with no key "
+                           "must not move it at all.",
+                })
+    return out
+
+
 def check_disk_sqlite_stores() -> list[dict]:
     """Modules that open their own SQLite database on the data disk.
 
@@ -1416,6 +1540,12 @@ CHECKS = [
      "medium", check_stale_json_exemptions),
     ("disk_sqlite", "A SQLite database on the disk with no backup", "medium",
      check_disk_sqlite_stores),
+    # High, and for a different reason from the two backup checks beside it:
+    # those say a module they list works exactly as it always has. A readable
+    # password in a backup is not a risk of a later failure, it is the failure,
+    # already shipped, for as long as the file sits there.
+    ("plaintext_credentials", "A credential stored as readable text", "high",
+     check_plaintext_credentials),
     ("stale_sqlite_exemptions", "Disk-SQLite exemption names a missing file",
      "medium", check_stale_sqlite_exemptions),
     ("creative_medium_drift", "Creative gate lost a rate-card product", "high",

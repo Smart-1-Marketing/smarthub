@@ -106,6 +106,35 @@ tick:
 And a credential store that cannot be written no longer reads as "Saved" — the
 setup answers still store, and the answer says which half did not.
 
+## And a check, so it cannot come back quietly
+
+`check_plaintext_credentials` on `/api/integrity`, at high severity. It is the
+mirror image of `check_unbacked_json` sitting beside it: that one asks whether
+a store is copied into the database, and this store **was** — being mirrored is
+what carried every password into every backup. A store can pass every other
+check on that page and still be the worst file on the disk, and until this
+nothing asked.
+
+Two decisions inside it are worth keeping:
+
+- **It reads the files, not the source.** A dataflow rule would have missed the
+  defect it was written for: the password was not assigned under a literal key
+  but copied in a loop over a tuple of field names, which no reasonable AST
+  rule catches without reporting half the login routes too. The consequence is
+  that it finds nothing in CI, where the data root is empty, and answers for
+  real on `/api/integrity`. `tools/integritycheck.py` prints how many stores it
+  actually read, so an "ok" on a machine with no data cannot be mistaken for a
+  clean bill of health.
+- **A sealed credential is a dict.** `{"enc": true, "data": "..."}` is skipped
+  by the *shape* of the value rather than by being named in an exemption list
+  somebody has to maintain. Only a credential-shaped key holding a bare string
+  is reported.
+
+`CREDENTIAL_KEYS` is deliberately short. `token` and `secret` on their own are
+not in it: a share token in `hub/radio_share.py` is stored precisely so a
+customer's link keeps working, and a check that reports it is a check people
+learn to switch off.
+
 ## The open question, for Todd
 
 **Nothing in the Hub can retrieve this password.** That was true before this

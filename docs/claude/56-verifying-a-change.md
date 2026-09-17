@@ -15,7 +15,11 @@ python tools/integritycheck.py     # known defect patterns
 python tools/spellcheck.py         # American English in everything a person reads
 python3 test_jsonstore.py          # the mirror restores, one answer on who is outside
                                    #   it, and which database it mirrors into being a
-                                   #   setting rather than a latch on the first write
+                                   #   setting rather than a latch on the first write;
+                                   #   also the opposite question about the same files
+                                   #   -- a credential sitting in a mirrored store as a
+                                   #   readable string, which every other check here
+                                   #   passed while it was true
 python3 test_jsonstore_locking.py  # two real processes with two real data roots:
                                    #   a flock each instance takes on its own disk
                                    #   serialises nothing, and the read half of a

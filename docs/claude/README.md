@@ -72,5 +72,5 @@ say "above" or "below" mean earlier or later files in this list.
 | [`64-ask-smarthub-reads-the-fact-table.md`](64-ask-smarthub-reads-the-fact-table.md) | Ask SmartHub reads the fact table: named periods, decided flags, recipes | 174 |
 | [`65-the-delivery-lock-that-never-spanned-two-instances.md`](65-the-delivery-lock-that-never-spanned-two-instances.md) | The delivery lock that never spanned two instances | 107 |
 | [`66-the-stores-that-were-not-json.md`](66-the-stores-that-were-not-json.md) | The stores that were not JSON | 135 |
-| [`67-the-client-passwords-in-the-backup.md`](67-the-client-passwords-in-the-backup.md) | The client passwords in the backup | 125 |
+| [`67-the-client-passwords-in-the-backup.md`](67-the-client-passwords-in-the-backup.md) | The client passwords in the backup | 154 |
 | [`68-the-upload-url-that-nothing-ever-served.md`](68-the-upload-url-that-nothing-ever-served.md) | The upload URL that nothing ever served | 110 |
