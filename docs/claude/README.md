@@ -76,3 +76,4 @@ say "above" or "below" mean earlier or later files in this list.
 | [`68-the-upload-url-that-nothing-ever-served.md`](68-the-upload-url-that-nothing-ever-served.md) | The upload URL that nothing ever served | 110 |
 | [`69-the-third-question-bytes-on-the-disk.md`](69-the-third-question-bytes-on-the-disk.md) | The third question: bytes on the disk | 120 |
 | [`70-client-360s-header-said-the-same-thing-twice.md`](70-client-360s-header-said-the-same-thing-twice.md) | Client 360's header said the same thing twice, and nothing about who to call | 71 |
+| [`71-a-clients-asset-home-has-five-folders-and-the-uploads-get-a-web-ready-copy.md`](71-a-clients-asset-home-has-five-folders-and-the-uploads-get-a-web-ready-copy.md) | A client's asset home has five folders, and the uploads get a web-ready copy | 162 |

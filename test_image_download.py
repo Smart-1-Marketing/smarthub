@@ -478,7 +478,9 @@ FULL_ASSET_ON_PURPOSE = {
     # stored by us -- so there is nothing here to cap and possibly nothing of
     # ours to cap it with.
     ("hub/templates/ad_builder_start.html", "saved_logo.url"): _LOGO,
-    ("hub/templates/client360.html", 'alt="Brand logo"'): _LOGO,
+    # The images card's own "Brand logo" tile is gone: the logo is filed into
+    # the gallery's Logos folder and drawn there through a preview like every
+    # other row (docs/claude/71). The brand card's tile above still applies.
     ("modules/ad_builder/public/embed.html", "primary.url"): _LOGO,
     ("modules/ad_builder/public/embed.html", "l.kind || 'logo'"): _LOGO,
     ("modules/ads_builder/templates/_estimate_doc.html", "logo.url"): _LOGO,
