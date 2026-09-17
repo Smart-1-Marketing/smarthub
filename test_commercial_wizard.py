@@ -1450,6 +1450,99 @@ check("and does not appear twice",
           if a.get("public_id") == _filed_photo["image"]["public_id"]), 1)
 
 
+section("Whether the narration fits the spot, read off the project")
+# The Voice step's fit line and its offer. Computed only inside the generate
+# response, the panel would appear on the press that produced the take and be
+# gone the next time somebody opened the step -- the disappearing panel
+# `routes/review.py` had to fix once already. So it is a read-only route, and
+# the arithmetic is `hub/radio_spec.speed_suggestion()` in `reread` mode: the
+# same function both radio builders ask, because a :30 spot and a :30 radio
+# read should not get two answers about the same overrun.
+from hub import radio_spec                                                # noqa: E402
+
+_fit_url = MOUNT + f"/api/projects/{pid}/voiceover/fit"
+_fit = get_json(_fit_url)
+check("the fit route answers before any take exists", _fit["ok"], True)
+check("...and says there is no length to work from rather than offering a rate",
+      (_fit["suggestion"]["available"], _fit["suggestion"]["speed"]), (False, None))
+check("and it names the spot it would measure against", _fit["length_seconds"], 30)
+
+
+def _set_take(seconds, measured=True, speed=1.0):
+    with hub_app.app_context():
+        proj = CommercialProject_cls.query.get(pid)
+        proj.music = {**(proj.music or {}), "voice_track_url": "https://cdn.example/vo.mp3",
+                      "voice_seconds": seconds, "voice_measured": measured,
+                      "voice_speed": speed}
+        cb_db.session.commit()
+
+
+_set_take(31.8)
+_over = get_json(_fit_url)
+check("an over-long take is offered a pace", _over["suggestion"]["speed"], 1.06)
+check("...which is the shared module's own answer, not this module's",
+      _over["suggestion"]["speed"],
+      radio_spec.speed_suggestion(vo_seconds=31.8, target_seconds=30,
+                                  lead_in_ms=0, mode="reread")["speed"])
+# No bed lead-in is taken off the runway here. That 0.3s belongs to a radio
+# mix, where the music starts before the read; this voice element starts on
+# the first frame, so the spot's whole length is the runway.
+check("the whole spot is the runway — no radio lead-in is taken off it",
+      _over["suggestion"]["lead_seconds"], 0.0)
+check("it is a re-read, so no pitch shift is quoted",
+      _over["suggestion"]["semitones"], None)
+check("and the offer says it costs a take", "paid take" in _over["suggestion"]["note"], True)
+check("the route reports the length it read and that it was measured",
+      (_over["voice_seconds"], _over["voice_measured"]), (31.8, True))
+
+_set_take(29.4)
+check("a take that fits is offered nothing", get_json(_fit_url)["suggestion"]["needed"], False)
+_set_take(40.0)
+_far = get_json(_fit_url)
+check("past the ceiling no rate is offered at all", _far["suggestion"]["speed"], None)
+check("...and it says how much has to come out of the script instead",
+      _far["suggestion"]["trim_seconds"] > 0, True)
+
+# A length nobody measured is not a length to work a rate out from. The
+# words-per-minute guess is the fallback reading and offering a fix derived
+# from a division is how a confident wrong answer gets pressed.
+_set_take(33.0, measured=False)
+check("an unmeasured length is refused rather than used",
+      get_json(_fit_url)["suggestion"]["available"], False)
+
+# The pace the saved take was read at rides back, so "back to the original"
+# has something to go back to after a reload.
+_set_take(29.8, speed=1.08)
+check("the pace the saved take was read at comes back with it",
+      get_json(_fit_url)["voice_speed"], 1.08)
+def _voice_fits_row():
+    return (post_json(MOUNT + f"/api/projects/{pid}/qc").get_json()
+            ["qc_results"]["voice_fits"])
+
+
+check("and the same take answers the QC length check",
+      _voice_fits_row()["passed"], True)
+_set_take(33.1, speed=1.0)
+_blocked = _voice_fits_row()
+check("an overrun stops the render rather than being trimmed quietly",
+      _blocked["passed"], False)
+check("...saying the render would cut the call to action off",
+      "cuts it off" in _blocked["message"], True)
+
+# And the panel is actually wired to all of it. A route with no button on it
+# is the failure this repo keeps having to undo.
+_voice_js = (ROOT / "modules/commercial_builder/static/js/voice.js").read_text()
+check("the step asks the server for the fit rather than working one out",
+      ("/voiceover/fit" in _voice_js and "speed_suggestion(" not in _voice_js), True)
+check("the offer, the approval and the way back are all on the panel",
+      ("voice-speed-apply" in _voice_js and "voice-speed-reset" in _voice_js
+       and "drawSpeedOffer" in _voice_js), True)
+check("approving always asks for a new take, never the saved wrong-length one",
+      "regenerate: speed != null" in _voice_js, True)
+check("and the length line says whether it read a file or divided the words",
+      ("byte count" in _voice_js and "words-per-minute" in _voice_js), True)
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")
