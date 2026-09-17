@@ -256,6 +256,31 @@ class MapRefusal(Base):
     refused_at = Column(DateTime(timezone=True), default=now)
 
 
+class CampaignAlias(Base):
+    """A name the campaigns call a client that the registry does not.
+
+    Learned from people, never typed: when somebody maps, confirms or moves
+    a campaign, the distinctive words of its name that are not the client's
+    own name and not ad-ops noise (``automap.alias_phrase``) are filed here
+    as a name for that client -- "blw" for Buckeye Lake Winery, "nxt" for
+    Next Level Auto. ``count`` is how many campaigns taught it; the
+    auto-mapper files on an alias only once it has been taught twice, and
+    an alias taught for two clients is a question, not an answer (the
+    suggester shows both as leads and files neither). Refusing a filing
+    that rested on an alias forgets the alias for that client, and the
+    unmapped queue lists every alias with a Forget button.
+    """
+    __tablename__ = "reports_campaign_aliases"
+
+    alias = Column(String(200), primary_key=True)
+    client = Column(String(200), primary_key=True)
+    client_name = Column(String(300), default="")
+    count = Column(Integer, default=1)
+    learned_from = Column(String(400), default="")
+    learned_by = Column(String(160), default="")
+    learned_at = Column(DateTime(timezone=True), default=now)
+
+
 class BudgetLine(Base):
     """What was sold: a monthly figure for one client and product, flighted."""
     __tablename__ = "reports_budget_lines"
@@ -1726,6 +1751,68 @@ def refusals() -> dict[tuple, dict]:
         return {}
     finally:
         db.close()
+
+
+def learn_alias(alias: str, *, client: str, client_name: str = "", learned_from: str = "",
+                by: str = "") -> dict | None:
+    """Teach one alias for one client, or reinforce it. Returns the row as a
+    dict, or None for an empty alias. The caller derives the alias
+    (``automap.alias_phrase``); this is the store."""
+    alias = _text(alias, 200).strip().lower()
+    client = _text(client, 200)
+    if not (alias and client):
+        return None
+    db = SessionLocal()
+    try:
+        row = db.get(CampaignAlias, (alias, client))
+        if row is None:
+            row = CampaignAlias(alias=alias, client=client, count=0)
+            db.add(row)
+        row.count = int(row.count or 0) + 1
+        row.client_name = _text(client_name, 300) or row.client_name or ""
+        row.learned_from = _text(learned_from, 400) or row.learned_from or ""
+        row.learned_by = _text(by, 160) or row.learned_by or ""
+        row.learned_at = now()
+        db.commit()
+        return {"alias": row.alias, "client": row.client, "client_name": row.client_name or "",
+                "count": int(row.count), "learned_from": row.learned_from or "",
+                "learned_by": row.learned_by or "", "learned_at": iso(row.learned_at)}
+    finally:
+        db.close()
+
+
+def forget_alias(alias: str, client: str) -> bool:
+    """Drop one alias for one client. True when a row went."""
+    alias = _text(alias, 200).strip().lower()
+    db = SessionLocal()
+    try:
+        row = db.get(CampaignAlias, (alias, _text(client, 200)))
+        if row is None:
+            return False
+        db.delete(row)
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def campaign_aliases() -> list[dict]:
+    """Every learned alias, most taught first. Never raises past the
+    store: a table not there yet is an empty book."""
+    db = None
+    try:
+        db = SessionLocal()
+        rows = (db.query(CampaignAlias)
+                  .order_by(CampaignAlias.count.desc(), CampaignAlias.alias).all())
+        return [{"alias": r.alias, "client": r.client, "client_name": r.client_name or r.client,
+                 "count": int(r.count or 0), "learned_from": r.learned_from or "",
+                 "learned_by": r.learned_by or "", "learned_at": iso(r.learned_at)}
+                for r in rows]
+    except Exception:                  # noqa: BLE001 - no table yet, or no database
+        return []
+    finally:
+        if db is not None:
+            db.close()
 
 
 def account_evidence() -> dict[tuple, dict]:

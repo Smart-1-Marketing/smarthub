@@ -951,6 +951,88 @@ def start_project(*, client_name: str, campaign: str, website: str = "",
                 if saved_logo else "")}
 
 
+def saved_presets(client_name: str = "") -> list[dict]:
+    """The renderer's saved presets, for the start form.
+
+    A preset is a client's settled setup -- brand, layout, design -- with the
+    copy slots the next ad fills in. Somebody starting the SECOND ad for a
+    client should be filling in three fields, not the whole brief; the form
+    offers the presets so that is where they start. Matched by the renderer
+    on the exact client, never a substring. A renderer that is not answering
+    means no presets rather than no form.
+    """
+    path = "/api/presets"
+    if client_name:
+        from urllib.parse import quote
+        path += "?client=" + quote(client_name)
+    ok, data = _api("GET", path)
+    if not ok or not isinstance(data, dict):
+        return []
+    rows = []
+    for p in data.get("presets") or []:
+        if not isinstance(p, dict) or not p.get("id"):
+            continue
+        rows.append({
+            "id": str(p["id"]), "name": str(p.get("name") or p["id"]),
+            "client": str(p.get("client") or ""), "layoutFamily": str(p.get("layoutFamily") or ""),
+            "platforms": [str(x) for x in (p.get("platforms") or [])],
+            "fields": [{"role": str(f.get("role") or ""), "label": str(f.get("label") or f.get("role") or ""),
+                        "fallback": str(f.get("fallback") or "")}
+                       for f in (p.get("fields") or []) if isinstance(f, dict)],
+        })
+    return rows
+
+
+def _same_client(a: str, b: str) -> bool:
+    norm = lambda v: re.sub(r"[^a-z0-9]+", " ", str(v or "").lower()).strip()  # noqa: E731
+    return bool(norm(a)) and norm(a) == norm(b)
+
+
+def start_from_preset(*, preset_id: str, client_name: str, campaign: str,
+                      values: dict | None = None, actor: str = "") -> dict:
+    """One ad from a saved preset: the slots filled in, nothing else asked.
+
+    The renderer's own generate route writes the campaign and the project
+    record, the same way "Save as preset" on the build screen expects it to
+    be used. The client is the preset's; a preset chosen under a different
+    account name is refused rather than filed against the wrong record, which
+    is the same rule the client type-ahead keeps.
+    """
+    preset_id = str(preset_id or "").strip()
+    campaign = str(campaign or "").strip()
+    if not preset_id:
+        return {"ok": False, "error": "Choose a preset."}
+    if not re.fullmatch(r"[\w-]+", preset_id):
+        return {"ok": False, "error": "That preset id is not one the renderer would have made."}
+    ok, data = _api("GET", f"/api/presets/{preset_id}")
+    preset = (data or {}).get("preset") if ok and isinstance(data, dict) else None
+    if not preset:
+        return {"ok": False, "error": "That preset is no longer there. Pick another, or start from the website."}
+    owner = str(preset.get("client") or "").strip()
+    if client_name and not _same_client(client_name, owner):
+        return {"ok": False,
+                "error": f"That preset belongs to {owner}, not {client_name}. Pick the "
+                         f"account it was saved for, or start from the website."}
+    if not campaign:
+        return {"ok": False, "error": "A campaign name is required."}
+    roles = {str(f.get("role")) for f in (preset.get("fields") or []) if isinstance(f, dict)}
+    clean = {k: str(v or "").strip()[:500] for k, v in (values or {}).items() if k in roles}
+    ok, data = _api("POST", f"/api/presets/{preset_id}/generate",
+                    {"campaignName": campaign, "values": clean}, timeout=(10, 120))
+    if not ok:
+        return {"ok": False, "error": str((data or {}).get("error") or "The ad builder refused that preset.")}
+    request_id = str(data.get("requestId") or "")
+    try:
+        from hub import audit
+        audit.log("display_ads", "build_started", actor=actor, client=owner,
+                  campaign=campaign, request=request_id, kind="client",
+                  preset=preset_id)
+    except Exception:                                  # noqa: BLE001
+        pass
+    return {"ok": True, "request_id": request_id, "client": owner, "kind": "client",
+            "lead_id": "", "logo_note": ""}
+
+
 # --------------------------------------------------------------------- routes
 
 def register(app, url_prefix: str = "/tools/display-ads") -> None:
@@ -991,6 +1073,7 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
                                kind="client" if client else "",
                                saved_logo=client_logo(client) if client else None,
                                form={"website": website, "campaign": (client + " display ads") if client else ""}, proposals=proposals,
+                               presets=saved_presets(client),
                                platform_choices=PLATFORM_CHOICES,
                                selected_platforms=["google"],
                                url_prefix=url_prefix, error="")
@@ -1003,21 +1086,31 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
         # cannot carry a half-typed client name into a prospect.
         name = (body.get("prospect_name") if kind == "prospect"
                 else body.get("client")) or body.get("client", "")
-        res = start_project(
-            client_name=name,
-            campaign=body.get("campaign", ""),
-            website=body.get("website", ""),
-            promoting=body.get("promoting", ""),
-            objective=body.get("objective", ""), offer=body.get("offer", ""),
-            contact=body.get("contact", ""),
-            email=body.get("email", ""),
-            phone=body.get("phone", ""),
-            kind=kind,
-            proposal_id=body.get("proposal", ""),
-            platforms=(request.form.getlist("platforms") if request.form
-                       else (body.get("platforms") or [])),
-            actor=_user() or "",
-        )
+        preset_id = str(body.get("preset") or "").strip()
+        if preset_id and kind != "prospect":
+            # The preset's own slots arrive as preset_<role>; everything the
+            # website would have been read for is already in the preset.
+            values = {k[len("preset_"):]: v for k, v in body.items()
+                      if isinstance(k, str) and k.startswith("preset_")}
+            res = start_from_preset(preset_id=preset_id, client_name=name,
+                                    campaign=body.get("campaign", ""),
+                                    values=values, actor=_user() or "")
+        else:
+            res = start_project(
+                client_name=name,
+                campaign=body.get("campaign", ""),
+                website=body.get("website", ""),
+                promoting=body.get("promoting", ""),
+                objective=body.get("objective", ""), offer=body.get("offer", ""),
+                contact=body.get("contact", ""),
+                email=body.get("email", ""),
+                phone=body.get("phone", ""),
+                kind=kind,
+                proposal_id=body.get("proposal", ""),
+                platforms=(request.form.getlist("platforms") if request.form
+                           else (body.get("platforms") or [])),
+                actor=_user() or "",
+            )
         if request.form:
             if res.get("ok"):
                 return redirect(f"{url_prefix}/build?request={res['request_id']}")
@@ -1026,6 +1119,7 @@ def register(app, url_prefix: str = "/tools/display-ads") -> None:
             return render_template("ad_builder_start.html",
                                    client=body.get("client", ""),
                                    kind=kind, form=body, proposals=[],
+                                   presets=saved_presets(body.get("client", "")),
                                    saved_logo=None,
                                    platform_choices=PLATFORM_CHOICES,
                                    selected_platforms=(

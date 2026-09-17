@@ -635,6 +635,24 @@ SPEED_STEP = 0.01        # the rate is quoted to the hundredth, always rounded U
 # because there is no pitch-preserving time-stretch in this runtime and this
 # Hub does not add a library from a CDN for one feature. At 1.05x that is 0.84
 # of a semitone, which is the honest reason SPEED_CLEAN_MAX sits where it does.
+#
+# There are two ways to apply a rate, they cost different things, and quoting
+# the wrong cost is worse than quoting none:
+#
+# * **resample** -- play a finished file faster. The only lever a read somebody
+#   UPLOADED has, because there is no re-record to ask for. Shorter and higher
+#   together, and the semitones are the price.
+# * **reread** -- ask the voice to read it again at that pace. What a *generated*
+#   read has: ElevenLabs takes `speed` in `voice_settings`, so the words come
+#   back at the new pace at the same pitch. The price is a paid take instead,
+#   and no pitch figure applies -- printing one would be a cost this mode does
+#   not have.
+#
+# Both share the arithmetic and the ceiling. Past SPEED_MAX a read sounds
+# hurried however it got there, and 1.15 also sits inside the 0.7-1.2 window
+# ElevenLabs accepts, so the ceiling never becomes a value the provider
+# silently ignores.
+SPEED_MODES = ("resample", "reread")
 
 
 def speed_semitones(speed) -> float | None:
@@ -649,7 +667,8 @@ def speed_semitones(speed) -> float | None:
 
 
 def speed_suggestion(*, vo_seconds, target_seconds, lead_in_ms=None,
-                     mixed_seconds=None, tolerance_s=None) -> dict:
+                     mixed_seconds=None, tolerance_s=None,
+                     mode: str = "resample") -> dict:
     """The rate that lands an over-long read inside its slot, and what it costs.
 
     Advice, never a measurement. The read's length comes from whatever decoded
@@ -662,6 +681,12 @@ def speed_suggestion(*, vo_seconds, target_seconds, lead_in_ms=None,
     whenever no rate inside `SPEED_MAX` gets there -- with ``trim_seconds``
     saying how much still has to come out of the script, because "speed it up"
     is not an answer to a read that is five seconds long.
+
+    ``mode`` is how the rate will be applied, and it changes only what the note
+    says it costs -- see `SPEED_MODES`. A generated read is `"reread"` and pays
+    a take; an uploaded one is `"resample"` and pays the semitones. The
+    arithmetic and the ceiling are the same either way, which is the point of
+    them living here.
     """
     def _num(value):
         try:
@@ -702,7 +727,9 @@ def speed_suggestion(*, vo_seconds, target_seconds, lead_in_ms=None,
             "target_seconds": target, "lead_seconds": round(lead, 3),
             "rendered_seconds": round(rendered, 2), "over_seconds": over,
             "tolerance_s": tol, "clean_max": SPEED_CLEAN_MAX,
-            "max_speed": SPEED_MAX, "reason": ""}
+            "max_speed": SPEED_MAX, "reason": "",
+            "mode": "reread" if str(mode or "").strip().lower() == "reread"
+                    else "resample"}
 
     if over <= tol:
         return {**base, "needed": False, "speed": None, "comfort": "fits",
@@ -736,18 +763,41 @@ def speed_suggestion(*, vo_seconds, target_seconds, lead_in_ms=None,
 
     semis = speed_semitones(speed)
     comfort = "clean" if speed <= SPEED_CLEAN_MAX else "audible"
-    pitch = (f"The voice rises about {semis:.2f} of a semitone with it"
-             if semis is not None and semis < 1
-             else f"The voice rises about {semis:.2f} semitones with it")
-    heard = ("under the 5% nobody hears" if comfort == "clean"
-             else "audible on a close listen, and inside what a station's own "
-                  "playout does")
+    reread = str(mode or "").strip().lower() == "reread"
+    # "Inside what a station's playout does" is a statement about time
+    # compression and says nothing true about a fresh read, so the two modes
+    # answer "is this audible" in their own terms.
+    if comfort == "clean":
+        heard = "under the 5% nobody hears"
+    elif reread:
+        heard = ("a touch brisker than the take you have, and well inside the "
+                 "0.7-1.2 window ElevenLabs reads in")
+    else:
+        heard = ("audible on a close listen, and inside what a station's own "
+                 "playout does")
+    if reread:
+        # No pitch figure: the words are spoken again at the new pace, so the
+        # semitones a resample would cost are a price this mode does not pay.
+        # What it does cost is a billed take, and that is what the sentence
+        # has to say instead -- an offer that reads as free gets pressed twice.
+        action = (f"Recording the read again at {speed:.2f}x brings it to "
+                  f"{lands:.2f}s")
+        cost = ("The voice reads it at the new pace rather than the file being "
+                "played faster, so nothing shifts in pitch — it costs one more "
+                "paid take.")
+    else:
+        action = f"Playing the read at {speed:.2f}x lands the mix on {lands:.2f}s"
+        cost = ((f"The voice rises about {semis:.2f} of a semitone with it"
+                 if semis is not None and semis < 1
+                 else f"The voice rises about {semis:.2f} semitones with it")
+                + ", because resampling is the only time-stretch this runtime "
+                  "has.")
     return {**base, "needed": True, "speed": speed, "comfort": comfort,
-            "lands_seconds": lands, "semitones": semis,
+            "mode": "reread" if reread else "resample",
+            "lands_seconds": lands,
+            "semitones": None if reread else semis,
             "note": f"{rendered:.2f}s is {over:.2f}s over the :{target:g} slot. "
-                    f"Playing the read at {speed:.2f}x lands the mix on "
-                    f"{lands:.2f}s — {heard}. {pitch}, because resampling is the "
-                    "only time-stretch this runtime has."}
+                    f"{action} — {heard}. {cost}"}
 
 
 def speed_ok(speed) -> tuple[float, str]:

@@ -1370,6 +1370,20 @@ JOBS = {
                            "Approved or Converted in the Proposal Builder."),
     "backup_json":       (60, job_backup_json,
                           "Mirror disk JSON into the database backup."),
+    # Ahead of every slow provider sweep, for the reason the QA jobs are:
+    # a quarter of a second reading this Hub's own disk. Measured live on a
+    # deploy-heavy afternoon (six deploys in an hour), it never once got a
+    # turn behind google_index -- every boot restarted the pass, and the
+    # 28-minute sweep ahead of it never finished -- so a category fix that
+    # was merged and deployed at 17:15 was still not on the record at 19:20.
+    "industry_resolve":  (60, job_industry_resolve,
+                          "Re-resolve any client's industry key that is missing, stale, "
+                          "or below the top source tier."),
+    # Same argument: it returns at once outside its Sunday window, and inside
+    # it reads a few customers. Nothing here belongs behind a 28-minute sweep.
+    "qb_contacts":       (60, job_qb_contacts,
+                          "File each attached QuickBooks customer's billing contact "
+                          "onto the client record, Sundays at 2pm Eastern."),
     # Ahead of nothing in particular and cheap: it reads this Hub's own disk
     # and, once every record is sealed, does no work at all.
     # Beside the sealing job on purpose: that one moves a plaintext credential
@@ -1403,14 +1417,8 @@ JOBS = {
                           "Re-pull the purchased-domain registry once a night."),
     "places_snapshot":   (60, job_places_snapshot,
                           "Read every confirmed Google Business Profile listing once a night."),
-    "industry_resolve":  (60, job_industry_resolve,
-                          "Re-resolve any client's industry key that is missing, stale, "
-                          "or below the top source tier."),
     "youtube_snapshot":  (60, job_youtube_snapshot,
                           "Read every confirmed YouTube channel once a night."),
-    "qb_contacts":       (60, job_qb_contacts,
-                          "File each attached QuickBooks customer's billing contact "
-                          "onto the client record, Sundays at 2pm Eastern."),
     "suite_email_snapshot": (60, job_suite_email_snapshot,
                           "Read every linked client's sent email campaigns once a night."),
     "video_backlog":     (60, job_index_video_backlog,

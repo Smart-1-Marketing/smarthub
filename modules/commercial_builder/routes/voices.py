@@ -182,6 +182,36 @@ def _generate_scene_audio(scene, client, voice_id, data):
     return result
 
 
+@bp.get("/projects/<int:project_id>/voiceover/fit")
+def voiceover_fit(project_id):
+    """Whether the saved narration fits the spot, and the pace that would.
+
+    Read-only and free: it reports on the take already on the project rather
+    than making one. It exists so the offer survives a reload — computed only
+    inside the generate response, the fit line would appear on the press that
+    produced the take and vanish the next time somebody opened the step, which
+    is the same disappearing panel `routes/review.py` had to fix.
+
+    The arithmetic is `generation.voice_speed_suggestion()`, which asks
+    `hub/radio_spec.speed_suggestion()` — the one both radio builders ask.
+    Nothing is decided here.
+
+    Deliberately not in `HOUSEKEEPING_ROUTES`: that list exempts *write*
+    routes that record nothing on purpose, and an entry naming something that
+    is not one goes on exempting whatever is written at that name next —
+    which is what `test_write_attribution.py` reports. A GET is outside it.
+    """
+    project = CommercialProject.query.get_or_404(project_id)
+    from .. import generation
+    music = project.music or {}
+    return jsonify({"ok": True,
+                    "suggestion": generation.voice_speed_suggestion(project),
+                    "voice_seconds": music.get("voice_seconds"),
+                    "voice_measured": bool(music.get("voice_measured")),
+                    "voice_speed": float(music.get("voice_speed") or 1.0),
+                    "length_seconds": project.length_seconds})
+
+
 @bp.post("/projects/<int:project_id>/voiceover/full")
 def generate_full_voiceover(project_id):
     """Generates one continuous VO track for the whole commercial (used at

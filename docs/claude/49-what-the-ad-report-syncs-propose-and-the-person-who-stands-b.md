@@ -318,3 +318,23 @@ client and a name that says another are two clients at the top and file
 neither: the run counts it as `conflicted`, and the queue shows both with
 the account's reason under the account id. Every filing is still a
 proposal, confirmable, refusable and movable like the rest.
+
+
+**What the campaigns call a client is learned from the people who file
+them.** A registry name is not always the name in the platform -- "BLW"
+for Buckeye Lake Winery matches nothing the likeness pass can see. So
+every mapping, confirmation and move a person makes teaches
+`automap.alias_phrase()` -- the campaign name's words with the client's
+own words, the `S1M` mark and the ad-ops noise (`_NOISE_WORDS`, the
+catalog's products and vendors, calendar words, anything with a digit)
+left out, at most `ALIAS_MAX_WORDS` of them -- as a name for that client,
+in `store.CampaignAlias`, keyed on (alias, client) with a count. **Taught
+once it is a suggestion** the picker opens on (`ALIAS_ONCE_SCORE`);
+**taught `ALIAS_FILE_COUNT` times it files**, under `alias_v1`, a
+proposal like every other; **taught for two clients it is a lead for
+each and a filing for neither**, and says which. A refusal forgets what
+that campaign's name taught for that client, and the queue's *learned
+names* card lists every alias with who taught it, from what, and a
+Forget button. The lesson rides on the person's press, never on the
+auto-mapper's own filings: a proposal that teaches its own alias is a
+guess reinforcing itself.

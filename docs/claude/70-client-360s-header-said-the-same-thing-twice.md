@@ -48,6 +48,13 @@ What changed, September 2026, one thing per line:
   name tier files the winery under restaurant for the Image Picker and the
   record reads "Winery" without anybody typing it. A manual pick of a
   canonical key clears that wording, as it clears any custom label.
+  And the job that applies it, `industry_resolve`, now runs ahead of the
+  slow provider sweeps in `hub/scheduler.JOBS` beside the QA jobs: it
+  takes a quarter of a second reading the Hub's own disk, and behind the
+  28-minute Google sweep it never got a turn on an afternoon with six
+  deploys in an hour, each boot restarting the pass. Merged and deployed at
+  17:15, the fix was still not on the record at 19:20. `qb_contacts` moved
+  with it for the same reason.
 * **The scan's screenshots** sit beside the name, from
   `scan_facts.screenshots()` via `/api/client/screenshots`. A thumbnail is
   added only after its image loads, so a capture the scan host no longer
@@ -69,3 +76,49 @@ What changed, September 2026, one thing per line:
 `test_client360_layout.py` drives the warnings column and the roles row in
 node; `test_qb_contacts.py` holds the sync; `test_industry.py` holds the
 custom label and the profile sync.
+
+## The quick wins that followed, same day
+
+* **No `alert()` boxes.** Every "that did not save" and "sent" goes through
+  `c360Notice(text, kind)`: a dismissable corner card (`err` stays 12
+  seconds, `ok` and `info` six) that never blocks the page.
+  `c360NoticeHtml()` is pure and driven in node by the layout test.
+* **No page reloads.** QuickBooks attach and detach re-run the Invoices
+  card through `loadQbCard()`; a website attach and a group change re-run
+  the record through `c360Refresh()`, which keeps the open section. The
+  one `location.reload()` left is that function's fallback with no client
+  in the search box.
+* **Real buttons.** Forty-eight controls were anchors with a pointer cursor
+  and no href, unreachable from the keyboard. They are `<button
+  type="button">` with the same class; the template's CSS gives the button
+  forms the shared styling. The layout test refuses a new one.
+* **A `tel:` link** on the primary contact's phone, beside the `mailto:`.
+* **The email contact line** sits in the Client Info strip
+  (`#c360EmailInline`, painted by `paintEmailLine()` from
+  `window.__c360emailLine`) instead of as its own gray sentence above the
+  health strip; the detail rides in the tooltip and the text opens Email
+  client & history.
+
+## The bigger ones, same day
+
+* **Overview is eight cards, not thirteen.** Products & IOs, Orders we
+  have sent, Coming up, Ad performance, Smart 1 Suite Account, Pipeline &
+  leads, Proposals, Client Notes. Landing pages went to Website & audits,
+  Google listing to Google & traffic, YouTube channel and Email campaigns
+  to Social & links, Target audience to Creative & brand. The layout test's
+  grouping table is the record of where each card lands.
+* **Rail badges.** `c360WarningCounts()` counts the health queue's and the
+  record's own findings per rail section, worst level winning, and
+  `paintRailBadges()` draws the count on the rail item, red for `bad`. A
+  finding with an `href` goes to another record and counts nowhere here.
+* **An Ends column on Products & IOs**, with the end date and an amber
+  pill inside the same 21-day window `hub/record_health.py` uses (a
+  constant the test holds equal to `ENDING_SOON_DAYS`), red when Knack
+  still calls an ended product live. Both of Knack's date spellings are
+  read, ISO from the live pull and m/d/Y from the committed export.
+* **The site score beside the screenshots**, from
+  `scan_facts.screenshots()`, which carries `score` and `tier` whenever
+  there is a scan, captures or not; it links to the audit.
+* **The latest note pinned under the Smart 1 Internal row**, one line with
+  the author and date, opening the notes card on a click.
+

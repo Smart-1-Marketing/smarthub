@@ -50,6 +50,17 @@ where the pull carries the platform's own name for the account (its
 advertiser or account name) that name is read for a likeness as well,
 under ``account_name_v1``.
 
+**What the campaigns call a client is learned from the people who file
+them.** A registry name is not always the name in the platform: "BLW" for
+Buckeye Lake Winery matches nothing above. So every mapping, confirmation
+and move a person makes teaches ``alias_phrase()`` -- the campaign name's
+words with the client's own words and the ad-ops noise out -- as a name for
+that client (``store.CampaignAlias``). Taught once it is a suggestion the
+picker opens on; taught twice it files, under ``alias_v1``; taught for two
+clients it is a lead for each and a filing for neither. Refusing a filing
+forgets what its name taught for that client, and the queue lists every
+alias with a Forget button.
+
 **A name that does not carry the mark is read for a likeness.** Most
 campaigns were named before the shape existed, and the unmapped queue held
 them with the client's name plainly in the campaign name and nobody to type
@@ -90,10 +101,37 @@ RULE = "name_v1"
 FUZZY_RULE = "fuzzy_v1"
 ACCOUNT_RULE = "account_v1"
 ACCOUNT_NAME_RULE = "account_name_v1"
+ALIAS_RULE = "alias_v1"
 MAPPED_BY = store.AUTO_MAPPED_BY
 # The rules that file on evidence rather than the mark: what the queue
 # calls "by likeness" and shows the reason for.
-EVIDENCE_RULES = (FUZZY_RULE, ACCOUNT_RULE, ACCOUNT_NAME_RULE)
+EVIDENCE_RULES = (FUZZY_RULE, ACCOUNT_RULE, ACCOUNT_NAME_RULE, ALIAS_RULE)
+
+# A learned alias files only once two campaigns have taught it for the
+# same client; taught once it is a suggestion the picker opens on. Taught
+# for two clients it is a lead for each and a filing for neither.
+ALIAS_FILE_COUNT = 2
+ALIAS_ONCE_SCORE = 0.85
+# An alias is at most this many words: a phrase longer than that is a
+# campaign's description, not a name for the client.
+ALIAS_MAX_WORDS = 3
+
+# Words a campaign name carries that name no client: the products and
+# vendors, the ad-ops vocabulary, calendar words and bare numbers. What is
+# left of a name once these and the client's own words are out is what
+# the campaigns call the client -- the alias worth learning.
+_NOISE_WORDS = frozenset("""
+search display video audio social native retargeting remarketing rt pmax performance max
+brand branded nonbrand non generic competitor competitors conversion conversions leads lead
+traffic awareness reach engagement clicks sales shopping dsa dynamic prospecting lookalike lal
+lookalikes geo geofence geofencing fence ip target targeting targeted ctv ott streaming tv olv
+youtube yt preroll pre roll bumper skippable instream in stream outstream discovery demand gen
+campaign campaigns ad ads adgroup test testing new old copy draft paused active promo promotion
+sale event holiday seasonal spring summer fall autumn winter q1 q2 q3 q4 h1 h2 fy january february
+march april may june july august september october november december jan feb mar apr jun jul aug
+sep sept oct nov dec local national regional statewide mobile desktop app apps web website site
+email sms radio print digital online offline usa us ca
+""".split())
 
 # How many of an account's campaigns have to be confirmed as one client's,
 # with none confirmed as anybody else's and no refusal there, before a new
@@ -209,6 +247,48 @@ def _words(text: str) -> list[str]:
     return normalise_name(_SEP.sub(" ", str(text or ""))).split()
 
 
+def _noise(word: str) -> bool:
+    """A word that names no client: a product or vendor word, an ad-ops
+    word, a calendar word, or anything with a digit in it."""
+    if not word or any(ch.isdigit() for ch in word):
+        return True
+    if word in _NOISE_WORDS:
+        return True
+    return word in _catalog_words()
+
+
+_CATALOG_WORDS: set[str] | None = None
+
+
+def _catalog_words() -> set[str]:
+    global _CATALOG_WORDS
+    if _CATALOG_WORDS is None:
+        words: set[str] = set()
+        try:
+            from . import products as _products
+            for name in tuple(_products.PRODUCTS) + tuple(_products.VENDOR_WORDS):
+                words.update(_words(name))
+        except Exception:                  # noqa: BLE001 - the catalog is not the alias
+            pass
+        _CATALOG_WORDS = words
+    return _CATALOG_WORDS
+
+
+def alias_phrase(campaign_name: str, client_name: str) -> str:
+    """What the campaign calls the client, or "": the campaign name's
+    words with the client's own words, the S1M mark and the noise out, as
+    one phrase -- "blw" from "BLW - Search - 2026" filed under Buckeye Lake
+    Winery. Empty when nothing distinctive is left (the name already
+    carried the client's name, or only noise), or when what is left is
+    longer than ALIAS_MAX_WORDS, which is a description and not a name."""
+    client_words = set(_words(client_name))
+    left = [w for w in _words(campaign_name)
+            if w not in client_words and w != "s1m" and not _noise(w) and len(w) >= 2]
+    if not left or len(left) > ALIAS_MAX_WORDS:
+        return ""
+    return " ".join(left)
+
+
 def _domain_label(row: dict) -> str:
     """``acme`` from acme.com -- the part of a domain people put in a
     campaign name -- or "" when the row has no domain or it is too short
@@ -219,13 +299,17 @@ def _domain_label(row: dict) -> str:
     return label if len(label) >= _MIN_PARTIAL_CHARS else ""
 
 
-def build_index(rows: list[dict]) -> list[dict]:
+def build_index(rows: list[dict], aliases: list[dict] | None = None) -> list[dict]:
     """The registry read once for many names: one entry per row the fuzzy
     pass can score -- key, the name to file under (the canonical row's, not
     an alias's), its words, and its domain label. Rows with no readable
     name are skipped. ``run()`` and ``annotate()`` build it once and hand
     it to ``suggest_clients()`` for every campaign; building it per name
-    was most of an hourly run."""
+    was most of an hourly run.
+
+    ``aliases`` (``store.campaign_aliases()``) ride on the same list as
+    entries of their own kind: ``{"alias_words", "clients": {key: {...}}}``,
+    one per learned phrase with every client it was taught for."""
     from hub import client_key as ck
     label_by_key: dict[str, str] = {}
     for r in rows:
@@ -244,6 +328,16 @@ def build_index(rows: list[dict]) -> list[dict]:
                     "words": words, "joined": "".join(words),
                     "prefixes": {w[:_PREFIX] for w in words if len(w) >= _PREFIX},
                     "domain_label": _domain_label(r)})
+    learned: dict[str, dict] = {}
+    for a in aliases or ():
+        words = _words(a.get("alias") or "")
+        if not words:
+            continue
+        entry = learned.setdefault(" ".join(words), {"alias_words": words, "alias": a.get("alias"),
+                                                     "clients": {}})
+        entry["clients"][a["client"]] = {"name": label_by_key.get(a["client"]) or a.get("client_name")
+                                         or a["client"], "count": int(a.get("count") or 0)}
+    out.extend(learned.values())
     return out
 
 
@@ -303,6 +397,32 @@ def _score(cand: dict, words: list[str], tokens: set[str], prefixes: set[str]) -
     return 0.0, ""
 
 
+def _score_alias(cand: dict, words: list[str]) -> dict[str, dict]:
+    """A learned alias against a campaign name: {client key: hit}. The
+    phrase has to be in the name whole. One client taught twice or more is
+    a filing; taught once, a suggestion; two clients, a lead for each."""
+    if not _contains(words, cand["alias_words"]):
+        return {}
+    clients = cand["clients"]
+    shown = cand.get("alias") or " ".join(cand["alias_words"])
+    out = {}
+    if len(clients) == 1:
+        key, c = next(iter(clients.items()))
+        n = c["count"]
+        score = _SCORE_NAME if n >= ALIAS_FILE_COUNT else ALIAS_ONCE_SCORE
+        why = (f"{shown!r} was mapped to them {n} time{'' if n == 1 else 's'} before"
+               + ("" if n >= ALIAS_FILE_COUNT else " (once: a suggestion until it is taught again)"))
+        out[key] = {"key": key, "name": c["name"], "score": score, "pct": int(round(score * 100)),
+                    "why": why, "rule": ALIAS_RULE}
+        return out
+    others = {k: c["name"] for k, c in clients.items()}
+    for key, c in clients.items():
+        rest = ", ".join(n for k, n in others.items() if k != key)
+        out[key] = {"key": key, "name": c["name"], "score": _SCORE_PARTIAL, "pct": int(round(_SCORE_PARTIAL * 100)),
+                    "why": f"{shown!r} was mapped to them before, and also to {rest}", "rule": ALIAS_RULE}
+    return out
+
+
 def suggest_clients(name: str, *, rows: list[dict] | None = None,
                     index: list[dict] | None = None,
                     limit: int = FUZZY_LIMIT, exclude: str = "") -> list[dict]:
@@ -321,6 +441,14 @@ def suggest_clients(name: str, *, rows: list[dict] | None = None,
     cands = index if index is not None else build_index(rows if rows is not None else _registry_rows())
     best_by_key: dict[str, dict] = {}
     for cand in cands:
+        if "alias_words" in cand:
+            for key, hit in _score_alias(cand, words).items():
+                if key == exclude:
+                    continue
+                cur = best_by_key.get(key)
+                if cur is None or hit["score"] > cur["score"]:
+                    best_by_key[key] = hit
+            continue
         if exclude and cand["key"] == exclude:
             continue
         score, why = _score(cand, words, tokens, prefixes)
@@ -422,6 +550,32 @@ def product_from_name(name: str) -> str:
     return ""
 
 
+def learn(campaign_name: str, *, client: str, client_name: str, by: str) -> dict | None:
+    """A person filed this campaign under this client: teach what the
+    campaign calls them, if the name says anything distinctive. Never
+    raises -- a lesson not learned is not a mapping not made."""
+    try:
+        phrase = alias_phrase(campaign_name, client_name)
+        if not phrase:
+            return None
+        return store.learn_alias(phrase, client=client, client_name=client_name,
+                                 learned_from=campaign_name, by=by)
+    except Exception as exc:               # noqa: BLE001
+        log.warning("reports automap: alias not learned from %r: %s", campaign_name, exc)
+        return None
+
+
+def forget(campaign_name: str, *, client: str, client_name: str = "") -> bool:
+    """A person refused this campaign under this client: whatever the
+    name taught for them is forgotten. Never raises."""
+    try:
+        phrase = alias_phrase(campaign_name, client_name)
+        return bool(phrase) and store.forget_alias(phrase, client)
+    except Exception as exc:               # noqa: BLE001
+        log.warning("reports automap: alias not forgotten from %r: %s", campaign_name, exc)
+        return False
+
+
 def annotate(rows: list[dict], pending: list[dict] | None = None,
              *, limit: int = FUZZY_LIMIT) -> dict:
     """Lay the likeness over the unmapped queue: ``row["suggestions"]`` on
@@ -435,7 +589,7 @@ def annotate(rows: list[dict], pending: list[dict] | None = None,
         m["match"] = None
         m["by_evidence"] = any(rule in (m.get("auto_rule") or "") for rule in EVIDENCE_RULES)
     try:
-        index = build_index(_registry_rows())
+        index = build_index(_registry_rows(), store.campaign_aliases())
     except RegistryUnavailable as exc:
         return {"error": str(exc)}
     evidence = store.account_evidence()
@@ -499,7 +653,7 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
             # shown beside it.
             try:
                 if index is None:
-                    index = build_index(_registry_rows())
+                    index = build_index(_registry_rows(), store.campaign_aliases())
                 if evidence is None:
                     evidence = store.account_evidence()
                 hits = suggest_for_row(row, index=index, evidence=evidence)
@@ -572,7 +726,7 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
         out["clients"][key] = name
         if hub_audit is not None:
             try:
-                how = (f"by {'its ad account' if fuzzy['rule'] == ACCOUNT_RULE else 'likeness'} "
+                how = (f"by {'its ad account' if fuzzy['rule'] == ACCOUNT_RULE else 'a learned name' if fuzzy['rule'] == ALIAS_RULE else 'likeness'} "
                        f"({fuzzy['pct']}%: {fuzzy['why']})" if fuzzy else "from its name")
                 hub_audit.log("reports", "campaign_automapped", actor=actor,
                               client=name, client_key=key, action="campaign_automapped",

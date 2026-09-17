@@ -178,12 +178,22 @@ def screenshots(domain: str) -> dict:
     if err:
         return {"found": False, "desktop": "", "mobile": "", "error": err}
     if not row:
-        return {"found": False, "desktop": "", "mobile": ""}
+        return {"found": False, "desktop": "", "mobile": "", "score": None, "tier": ""}
     shots = _screenshots(report)
+    # The scan's own score rides along whenever there is a scan, screenshots
+    # or not: Client 360 draws it beside the thumbnails as the one-glance
+    # website readout, linking to the audit.
+    score = row.get("overall_score")
+    try:
+        score = float(score) if score is not None and str(score).strip() != "" else None
+    except (TypeError, ValueError):
+        score = None
     return {
         "found": bool(shots),
         "desktop": shots.get("desktop", ""),
         "mobile": shots.get("mobile", ""),
+        "score": score,
+        "tier": str(row.get("tier") or ""),
         "scanned_at": _stamp(row),
         "scan_url": f"/scans/scan/{row.get('public_id')}" if row.get("public_id") else "",
     }

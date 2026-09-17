@@ -10,6 +10,9 @@
   const root = document.getElementById("voice-root");
   const projectId = root.dataset.projectId;
   const clientId = root.dataset.clientId;
+  // The spot's own length, so the fit line can name what the take is measured
+  // against rather than quoting a number with nothing beside it.
+  const projectLength = root.dataset.lengthSeconds;
 
   let selectedVoiceId = null;
   let clientPronunciation = {};
@@ -260,6 +263,14 @@
     const [{ client }, { project }] = await Promise.all([CB.api(`/api/clients/${clientId}`), CB.api(`/api/projects/${projectId}`)]);
     CustomerVoicePicker.mount(document.getElementById("customer-voice-picker"), {client:client.name||"", onSelect:v=>selectVoice(v.voice_id,v.name)});
     clientPronunciation = (project.music || {}).pronunciation_dict || client.pronunciation_dict || {};
+    // What is already on the project, so the fit line and its offer are there
+    // on arrival rather than only on the press that produced the take.
+    try {
+      const fit = await CB.api(`/api/projects/${projectId}/voiceover/fit`);
+      if (fit.voice_seconds != null) priorSpeed = null;
+      drawSpeedOffer(fit.suggestion, fit.voice_speed);
+    } catch (e) { /* the panel simply stays empty; a fit read must not take
+                     the step down with it */ }
     if ((project.music || {}).voice_id || client.preferred_voiceover_id) {
       selectedVoiceId = (project.music || {}).voice_id || client.preferred_voiceover_id;
       document.getElementById("voice-select").value = selectedVoiceId;
@@ -302,18 +313,29 @@
 
   document.getElementById("pron-add").addEventListener("click", () => addPronRow());
 
-  document.getElementById("voice-preview-btn").addEventListener("click", async () => {
+  // The pace the last take was read at, so "back to the original" has
+  // something to go back TO, and so a re-record keeps the rate somebody
+  // approved rather than snapping to the slider.
+  let priorSpeed = null;
+
+  async function makeVoiceover(speed) {
     const button = document.getElementById("voice-preview-btn");
+    const slider = document.getElementById("voice-speed");
+    const rate = speed == null ? parseFloat(slider.value) : Number(speed);
     button.disabled = true;
     const status = document.getElementById("voice-status");
-    status.textContent = "Generating…";
+    status.textContent = speed == null ? "Generating…"
+      : `Recording it again at ${rate.toFixed(2)}×…`;
     try {
       const { voiceover } = await CB.api(`/api/projects/${projectId}/voiceover/full`, {
         method: "POST",
         body: {
           voice_id: selectedVoiceId,
-          regenerate: document.getElementById('voice-new-take').checked,
-          speed: parseFloat(document.getElementById("voice-speed").value),
+          // A re-record at an approved pace is a new take by definition — the
+          // saved one is the wrong length, so reusing it is the one thing
+          // this press must not do.
+          regenerate: speed != null || document.getElementById('voice-new-take').checked,
+          speed: rate,
           stability: parseFloat(document.getElementById("voice-stability").value),
           style: parseFloat(document.getElementById("voice-style").value),
         },
@@ -321,13 +343,79 @@
       // Whether it was STORED is the part that matters: the render reads the
       // stored URL, and a voiceover generated and not stored is a commercial
       // that comes back silent.
-      status.textContent = `Estimated ${voiceover.duration_estimate}s of narration. `
-        + (voiceover.store_note || "");
+      status.textContent = lengthLine(voiceover) + " " + (voiceover.store_note || "");
+      drawSpeedOffer(voiceover.speed_suggestion, rate);
+      return voiceover;
     } catch (e) {
       status.textContent = e.message || "Narration could not be saved. Please retry.";
     } finally {
       button.disabled = false;
     }
+  }
+
+  /* How long the take is, and how well that is known. These were one sentence
+     reading "Estimated 34.1s of narration" for a file nobody had looked at —
+     the figure was the script's word count divided by 150. A length derived
+     from the MP3's own byte count says so; the words-per-minute guess says
+     that instead. */
+  function lengthLine(vo) {
+    if (vo.seconds != null) {
+      const target = spotSeconds();
+      const against = target ? ` against a :${String(target).padStart(2, "0")} spot` : "";
+      return `${vo.seconds}s of narration${against}, from the byte count of the`
+        + ` MP3 that came back${vo.speed > 1 ? ` (read at ${Number(vo.speed).toFixed(2)}×)` : ""}.`;
+    }
+    return `About ${vo.duration_estimate}s of narration — a words-per-minute`
+      + ` estimate of the script, not a reading of a file.`;
+  }
+
+  function spotSeconds() { return Number(projectLength) || 0; }
+
+  /* The offer, and — once it has been taken — what was done and how to keep
+     it. Unlike radio, approving here does not leave anything to file: the
+     take is generated and stored in one press, so the save options are that
+     it IS the track the render will use, and a way back to the pace before. */
+  function drawSpeedOffer(sug, usedRate) {
+    const box = document.getElementById("voice-fit");
+    if (!box) return;
+    const bits = [];
+    if (usedRate > 1) {
+      bits.push(`<p class="cb-hint"><strong>Read at ${Number(usedRate).toFixed(2)}×.</strong>
+        This take is saved and is the one the render puts on the timeline. The voice
+        read the words at the new pace rather than the file being played faster, so
+        nothing shifted in pitch.</p>`);
+      if (priorSpeed != null && Number(priorSpeed) !== Number(usedRate)) {
+        bits.push(`<button type="button" class="cb-btn cb-btn-sm" id="voice-speed-reset">Back to
+          ${Number(priorSpeed).toFixed(2)}× (another paid take)</button>`);
+      }
+    }
+    if (sug && sug.available === false && sug.reason) {
+      bits.push(`<p class="cb-hint">${CB.escapeHtml(sug.reason)}</p>`);
+    } else if (sug && sug.needed && sug.speed) {
+      bits.push(`<p class="cb-hint cb-fit-warn">${CB.escapeHtml(sug.note)}</p>
+        <button type="button" class="cb-btn cb-btn-sm" id="voice-speed-apply"
+          data-speed="${sug.speed}">Record it again at ${sug.speed.toFixed(2)}× and fit the spot</button>`);
+    } else if (sug && sug.needed) {
+      // Past the ceiling there is no rate to offer, and the note says how much
+      // has to come out of the script instead.
+      bits.push(`<p class="cb-hint cb-fit-warn">${CB.escapeHtml(sug.note)}</p>`);
+    }
+    box.innerHTML = bits.join("");
+    const apply = document.getElementById("voice-speed-apply");
+    if (apply) apply.addEventListener("click", () => {
+      priorSpeed = usedRate || 1;
+      makeVoiceover(parseFloat(apply.dataset.speed));
+    });
+    const reset = document.getElementById("voice-speed-reset");
+    if (reset) reset.addEventListener("click", () => {
+      const back = priorSpeed; priorSpeed = null;
+      makeVoiceover(back);
+    });
+  }
+
+  document.getElementById("voice-preview-btn").addEventListener("click", () => {
+    priorSpeed = null;
+    makeVoiceover(null);
   });
 
   // ---------------------------------------------------------------- music

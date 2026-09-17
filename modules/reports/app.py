@@ -561,6 +561,7 @@ def unmapped():
         rows=rows, pending=pending,
         likeness_error=likeness.get("error", ""),
         file_pct=int(round(automap.FUZZY_FILE_SCORE * 100)),
+        aliases=store.campaign_aliases(), alias_file_count=automap.ALIAS_FILE_COUNT,
         days=days, shape=store.RENAME_SHAPE,
         products=products.catalog(),
         defaults=products.DEFAULT_PRODUCT_FOR_PLATFORM,
@@ -599,6 +600,9 @@ def map_campaign():
     except ValueError as exc:
         return redirect(back + "?error=" + str(exc).replace(" ", "+"))
     moved = before is not None and before.get("client") != row.client
+    # A person's filing teaches what this campaign calls the client.
+    automap.learn(f.get("campaign_name") or row.display_name or "", client=row.client,
+                  client_name=client_name or row.client_name or "", by=actor_name())
     # client= so the mapping lands on that client's 360 activity.
     _log("campaign_mapped", client=client_name or client_key,
          client_key=row.client, platform=row.platform,
@@ -643,6 +647,11 @@ def confirm_mapping():
     if row is None:
         return redirect(back + "?error=That+campaign+is+not+mapped.")
     name = row.client_name or row.client
+    try:
+        taught_from = (store.campaign_map(row.platform, row.account_id, row.campaign_id) or {}).get("campaign_name") or ""
+    except Exception:                  # noqa: BLE001 - a lesson is not the confirmation
+        taught_from = ""
+    automap.learn(taught_from, client=row.client, client_name=name, by=actor_name())
     _log("campaign_confirmed", client=name, client_key=row.client,
          platform=row.platform, campaign_id=row.campaign_id, product=row.product or None,
          detail=f"{store.platform_label(row.platform)} campaign {row.campaign_id} confirmed "
@@ -665,6 +674,7 @@ def refuse_mapping():
     if gone is None:
         return redirect(back + "?error=That+campaign+is+not+mapped.")
     name = gone["client_name"] or gone["client"]
+    automap.forget(gone["campaign_name"], client=gone["client"], client_name=name)
     _log("campaign_refused", client=name, client_key=gone["client"],
          platform=gone["platform"], campaign_id=gone["campaign_id"],
          product=gone["product"] or None,
@@ -675,6 +685,20 @@ def refuse_mapping():
         client_view.forget(token)
     return redirect(url_for("unmapped") + "?saved=refused" if f.get("back") != "client"
                     else back + "?saved=refused")
+
+
+@app.route("/unmapped/alias/forget", methods=["POST"])
+def forget_alias():
+    """Forget one learned name for one client. The queue's Forget button."""
+    f = request.form
+    alias, client = (f.get("alias") or "").strip(), (f.get("client") or "").strip()
+    if not (alias and client):
+        return redirect(url_for("unmapped") + "?error=Which+alias%3F")
+    if not store.forget_alias(alias, client):
+        return redirect(url_for("unmapped") + "?error=That+alias+is+not+on+file.")
+    _log("campaign_alias_forgotten", client=f.get("client_name") or client, client_key=client,
+         detail=f"the learned campaign name {alias!r} for {f.get('client_name') or client} was forgotten")
+    return redirect(url_for("unmapped") + "?saved=forgotten#aliases")
 
 
 @app.route("/api/clients")

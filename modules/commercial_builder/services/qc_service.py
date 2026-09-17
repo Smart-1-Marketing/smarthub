@@ -419,17 +419,61 @@ def _join(numbers):
 
 
 def _check_voice_fits(project_dict):
+    """Does the narration fit the spot -- measured where a take exists.
+
+    The word count is the proxy, and it was the only reading here. That is the
+    right answer before a take exists and the wrong one after: 95 words read
+    briskly can land inside a :30 and 70 read slowly can miss it, and the
+    number that decides is the length of the file going on the timeline.
+    `hub/radio_spec.qc()` draws the line in as many words -- word count is "a
+    warning, because the mix length above is the real constraint and this is
+    the proxy for it before one exists".
+
+    What makes it worth measuring here rather than only noting is what an
+    overrun actually does. `creatomate_service.build_source` puts the voice on
+    as one element at `time: 0` with **no duration**, in a composition whose
+    length is the spot's, so a long read is not reported over -- it is cut off
+    at the end, which is where the phone number and the address are. Nothing
+    errors and the render succeeds.
+
+    So a measured take that fits passes even on an off-target word count, and
+    one that runs past the slot fails and says what would be lost. With no
+    take, the word count answers exactly as before.
+    """
     script = project_dict.get("script") or {}
+    music = project_dict.get("music") or {}
     length = project_dict.get("length_seconds")
     wc = script.get("word_count")
+    lo, hi = VO_WORD_TARGETS.get(length, (0, 10_000))
+
+    seconds = music.get("voice_seconds") if music.get("voice_measured") else None
+    if seconds is not None and length:
+        over = round(float(seconds) - float(length), 2)
+        pace = (f" The take was read at {float(music['voice_speed']):.2f}x."
+                if float(music.get("voice_speed") or 1.0) > 1.0 else "")
+        if over <= MUSIC_LENGTH_TOLERANCE_S:
+            words = (f" {wc} words." if wc is not None else "")
+            return {"passed": True,
+                    "message": (f"The saved narration runs {seconds}s against a "
+                                f":{length:02d} spot, inside "
+                                f"±{MUSIC_LENGTH_TOLERANCE_S:g}s.{words}{pace}")}
+        return {"passed": False,
+                "message": (f"The saved narration runs {seconds}s — {over}s past "
+                            f"the :{length:02d} spot. The voice track has no "
+                            "duration of its own on the timeline, so the render "
+                            "cuts it off at the end rather than running long, "
+                            "and the end is where the call to action is. Record "
+                            f"it again at a brisker pace, or cut the script.{pace}")}
+
     if wc is None:
         return {"passed": False, "message": "No script generated yet."}
-    lo, hi = VO_WORD_TARGETS.get(length, (0, 10_000))
     ok = lo <= wc <= hi
     return {"passed": ok,
-            "message": f"Narration is {wc} words (target {lo}-{hi})." if ok else
-                       f"Narration is {wc} words — outside the {lo}-{hi} target for :{length:02d}, "
-                       f"will likely feel rushed or drag."}
+            "message": (f"Narration is {wc} words (target {lo}-{hi}). No take has "
+                        "been produced yet, so this is the word count rather than "
+                        "a length." if ok else
+                        f"Narration is {wc} words — outside the {lo}-{hi} target for :{length:02d}, "
+                        f"will likely feel rushed or drag.")}
 
 
 def _check_cta(project_dict, client_dict, scenes=()):
