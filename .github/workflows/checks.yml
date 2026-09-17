@@ -2657,6 +2657,13 @@ jobs:
         if: matrix.group == 5
         run: python3 test_reports_backfill.py
 
+      # A copy of the landed rows: one file per platform-month, rewritten
+      # only when it changed, restore by upsert, and the two indexes the
+      # live fact table gets at boot.
+      - name: Backup and restore of the fact table
+        if: matrix.group == 5
+        run: python3 test_reports_backup.py
+
       # SmartForecast is a stateful public experience: verify lifecycle rules,
       # immutable history, public embeds, and Render disk recovery together.
       - name: GA4 unassigned traffic diagnostics and usage
@@ -4055,6 +4062,7 @@ jobs:
                    test_reports_confirmations.py test_reports_quarantine.py \
                    test_reports_reconcile.py test_reports_bing.py test_reports_groundtruth.py \
                    test_reports_amazon_dsp.py test_reports_backfill.py test_reports_callrail.py \
+                   test_reports_backup.py \
                    test_v2_performance.py test_reports_exec_summary.py \
                    test_reports_map_reads.py; do
             echo "== $f (postgres)"; python3 "$f" || exit 1

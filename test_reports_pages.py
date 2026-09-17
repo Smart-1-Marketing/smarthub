@@ -120,6 +120,7 @@ check("the module serves the staff screens, the picker's search and the client's
               "/callrail-check",
               "/quarantine", "/quarantine/decide",
               "/reconcile", "/reconcile/run", "/refresh/x", "/backfill/x", "/backfill/x/nightly",
+              "/backup", "/backup/restore",
               "/pacing", "/pacing.csv", "/cost", "/cost.csv",
               "/api/clients", "/health", "/client/x", "/client/x/campaign", "/client/x/link", "/client/x/push",
               "/client/x/summary", "/client/x/summary/draft",

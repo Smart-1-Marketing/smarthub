@@ -45,7 +45,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 import secrets
 
-from sqlalchemy import (JSON, BigInteger, Boolean, Column, Date, DateTime,
+from sqlalchemy import (JSON, BigInteger, Boolean, Column, Date, DateTime, Index,
                         Integer, Numeric, String, Text, and_, func, or_)
 from sqlalchemy.orm import declarative_base
 
@@ -195,6 +195,18 @@ class AdPerfDaily(Base):
     extras_json = Column(JSON, default=dict)
     source = Column(String(20), default="native")
     synced_at = Column(DateTime(timezone=True), default=now)
+
+    # The key covers a read by platform and account. Two reads it does not
+    # cover, measured on the live table before these existed: "every
+    # platform since a date" (the unmapped list, the automap's recent spend)
+    # and "one platform over a date range" (the reconcile's month, the
+    # quarantine's neighbors, the health reading), each a scan of the whole
+    # table. Declared here so a new table gets them from create_all(), and
+    # in _LATE_INDEXES so a live table gets them at boot.
+    __table_args__ = (
+        Index("ix_reports_ad_perf_daily_date", "date"),
+        Index("ix_reports_ad_perf_daily_platform_date", "platform", "date"),
+    )
 
     @property
     def extras(self) -> dict:
@@ -616,6 +628,49 @@ _LATE_COLUMNS = (
 )
 
 
+# Indexes added after their table first shipped. create_all() creates a
+# missing TABLE with its indexes and never adds an index to an existing one,
+# the same gap as the columns above. ``CREATE INDEX IF NOT EXISTS`` on both
+# Postgres and SQLite; a race with the other worker is swallowed the same
+# way, and index_status() says what the live table actually carries.
+_LATE_INDEXES = (
+    ("reports_ad_perf_daily", "ix_reports_ad_perf_daily_date", "(date)"),
+    ("reports_ad_perf_daily", "ix_reports_ad_perf_daily_platform_date", "(platform, date)"),
+)
+
+
+def _add_missing_indexes() -> None:
+    from sqlalchemy import inspect as _inspect, text as _text
+    inspector = _inspect(engine)
+    for table, name, columns in _LATE_INDEXES:
+        try:
+            have = {i["name"] for i in inspector.get_indexes(table)}
+        except Exception:                           # noqa: BLE001 - no table yet
+            continue
+        if name in have:
+            continue
+        try:
+            with engine.begin() as conn:
+                conn.execute(_text(f"CREATE INDEX IF NOT EXISTS {name} ON {table} {columns}"))
+        except Exception:                           # noqa: BLE001 - raced by the other worker
+            pass
+
+
+def index_status() -> list[dict]:
+    """What the live fact table carries, index by index: ``{"name",
+    "columns", "present"}`` for each index the model declares. A reading,
+    not the declaration -- the two can differ on a table that shipped
+    before the index did."""
+    from sqlalchemy import inspect as _inspect
+    try:
+        have = {i["name"]: list(i.get("column_names") or [])
+                for i in _inspect(engine).get_indexes("reports_ad_perf_daily")}
+    except Exception:                               # noqa: BLE001 - no table, no indexes
+        have = {}
+    return [{"name": name, "columns": columns, "present": name in have}
+            for _table, name, columns in _LATE_INDEXES]
+
+
 def _add_missing_columns() -> None:
     from sqlalchemy import inspect as _inspect, text as _text
     inspector = _inspect(engine)
@@ -641,6 +696,7 @@ def _create_tables() -> str:
     err = create_all_metadata(Base.metadata, DB_URL)
     if not err:
         _add_missing_columns()
+        _add_missing_indexes()
     return err
 
 

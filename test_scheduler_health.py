@@ -294,8 +294,9 @@ check("NO row carries the password itself",
 print("\n-- the background lane")
 import threading as _threading                                    # noqa: E402
 
-check("the three long jobs are on the lane",
-      sched.BACKGROUND_JOBS == frozenset({"google_index", "reports_native", "reports_backfill"}), sched.BACKGROUND_JOBS)
+check("the four long jobs are on the lane",
+      sched.BACKGROUND_JOBS == frozenset({"google_index", "reports_native", "reports_backfill", "reports_backup"}),
+      sched.BACKGROUND_JOBS)
 
 _gate = _threading.Event()
 _ran = []

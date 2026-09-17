@@ -167,6 +167,7 @@ def index():
         native=_native_status(),
         refresh=_refresh_note(),
         history=_history_rows(),
+        backups=_backup_status(),
         rate_card=products.rate_card_products(),
         health=_health_by_platform(),
         provider=_provider_gate(),
@@ -307,6 +308,51 @@ def backfill_nightly(platform: str):
     _log("reports_backfill_nightly", detail=f"{'on' if on else 'off'} for {', '.join(names)}")
     return redirect(url_for("index") + "?saved="
                     + quote(f"Nightly history {'on' if on else 'off'} for {', '.join(names)}.") + "#history")
+
+
+def _backup_status() -> dict:
+    """The Backups card, or {} -- the index renders without it."""
+    try:
+        from . import backup
+        return backup.status()
+    except Exception:                      # noqa: BLE001
+        app.logger.exception("reports: backup status could not be read")
+        return {}
+
+
+@app.route("/backup", methods=["POST"])
+def backup_run():
+    """Back up now: the landed rows to the disk and off it, in the
+    background. The nightly job runs the same code."""
+    from urllib.parse import quote
+    try:
+        from hub import scheduler
+        res = scheduler.backup_now(actor=actor_name())
+    except Exception as exc:                   # noqa: BLE001
+        app.logger.exception("reports: backup could not start")
+        return redirect(url_for("index") + "?error="
+                        + quote(f"The backup could not start ({type(exc).__name__}).") + "#backups")
+    _log("reports_backup", detail=("started" if res["started"] else "refused: " + res["note"]))
+    key = "saved" if res["started"] else "error"
+    return redirect(url_for("index") + f"?{key}=" + quote(res["note"]) + "#backups")
+
+
+@app.route("/backup/restore", methods=["POST"])
+def backup_restore():
+    """Put the copy back. Adds and updates, never deletes, so it is safe
+    against a table that still has its rows; still a POST with its own
+    button, because it is minutes of writes."""
+    from urllib.parse import quote
+    try:
+        from hub import scheduler
+        res = scheduler.backup_now(actor=actor_name(), restore=True)
+    except Exception as exc:                   # noqa: BLE001
+        app.logger.exception("reports: restore could not start")
+        return redirect(url_for("index") + "?error="
+                        + quote(f"The restore could not start ({type(exc).__name__}).") + "#backups")
+    _log("reports_restore", detail=("started" if res["started"] else "refused: " + res["note"]))
+    key = "saved" if res["started"] else "error"
+    return redirect(url_for("index") + f"?{key}=" + quote(res["note"]) + "#backups")
 
 
 def _native_status() -> list[dict]:
