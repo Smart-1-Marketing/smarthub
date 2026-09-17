@@ -1194,3 +1194,41 @@ enough to fix this goes wrong in the other direction just as quietly.
 `female-18-34` is a working calculator with no page. `test_calculator_embeds.py`
 names both as known absences rather than leaving them implicit, so building one
 makes the assertion the reminder to point the page at it.
+
+**A capped global read, filtered in Python, silently drops the OLDEST rows —
+and drops them from one client at a time.** Every campaign-map reading in
+`modules/reports` used to go through `store.mapped_campaigns(limit=N)`, which
+orders by `mapped_at` descending and truncates. Callers then filtered that
+list: `[m for m in mapped_campaigns(limit=10000) if m["client"] == c]` on the
+pacing board, in `client_card.summary`, in `v2_tools.client_performance`; `if
+(platform, account_id, campaign_id) in touched` on the CSV upload's cache
+clear and in `normalize._log_clients`; `if m["pending"]` in
+`pending_mappings`. Every one of them is correct until the map table passes
+N, and then wrong about the longest-standing client only, which is the client
+whose numbers somebody has been reading for a year.
+
+It goes wrong asymmetrically, which is what made it worth a file of its own.
+`facts_for` queries **by client**, so the spend keeps coming back; only the
+campaign list truncates. The money reads right and the campaign count reads
+zero. On the pacing board that combination is `band='unmapped'`,
+`actual_to_date=0.00` for a funded, spending line — printed on a page a
+client's rep reads, with nothing logged and nothing raised.
+`pending_mappings` had the same shape one layer up: a confirmation queue
+whose oldest items fall off it as the book grows, while `pending_count()`,
+which counts in SQL, goes on reporting them.
+
+The fix is not a bigger cap. `store.campaign_maps_for(clients)` filters on the
+indexed `CampaignMap.client` in the database; `store.campaign_map(platform,
+account_id, campaign_id)` is a primary-key `db.get`; `store.campaign_maps_by_key(keys)`
+queries the touched keys in chunks; `pending_mappings` filters on
+`confirmed_at IS NULL` in SQL. `mapped_campaigns(limit=N)` stays, with a
+docstring saying never to filter it by client — it is the bounded read for the
+recent-activity list on `/reports/mappings`, which genuinely wants the newest N.
+
+`test_reports_map_reads.py` reproduces the truncation rather than asserting it
+from the source, asserts the pacing band that follows from it, and holds the
+guard that matters: it replaces `store.mapped_campaigns` with a **counting
+spy** and asserts no filtering reader reaches it. A spy rather than a raise
+because `pacing._overlay_pending` catches every exception on purpose — a guard
+that raised would be swallowed there and the test would pass on the broken
+code.

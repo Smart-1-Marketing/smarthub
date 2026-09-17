@@ -370,12 +370,11 @@ def quarantine_decide():
     if row["status"] == "accepted":
         # The accepted row may be a confirmed campaign's, and the client's
         # page holds its answer for a quarter of an hour per worker.
-        for m in store.mapped_campaigns(limit=5000):
-            if (m["platform"], m["account_id"], m["campaign_id"]) == \
-                    (row["platform"], row["account_id"], row["campaign_id"]):
-                link = store.link_for_client(m["client"])
-                if link:
-                    client_view.forget(link.token)
+        m = store.campaign_map(row["platform"], row["account_id"], row["campaign_id"])
+        if m is not None:
+            link = store.link_for_client(m["client"])
+            if link:
+                client_view.forget(link.token)
     return redirect(back + f"?saved={row['status']}")
 
 
@@ -433,11 +432,10 @@ def upload_csv():
     # A written row may be a confirmed campaign's, and the client's page
     # holds its answer for a quarter of an hour per worker.
     touched = {(r["platform"], r["account_id"], r["campaign_id"]) for r in parsed["rows"]}
-    for m in store.mapped_campaigns(limit=5000):
-        if (m["platform"], m["account_id"], m["campaign_id"]) in touched:
-            link = store.link_for_client(m["client"])
-            if link:
-                client_view.forget(link.token)
+    for m in store.campaign_maps_by_key(touched):
+        link = store.link_for_client(m["client"])
+        if link:
+            client_view.forget(link.token)
     held = int(report.get("quarantined") or 0)
     _log("csv_uploaded", platform=platform, filename=name, rows=written,
          quarantined=held, skipped=int(parsed["skipped"]), size=len(data),

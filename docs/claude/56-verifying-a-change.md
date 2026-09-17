@@ -663,6 +663,11 @@ python3 test_reports_exec_summary.py # the summary on a client's dashboard: staf
                                    #   generate it, staff read it, staff save it, and
                                    #   the client's page renders it and can reach no
                                    #   AI call at all
+python3 test_reports_map_reads.py  # how the campaign map is read: by client, by
+                                   #   campaign key, and never by sweeping a capped
+                                   #   global list. Reproduces the truncation itself,
+                                   #   and guards every filtering reader against
+                                   #   reaching mapped_campaigns() again
                                    #   (checks.yml runs all of these a second time
                                    #   against Postgres, through _reports_testdb.py)
 python3 test_periods.py            # the named reporting windows, so no model writes a

@@ -899,8 +899,7 @@ def client_performance(client_name: str, period: str = "last_30",
                         continue
                     seen_prior.add(ident)
                     prior.append(row)
-        campaigns_filed = [m for m in store.mapped_campaigns(limit=10000)
-                           if m["client"] in keys]
+        campaigns_filed = store.campaign_maps_for(keys)
         budget_lines = [b for b in store.budget_lines(limit=5000)
                         if b["client"] in keys
                         and (b.get("status") or "active") == "active"]

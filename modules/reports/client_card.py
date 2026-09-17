@@ -231,7 +231,7 @@ def summary(names, url: str = "", today: date | None = None) -> dict:
     try:
         filed = _filed()
         keys = candidate_keys(names, url, filed)
-        campaigns = [m for m in store.mapped_campaigns(limit=10000) if m["client"] in keys]
+        campaigns = store.campaign_maps_for(keys)
         lines = [b for b in store.budget_lines(limit=5000)
                  if b["client"] in keys and (b.get("status") or "active") == "active"]
         links = [l for l in (store.link_for_client(k) for k in keys) if l is not None]

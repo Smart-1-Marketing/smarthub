@@ -229,7 +229,6 @@ def compute(today: date | None = None, client: str | None = None) -> list[dict]:
     month_start = today.replace(day=1)
     since = min(month_start, today - timedelta(days=8))
     last_sync = store.last_synced_at()
-    all_maps = store.mapped_campaigns(limit=10000)
     out = []
     facts_cache: dict[str, list] = {}
     maps_cache: dict[str, list] = {}
@@ -245,8 +244,13 @@ def compute(today: date | None = None, client: str | None = None) -> list[dict]:
             # counted apart so the board can say "unmapped, 2 waiting for
             # confirmation" rather than "unmapped" about a line whose
             # campaigns are sitting one press away.
-            maps_cache[c] = [m for m in all_maps if m["client"] == c and not m.get("pending")]
-            pending_cache[c] = [m for m in all_maps if m["client"] == c and m.get("pending")]
+            # Per client, filtered in the database. A global read capped at
+            # N and filtered here drops this client's OLDEST mappings once
+            # the book passes N -- and a line whose campaigns aged out reads
+            # `unmapped` while facts_for still returns their spend.
+            filed = store.campaign_maps_for(c)
+            maps_cache[c] = [m for m in filed if not m.get("pending")]
+            pending_cache[c] = [m for m in filed if m.get("pending")]
         row = compute_line(line, today, maps_cache[c], facts_cache[c],
                            history=store.band_history(line["id"]), last_sync=last_sync)
         if row is not None:
@@ -373,7 +377,10 @@ def _overlay_pending(rows: list[dict]) -> None:
     a snapshot is the hourly run's answer. Never raises -- a board that
     cannot count the pending ones still draws the pacing."""
     try:
-        pending = [m for m in store.mapped_campaigns(limit=10000) if m.get("pending")]
+        # Only the clients on the board, so this cannot truncate one of them
+        # away the way a global capped read can.
+        pending = [m for m in store.campaign_maps_for({r["client"] for r in rows})
+                   if m.get("pending")]
     except Exception:                                   # noqa: BLE001 - the store refused
         pending = None
     for r in rows:
