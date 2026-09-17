@@ -2578,6 +2578,14 @@ REGISTRY: list[Help] = [
        "still be marked, so a row nobody can close does not read as "
        "waiting for ever."),
 
+    # ---------------- CamHub ----------------
+    _h("camhub.index", "Every feed, and when it last answered",
+       "Each cam page lists its data sources with the last successful read "
+       "and the last error. Green is inside the tile's tolerance, amber is "
+       "stale but still served with its timestamp, red has collapsed off the "
+       "page. A source that is red here is why a tile is missing there; "
+       "Refresh now pulls every feed at once."),
+
     # ---------------- SmartForecast ----------------
     _h("smartforecast.dashboard.status", "What the live status means",
        "The winning trigger is the highest-priority eligible rule after "

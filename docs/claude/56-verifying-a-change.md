@@ -55,6 +55,12 @@ python3 test_scheduler_health.py   # the jobs working, not just the loop alive:
                                    #   credential it was written to find
 python3 test_smartforecast.py      # weather lifecycle rules, immutable history,
                                    #   public embeds and Render disk recovery
+python3 test_camhub.py             # CamHub: adapters normalized from recorded
+                                   #   shapes (no socket), a tile with no data
+                                   #   absent rather than dashed, the pool delta
+                                   #   held until the datum is confirmed, a failed
+                                   #   fetch keeping the last good payload, the
+                                   #   cam page public and indexable
 python3 test_smartforecast_store.py # the move off its own SQLite file: a forward
                                    #   foreign key SQLite resolves lazily and
                                    #   Postgres refuses, a generated-id sequence

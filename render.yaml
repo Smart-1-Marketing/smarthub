@@ -452,6 +452,14 @@ services:
         value: "120"
       - key: SMARTFORECAST_ENGAGEMENT_RETENTION_DAYS
         value: "400"
+      # ---- CamHub (/tools/camhub) ----
+      # Every feed it calls (NWS, USGS, Ohio BeachGuard, NOAA buoys and
+      # tides, the Census geocoder) is free and keyless. The one thing they
+      # want is an identifying User-Agent with a contact address; NWS
+      # throttles a call without one. Optional: the code sends a working
+      # default when this is unset. Set it to name a mailbox somebody reads.
+      - key: CAMHUB_USER_AGENT
+        sync: false
       # Background jobs — exactly one worker runs them.
       - key: HUB_SCHEDULER
         value: "true"

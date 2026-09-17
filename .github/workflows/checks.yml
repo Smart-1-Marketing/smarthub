@@ -3630,6 +3630,16 @@ jobs:
       - name: What this Hub signs with
         if: matrix.group == 7
         run: python3 test_signing.py
+      # CamHub (modules/camhub): the free-API adapters normalized from
+      # recorded shapes with no socket, the tile that collapses rather than
+      # showing a dash, "above normal pool" held back until the datum is
+      # confirmed, a failed fetch keeping the last good payload, the cam
+      # page public and indexable while the staff screens are neither, and
+      # the refresh job registered in hub/scheduler.py rather than only
+      # written.
+      - name: CamHub adapters, collapse rule, verdict, cache and page
+        if: matrix.group == 7
+        run: python3 test_camhub.py
       # The owner-only QuickBooks check reconciliation tool: name
       # normalization, match scoring, allocation suggestions (an exact
       # balance, the pre-late-fee principal flagged rather than silently
