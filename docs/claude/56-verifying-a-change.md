@@ -442,6 +442,18 @@ python3 test_radio_parity.py       # Radio Promo's half of that list: the :10
                                    #   named script panel run on the copy --
                                    #   where certainty rather than severity
                                    #   decides what may refuse a billed record
+python3 test_fan_radio_suite.py    # Fan Radio's finished work reaching Smart 1
+                                   #   Suite -- the last recorded-nowhere
+                                   #   difference between the two builders.
+                                   #   Through hub/suite_opportunity, not a
+                                   #   third GHL webhook (asserted off the AST,
+                                   #   because the module explains the old hook
+                                   #   in prose); what the CLIENT approved on
+                                   #   the share page rather than a staff
+                                   #   press; never the naked read behind an
+                                   #   unrendered mix; never a URL nobody can
+                                   #   open; and a second press revising one
+                                   #   opportunity rather than opening two
 python3 test_radio_presets.py      # the reusable-read library: one store both
                                    #   builders offer rather than a second copy
                                    #   in each, the {business} placeholder
