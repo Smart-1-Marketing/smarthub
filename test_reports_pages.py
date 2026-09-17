@@ -115,7 +115,7 @@ for rule in reports_app.app.url_map.iter_rules():
 check("the module serves the staff screens, the picker's search and the client's page",
       sorted({p for p, _ in ROUTES}),
       sorted(["/", "/unmapped", "/unmapped/confirm", "/unmapped/refuse",
-              "/markup", "/budgets", "/budgets/1", "/provider-check", "/provider-check/confirm",
+              "/markup", "/budgets", "/budgets/1", "/provider-check", "/provider-check/x", "/provider-check/confirm",
               "/provider-check/withdraw", "/audiogo-check", "/groundtruth-check", "/amazon-check",
               "/quarantine", "/quarantine/decide",
               "/reconcile", "/reconcile/run",

@@ -1197,6 +1197,24 @@ REGISTRY: list[Help] = [
        "spend as it would be filed after the divisor, and pressed Confirm. "
        "The confirmation is against the map as it stood: change a column or "
        "the divisor and it reads as superseded until somebody looks again."),
+    _h("reports.provider.page", "One page per provider, read off the pull",
+       "The field map here is read from the module that does the pull -- "
+       "audiogo_map.py, amazon_dsp.py's FIELD_MAP, the StackAdapt query, the "
+       "Google GAQL, the CSV alias tables -- so a correction there is a "
+       "correction here. 'Placeholder until confirmed' means no live answer "
+       "has been compared to the map yet; the live check page, where one "
+       "exists, is where that comparison is made. The Render list is what "
+       "has to be true, never what is missing: nothing here can read the "
+       "service's environment or the env group linked to it."),
+    _h("reports.provider.unread", "Two kinds of not read",
+       "Answered and not read is measured: the keys an endpoint returned on "
+       "a row that no line of the map names, or the columns on Windsor's "
+       "raw table the map does not read. Documented and not read is a "
+       "transcription from the platform's own reference, named per block, "
+       "and it is what the document says rather than what an endpoint "
+       "answered. A field in either list is not lost by accident: the note "
+       "under the box says why the pull leaves it, so the next person does "
+       "not add one the module refused on purpose."),
     _h("reports.provider.status", "Resolved, table missing, or columns missing",
        "The column names in provider_map.py are placeholders until the "
        "first sync lands. A platform resolves when its table is in the "

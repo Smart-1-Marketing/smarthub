@@ -1,0 +1,106 @@
+{% extends "_reports_base.html" %}
+{% block title %}{{ pg.label if pg else 'Unknown provider' }} · Provider check · Reports{% endblock %}
+{% block heading %}{{ pg.label if pg else 'Unknown provider' }}{% endblock %}
+{% block lede %}{% if pg %}The field map the {{ 'native pull' if pg.native else 'provider normalize' }} expects
+  from {{ pg.label }}, what the platform documents that nothing here reads, and what has to be true
+  on Render for the pull to run. The map is read off the module that does the pull, so a correction
+  there is a correction here.{% else %}No provider by that name. The submenu lists every one the Reports module knows.{% endif %}{% endblock %}
+
+{% block style %}
+  .env-t td:first-child { white-space: nowrap; }
+  .req { font-size: 11px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; }
+{% endblock %}
+
+{% block body %}
+{% if pg %}
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>How the Hub reads {{ pg.label }} {{ help_dot('reports.provider.page') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">
+      {% if pg.native %}<span class="s1d-pill info">native pull</span>{% else %}<span class="s1d-pill">via the managed provider's table</span>{% endif %}
+      {% if pg.status %}{% if pg.status.connected %}<span class="s1d-pill ok">connected</span>{% else %}<span class="s1d-pill warn">not connected</span>{% endif %}{% endif %}
+    </span></div>
+  {% if pg.how %}
+  <div class="s1d-kv"><b>The call</b><span>{{ pg.how.line }}
+    {% if pg.how.verified %}<span class="s1d-pill ok">shape confirmed by a live answer</span>{% else %}<span class="s1d-pill warn">shape not yet confirmed by a live answer</span>{% endif %}</span></div>
+  <div class="s1d-kv"><b>Reference</b><span class="mono">{{ pg.how.docs }}</span></div>
+  {% else %}
+  <div class="s1d-kv"><b>The call</b><span>None from here. Windsor writes this platform's raw table into the
+    reports database and the hourly normalize reads it through <span class="mono">provider_map.py</span>;
+    the <a href="/reports/provider-check">overview</a> says whether the table is there and the map resolves.</span></div>
+  {% endif %}
+  {% if pg.status %}
+  <div class="s1d-kv"><b>Status now</b><span>{{ pg.status.line }}
+    {% if pg.status.missing %}<span class="s1d-muted">Unset by the pull's own reading: <span class="mono">{{ pg.status.missing|join(', ') }}</span>.</span>{% endif %}</span></div>
+  {% endif %}
+  {% if pg.check_page %}
+  <div class="s1d-kv"><b>Live check</b><span><a href="{{ pg.check_page }}">{{ pg.label }} check</a> calls the endpoint for yesterday and prints the raw keys it answered with.</span></div>
+  {% endif %}
+</div>
+
+<div class="s1d-grid">
+  <div class="s1d-card">
+    <div class="s1d-cardhead"><h2>Field map expected</h2>
+      <span class="s1d-muted">{% if pg.map.placeholder %}<span class="s1d-pill warn">placeholder until confirmed</span>{% else %}<span class="s1d-pill ok">read from a live answer</span>{% endif %}</span></div>
+    <div class="s1d-scroll">
+    <table class="s1d-t">
+      <thead><tr><th>Fact column</th><th>{{ 'Response field' if pg.native else "Windsor column" }}</th></tr></thead>
+      <tbody>
+      {% for r in pg.map.rows %}
+        <tr><td>{{ r.fact }}</td><td class="mono">{{ r.field if r.field else '(not reported)' }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <p class="s1d-hint">Read from <span class="mono">{{ pg.map.source }}</span>.</p>
+  </div>
+
+  <div class="s1d-card">
+    <div class="s1d-cardhead"><h2>Windsor's copy of the same platform</h2>
+      <span class="s1d-muted">{% if pg.table.present %}<span class="s1d-pill ok">table present</span>{% else %}<span class="s1d-pill warn">table not in the schema yet</span>{% endif %}</span></div>
+    {% if pg.windsor %}
+    <div class="s1d-kv"><b>Raw table</b><span class="mono">{{ pg.windsor.table }}</span></div>
+    <div class="s1d-kv"><b>Columns the map reads</b><span class="mono">{{ pg.windsor.columns|join(', ') }}</span></div>
+    <div class="s1d-kv"><b>Divide raw cost by</b><span>{{ pg.windsor.spend_divisor }}</span></div>
+    <div class="s1d-kv"><b>Re-read days</b><span>{{ pg.windsor.restate_days }}</span></div>
+    <p class="s1d-hint">{% if pg.native %}A native row wins over the provider's for the same campaign-day; the table is the fallback and the reconcile figure.{% else %}The only feed this platform has. Confirm the map on the <a href="/reports/provider-check">overview</a> once the table has landed.{% endif %}</p>
+    {% endif %}
+  </div>
+</div>
+
+{% with unread=none, documented=pg.documented, requested_unread=pg.map.requested_unread, table=pg.table %}
+  {% include "_reports_unread_fields.html" %}
+{% endwith %}
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>What has to be true on Render</h2>
+    <span class="s1d-muted">named, with what unset costs</span></div>
+  {% if pg.env %}
+  <div class="s1d-scroll">
+  <table class="s1d-t env-t">
+    <thead><tr><th>Variable</th><th></th><th>If it stays unset</th></tr></thead>
+    <tbody>
+    {% for e in pg.env %}
+      <tr><td class="mono">{{ e.name }}</td>
+        <td>{% if e.required %}<span class="s1d-pill bad req">required</span>{% else %}<span class="s1d-pill req">optional</span>{% endif %}</td>
+        <td>{{ e.unset }}{% if e.source %} <span class="s1d-muted">(source: {{ e.source }})</span>{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="s1d-hint">This is what has to be true, not what is missing: nothing here can read the
+    service's environment or the env group linked to it, and a value already arriving from the
+    group is overridden by one added to the service. Check the group first. The pull's own reading
+    of what is unset is the <b>Status now</b> line above{% if pg.status and pg.status.missing %}, which names
+    <span class="mono">{{ pg.status.missing|join(', ') }}</span>{% endif %}.</p>
+  {% else %}
+  <p class="s1d-hint">Nothing. This platform has no native pull; its rows arrive through the managed
+    provider's table, whose schema is named by <span class="mono">REPORTS_PROVIDER_SCHEMA</span> on the
+    <a href="/reports/provider-check">overview</a>.</p>
+  {% endif %}
+</div>
+{% else %}
+<div class="s1d-card">
+  <p class="empty">No provider named <span class="mono">{{ unknown }}</span>.</p>
+</div>
+{% endif %}
+{% endblock %}
