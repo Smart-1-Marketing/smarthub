@@ -676,6 +676,42 @@ python3 test_ask_recipes.py        # the recipe library and every placement its 
 python3 test_ci_gate.py            # the gate runs every check a person runs
 ```
 
+### One command: `python3 tools/preflight.py`
+
+```bash
+python3 tools/preflight.py            # the sweep, plus the gateway's own tests
+python3 tools/preflight.py --merge    # ...and the three merge-only checks
+python3 tools/preflight.py --only-merge   # just those three, after resolving
+python3 tools/preflight.py --list     # what it would run, and nothing else
+```
+
+It exits with the number of failing checks, so `&&` works, and it runs the
+same tools in the same order as the list above rather than reimplementing any
+of them. It exists because "I ran the checks" has to mean the same thing
+twice: a sweep somebody assembles by hand is a sweep with whatever they forgot
+missing from it, and all three `--merge` checks below are here because
+something got pushed past exactly that.
+
+**`--merge` is three checks, each earned:**
+
+* **Conflict markers across the whole INDEX** (`git ls-files`, not a directory
+  walk). `git add -A` after a merge stages a conflicted file exactly as it
+  sits, markers and all, and marks it resolved. A grep scoped to the
+  directories somebody expected markers in is a grep with a hole in it -- that
+  is how markers reached `.github/workflows/checks.yml`.
+
+* **Every workflow parses as YAML.** A workflow that does not parse fails
+  INSTANTLY with no jobs and zero duration, and GitHub shows the file path
+  instead of the workflow's name. On a pull request that reads like the
+  workflow simply not being required: `smoke` and CodeQL went green while the
+  entire `checks` workflow had never run.
+
+* **Every workflow file-loop is executed with its command stubbed.** A lost
+  line-continuation inside a `run:` block is still valid YAML. It parses, the
+  job starts, and it silently iterates a shorter list than it names. Counting
+  the filenames in the source and counting what the shell actually iterates
+  are different questions, and only the second is the answer.
+
 ### The MCP gateway's tests are not in the sweep above
 
 `mcp_gateway/` has its own tests and its own workflow

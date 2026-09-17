@@ -109,7 +109,13 @@ Details and the before/after patterns:
 
 ## Verifying a change
 
-Booting the app catches what static analysis misses. The core checks:
+Booting the app catches what static analysis misses.
+
+**`python3 tools/preflight.py` runs the whole sweep as one command**, including
+the `mcp_gateway` unittest modules, which no other sweep reaches. `--merge`
+adds three checks earned after a bad merge — markers across the whole index,
+every workflow parsed as YAML, each workflow file-loop run with its command
+stubbed. Details: `docs/claude/56`. The checks it runs, individually:
 
 ```bash
 python tools/jscheck.py            # every .js file and inline block, via node
