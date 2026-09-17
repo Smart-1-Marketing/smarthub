@@ -80,13 +80,16 @@ SCENARIOS: list[Scenario] = [
             Step("Send the chosen version for approval", "Use Send for Approval on the version you want reviewed.", "The review belongs to that version, so check its output first.")]),
     Scenario(key="google_access.cleanup_review", module="google_access",
         title="Review an inactive Google account scan",
-        goal="Separate measured inactivity from missing evidence before deciding what to clean up.",
-        minutes=4, path="/tools/google-access/qa-inactive/", steps=[
+        goal="Separate measured inactivity from missing evidence, then clear the backlog in batches without acting on a row you cannot see.",
+        minutes=6, path="/tools/google-access/qa-inactive/", steps=[
             Step("Start a fresh scan", "Open Inactive Google Accounts QA and use Update scan. Choose Full rescan only when you need every resource checked live.", "Existing results may describe an earlier scan."),
             Step("Wait for complete evidence", "Read the progress and partial results while connected accounts are scanned.", "A paused, partial or failed scan is not evidence that unseen resources are inactive."),
+            Step("Narrow to the rows you mean", "Each section has a filter over the name, ID, account, Google login and the reason a row was flagged. Type part of any of them to bring one client's resources together.", "The filter decides what a bulk action touches. Select all takes the rows on screen, and a row you ticked before filtering it away leaves the selection rather than being acted on out of sight.", selector="#filterInactive"),
             Step("Check the resource and account", "Review the inactivity evidence for each GA4 property or GTM container.", "A completed GTM scan can list a candidate when linked GA4 activity cannot be confirmed. That is not proof the tag is unused."),
-            Step("Check a GTM tag on its site", "On a GTM row choose Check site. Verify or correct the suggested website, then choose Check and read the result.", "This searches one page's raw HTML for the container ID. It does not run the page or measure traffic; not found is not proof of no use elsewhere."),
-            Step("Decide before confirming", "Confirm the specific resource only when its evidence justifies cleanup.", "GA4 goes to the Analytics trash; GTM container deletion is permanent. This walkthrough does not delete anything.")]),
+            Step("Check GTM tags on their sites", "Check site on a row does one container. Tick several and use Check sites to do them together: every one is listed with the site it would be fetched against, and a container nothing could resolve a site for waits for you to type one.", "This searches each page's raw HTML for the container ID. It does not run the page or measure traffic; not found is not proof of no use elsewhere. A container left blank is not checked at all.", selector="#bulkInactiveCheck"),
+            Step("Skip what you have already judged", "A container whose tag the check found live is never going to be deleted. Skip it, on the row or in bulk, and it stops coming back every scan. A Google login that needs reconnecting cannot be skipped.", "Skipping that login would hide every property behind it and report a clean sweep of accounts nothing looked at. Reconnect it instead.", selector="#bulkReviewSkip"),
+            Step("Decide before confirming", "Delete a row on its own by typing its name, or several at once by typing DELETE and the count the dialog shows you.", "GA4 goes to the Analytics trash; GTM container deletion is permanent. Read the list in the dialog before typing the count. This walkthrough does not delete anything.", selector="#bulkInactiveDelete"),
+            Step("Check what was already done", "Open Cleanup history for every skip, un-skip, site check and deletion made here, with who made it and what Google answered. A failed one is in red with the reason.", "It shows the most recent entries and says so when the stored log is longer. A log it could not read says that rather than showing an empty table.", selector="#historyPanel")]),
 
 
     Scenario(

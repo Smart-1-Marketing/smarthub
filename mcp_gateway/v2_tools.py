@@ -1270,10 +1270,9 @@ def client_ads_findings(client_name: str, platform: str = "google_ads",
         wanted_name = _clean(identity["client"], 200).lower()
 
     try:
-        accounts = [a for a in ads_store.deployed_accounts(limit=500)
+        accounts = [a for a in ads_store.deployed_accounts()
                     if client_card._norm(a.get("client_name") or "") == wanted_name]
-        runs = {r["customer_id"]: r
-                for r in ads_store.latest_optimization_runs(limit=200)}
+        runs = {r["customer_id"]: r for r in ads_store.latest_optimization_runs()}
         overdue_minutes, cadence_measured = ads_status.overdue_after_minutes()
     except Exception as exc:                                # noqa: BLE001
         _audit("get_client_ads_findings", identity, status="unavailable")

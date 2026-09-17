@@ -1279,3 +1279,59 @@ Three tables, three screens, one shape. If you are about to write
 `[x for x in some_read(limit=N) if ...]` or `len(some_read(limit=N))`, the
 question is not whether N is big enough — it is whether the database can do the
 filtering or the counting, and it nearly always can.
+
+**The same shape again outside `modules/reports`, in four more places.** Worth
+reading as one list, because the variations are what make it hard to spot:
+
+- **A cap spent on the wrong noun.** `ads_builder.deployed_accounts()` read
+  `list_proposals(limit=500, status="DEPLOYED")` and deduped down to one row
+  per ACCOUNT. The cap was on proposals, so with two proposals per client it
+  was a cap of roughly 250 accounts — reached at half the number anybody would
+  guess from the call. Past it the longest-standing account was unscanned by
+  the twice-daily sweep, uncounted on a dashboard tile whose own comment
+  worries about reading "as a clean book", missing from Ask SmartHub, and —
+  because every by-key caller fell back to `{"client_name": ""}` on a miss — a
+  scheduled performance report went out **to a real client with a blank client
+  name**. `deployed_accounts()` is uncapped now (and cheaper: three columns
+  rather than the whole campaign blob per proposal), `deployed_account(cid)`
+  is the by-key reading, and its `limit` pages accounts.
+
+- **A cap hidden behind a multiplier.** `latest_optimization_runs(limit=N)`
+  read the newest `limit * 10` RUNS and deduped to one per account, which is
+  correct only while every account scans at the same rate. A handful of busy
+  accounts fill those rows, so the newest run of a QUIET account falls past the
+  end and the panel reads it as never scanned — meaning the account that has
+  gone longest without a scan is the one reported as never having had one. It
+  is a `ROW_NUMBER() OVER (PARTITION BY customer_id …)` now, one row per
+  account in SQL.
+
+- **A cap the callee silently overrides.** `hub/image_audit._page_images`
+  called `archive.recent(limit=2000)`; `recent` clamps its limit to **1000**,
+  so the call asked for 2000, got 1000, and swept at most a fifth of the 5000
+  rows the archive keeps. The job of that sweep is to find images nothing else
+  knows about, so stopping early reports an orphan as filed — while
+  `_attach_page_image` reads the same file uncapped, so an image the audit said
+  was not there attached perfectly well. `archive.all_rows()` is the complete
+  reading.
+
+- **A cap under a check whose job is to catch silence.**
+  `audit.silent_modules` decided "this module has never logged" from
+  `read(limit=5000)`, so a module that logged steadily a year ago and has been
+  quiet since was reported as never having logged at all. A check that cries
+  wolf gets scrolled past, which costs what a silent one costs. It is
+  `SELECT DISTINCT module` now (`audit.modules_seen()`).
+
+And one that was **already right**, worth copying rather than fixing:
+`client_brand.work_index()` is a window too, and it says so — it returns
+`horizon` and `scanned` alongside its rows, and `hub/proposal_promises.py`
+reads them ("a month the log cannot answer for is not a miss"). A bounded read
+that reports its own bound is not this defect. `client_brand.work_log()` is the
+same window WITHOUT that reporting — it returns a bare `count` — and it cannot
+be narrowed the way the others were, because `hub_activity` has `module`,
+`type` and `actor` columns but no `client`. Giving it a horizon, or the column,
+is its own change.
+
+`audit.read()/tail()` now narrow by **actor** in the query, which is what fixed
+`hub/help_center`'s personal inbox: it filtered the newest 2000 rows HUB-WIDE
+by actor, and on a busy day 2000 rows is a few hours, so somebody's own renders
+scrolled out of their own inbox while it reported nothing to show.
