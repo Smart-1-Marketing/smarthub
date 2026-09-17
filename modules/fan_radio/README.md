@@ -235,7 +235,8 @@ this — time compression is how a :32 read makes a :30 log. So the panel offers
 the rate:
 
 * **`hub/radio_spec.speed_suggestion()` works it out**, not the page — same
-  rule as the dB pair. `vo ÷ (slot − lead-in)`, rounded **up** to the
+  rule as the dB pair, and the Radio Ad Creator asks the same function, so
+  neither tool can come to its own answer about how fast is too fast. `vo ÷ (slot − lead-in)`, rounded **up** to the
   hundredth so the mix lands at or inside the slot rather than one rounding
   short of it. The bed's 0.3s lead-in is taken off the runway where there is a
   bed and not where there isn't.
