@@ -129,6 +129,55 @@ check("and there is no second job holding one",
       "\n  deploy:" not in src and "RENDER_DEPLOY_HOOK_URL" not in src,
       "the deploy job is back without this check being reconsidered")
 
+# ---------------------------------------------------------------------------
+# The gate tests the Python the image ships, and builds the image at all.
+#
+# `checks.yml` installs requirements.txt onto an Ubuntu runner with
+# setup-python. That is not what deploys. What deploys is the Dockerfile -- a
+# different base, apt packages, Node 20, three `npm ci` runs and two TypeScript
+# builds -- and nothing in this repo built it, so "the single gate" did not
+# cover the artifact.
+#
+# The version half is the sharper one. With an open PR moving the base from
+# `python:3.12-slim` to `3.14-slim` and setup-python pinned to 3.12, a green
+# run on that PR is evidence that 3.12 still works and says NOTHING about the
+# 3.14 the container would run. Bumping one without the other is a skew no
+# screen reports, so it is refused here instead.
+print("\nand it tests the Python the image ships")
+print("-" * 46)
+
+_dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+_from = re.search(r"^FROM\s+python:(\d+)\.(\d+)", _dockerfile, re.M)
+check("the Dockerfile pins a Python version", bool(_from),
+      "no `FROM python:X.Y` line — this check reads that line and nothing else")
+_setup = re.search(r"python-version:\s*['\"]?(\d+)\.(\d+)", src)
+check("and the workflow pins one for setup-python", bool(_setup),
+      "no `python-version:` in checks.yml")
+if _from and _setup:
+    _img = f"{_from.group(1)}.{_from.group(2)}"
+    _ci = f"{_setup.group(1)}.{_setup.group(2)}"
+    check("and they are the same version", _img == _ci,
+          f"the image ships Python {_img} and the gate tests on {_ci}; a green "
+          f"run on {_ci} is not evidence about {_img}")
+
+# Building it is the other half: a version they agree on is still a version
+# nobody has built. Path-filtered on purpose -- the expensive layers all sit
+# before `COPY . .`, so a Python-only change cannot break the build -- and
+# asserted here so the filter cannot quietly stop naming the files that can.
+check("there is a job that builds the image", "\n  image:" in src,
+      "nothing builds the Dockerfile, so the artifact that deploys is ungated")
+check("...and it really runs docker build", "docker build -t smarthub-ci" in src)
+check("...and proves the app imports inside it", "import wsgi" in src)
+# Sliced on the job's own line rather than on "  image:", which also matches
+# the postgres SERVICE's `image:` key ninety lines in -- the first draft did
+# that and reported `docker-start.sh` as missing from a filter it is in. The
+# check was reading the wrong region of the file, which is the same defect as
+# a check that is stricter than the repo: it reports the repo as broken.
+_image_job = src[src.index("\n  image:"):]
+for _p in ("Dockerfile", "requirements", "docker-start", "package"):
+    check(f"...and rebuilds when {_p} changes", _p in _image_job,
+          f"{_p} is not in the path filter, so a change to it would skip the build")
+
 # The check has to be able to go red, or it is furniture.
 print("\n...and the check bites")
 print("-" * 46)
